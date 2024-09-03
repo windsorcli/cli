@@ -1,0 +1,47 @@
+version: '3'
+
+tasks:
+  setup:
+    desc: Set up the project
+    cmds:
+      - go mod tidy
+      - go mod verify
+      - go test -v ./cmd/windsor
+
+  build:
+    desc: Build the Windsor CLI
+    cmds:
+      - mkdir -p dist
+      - go build -o dist/windsor ./cmd/main.go
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test ./cmd/windsor
+
+  run:
+    desc: Run the Windsor CLI
+    cmds:
+      - go run ./cmd/main.go {{.CLI_ARGS}}
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -f windsor
+
+  all:
+    desc: Setup, test, and build
+    cmds:
+      - task: setup
+      - task: test
+      - task: build
+
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  integration-test:
+    desc: Run integration tests
+    cmds:
+      - go test ./... -tags=integration
