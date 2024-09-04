@@ -13,17 +13,28 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        arch: [amd64, arm64]
+        exclude:
+          - os: windows-latest
+            arch: arm64
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        uses: actions/checkout@v4.1.7
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21.5'
 
       - name: Generate hash of .tool-versions
+        if: runner.os != 'Windows'
         run: echo "hash=$(sha256sum .tool-versions | cut -d ' ' -f 1)" >> $GITHUB_ENV
 
       - name: Cache asdf tools
-        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4.0.2
         with:
           path: ~/.asdf
           key: ${{ runner.os }}-asdf-${{ env.hash }}
@@ -31,12 +42,44 @@ jobs:
             ${{ runner.os }}-asdf-
 
       - name: Install asdf plugins
-        uses: asdf-vm/actions/plugins-add@05e0d2ed97b598bfce82fd30daf324ae0c4570e6 # v3.0.2
+        if: runner.os != 'Windows'
+        uses: asdf-vm/actions/plugins-add@v3.0.2
 
       - name: Install tools from .tool-versions
+        if: runner.os != 'Windows'
         run: asdf install
         env:
           PATH: $HOME/.asdf/shims:$PATH
 
+      - name: Install dependencies on Windows
+        if: runner.os == 'Windows'
+        run: |
+          choco install golang --version=1.21.5
+          choco install task --version=3.32.0
+
       - name: Install dependencies
-        run: task all
+        run: task setup
+
+      - name: Run tests
+        run: task test
+
+      - name: Build Windsor CLI on macOS/Linux
+        if: runner.os != 'Windows'
+        run: |
+          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+            if [ "${{ matrix.arch }}" == "amd64" ]; then
+              GOOS=linux GOARCH=amd64 go build -o dist/windsor ./cmd/main.go
+            else
+              GOOS=linux GOARCH=arm64 go build -o dist/windsor ./cmd/main.go
+            fi
+          elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+            if [ "${{ matrix.arch }}" == "amd64" ]; then
+              GOOS=darwin GOARCH=amd64 go build -o dist/windsor ./cmd/main.go
+            else
+              GOOS=darwin GOARCH=arm64 go build -o dist/windsor ./cmd/main.go
+            fi
+          fi
+
+      - name: Build Windsor CLI on Windows
+        if: runner.os == 'Windows'
+        run: GOOS=windows GOARCH=amd64 go build -o dist/windsor.exe ./cmd/main.go

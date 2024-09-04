@@ -9,10 +9,30 @@ tasks:
       - go test -v ./cmd/windsor
 
   build:
-    desc: Build the Windsor CLI
+    desc: Build the Windsor CLI for the current platform
     cmds:
-      - mkdir -p dist
-      - go build -o dist/windsor ./cmd/main.go
+      - cmd: mkdir -p dist
+        platforms: [linux, darwin]
+      - cmd: powershell -Command "New-Item -ItemType Directory -Force -Path dist"
+        platforms: [windows]
+      - cmd: GOOS=linux GOARCH=amd64 go build -o dist/windsor ./cmd/main.go
+        platforms: [linux]
+      - cmd: GOOS=linux GOARCH=arm64 go build -o dist/windsor ./cmd/main.go
+        platforms: [linux]
+      - cmd: GOOS=darwin GOARCH=amd64 go build -o dist/windsor ./cmd/main.go
+        platforms: [darwin]
+      - cmd: GOOS=darwin GOARCH=arm64 go build -o dist/windsor ./cmd/main.go
+        platforms: [darwin]
+      - cmd: GOOS=windows GOARCH=amd64 go build -o dist/windsor.exe ./cmd/main.go
+        platforms: [windows]
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - cmd: rm -f dist/windsor dist/windsor-arm
+        platforms: [linux, darwin]
+      - cmd: powershell -Command "Remove-Item -Force dist\windsor.exe"
+        platforms: [windows]
 
   test:
     desc: Run tests
@@ -24,16 +44,12 @@ tasks:
     cmds:
       - go run ./cmd/main.go {{.CLI_ARGS}}
 
-  clean:
-    desc: Clean build artifacts
-    cmds:
-      - rm -f windsor
-
   all:
     desc: Setup, test, and build
     cmds:
       - task: setup
       - task: test
+      - task: integration-test
       - task: build
 
   default:
