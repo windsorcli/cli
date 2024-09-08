@@ -63,7 +63,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           choco install golang --version=1.22.2
-          choco install task --version=3.32.0
+          choco install go-task --version=3.37.2
 
       - name: Install dependencies
         run: task setup
