@@ -26,7 +26,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.21.5'
+          go-version: '1.22.2'
 
       - name: Generate hash of .tool-versions
         if: runner.os != 'Windows'
@@ -54,7 +54,7 @@ jobs:
       - name: Install dependencies on Windows
         if: runner.os == 'Windows'
         run: |
-          choco install golang --version=1.21.5
+          choco install golang --version=1.22.2
           choco install task --version=3.32.0
 
       - name: Install dependencies

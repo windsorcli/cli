@@ -6,7 +6,9 @@ tasks:
     cmds:
       - go mod tidy
       - go mod verify
-      - go test -v ./cmd/windsor
+      - go install github.com/spf13/cobra-cli@latest
+      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - go test -v ./cmd
 
   build:
     desc: Build the Windsor CLI for the current platform
@@ -37,7 +39,8 @@ tasks:
   test:
     desc: Run tests
     cmds:
-      - go test ./cmd/windsor
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
 
   run:
     desc: Run the Windsor CLI
@@ -60,4 +63,4 @@ tasks:
   integration-test:
     desc: Run integration tests
     cmds:
-      - go test ./... -tags=integration
+      - go test ./test -tags=integration

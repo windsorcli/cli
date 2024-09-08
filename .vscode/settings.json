@@ -1,0 +1,7 @@
+{
+  "gopls": {
+    "buildFlags": ["-tags=integration,tools"]
+  },
+  "go.lintTool": "golangci-lint",
+  "go.lintFlags": ["run", "--config=.golangci.yml"]
+}

@@ -9,6 +9,7 @@
 *.test
 
 # Output of the go coverage tool, specifically when used with LiteIDE
+coverage.html
 *.out
 
 # Dependency directories (remove the comment below to include it)
@@ -19,10 +20,6 @@ go.work
 
 # macOS
 .DS_Store
-
-# Editor-specific files
-.vscode/
-.idea/
 
 # The build directory
 dist/
