@@ -72,13 +72,13 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           Write-Output "Saving list of installed Chocolatey packages..."
-          try {
-            choco list --local-only | Out-File -FilePath choco-packages.txt
+          choco list --local-only | Out-File -FilePath choco-packages.txt
+          if ($LASTEXITCODE -eq 0) {
             Write-Output "Successfully saved list of installed Chocolatey packages."
-          } catch {
+            exit 0
+          } else {
             Write-Error "Failed to save list of installed Chocolatey packages."
-            $_.Exception.Message
-            exit 1
+            exit $LASTEXITCODE
           }
         shell: pwsh
 
