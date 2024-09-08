@@ -23,6 +23,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4.1.7
 
+      - name: Install bash (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y bash
+
+      - name: Install bash (macOS)
+        if: runner.os == 'macOS'
+        run: brew install bash
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
