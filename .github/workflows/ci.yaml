@@ -70,7 +70,7 @@ jobs:
 
       - name: Save list of installed Chocolatey packages
         if: runner.os == 'Windows'
-        run: choco list --local-only > choco-packages.txt
+        run: choco list --local-only | Out-File -FilePath choco-packages.txt
 
       - name: Install dependencies on Windows
         if: runner.os == 'Windows'
