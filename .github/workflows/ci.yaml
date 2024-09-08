@@ -28,6 +28,16 @@ jobs:
         with:
           go-version: '1.22.2'
 
+      - name: Cache Go modules
+        uses: actions/cache@v4.0.2
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
       - name: Generate hash of .tool-versions
         if: runner.os != 'Windows'
         run: echo "hash=$(sha256sum .tool-versions | cut -d ' ' -f 1)" >> $GITHUB_ENV
@@ -48,8 +58,6 @@ jobs:
       - name: Install tools from .tool-versions
         if: runner.os != 'Windows'
         run: asdf install
-        # env:
-        #   PATH: $HOME/.asdf/shims:$PATH
 
       - name: Install dependencies on Windows
         if: runner.os == 'Windows'
@@ -68,18 +76,18 @@ jobs:
         run: |
           if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
             if [ "${{ matrix.arch }}" == "amd64" ]; then
-              GOOS=linux GOARCH=amd64 go build -o dist/windsor ./cmd/main.go
+              GOOS=linux GOARCH=amd64 go build -o dist/windsor main.go
             else
-              GOOS=linux GOARCH=arm64 go build -o dist/windsor ./cmd/main.go
+              GOOS=linux GOARCH=arm64 go build -o dist/windsor main.go
             fi
           elif [ "${{ matrix.os }}" == "macos-latest" ]; then
             if [ "${{ matrix.arch }}" == "amd64" ]; then
-              GOOS=darwin GOARCH=amd64 go build -o dist/windsor ./cmd/main.go
+              GOOS=darwin GOARCH=amd64 go build -o dist/windsor main.go
             else
-              GOOS=darwin GOARCH=arm64 go build -o dist/windsor ./cmd/main.go
+              GOOS=darwin GOARCH=arm64 go build -o dist/windsor main.go
             fi
           fi
 
       - name: Build Windsor CLI on Windows
         if: runner.os == 'Windows'
-        run: GOOS=windows GOARCH=amd64 go build -o dist/windsor.exe ./cmd/main.go
+        run: GOOS=windows GOARCH=amd64 go build -o dist/windsor.exe main.go
