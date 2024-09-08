@@ -90,4 +90,7 @@ jobs:
 
       - name: Build Windsor CLI on Windows
         if: runner.os == 'Windows'
-        run: GOOS=windows GOARCH=amd64 go build -o dist/windsor.exe main.go
+        run: |
+          $env:GOOS="windows"
+          $env:GOARCH="amd64"
+          go build -o dist/windsor.exe ./cmd/main.go
