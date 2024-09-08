@@ -117,3 +117,4 @@ jobs:
           $env:GOOS="windows"
           $env:GOARCH="amd64"
           go build -o dist/windsor.exe main.go
+        shell: pwsh
