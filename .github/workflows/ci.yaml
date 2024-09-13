@@ -28,7 +28,6 @@ jobs:
         with:
           go-version: '1.22.2'
 
-      # Restore Go modules cache before dependencies are needed
       - name: Cache Go modules
         uses: actions/cache@v4.0.2
         with:
@@ -61,17 +60,6 @@ jobs:
         if: runner.os != 'Windows'
         run: asdf install
 
-      # Windows specific steps
-      # Restore Chocolatey packages cache before installing dependencies
-      - name: Cache Chocolatey packages
-        if: runner.os == 'Windows'
-        uses: actions/cache@v4.0.2
-        with:
-          path: C:\ProgramData\chocolatey\lib
-          key: ${{ runner.os }}-choco-${{ hashFiles('**/choco-packages.config') }}
-          restore-keys: |
-            ${{ runner.os }}-choco-
-
       # Install dependencies on Windows
       - name: Install dependencies on Windows
         if: runner.os == 'Windows'
@@ -79,48 +67,13 @@ jobs:
           choco install golang --version=1.22.2 -y
           choco install go-task --version=3.37.2 -y
 
-      # Install other dependencies (common step)
+      # Install dependencies (common step)
       - name: Install dependencies
         run: task setup
-
-      # Save list of installed Chocolatey packages after installing dependencies
-      - name: Save list of installed Chocolatey packages
-        if: runner.os == 'Windows'
-        run: |
-          Write-Output "Saving list of installed Chocolatey packages..."
-          choco export --include-version-numbers --output-file=choco-packages.config
-          if ($LASTEXITCODE -eq 0) {
-            Write-Output "Successfully saved list of installed Chocolatey packages."
-          } else {
-            Write-Host "Failed to save list of installed Chocolatey packages."
-            Write-Host "Exit code: $LASTEXITCODE"
-            exit $LASTEXITCODE
-          }
-        shell: powershell
 
       # Run tests
       - name: Run tests
         run: task test
-
-      # Save caches after dependencies are installed (non-Windows)
-      - name: Save asdf tools cache
-        if: runner.os != 'Windows'
-        uses: actions/cache@v4.0.2
-        with:
-          path: ~/.asdf
-          key: ${{ runner.os }}-asdf-${{ env.hash }}
-          restore-keys: |
-            ${{ runner.os }}-asdf-
-
-      # Save caches after dependencies are installed (Windows)
-      - name: Save Chocolatey packages cache
-        if: runner.os == 'Windows'
-        uses: actions/cache@v4.0.2
-        with:
-          path: C:\ProgramData\chocolatey\lib
-          key: ${{ runner.os }}-choco-${{ hashFiles('**/choco-packages.config') }}
-          restore-keys: |
-            ${{ runner.os }}-choco-
 
       # Build steps
       - name: Build Windsor CLI on macOS/Linux
