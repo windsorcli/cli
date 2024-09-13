@@ -78,7 +78,7 @@ jobs:
         run: |
           Write-Output "Saving list of installed Chocolatey packages..."
           choco --version
-          $output = choco list -l 2>&1
+          $output = choco list --source=installed 2>&1
           $output | Out-File -FilePath choco-packages.txt
           if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 2) {
             Write-Output "Successfully saved list of installed Chocolatey packages."
@@ -89,7 +89,7 @@ jobs:
             Write-Host $output
             exit $LASTEXITCODE
           }
-        shell: powershell
+        shell: powershell      
 
       - name: Install dependencies on Windows
         if: runner.os == 'Windows'
