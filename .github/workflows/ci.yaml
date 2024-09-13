@@ -60,21 +60,17 @@ jobs:
         if: runner.os != 'Windows'
         run: asdf install
 
-      # Install dependencies on Windows
       - name: Install dependencies on Windows
         if: runner.os == 'Windows'
         run: |
           choco install go-task --version=3.37.2 -y
 
-      # Install dependencies (common step)
       - name: Install dependencies
         run: task setup
 
-      # Run tests
       - name: Run tests
         run: task test
 
-      # Build steps
       - name: Build Windsor CLI on macOS/Linux
         if: runner.os != 'Windows'
         run: |

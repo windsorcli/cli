@@ -17,15 +17,15 @@ tasks:
         platforms: [linux, darwin]
       - cmd: powershell -Command "New-Item -ItemType Directory -Force -Path dist"
         platforms: [windows]
-      - cmd: GOOS=linux GOARCH=amd64 go build -o dist/windsor ./cmd/main.go
+      - cmd: GOOS=linux GOARCH=amd64 go build -o dist/windsor ./main.go
         platforms: [linux]
-      - cmd: GOOS=linux GOARCH=arm64 go build -o dist/windsor ./cmd/main.go
+      - cmd: GOOS=linux GOARCH=arm64 go build -o dist/windsor ./main.go
         platforms: [linux]
-      - cmd: GOOS=darwin GOARCH=amd64 go build -o dist/windsor ./cmd/main.go
+      - cmd: GOOS=darwin GOARCH=amd64 go build -o dist/windsor ./main.go
         platforms: [darwin]
-      - cmd: GOOS=darwin GOARCH=arm64 go build -o dist/windsor ./cmd/main.go
+      - cmd: GOOS=darwin GOARCH=arm64 go build -o dist/windsor ./main.go
         platforms: [darwin]
-      - cmd: GOOS=windows GOARCH=amd64 go build -o dist/windsor.exe ./cmd/main.go
+      - cmd: GOOS=windows GOARCH=amd64 go build -o dist/windsor.exe ./main.go
         platforms: [windows]
 
   clean:
@@ -45,22 +45,16 @@ tasks:
   run:
     desc: Run the Windsor CLI
     cmds:
-      - go run ./cmd/main.go {{.CLI_ARGS}}
+      - go run ./main.go {{.CLI_ARGS}}
 
   all:
     desc: Setup, test, and build
     cmds:
       - task: setup
       - task: test
-      - task: integration-test
       - task: build
 
   default:
     desc: Show available tasks
     cmds:
       - task --list
-
-  integration-test:
-    desc: Run integration tests
-    cmds:
-      - go test ./test -tags=integration
