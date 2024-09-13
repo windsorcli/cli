@@ -1,0 +1,60 @@
+version: '3'
+
+tasks:
+  setup:
+    desc: Set up the project
+    cmds:
+      - go mod tidy
+      - go mod verify
+      - go install github.com/spf13/cobra-cli@latest
+      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - go test -v ./cmd
+
+  build:
+    desc: Build the Windsor CLI for the current platform
+    cmds:
+      - cmd: mkdir -p dist
+        platforms: [linux, darwin]
+      - cmd: powershell -Command "New-Item -ItemType Directory -Force -Path dist"
+        platforms: [windows]
+      - cmd: GOOS=linux GOARCH=amd64 go build -o dist/windsor ./main.go
+        platforms: [linux]
+      - cmd: GOOS=linux GOARCH=arm64 go build -o dist/windsor ./main.go
+        platforms: [linux]
+      - cmd: GOOS=darwin GOARCH=amd64 go build -o dist/windsor ./main.go
+        platforms: [darwin]
+      - cmd: GOOS=darwin GOARCH=arm64 go build -o dist/windsor ./main.go
+        platforms: [darwin]
+      - cmd: GOOS=windows GOARCH=amd64 go build -o dist/windsor.exe ./main.go
+        platforms: [windows]
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - cmd: rm -f dist/windsor dist/windsor-arm
+        platforms: [linux, darwin]
+      - cmd: powershell -Command "Remove-Item -Force dist\windsor.exe"
+        platforms: [windows]
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+
+  run:
+    desc: Run the Windsor CLI
+    cmds:
+      - go run ./main.go {{.CLI_ARGS}}
+
+  all:
+    desc: Setup, test, and build
+    cmds:
+      - task: setup
+      - task: test
+      - task: build
+
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list

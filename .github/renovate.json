@@ -1,0 +1,45 @@
+{
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "description": "Pin GitHub Actions to specific commit SHAs",
+      "matchManagers": ["github-actions"],
+      "matchPackagePatterns": [".*"],
+      "versioning": "github-tags",
+      "pinDigests": true
+    },
+    {
+      "description": "Update Go modules",
+      "matchManagers": ["gomod"],
+      "enabled": true
+    },
+    {
+      "description": "Update asdf tools",
+      "matchFileNames": [".tool-versions"],
+      "enabled": true
+    },
+    {
+      "description": "Update Taskfile dependencies",
+      "matchFileNames": ["Taskfile.yaml"],
+      "enabled": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^Taskfile.yaml$"],
+      "matchStrings": ["go install (?<depName>\\S+)@(?<currentValue>\\S+)"],
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^Taskfile.yaml$"],
+      "matchStrings": [
+        "choco install (?<depName>\\S+) --version=(?<currentValue>\\S+)"
+      ],
+      "datasourceTemplate": "chocolatey",
+      "versioningTemplate": "semver"
+    }
+  ]
+}
