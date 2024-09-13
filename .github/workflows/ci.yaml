@@ -83,13 +83,13 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             Write-Output "Successfully saved list of installed Chocolatey packages."
           } else {
-            Write-Error "Failed to save list of installed Chocolatey packages."
-            Write-Output "Exit code: $LASTEXITCODE"
-            Write-Output "Output:"
-            Write-Output $output
+            Write-Host "Failed to save list of installed Chocolatey packages."
+            Write-Host "Exit code: $LASTEXITCODE"
+            Write-Host "Output:"
+            Write-Host $output
             exit $LASTEXITCODE
           }
-        shell: powershell
+        shell: powershell      
 
       - name: Install dependencies on Windows
         if: runner.os == 'Windows'
