@@ -64,7 +64,6 @@ jobs:
       - name: Install dependencies on Windows
         if: runner.os == 'Windows'
         run: |
-          choco install golang --version=1.22.2 -y
           choco install go-task --version=3.37.2 -y
 
       # Install dependencies (common step)
