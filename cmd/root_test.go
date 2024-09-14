@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,39 +19,7 @@ func resetViper() {
 	viper.Reset()
 }
 
-func TestExecute_NoError(t *testing.T) {
-	// Save the original exitFunc and restore it after the test
-	originalExitFunc := exitFunc
-	defer func() { exitFunc = originalExitFunc }()
-
-	// Mock exitFunc to track if it's called
-	exitCalled := false
-	exitFunc = func(code int) {
-		exitCalled = true
-	}
-
-	// Mock PersistentPreRun to avoid actual configuration loading
-	originalPersistentPreRun := rootCmd.PersistentPreRun
-	defer func() { rootCmd.PersistentPreRun = originalPersistentPreRun }()
-	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
-		// Do nothing
-	}
-
-	// Set rootCmd's RunE to a function that returns nil (no error)
-	rootCmd.RunE = func(cmd *cobra.Command, args []string) error {
-		return nil
-	}
-
-	// Execute the command
-	Execute()
-
-	// Verify that exitFunc was not called
-	if exitCalled {
-		t.Errorf("exitFunc was called when it should not have been")
-	}
-}
-
-func TestExecute_WithError(t *testing.T) {
+func TestRootCmd_HomeDirError(t *testing.T) {
 	// Save the original exitFunc and restore it after the test
 	originalExitFunc := exitFunc
 	defer func() { exitFunc = originalExitFunc }()
@@ -63,13 +30,18 @@ func TestExecute_WithError(t *testing.T) {
 		exitCode = code
 	}
 
-	// Set rootCmd's RunE to a function that returns an error
-	rootCmd.RunE = func(cmd *cobra.Command, args []string) error {
-		return errors.New("test error")
-	}
+	// Save the original userHomeDir and restore it after the test
+	originalUserHomeDir := userHomeDir
+	defer func() { userHomeDir = originalUserHomeDir }()
 
-	// Execute the command
-	Execute()
+	// Replace userHomeDir with the mock function
+	userHomeDir = mockUserHomeDir
+
+	// Reset Viper state
+	resetViper()
+
+	// Execute the root command
+	rootCmd.PersistentPreRun(rootCmd, []string{})
 
 	// Verify that exitFunc was called with code 1
 	if exitCode != 1 {
@@ -96,9 +68,11 @@ func TestRootCmd_DefaultConfig(t *testing.T) {
 	homeDir := filepath.Join(tempDir, "home")
 	os.Mkdir(homeDir, 0755)
 
-	// Set the HOME environment variable to the temporary directory
+	// Set the HOME and USERPROFILE environment variables to the temporary directory
 	os.Setenv("HOME", homeDir)
+	os.Setenv("USERPROFILE", homeDir)
 	defer os.Unsetenv("HOME")
+	defer os.Unsetenv("USERPROFILE")
 
 	// Create a default config file
 	configDir := filepath.Join(homeDir, ".config", "windsor")
@@ -167,36 +141,6 @@ func TestRootCmd_EnvConfig(t *testing.T) {
 	}
 }
 
-func TestRootCmd_HomeDirError(t *testing.T) {
-	// Save the original exitFunc and restore it after the test
-	originalExitFunc := exitFunc
-	defer func() { exitFunc = originalExitFunc }()
-
-	// Mock exitFunc to capture the exit code
-	var exitCode int
-	exitFunc = func(code int) {
-		exitCode = code
-	}
-
-	// Save the original userHomeDir and restore it after the test
-	originalUserHomeDir := userHomeDir
-	defer func() { userHomeDir = originalUserHomeDir }()
-
-	// Replace userHomeDir with the mock function
-	userHomeDir = mockUserHomeDir
-
-	// Reset Viper state
-	resetViper()
-
-	// Execute the root command
-	rootCmd.PersistentPreRun(rootCmd, []string{})
-
-	// Verify that exitFunc was called with code 1
-	if exitCode != 1 {
-		t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
-	}
-}
-
 func TestRootCmd_ConfigReadError(t *testing.T) {
 	// Save the original exitFunc and restore it after the test
 	originalExitFunc := exitFunc
@@ -216,9 +160,11 @@ func TestRootCmd_ConfigReadError(t *testing.T) {
 	homeDir := filepath.Join(tempDir, "home")
 	os.Mkdir(homeDir, 0755)
 
-	// Set the HOME environment variable to the temporary directory
+	// Set the HOME and USERPROFILE environment variables to the temporary directory
 	os.Setenv("HOME", homeDir)
+	os.Setenv("USERPROFILE", homeDir)
 	defer os.Unsetenv("HOME")
+	defer os.Unsetenv("USERPROFILE")
 
 	// Create a default config file with invalid content
 	configDir := filepath.Join(homeDir, ".config", "windsor")
@@ -228,6 +174,70 @@ func TestRootCmd_ConfigReadError(t *testing.T) {
 
 	// Execute the root command
 	rootCmd.PersistentPreRun(rootCmd, []string{})
+
+	// Verify that exitFunc was called with code 1
+	if exitCode != 1 {
+		t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
+	}
+}
+
+func TestExecute_NoError(t *testing.T) {
+	// Save the original exitFunc and restore it after the test
+	originalExitFunc := exitFunc
+	defer func() { exitFunc = originalExitFunc }()
+
+	// Mock exitFunc to track if it's called
+	exitCalled := false
+	exitFunc = func(code int) {
+		exitCalled = true
+	}
+
+	// Mock PersistentPreRun to avoid actual configuration loading
+	originalPersistentPreRun := rootCmd.PersistentPreRun
+	defer func() { rootCmd.PersistentPreRun = originalPersistentPreRun }()
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		// Do nothing
+	}
+
+	// Set rootCmd's RunE to a function that returns nil (no error)
+	rootCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return nil
+	}
+
+	// Execute the command
+	Execute()
+
+	// Verify that exitFunc was not called
+	if exitCalled {
+		t.Errorf("exitFunc was called when it should not have been")
+	}
+}
+
+func TestExecute_WithError(t *testing.T) {
+	// Save the original exitFunc and restore it after the test
+	originalExitFunc := exitFunc
+	defer func() { exitFunc = originalExitFunc }()
+
+	// Mock exitFunc to capture the exit code
+	var exitCode int
+	exitFunc = func(code int) {
+		exitCode = code
+	}
+
+	// Mock PersistentPreRun to avoid actual configuration loading
+	originalPersistentPreRun := rootCmd.PersistentPreRun
+	defer func() { rootCmd.PersistentPreRun = originalPersistentPreRun }()
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		// Do nothing
+	}
+
+	// Set rootCmd's RunE to a function that returns an error
+	rootCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return fmt.Errorf("test error")
+	}
+
+	// Execute the command
+	Execute()
 
 	// Verify that exitFunc was called with code 1
 	if exitCode != 1 {
