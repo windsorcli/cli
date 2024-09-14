@@ -21,15 +21,15 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4.1.7
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@93397bea11091df50f3d7e59dc26a7711a8bcfbe # v4
         with:
           go-version: '1.22.2'
 
       - name: Cache Go modules
-        uses: actions/cache@v4.0.2
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
         with:
           path: |
             ~/.cache/go-build
@@ -45,7 +45,7 @@ jobs:
 
       - name: Cache asdf tools
         if: runner.os != 'Windows'
-        uses: actions/cache@v4.0.2
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
         with:
           path: ~/.asdf
           key: ${{ runner.os }}-asdf-${{ env.hash }}
@@ -54,7 +54,7 @@ jobs:
 
       - name: Install asdf plugins
         if: runner.os != 'Windows'
-        uses: asdf-vm/actions/plugins-add@v3.0.2
+        uses: asdf-vm/actions/plugins-add@05e0d2ed97b598bfce82fd30daf324ae0c4570e6 # v3.0.2
 
       - name: Install tools from .tool-versions
         if: runner.os != 'Windows'
