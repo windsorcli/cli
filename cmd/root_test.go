@@ -1,28 +1,111 @@
 package cmd
 
 import (
-	"fmt"
+	"bytes"
+	"errors"
+	"io"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	"github.com/windsor-hotel/cli/internal/interfaces"
 )
 
-// Mock function to simulate an error when getting the home directory
-var mockUserHomeDir = func() (string, error) {
-	return "", fmt.Errorf("mock error: unable to find home directory")
+// MockConfigHandler is a mock implementation of the ConfigHandler interface
+type MockConfigHandler struct {
+	LoadConfigErr error
 }
 
-func resetViper() {
-	viper.Reset()
+func (m *MockConfigHandler) LoadConfig(path string) error {
+	return m.LoadConfigErr
 }
 
-func TestRootCmd_HomeDirError(t *testing.T) {
-	// Save the original exitFunc and restore it after the test
-	originalExitFunc := exitFunc
-	defer func() { exitFunc = originalExitFunc }()
+func (m *MockConfigHandler) GetConfigValue(key string) (string, error) {
+	return "", nil
+}
+
+func (m *MockConfigHandler) SetConfigValue(key, value string) error {
+	return nil
+}
+
+func (m *MockConfigHandler) SaveConfig(path string) error {
+	return nil
+}
+
+// Ensure MockConfigHandler implements ConfigHandler
+var _ interfaces.ConfigHandler = (*MockConfigHandler)(nil)
+
+var originalExitFunc = exitFunc
+
+func setupTest(t *testing.T) {
+	// Reset exitFunc to the original function
+	exitFunc = originalExitFunc
+
+	// Ensure the rootCmd is clean by removing any added subcommands
+	rootCmd.ResetFlags()
+	rootCmd.SetArgs([]string{})
+	rootCmd.PersistentPreRunE = preRunLoadConfig
+
+	// Cleanup after the test
+	t.Cleanup(func() {
+		exitFunc = originalExitFunc
+		rootCmd.ResetFlags()
+		rootCmd.SetArgs([]string{})
+		rootCmd.PersistentPreRunE = preRunLoadConfig
+	})
+}
+
+func TestPreRunLoadConfig_Success(t *testing.T) {
+	setupTest(t)
+
+	mockHandler := &MockConfigHandler{
+		LoadConfigErr: nil,
+	}
+
+	Initialize(mockHandler)
+
+	err := preRunLoadConfig(nil, nil)
+	if err != nil {
+		t.Fatalf("preRunLoadConfig() error = %v, expected nil", err)
+	}
+}
+
+func TestPreRunLoadConfig_Failure(t *testing.T) {
+	setupTest(t)
+
+	mockHandler := &MockConfigHandler{
+		LoadConfigErr: errors.New("config load error"),
+	}
+
+	Initialize(mockHandler)
+
+	err := preRunLoadConfig(nil, nil)
+	if err == nil {
+		t.Fatalf("preRunLoadConfig() expected error, got nil")
+	}
+	if err.Error() != "Error loading config file: config load error" {
+		t.Fatalf("preRunLoadConfig() error = %v, expected 'Error loading config file: config load error'", err)
+	}
+}
+
+func TestPreRunLoadConfig_NoConfigHandler(t *testing.T) {
+	setupTest(t)
+
+	// Ensure configHandler is not initialized
+	configHandler = nil
+
+	err := preRunLoadConfig(nil, nil)
+	if err == nil {
+		t.Fatalf("preRunLoadConfig() expected error, got nil")
+	}
+	expectedError := "configHandler is not initialized"
+	if err.Error() != expectedError {
+		t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
+	}
+}
+
+func TestExecute(t *testing.T) {
+	setupTest(t)
 
 	// Mock exitFunc to capture the exit code
 	var exitCode int
@@ -30,217 +113,83 @@ func TestRootCmd_HomeDirError(t *testing.T) {
 		exitCode = code
 	}
 
-	// Save the original userHomeDir and restore it after the test
-	originalUserHomeDir := userHomeDir
-	defer func() { userHomeDir = originalUserHomeDir }()
-
-	// Replace userHomeDir with the mock function
-	userHomeDir = mockUserHomeDir
-
-	// Reset Viper state
-	resetViper()
-
-	// Execute the root command
-	rootCmd.PersistentPreRun(rootCmd, []string{})
-
-	// Verify that exitFunc was called with code 1
-	if exitCode != 1 {
-		t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
+	// Initialize with a successful config handler
+	mockHandler := &MockConfigHandler{
+		LoadConfigErr: nil,
 	}
-}
+	Initialize(mockHandler)
 
-func TestRootCmd_DefaultConfig(t *testing.T) {
-	// Save the original exitFunc and restore it after the test
-	originalExitFunc := exitFunc
-	defer func() { exitFunc = originalExitFunc }()
-
-	// Mock exitFunc to track if it's called
-	exitCalled := false
-	exitFunc = func(code int) {
-		exitCalled = true
+	// Add a dummy subcommand to trigger PersistentPreRunE
+	dummyCmd := &cobra.Command{
+		Use: "dummy",
+		Run: func(cmd *cobra.Command, args []string) {},
 	}
-
-	// Reset Viper state
-	resetViper()
-
-	// Create a temporary directory to act as the home directory
-	tempDir := t.TempDir()
-	homeDir := filepath.Join(tempDir, "home")
-	os.Mkdir(homeDir, 0755)
-
-	// Set the HOME and USERPROFILE environment variables to the temporary directory
-	os.Setenv("HOME", homeDir)
-	os.Setenv("USERPROFILE", homeDir)
-	defer os.Unsetenv("HOME")
-	defer os.Unsetenv("USERPROFILE")
-
-	// Create a default config file
-	configDir := filepath.Join(homeDir, ".config", "windsor")
-	os.MkdirAll(configDir, 0755)
-	configFile := filepath.Join(configDir, "config.yaml")
-	err := os.WriteFile(configFile, []byte("key: value"), 0644)
-	if err != nil {
-		t.Fatalf("Failed to write config file: %v", err)
-	}
-
-	// Debug: Verify the contents of the config file
-	content, err := os.ReadFile(configFile)
-	if err != nil {
-		t.Fatalf("Failed to read config file: %v", err)
-	}
-	t.Logf("Config file contents: %s", string(content))
-
-	// Directly call the PersistentPreRun function
-	rootCmd.PersistentPreRun(rootCmd, []string{})
-
-	// Verify that the configuration was loaded correctly
-	if viper.GetString("key") != "value" {
-		t.Errorf("Expected config key 'key' to be 'value', got '%s'", viper.GetString("key"))
-	}
-
-	// Verify that exitFunc was not called
-	if exitCalled {
-		t.Errorf("exitFunc was called when it should not have been")
-	}
-}
-
-func TestRootCmd_EnvConfig(t *testing.T) {
-	// Save the original exitFunc and restore it after the test
-	originalExitFunc := exitFunc
-	defer func() { exitFunc = originalExitFunc }()
-
-	// Mock exitFunc to track if it's called
-	exitCalled := false
-	exitFunc = func(code int) {
-		exitCalled = true
-	}
-
-	// Reset Viper state
-	resetViper()
-
-	// Create a temporary config file
-	tempDir := t.TempDir()
-	configFile := filepath.Join(tempDir, "config.yaml")
-	os.WriteFile(configFile, []byte("key: value"), 0644)
-
-	// Set the WINDSORCONFIG environment variable to the temporary config file
-	os.Setenv("WINDSORCONFIG", configFile)
-	defer os.Unsetenv("WINDSORCONFIG")
-
-	// Execute the root command
-	rootCmd.PersistentPreRun(rootCmd, []string{})
-
-	// Verify that the configuration was loaded correctly
-	if viper.GetString("key") != "value" {
-		t.Errorf("Expected config key 'key' to be 'value', got '%s'", viper.GetString("key"))
-	}
-
-	// Verify that exitFunc was not called
-	if exitCalled {
-		t.Errorf("exitFunc was called when it should not have been")
-	}
-}
-
-func TestRootCmd_ConfigReadError(t *testing.T) {
-	// Save the original exitFunc and restore it after the test
-	originalExitFunc := exitFunc
-	defer func() { exitFunc = originalExitFunc }()
-
-	// Mock exitFunc to capture the exit code
-	var exitCode int
-	exitFunc = func(code int) {
-		exitCode = code
-	}
-
-	// Reset Viper state
-	resetViper()
-
-	// Create a temporary directory to act as the home directory
-	tempDir := t.TempDir()
-	homeDir := filepath.Join(tempDir, "home")
-	os.Mkdir(homeDir, 0755)
-
-	// Set the HOME and USERPROFILE environment variables to the temporary directory
-	os.Setenv("HOME", homeDir)
-	os.Setenv("USERPROFILE", homeDir)
-	defer os.Unsetenv("HOME")
-	defer os.Unsetenv("USERPROFILE")
-
-	// Create a default config file with invalid content
-	configDir := filepath.Join(homeDir, ".config", "windsor")
-	os.MkdirAll(configDir, 0755)
-	configFile := filepath.Join(configDir, "config.yaml")
-	os.WriteFile(configFile, []byte("invalid content"), 0644)
-
-	// Execute the root command
-	rootCmd.PersistentPreRun(rootCmd, []string{})
-
-	// Verify that exitFunc was called with code 1
-	if exitCode != 1 {
-		t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
-	}
-}
-
-func TestExecute_NoError(t *testing.T) {
-	// Save the original exitFunc and restore it after the test
-	originalExitFunc := exitFunc
-	defer func() { exitFunc = originalExitFunc }()
-
-	// Mock exitFunc to track if it's called
-	exitCalled := false
-	exitFunc = func(code int) {
-		exitCalled = true
-	}
-
-	// Mock PersistentPreRun to avoid actual configuration loading
-	originalPersistentPreRun := rootCmd.PersistentPreRun
-	defer func() { rootCmd.PersistentPreRun = originalPersistentPreRun }()
-	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
-		// Do nothing
-	}
-
-	// Set rootCmd's RunE to a function that returns nil (no error)
-	rootCmd.RunE = func(cmd *cobra.Command, args []string) error {
-		return nil
-	}
+	rootCmd.AddCommand(dummyCmd)
+	rootCmd.SetArgs([]string{"dummy"})
 
 	// Execute the command
-	Execute()
+	err := rootCmd.Execute()
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
 
 	// Verify that exitFunc was not called
-	if exitCalled {
-		t.Errorf("exitFunc was called when it should not have been")
+	if exitCode != 0 {
+		t.Errorf("exitFunc was called with code %d, expected 0", exitCode)
 	}
+
+	// Remove the dummy subcommand after the test
+	rootCmd.RemoveCommand(dummyCmd)
 }
 
-func TestExecute_WithError(t *testing.T) {
-	// Save the original exitFunc and restore it after the test
-	originalExitFunc := exitFunc
-	defer func() { exitFunc = originalExitFunc }()
+func TestExecute_LoadConfigError(t *testing.T) {
+	setupTest(t)
 
-	// Mock exitFunc to capture the exit code
 	var exitCode int
+	var stderr bytes.Buffer
 	exitFunc = func(code int) {
 		exitCode = code
 	}
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	defer func() {
+		os.Stderr = oldStderr
+		w.Close()
+	}()
 
-	// Mock PersistentPreRun to avoid actual configuration loading
-	originalPersistentPreRun := rootCmd.PersistentPreRun
-	defer func() { rootCmd.PersistentPreRun = originalPersistentPreRun }()
-	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
-		// Do nothing
+	mockHandler := &MockConfigHandler{
+		LoadConfigErr: errors.New("config load error"),
 	}
+	Initialize(mockHandler)
 
-	// Set rootCmd's RunE to a function that returns an error
-	rootCmd.RunE = func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("test error")
+	dummyCmd := &cobra.Command{
+		Use: "dummy",
+		Run: func(cmd *cobra.Command, args []string) {},
 	}
+	rootCmd.AddCommand(dummyCmd)
+	rootCmd.SetArgs([]string{"dummy"})
 
-	// Execute the command
 	Execute()
 
-	// Verify that exitFunc was called with code 1
+	w.Close()
+	io.Copy(&stderr, r)
+
 	if exitCode != 1 {
 		t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
 	}
+
+	expectedErrorMsg := "Error loading config file: config load error\n"
+	actualErrorMsg := stderr.String()
+
+	// Extract the actual error message from the output
+	if len(actualErrorMsg) > len(expectedErrorMsg) {
+		actualErrorMsg = actualErrorMsg[len(actualErrorMsg)-len(expectedErrorMsg):]
+	}
+
+	if actualErrorMsg != expectedErrorMsg {
+		t.Errorf("Expected error message '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
+	}
+
+	rootCmd.RemoveCommand(dummyCmd)
 }
