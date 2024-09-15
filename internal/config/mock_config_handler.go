@@ -2,26 +2,38 @@ package config
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
-	LoadConfigErr     error
-	GetConfigValueErr error
-	SetConfigValueErr error
-	SaveConfigErr     error
+	LoadConfigFunc     func(path string) error
+	GetConfigValueFunc func(key string) (string, error)
+	SetConfigValueFunc func(key, value string) error
+	SaveConfigFunc     func(path string) error
 }
 
 func (m *MockConfigHandler) LoadConfig(path string) error {
-	return m.LoadConfigErr
+	if m.LoadConfigFunc != nil {
+		return m.LoadConfigFunc(path)
+	}
+	return nil
 }
 
 func (m *MockConfigHandler) GetConfigValue(key string) (string, error) {
-	return "", m.GetConfigValueErr
+	if m.GetConfigValueFunc != nil {
+		return m.GetConfigValueFunc(key)
+	}
+	return "", nil
 }
 
 func (m *MockConfigHandler) SetConfigValue(key, value string) error {
-	return m.SetConfigValueErr
+	if m.SetConfigValueFunc != nil {
+		return m.SetConfigValueFunc(key, value)
+	}
+	return nil
 }
 
 func (m *MockConfigHandler) SaveConfig(path string) error {
-	return m.SaveConfigErr
+	if m.SaveConfigFunc != nil {
+		return m.SaveConfigFunc(path)
+	}
+	return nil
 }
 
 // Ensure MockConfigHandler implements ConfigHandler
