@@ -13,9 +13,9 @@ import (
 
 func TestInitCmd_Success(t *testing.T) {
 	mockHandler := &config.MockConfigHandler{
-		LoadConfigErr:     nil,
-		SetConfigValueErr: nil,
-		SaveConfigErr:     nil,
+		LoadConfigFunc:     func(path string) error { return nil },
+		SetConfigValueFunc: func(key, value string) error { return nil },
+		SaveConfigFunc:     func(path string) error { return nil },
 	}
 
 	configHandler = mockHandler
@@ -64,7 +64,7 @@ func TestInitCmd_Success(t *testing.T) {
 
 func TestInitCmd_SetConfigValueError(t *testing.T) {
 	mockHandler := &config.MockConfigHandler{
-		SetConfigValueErr: errors.New("set config value error"),
+		SetConfigValueFunc: func(key, value string) error { return errors.New("set config value error") },
 	}
 
 	configHandler = mockHandler
@@ -107,7 +107,7 @@ func TestInitCmd_SetConfigValueError(t *testing.T) {
 
 func TestInitCmd_SaveConfigError(t *testing.T) {
 	mockHandler := &config.MockConfigHandler{
-		SaveConfigErr: errors.New("save config error"),
+		SaveConfigFunc: func(path string) error { return errors.New("save config error") },
 	}
 
 	configHandler = mockHandler

@@ -13,7 +13,7 @@ import (
 
 func TestPreRunLoadConfig_Success(t *testing.T) {
 	mockHandler := &config.MockConfigHandler{
-		LoadConfigErr: nil,
+		LoadConfigFunc: func(path string) error { return nil },
 	}
 
 	Initialize(mockHandler)
@@ -26,7 +26,7 @@ func TestPreRunLoadConfig_Success(t *testing.T) {
 
 func TestPreRunLoadConfig_Failure(t *testing.T) {
 	mockHandler := &config.MockConfigHandler{
-		LoadConfigErr: errors.New("config load error"),
+		LoadConfigFunc: func(path string) error { return errors.New("config load error") },
 	}
 
 	Initialize(mockHandler)
@@ -63,7 +63,7 @@ func TestExecute(t *testing.T) {
 
 	// Initialize with a successful config handler
 	mockHandler := &config.MockConfigHandler{
-		LoadConfigErr: nil,
+		LoadConfigFunc: func(path string) error { return nil },
 	}
 	Initialize(mockHandler)
 
@@ -98,7 +98,7 @@ func TestExecute_LoadConfigError(t *testing.T) {
 	}
 
 	mockHandler := &config.MockConfigHandler{
-		LoadConfigErr: errors.New("config load error"),
+		LoadConfigFunc: func(path string) error { return errors.New("config load error") },
 	}
 	Initialize(mockHandler)
 
