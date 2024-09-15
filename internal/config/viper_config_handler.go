@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/viper"
-	"github.com/windsor-hotel/cli/internal/interfaces"
 )
 
 // ViperConfigHandler implements the ConfigHandler interface using Viper
@@ -31,6 +30,18 @@ func (v *ViperConfigHandler) LoadConfig(path string) error {
 		}
 	}
 	viper.SetConfigFile(path)
+	viper.SetConfigType("yaml")
+
+	// Provide some default configuration values
+	viper.SetDefault("context", "default")
+
+	// Check if the config file exists, if not create it
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := viper.SafeWriteConfigAs(path); err != nil {
+			return fmt.Errorf("error creating config file, %s", err)
+		}
+	}
+
 	return viper.ReadInConfig()
 }
 
@@ -55,4 +66,4 @@ func (v *ViperConfigHandler) SaveConfig(path string) error {
 }
 
 // Ensure ViperConfigHandler implements ConfigHandler
-var _ interfaces.ConfigHandler = (*ViperConfigHandler)(nil)
+var _ ConfigHandler = (*ViperConfigHandler)(nil)

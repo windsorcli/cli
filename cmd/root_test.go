@@ -8,57 +8,11 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/interfaces"
+	"github.com/windsor-hotel/cli/internal/config"
 )
 
-// MockConfigHandler is a mock implementation of the ConfigHandler interface
-type MockConfigHandler struct {
-	LoadConfigErr error
-}
-
-func (m *MockConfigHandler) LoadConfig(path string) error {
-	return m.LoadConfigErr
-}
-
-func (m *MockConfigHandler) GetConfigValue(key string) (string, error) {
-	return "", nil
-}
-
-func (m *MockConfigHandler) SetConfigValue(key, value string) error {
-	return nil
-}
-
-func (m *MockConfigHandler) SaveConfig(path string) error {
-	return nil
-}
-
-// Ensure MockConfigHandler implements ConfigHandler
-var _ interfaces.ConfigHandler = (*MockConfigHandler)(nil)
-
-var originalExitFunc = exitFunc
-
-func setupTest(t *testing.T) {
-	// Reset exitFunc to the original function
-	exitFunc = originalExitFunc
-
-	// Ensure the rootCmd is clean by removing any added subcommands
-	rootCmd.ResetFlags()
-	rootCmd.SetArgs([]string{})
-	rootCmd.PersistentPreRunE = preRunLoadConfig
-
-	// Cleanup after the test
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-		rootCmd.ResetFlags()
-		rootCmd.SetArgs([]string{})
-		rootCmd.PersistentPreRunE = preRunLoadConfig
-	})
-}
-
 func TestPreRunLoadConfig_Success(t *testing.T) {
-	setupTest(t)
-
-	mockHandler := &MockConfigHandler{
+	mockHandler := &config.MockConfigHandler{
 		LoadConfigErr: nil,
 	}
 
@@ -71,9 +25,7 @@ func TestPreRunLoadConfig_Success(t *testing.T) {
 }
 
 func TestPreRunLoadConfig_Failure(t *testing.T) {
-	setupTest(t)
-
-	mockHandler := &MockConfigHandler{
+	mockHandler := &config.MockConfigHandler{
 		LoadConfigErr: errors.New("config load error"),
 	}
 
@@ -89,8 +41,6 @@ func TestPreRunLoadConfig_Failure(t *testing.T) {
 }
 
 func TestPreRunLoadConfig_NoConfigHandler(t *testing.T) {
-	setupTest(t)
-
 	// Ensure configHandler is not initialized
 	configHandler = nil
 
@@ -105,8 +55,6 @@ func TestPreRunLoadConfig_NoConfigHandler(t *testing.T) {
 }
 
 func TestExecute(t *testing.T) {
-	setupTest(t)
-
 	// Mock exitFunc to capture the exit code
 	var exitCode int
 	exitFunc = func(code int) {
@@ -114,7 +62,7 @@ func TestExecute(t *testing.T) {
 	}
 
 	// Initialize with a successful config handler
-	mockHandler := &MockConfigHandler{
+	mockHandler := &config.MockConfigHandler{
 		LoadConfigErr: nil,
 	}
 	Initialize(mockHandler)
@@ -143,22 +91,13 @@ func TestExecute(t *testing.T) {
 }
 
 func TestExecute_LoadConfigError(t *testing.T) {
-	setupTest(t)
-
+	// Mock exitFunc to capture the exit code
 	var exitCode int
-	var stderr bytes.Buffer
 	exitFunc = func(code int) {
 		exitCode = code
 	}
-	oldStderr := os.Stderr
-	r, w, _ := os.Pipe()
-	os.Stderr = w
-	defer func() {
-		os.Stderr = oldStderr
-		w.Close()
-	}()
 
-	mockHandler := &MockConfigHandler{
+	mockHandler := &config.MockConfigHandler{
 		LoadConfigErr: errors.New("config load error"),
 	}
 	Initialize(mockHandler)
@@ -170,26 +109,32 @@ func TestExecute_LoadConfigError(t *testing.T) {
 	rootCmd.AddCommand(dummyCmd)
 	rootCmd.SetArgs([]string{"dummy"})
 
+	// Capture stderr
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
 	Execute()
 
 	w.Close()
-	io.Copy(&stderr, r)
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	os.Stderr = oldStderr
+	actualErrorMsg := buf.String()
 
 	if exitCode != 1 {
 		t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
 	}
 
 	expectedErrorMsg := "Error loading config file: config load error\n"
-	actualErrorMsg := stderr.String()
-
-	// Extract the actual error message from the output
-	if len(actualErrorMsg) > len(expectedErrorMsg) {
-		actualErrorMsg = actualErrorMsg[len(actualErrorMsg)-len(expectedErrorMsg):]
-	}
-
-	if actualErrorMsg != expectedErrorMsg {
+	if !containsErrorMessage(actualErrorMsg, expectedErrorMsg) {
 		t.Errorf("Expected error message '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
 	}
 
 	rootCmd.RemoveCommand(dummyCmd)
+}
+
+// containsErrorMessage checks if the actual error message contains the expected error message
+func containsErrorMessage(actual, expected string) bool {
+	return bytes.Contains([]byte(actual), []byte(expected))
 }
