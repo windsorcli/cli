@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -85,9 +86,20 @@ func TestViperConfigHandler_LoadConfig_CreateConfigFileError(t *testing.T) {
 	tempDir := t.TempDir()
 	invalidConfigPath := filepath.Join(tempDir, "invalid", "config.yaml")
 
-	// Ensure the config file does not exist
-	if _, err := os.Stat(invalidConfigPath); !os.IsNotExist(err) {
-		t.Fatalf("Config file already exists at %s", invalidConfigPath)
+	// Mock osMkdirAll to return an error
+	originalOsMkdirAll := osMkdirAll
+	defer func() { osMkdirAll = originalOsMkdirAll }()
+	osMkdirAll = func(path string, perm os.FileMode) error {
+		fmt.Printf("Mock osMkdirAll called with path: %s\n", path)
+		return nil
+	}
+
+	// Mock viper.SafeWriteConfigAs to return an error
+	originalViperSafeWriteConfigAs := viperSafeWriteConfigAs
+	defer func() { viperSafeWriteConfigAs = originalViperSafeWriteConfigAs }()
+	viperSafeWriteConfigAs = func(filename string) error {
+		fmt.Printf("Mock viperSafeWriteConfigAs called with filename: %s\n", filename)
+		return fmt.Errorf("mock error creating config file")
 	}
 
 	// Load the configuration, which should attempt to create the config file and fail
@@ -96,7 +108,7 @@ func TestViperConfigHandler_LoadConfig_CreateConfigFileError(t *testing.T) {
 		t.Fatalf("LoadConfig() expected error, got nil")
 	}
 
-	expectedError := "error creating config file"
+	expectedError := "mock error creating config file"
 	if !containsErrorMessage(err.Error(), expectedError) {
 		t.Fatalf("LoadConfig() error = %v, expected '%s'", err, expectedError)
 	}
@@ -211,36 +223,195 @@ func TestViperConfigHandler_SetConfigValue(t *testing.T) {
 	}
 }
 
-func TestViperConfigHandler_SaveConfig(t *testing.T) {
-	v := &ViperConfigHandler{}
-	viper.Set("saveKey", "saveValue")
+func TestViperConfigHandler_LoadConfig_CreateParentDirs(t *testing.T) {
+	handler := &ViperConfigHandler{}
 
-	tests := []struct {
-		name    string
-		path    string
-		wantErr bool
-	}{
-		{"ValidPath", tempDir + "/save_config.yaml", false},
-		{"InvalidPath", "/invalid/path/save_config.yaml", true},
+	// Create a temporary directory for the test
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "nested", "config.yaml")
+
+	// Ensure the parent directories do not exist
+	if _, err := os.Stat(filepath.Dir(configPath)); !os.IsNotExist(err) {
+		t.Fatalf("Parent directories already exist at %s", filepath.Dir(configPath))
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := v.SaveConfig(tt.path); (err != nil) != tt.wantErr {
-				t.Errorf("SaveConfig() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if !tt.wantErr {
-				if _, err := os.Stat(tt.path); os.IsNotExist(err) {
-					t.Errorf("SaveConfig() file not created at %v", tt.path)
-				} else {
-					os.Remove(tt.path) // Clean up after test
-				}
-			}
-		})
+	// Load the configuration, which should create the parent directories and the config file
+	err := handler.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v, expected nil", err)
+	}
+
+	// Verify that the parent directories and config file were created
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatalf("Config file was not created at %s", configPath)
+	}
+}
+
+func TestViperConfigHandler_SaveConfig_CreateParentDirs(t *testing.T) {
+	handler := &ViperConfigHandler{}
+	viper.Set("saveKey", "saveValue")
+
+	// Create a temporary directory for the test
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "nested", "save_config.yaml")
+
+	// Ensure the parent directories do not exist
+	if _, err := os.Stat(filepath.Dir(configPath)); !os.IsNotExist(err) {
+		t.Fatalf("Parent directories already exist at %s", filepath.Dir(configPath))
+	}
+
+	// Save the configuration, which should create the parent directories and the config file
+	err := handler.SaveConfig(configPath)
+	if err != nil {
+		t.Fatalf("SaveConfig() error = %v, expected nil", err)
+	}
+
+	// Verify that the parent directories and config file were created
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatalf("Config file was not created at %s", configPath)
+	}
+}
+
+func TestViperConfigHandler_LoadConfig_CreateParentDirsError(t *testing.T) {
+	handler := &ViperConfigHandler{}
+
+	// Mock osMkdirAll to return an error
+	originalOsMkdirAll := osMkdirAll
+	defer func() { osMkdirAll = originalOsMkdirAll }()
+	osMkdirAll = func(path string, perm os.FileMode) error {
+		return fmt.Errorf("mock error creating directories")
+	}
+
+	// Create a temporary directory for the test
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "nested", "config.yaml")
+
+	// Load the configuration, which should attempt to create the parent directories and fail
+	err := handler.LoadConfig(configPath)
+	if err == nil {
+		t.Fatalf("LoadConfig() expected error, got nil")
+	}
+
+	expectedError := "error creating directories"
+	if !containsErrorMessage(err.Error(), expectedError) {
+		t.Fatalf("LoadConfig() error = %v, expected '%s'", err, expectedError)
 	}
 }
 
 // containsErrorMessage checks if the actual error message contains the expected error message
 func containsErrorMessage(actual, expected string) bool {
-	return len(actual) >= len(expected) && actual[:len(expected)] == expected
+	return strings.Contains(actual, expected)
+}
+
+func TestViperConfigHandler_SaveConfig_InvalidPath(t *testing.T) {
+	handler := &ViperConfigHandler{}
+	viper.Set("saveKey", "saveValue")
+
+	// Create a temporary directory for the test
+	tempDir := t.TempDir()
+	invalidConfigPath := filepath.Join(tempDir, "invalid", "save_config.yaml")
+
+	// Mock osMkdirAll to return an error
+	originalOsMkdirAll := osMkdirAll
+	defer func() { osMkdirAll = originalOsMkdirAll }()
+	osMkdirAll = func(path string, perm os.FileMode) error {
+		fmt.Printf("Mock osMkdirAll called with path: %s\n", path)
+		return fmt.Errorf("mock error creating directories")
+	}
+
+	// Save the configuration, which should attempt to create the config file and fail
+	fmt.Println("Calling SaveConfig")
+	err := handler.SaveConfig(invalidConfigPath)
+	if err == nil {
+		t.Fatalf("SaveConfig() expected error, got nil")
+	}
+
+	expectedError := "mock error creating directories"
+	if !containsErrorMessage(err.Error(), expectedError) {
+		t.Fatalf("SaveConfig() error = %v, expected '%s'", err, expectedError)
+	}
+	fmt.Println("SaveConfig test completed")
+}
+
+func TestViperConfigHandler_SaveConfig_WriteConfigError(t *testing.T) {
+	handler := &ViperConfigHandler{}
+	viper.Set("saveKey", "saveValue")
+
+	// Create a temporary directory for the test
+	tempDir := t.TempDir()
+	validConfigPath := filepath.Join(tempDir, "save_config.yaml")
+
+	// Mock viper.WriteConfigAs to return an error
+	originalViperWriteConfigAs := viperWriteConfigAs
+	defer func() { viperWriteConfigAs = originalViperWriteConfigAs }()
+	viperWriteConfigAs = func(filename string) error {
+		fmt.Printf("Mock viperWriteConfigAs called with filename: %s\n", filename)
+		return fmt.Errorf("mock error writing config")
+	}
+
+	// Save the configuration, which should attempt to write the config file and fail
+	err := handler.SaveConfig(validConfigPath)
+	if err == nil {
+		t.Fatalf("SaveConfig() expected error, got nil")
+	}
+
+	expectedError := "mock error writing config"
+	if !containsErrorMessage(err.Error(), expectedError) {
+		t.Fatalf("SaveConfig() error = %v, expected '%s'", err, expectedError)
+	}
+}
+
+func TestViperConfigHandler_SaveConfig_EmptyPath_ValidConfigFileUsed(t *testing.T) {
+	// Create a temporary directory for the test
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	// Mock viper.ConfigFileUsed to return a valid path
+	originalViperConfigFileUsed := viperConfigFileUsed
+	defer func() { viperConfigFileUsed = originalViperConfigFileUsed }()
+	viperConfigFileUsed = func() string {
+		return configPath
+	}
+
+	handler := &ViperConfigHandler{}
+
+	// Ensure the config file does not exist
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("Config file already exists at %s", configPath)
+	}
+
+	// Save the configuration, which should use the mocked path
+	fmt.Printf("Calling SaveConfig with empty path\n")
+	err := handler.SaveConfig("")
+	if err != nil {
+		t.Fatalf("SaveConfig() error = %v, expected nil", err)
+	}
+
+	// Verify that the config file was created
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatalf("Config file was not created at %s", configPath)
+	}
+}
+
+func TestViperConfigHandler_SaveConfig_EmptyPath_InvalidConfigFileUsed(t *testing.T) {
+	// Mock viper.ConfigFileUsed to return an empty path
+	originalViperConfigFileUsed := viperConfigFileUsed
+	defer func() { viperConfigFileUsed = originalViperConfigFileUsed }()
+	viperConfigFileUsed = func() string {
+		return ""
+	}
+
+	handler := &ViperConfigHandler{}
+
+	// Save the configuration, which should return an error
+	fmt.Printf("Calling SaveConfig with empty path\n")
+	err := handler.SaveConfig("")
+	if err == nil {
+		t.Fatalf("SaveConfig() expected error, got nil")
+	}
+
+	expectedError := "path cannot be empty"
+	if err.Error() != expectedError {
+		t.Fatalf("SaveConfig() error = %v, expected '%s'", err, expectedError)
+	}
 }
