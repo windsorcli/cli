@@ -3,55 +3,46 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	"github.com/windsor-hotel/cli/internal/interfaces"
 )
 
 var exitFunc = os.Exit
 
-// Wrapper function for os.UserHomeDir
-var userHomeDir = os.UserHomeDir
+// ConfigHandler instance
+var configHandler interfaces.ConfigHandler
+
+// preRunLoadConfig is the function assigned to PersistentPreRunE
+func preRunLoadConfig(cmd *cobra.Command, args []string) error {
+	if configHandler == nil {
+		return fmt.Errorf("configHandler is not initialized")
+	}
+	// Load configuration
+	if err := configHandler.LoadConfig(""); err != nil {
+		return fmt.Errorf("Error loading config file: %w", err)
+	}
+	return nil
+}
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "windsor",
-	Short: "A command line interface to assist in a context flow development environment",
-	Long:  "A command line interface to assist in a context flow development environment",
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		// Bind environment variable
-		viper.BindEnv("windsorconfig", "WINDSORCONFIG")
-
-		// Optionally, use the environment variable if set
-		if configPath := viper.GetString("windsorconfig"); configPath != "" {
-			viper.SetConfigFile(configPath)
-		} else {
-			// Initialize configuration
-			viper.SetConfigName("config") // name of config file (without extension)
-			viper.SetConfigType("yaml")   // REQUIRED if the config file does not have the extension in the name
-
-			// Set default config path to $HOME/.config/windsor
-			home, err := userHomeDir()
-			if err != nil {
-				fmt.Printf("Error finding home directory, %s\n", err)
-				exitFunc(1)
-			}
-			defaultConfigPath := filepath.Join(home, ".config", "windsor")
-			viper.AddConfigPath(defaultConfigPath)
-		}
-
-		if err := viper.ReadInConfig(); err != nil {
-			fmt.Printf("Error reading config file, %s\n", err)
-			exitFunc(1)
-		}
-	},
+	Use:               "windsor",
+	Short:             "A command line interface to assist in a context flow development environment",
+	Long:              "A command line interface to assist in a context flow development environment",
+	PersistentPreRunE: preRunLoadConfig,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		exitFunc(1)
 	}
+}
+
+// Initialize sets the ConfigHandler for dependency injection
+func Initialize(handler interfaces.ConfigHandler) {
+	configHandler = handler
 }
