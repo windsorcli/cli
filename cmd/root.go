@@ -5,13 +5,13 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/interfaces"
+	"github.com/windsor-hotel/cli/internal/config"
 )
 
 var exitFunc = os.Exit
 
 // ConfigHandler instance
-var configHandler interfaces.ConfigHandler
+var configHandler config.ConfigHandler
 
 // preRunLoadConfig is the function assigned to PersistentPreRunE
 func preRunLoadConfig(cmd *cobra.Command, args []string) error {
@@ -43,6 +43,6 @@ func Execute() {
 }
 
 // Initialize sets the ConfigHandler for dependency injection
-func Initialize(handler interfaces.ConfigHandler) {
+func Initialize(handler config.ConfigHandler) {
 	configHandler = handler
 }

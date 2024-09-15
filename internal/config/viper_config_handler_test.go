@@ -40,7 +40,7 @@ func TestViperConfigHandler_LoadConfig(t *testing.T) {
 	}{
 		{"ValidConfig", tempDir + "/config.yaml", false},
 		{"InvalidConfig", tempDir + "/invalid.yaml", true},
-		{"NonExistentConfig", tempDir + "/nonexistent.yaml", true},
+		{"NonExistentConfig", tempDir + "/nonexistent.yaml", false},
 	}
 
 	for _, tt := range tests {
@@ -51,6 +51,54 @@ func TestViperConfigHandler_LoadConfig(t *testing.T) {
 				t.Errorf("LoadConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestViperConfigHandler_LoadConfig_CreateConfigFile(t *testing.T) {
+	handler := &ViperConfigHandler{}
+
+	// Create a temporary directory for the test
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	// Ensure the config file does not exist
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("Config file already exists at %s", configPath)
+	}
+
+	// Load the configuration, which should create the config file
+	err := handler.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v, expected nil", err)
+	}
+
+	// Verify that the config file was created
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatalf("Config file was not created at %s", configPath)
+	}
+}
+
+func TestViperConfigHandler_LoadConfig_CreateConfigFileError(t *testing.T) {
+	handler := &ViperConfigHandler{}
+
+	// Create a temporary directory for the test
+	tempDir := t.TempDir()
+	invalidConfigPath := filepath.Join(tempDir, "invalid", "config.yaml")
+
+	// Ensure the config file does not exist
+	if _, err := os.Stat(invalidConfigPath); !os.IsNotExist(err) {
+		t.Fatalf("Config file already exists at %s", invalidConfigPath)
+	}
+
+	// Load the configuration, which should attempt to create the config file and fail
+	err := handler.LoadConfig(invalidConfigPath)
+	if err == nil {
+		t.Fatalf("LoadConfig() expected error, got nil")
+	}
+
+	expectedError := "error creating config file"
+	if !containsErrorMessage(err.Error(), expectedError) {
+		t.Fatalf("LoadConfig() error = %v, expected '%s'", err, expectedError)
 	}
 }
 
@@ -190,4 +238,9 @@ func TestViperConfigHandler_SaveConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+// containsErrorMessage checks if the actual error message contains the expected error message
+func containsErrorMessage(actual, expected string) bool {
+	return len(actual) >= len(expected) && actual[:len(expected)] == expected
 }
