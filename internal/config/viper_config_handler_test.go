@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -413,5 +415,72 @@ func TestViperConfigHandler_SaveConfig_EmptyPath_InvalidConfigFileUsed(t *testin
 	expectedError := "path cannot be empty"
 	if err.Error() != expectedError {
 		t.Fatalf("SaveConfig() error = %v, expected '%s'", err, expectedError)
+	}
+}
+
+func TestViperConfigHandler_GetNestedMap(t *testing.T) {
+	v := &ViperConfigHandler{}
+	viper.Set("contexts.blah.env", map[string]interface{}{
+		"some_env":       "value1",
+		"some_other_env": "value2",
+	})
+
+	tests := []struct {
+		name    string
+		key     string
+		want    map[string]interface{}
+		wantErr bool
+	}{
+		{"ExistingKey", "contexts.blah.env", map[string]interface{}{
+			"some_env":       "value1",
+			"some_other_env": "value2",
+		}, false},
+		{"NonExistentKey", "contexts.nonexistent.env", nil, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := v.GetNestedMap(tt.key)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetNestedMap() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetNestedMap() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestViperConfigHandler_ListKeys(t *testing.T) {
+	v := &ViperConfigHandler{}
+	viper.Set("contexts.blah.env", map[string]interface{}{
+		"some_env":       "value1",
+		"some_other_env": "value2",
+	})
+
+	tests := []struct {
+		name    string
+		key     string
+		want    []string
+		wantErr bool
+	}{
+		{"ExistingKey", "contexts.blah.env", []string{"some_env", "some_other_env"}, false},
+		{"NonExistentKey", "contexts.nonexistent.env", nil, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := v.ListKeys(tt.key)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ListKeys() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			sort.Strings(got)
+			sort.Strings(tt.want)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ListKeys() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
