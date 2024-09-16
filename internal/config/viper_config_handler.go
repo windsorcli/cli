@@ -32,7 +32,6 @@ var viperConfigFileUsed = viper.ConfigFileUsed
 // createParentDirs ensures that all parent directories for the given path exist
 func createParentDirs(path string) error {
 	dir := filepath.Dir(path)
-	fmt.Printf("Creating parent directories for path: %s\n", dir)
 	if err := osMkdirAll(dir, os.ModePerm); err != nil {
 		return fmt.Errorf("error creating directories for path %s, %s", path, err)
 	}
@@ -52,7 +51,6 @@ func (v *ViperConfigHandler) LoadConfig(path string) error {
 		}
 	}
 
-	fmt.Printf("Loading config from path: %s\n", path)
 	viper.SetConfigFile(path)
 	viper.SetConfigType("yaml")
 
@@ -97,7 +95,6 @@ func (v *ViperConfigHandler) SaveConfig(path string) error {
 		}
 	}
 
-	fmt.Printf("Saving config to path: %s\n", path)
 	if err := createParentDirs(path); err != nil {
 		fmt.Printf("Error creating parent directories: %v\n", err)
 		return err
@@ -108,7 +105,6 @@ func (v *ViperConfigHandler) SaveConfig(path string) error {
 		return fmt.Errorf("error writing config to path %s, %w", path, err)
 	}
 
-	fmt.Println("Config saved successfully")
 	return nil
 }
 

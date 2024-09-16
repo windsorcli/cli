@@ -92,7 +92,6 @@ func TestViperConfigHandler_LoadConfig_CreateConfigFileError(t *testing.T) {
 	originalOsMkdirAll := osMkdirAll
 	defer func() { osMkdirAll = originalOsMkdirAll }()
 	osMkdirAll = func(path string, perm os.FileMode) error {
-		fmt.Printf("Mock osMkdirAll called with path: %s\n", path)
 		return nil
 	}
 
@@ -100,7 +99,6 @@ func TestViperConfigHandler_LoadConfig_CreateConfigFileError(t *testing.T) {
 	originalViperSafeWriteConfigAs := viperSafeWriteConfigAs
 	defer func() { viperSafeWriteConfigAs = originalViperSafeWriteConfigAs }()
 	viperSafeWriteConfigAs = func(filename string) error {
-		fmt.Printf("Mock viperSafeWriteConfigAs called with filename: %s\n", filename)
 		return fmt.Errorf("mock error creating config file")
 	}
 
@@ -317,12 +315,10 @@ func TestViperConfigHandler_SaveConfig_InvalidPath(t *testing.T) {
 	originalOsMkdirAll := osMkdirAll
 	defer func() { osMkdirAll = originalOsMkdirAll }()
 	osMkdirAll = func(path string, perm os.FileMode) error {
-		fmt.Printf("Mock osMkdirAll called with path: %s\n", path)
 		return fmt.Errorf("mock error creating directories")
 	}
 
 	// Save the configuration, which should attempt to create the config file and fail
-	fmt.Println("Calling SaveConfig")
 	err := handler.SaveConfig(invalidConfigPath)
 	if err == nil {
 		t.Fatalf("SaveConfig() expected error, got nil")
@@ -332,7 +328,6 @@ func TestViperConfigHandler_SaveConfig_InvalidPath(t *testing.T) {
 	if !containsErrorMessage(err.Error(), expectedError) {
 		t.Fatalf("SaveConfig() error = %v, expected '%s'", err, expectedError)
 	}
-	fmt.Println("SaveConfig test completed")
 }
 
 func TestViperConfigHandler_SaveConfig_WriteConfigError(t *testing.T) {
@@ -347,7 +342,6 @@ func TestViperConfigHandler_SaveConfig_WriteConfigError(t *testing.T) {
 	originalViperWriteConfigAs := viperWriteConfigAs
 	defer func() { viperWriteConfigAs = originalViperWriteConfigAs }()
 	viperWriteConfigAs = func(filename string) error {
-		fmt.Printf("Mock viperWriteConfigAs called with filename: %s\n", filename)
 		return fmt.Errorf("mock error writing config")
 	}
 
@@ -383,7 +377,6 @@ func TestViperConfigHandler_SaveConfig_EmptyPath_ValidConfigFileUsed(t *testing.
 	}
 
 	// Save the configuration, which should use the mocked path
-	fmt.Printf("Calling SaveConfig with empty path\n")
 	err := handler.SaveConfig("")
 	if err != nil {
 		t.Fatalf("SaveConfig() error = %v, expected nil", err)
@@ -406,7 +399,6 @@ func TestViperConfigHandler_SaveConfig_EmptyPath_InvalidConfigFileUsed(t *testin
 	handler := &ViperConfigHandler{}
 
 	// Save the configuration, which should return an error
-	fmt.Printf("Calling SaveConfig with empty path\n")
 	err := handler.SaveConfig("")
 	if err == nil {
 		t.Fatalf("SaveConfig() expected error, got nil")
