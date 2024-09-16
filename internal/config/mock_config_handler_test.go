@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -10,6 +11,8 @@ func TestMockConfigHandler(t *testing.T) {
 	mockGetErr := errors.New("mock get config value error")
 	mockSetErr := errors.New("mock set config value error")
 	mockSaveErr := errors.New("mock save config error")
+	mockGetNestedMapErr := errors.New("mock get nested map error")
+	mockListKeysErr := errors.New("mock list keys error")
 
 	handler := &MockConfigHandler{
 		LoadConfigFunc: func(path string) error {
@@ -23,6 +26,12 @@ func TestMockConfigHandler(t *testing.T) {
 		},
 		SaveConfigFunc: func(path string) error {
 			return mockSaveErr
+		},
+		GetNestedMapFunc: func(key string) (map[string]interface{}, error) {
+			return nil, mockGetNestedMapErr
+		},
+		ListKeysFunc: func(key string) ([]string, error) {
+			return nil, mockListKeysErr
 		},
 	}
 
@@ -60,6 +69,22 @@ func TestMockConfigHandler(t *testing.T) {
 			},
 			wantErr: mockSaveErr,
 		},
+		{
+			name: "GetNestedMap",
+			testFunc: func() error {
+				_, err := handler.GetNestedMap("someKey")
+				return err
+			},
+			wantErr: mockGetNestedMapErr,
+		},
+		{
+			name: "ListKeys",
+			testFunc: func() error {
+				_, err := handler.ListKeys("someKey")
+				return err
+			},
+			wantErr: mockListKeysErr,
+		},
 	}
 
 	for _, tt := range tests {
@@ -74,21 +99,21 @@ func TestMockConfigHandler(t *testing.T) {
 
 	defaultTests := []struct {
 		name      string
-		testFunc  func() (string, error)
-		wantValue string
+		testFunc  func() (interface{}, error)
+		wantValue interface{}
 		wantErr   error
 	}{
 		{
 			name: "LoadConfig_Default",
-			testFunc: func() (string, error) {
-				return "", defaultHandler.LoadConfig("some/path")
+			testFunc: func() (interface{}, error) {
+				return nil, defaultHandler.LoadConfig("some/path")
 			},
-			wantValue: "",
+			wantValue: nil,
 			wantErr:   nil,
 		},
 		{
 			name: "GetConfigValue_Default",
-			testFunc: func() (string, error) {
+			testFunc: func() (interface{}, error) {
 				return defaultHandler.GetConfigValue("someKey")
 			},
 			wantValue: "",
@@ -96,18 +121,34 @@ func TestMockConfigHandler(t *testing.T) {
 		},
 		{
 			name: "SetConfigValue_Default",
-			testFunc: func() (string, error) {
-				return "", defaultHandler.SetConfigValue("someKey", "someValue")
+			testFunc: func() (interface{}, error) {
+				return nil, defaultHandler.SetConfigValue("someKey", "someValue")
 			},
-			wantValue: "",
+			wantValue: nil,
 			wantErr:   nil,
 		},
 		{
 			name: "SaveConfig_Default",
-			testFunc: func() (string, error) {
-				return "", defaultHandler.SaveConfig("some/path")
+			testFunc: func() (interface{}, error) {
+				return nil, defaultHandler.SaveConfig("some/path")
 			},
-			wantValue: "",
+			wantValue: nil,
+			wantErr:   nil,
+		},
+		{
+			name: "GetNestedMap_Default",
+			testFunc: func() (interface{}, error) {
+				return defaultHandler.GetNestedMap("someKey")
+			},
+			wantValue: map[string]interface{}(nil),
+			wantErr:   nil,
+		},
+		{
+			name: "ListKeys_Default",
+			testFunc: func() (interface{}, error) {
+				return defaultHandler.ListKeys("someKey")
+			},
+			wantValue: []string(nil),
 			wantErr:   nil,
 		},
 	}
@@ -118,7 +159,7 @@ func TestMockConfigHandler(t *testing.T) {
 			if err != tt.wantErr {
 				t.Errorf("%s() error = %v, wantErr %v", tt.name, err, tt.wantErr)
 			}
-			if value != tt.wantValue {
+			if !reflect.DeepEqual(value, tt.wantValue) {
 				t.Errorf("%s() value = %v, wantValue %v", tt.name, value, tt.wantValue)
 			}
 		})

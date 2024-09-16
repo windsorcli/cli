@@ -6,6 +6,8 @@ type MockConfigHandler struct {
 	GetConfigValueFunc func(key string) (string, error)
 	SetConfigValueFunc func(key, value string) error
 	SaveConfigFunc     func(path string) error
+	GetNestedMapFunc   func(key string) (map[string]interface{}, error)
+	ListKeysFunc       func(key string) ([]string, error)
 }
 
 func (m *MockConfigHandler) LoadConfig(path string) error {
@@ -34,6 +36,20 @@ func (m *MockConfigHandler) SaveConfig(path string) error {
 		return m.SaveConfigFunc(path)
 	}
 	return nil
+}
+
+func (m *MockConfigHandler) GetNestedMap(key string) (map[string]interface{}, error) {
+	if m.GetNestedMapFunc != nil {
+		return m.GetNestedMapFunc(key)
+	}
+	return nil, nil
+}
+
+func (m *MockConfigHandler) ListKeys(key string) ([]string, error) {
+	if m.ListKeysFunc != nil {
+		return m.ListKeysFunc(key)
+	}
+	return nil, nil
 }
 
 // Ensure MockConfigHandler implements ConfigHandler
