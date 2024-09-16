@@ -1,6 +1,6 @@
 package helpers
 
-type CLIHelperInterface interface {
+type Helper interface {
 	GetEnvVars() (map[string]string, error)
 	PrintEnvVars() error
 }

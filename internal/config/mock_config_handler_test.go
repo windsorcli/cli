@@ -165,3 +165,44 @@ func TestMockConfigHandler(t *testing.T) {
 		})
 	}
 }
+
+func TestNewMockConfigHandler(t *testing.T) {
+	mockError := errors.New("mock error")
+
+	loadConfigFunc := func(path string) error { return mockError }
+	getConfigValueFunc := func(key string) (string, error) { return "value", mockError }
+	setConfigValueFunc := func(key, value string) error { return mockError }
+	saveConfigFunc := func(path string) error { return mockError }
+	getNestedMapFunc := func(key string) (map[string]interface{}, error) {
+		return map[string]interface{}{"key": "value"}, mockError
+	}
+	listKeysFunc := func(key string) ([]string, error) { return []string{"key1", "key2"}, mockError }
+
+	mockHandler := NewMockConfigHandler(
+		loadConfigFunc,
+		getConfigValueFunc,
+		setConfigValueFunc,
+		saveConfigFunc,
+		getNestedMapFunc,
+		listKeysFunc,
+	)
+
+	if err := mockHandler.LoadConfigFunc("path"); err != mockError {
+		t.Errorf("expected LoadConfigFunc to return mock error")
+	}
+	if value, err := mockHandler.GetConfigValueFunc("key"); value != "value" || err != mockError {
+		t.Errorf("expected GetConfigValueFunc to return 'value' and mock error")
+	}
+	if err := mockHandler.SetConfigValueFunc("key", "value"); err != mockError {
+		t.Errorf("expected SetConfigValueFunc to return mock error")
+	}
+	if err := mockHandler.SaveConfigFunc("path"); err != mockError {
+		t.Errorf("expected SaveConfigFunc to return mock error")
+	}
+	if nestedMap, err := mockHandler.GetNestedMapFunc("key"); !reflect.DeepEqual(nestedMap, map[string]interface{}{"key": "value"}) || err != mockError {
+		t.Errorf("expected GetNestedMapFunc to return map and mock error")
+	}
+	if keys, err := mockHandler.ListKeysFunc("key"); !reflect.DeepEqual(keys, []string{"key1", "key2"}) || err != mockError {
+		t.Errorf("expected ListKeysFunc to return keys and mock error")
+	}
+}

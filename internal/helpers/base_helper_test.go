@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -47,26 +48,13 @@ func TestGetEnvVars(t *testing.T) {
 	}
 	baseHelper := &BaseHelper{ConfigHandler: mockConfigHandler}
 
-	expected := map[string]string{"VAR1": "value1", "VAR2": "value2"}
+	expected := map[string]string{"VAR1": "value1", "VAR2": "value2", "WINDSORCONTEXT": "testContext"}
 	result, err := baseHelper.GetEnvVars()
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if !reflect.DeepEqual(result, expected) {
 		t.Fatalf("expected %v, got %v", expected, result)
-	}
-}
-
-func TestGetEnvVarsError(t *testing.T) {
-	mockConfigHandler := &MockConfigHandler{
-		configValues: map[string]string{},
-		nestedMaps:   map[string]map[string]interface{}{},
-	}
-	baseHelper := &BaseHelper{ConfigHandler: mockConfigHandler}
-
-	_, err := baseHelper.GetEnvVars()
-	if err == nil {
-		t.Fatalf("expected error, got nil")
 	}
 }
 
@@ -98,10 +86,10 @@ func TestPrintEnvVars(t *testing.T) {
 		comSpec  string
 		expected []string
 	}{
-		{"windows", "powershell", "", []string{"$env:VAR1='value1'", "$env:VAR2='value2'"}},
-		{"windows", "cmd", "", []string{"set VAR1=value1", "set VAR2=value2"}},
-		{"linux", "bash", "", []string{"export VAR1='value1'", "export VAR2='value2'"}},
-		{"windows", "", "powershell.exe", []string{"$env:VAR1='value1'", "$env:VAR2='value2'"}},
+		{"windows", "powershell", "", []string{"$env:VAR1='value1'", "$env:VAR2='value2'", "$env:WINDSORCONTEXT='testContext'"}},
+		{"windows", "cmd", "", []string{"set VAR1=value1", "set VAR2=value2", "set WINDSORCONTEXT=testContext"}},
+		{"linux", "bash", "", []string{"export VAR1='value1'", "export VAR2='value2'", "export WINDSORCONTEXT='testContext'"}},
+		{"windows", "", "powershell.exe", []string{"$env:VAR1='value1'", "$env:VAR2='value2'", "$env:WINDSORCONTEXT='testContext'"}},
 	}
 
 	for _, test := range tests {
@@ -191,5 +179,34 @@ func TestPrintEnvVars(t *testing.T) {
 	err = baseHelper.PrintEnvVars()
 	if err == nil || !strings.Contains(err.Error(), "non-string value found in environment variables for context testContext") {
 		t.Fatalf("expected error for non-string value, got %v", err)
+	}
+}
+
+func TestNewBaseHelper(t *testing.T) {
+	mockConfigHandler := &config.MockConfigHandler{}
+	baseHelper := NewBaseHelper(mockConfigHandler)
+	if baseHelper == nil {
+		t.Errorf("expected NewBaseHelper to return a non-nil instance")
+	}
+	if baseHelper.ConfigHandler != mockConfigHandler {
+		t.Errorf("expected ConfigHandler to be set correctly")
+	}
+}
+
+func TestGetEnvVars_ErrorRetrievingContext(t *testing.T) {
+	mockConfigHandler := &config.MockConfigHandler{
+		GetConfigValueFunc: func(key string) (string, error) {
+			return "", errors.New("mock error")
+		},
+	}
+	baseHelper := NewBaseHelper(mockConfigHandler)
+
+	_, err := baseHelper.GetEnvVars()
+	if err == nil {
+		t.Fatalf("expected an error, got nil")
+	}
+	expectedError := "error retrieving context: mock error"
+	if err.Error() != expectedError {
+		t.Fatalf("expected error %v, got %v", expectedError, err)
 	}
 }

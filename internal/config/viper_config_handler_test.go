@@ -476,3 +476,10 @@ func TestViperConfigHandler_ListKeys(t *testing.T) {
 		})
 	}
 }
+
+func TestNewViperConfigHandler(t *testing.T) {
+	handler := NewViperConfigHandler()
+	if handler == nil {
+		t.Errorf("expected NewViperConfigHandler to return a non-nil instance")
+	}
+}

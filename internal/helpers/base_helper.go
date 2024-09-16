@@ -13,6 +13,10 @@ type BaseHelper struct {
 	ConfigHandler config.ConfigHandler
 }
 
+func NewBaseHelper(configHandler config.ConfigHandler) *BaseHelper {
+	return &BaseHelper{ConfigHandler: configHandler}
+}
+
 var goos = runtime.GOOS
 
 var getEnv = os.Getenv
@@ -54,6 +58,10 @@ func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
 			return nil, fmt.Errorf("non-string value found in environment variables for context %s", context)
 		}
 	}
+
+	// Add WINDSORCONTEXT to the environment variables
+	stringEnvVars["WINDSORCONTEXT"] = context
+
 	return stringEnvVars, nil
 }
 
@@ -77,4 +85,4 @@ func (h *BaseHelper) PrintEnvVars() error {
 }
 
 // Ensure BaseHelper implements CLIHelperInterface
-var _ CLIHelperInterface = (*BaseHelper)(nil)
+var _ Helper = (*BaseHelper)(nil)
