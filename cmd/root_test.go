@@ -5,45 +5,63 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 func TestPreRunLoadConfig_Success(t *testing.T) {
+	// Create a new container for each test
+	container := di.NewContainer()
+
+	// Register a mock config handler
 	mockHandler := &config.MockConfigHandler{
 		LoadConfigFunc: func(path string) error { return nil },
 	}
+	container.Register("configHandler", mockHandler)
 
-	Initialize(mockHandler)
+	// Initialize the cmd package with the container
+	Initialize(container)
 
+	// Execute the preRunLoadConfig function
 	err := preRunLoadConfig(nil, nil)
 	if err != nil {
-		t.Fatalf("preRunLoadConfig() error = %v, expected nil", err)
+		t.Fatalf("preRunLoadConfig() error = %v, expected no error", err)
 	}
 }
 
-func TestPreRunLoadConfig_Failure(t *testing.T) {
+func TestPreRunLoadConfig_Error(t *testing.T) {
+	// Create a new container for each test
+	container := di.NewContainer()
+
+	// Register a mock config handler that returns an error
 	mockHandler := &config.MockConfigHandler{
 		LoadConfigFunc: func(path string) error { return errors.New("config load error") },
 	}
+	container.Register("configHandler", mockHandler)
 
-	Initialize(mockHandler)
+	// Initialize the cmd package with the container
+	Initialize(container)
 
+	// Execute the preRunLoadConfig function
 	err := preRunLoadConfig(nil, nil)
 	if err == nil {
 		t.Fatalf("preRunLoadConfig() expected error, got nil")
 	}
-	if err.Error() != "Error loading config file: config load error" {
-		t.Fatalf("preRunLoadConfig() error = %v, expected 'Error loading config file: config load error'", err)
+	expectedError := "Error loading config file: config load error"
+	if err.Error() != expectedError {
+		t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
 	}
 }
 
 func TestPreRunLoadConfig_NoConfigHandler(t *testing.T) {
-	// Ensure configHandler is not initialized
+	// Ensure configHandler is nil
 	configHandler = nil
 
+	// Execute the preRunLoadConfig function
 	err := preRunLoadConfig(nil, nil)
 	if err == nil {
 		t.Fatalf("preRunLoadConfig() expected error, got nil")
@@ -61,11 +79,17 @@ func TestExecute(t *testing.T) {
 		exitCode = code
 	}
 
-	// Initialize with a successful config handler
+	// Create a new container for each test
+	container := di.NewContainer()
+
+	// Register a mock config handler
 	mockHandler := &config.MockConfigHandler{
 		LoadConfigFunc: func(path string) error { return nil },
 	}
-	Initialize(mockHandler)
+	container.Register("configHandler", mockHandler)
+
+	// Initialize the cmd package with the container
+	Initialize(container)
 
 	// Add a dummy subcommand to trigger PersistentPreRunE
 	dummyCmd := &cobra.Command{
@@ -97,11 +121,19 @@ func TestExecute_LoadConfigError(t *testing.T) {
 		exitCode = code
 	}
 
+	// Create a new container for each test
+	container := di.NewContainer()
+
+	// Register a mock config handler that returns an error
 	mockHandler := &config.MockConfigHandler{
 		LoadConfigFunc: func(path string) error { return errors.New("config load error") },
 	}
-	Initialize(mockHandler)
+	container.Register("configHandler", mockHandler)
 
+	// Initialize the cmd package with the container
+	Initialize(container)
+
+	// Add a dummy subcommand to trigger PersistentPreRunE
 	dummyCmd := &cobra.Command{
 		Use: "dummy",
 		Run: func(cmd *cobra.Command, args []string) {},
@@ -127,14 +159,85 @@ func TestExecute_LoadConfigError(t *testing.T) {
 	}
 
 	expectedErrorMsg := "Error loading config file: config load error\n"
-	if !containsErrorMessage(actualErrorMsg, expectedErrorMsg) {
-		t.Errorf("Expected error message '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
+	if !strings.Contains(actualErrorMsg, expectedErrorMsg) {
+		t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
 	}
 
 	rootCmd.RemoveCommand(dummyCmd)
 }
 
-// containsErrorMessage checks if the actual error message contains the expected error message
-func containsErrorMessage(actual, expected string) bool {
-	return bytes.Contains([]byte(actual), []byte(expected))
+func TestInitialize_Success(t *testing.T) {
+	// Create a new container for each test
+	container := di.NewContainer()
+
+	// Register a mock config handler
+	mockHandler := &config.MockConfigHandler{}
+	container.Register("configHandler", mockHandler)
+
+	// Capture stderr
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	// Mock exitFunc to capture the exit code
+	var exitCode int
+	exitFunc = func(code int) {
+		exitCode = code
+	}
+
+	// Initialize the cmd package with the container
+	Initialize(container)
+
+	w.Close()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	os.Stderr = oldStderr
+	actualErrorMsg := buf.String()
+
+	// Verify that exitFunc was not called
+	if exitCode != 0 {
+		t.Errorf("exitFunc was called with code %d, expected 0", exitCode)
+	}
+
+	// Verify that no error message was printed to stderr
+	if actualErrorMsg != "" {
+		t.Errorf("Expected no error message, got '%s'", actualErrorMsg)
+	}
+}
+
+func TestInitialize_Error(t *testing.T) {
+	// Create a new container for each test
+	container := di.NewContainer()
+
+	// Do not register a config handler
+
+	// Capture stderr
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	// Mock exitFunc to capture the exit code
+	var exitCode int
+	exitFunc = func(code int) {
+		exitCode = code
+	}
+
+	// Initialize the cmd package with the container
+	Initialize(container)
+
+	w.Close()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	os.Stderr = oldStderr
+	actualErrorMsg := buf.String()
+
+	// Verify that exitFunc was called with code 1
+	if exitCode != 1 {
+		t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
+	}
+
+	expectedErrorMsg := "Error resolving configHandler: no instance registered with name configHandler\n"
+	if actualErrorMsg != expectedErrorMsg {
+		t.Errorf("Expected error message '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
+	}
 }
