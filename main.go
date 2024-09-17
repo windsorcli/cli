@@ -12,18 +12,12 @@ func main() {
 	container := di.NewContainer()
 
 	// Register dependencies
-	container.Register("configHandler", &config.ViperConfigHandler{})
-	container.Register("baseHelper", func(c di.ContainerInterface) interface{} {
-		instance, err := c.Resolve("configHandler")
-		if err != nil {
-			panic(err)
-		}
-		configHandler, ok := instance.(config.ConfigHandler)
-		if !ok {
-			panic("resolved instance is not of type config.ConfigHandler")
-		}
-		return helpers.NewBaseHelper(configHandler)
-	})
+	configHandler := config.NewViperConfigHandler()
+	container.Register("configHandler", configHandler)
+
+	// Create and register the BaseHelper instance
+	baseHelper := helpers.NewBaseHelper(configHandler)
+	container.Register("baseHelper", baseHelper)
 
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)

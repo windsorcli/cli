@@ -3,6 +3,7 @@ package helpers
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 
@@ -19,22 +20,40 @@ func NewBaseHelper(configHandler config.ConfigHandler) *BaseHelper {
 
 var goos = runtime.GOOS
 
-var getEnv = os.Getenv
+// Function variable to allow mocking exec.Command in tests
+var execCommand = exec.Command
 
-var isPowerShell = func() bool {
-	shell := getEnv("SHELL")
-	if shell == "" {
-		shell = getEnv("ComSpec")
+func getParentProcessName() (string, error) {
+	ppid := os.Getppid()
+	cmd := execCommand("wmic", "process", "where", fmt.Sprintf("ProcessId=%d", ppid), "get", "ParentProcessId,ExecutablePath", "/format:csv")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
 	}
-	return strings.Contains(strings.ToLower(shell), "powershell") || strings.Contains(strings.ToLower(shell), "pwsh")
+	lines := strings.Split(string(output), "\n")
+	if len(lines) < 2 {
+		return "", fmt.Errorf("unexpected output from command")
+	}
+	fields := strings.Split(lines[1], ",")
+	if len(fields) < 2 {
+		return "", fmt.Errorf("unexpected output from wmic")
+	}
+	return strings.TrimSpace(fields[1]), nil
 }
 
-func getShellType() string {
+var getShellType = func() string {
 	if goos == "windows" {
-		if isPowerShell() {
+		parentProcess, err := getParentProcessName()
+		if err != nil {
+			return "unknown"
+		}
+		parentProcess = strings.ToLower(parentProcess)
+		if strings.Contains(parentProcess, "powershell") || strings.Contains(parentProcess, "pwsh") {
 			return "powershell"
 		}
-		return "cmd"
+		if strings.Contains(parentProcess, "cmd.exe") {
+			return "cmd"
+		}
 	}
 	return "unix"
 }
@@ -53,7 +72,7 @@ func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
 	stringEnvVars := make(map[string]string)
 	for k, v := range envVars {
 		if strVal, ok := v.(string); ok {
-			stringEnvVars[k] = strVal
+			stringEnvVars[strings.ToUpper(k)] = strVal // Capitalize the key
 		} else {
 			return nil, fmt.Errorf("non-string value found in environment variables for context %s", context)
 		}

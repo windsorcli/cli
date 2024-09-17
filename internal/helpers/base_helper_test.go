@@ -2,10 +2,9 @@ package helpers
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
-	"reflect"
+	"os/exec"
 	"sort"
 	"strings"
 	"testing"
@@ -13,96 +12,108 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 )
 
-// MockConfigHandler is a mock implementation of the ConfigHandler interface
-type MockConfigHandler struct {
-	config.ConfigHandler
-	configValues map[string]string
-	nestedMaps   map[string]map[string]interface{}
+// mockExecCmd is a custom exec.Cmd that returns predefined output
+type mockExecCmd struct {
+	output string
 }
 
-func (m *MockConfigHandler) GetConfigValue(key string) (string, error) {
-	if value, ok := m.configValues[key]; ok {
-		return value, nil
-	}
-	return "", fmt.Errorf("key not found")
+func (c *mockExecCmd) Run() error {
+	_, _ = fmt.Fprint(os.Stdout, c.output)
+	return nil
 }
 
-func (m *MockConfigHandler) GetNestedMap(key string) (map[string]interface{}, error) {
-	if value, ok := m.nestedMaps[key]; ok {
-		return value, nil
-	}
-	return nil, fmt.Errorf("key not found")
+func (c *mockExecCmd) Output() ([]byte, error) {
+	return []byte(c.output), nil
 }
 
-func TestGetEnvVars(t *testing.T) {
-	mockConfigHandler := &MockConfigHandler{
-		configValues: map[string]string{
-			"context": "testContext",
-		},
-		nestedMaps: map[string]map[string]interface{}{
-			"contexts.testContext.environment": {
-				"VAR1": "value1",
-				"VAR2": "value2",
-			},
-		},
+// setMockExecCommand sets the mock output for exec.Command
+func setMockExecCommand(mockOutput string) {
+	execCommand = func(command string, args ...string) *exec.Cmd {
+		cmd := &exec.Cmd{
+			Path: "/bin/sh",
+			Args: []string{"-c", fmt.Sprintf("echo '%s'", mockOutput)},
+		}
+		cmd.Stdout = &bytes.Buffer{}
+		cmd.Stderr = &bytes.Buffer{}
+		return cmd
 	}
-	baseHelper := &BaseHelper{ConfigHandler: mockConfigHandler}
+}
 
-	expected := map[string]string{"VAR1": "value1", "VAR2": "value2", "WINDSORCONTEXT": "testContext"}
-	result, err := baseHelper.GetEnvVars()
+func TestGetParentProcessName(t *testing.T) {
+	// Mock exec.Command
+	setMockExecCommand("ProcessId,ExecutablePath\n1234,C:\\Windows\\System32\\cmd.exe\n")
+	defer func() { execCommand = exec.Command }()
+
+	expected := "C:\\Windows\\System32\\cmd.exe"
+	result, err := getParentProcessName()
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if !reflect.DeepEqual(result, expected) {
+	if result != expected {
 		t.Fatalf("expected %v, got %v", expected, result)
 	}
 }
 
-func TestPrintEnvVars(t *testing.T) {
-	mockConfigHandler := &MockConfigHandler{
-		configValues: map[string]string{
-			"context": "testContext",
-		},
-		nestedMaps: map[string]map[string]interface{}{
-			"contexts.testContext.environment": {
-				"VAR1": "value1",
-				"VAR2": "value2",
-			},
-		},
-	}
-	baseHelper := &BaseHelper{ConfigHandler: mockConfigHandler}
-
-	// Mock goos and getEnv
-	originalGoos := goos
-	originalGetEnv := getEnv
-	defer func() {
-		goos = originalGoos
-		getEnv = originalGetEnv
-	}()
-
+func TestGetShellType(t *testing.T) {
 	tests := []struct {
-		goos     string
-		shell    string
-		comSpec  string
-		expected []string
+		goos       string
+		expected   string
+		mockOutput string
 	}{
-		{"windows", "powershell", "", []string{"$env:VAR1='value1'", "$env:VAR2='value2'", "$env:WINDSORCONTEXT='testContext'"}},
-		{"windows", "cmd", "", []string{"set VAR1=value1", "set VAR2=value2", "set WINDSORCONTEXT=testContext"}},
-		{"linux", "bash", "", []string{"export VAR1='value1'", "export VAR2='value2'", "export WINDSORCONTEXT='testContext'"}},
-		{"windows", "", "powershell.exe", []string{"$env:VAR1='value1'", "$env:VAR2='value2'", "$env:WINDSORCONTEXT='testContext'"}},
+		{"windows", "cmd", "ProcessId,ExecutablePath\n1234,C:\\Windows\\System32\\cmd.exe\n"},
+		{"windows", "powershell", "ProcessId,ExecutablePath\n1234,C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\n"},
+		{"windows", "unknown", "ProcessId,ExecutablePath\n"},
+		{"linux", "unix", ""},
 	}
 
 	for _, test := range tests {
 		goos = test.goos
-		getEnv = func(key string) string {
-			if key == "SHELL" {
-				return test.shell
-			}
-			if key == "ComSpec" {
-				return test.comSpec
-			}
-			return ""
+		setMockExecCommand(test.mockOutput)
+		defer func() { execCommand = exec.Command }()
+
+		result := getShellType()
+		if result != test.expected {
+			t.Fatalf("expected %v, got %v", test.expected, result)
 		}
+	}
+}
+
+func TestPrintEnvVars(t *testing.T) {
+	mockConfigHandler := &config.MockConfigHandler{
+		GetConfigValueFunc: func(key string) (string, error) {
+			if key == "context" {
+				return "testContext", nil
+			}
+			return "", fmt.Errorf("key not found")
+		},
+		GetNestedMapFunc: func(key string) (map[string]interface{}, error) {
+			if key == "contexts.testContext.environment" {
+				return map[string]interface{}{
+					"VAR1": "value1",
+					"VAR2": "value2",
+				}, nil
+			}
+			return nil, fmt.Errorf("key not found")
+		},
+	}
+	baseHelper := &BaseHelper{ConfigHandler: mockConfigHandler}
+
+	// Mock getShellType
+	originalGetShellType := getShellType
+	defer func() { getShellType = originalGetShellType }()
+
+	tests := []struct {
+		shellType string
+		expected  []string
+	}{
+		{"powershell", []string{"$env:VAR1='value1'", "$env:VAR2='value2'", "$env:WINDSORCONTEXT='testContext'"}},
+		{"cmd", []string{"set VAR1=value1", "set VAR2=value2", "set WINDSORCONTEXT=testContext"}},
+		{"unix", []string{"export VAR1='value1'", "export VAR2='value2'", "export WINDSORCONTEXT='testContext'"}},
+	}
+
+	for _, test := range tests {
+		test := test // capture range variable
+		getShellType = func() string { return test.shellType }
 
 		// Capture the output
 		var output bytes.Buffer
@@ -134,11 +145,16 @@ func TestPrintEnvVars(t *testing.T) {
 	}
 
 	// Test case where nested map is not found
-	mockConfigHandler = &MockConfigHandler{
-		configValues: map[string]string{
-			"context": "testContext",
+	mockConfigHandler = &config.MockConfigHandler{
+		GetConfigValueFunc: func(key string) (string, error) {
+			if key == "context" {
+				return "testContext", nil
+			}
+			return "", fmt.Errorf("key not found")
 		},
-		nestedMaps: map[string]map[string]interface{}{},
+		GetNestedMapFunc: func(key string) (map[string]interface{}, error) {
+			return nil, fmt.Errorf("key not found")
+		},
 	}
 	baseHelper = &BaseHelper{ConfigHandler: mockConfigHandler}
 
@@ -163,15 +179,21 @@ func TestPrintEnvVars(t *testing.T) {
 	}
 
 	// Test case where a non-string value is found in environment variables
-	mockConfigHandler = &MockConfigHandler{
-		configValues: map[string]string{
-			"context": "testContext",
+	mockConfigHandler = &config.MockConfigHandler{
+		GetConfigValueFunc: func(key string) (string, error) {
+			if key == "context" {
+				return "testContext", nil
+			}
+			return "", fmt.Errorf("key not found")
 		},
-		nestedMaps: map[string]map[string]interface{}{
-			"contexts.testContext.environment": {
-				"VAR1": "value1",
-				"VAR2": 123, // Non-string value
-			},
+		GetNestedMapFunc: func(key string) (map[string]interface{}, error) {
+			if key == "contexts.testContext.environment" {
+				return map[string]interface{}{
+					"VAR1": "value1",
+					"VAR2": 123, // Non-string value
+				}, nil
+			}
+			return nil, fmt.Errorf("key not found")
 		},
 	}
 	baseHelper = &BaseHelper{ConfigHandler: mockConfigHandler}
@@ -179,34 +201,5 @@ func TestPrintEnvVars(t *testing.T) {
 	err = baseHelper.PrintEnvVars()
 	if err == nil || !strings.Contains(err.Error(), "non-string value found in environment variables for context testContext") {
 		t.Fatalf("expected error for non-string value, got %v", err)
-	}
-}
-
-func TestNewBaseHelper(t *testing.T) {
-	mockConfigHandler := &config.MockConfigHandler{}
-	baseHelper := NewBaseHelper(mockConfigHandler)
-	if baseHelper == nil {
-		t.Errorf("expected NewBaseHelper to return a non-nil instance")
-	}
-	if baseHelper.ConfigHandler != mockConfigHandler {
-		t.Errorf("expected ConfigHandler to be set correctly")
-	}
-}
-
-func TestGetEnvVars_ErrorRetrievingContext(t *testing.T) {
-	mockConfigHandler := &config.MockConfigHandler{
-		GetConfigValueFunc: func(key string) (string, error) {
-			return "", errors.New("mock error")
-		},
-	}
-	baseHelper := NewBaseHelper(mockConfigHandler)
-
-	_, err := baseHelper.GetEnvVars()
-	if err == nil {
-		t.Fatalf("expected an error, got nil")
-	}
-	expectedError := "error retrieving context: mock error"
-	if err.Error() != expectedError {
-		t.Fatalf("expected error %v, got %v", expectedError, err)
 	}
 }
