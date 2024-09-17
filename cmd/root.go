@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 var exitFunc = os.Exit
@@ -43,6 +44,9 @@ func Execute() {
 }
 
 // Initialize sets the ConfigHandler for dependency injection
-func Initialize(handler config.ConfigHandler) {
-	configHandler = handler
+func Initialize(container *di.Container) {
+	if err := container.Resolve("configHandler", &configHandler); err != nil {
+		fmt.Fprintln(os.Stderr, "Error resolving configHandler:", err)
+		exitFunc(1)
+	}
 }

@@ -1,7 +1,6 @@
 package di
 
 import (
-	"sync"
 	"testing"
 )
 
@@ -16,15 +15,14 @@ func (m *MockServiceImpl) DoSomething() string {
 }
 
 func TestRegisterAndResolve_Success(t *testing.T) {
-	// Clear the container before each test
-	container = make(map[string]interface{})
-	mu = sync.RWMutex{}
+	// Create a new container for each test
+	container := NewContainer()
 
 	mockService := &MockServiceImpl{}
-	Register("mockService", mockService)
+	container.Register("mockService", mockService)
 
 	var resolvedService MockService
-	if err := Resolve("mockService", &resolvedService); err != nil {
+	if err := container.Resolve("mockService", &resolvedService); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
@@ -34,12 +32,11 @@ func TestRegisterAndResolve_Success(t *testing.T) {
 }
 
 func TestResolve_NoInstanceRegistered(t *testing.T) {
-	// Clear the container before each test
-	container = make(map[string]interface{})
-	mu = sync.RWMutex{}
+	// Create a new container for each test
+	container := NewContainer()
 
 	var resolvedService MockService
-	err := Resolve("nonExistentService", &resolvedService)
+	err := container.Resolve("nonExistentService", &resolvedService)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -51,15 +48,14 @@ func TestResolve_NoInstanceRegistered(t *testing.T) {
 }
 
 func TestResolve_TargetNotPointer(t *testing.T) {
-	// Clear the container before each test
-	container = make(map[string]interface{})
-	mu = sync.RWMutex{}
+	// Create a new container for each test
+	container := NewContainer()
 
 	mockService := &MockServiceImpl{}
-	Register("mockService", mockService)
+	container.Register("mockService", mockService)
 
 	var resolvedService MockService
-	err := Resolve("mockService", resolvedService) // Passing non-pointer
+	err := container.Resolve("mockService", resolvedService) // Passing non-pointer
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -71,15 +67,14 @@ func TestResolve_TargetNotPointer(t *testing.T) {
 }
 
 func TestResolve_TargetNilPointer(t *testing.T) {
-	// Clear the container before each test
-	container = make(map[string]interface{})
-	mu = sync.RWMutex{}
+	// Create a new container for each test
+	container := NewContainer()
 
 	mockService := &MockServiceImpl{}
-	Register("mockService", mockService)
+	container.Register("mockService", mockService)
 
 	var resolvedService *MockService
-	err := Resolve("mockService", resolvedService) // Passing nil pointer
+	err := container.Resolve("mockService", resolvedService) // Passing nil pointer
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -91,15 +86,14 @@ func TestResolve_TargetNilPointer(t *testing.T) {
 }
 
 func TestResolve_TypeMismatch(t *testing.T) {
-	// Clear the container before each test
-	container = make(map[string]interface{})
-	mu = sync.RWMutex{}
+	// Create a new container for each test
+	container := NewContainer()
 
 	mockService := &MockServiceImpl{}
-	Register("mockService", mockService)
+	container.Register("mockService", mockService)
 
 	var resolvedService string
-	err := Resolve("mockService", &resolvedService) // Type mismatch
+	err := container.Resolve("mockService", &resolvedService) // Type mismatch
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
