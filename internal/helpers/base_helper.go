@@ -2,9 +2,6 @@ package helpers
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"runtime"
 	"strings"
 
 	"github.com/windsor-hotel/cli/internal/config"
@@ -16,46 +13,6 @@ type BaseHelper struct {
 
 func NewBaseHelper(configHandler config.ConfigHandler) *BaseHelper {
 	return &BaseHelper{ConfigHandler: configHandler}
-}
-
-var goos = runtime.GOOS
-
-// Function variable to allow mocking exec.Command in tests
-var execCommand = exec.Command
-
-func getParentProcessName() (string, error) {
-	ppid := os.Getppid()
-	cmd := execCommand("wmic", "process", "where", fmt.Sprintf("ProcessId=%d", ppid), "get", "ParentProcessId,ExecutablePath", "/format:csv")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	lines := strings.Split(string(output), "\n")
-	if len(lines) < 2 {
-		return "", fmt.Errorf("unexpected output from command")
-	}
-	fields := strings.Split(lines[1], ",")
-	if len(fields) < 2 {
-		return "", fmt.Errorf("unexpected output from wmic")
-	}
-	return strings.TrimSpace(fields[1]), nil
-}
-
-var getShellType = func() string {
-	if goos == "windows" {
-		parentProcess, err := getParentProcessName()
-		if err != nil {
-			return "unknown"
-		}
-		parentProcess = strings.ToLower(parentProcess)
-		if strings.Contains(parentProcess, "powershell") || strings.Contains(parentProcess, "pwsh") {
-			return "powershell"
-		}
-		if strings.Contains(parentProcess, "cmd.exe") {
-			return "cmd"
-		}
-	}
-	return "unix"
 }
 
 func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
@@ -82,25 +39,6 @@ func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
 	stringEnvVars["WINDSORCONTEXT"] = context
 
 	return stringEnvVars, nil
-}
-
-func (h *BaseHelper) PrintEnvVars() error {
-	envVars, err := h.GetEnvVars()
-	if err != nil {
-		return err
-	}
-	shellType := getShellType()
-	for key, value := range envVars {
-		switch shellType {
-		case "powershell":
-			fmt.Printf("$env:%s='%s'\n", key, value)
-		case "cmd":
-			fmt.Printf("set %s=%s\n", key, value)
-		default:
-			fmt.Printf("export %s='%s'\n", key, value)
-		}
-	}
-	return nil
 }
 
 // Ensure BaseHelper implements Helper interface

@@ -44,7 +44,7 @@ func TestMockHelper_GetEnvVars(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHelper := NewMockHelper(tt.getEnvVarsFunc, nil)
+			mockHelper := NewMockHelper(tt.getEnvVarsFunc)
 
 			result, err := mockHelper.GetEnvVars()
 			if err != nil && tt.expectedError == nil {
@@ -58,51 +58,6 @@ func TestMockHelper_GetEnvVars(t *testing.T) {
 			}
 			if !equalMaps(result, tt.expectedResult) {
 				t.Fatalf("expected result %v, got %v", tt.expectedResult, result)
-			}
-		})
-	}
-}
-
-func TestMockHelper_PrintEnvVars(t *testing.T) {
-	tests := []struct {
-		name             string
-		printEnvVarsFunc func() error
-		expectedError    error
-	}{
-		{
-			name: "Success",
-			printEnvVarsFunc: func() error {
-				return nil
-			},
-			expectedError: nil,
-		},
-		{
-			name: "Error",
-			printEnvVarsFunc: func() error {
-				return errors.New("error printing environment variables")
-			},
-			expectedError: errors.New("error printing environment variables"),
-		},
-		{
-			name:             "NilFunction",
-			printEnvVarsFunc: nil,
-			expectedError:    nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockHelper := NewMockHelper(nil, tt.printEnvVarsFunc)
-
-			err := mockHelper.PrintEnvVars()
-			if err != nil && tt.expectedError == nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-			if err == nil && tt.expectedError != nil {
-				t.Fatalf("expected error %v, got nil", tt.expectedError)
-			}
-			if err != nil && tt.expectedError != nil && err.Error() != tt.expectedError.Error() {
-				t.Fatalf("expected error %v, got %v", tt.expectedError, err)
 			}
 		})
 	}

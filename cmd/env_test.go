@@ -27,6 +27,29 @@ func (m *MockContainer) ResolveAll(targetType interface{}) ([]interface{}, error
 	return m.RealContainer.ResolveAll(targetType)
 }
 
+func (m *MockContainer) Resolve(name string) (interface{}, error) {
+	instance, err := m.RealContainer.Resolve(name)
+	if err != nil {
+		return nil, fmt.Errorf("no instance registered with name %s", name)
+	}
+	return instance, nil
+}
+
+type MockShell struct {
+	PrintEnvVarsFunc func(envVars map[string]string)
+	output           *bytes.Buffer
+}
+
+func (m *MockShell) PrintEnvVars(envVars map[string]string) {
+	if m.PrintEnvVarsFunc != nil {
+		m.PrintEnvVarsFunc(envVars)
+	} else {
+		for key, value := range envVars {
+			fmt.Fprintf(m.output, "export %s=\"%s\"\n", key, value)
+		}
+	}
+}
+
 func setupTestEnvCmd(mockHandler config.ConfigHandler, mockHelpers []interface{}, resolveAllError error) (*MockContainer, func() (string, error)) {
 	// Create a new mock DI container
 	container := &MockContainer{
@@ -42,20 +65,15 @@ func setupTestEnvCmd(mockHandler config.ConfigHandler, mockHelpers []interface{}
 		container.Register(fmt.Sprintf("mockHelper%d", i), helper)
 	}
 
+	// Register the mock shell
+	mockShell := &MockShell{output: new(bytes.Buffer)}
+	container.Register("shell", mockShell)
+
 	// Initialize the cmd package with the container
 	Initialize(container)
 
-	// Capture stdout
-	oldOutput := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
 	return container, func() (string, error) {
-		w.Close()
-		var buf bytes.Buffer
-		io.Copy(&buf, r)
-		os.Stdout = oldOutput
-		return buf.String(), nil
+		return mockShell.output.String(), nil
 	}
 }
 
@@ -82,16 +100,13 @@ func TestEnvCmd_Success(t *testing.T) {
 		nil, // ListKeysFunc
 	)
 	mockHelpers := []interface{}{
-		helpers.NewMockHelper(
-			nil, // GetEnvVarsFunc
-			func() error {
-				fmt.Println("export VAR1='value1'")
-				fmt.Println("export VAR2='value2'")
-				return nil
-			},
-		),
+		helpers.NewMockHelper(func() (map[string]string, error) {
+			return map[string]string{
+				"VAR1": "value1",
+				"VAR2": "value2",
+			}, nil
+		}),
 	}
-	expectedOutput := "export VAR1='value1'\nexport VAR2='value2'\n"
 
 	_, getOutput := setupTestEnvCmd(mockHandler, mockHelpers, nil)
 
@@ -103,6 +118,7 @@ func TestEnvCmd_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
+	expectedOutput := "export VAR1=\"value1\"\nexport VAR2=\"value2\"\n"
 	if actualOutput != expectedOutput {
 		t.Errorf("Expected output '%s', got '%s'", expectedOutput, actualOutput)
 	}
@@ -153,16 +169,66 @@ func TestEnvCmd_PrintEnvVarsError(t *testing.T) {
 		nil, // ListKeysFunc
 	)
 	mockHelpers := []interface{}{
-		helpers.NewMockHelper(
-			nil, // GetEnvVarsFunc
-			func() error {
-				return errors.New("mock print env vars error")
-			},
-		),
+		helpers.NewMockHelper(func() (map[string]string, error) {
+			return nil, errors.New("mock print env vars error")
+		}),
 	}
-	expectedError := "Error printing environment variables: mock print env vars error"
+	expectedError := "Error getting environment variables: mock print env vars error"
 
 	_, _ = setupTestEnvCmd(mockHandler, mockHelpers, nil)
+
+	// Capture stderr
+	oldOutput := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	// Execute the env command
+	rootCmd.SetArgs([]string{"env"})
+	err := rootCmd.Execute()
+	w.Close()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	os.Stderr = oldOutput
+
+	if err == nil {
+		t.Fatalf("Expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), expectedError) {
+		t.Errorf("Expected error message to contain '%s', got '%s'", expectedError, err.Error())
+	}
+}
+
+func TestEnvCmd_ResolveShellError(t *testing.T) {
+	mockHandler := config.NewMockConfigHandler(
+		func(path string) error { return nil },
+		func(key string) (string, error) { return "", nil },
+		nil, // SetConfigValueFunc
+		nil, // SaveConfigFunc
+		nil, // GetNestedMapFunc
+		nil, // ListKeysFunc
+	)
+	mockHelpers := []interface{}{
+		helpers.NewMockHelper(func() (map[string]string, error) {
+			return map[string]string{
+				"VAR1": "value1",
+				"VAR2": "value2",
+			}, nil
+		}),
+	}
+	expectedError := "Error resolving shell: no instance registered with name shell"
+
+	// Create a new mock DI container with an error for resolving the shell
+	container := &MockContainer{
+		RealContainer:   *di.NewContainer(),
+		resolveAllError: nil,
+	}
+	container.Register("configHandler", mockHandler)
+	for i, helper := range mockHelpers {
+		container.Register(fmt.Sprintf("mockHelper%d", i), helper)
+	}
+
+	// Do not register the shell to simulate the error
+	Initialize(container)
 
 	// Capture stderr
 	oldOutput := os.Stderr
