@@ -13,7 +13,7 @@ func main() {
 
 	// Register dependencies
 	container.Register("configHandler", &config.ViperConfigHandler{})
-	container.Register("baseHelper", func(c *di.Container) interface{} {
+	container.Register("baseHelper", func(c di.ContainerInterface) interface{} {
 		instance, err := c.Resolve("configHandler")
 		if err != nil {
 			panic(err)

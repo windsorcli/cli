@@ -2,32 +2,30 @@ package cmd
 
 import (
 	"fmt"
-	"runtime"
 
 	"github.com/spf13/cobra"
+	"github.com/windsor-hotel/cli/internal/helpers"
 )
-
-var goos = runtime.GOOS
 
 var envCmd = &cobra.Command{
 	Use:   "env",
 	Short: "Output commands to set environment variables",
 	Long:  "Output commands to set environment variables for the application.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get the current context value
-		contextName, err := configHandler.GetConfigValue("context")
+		// Resolve all helpers from the DI container
+		helperInstances, err := container.ResolveAll((*helpers.Helper)(nil))
 		if err != nil {
-			return fmt.Errorf("Error getting config value: %w", err)
+			return fmt.Errorf("Error resolving helpers: %w", err)
 		}
 
-		// Determine the command based on the OS
-		var command string
-		if goos == "windows" {
-			command = fmt.Sprintf("set WINDSORCONTEXT=%s", contextName)
-		} else {
-			command = fmt.Sprintf("export WINDSORCONTEXT=%s", contextName)
+		// Iterate through all helpers and print environment variables
+		for _, instance := range helperInstances {
+			helper := instance.(helpers.Helper)
+			if err := helper.PrintEnvVars(); err != nil {
+				return fmt.Errorf("Error printing environment variables: %w", err)
+			}
 		}
-		fmt.Println(command)
+
 		return nil
 	},
 }

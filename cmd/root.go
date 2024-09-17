@@ -9,7 +9,10 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-var exitFunc = os.Exit
+var (
+	exitFunc  = os.Exit
+	container di.ContainerInterface
+)
 
 // ConfigHandler instance
 var configHandler config.ConfigHandler
@@ -44,7 +47,9 @@ func Execute() {
 }
 
 // Initialize sets the ConfigHandler for dependency injection
-func Initialize(container *di.Container) {
+func Initialize(cont di.ContainerInterface) {
+	container = cont
+
 	instance, err := container.Resolve("configHandler")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error resolving configHandler:", err)
