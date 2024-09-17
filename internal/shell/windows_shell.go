@@ -8,16 +8,6 @@ import (
 	"sort"
 )
 
-type DefaultShell struct{}
-
-func NewDefaultShell() *DefaultShell {
-	return &DefaultShell{}
-}
-
-func (d *DefaultShell) DetermineShell() string {
-	return "powershell"
-}
-
 func (d *DefaultShell) PrintEnvVars(envVars map[string]string) {
 	keys := make([]string, 0, len(envVars))
 	for k := range envVars {

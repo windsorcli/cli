@@ -26,27 +26,6 @@ func TestNewMockShell(t *testing.T) {
 	}
 }
 
-func TestMockShell_DetermineShell(t *testing.T) {
-	tests := []struct {
-		shellType string
-		want      string
-	}{
-		{"cmd", "cmd"},
-		{"powershell", "powershell"},
-		{"unix", "unix"},
-	}
-
-	for _, tt := range tests {
-		mockShell, err := NewMockShell(tt.shellType)
-		if err != nil {
-			t.Fatalf("NewMockShell(%v) error = %v", tt.shellType, err)
-		}
-		if got := mockShell.DetermineShell(); got != tt.want {
-			t.Errorf("DetermineShell() = %v, want %v", got, tt.want)
-		}
-	}
-}
-
 func TestMockShell_PrintEnvVars(t *testing.T) {
 	tests := []struct {
 		envVars        map[string]string

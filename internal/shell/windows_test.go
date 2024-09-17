@@ -9,21 +9,15 @@ import (
 	"testing"
 )
 
-func TestDefaultShell_DetermineShell_WindowsPowerShell(t *testing.T) {
-	shell := NewDefaultShell()
-	result := shell.DetermineShell()
-	if result != "powershell" {
-		t.Errorf("DetermineShell() = %v, want powershell", result)
-	}
-}
-
-func TestDefaultShell_PrintEnvVars_WindowsPowerShell(t *testing.T) {
+func TestDefaultShell_PrintEnvVars_Windows(t *testing.T) {
 	shell := NewDefaultShell()
 	envVars := map[string]string{
 		"VAR2": "value2",
 		"VAR1": "value1",
 	}
-	expectedOutput := "$env:VAR1=\"value1\"\n$env:VAR2=\"value2\"\n"
+
+	// Expected output for PowerShell
+	expectedOutputPowerShell := "$env:VAR1=\"value1\"\n$env:VAR2=\"value2\"\n"
 
 	// Capture the output
 	var output bytes.Buffer
@@ -39,7 +33,8 @@ func TestDefaultShell_PrintEnvVars_WindowsPowerShell(t *testing.T) {
 	output.ReadFrom(r)
 	os.Stdout = originalStdout
 
-	if output.String() != expectedOutput {
-		t.Errorf("PrintEnvVars() output = %v, want %v", output.String(), expectedOutput)
+	// Check if the output matches PowerShell format
+	if output.String() != expectedOutputPowerShell {
+		t.Errorf("PrintEnvVars() output = %v, want %v", output.String(), expectedOutputPowerShell)
 	}
 }

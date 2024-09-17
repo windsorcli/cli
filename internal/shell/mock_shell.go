@@ -18,10 +18,6 @@ func NewMockShell(shellType string) (*MockShell, error) {
 	return &MockShell{ShellType: shellType}, nil
 }
 
-func (m *MockShell) DetermineShell() string {
-	return m.ShellType
-}
-
 func (m *MockShell) PrintEnvVars(envVars map[string]string) {
 	keys := make([]string, 0, len(envVars))
 	for k := range envVars {

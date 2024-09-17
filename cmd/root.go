@@ -14,6 +14,9 @@ var exitFunc = os.Exit
 // ConfigHandler instance
 var configHandler config.ConfigHandler
 
+// Container instance
+var diContainer *di.Container
+
 // preRunLoadConfig is the function assigned to PersistentPreRunE
 func preRunLoadConfig(cmd *cobra.Command, args []string) error {
 	if configHandler == nil {
@@ -45,7 +48,8 @@ func Execute() {
 
 // Initialize sets the ConfigHandler for dependency injection
 func Initialize(container *di.Container) {
-	if err := container.Resolve("configHandler", &configHandler); err != nil {
+	diContainer = container
+	if err := diContainer.Resolve("configHandler", &configHandler); err != nil {
 		fmt.Fprintln(os.Stderr, "Error resolving configHandler:", err)
 		exitFunc(1)
 	}

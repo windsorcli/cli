@@ -9,14 +9,6 @@ import (
 	"testing"
 )
 
-func TestDefaultShell_DetermineShell_Unix(t *testing.T) {
-	shell := NewDefaultShell()
-	result := shell.DetermineShell()
-	if result != "unix" {
-		t.Errorf("DetermineShell() = %v, want unix", result)
-	}
-}
-
 func TestDefaultShell_PrintEnvVars_Unix(t *testing.T) {
 	shell := NewDefaultShell()
 	envVars := map[string]string{
