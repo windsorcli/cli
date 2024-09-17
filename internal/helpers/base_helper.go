@@ -84,5 +84,5 @@ func (h *BaseHelper) PrintEnvVars() error {
 	return nil
 }
 
-// Ensure BaseHelper implements CLIHelperInterface
+// Ensure BaseHelper implements Helper interface
 var _ Helper = (*BaseHelper)(nil)
