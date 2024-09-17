@@ -9,105 +9,110 @@ import (
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/helpers"
 )
 
-// MockBaseHelper is a mock implementation of the BaseHelper interface
-type MockBaseHelper struct {
-	helpers.Helper
-	GetEnvVarsFunc   func() (map[string]string, error)
-	PrintEnvVarsFunc func() error
-}
-
-func (m *MockBaseHelper) GetEnvVars() (map[string]string, error) {
-	if m.GetEnvVarsFunc != nil {
-		return m.GetEnvVarsFunc()
-	}
-	return nil, nil
-}
-
-func (m *MockBaseHelper) PrintEnvVars() error {
-	if m.PrintEnvVarsFunc != nil {
-		return m.PrintEnvVarsFunc()
-	}
-	return nil
-}
-
-func TestEnvCmd_Success(t *testing.T) {
-	mockBaseHelper := &MockBaseHelper{
-		PrintEnvVarsFunc: func() error {
-			return nil
+func TestEnvCmd(t *testing.T) {
+	tests := []struct {
+		name           string
+		mockGOOS       string
+		mockHandler    *config.MockConfigHandler
+		expectedOutput string
+		expectedError  string
+	}{
+		{
+			name:     "Success_Linux",
+			mockGOOS: "linux",
+			mockHandler: &config.MockConfigHandler{
+				GetConfigValueFunc: func(key string) (string, error) {
+					if key == "context" {
+						return "test-context", nil
+					}
+					return "", errors.New("key not found")
+				},
+			},
+			expectedOutput: "export WINDSORCONTEXT=test-context\n",
+		},
+		{
+			name:     "Success_Windows",
+			mockGOOS: "windows",
+			mockHandler: &config.MockConfigHandler{
+				GetConfigValueFunc: func(key string) (string, error) {
+					if key == "context" {
+						return "test-context", nil
+					}
+					return "", errors.New("key not found")
+				},
+			},
+			expectedOutput: "set WINDSORCONTEXT=test-context\n",
+		},
+		{
+			name:     "GetConfigValueError",
+			mockGOOS: "linux",
+			mockHandler: &config.MockConfigHandler{
+				GetConfigValueFunc: func(key string) (string, error) {
+					return "", errors.New("get config value error")
+				},
+			},
+			expectedError: "get config value error",
 		},
 	}
 
-	container := &di.Container{
-		ConfigHandler: &config.MockConfigHandler{},
-		BaseHelper:    mockBaseHelper,
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configHandler = tt.mockHandler
 
-	Initialize(container)
+			// Mock the OS
+			originalGOOS := goos
+			goos = tt.mockGOOS
+			defer func() { goos = originalGOOS }()
 
-	// Capture stdout
-	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
+			// Capture stdout or stderr
+			var oldOutput *os.File
+			var r, w *os.File
+			if tt.expectedError == "" {
+				oldOutput = os.Stdout
+				r, w, _ = os.Pipe()
+				os.Stdout = w
+			} else {
+				oldOutput = os.Stderr
+				r, w, _ = os.Pipe()
+				os.Stderr = w
+			}
 
-	rootCmd.SetArgs([]string{"env"})
-	err := rootCmd.Execute()
+			// Add the env command
+			rootCmd.AddCommand(envCmd)
+			rootCmd.SetArgs([]string{"env"})
 
-	w.Close()
-	os.Stdout = oldStdout
+			// Execute the command
+			err := rootCmd.Execute()
+			w.Close()
+			var buf bytes.Buffer
+			io.Copy(&buf, r)
+			if tt.expectedError == "" {
+				os.Stdout = oldOutput
+			} else {
+				os.Stderr = oldOutput
+			}
+			actualOutput := buf.String()
 
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
+			if tt.expectedError == "" {
+				if err != nil {
+					t.Fatalf("Execute() error = %v", err)
+				}
+				if actualOutput != tt.expectedOutput {
+					t.Errorf("Expected output '%s', got '%s'", tt.expectedOutput, actualOutput)
+				}
+			} else {
+				if err == nil {
+					t.Fatalf("Expected error, got nil")
+				}
+				if !strings.Contains(actualOutput, tt.expectedError) {
+					t.Errorf("Expected error message to contain '%s', got '%s'", tt.expectedError, actualOutput)
+				}
+			}
 
-	if err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-
-	expectedOutput := "" // Adjust this based on what you expect to be printed
-	actualOutput := buf.String()
-	if actualOutput != expectedOutput {
-		t.Errorf("Expected output '%s', got '%s'", expectedOutput, actualOutput)
-	}
-}
-
-func TestEnvCmd_Error(t *testing.T) {
-	mockBaseHelper := &MockBaseHelper{
-		PrintEnvVarsFunc: func() error {
-			return errors.New("mock error")
-		},
-	}
-
-	container := &di.Container{
-		ConfigHandler: &config.MockConfigHandler{},
-		BaseHelper:    mockBaseHelper,
-	}
-
-	Initialize(container)
-
-	// Capture stderr
-	oldStderr := os.Stderr
-	r, w, _ := os.Pipe()
-	os.Stderr = w
-
-	rootCmd.SetArgs([]string{"env"})
-	err := rootCmd.Execute()
-
-	w.Close()
-	os.Stderr = oldStderr
-
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-
-	if err == nil {
-		t.Fatalf("Expected error, got nil")
-	}
-
-	expectedError := "Error printing environment variables: mock error"
-	actualError := buf.String()
-	if !strings.Contains(actualError, expectedError) {
-		t.Errorf("Expected error message to contain '%s', got '%s'", expectedError, actualError)
+			// Remove the env command after the test
+			rootCmd.RemoveCommand(envCmd)
+		})
 	}
 }

@@ -12,18 +12,14 @@ var initCmd = &cobra.Command{
 	Long:  "Initialize the application by setting up necessary configurations and environment",
 	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if container.ConfigHandler == nil {
-			return fmt.Errorf("ConfigHandler is not initialized")
-		}
-
 		contextName := args[0]
 
 		// Set the context value
-		if err := container.ConfigHandler.SetConfigValue("context", contextName); err != nil {
+		if err := configHandler.SetConfigValue("context", contextName); err != nil {
 			return fmt.Errorf("Error setting config value: %w", err)
 		}
 		// Save configuration
-		if err := container.ConfigHandler.SaveConfig(""); err != nil {
+		if err := configHandler.SaveConfig(""); err != nil {
 			return fmt.Errorf("Error saving config file: %w", err)
 		}
 		fmt.Println("Initialization successful")
