@@ -2,37 +2,51 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-var rootCmd = &cobra.Command{
-	Use:   "cli",
-	Short: "CLI application",
-	Long:  "CLI application for managing Windsor Hotel operations.",
-}
+var exitFunc = os.Exit
 
-var container *di.Container
-
-// Initialize sets up the dependencies for the application
-func Initialize(diContainer *di.Container) {
-	container = diContainer
-}
+// ConfigHandler instance
+var configHandler config.ConfigHandler
 
 // preRunLoadConfig is the function assigned to PersistentPreRunE
 func preRunLoadConfig(cmd *cobra.Command, args []string) error {
-	if container.ConfigHandler == nil {
+	if configHandler == nil {
 		return fmt.Errorf("configHandler is not initialized")
 	}
 	// Load configuration
-	if err := container.ConfigHandler.LoadConfig(""); err != nil {
+	if err := configHandler.LoadConfig(""); err != nil {
 		return fmt.Errorf("Error loading config file: %w", err)
 	}
 	return nil
 }
 
-// Execute runs the root command
-func Execute() error {
-	return rootCmd.Execute()
+// rootCmd represents the base command when called without any subcommands
+var rootCmd = &cobra.Command{
+	Use:               "windsor",
+	Short:             "A command line interface to assist in a context flow development environment",
+	Long:              "A command line interface to assist in a context flow development environment",
+	PersistentPreRunE: preRunLoadConfig,
+}
+
+// Execute adds all child commands to the root command and sets flags appropriately.
+// This is called by main.main(). It only needs to happen once to the rootCmd.
+func Execute() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		exitFunc(1)
+	}
+}
+
+// Initialize sets the ConfigHandler for dependency injection
+func Initialize(container *di.Container) {
+	if err := container.Resolve("configHandler", &configHandler); err != nil {
+		fmt.Fprintln(os.Stderr, "Error resolving configHandler:", err)
+		exitFunc(1)
+	}
 }
