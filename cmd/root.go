@@ -45,8 +45,19 @@ func Execute() {
 
 // Initialize sets the ConfigHandler for dependency injection
 func Initialize(container *di.Container) {
-	if err := container.Resolve("configHandler", &configHandler); err != nil {
+	instance, err := container.Resolve("configHandler")
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error resolving configHandler:", err)
+		exitFunc(1)
+	}
+	if instance == nil {
+		fmt.Fprintln(os.Stderr, "Error: resolved instance is nil")
+		exitFunc(1)
+	}
+	var ok bool
+	configHandler, ok = instance.(config.ConfigHandler)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "Error: resolved instance is not of type config.ConfigHandler")
 		exitFunc(1)
 	}
 }

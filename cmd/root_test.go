@@ -18,9 +18,11 @@ func TestPreRunLoadConfig_Success(t *testing.T) {
 	container := di.NewContainer()
 
 	// Register a mock config handler
-	mockHandler := &config.MockConfigHandler{
-		LoadConfigFunc: func(path string) error { return nil },
-	}
+	mockHandler := config.NewMockConfigHandler(
+		func(path string) error { return nil },
+		func(key string) (string, error) { return "value", nil },
+		nil, nil, nil, nil,
+	)
 	container.Register("configHandler", mockHandler)
 
 	// Initialize the cmd package with the container
@@ -38,9 +40,11 @@ func TestPreRunLoadConfig_Error(t *testing.T) {
 	container := di.NewContainer()
 
 	// Register a mock config handler that returns an error
-	mockHandler := &config.MockConfigHandler{
-		LoadConfigFunc: func(path string) error { return errors.New("config load error") },
-	}
+	mockHandler := config.NewMockConfigHandler(
+		func(path string) error { return errors.New("config load error") },
+		func(key string) (string, error) { return "", errors.New("config load error") },
+		nil, nil, nil, nil,
+	)
 	container.Register("configHandler", mockHandler)
 
 	// Initialize the cmd package with the container
@@ -83,9 +87,11 @@ func TestExecute(t *testing.T) {
 	container := di.NewContainer()
 
 	// Register a mock config handler
-	mockHandler := &config.MockConfigHandler{
-		LoadConfigFunc: func(path string) error { return nil },
-	}
+	mockHandler := config.NewMockConfigHandler(
+		func(path string) error { return nil },
+		func(key string) (string, error) { return "value", nil },
+		nil, nil, nil, nil,
+	)
 	container.Register("configHandler", mockHandler)
 
 	// Initialize the cmd package with the container
@@ -125,9 +131,11 @@ func TestExecute_LoadConfigError(t *testing.T) {
 	container := di.NewContainer()
 
 	// Register a mock config handler that returns an error
-	mockHandler := &config.MockConfigHandler{
-		LoadConfigFunc: func(path string) error { return errors.New("config load error") },
-	}
+	mockHandler := config.NewMockConfigHandler(
+		func(path string) error { return errors.New("config load error") },
+		func(key string) (string, error) { return "", errors.New("config load error") },
+		nil, nil, nil, nil,
+	)
 	container.Register("configHandler", mockHandler)
 
 	// Initialize the cmd package with the container
@@ -171,7 +179,11 @@ func TestInitialize_Success(t *testing.T) {
 	container := di.NewContainer()
 
 	// Register a mock config handler
-	mockHandler := &config.MockConfigHandler{}
+	mockHandler := config.NewMockConfigHandler(
+		func(path string) error { return nil },
+		func(key string) (string, error) { return "value", nil },
+		nil, nil, nil, nil,
+	)
 	container.Register("configHandler", mockHandler)
 
 	// Capture stderr
@@ -237,7 +249,7 @@ func TestInitialize_Error(t *testing.T) {
 	}
 
 	expectedErrorMsg := "Error resolving configHandler: no instance registered with name configHandler\n"
-	if actualErrorMsg != expectedErrorMsg {
-		t.Errorf("Expected error message '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
+	if !strings.Contains(actualErrorMsg, expectedErrorMsg) {
+		t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
 	}
 }

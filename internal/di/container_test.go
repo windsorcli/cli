@@ -21,9 +21,14 @@ func TestRegisterAndResolve_Success(t *testing.T) {
 	mockService := &MockServiceImpl{}
 	container.Register("mockService", mockService)
 
-	var resolvedService MockService
-	if err := container.Resolve("mockService", &resolvedService); err != nil {
+	resolvedInstance, err := container.Resolve("mockService")
+	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
+	}
+
+	resolvedService, ok := resolvedInstance.(MockService)
+	if !ok {
+		t.Fatalf("expected MockService, got %T", resolvedInstance)
 	}
 
 	if resolvedService.DoSomething() != "done" {
@@ -35,8 +40,7 @@ func TestResolve_NoInstanceRegistered(t *testing.T) {
 	// Create a new container for each test
 	container := NewContainer()
 
-	var resolvedService MockService
-	err := container.Resolve("nonExistentService", &resolvedService)
+	_, err := container.Resolve("nonExistentService")
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -54,15 +58,14 @@ func TestResolve_TargetNotPointer(t *testing.T) {
 	mockService := &MockServiceImpl{}
 	container.Register("mockService", mockService)
 
-	var resolvedService MockService
-	err := container.Resolve("mockService", resolvedService) // Passing non-pointer
-	if err == nil {
-		t.Fatalf("expected error, got nil")
+	resolvedInstance, err := container.Resolve("mockService")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
 	}
 
-	expectedError := "target must be a non-nil pointer"
-	if err.Error() != expectedError {
-		t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+	_, ok := resolvedInstance.(MockService)
+	if !ok {
+		t.Fatalf("expected MockService, got %T", resolvedInstance)
 	}
 }
 
@@ -73,15 +76,14 @@ func TestResolve_TargetNilPointer(t *testing.T) {
 	mockService := &MockServiceImpl{}
 	container.Register("mockService", mockService)
 
-	var resolvedService *MockService
-	err := container.Resolve("mockService", resolvedService) // Passing nil pointer
-	if err == nil {
-		t.Fatalf("expected error, got nil")
+	resolvedInstance, err := container.Resolve("mockService")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
 	}
 
-	expectedError := "target must be a non-nil pointer"
-	if err.Error() != expectedError {
-		t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+	_, ok := resolvedInstance.(MockService)
+	if !ok {
+		t.Fatalf("expected MockService, got %T", resolvedInstance)
 	}
 }
 
@@ -92,14 +94,13 @@ func TestResolve_TypeMismatch(t *testing.T) {
 	mockService := &MockServiceImpl{}
 	container.Register("mockService", mockService)
 
-	var resolvedService string
-	err := container.Resolve("mockService", &resolvedService) // Type mismatch
-	if err == nil {
-		t.Fatalf("expected error, got nil")
+	resolvedInstance, err := container.Resolve("mockService")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
 	}
 
-	expectedError := "cannot assign instance of type *di.MockServiceImpl to target of type string"
-	if err.Error() != expectedError {
-		t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+	_, ok := resolvedInstance.(string)
+	if ok {
+		t.Fatalf("expected type mismatch error, got %T", resolvedInstance)
 	}
 }
