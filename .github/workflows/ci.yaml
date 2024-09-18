@@ -41,6 +41,7 @@ jobs:
       # Non-Windows specific steps
       - name: Generate hash of .tool-versions
         if: runner.os != 'Windows'
+        id: generate_hash
         run: echo "hash=$(sha256sum .tool-versions | cut -d ' ' -f 1)" >> $GITHUB_ENV
 
       - name: Cache asdf tools
@@ -48,7 +49,7 @@ jobs:
         uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
         with:
           path: ~/.asdf
-          key: ${{ runner.os }}-asdf-${{ env.hash }}
+          key: ${{ runner.os }}-asdf-${{ steps.generate_hash.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-asdf-
 

@@ -7,6 +7,14 @@
           "request": "launch",
           "mode": "auto",
           "program": "${fileDirname}"
+      },
+      {
+          "name": "Windsor Env",
+          "type": "go",
+          "request": "launch",
+          "mode": "auto",
+          "program": "${workspaceFolder}/main.go",
+          "args": ["env"]
       }
   ]
 }

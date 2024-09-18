@@ -11,6 +11,11 @@ import (
 // ViperConfigHandler implements the ConfigHandler interface using Viper
 type ViperConfigHandler struct{}
 
+// NewViperConfigHandler is a constructor for ViperConfigHandler
+func NewViperConfigHandler() *ViperConfigHandler {
+	return &ViperConfigHandler{}
+}
+
 // osUserHomeDir is a variable to allow mocking os.UserHomeDir in tests
 var osUserHomeDir = os.UserHomeDir
 
@@ -95,7 +100,6 @@ func (v *ViperConfigHandler) SaveConfig(path string) error {
 		}
 	}
 
-	fmt.Printf("Saving config to path: %s\n", path)
 	if err := createParentDirs(path); err != nil {
 		fmt.Printf("Error creating parent directories: %v\n", err)
 		return err
@@ -106,7 +110,6 @@ func (v *ViperConfigHandler) SaveConfig(path string) error {
 		return fmt.Errorf("error writing config to path %s, %w", path, err)
 	}
 
-	fmt.Println("Config saved successfully")
 	return nil
 }
 

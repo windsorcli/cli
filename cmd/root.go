@@ -9,13 +9,13 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-var exitFunc = os.Exit
+var (
+	exitFunc  = os.Exit
+	container di.ContainerInterface
+)
 
 // ConfigHandler instance
 var configHandler config.ConfigHandler
-
-// Container instance
-var diContainer *di.Container
 
 // preRunLoadConfig is the function assigned to PersistentPreRunE
 func preRunLoadConfig(cmd *cobra.Command, args []string) error {
@@ -47,10 +47,22 @@ func Execute() {
 }
 
 // Initialize sets the ConfigHandler for dependency injection
-func Initialize(container *di.Container) {
-	diContainer = container
-	if err := diContainer.Resolve("configHandler", &configHandler); err != nil {
+func Initialize(cont di.ContainerInterface) {
+	container = cont
+
+	instance, err := container.Resolve("configHandler")
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error resolving configHandler:", err)
+		exitFunc(1)
+	}
+	if instance == nil {
+		fmt.Fprintln(os.Stderr, "Error: resolved instance is nil")
+		exitFunc(1)
+	}
+	var ok bool
+	configHandler, ok = instance.(config.ConfigHandler)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "Error: resolved instance is not of type config.ConfigHandler")
 		exitFunc(1)
 	}
 }

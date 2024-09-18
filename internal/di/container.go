@@ -6,48 +6,71 @@ import (
 	"sync"
 )
 
-// Container holds instances registered with the DI container.
-type Container struct {
+// ContainerInterface defines the methods for the DI container
+type ContainerInterface interface {
+	Register(name string, instance interface{})
+	Resolve(name string) (interface{}, error)
+	ResolveAll(targetType interface{}) ([]interface{}, error)
+}
+
+// RealContainer holds instances registered with the DI container.
+type RealContainer struct {
 	mu        sync.RWMutex
 	container map[string]interface{}
 }
 
 // NewContainer creates a new DI container.
-func NewContainer() *Container {
-	return &Container{
+func NewContainer() *RealContainer {
+	return &RealContainer{
 		container: make(map[string]interface{}),
 	}
 }
 
 // Register registers an instance with the DI container.
-func (c *Container) Register(name string, instance interface{}) {
+func (c *RealContainer) Register(name string, instance interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.container[name] = instance
 }
 
 // Resolve resolves an instance from the DI container.
-func (c *Container) Resolve(name string, target interface{}) error {
+func (c *RealContainer) Resolve(name string) (interface{}, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	instance, found := c.container[name]
 	if !found {
-		return errors.New("no instance registered with name " + name)
+		return nil, errors.New("no instance registered with name " + name)
 	}
 
-	// Type assertion to ensure the target is of the correct type
-	targetValue := reflect.ValueOf(target)
-	if targetValue.Kind() != reflect.Ptr || targetValue.IsNil() {
-		return errors.New("target must be a non-nil pointer")
+	return instance, nil
+}
+
+// ResolveAll resolves all instances that match the given interface.
+func (c *RealContainer) ResolveAll(targetType interface{}) ([]interface{}, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var results []interface{}
+	targetTypeValue := reflect.TypeOf(targetType)
+	if targetTypeValue.Kind() != reflect.Ptr || targetTypeValue.Elem().Kind() != reflect.Interface {
+		return nil, errors.New("targetType must be a pointer to an interface")
+	}
+	targetTypeValue = targetTypeValue.Elem()
+
+	for _, instance := range c.container {
+		if instance == nil {
+			continue
+		}
+		instanceType := reflect.TypeOf(instance)
+		if instanceType.Implements(targetTypeValue) {
+			results = append(results, instance)
+		}
 	}
 
-	targetElem := targetValue.Elem()
-	instanceValue := reflect.ValueOf(instance)
-	if !instanceValue.Type().AssignableTo(targetElem.Type()) {
-		return errors.New("cannot assign instance of type " + instanceValue.Type().String() + " to target of type " + targetElem.Type().String())
+	if len(results) == 0 {
+		return nil, errors.New("no instances found for the given type")
 	}
 
-	targetElem.Set(instanceValue)
-	return nil
+	return results, nil
 }
