@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 
@@ -44,8 +45,13 @@ func (m *MockShell) PrintEnvVars(envVars map[string]string) {
 	if m.PrintEnvVarsFunc != nil {
 		m.PrintEnvVarsFunc(envVars)
 	} else {
-		for key, value := range envVars {
-			fmt.Fprintf(m.output, "export %s=\"%s\"\n", key, value)
+		keys := make([]string, 0, len(envVars))
+		for key := range envVars {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			fmt.Fprintf(m.output, "export %s=\"%s\"\n", key, envVars[key])
 		}
 	}
 }
