@@ -2,6 +2,7 @@ package shell
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -78,5 +79,53 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 		if output.String() != tt.wantOutput {
 			t.Errorf("PrintEnvVars() output = %v, want %v", output.String(), tt.wantOutput)
 		}
+	}
+}
+
+func TestMockShell_GetProjectRoot(t *testing.T) {
+	tests := []struct {
+		name               string
+		getProjectRootFunc func() (string, error)
+		want               string
+		wantErr            bool
+	}{
+		{
+			name: "successful project root retrieval",
+			getProjectRootFunc: func() (string, error) {
+				return "/mock/project/root", nil
+			},
+			want:    "/mock/project/root",
+			wantErr: false,
+		},
+		{
+			name: "error in project root retrieval",
+			getProjectRootFunc: func() (string, error) {
+				return "", errors.New("failed to get project root")
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name:               "GetProjectRootFunc not implemented",
+			getProjectRootFunc: nil,
+			want:               "",
+			wantErr:            true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockShell := &MockShell{
+				GetProjectRootFunc: tt.getProjectRootFunc,
+			}
+			got, err := mockShell.GetProjectRoot()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetProjectRoot() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("GetProjectRoot() got = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

@@ -16,6 +16,10 @@ func (d *DefaultShell) PrintEnvVars(envVars map[string]string) {
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		fmt.Printf("export %s=\"%s\"\n", k, envVars[k])
+		if envVars[k] == "" {
+			fmt.Printf("unset %s\n", k)
+		} else {
+			fmt.Printf("export %s=\"%s\"\n", k, envVars[k])
+		}
 	}
 }

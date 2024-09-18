@@ -14,11 +14,12 @@ func main() {
 
 	// Register dependencies
 	configHandler := config.NewViperConfigHandler()
+	shellInstance := shell.NewDefaultShell()
 	container.Register("configHandler", configHandler)
+	container.Register("shell", shellInstance)
 
 	// Create and register the BaseHelper instance
-	container.Register("baseHelper", helpers.NewBaseHelper(configHandler))
-	container.Register("shell", shell.NewDefaultShell())
+	container.Register("baseHelper", helpers.NewBaseHelper(configHandler, shellInstance))
 
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)

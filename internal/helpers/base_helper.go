@@ -5,14 +5,19 @@ import (
 	"strings"
 
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 type BaseHelper struct {
 	ConfigHandler config.ConfigHandler
+	Shell         shell.Shell
 }
 
-func NewBaseHelper(configHandler config.ConfigHandler) *BaseHelper {
-	return &BaseHelper{ConfigHandler: configHandler}
+func NewBaseHelper(configHandler config.ConfigHandler, shell shell.Shell) *BaseHelper {
+	return &BaseHelper{
+		ConfigHandler: configHandler,
+		Shell:         shell,
+	}
 }
 
 func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
@@ -35,8 +40,15 @@ func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	// Add WINDSORCONTEXT to the environment variables
-	stringEnvVars["WINDSORCONTEXT"] = context
+	// Add WINDSOR_CONTEXT to the environment variables
+	stringEnvVars["WINDSOR_CONTEXT"] = context
+
+	// Get the project root and add WINDSOR_PROJECT_ROOT to the environment variables
+	projectRoot, err := h.Shell.GetProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving project root: %w", err)
+	}
+	stringEnvVars["WINDSOR_PROJECT_ROOT"] = projectRoot
 
 	return stringEnvVars, nil
 }

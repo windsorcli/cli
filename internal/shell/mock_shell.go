@@ -7,8 +7,9 @@ import (
 )
 
 type MockShell struct {
-	ShellType      string
-	PrintEnvVarsFn func(envVars map[string]string)
+	ShellType          string
+	PrintEnvVarsFn     func(envVars map[string]string)
+	GetProjectRootFunc func() (string, error)
 }
 
 func NewMockShell(shellType string) (*MockShell, error) {
@@ -28,4 +29,11 @@ func (m *MockShell) PrintEnvVars(envVars map[string]string) {
 	for _, k := range keys {
 		fmt.Printf("%s=%s\n", k, envVars[k])
 	}
+}
+
+func (m *MockShell) GetProjectRoot() (string, error) {
+	if m.GetProjectRootFunc != nil {
+		return m.GetProjectRootFunc()
+	}
+	return "", errors.New("GetProjectRootFunc not implemented")
 }
