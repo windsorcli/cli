@@ -43,7 +43,6 @@ func createParentDirs(path string) error {
 	return nil
 }
 
-// LoadConfig loads the configuration from the specified path
 func (v *ViperConfigHandler) LoadConfig(path string) error {
 	if path == "" {
 		path = viperGetString("WINDSORCONFIG")
@@ -56,11 +55,22 @@ func (v *ViperConfigHandler) LoadConfig(path string) error {
 		}
 	}
 
+	return v.loadConfig(path)
+}
+
+// loadConfig loads the configuration from the specified path
+func (v *ViperConfigHandler) loadConfig(input string) error {
+	var path string
+
+	// Check if the input is an environment variable name or a path
+	if envPath := os.Getenv(input); envPath != "" {
+		path = envPath
+	} else {
+		path = input
+	}
+
 	viper.SetConfigFile(path)
 	viper.SetConfigType("yaml")
-
-	// Provide some default configuration values
-	viper.SetDefault("context", "default")
 
 	// Ensure parent directories exist
 	if err := createParentDirs(path); err != nil {

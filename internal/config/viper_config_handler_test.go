@@ -483,3 +483,32 @@ func TestNewViperConfigHandler(t *testing.T) {
 		t.Errorf("expected NewViperConfigHandler to return a non-nil instance")
 	}
 }
+
+func TestViperConfigHandler_LoadConfig_EnvVar(t *testing.T) {
+	handler := &ViperConfigHandler{}
+
+	// Create a temporary directory for the test
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	// Set the environment variable to point to the config path
+	envVarName := "TEST_CONFIG_PATH"
+	os.Setenv(envVarName, configPath)
+	defer os.Unsetenv(envVarName)
+
+	// Ensure the config file does not exist
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("Config file already exists at %s", configPath)
+	}
+
+	// Load the configuration using the environment variable name
+	err := handler.LoadConfig(envVarName)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v, expected nil", err)
+	}
+
+	// Verify that the config file was created
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatalf("Config file was not created at %s", configPath)
+	}
+}
