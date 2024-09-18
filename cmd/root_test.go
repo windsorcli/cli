@@ -22,7 +22,7 @@ func TestPreRunLoadConfig_Success(t *testing.T) {
 		func(key string) (string, error) { return "value", nil },
 		nil, nil, nil, nil,
 	)
-	container.Register("configHandler", mockHandler)
+	container.Register("cliConfigHandler", mockHandler)
 
 	// Initialize the cmd package with the container
 	Initialize(container)
@@ -65,7 +65,7 @@ func TestExecute(t *testing.T) {
 		func(key string) (string, error) { return "value", nil },
 		nil, nil, nil, nil,
 	)
-	container.Register("configHandler", mockHandler)
+	container.Register("cliConfigHandler", mockHandler)
 
 	// Initialize the cmd package with the container
 	Initialize(container)
@@ -103,7 +103,7 @@ func TestInitialize_Success(t *testing.T) {
 		func(key string) (string, error) { return "value", nil },
 		nil, nil, nil, nil,
 	)
-	container.Register("configHandler", mockHandler)
+	container.Register("cliConfigHandler", mockHandler)
 
 	// Capture stderr
 	oldStderr := os.Stderr
@@ -167,7 +167,7 @@ func TestInitialize_Error(t *testing.T) {
 		t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
 	}
 
-	expectedErrorMsg := "Error resolving configHandler: no instance registered with name configHandler\n"
+	expectedErrorMsg := "Error resolving configHandler: no instance registered with name cliConfigHandler\n"
 	if !strings.Contains(actualErrorMsg, expectedErrorMsg) {
 		t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
 	}

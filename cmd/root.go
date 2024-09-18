@@ -48,7 +48,7 @@ func Execute() {
 func Initialize(cont di.ContainerInterface) {
 	container = cont
 
-	instance, err := container.Resolve("configHandler")
+	instance, err := container.Resolve("cliConfigHandler")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error resolving configHandler:", err)
 		exitFunc(1)

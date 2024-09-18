@@ -14,7 +14,9 @@ type ViperConfigHandler struct{}
 // NewViperConfigHandler is a constructor for ViperConfigHandler that accepts a path
 func NewViperConfigHandler(path string) *ViperConfigHandler {
 	handler := &ViperConfigHandler{}
-	handler.LoadConfig(path)
+	if path != "" {
+		handler.LoadConfig(path)
+	}
 	return handler
 }
 

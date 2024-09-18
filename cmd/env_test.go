@@ -68,7 +68,7 @@ func setupTestEnvCmd(mockHandler config.ConfigHandler, mockHelpers []interface{}
 	}
 
 	// Register the mock config handler
-	container.Register("configHandler", mockHandler)
+	container.Register("cliConfigHandler", mockHandler)
 
 	// Register the mock helpers
 	for i, helper := range mockHelpers {
@@ -232,7 +232,7 @@ func TestEnvCmd_ResolveShellError(t *testing.T) {
 		RealContainer:   *di.NewContainer(),
 		resolveAllError: nil,
 	}
-	container.Register("configHandler", mockHandler)
+	container.Register("cliConfigHandler", mockHandler)
 	for i, helper := range mockHelpers {
 		container.Register(fmt.Sprintf("mockHelper%d", i), helper)
 	}
