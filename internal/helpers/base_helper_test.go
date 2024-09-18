@@ -199,7 +199,9 @@ func TestBaseHelper_GetEnvVars_GetNestedMapError(t *testing.T) {
 	)
 	baseHelper := NewBaseHelper(mockConfigHandler)
 
-	expectedResult := map[string]string{}
+	expectedResult := map[string]string{
+		"WINDSORCONTEXT": "test-context",
+	}
 
 	result, err := baseHelper.GetEnvVars()
 	if err != nil {

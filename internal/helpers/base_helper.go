@@ -23,7 +23,7 @@ func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
 
 	envVars, err := h.ConfigHandler.GetNestedMap(fmt.Sprintf("contexts.%s.environment", context))
 	if err != nil {
-		return map[string]string{}, nil
+		envVars = make(map[string]interface{})
 	}
 
 	stringEnvVars := make(map[string]string)
