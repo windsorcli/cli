@@ -421,7 +421,9 @@ func TestViperConfigHandler_ListKeys(t *testing.T) {
 }
 
 func TestNewViperConfigHandler(t *testing.T) {
-	handler := NewViperConfigHandler()
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	handler := NewViperConfigHandler(configPath)
 	if handler == nil {
 		t.Errorf("expected NewViperConfigHandler to return a non-nil instance")
 	}

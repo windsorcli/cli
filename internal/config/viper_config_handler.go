@@ -11,9 +11,11 @@ import (
 // ViperConfigHandler implements the ConfigHandler interface using Viper
 type ViperConfigHandler struct{}
 
-// NewViperConfigHandler is a constructor for ViperConfigHandler
-func NewViperConfigHandler() *ViperConfigHandler {
-	return &ViperConfigHandler{}
+// NewViperConfigHandler is a constructor for ViperConfigHandler that accepts a path
+func NewViperConfigHandler(path string) *ViperConfigHandler {
+	handler := &ViperConfigHandler{}
+	handler.LoadConfig(path)
+	return handler
 }
 
 // osUserHomeDir is a variable to allow mocking os.UserHomeDir in tests

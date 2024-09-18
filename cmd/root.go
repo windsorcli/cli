@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
@@ -25,19 +24,6 @@ func preRunLoadConfig(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("configHandler is not initialized")
 	}
 
-	// Load configuration
-	var path = os.Getenv("WINDSORCONFIG")
-	if path == "" {
-		home, err := osUserHomeDir()
-		if err != nil {
-			return fmt.Errorf("error finding home directory, %s", err)
-		}
-		path = filepath.Join(home, ".config", "windsor", "config.yaml")
-	}
-
-	if err := configHandler.LoadConfig(path); err != nil {
-		return fmt.Errorf("Error loading config file: %w", err)
-	}
 	return nil
 }
 
