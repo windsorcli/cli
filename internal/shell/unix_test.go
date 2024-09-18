@@ -15,8 +15,9 @@ func TestDefaultShell_PrintEnvVars_Unix(t *testing.T) {
 	envVars := map[string]string{
 		"VAR2": "value2",
 		"VAR1": "value1",
+		"VAR3": "",
 	}
-	expectedOutput := "export VAR1=\"value1\"\nexport VAR2=\"value2\"\n"
+	expectedOutput := "export VAR1=\"value1\"\nexport VAR2=\"value2\"\nunset VAR3\n"
 
 	// Capture the output
 	var output bytes.Buffer
