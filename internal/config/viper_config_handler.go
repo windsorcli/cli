@@ -45,12 +45,8 @@ func createParentDirs(path string) error {
 	return nil
 }
 
-func (v *ViperConfigHandler) LoadConfig(path string) error {
-	return v.loadConfig(path)
-}
-
 // loadConfig loads the configuration from the specified path
-func (v *ViperConfigHandler) loadConfig(input string) error {
+func (v *ViperConfigHandler) LoadConfig(input string) error {
 	var path string
 
 	// Check if the input is an environment variable name or a path
