@@ -56,6 +56,10 @@ func (m *MockShell) PrintEnvVars(envVars map[string]string) {
 	}
 }
 
+func (m *MockShell) GetProjectRoot() (string, error) {
+	return "", nil
+}
+
 func setupTestEnvCmd(mockHandler config.ConfigHandler, mockHelpers []interface{}, resolveAllError error) (*MockContainer, func() (string, error)) {
 	// Create a new mock DI container
 	container := &MockContainer{
