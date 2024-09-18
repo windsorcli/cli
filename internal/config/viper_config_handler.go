@@ -44,17 +44,6 @@ func createParentDirs(path string) error {
 }
 
 func (v *ViperConfigHandler) LoadConfig(path string) error {
-	if path == "" {
-		path = viperGetString("WINDSORCONFIG")
-		if path == "" {
-			home, err := osUserHomeDir()
-			if err != nil {
-				return fmt.Errorf("error finding home directory, %s", err)
-			}
-			path = filepath.Join(home, ".config", "windsor", "config.yaml")
-		}
-	}
-
 	return v.loadConfig(path)
 }
 

@@ -253,3 +253,37 @@ func TestInitialize_Error(t *testing.T) {
 		t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
 	}
 }
+
+func TestPreRunLoadConfig_HomeDirError(t *testing.T) {
+	// Create a new container for each test
+	container := di.NewContainer()
+
+	// Register a mock config handler
+	mockHandler := config.NewMockConfigHandler(
+		func(path string) error { return nil },
+		func(key string) (string, error) { return "value", nil },
+		nil, nil, nil, nil,
+	)
+	container.Register("configHandler", mockHandler)
+
+	// Initialize the cmd package with the container
+	Initialize(container)
+
+	// Mock osUserHomeDir to return an error
+	originalOsUserHomeDir := osUserHomeDir
+	osUserHomeDir = func() (string, error) {
+		return "", errors.New("mock home dir error")
+	}
+	defer func() { osUserHomeDir = originalOsUserHomeDir }()
+
+	// Execute the preRunLoadConfig function
+	err := preRunLoadConfig(nil, nil)
+	if err == nil {
+		t.Fatalf("preRunLoadConfig() expected error, got nil")
+	}
+
+	expectedError := "error finding home directory, mock home dir error"
+	if err.Error() != expectedError {
+		t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
+	}
+}

@@ -114,63 +114,6 @@ func TestViperConfigHandler_LoadConfig_CreateConfigFileError(t *testing.T) {
 	}
 }
 
-func TestViperConfigHandler_LoadConfig_EmptyPath(t *testing.T) {
-	handler := &ViperConfigHandler{}
-
-	// Mock os.UserHomeDir to return the temporary directory
-	originalUserHomeDir := osUserHomeDir
-	defer func() { osUserHomeDir = originalUserHomeDir }()
-	osUserHomeDir = func() (string, error) {
-		return tempDir, nil
-	}
-
-	// Mock viper.GetString to return an empty string
-	originalViperGetString := viperGetString
-	defer func() { viperGetString = originalViperGetString }()
-	viperGetString = func(key string) string {
-		return ""
-	}
-
-	// Test when WINDSORCONFIG is not set and os.UserHomeDir() succeeds
-	expectedPath := filepath.Join(tempDir, ".config", "windsor", "config.yaml")
-
-	// Create the expected config file
-	os.MkdirAll(filepath.Dir(expectedPath), 0755)
-	os.WriteFile(expectedPath, []byte("testKey: testValue\n"), 0644)
-
-	err := handler.LoadConfig("")
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v, expected nil", err)
-	}
-
-	if viper.ConfigFileUsed() != expectedPath {
-		t.Errorf("LoadConfig() used config file = %v, expected %v", viper.ConfigFileUsed(), expectedPath)
-	}
-}
-
-func TestViperConfigHandler_LoadConfig_EmptyPath_HomeDirError(t *testing.T) {
-	handler := &ViperConfigHandler{}
-
-	// Mock os.UserHomeDir to return an error
-	originalUserHomeDir := osUserHomeDir
-	defer func() { osUserHomeDir = originalUserHomeDir }()
-	osUserHomeDir = func() (string, error) {
-		return "", fmt.Errorf("mock error")
-	}
-
-	// Mock viper.GetString to return an empty string
-	originalViperGetString := viperGetString
-	defer func() { viperGetString = originalViperGetString }()
-	viperGetString = func(key string) string {
-		return ""
-	}
-
-	err := handler.LoadConfig("")
-	if err == nil || err.Error() != "error finding home directory, mock error" {
-		t.Fatalf("LoadConfig() error = %v, expected 'error finding home directory, mock error'", err)
-	}
-}
-
 func TestViperConfigHandler_GetConfigValue(t *testing.T) {
 	v := &ViperConfigHandler{}
 	viper.Set("testKey", "testValue")

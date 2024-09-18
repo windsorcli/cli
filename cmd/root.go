@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
@@ -10,8 +11,9 @@ import (
 )
 
 var (
-	exitFunc  = os.Exit
-	container di.ContainerInterface
+	exitFunc      = os.Exit
+	osUserHomeDir = os.UserHomeDir
+	container     di.ContainerInterface
 )
 
 // ConfigHandler instance
@@ -22,8 +24,18 @@ func preRunLoadConfig(cmd *cobra.Command, args []string) error {
 	if configHandler == nil {
 		return fmt.Errorf("configHandler is not initialized")
 	}
+
 	// Load configuration
-	if err := configHandler.LoadConfig(""); err != nil {
+	var path = os.Getenv("WINDSORCONFIG")
+	if path == "" {
+		home, err := osUserHomeDir()
+		if err != nil {
+			return fmt.Errorf("error finding home directory, %s", err)
+		}
+		path = filepath.Join(home, ".config", "windsor", "config.yaml")
+	}
+
+	if err := configHandler.LoadConfig(path); err != nil {
 		return fmt.Errorf("Error loading config file: %w", err)
 	}
 	return nil
@@ -46,7 +58,7 @@ func Execute() {
 	}
 }
 
-// Initialize sets the ConfigHandler for dependency injection
+// Initialize sets dependency injection container
 func Initialize(cont di.ContainerInterface) {
 	container = cont
 
