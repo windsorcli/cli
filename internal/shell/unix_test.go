@@ -4,118 +4,81 @@
 package shell
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestDefaultShell_PrintEnvVars_Unix(t *testing.T) {
-	shell := NewDefaultShell()
-	envVars := map[string]string{
-		"VAR2": "value2",
-		"VAR1": "value1",
-		"VAR3": "",
-	}
-	expectedOutput := "export VAR1=\"value1\"\nexport VAR2=\"value2\"\nunset VAR3\n"
+	t.Run("PrintEnvVars", func(t *testing.T) {
+		// Given a set of environment variables
+		shell := NewDefaultShell()
+		envVars := map[string]string{
+			"VAR2": "value2",
+			"VAR1": "value1",
+			"VAR3": "",
+		}
+		expectedOutput := "export VAR1=\"value1\"\nexport VAR2=\"value2\"\nunset VAR3\n"
 
-	// Capture the output
-	var output bytes.Buffer
-	originalStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
+		// When capturing the output of PrintEnvVars
+		output := captureStdout(t, func() {
+			shell.PrintEnvVars(envVars)
+		})
 
-	go func() {
-		shell.PrintEnvVars(envVars)
-		w.Close()
-	}()
-
-	output.ReadFrom(r)
-	os.Stdout = originalStdout
-
-	if output.String() != expectedOutput {
-		t.Errorf("PrintEnvVars() output = %v, want %v", output.String(), expectedOutput)
-	}
+		// Then the output should match the expected output
+		if output != expectedOutput {
+			t.Errorf("PrintEnvVars() output = %v, want %v", output, expectedOutput)
+		}
+	})
 }
 
-func TestGetProjectRoot_WindsorYaml_Unix(t *testing.T) {
-	// Create a temporary directory structure
-	rootDir := createTempDir(t, "project-root")
-	defer os.RemoveAll(rootDir)
-
-	subDir := filepath.Join(rootDir, "subdir")
-	if err := os.Mkdir(subDir, 0755); err != nil {
-		t.Fatalf("Failed to create subdir: %v", err)
+func TestGetProjectRoot_WindsorFiles_Unix(t *testing.T) {
+	testCases := []struct {
+		name     string
+		fileName string
+	}{
+		{"WindsorYaml", "windsor.yaml"},
+		{"WindsorYml", "windsor.yml"},
 	}
 
-	// Create windsor.yaml in the root directory
-	createFile(t, rootDir, "windsor.yaml")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Given a temporary directory structure with the specified file
+			rootDir := createTempDir(t, "project-root")
+			defer os.RemoveAll(rootDir)
 
-	// Change working directory to subDir
-	if err := os.Chdir(subDir); err != nil {
-		t.Fatalf("Failed to change directory: %v", err)
-	}
+			subDir := filepath.Join(rootDir, "subdir")
+			if err := os.Mkdir(subDir, 0755); err != nil {
+				t.Fatalf("Failed to create subdir: %v", err)
+			}
 
-	shell := NewDefaultShell()
+			// When creating the specified file in the root directory
+			createFile(t, rootDir, tc.fileName)
 
-	// Test finding the project root using windsor.yaml
-	projectRoot, err := shell.GetProjectRoot()
-	if err != nil {
-		t.Fatalf("GetProjectRoot returned an error: %v", err)
-	}
+			// And changing the working directory to subDir
+			changeDir(t, subDir)
 
-	// Resolve symlinks to handle macOS /private prefix
-	expectedRootDir, err := filepath.EvalSymlinks(rootDir)
-	if err != nil {
-		t.Fatalf("Failed to evaluate symlinks for rootDir: %v", err)
-	}
+			shell := NewDefaultShell()
 
-	// Normalize paths for comparison
-	expectedRootDir = normalizePath(expectedRootDir)
-	projectRoot = normalizePath(projectRoot)
+			// Then GetProjectRoot should find the project root using the specified file
+			projectRoot, err := shell.GetProjectRoot()
+			if err != nil {
+				t.Fatalf("GetProjectRoot returned an error: %v", err)
+			}
 
-	if projectRoot != expectedRootDir {
-		t.Errorf("Expected project root to be %s, got %s", expectedRootDir, projectRoot)
-	}
-}
+			// Resolve symlinks to handle macOS /private prefix
+			expectedRootDir, err := filepath.EvalSymlinks(rootDir)
+			if err != nil {
+				t.Fatalf("Failed to evaluate symlinks for rootDir: %v", err)
+			}
 
-func TestGetProjectRoot_WindsorYml_Unix(t *testing.T) {
-	// Create a temporary directory structure
-	rootDir := createTempDir(t, "project-root")
-	defer os.RemoveAll(rootDir)
+			// Normalize paths for comparison
+			expectedRootDir = normalizePath(expectedRootDir)
+			projectRoot = normalizePath(projectRoot)
 
-	subDir := filepath.Join(rootDir, "subdir")
-	if err := os.Mkdir(subDir, 0755); err != nil {
-		t.Fatalf("Failed to create subdir: %v", err)
-	}
-
-	// Create windsor.yml in the root directory
-	createFile(t, rootDir, "windsor.yml")
-
-	// Change working directory to subDir
-	if err := os.Chdir(subDir); err != nil {
-		t.Fatalf("Failed to change directory: %v", err)
-	}
-
-	shell := NewDefaultShell()
-
-	// Test finding the project root using windsor.yml
-	projectRoot, err := shell.GetProjectRoot()
-	if err != nil {
-		t.Fatalf("GetProjectRoot returned an error: %v", err)
-	}
-
-	// Resolve symlinks to handle macOS /private prefix
-	expectedRootDir, err := filepath.EvalSymlinks(rootDir)
-	if err != nil {
-		t.Fatalf("Failed to evaluate symlinks for rootDir: %v", err)
-	}
-
-	// Normalize paths for comparison
-	expectedRootDir = normalizePath(expectedRootDir)
-	projectRoot = normalizePath(projectRoot)
-
-	if projectRoot != expectedRootDir {
-		t.Errorf("Expected project root to be %s, got %s", expectedRootDir, projectRoot)
+			if projectRoot != expectedRootDir {
+				t.Errorf("Expected project root to be %s, got %s", expectedRootDir, projectRoot)
+			}
+		})
 	}
 }

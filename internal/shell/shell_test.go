@@ -1,7 +1,9 @@
 package shell
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,25 +11,32 @@ import (
 	"testing"
 )
 
+var tempDirs []string
+
 // Helper function to create a temporary directory
 func createTempDir(t *testing.T, name string) string {
 	dir, err := os.MkdirTemp("", name)
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Errorf("Failed to remove temp dir: %v", err)
-		}
-	})
+	tempDirs = append(tempDirs, dir)
 	return dir
 }
 
 // Helper function to change the working directory
 func changeDir(t *testing.T, dir string) {
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Failed to change directory: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalDir); err != nil {
+			t.Fatalf("Failed to revert to original directory: %v", err)
+		}
+	})
 }
 
 // Helper function to create a file
@@ -50,6 +59,34 @@ func initGitRepo(t *testing.T, dir string) {
 // Helper function to normalize a path
 func normalizePath(path string) string {
 	return strings.ReplaceAll(filepath.Clean(path), "\\", "/")
+}
+
+// Helper function to capture stdout
+func captureStdout(t *testing.T, f func()) string {
+	var output bytes.Buffer
+	originalStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f()
+		w.Close()
+	}()
+
+	_, err := output.ReadFrom(r)
+	if err != nil {
+		t.Fatalf("Failed to read from pipe: %v", err)
+	}
+	<-done
+	os.Stdout = originalStdout
+	return output.String()
+}
+
+// Mock execCommand to simulate git command failure
+func mockCommand(name string, arg ...string) *exec.Cmd {
+	return exec.Command("false")
 }
 
 func TestGetProjectRoot(t *testing.T) {
@@ -201,9 +238,15 @@ func TestGetProjectRoot(t *testing.T) {
 		// Given that getwd is overridden to simulate an error
 		originalGetwd := getwd
 		getwd = func() (string, error) {
+			fmt.Println("getwd overridden")
 			return "", errors.New("simulated error")
 		}
 		defer func() { getwd = originalGetwd }() // Restore original getwd after test
+
+		// Override execCommand to simulate git command failure
+		originalExecCommand := execCommand
+		execCommand = mockCommand
+		defer func() { execCommand = originalExecCommand }() // Restore original execCommand after test
 
 		shell := NewDefaultShell()
 
@@ -211,6 +254,19 @@ func TestGetProjectRoot(t *testing.T) {
 		_, err := shell.GetProjectRoot()
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
+		} else {
+			fmt.Printf("GetProjectRoot returned error: %v\n", err)
 		}
 	})
+}
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	// Cleanup all temporary directories at the end
+	for _, dir := range tempDirs {
+		if err := os.RemoveAll(dir); err != nil {
+			fmt.Printf("Failed to remove temp dir %s: %v\n", dir, err)
+		}
+	}
+	os.Exit(code)
 }
