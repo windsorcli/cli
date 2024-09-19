@@ -17,7 +17,7 @@ import (
 
 // MockContainer is a mock implementation of the DI container
 type MockContainer struct {
-	di.RealContainer
+	di.DIContainer
 	resolveAllError error
 }
 
@@ -25,11 +25,11 @@ func (m *MockContainer) ResolveAll(targetType interface{}) ([]interface{}, error
 	if m.resolveAllError != nil {
 		return nil, m.resolveAllError
 	}
-	return m.RealContainer.ResolveAll(targetType)
+	return m.DIContainer.ResolveAll(targetType)
 }
 
 func (m *MockContainer) Resolve(name string) (interface{}, error) {
-	instance, err := m.RealContainer.Resolve(name)
+	instance, err := m.DIContainer.Resolve(name)
 	if err != nil {
 		return nil, fmt.Errorf("no instance registered with name %s", name)
 	}
@@ -63,7 +63,7 @@ func (m *MockShell) GetProjectRoot() (string, error) {
 func setupTestEnvCmd(mockHandler config.ConfigHandler, mockHelpers []interface{}, resolveAllError error) (*MockContainer, func() (string, error)) {
 	// Create a new mock DI container
 	container := &MockContainer{
-		RealContainer:   *di.NewContainer(),
+		DIContainer:     *di.NewContainer(),
 		resolveAllError: resolveAllError,
 	}
 
@@ -229,7 +229,7 @@ func TestEnvCmd_ResolveShellError(t *testing.T) {
 
 	// Create a new mock DI container with an error for resolving the shell
 	container := &MockContainer{
-		RealContainer:   *di.NewContainer(),
+		DIContainer:     *di.NewContainer(),
 		resolveAllError: nil,
 	}
 	container.Register("configHandler", mockHandler)

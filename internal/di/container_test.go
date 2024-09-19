@@ -204,7 +204,7 @@ func TestResolve_TypeMismatch(t *testing.T) {
 	}
 }
 
-func TestRealContainer(t *testing.T) {
+func TestDIContainer(t *testing.T) {
 	container := NewContainer()
 
 	// Test Register and Resolve
