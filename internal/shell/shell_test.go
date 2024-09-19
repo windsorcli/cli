@@ -54,7 +54,7 @@ func normalizePath(path string) string {
 
 func TestGetProjectRoot(t *testing.T) {
 	t.Run("GitRepo", func(t *testing.T) {
-		// Create a temporary directory structure
+		// Given a temporary directory structure with a git repository
 		rootDir := createTempDir(t, "project-root")
 
 		subDir := filepath.Join(rootDir, "subdir")
@@ -62,14 +62,15 @@ func TestGetProjectRoot(t *testing.T) {
 			t.Fatalf("Failed to create subdir: %v", err)
 		}
 
-		// Initialize a git repository in the root directory
+		// When initializing a git repository in the root directory
 		initGitRepo(t, rootDir)
 
+		// And changing the working directory to a subdirectory
 		changeDir(t, subDir)
 
 		shell := NewDefaultShell()
 
-		// Test finding the project root using git
+		// Then GetProjectRoot should find the project root using git
 		projectRoot, err := shell.GetProjectRoot()
 		if err != nil {
 			t.Fatalf("GetProjectRoot returned an error: %v", err)
@@ -91,7 +92,7 @@ func TestGetProjectRoot(t *testing.T) {
 	})
 
 	t.Run("Cached", func(t *testing.T) {
-		// Create a temporary directory structure
+		// Given a temporary directory structure with a git repository
 		rootDir := createTempDir(t, "project-root")
 
 		subDir := filepath.Join(rootDir, "subdir")
@@ -99,15 +100,15 @@ func TestGetProjectRoot(t *testing.T) {
 			t.Fatalf("Failed to create subdir: %v", err)
 		}
 
-		// Initialize a git repository in the root directory
+		// When initializing a git repository in the root directory
 		initGitRepo(t, rootDir)
 
-		// Change working directory to subDir
+		// And changing the working directory to a subdirectory
 		changeDir(t, subDir)
 
 		shell := NewDefaultShell()
 
-		// Test finding the project root using git
+		// Then GetProjectRoot should find the project root using git
 		projectRoot, err := shell.GetProjectRoot()
 		if err != nil {
 			t.Fatalf("GetProjectRoot returned an error: %v", err)
@@ -127,14 +128,14 @@ func TestGetProjectRoot(t *testing.T) {
 			t.Errorf("Expected project root to be %s, got %s", expectedRootDir, projectRoot)
 		}
 
-		// Test returning cached project root
+		// And when the project root is cached
 		shell.projectRoot = expectedRootDir
 		cachedProjectRoot, err := shell.GetProjectRoot()
 		if err != nil {
 			t.Fatalf("GetProjectRoot returned an error: %v", err)
 		}
 
-		// Normalize paths for comparison
+		// Then GetProjectRoot should return the cached project root
 		cachedProjectRoot = normalizePath(cachedProjectRoot)
 
 		if cachedProjectRoot != expectedRootDir {
@@ -143,7 +144,7 @@ func TestGetProjectRoot(t *testing.T) {
 	})
 
 	t.Run("MaxDepth", func(t *testing.T) {
-		// Create a temporary directory structure
+		// Given a temporary directory structure with nested subdirectories
 		rootDir := createTempDir(t, "project-root")
 
 		currentDir := rootDir
@@ -155,12 +156,12 @@ func TestGetProjectRoot(t *testing.T) {
 			currentDir = subDir
 		}
 
-		// Change working directory to the deepest directory
+		// When changing the working directory to the deepest directory
 		changeDir(t, currentDir)
 
 		shell := NewDefaultShell()
 
-		// Test exceeding max depth
+		// Then GetProjectRoot should return an empty project root
 		projectRoot, err := shell.GetProjectRoot()
 		if err != nil {
 			t.Fatalf("GetProjectRoot returned an error: %v", err)
@@ -172,7 +173,7 @@ func TestGetProjectRoot(t *testing.T) {
 	})
 
 	t.Run("NoGitNoYaml", func(t *testing.T) {
-		// Create a temporary directory structure
+		// Given a temporary directory structure without git or windsor.yaml
 		rootDir := createTempDir(t, "project-root")
 
 		subDir := filepath.Join(rootDir, "subdir")
@@ -180,12 +181,12 @@ func TestGetProjectRoot(t *testing.T) {
 			t.Fatalf("Failed to create subdir: %v", err)
 		}
 
-		// Change working directory to subDir
+		// When changing the working directory to a subdirectory
 		changeDir(t, subDir)
 
 		shell := NewDefaultShell()
 
-		// Test finding the project root without git or windsor.yaml
+		// Then GetProjectRoot should return an empty project root
 		projectRoot, err := shell.GetProjectRoot()
 		if err != nil {
 			t.Fatalf("GetProjectRoot returned an error: %v", err)
@@ -197,7 +198,7 @@ func TestGetProjectRoot(t *testing.T) {
 	})
 
 	t.Run("GetwdFails", func(t *testing.T) {
-		// Override getwd to simulate an error
+		// Given that getwd is overridden to simulate an error
 		originalGetwd := getwd
 		getwd = func() (string, error) {
 			return "", errors.New("simulated error")
@@ -206,7 +207,7 @@ func TestGetProjectRoot(t *testing.T) {
 
 		shell := NewDefaultShell()
 
-		// Test GetProjectRoot when getwd fails
+		// Then GetProjectRoot should return an error
 		_, err := shell.GetProjectRoot()
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
