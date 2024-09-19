@@ -9,14 +9,28 @@ import (
 	"testing"
 )
 
+// Helper function to create a temporary directory
 func createTempDir(t *testing.T, name string) string {
 	dir, err := os.MkdirTemp("", name)
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("Failed to remove temp dir: %v", err)
+		}
+	})
 	return dir
 }
 
+// Helper function to change the working directory
+func changeDir(t *testing.T, dir string) {
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Failed to change directory: %v", err)
+	}
+}
+
+// Helper function to create a file
 func createFile(t *testing.T, dir, name string) {
 	filePath := filepath.Join(dir, name)
 	if err := os.WriteFile(filePath, []byte{}, 0644); err != nil {
@@ -24,6 +38,7 @@ func createFile(t *testing.T, dir, name string) {
 	}
 }
 
+// Helper function to initialize a git repository
 func initGitRepo(t *testing.T, dir string) {
 	cmd := exec.Command("git", "init")
 	cmd.Dir = dir
@@ -32,42 +47,12 @@ func initGitRepo(t *testing.T, dir string) {
 	}
 }
 
+// Helper function to normalize a path
 func normalizePath(path string) string {
 	return strings.ReplaceAll(filepath.Clean(path), "\\", "/")
 }
 
-func TestGetProjectRoot_MaxDepth(t *testing.T) {
-	// Create a temporary directory structure
-	rootDir := createTempDir(t, "project-root")
-	defer os.RemoveAll(rootDir)
-
-	currentDir := rootDir
-	for i := 0; i <= maxDepth; i++ {
-		subDir := filepath.Join(currentDir, "subdir")
-		if err := os.Mkdir(subDir, 0755); err != nil {
-			t.Fatalf("Failed to create subdir: %v", err)
-		}
-		currentDir = subDir
-	}
-
-	// Change working directory to the deepest directory
-	if err := os.Chdir(currentDir); err != nil {
-		t.Fatalf("Failed to change directory: %v", err)
-	}
-
-	shell := NewDefaultShell()
-
-	// Test exceeding max depth
-	projectRoot, err := shell.GetProjectRoot()
-	if err != nil {
-		t.Fatalf("GetProjectRoot returned an error: %v", err)
-	}
-
-	if projectRoot != "" {
-		t.Errorf("Expected project root to be empty, got %s", projectRoot)
-	}
-}
-
+// TestGetProjectRoot_GitRepo tests the GetProjectRoot method when the current directory is a git repository
 func TestGetProjectRoot_GitRepo(t *testing.T) {
 	// Create a temporary directory structure
 	rootDir := createTempDir(t, "project-root")
@@ -81,10 +66,7 @@ func TestGetProjectRoot_GitRepo(t *testing.T) {
 	// Initialize a git repository in the root directory
 	initGitRepo(t, rootDir)
 
-	// Change working directory to subDir
-	if err := os.Chdir(subDir); err != nil {
-		t.Fatalf("Failed to change directory: %v", err)
-	}
+	changeDir(t, subDir)
 
 	shell := NewDefaultShell()
 
@@ -109,6 +91,7 @@ func TestGetProjectRoot_GitRepo(t *testing.T) {
 	}
 }
 
+// TestGetProjectRoot_Cached tests the GetProjectRoot method when the project root is cached
 func TestGetProjectRoot_Cached(t *testing.T) {
 	// Create a temporary directory structure
 	rootDir := createTempDir(t, "project-root")
@@ -164,6 +147,42 @@ func TestGetProjectRoot_Cached(t *testing.T) {
 	}
 }
 
+// TestGetProjectRoot_MaxDepth tests the GetProjectRoot method when the maximum depth is exceeded
+func TestGetProjectRoot_MaxDepth(t *testing.T) {
+	// Create a temporary directory structure
+	rootDir := createTempDir(t, "project-root")
+	defer func() {
+		if err := os.RemoveAll(rootDir); err != nil {
+			t.Errorf("Failed to remove temp dir: %v", err)
+		}
+	}()
+
+	currentDir := rootDir
+	for i := 0; i <= maxDepth; i++ {
+		subDir := filepath.Join(currentDir, "subdir")
+		if err := os.Mkdir(subDir, 0755); err != nil {
+			t.Fatalf("Failed to create subdir %d: %v", i, err)
+		}
+		currentDir = subDir
+	}
+
+	// Change working directory to the deepest directory
+	changeDir(t, currentDir)
+
+	shell := NewDefaultShell()
+
+	// Test exceeding max depth
+	projectRoot, err := shell.GetProjectRoot()
+	if err != nil {
+		t.Fatalf("GetProjectRoot returned an error: %v", err)
+	}
+
+	if projectRoot != "" {
+		t.Errorf("Expected project root to be empty, got %s", projectRoot)
+	}
+}
+
+// TestGetProjectRoot_NoGitNoYaml tests the GetProjectRoot method when the current directory is not a git repository and does not contain a windsor.yaml file
 func TestGetProjectRoot_NoGitNoYaml(t *testing.T) {
 	// Create a temporary directory structure
 	rootDir := createTempDir(t, "project-root")
@@ -192,6 +211,7 @@ func TestGetProjectRoot_NoGitNoYaml(t *testing.T) {
 	}
 }
 
+// TestGetProjectRoot_GetwdFails tests the GetProjectRoot method when getwd fails
 func TestGetProjectRoot_GetwdFails(t *testing.T) {
 	// Override getwd to simulate an error
 	originalGetwd := getwd
