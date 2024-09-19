@@ -13,6 +13,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // MockContainer is a mock implementation of the DI container
@@ -115,7 +116,7 @@ func TestEnvCmd_Success(t *testing.T) {
 				"VAR1": "value1",
 				"VAR2": "value2",
 			}, nil
-		}),
+		}, &shell.MockShell{}),
 	}
 
 	_, getOutput := setupTestEnvCmd(mockHandler, mockHelpers, nil)
@@ -181,7 +182,7 @@ func TestEnvCmd_PrintEnvVarsError(t *testing.T) {
 	mockHelpers := []interface{}{
 		helpers.NewMockHelper(func() (map[string]string, error) {
 			return nil, errors.New("mock print env vars error")
-		}),
+		}, &shell.MockShell{}),
 	}
 	expectedError := "Error getting environment variables: mock print env vars error"
 
@@ -223,7 +224,7 @@ func TestEnvCmd_ResolveShellError(t *testing.T) {
 				"VAR1": "value1",
 				"VAR2": "value2",
 			}, nil
-		}),
+		}, &shell.MockShell{}),
 	}
 	expectedError := "Error resolving shell: no instance registered with name shell"
 
