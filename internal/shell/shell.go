@@ -14,6 +14,9 @@ const maxDepth = 10
 // getwd is a variable that points to os.Getwd, allowing it to be overridden in tests
 var getwd = os.Getwd
 
+// execCommand is a variable that points to exec.Command, allowing it to be overridden in tests
+var execCommand = exec.Command
+
 type Shell interface {
 	PrintEnvVars(envVars map[string]string)
 	GetProjectRoot() (string, error)
@@ -37,7 +40,7 @@ func (d *DefaultShell) GetProjectRoot() (string, error) {
 	}
 
 	// Try to get the git root first
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd := execCommand("git", "rev-parse", "--show-toplevel")
 	output, err := cmd.Output()
 	if err == nil {
 		d.projectRoot = strings.TrimSpace(string(output))
