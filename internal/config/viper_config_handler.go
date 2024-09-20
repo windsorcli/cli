@@ -58,6 +58,9 @@ func (v *ViperConfigHandler) LoadConfig(input string) error {
 		path = input
 	}
 
+	// Debug print to check the path
+	fmt.Printf("LoadConfig: input = %s, resolved path = %s\n", input, path)
+
 	viper.SetConfigFile(path)
 	viper.SetConfigType("yaml")
 
