@@ -13,28 +13,28 @@ type ContainerInterface interface {
 	ResolveAll(targetType interface{}) ([]interface{}, error)
 }
 
-// RealContainer holds instances registered with the DI container.
-type RealContainer struct {
+// DIContainer holds instances registered with the DI container.
+type DIContainer struct {
 	mu        sync.RWMutex
 	container map[string]interface{}
 }
 
 // NewContainer creates a new DI container.
-func NewContainer() *RealContainer {
-	return &RealContainer{
+func NewContainer() *DIContainer {
+	return &DIContainer{
 		container: make(map[string]interface{}),
 	}
 }
 
 // Register registers an instance with the DI container.
-func (c *RealContainer) Register(name string, instance interface{}) {
+func (c *DIContainer) Register(name string, instance interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.container[name] = instance
 }
 
 // Resolve resolves an instance from the DI container.
-func (c *RealContainer) Resolve(name string) (interface{}, error) {
+func (c *DIContainer) Resolve(name string) (interface{}, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -47,7 +47,7 @@ func (c *RealContainer) Resolve(name string) (interface{}, error) {
 }
 
 // ResolveAll resolves all instances that match the given interface.
-func (c *RealContainer) ResolveAll(targetType interface{}) ([]interface{}, error) {
+func (c *DIContainer) ResolveAll(targetType interface{}) ([]interface{}, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
