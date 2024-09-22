@@ -15,6 +15,14 @@
           "mode": "auto",
           "program": "${workspaceFolder}/main.go",
           "args": ["env"]
-      }
+      },
+      {
+        "name": "Windsor Init",
+        "type": "go",
+        "request": "launch",
+        "mode": "auto",
+        "program": "${workspaceFolder}/main.go",
+        "args": ["init", "test"]
+    },
   ]
 }

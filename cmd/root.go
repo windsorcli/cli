@@ -3,29 +3,95 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 var (
-	exitFunc  = os.Exit
-	container di.ContainerInterface
+	exitFunc      = os.Exit
+	osUserHomeDir = os.UserHomeDir
+	getwd         = os.Getwd
+	container     di.ContainerInterface
 )
 
-// ConfigHandler instance
-var configHandler config.ConfigHandler
+// ConfigHandler instances
+var cliConfigHandler config.ConfigHandler
+var projectConfigHandler config.ConfigHandler
+
+// shell instance
+var shellInstance shell.Shell
+
+// getCLIConfigPath returns the path to the CLI configuration file
+func getCLIConfigPath() string {
+	cliConfigPath := os.Getenv("WINDSORCONFIG")
+	if cliConfigPath == "" {
+		home, err := osUserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error finding home directory, %s\n", err)
+			exitFunc(1)
+		}
+		cliConfigPath = filepath.Join(home, ".config", "windsor", "config.yaml")
+	}
+	return cliConfigPath
+}
+
+// getProjectConfigPath returns the path to the project configuration file
+func getProjectConfigPath() string {
+	var projectConfigPath string
+
+	// Try to get the project root first
+	projectRoot, err := shellInstance.GetProjectRoot()
+	if err != nil || projectRoot == "" {
+		// If project root is not found, use the current working directory
+		projectRoot, err = getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error getting current working directory, %s\n", err)
+			exitFunc(1)
+		}
+	}
+
+	// Check for windsor.yaml or windsor.yml in the project root
+	windsorYaml := filepath.Join(projectRoot, "windsor.yaml")
+	windsorYml := filepath.Join(projectRoot, "windsor.yml")
+
+	if _, err := os.Stat(windsorYaml); err == nil {
+		projectConfigPath = windsorYaml
+	} else if _, err := os.Stat(windsorYml); err == nil {
+		projectConfigPath = windsorYml
+	}
+	return projectConfigPath
+}
 
 // preRunLoadConfig is the function assigned to PersistentPreRunE
 func preRunLoadConfig(cmd *cobra.Command, args []string) error {
-	if configHandler == nil {
-		return fmt.Errorf("configHandler is not initialized")
+	// Check if cliConfigHandler is initialized
+	if cliConfigHandler == nil {
+		return fmt.Errorf("cliConfigHandler is not initialized")
 	}
-	// Load configuration
-	if err := configHandler.LoadConfig(""); err != nil {
-		return fmt.Errorf("Error loading config file: %w", err)
+
+	// Check if projectConfigHandler is initialized
+	if projectConfigHandler == nil {
+		return fmt.Errorf("projectConfigHandler is not initialized")
 	}
+
+	// Load CLI configuration
+	cliConfigPath := getCLIConfigPath()
+	if err := cliConfigHandler.LoadConfig(cliConfigPath); err != nil {
+		return fmt.Errorf("error loading CLI config: %w", err)
+	}
+
+	// Load project configuration
+	projectConfigPath := getProjectConfigPath()
+	if projectConfigPath != "" {
+		if err := projectConfigHandler.LoadConfig(projectConfigPath); err != nil {
+			return fmt.Errorf("error loading project config: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -46,23 +112,35 @@ func Execute() {
 	}
 }
 
-// Initialize sets the ConfigHandler for dependency injection
+// Initialize sets dependency injection container
 func Initialize(cont di.ContainerInterface) {
 	container = cont
 
-	instance, err := container.Resolve("configHandler")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error resolving configHandler:", err)
-		exitFunc(1)
+	resolveAndAssign := func(key string, target interface{}) {
+		instance, err := container.Resolve(key)
+		if err != nil || instance == nil {
+			fmt.Fprintf(os.Stderr, "Error resolving %s: %v\n", key, err)
+			exitFunc(1)
+		}
+		switch v := target.(type) {
+		case *config.ConfigHandler:
+			if resolved, ok := instance.(config.ConfigHandler); ok {
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type config.ConfigHandler\n", key)
+				exitFunc(1)
+			}
+		case *shell.Shell:
+			if resolved, ok := instance.(shell.Shell); ok {
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type shell.Shell\n", key)
+				exitFunc(1)
+			}
+		}
 	}
-	if instance == nil {
-		fmt.Fprintln(os.Stderr, "Error: resolved instance is nil")
-		exitFunc(1)
-	}
-	var ok bool
-	configHandler, ok = instance.(config.ConfigHandler)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "Error: resolved instance is not of type config.ConfigHandler")
-		exitFunc(1)
-	}
+
+	resolveAndAssign("cliConfigHandler", &cliConfigHandler)
+	resolveAndAssign("projectConfigHandler", &projectConfigHandler)
+	resolveAndAssign("shell", &shellInstance)
 }

@@ -11,9 +11,13 @@ import (
 // ViperConfigHandler implements the ConfigHandler interface using Viper
 type ViperConfigHandler struct{}
 
-// NewViperConfigHandler is a constructor for ViperConfigHandler
-func NewViperConfigHandler() *ViperConfigHandler {
-	return &ViperConfigHandler{}
+// NewViperConfigHandler is a constructor for ViperConfigHandler that accepts a path
+func NewViperConfigHandler(path string) *ViperConfigHandler {
+	handler := &ViperConfigHandler{}
+	if path != "" {
+		handler.LoadConfig(path)
+	}
+	return handler
 }
 
 // osUserHomeDir is a variable to allow mocking os.UserHomeDir in tests
@@ -43,24 +47,19 @@ func createParentDirs(path string) error {
 	return nil
 }
 
-// LoadConfig loads the configuration from the specified path
-func (v *ViperConfigHandler) LoadConfig(path string) error {
-	if path == "" {
-		path = viperGetString("WINDSORCONFIG")
-		if path == "" {
-			home, err := osUserHomeDir()
-			if err != nil {
-				return fmt.Errorf("error finding home directory, %s", err)
-			}
-			path = filepath.Join(home, ".config", "windsor", "config.yaml")
-		}
+// loadConfig loads the configuration from the specified path
+func (v *ViperConfigHandler) LoadConfig(input string) error {
+	var path string
+
+	// Check if the input is an environment variable name or a path
+	if envPath := os.Getenv(input); envPath != "" {
+		path = envPath
+	} else {
+		path = input
 	}
 
 	viper.SetConfigFile(path)
 	viper.SetConfigType("yaml")
-
-	// Provide some default configuration values
-	viper.SetDefault("context", "default")
 
 	// Ensure parent directories exist
 	if err := createParentDirs(path); err != nil {

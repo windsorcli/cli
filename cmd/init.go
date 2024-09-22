@@ -15,12 +15,16 @@ var initCmd = &cobra.Command{
 		contextName := args[0]
 
 		// Set the context value
-		if err := configHandler.SetConfigValue("context", contextName); err != nil {
+		if err := cliConfigHandler.SetConfigValue("context", contextName); err != nil {
 			return fmt.Errorf("Error setting config value: %w", err)
 		}
-		// Save configuration
-		if err := configHandler.SaveConfig(""); err != nil {
+		// Save the cli configuration
+		if err := cliConfigHandler.SaveConfig(""); err != nil {
 			return fmt.Errorf("Error saving config file: %w", err)
+		}
+		// Save the project configuration
+		if err := projectConfigHandler.SaveConfig(""); err != nil {
+			return fmt.Errorf("Error saving project config file: %w", err)
 		}
 		fmt.Println("Initialization successful")
 		return nil

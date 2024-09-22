@@ -2,101 +2,163 @@ package cmd
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-func setupTestEnvironment(mockHandler config.ConfigHandler) {
-	container := setupContainer(mockHandler)
-
-	// Ensure configHandler is set correctly
-	instance, err := container.Resolve("configHandler")
-	if err != nil {
-		panic("Error resolving configHandler: " + err.Error())
-	}
-	configHandler, _ = instance.(config.ConfigHandler)
-
-	// Register the initCmd with rootCmd
-	rootCmd.AddCommand(initCmd)
+// Helper function to set up the container with a mock config handler
+func setupMockContainer(mockCLIHandler, mockProjectHandler config.ConfigHandler, mockShell shell.Shell) di.ContainerInterface {
+	container := di.NewContainer()
+	container.Register("cliConfigHandler", mockCLIHandler)
+	container.Register("projectConfigHandler", mockProjectHandler)
+	container.Register("shell", mockShell)
+	Initialize(container)
+	return container
 }
 
-// TestInitCmd tests the init command
 func TestInitCmd(t *testing.T) {
+	originalArgs := rootCmd.Args
+	t.Cleanup(func() {
+		rootCmd.Args = originalArgs
+	})
+
 	t.Run("Success", func(t *testing.T) {
-		// Given a valid config handler
+		// Given: a valid config handler
 		mockHandler := config.NewMockConfigHandler(
-			nil,
+			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
 			func(key, value string) error { return nil },
 			func(path string) error { return nil },
-			nil, nil,
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
 		)
-		setupTestEnvironment(mockHandler)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		setupMockContainer(mockHandler, mockHandler, mockShell)
 
-		// When the init command is executed with a valid context
+		// When: the init command is executed with a valid context
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
 			err := rootCmd.Execute()
 			if err != nil {
-				t.Fatalf("rootCmd.Execute() error = %v", err)
+				t.Fatalf("Execute() error = %v", err)
 			}
 		})
 
-		// Then the output should indicate success
+		// Then: the output should indicate success
 		expectedOutput := "Initialization successful\n"
 		if output != expectedOutput {
-			t.Errorf("Expected output '%s', got '%s'", expectedOutput, output)
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetConfigValueError", func(t *testing.T) {
-		// Given a config handler that returns an error on SetConfigValue
+		// Given: a config handler that returns an error on SetConfigValue
 		mockHandler := config.NewMockConfigHandler(
-			nil,
+			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
 			func(key, value string) error { return errors.New("set config value error") },
 			func(path string) error { return nil },
-			nil, nil,
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
 		)
-		setupTestEnvironment(mockHandler)
-
-		// When the init command is executed with a valid context
-		rootCmd.SetArgs([]string{"init", "test-context"})
-		err := rootCmd.Execute()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		expectedError := "Error setting config value: set config value error"
-		if err.Error() != expectedError {
-			t.Fatalf("Expected error '%s', got '%s'", expectedError, err.Error())
+		setupMockContainer(mockHandler, mockHandler, mockShell)
+
+		// When: the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "Error setting config value: set config value error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SaveConfigError", func(t *testing.T) {
-		// Given a config handler that returns an error on SaveConfig
+		// Given: a config handler that returns an error on SaveConfig
 		mockHandler := config.NewMockConfigHandler(
-			nil,
+			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
 			func(key, value string) error { return nil },
 			func(path string) error { return errors.New("save config error") },
-			nil, nil,
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
 		)
-		setupTestEnvironment(mockHandler)
-
-		// When the init command is executed with a valid context
-		rootCmd.SetArgs([]string{"init", "test-context"})
-		err := rootCmd.Execute()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
+		mockShell, err := shell.NewMockShell("cmd") // Ensure valid shell type
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		expectedError := "Error saving config file: save config error"
-		if err.Error() != expectedError {
-			t.Fatalf("Expected error '%s', got '%s'", expectedError, err.Error())
+		setupMockContainer(mockHandler, mockHandler, mockShell)
+
+		// When: the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "Error saving config file: save config error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ProjectConfigSaveError", func(t *testing.T) {
+		// Given: a CLI config handler that succeeds and a project config handler that returns an error on SaveConfig
+		mockCLIHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			func(key, value string) error { return nil },
+			func(path string) error { return nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
+		)
+		mockProjectHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			func(key, value string) error { return nil },
+			func(path string) error { return errors.New("save project config error") },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
+		)
+		mockShell, err := shell.NewMockShell("cmd") // Ensure valid shell type
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		setupMockContainer(mockCLIHandler, mockProjectHandler, mockShell)
+
+		// When: the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "Error saving project config file: save project config error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 }
