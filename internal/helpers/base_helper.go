@@ -5,23 +5,26 @@ import (
 	"strings"
 
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 type BaseHelper struct {
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
+	Context       context.ContextInterface
 }
 
-func NewBaseHelper(configHandler config.ConfigHandler, shell shell.Shell) *BaseHelper {
+func NewBaseHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *BaseHelper {
 	return &BaseHelper{
 		ConfigHandler: configHandler,
 		Shell:         shell,
+		Context:       ctx,
 	}
 }
 
 func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
-	context, err := h.ConfigHandler.GetConfigValue("context")
+	context, err := h.Context.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}

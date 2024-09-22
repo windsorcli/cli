@@ -30,7 +30,7 @@ func main() {
 	container.Register("context", contextInstance)
 
 	// Create and register the BaseHelper instance
-	baseHelper := helpers.NewBaseHelper(cliConfigHandler, shellInstance)
+	baseHelper := helpers.NewBaseHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("baseHelper", baseHelper)
 
 	// Create and register the KubeHelper instance

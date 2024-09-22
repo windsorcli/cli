@@ -2,8 +2,6 @@ package helpers
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
@@ -13,10 +11,10 @@ import (
 type KubeHelper struct {
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
-	Context       *context.Context
+	Context       context.ContextInterface
 }
 
-func NewKubeHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx *context.Context) *KubeHelper {
+func NewKubeHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *KubeHelper {
 	return &KubeHelper{
 		ConfigHandler: configHandler,
 		Shell:         shell,
@@ -25,21 +23,12 @@ func NewKubeHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx *c
 }
 
 func (h *KubeHelper) GetEnvVars() (map[string]string, error) {
-	context, err := h.Context.GetContext()
+	configRoot, err := h.Context.GetConfigRoot()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving context: %w", err)
+		return nil, fmt.Errorf("error retrieving config root: %w", err)
 	}
 
-	projectRoot, err := h.Shell.GetProjectRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving project root: %w", err)
-	}
-
-	kubeConfigPath := filepath.Join(projectRoot, "contexts", context, ".kube", "config")
-	if _, err := os.Stat(kubeConfigPath); os.IsNotExist(err) {
-		kubeConfigPath = ""
-	}
-
+	kubeConfigPath := fmt.Sprintf("%s/.kube/config", configRoot)
 	envVars := map[string]string{
 		"KUBECONFIG": kubeConfigPath,
 	}

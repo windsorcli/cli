@@ -8,6 +8,12 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
+type ContextInterface interface {
+	GetContext() (string, error)
+	SetContext(context string) error
+	GetConfigRoot() (string, error)
+}
+
 type Context struct {
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
