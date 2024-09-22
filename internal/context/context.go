@@ -8,17 +8,20 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
+// ContextInterface defines the interface for context operations
 type ContextInterface interface {
-	GetContext() (string, error)
-	SetContext(context string) error
-	GetConfigRoot() (string, error)
+	GetContext() (string, error)     // Retrieves the current context
+	SetContext(context string) error // Sets the current context
+	GetConfigRoot() (string, error)  // Retrieves the configuration root path
 }
 
+// Context implements the ContextInterface
 type Context struct {
-	ConfigHandler config.ConfigHandler
-	Shell         shell.Shell
+	ConfigHandler config.ConfigHandler // Handles configuration operations
+	Shell         shell.Shell          // Handles shell operations
 }
 
+// NewContext creates a new Context instance
 func NewContext(configHandler config.ConfigHandler, shell shell.Shell) *Context {
 	return &Context{
 		ConfigHandler: configHandler,
@@ -26,6 +29,7 @@ func NewContext(configHandler config.ConfigHandler, shell shell.Shell) *Context 
 	}
 }
 
+// GetContext retrieves the current context from the configuration
 func (c *Context) GetContext() (string, error) {
 	context, err := c.ConfigHandler.GetConfigValue("context")
 	if err != nil {
@@ -34,6 +38,7 @@ func (c *Context) GetContext() (string, error) {
 	return context, nil
 }
 
+// SetContext sets the current context in the configuration and saves it
 func (c *Context) SetContext(context string) error {
 	if err := c.ConfigHandler.SetConfigValue("context", context); err != nil {
 		return fmt.Errorf("error setting context: %w", err)
@@ -44,6 +49,7 @@ func (c *Context) SetContext(context string) error {
 	return nil
 }
 
+// GetConfigRoot retrieves the configuration root path based on the current context
 func (c *Context) GetConfigRoot() (string, error) {
 	context, err := c.GetContext()
 	if err != nil {

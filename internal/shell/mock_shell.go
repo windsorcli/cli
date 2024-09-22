@@ -6,12 +6,15 @@ import (
 	"sort"
 )
 
+// MockShell is a struct that simulates a shell environment for testing purposes.
 type MockShell struct {
 	ShellType          string
 	PrintEnvVarsFn     func(envVars map[string]string)
 	GetProjectRootFunc func() (string, error)
 }
 
+// NewMockShell creates a new instance of MockShell based on the provided shell type.
+// Returns an error if the shell type is invalid.
 func NewMockShell(shellType string) (*MockShell, error) {
 	if shellType != "cmd" && shellType != "powershell" && shellType != "unix" {
 		return nil, errors.New("invalid shell type")
@@ -19,6 +22,8 @@ func NewMockShell(shellType string) (*MockShell, error) {
 	return &MockShell{ShellType: shellType}, nil
 }
 
+// PrintEnvVars prints the environment variables in a sorted order.
+// If a custom PrintEnvVarsFn is provided, it will use that function instead.
 func (m *MockShell) PrintEnvVars(envVars map[string]string) {
 	keys := make([]string, 0, len(envVars))
 	for k := range envVars {
@@ -31,6 +36,8 @@ func (m *MockShell) PrintEnvVars(envVars map[string]string) {
 	}
 }
 
+// GetProjectRoot returns the project root directory.
+// If a custom GetProjectRootFunc is provided, it will use that function instead.
 func (m *MockShell) GetProjectRoot() (string, error) {
 	if m.GetProjectRootFunc != nil {
 		return m.GetProjectRootFunc()

@@ -8,12 +8,14 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
+// KubeHelper is a helper struct that provides Kubernetes-specific utility functions
 type KubeHelper struct {
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
 	Context       context.ContextInterface
 }
 
+// NewKubeHelper is a constructor for KubeHelper
 func NewKubeHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *KubeHelper {
 	return &KubeHelper{
 		ConfigHandler: configHandler,
@@ -22,12 +24,15 @@ func NewKubeHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx co
 	}
 }
 
+// GetEnvVars retrieves Kubernetes-specific environment variables for the current context
 func (h *KubeHelper) GetEnvVars() (map[string]string, error) {
+	// Get the configuration root directory
 	configRoot, err := h.Context.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving config root: %w", err)
 	}
 
+	// Construct the path to the kubeconfig file
 	kubeConfigPath := fmt.Sprintf("%s/.kube/config", configRoot)
 	envVars := map[string]string{
 		"KUBECONFIG": kubeConfigPath,

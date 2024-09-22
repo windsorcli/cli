@@ -4,16 +4,19 @@ import (
 	"errors"
 )
 
+// MockContext is a mock implementation of the ContextInterface
 type MockContext struct {
-	GetContextFunc    func() (string, error)
-	SetContextFunc    func(context string) error
-	GetConfigRootFunc func() (string, error)
+	GetContextFunc    func() (string, error)     // Function to mock GetContext
+	SetContextFunc    func(context string) error // Function to mock SetContext
+	GetConfigRootFunc func() (string, error)     // Function to mock GetConfigRoot
 }
 
+// NewMockContext creates a new instance of MockContext
 func NewMockContext() *MockContext {
 	return &MockContext{}
 }
 
+// GetContext calls the mock GetContextFunc if set, otherwise returns an error
 func (m *MockContext) GetContext() (string, error) {
 	if m.GetContextFunc != nil {
 		return m.GetContextFunc()
@@ -21,6 +24,7 @@ func (m *MockContext) GetContext() (string, error) {
 	return "", errors.New("GetContextFunc not implemented")
 }
 
+// SetContext calls the mock SetContextFunc if set, otherwise returns an error
 func (m *MockContext) SetContext(context string) error {
 	if m.SetContextFunc != nil {
 		return m.SetContextFunc(context)
@@ -28,6 +32,7 @@ func (m *MockContext) SetContext(context string) error {
 	return errors.New("SetContextFunc not implemented")
 }
 
+// GetConfigRoot calls the mock GetConfigRootFunc if set, otherwise returns an error
 func (m *MockContext) GetConfigRoot() (string, error) {
 	if m.GetConfigRootFunc != nil {
 		return m.GetConfigRootFunc()

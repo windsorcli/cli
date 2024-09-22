@@ -17,24 +17,31 @@ var getwd = os.Getwd
 // execCommand is a variable that points to exec.Command, allowing it to be overridden in tests
 var execCommand = exec.Command
 
+// Shell interface defines methods for shell operations
 type Shell interface {
+	// PrintEnvVars prints the provided environment variables
 	PrintEnvVars(envVars map[string]string)
+	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
 }
 
+// DefaultShell is the default implementation of the Shell interface
 type DefaultShell struct {
 	projectRoot string
 	mu          sync.Mutex
 }
 
+// NewDefaultShell creates a new instance of DefaultShell
 func NewDefaultShell() *DefaultShell {
 	return &DefaultShell{}
 }
 
+// GetProjectRoot retrieves the project root directory
 func (d *DefaultShell) GetProjectRoot() (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	// Return cached project root if available
 	if d.projectRoot != "" {
 		return d.projectRoot, nil
 	}
@@ -59,7 +66,9 @@ func (d *DefaultShell) GetProjectRoot() (string, error) {
 			return "", nil
 		}
 
+		// Check for windsor.yaml file
 		windsorYaml := filepath.Join(currentDir, "windsor.yaml")
+		// Check for windsor.yml file
 		windsorYml := filepath.Join(currentDir, "windsor.yml")
 
 		if _, err := os.Stat(windsorYaml); err == nil {
@@ -71,6 +80,7 @@ func (d *DefaultShell) GetProjectRoot() (string, error) {
 			return d.projectRoot, nil
 		}
 
+		// Move to the parent directory
 		parentDir := filepath.Dir(currentDir)
 		if parentDir == currentDir {
 			// We've reached the root of the file system
