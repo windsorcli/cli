@@ -2,6 +2,8 @@ package helpers
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -18,8 +20,22 @@ func TestKubeHelper_GetEnvVars(t *testing.T) {
 			nil, // getNestedMapFunc is not needed for this test
 		)
 		mockShell := createMockShell(func() (string, error) {
-			return "/project/root", nil
+			return os.TempDir(), nil
 		})
+
+		// Create a temporary kube config file
+		projectRoot := os.TempDir()
+		kubeConfigPath := filepath.Join(projectRoot, "contexts", "test-context", ".kube", "config")
+		err := os.MkdirAll(filepath.Dir(kubeConfigPath), os.ModePerm)
+		if err != nil {
+			t.Fatalf("failed to create directories: %v", err)
+		}
+		file, err := os.Create(kubeConfigPath)
+		if err != nil {
+			t.Fatalf("failed to create kube config file: %v", err)
+		}
+		file.Close()
+		defer os.RemoveAll(filepath.Join(projectRoot, "contexts"))
 
 		kubeHelper := NewKubeHelper(mockConfigHandler, mockShell)
 
@@ -28,7 +44,39 @@ func TestKubeHelper_GetEnvVars(t *testing.T) {
 
 		// Then: the KUBECONFIG environment variable should be set correctly
 		expectedEnvVars := map[string]string{
-			"KUBECONFIG": "/project/root/contexts/test-context/.kube/config",
+			"KUBECONFIG": kubeConfigPath,
+		}
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if !equalMaps(envVars, expectedEnvVars) {
+			t.Fatalf("expected %v, got %v", expectedEnvVars, envVars)
+		}
+	})
+
+	t.Run("FileNotExist", func(t *testing.T) {
+		// Given: a mock config handler and shell with valid context and project root
+		mockConfigHandler := createMockConfigHandler(
+			func(key string) (string, error) {
+				if key == "context" {
+					return "test-context", nil
+				}
+				return "", errors.New("unknown key")
+			},
+			nil, // getNestedMapFunc is not needed for this test
+		)
+		mockShell := createMockShell(func() (string, error) {
+			return os.TempDir(), nil
+		})
+
+		kubeHelper := NewKubeHelper(mockConfigHandler, mockShell)
+
+		// When: calling GetEnvVars
+		envVars, err := kubeHelper.GetEnvVars()
+
+		// Then: the KUBECONFIG environment variable should be empty
+		expectedEnvVars := map[string]string{
+			"KUBECONFIG": "",
 		}
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
@@ -47,7 +95,7 @@ func TestKubeHelper_GetEnvVars(t *testing.T) {
 			nil, // getNestedMapFunc is not needed for this test
 		)
 		mockShell := createMockShell(func() (string, error) {
-			return "/project/root", nil
+			return os.TempDir(), nil
 		})
 
 		kubeHelper := NewKubeHelper(mockConfigHandler, mockShell)

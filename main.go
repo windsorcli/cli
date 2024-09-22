@@ -28,6 +28,10 @@ func main() {
 	baseHelper := helpers.NewBaseHelper(cliConfigHandler, shellInstance)
 	container.Register("baseHelper", baseHelper)
 
+	// Create and register the KubeHelper instance
+	kubeHelper := helpers.NewKubeHelper(cliConfigHandler, shellInstance)
+	container.Register("kubeHelper", kubeHelper)
+
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)
 
