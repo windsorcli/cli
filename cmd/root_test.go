@@ -2,28 +2,47 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-// Helper function to create a new container and register a mock config handler
-func setupContainer(mockHandler config.ConfigHandler) di.ContainerInterface {
+// Helper function to create a new container and register mock handlers
+func setupContainer(mockCLIConfigHandler, mockProjectConfigHandler config.ConfigHandler, mockShell *shell.MockShell) di.ContainerInterface {
 	container := di.NewContainer()
-	container.Register("cliConfigHandler", mockHandler)
+	container.Register("cliConfigHandler", mockCLIConfigHandler)
+	container.Register("projectConfigHandler", mockProjectConfigHandler)
+	container.Register("shell", mockShell)
 	Initialize(container)
 
-	// Ensure configHandler is set correctly
+	// Ensure handlers are set correctly
 	instance, err := container.Resolve("cliConfigHandler")
 	if err != nil {
-		panic("Error resolving configHandler: " + err.Error())
+		panic("Error resolving cliConfigHandler: " + err.Error())
 	}
-	configHandler, _ = instance.(config.ConfigHandler)
+	cliConfigHandler, _ = instance.(config.ConfigHandler)
+
+	instance, err = container.Resolve("projectConfigHandler")
+	if err != nil {
+		panic("Error resolving projectConfigHandler: " + err.Error())
+	}
+	projectConfigHandler, _ = instance.(config.ConfigHandler)
+
+	instance, err = container.Resolve("shell")
+	if err != nil {
+		panic("Error resolving shell: " + err.Error())
+	}
+	shellInstance, _ = instance.(shell.Shell)
+
 	return container
 }
 
@@ -57,15 +76,37 @@ func captureStderr(f func()) string {
 	return buf.String()
 }
 
+// Mock exit function to capture exit code and message
+var exitCode int
+var exitMessage string
+
+func mockExit(code int) {
+	exitCode = code
+	exitMessage = captureStderr(func() {})
+	panic(fmt.Sprintf("exit code: %d", code))
+}
+
 func TestPreRunLoadConfig(t *testing.T) {
+	originalExitFunc := exitFunc
+	t.Cleanup(func() {
+		exitFunc = originalExitFunc
+	})
+
 	t.Run("Success", func(t *testing.T) {
-		// Given a valid config handler
-		mockHandler := config.NewMockConfigHandler(
+		// Given valid config handlers and shell instance
+		mockCLIConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
 			nil, nil, nil, nil,
 		)
-		setupContainer(mockHandler)
+		mockProjectConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			nil, nil, nil, nil,
+		)
+		mockShell, _ := shell.NewMockShell("unix")
+		mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
+		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
 
 		// When preRunLoadConfig is executed
 		err := preRunLoadConfig(nil, nil)
@@ -76,31 +117,14 @@ func TestPreRunLoadConfig(t *testing.T) {
 		}
 	})
 
-	// t.Run("Error", func(t *testing.T) {
-	// 	// Given a missing config handler
-	// 	mockHandler := config.NewMockConfigHandler(
-	// 		func(path string) error { return errors.New("config load error") },
-	// 		func(key string) (string, error) { return "", errors.New("config load error") },
-	// 		nil, nil, nil, nil,
-	// 	)
-	// 	setupContainer(mockHandler)
-
-	// 	// When preRunLoadConfig is executed
-	// 	err := preRunLoadConfig(nil, nil)
-
-	// 	// Then an error should be returned
-	// 	if err == nil {
-	// 		t.Fatalf("preRunLoadConfig() expected error, got nil")
-	// 	}
-	// 	expectedError := "config load error"
-	// 	if err.Error() != expectedError {
-	// 		t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
-	// 	}
-	// })
-
-	t.Run("NoConfigHandler", func(t *testing.T) {
-		// Given no config handler is registered
-		configHandler = nil
+	t.Run("NoCLIConfigHandler", func(t *testing.T) {
+		// Given no CLI config handler is registered
+		cliConfigHandler = nil
+		projectConfigHandler = config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			nil, nil, nil, nil,
+		)
 
 		// When preRunLoadConfig is executed
 		err := preRunLoadConfig(nil, nil)
@@ -109,7 +133,97 @@ func TestPreRunLoadConfig(t *testing.T) {
 		if err == nil {
 			t.Fatalf("preRunLoadConfig() expected error, got nil")
 		}
-		expectedError := "configHandler is not initialized"
+		expectedError := "cliConfigHandler is not initialized"
+		if err.Error() != expectedError {
+			t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
+
+	t.Run("NoProjectConfigHandler", func(t *testing.T) {
+		// Given no project config handler is registered
+		cliConfigHandler = config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			nil, nil, nil, nil,
+		)
+		projectConfigHandler = nil
+
+		// When preRunLoadConfig is executed
+		err := preRunLoadConfig(nil, nil)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("preRunLoadConfig() expected error, got nil")
+		}
+		expectedError := "projectConfigHandler is not initialized"
+		if err.Error() != expectedError {
+			t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
+
+	t.Run("CLIConfigLoadError", func(t *testing.T) {
+		// Given CLI config handler returns an error on LoadConfig
+		mockCLIConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return errors.New("mock load error") },
+			func(key string) (string, error) { return "value", nil },
+			nil, nil, nil, nil,
+		)
+		mockProjectConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			nil, nil, nil, nil,
+		)
+		mockShell, _ := shell.NewMockShell("unix")
+		mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
+		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+
+		// When preRunLoadConfig is executed
+		err := preRunLoadConfig(nil, nil)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("preRunLoadConfig() expected error, got nil")
+		}
+		expectedError := "error loading CLI config: mock load error"
+		if err.Error() != expectedError {
+			t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
+
+	t.Run("ProjectConfigLoadError", func(t *testing.T) {
+		// Given project config handler returns an error on LoadConfig
+		mockCLIConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			nil, nil, nil, nil,
+		)
+		mockProjectConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return errors.New("mock load error") },
+			func(key string) (string, error) { return "value", nil },
+			nil, nil, nil, nil,
+		)
+		mockShell, _ := shell.NewMockShell("unix")
+		mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
+		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+
+		// Ensure the project config path is set
+		tempDir := t.TempDir()
+		windsorYamlPath := filepath.Join(tempDir, "windsor.yaml")
+		file, err := os.Create(windsorYamlPath)
+		if err != nil {
+			t.Fatalf("Failed to create windsor.yaml: %v", err)
+		}
+		file.Close()
+		mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
+
+		// When preRunLoadConfig is executed
+		err = preRunLoadConfig(nil, nil)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("preRunLoadConfig() expected error, got nil")
+		}
+		expectedError := "error loading project config: mock load error"
 		if err.Error() != expectedError {
 			t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
 		}
@@ -117,14 +231,26 @@ func TestPreRunLoadConfig(t *testing.T) {
 }
 
 func TestExecute(t *testing.T) {
+	originalExitFunc := exitFunc
+	t.Cleanup(func() {
+		exitFunc = originalExitFunc
+	})
+
 	t.Run("Success", func(t *testing.T) {
-		// Given a valid config handler
-		mockHandler := config.NewMockConfigHandler(
+		// Given valid config handlers and shell instance
+		mockCLIConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
 			nil, nil, nil, nil,
 		)
-		setupContainer(mockHandler)
+		mockProjectConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			nil, nil, nil, nil,
+		)
+		mockShell, _ := shell.NewMockShell("unix")
+		mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
+		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
 
 		// Mock exitFunc to capture the exit code
 		var exitCode int
@@ -156,8 +282,9 @@ func TestExecute(t *testing.T) {
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		// Given no config handler is registered
-		configHandler = nil
+		// Given no config handlers are registered
+		cliConfigHandler = nil
+		projectConfigHandler = nil
 
 		// Mock exitFunc to capture the exit code
 		var exitCode int
@@ -182,7 +309,7 @@ func TestExecute(t *testing.T) {
 		if exitCode != 1 {
 			t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
 		}
-		expectedErrorMsg := "configHandler is not initialized\n"
+		expectedErrorMsg := "cliConfigHandler is not initialized\n"
 		if !strings.Contains(actualErrorMsg, expectedErrorMsg) {
 			t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
 		}
@@ -193,14 +320,26 @@ func TestExecute(t *testing.T) {
 }
 
 func TestInitialize(t *testing.T) {
+	originalExitFunc := exitFunc
+	t.Cleanup(func() {
+		exitFunc = originalExitFunc
+	})
+
 	t.Run("Success", func(t *testing.T) {
-		// Given a valid config handler
-		mockHandler := config.NewMockConfigHandler(
+		// Given valid config handlers and shell instance
+		mockCLIConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
 			nil, nil, nil, nil,
 		)
-		setupContainer(mockHandler)
+		mockProjectConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			nil, nil, nil, nil,
+		)
+		mockShell, _ := shell.NewMockShell("unix")
+		mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
+		container := setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
 
 		// Mock exitFunc to capture the exit code
 		var exitCode int
@@ -223,9 +362,8 @@ func TestInitialize(t *testing.T) {
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		// Given no config handler is registered
+		// Given no config handlers are registered
 		container := di.NewContainer()
-		Initialize(container)
 
 		// Mock exitFunc to capture the exit code
 		var exitCode int
@@ -242,9 +380,170 @@ func TestInitialize(t *testing.T) {
 		if exitCode != 1 {
 			t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
 		}
-		expectedErrorMsg := "Error resolving configHandler: no instance registered with name cliConfigHandler\n"
+		expectedErrorMsg := "Error resolving cliConfigHandler: no instance registered with name cliConfigHandler\n"
 		if !strings.Contains(actualErrorMsg, expectedErrorMsg) {
 			t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
 		}
 	})
+}
+
+func TestGetCLIConfigPath_UserHomeDirError(t *testing.T) {
+	// Save the original functions
+	originalOsUserHomeDir := osUserHomeDir
+	originalExitFunc := exitFunc
+
+	// Restore the original functions after the test
+	t.Cleanup(func() {
+		osUserHomeDir = originalOsUserHomeDir
+		exitFunc = originalExitFunc
+	})
+
+	// Mock osUserHomeDir to return an error
+	osUserHomeDir = func() (string, error) {
+		return "", errors.New("mock error")
+	}
+
+	// Mock exitFunc to capture the exit code
+	var exitCode int
+	exitFunc = func(code int) {
+		exitCode = code
+	}
+
+	// Capture the output to os.Stderr
+	stderr := captureStderr(func() {
+		getCLIConfigPath()
+	})
+
+	// Verify the error message
+	expectedErrorMessage := "error finding home directory, mock error\n"
+	if stderr != expectedErrorMessage {
+		t.Errorf("expected error message %q, got %q", expectedErrorMessage, stderr)
+	}
+
+	// Verify the exit code
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+}
+
+func TestGetProjectConfigPath_GetwdError(t *testing.T) {
+	// Save the original functions
+	originalGetwd := getwd
+	originalExitFunc := exitFunc
+
+	// Restore the original functions after the test
+	t.Cleanup(func() {
+		getwd = originalGetwd
+		exitFunc = originalExitFunc
+	})
+
+	// Mock getwd to return an error
+	getwd = func() (string, error) {
+		return "", errors.New("mock error")
+	}
+
+	// Mock exitFunc to capture the exit code
+	var exitCode int
+	exitFunc = func(code int) {
+		exitCode = code
+	}
+
+	// Given valid config handlers and shell instance
+	mockCLIConfigHandler := config.NewMockConfigHandler(
+		func(path string) error { return nil },
+		func(key string) (string, error) { return "value", nil },
+		nil, nil, nil, nil,
+	)
+	mockProjectConfigHandler := config.NewMockConfigHandler(
+		func(path string) error { return nil },
+		func(key string) (string, error) { return "value", nil },
+		nil, nil, nil, nil,
+	)
+	mockShell, _ := shell.NewMockShell("unix")
+	mockShell.GetProjectRootFunc = func() (string, error) { return "", errors.New("mock error") }
+	setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+
+	// Capture the output to os.Stderr
+	stderr := captureStderr(func() {
+		getProjectConfigPath()
+	})
+
+	// Verify the error message
+	expectedErrorMessage := "error getting current working directory, mock error\n"
+	if stderr != expectedErrorMessage {
+		t.Errorf("expected error message %q, got %q", expectedErrorMessage, stderr)
+	}
+
+	// Verify the exit code
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+}
+
+func TestGetProjectConfigPath_WindsorYaml(t *testing.T) {
+	// Given valid config handlers and shell instance
+	mockCLIConfigHandler := config.NewMockConfigHandler(
+		func(path string) error { return nil },
+		func(key string) (string, error) { return "value", nil },
+		nil, nil, nil, nil,
+	)
+	mockProjectConfigHandler := config.NewMockConfigHandler(
+		func(path string) error { return nil },
+		func(key string) (string, error) { return "value", nil },
+		nil, nil, nil, nil,
+	)
+	mockShell, _ := shell.NewMockShell("unix")
+	tempDir := t.TempDir()
+	mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
+	setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+
+	// Create a temporary windsor.yaml file in the project root
+	windsorYamlPath := filepath.Join(tempDir, "windsor.yaml")
+	file, err := os.Create(windsorYamlPath)
+	if err != nil {
+		t.Fatalf("Failed to create windsor.yaml: %v", err)
+	}
+	file.Close()
+
+	// When getProjectConfigPath is called
+	projectConfigPath := getProjectConfigPath()
+
+	// Then projectConfigPath should be set to windsor.yaml
+	if projectConfigPath != windsorYamlPath {
+		t.Errorf("expected projectConfigPath to be %s, got %s", windsorYamlPath, projectConfigPath)
+	}
+}
+
+func TestGetProjectConfigPath_WindsorYml(t *testing.T) {
+	// Given valid config handlers and shell instance
+	mockCLIConfigHandler := config.NewMockConfigHandler(
+		func(path string) error { return nil },
+		func(key string) (string, error) { return "value", nil },
+		nil, nil, nil, nil,
+	)
+	mockProjectConfigHandler := config.NewMockConfigHandler(
+		func(path string) error { return nil },
+		func(key string) (string, error) { return "value", nil },
+		nil, nil, nil, nil,
+	)
+	mockShell, _ := shell.NewMockShell("unix")
+	tempDir := t.TempDir()
+	mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
+	setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+
+	// Create a temporary windsor.yml file in the project root
+	windsorYmlPath := filepath.Join(tempDir, "windsor.yml")
+	file, err := os.Create(windsorYmlPath)
+	if err != nil {
+		t.Fatalf("Failed to create windsor.yml: %v", err)
+	}
+	file.Close()
+
+	// When getProjectConfigPath is called
+	projectConfigPath := getProjectConfigPath()
+
+	// Then projectConfigPath should be set to windsor.yml
+	if projectConfigPath != windsorYmlPath {
+		t.Errorf("expected projectConfigPath to be %s, got %s", windsorYmlPath, projectConfigPath)
+	}
 }

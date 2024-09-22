@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/helpers"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 var envCmd = &cobra.Command{
@@ -19,14 +18,6 @@ var envCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("Error resolving helpers: %w", err)
 		}
-
-		// Resolve the shell from the DI container
-		var sh shell.Shell
-		shInstance, err := container.Resolve("shell")
-		if err != nil {
-			return fmt.Errorf("Error resolving shell: %w", err)
-		}
-		sh = shInstance.(shell.Shell)
 
 		// Iterate through all helpers and get environment variables
 		for _, instance := range helperInstances {
@@ -48,7 +39,7 @@ var envCmd = &cobra.Command{
 			for _, k := range keys {
 				sortedEnvVars[k] = envVars[k]
 			}
-			sh.PrintEnvVars(sortedEnvVars)
+			shellInstance.PrintEnvVars(sortedEnvVars)
 		}
 
 		return nil

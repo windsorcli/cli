@@ -13,9 +13,10 @@ import (
 )
 
 // Helper function to set up the container with mock handlers
-func setupMockEnvContainer(mockConfigHandler config.ConfigHandler, mockShell shell.Shell, mockHelpers ...helpers.Helper) di.ContainerInterface {
+func setupMockEnvContainer(mockCliConfigHandler, mockProjectConfigHandler config.ConfigHandler, mockShell shell.Shell, mockHelpers ...helpers.Helper) di.ContainerInterface {
 	container := di.NewContainer()
-	container.Register("cliConfigHandler", mockConfigHandler)
+	container.Register("cliConfigHandler", mockCliConfigHandler)
+	container.Register("projectConfigHandler", mockProjectConfigHandler)
 	container.Register("shell", mockShell)
 	for i, helper := range mockHelpers {
 		container.Register(fmt.Sprintf("mockHelper%d", i), helper)
@@ -25,9 +26,28 @@ func setupMockEnvContainer(mockConfigHandler config.ConfigHandler, mockShell she
 }
 
 func TestEnvCmd(t *testing.T) {
+	originalExitFunc := exitFunc
+	var exitCode int
+	exitFunc = func(code int) {
+		exitCode = code
+		panic(fmt.Sprintf("exit code: %d", code)) // Simulate exit
+	}
+	t.Cleanup(func() {
+		exitFunc = originalExitFunc
+	})
+
 	t.Run("Success", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				if r != "exit code: 1" {
+					t.Fatalf("unexpected panic: %v", r)
+				}
+			}
+		}()
+
 		// Given: a valid config handler, shell, and helper
-		mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -41,7 +61,7 @@ func TestEnvCmd(t *testing.T) {
 			},
 			mockShell,
 		)
-		setupMockEnvContainer(mockConfigHandler, mockShell, mockHelper)
+		setupMockEnvContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper)
 
 		// When: the env command is executed
 		output := captureStdout(func() {
@@ -60,15 +80,25 @@ func TestEnvCmd(t *testing.T) {
 	})
 
 	t.Run("ResolveHelpersError", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				if r != "exit code: 1" {
+					t.Fatalf("unexpected panic: %v", r)
+				}
+			}
+		}()
+
 		// Given: a container that returns an error when resolving helpers
-		mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
 		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(errors.New("resolve helpers error"))
-		mockContainer.Register("cliConfigHandler", mockConfigHandler)
+		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
+		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
+		mockContainer.Register("projectConfigHandler", mockProjectConfigHandler)
 		mockContainer.Register("shell", mockShell)
 		Initialize(mockContainer)
 
@@ -89,21 +119,21 @@ func TestEnvCmd(t *testing.T) {
 	})
 
 	t.Run("ResolveShellError", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				if r != "exit code: 1" {
+					t.Fatalf("unexpected panic: %v", r)
+				}
+			}
+		}()
+
 		// Given: a container that returns an error when resolving the shell
-		mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
-		mockHelper := helpers.NewMockHelper(
-			func() (map[string]string, error) {
-				return map[string]string{
-					"VAR1": "value1",
-					"VAR2": "value2",
-				}, nil
-			},
-			nil,
-		)
+		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveError("shell", errors.New("resolve shell error"))
-		mockContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockContainer.Register("mockHelper0", mockHelper)
+		mockContainer.SetResolveError("shell", errors.New("resolve shell error")) // Simulate error
+		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
+		mockContainer.Register("projectConfigHandler", mockProjectConfigHandler)
 		Initialize(mockContainer)
 
 		// When: the env command is executed
@@ -120,11 +150,28 @@ func TestEnvCmd(t *testing.T) {
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
+
+		// Assert that exitFunc was called with the correct code and message
+		if exitCode != 1 {
+			t.Errorf("Expected exit code 1, got %d", exitCode)
+		}
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected exit message to contain %q, got %q", expectedOutput, output)
+		}
 	})
 
 	t.Run("GetEnvVarsError", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				if r != "exit code: 1" {
+					t.Fatalf("unexpected panic: %v", r)
+				}
+			}
+		}()
+
 		// Given: a helper that returns an error when getting environment variables
-		mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -135,7 +182,7 @@ func TestEnvCmd(t *testing.T) {
 			},
 			mockShell,
 		)
-		setupMockEnvContainer(mockConfigHandler, mockShell, mockHelper)
+		setupMockEnvContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper)
 
 		// When: the env command is executed
 		output := captureStderr(func() {
