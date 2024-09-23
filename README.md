@@ -53,7 +53,25 @@ Here is an example of a CLI configuration file:
 
 ```yaml
 context: default
+contexts:
+  default:
+    environment:
+      FOO_VAR: bar
 ```
+
+## Shell Integration
+
+To automatically load Windsor CLI environment variables in your shell, you can add the following to your `precmd()` function in your shell configuration file (e.g., `.zshrc` for Zsh or `.bashrc` for Bash):
+
+```sh
+precmd() {
+  if command -v windsor >/dev/null 2>&1; then
+    eval "$(windsor env)"
+  fi
+}
+```
+
+This will ensure that the Windsor CLI environment variables are loaded every time a new shell session is started.
 
 ## Contributing
 
