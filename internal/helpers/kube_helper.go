@@ -6,33 +6,36 @@ import (
 	"path/filepath"
 
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
+// KubeHelper is a helper struct that provides Kubernetes-specific utility functions
 type KubeHelper struct {
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
+	Context       context.ContextInterface
 }
 
-func NewKubeHelper(configHandler config.ConfigHandler, shell shell.Shell) *KubeHelper {
+// NewKubeHelper is a constructor for KubeHelper
+func NewKubeHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *KubeHelper {
 	return &KubeHelper{
 		ConfigHandler: configHandler,
 		Shell:         shell,
+		Context:       ctx,
 	}
 }
 
+// GetEnvVars retrieves Kubernetes-specific environment variables for the current context
 func (h *KubeHelper) GetEnvVars() (map[string]string, error) {
-	context, err := h.ConfigHandler.GetConfigValue("context")
+	// Get the configuration root directory
+	configRoot, err := h.Context.GetConfigRoot()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving context: %w", err)
+		return nil, fmt.Errorf("error retrieving config root: %w", err)
 	}
 
-	projectRoot, err := h.Shell.GetProjectRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving project root: %w", err)
-	}
-
-	kubeConfigPath := filepath.Join(projectRoot, "contexts", context, ".kube", "config")
+	// Construct the path to the kubeconfig file
+	kubeConfigPath := filepath.Join(configRoot, ".kube", "config")
 	if _, err := os.Stat(kubeConfigPath); os.IsNotExist(err) {
 		kubeConfigPath = ""
 	}

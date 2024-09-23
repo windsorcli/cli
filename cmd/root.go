@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
@@ -24,6 +25,9 @@ var projectConfigHandler config.ConfigHandler
 
 // shell instance
 var shellInstance shell.Shell
+
+// context instance
+var contextInstance *context.Context
 
 // getCLIConfigPath returns the path to the CLI configuration file
 func getCLIConfigPath() string {
@@ -143,4 +147,7 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("cliConfigHandler", &cliConfigHandler)
 	resolveAndAssign("projectConfigHandler", &projectConfigHandler)
 	resolveAndAssign("shell", &shellInstance)
+
+	// Initialize contextInstance
+	contextInstance = context.NewContext(cliConfigHandler, shellInstance)
 }

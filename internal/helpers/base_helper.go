@@ -5,32 +5,41 @@ import (
 	"strings"
 
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
+// BaseHelper is a helper struct that provides various utility functions
 type BaseHelper struct {
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
+	Context       context.ContextInterface
 }
 
-func NewBaseHelper(configHandler config.ConfigHandler, shell shell.Shell) *BaseHelper {
+// NewBaseHelper is a constructor for BaseHelper
+func NewBaseHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *BaseHelper {
 	return &BaseHelper{
 		ConfigHandler: configHandler,
 		Shell:         shell,
+		Context:       ctx,
 	}
 }
 
+// GetEnvVars retrieves environment variables for the current context
 func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
-	context, err := h.ConfigHandler.GetConfigValue("context")
+	// Get the current context
+	context, err := h.Context.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
+	// Get environment variables for the context from the config handler
 	envVars, err := h.ConfigHandler.GetNestedMap(fmt.Sprintf("contexts.%s.environment", context))
 	if err != nil {
 		envVars = make(map[string]interface{})
 	}
 
+	// Convert environment variables to a map of strings
 	stringEnvVars := make(map[string]string)
 	for k, v := range envVars {
 		if strVal, ok := v.(string); ok {

@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/windsor-hotel/cli/cmd"
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
@@ -24,12 +25,16 @@ func main() {
 	projectConfigHandler := config.NewViperConfigHandler("")
 	container.Register("projectConfigHandler", projectConfigHandler)
 
+	// Create and register the Context instance
+	contextInstance := context.NewContext(cliConfigHandler, shellInstance)
+	container.Register("context", contextInstance)
+
 	// Create and register the BaseHelper instance
-	baseHelper := helpers.NewBaseHelper(cliConfigHandler, shellInstance)
+	baseHelper := helpers.NewBaseHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("baseHelper", baseHelper)
 
 	// Create and register the KubeHelper instance
-	kubeHelper := helpers.NewKubeHelper(cliConfigHandler, shellInstance)
+	kubeHelper := helpers.NewKubeHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("kubeHelper", kubeHelper)
 
 	// Inject the DI container into the cmd package

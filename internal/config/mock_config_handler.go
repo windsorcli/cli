@@ -29,6 +29,7 @@ func NewMockConfigHandler(
 	}
 }
 
+// LoadConfig calls the mock LoadConfigFunc if set, otherwise returns nil
 func (m *MockConfigHandler) LoadConfig(path string) error {
 	if m.LoadConfigFunc != nil {
 		return m.LoadConfigFunc(path)
@@ -36,6 +37,7 @@ func (m *MockConfigHandler) LoadConfig(path string) error {
 	return nil
 }
 
+// GetConfigValue calls the mock GetConfigValueFunc if set, otherwise returns an empty string and nil error
 func (m *MockConfigHandler) GetConfigValue(key string) (string, error) {
 	if m.GetConfigValueFunc != nil {
 		return m.GetConfigValueFunc(key)
@@ -43,6 +45,7 @@ func (m *MockConfigHandler) GetConfigValue(key string) (string, error) {
 	return "", nil
 }
 
+// SetConfigValue calls the mock SetConfigValueFunc if set, otherwise returns nil
 func (m *MockConfigHandler) SetConfigValue(key, value string) error {
 	if m.SetConfigValueFunc != nil {
 		return m.SetConfigValueFunc(key, value)
@@ -50,6 +53,7 @@ func (m *MockConfigHandler) SetConfigValue(key, value string) error {
 	return nil
 }
 
+// SaveConfig calls the mock SaveConfigFunc if set, otherwise returns nil
 func (m *MockConfigHandler) SaveConfig(path string) error {
 	if m.SaveConfigFunc != nil {
 		return m.SaveConfigFunc(path)
@@ -57,6 +61,7 @@ func (m *MockConfigHandler) SaveConfig(path string) error {
 	return nil
 }
 
+// GetNestedMap calls the mock GetNestedMapFunc if set, otherwise returns nil and nil error
 func (m *MockConfigHandler) GetNestedMap(key string) (map[string]interface{}, error) {
 	if m.GetNestedMapFunc != nil {
 		return m.GetNestedMapFunc(key)
@@ -64,6 +69,7 @@ func (m *MockConfigHandler) GetNestedMap(key string) (map[string]interface{}, er
 	return nil, nil
 }
 
+// ListKeys calls the mock ListKeysFunc if set, otherwise returns nil and nil error
 func (m *MockConfigHandler) ListKeys(key string) ([]string, error) {
 	if m.ListKeysFunc != nil {
 		return m.ListKeysFunc(key)
