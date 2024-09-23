@@ -37,6 +37,14 @@ func main() {
 	kubeHelper := helpers.NewKubeHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("kubeHelper", kubeHelper)
 
+	// Create and register the TalosHelper instance
+	talosHelper := helpers.NewTalosHelper(cliConfigHandler, shellInstance, contextInstance)
+	container.Register("talosHelper", talosHelper)
+
+	// Create and register the OmniHelper instance
+	omniHelper := helpers.NewOmniHelper(cliConfigHandler, shellInstance, contextInstance)
+	container.Register("omniHelper", omniHelper)
+
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)
 
