@@ -10,14 +10,14 @@ import (
 )
 
 // Helper function to create a mock config handler
-func createMockConfigHandler(getContextFunc func(string) (string, error), getNestedMapFunc func(string) (map[string]interface{}, error)) *config.MockConfigHandler {
+func createMockConfigHandler(getConfigValueFunc func(string) (string, error), getNestedMapFunc func(string) (map[string]interface{}, error)) *config.MockConfigHandler {
 	return config.NewMockConfigHandler(
 		func(path string) error { return nil },
-		getContextFunc,
-		func(key string, value string) error { return nil }, // SetConfigValueFunc
-		func(path string) error { return nil },              // SaveConfigFunc
+		getConfigValueFunc,
+		func(key, value string) error { return nil },
+		func(path string) error { return nil },
 		getNestedMapFunc,
-		func(key string) ([]string, error) { return nil, nil }, // ListKeysFunc
+		func(key string) ([]string, error) { return nil, nil },
 	)
 }
 
