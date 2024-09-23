@@ -13,6 +13,7 @@ import (
 )
 
 // Helper function to get the long path name on Windows
+// This function converts a short path to its long form
 func getLongPathName(shortPath string) (string, error) {
 	p, err := windows.UTF16PtrFromString(shortPath)
 	if err != nil {
@@ -27,6 +28,7 @@ func getLongPathName(shortPath string) (string, error) {
 }
 
 // Helper function to normalize a Windows path
+// This function ensures the path is in its long form and normalized
 func normalizeWindowsPath(path string) string {
 	longPath, err := getLongPathName(path)
 	if err != nil {
@@ -37,7 +39,7 @@ func normalizeWindowsPath(path string) string {
 
 func TestDefaultShell_PrintEnvVars_Windows(t *testing.T) {
 	t.Run("PrintEnvVars", func(t *testing.T) {
-		// Given a default shell and environment variables
+		// Given a default shell and a set of environment variables
 		shell := NewDefaultShell()
 		envVars := map[string]string{
 			"VAR2": "value2",
@@ -54,6 +56,7 @@ func TestDefaultShell_PrintEnvVars_Windows(t *testing.T) {
 		r, w, _ := os.Pipe()
 		os.Stdout = w
 
+		// Run PrintEnvVars in a goroutine and capture its output
 		go func() {
 			shell.PrintEnvVars(envVars)
 			w.Close()

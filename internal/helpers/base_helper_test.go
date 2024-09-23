@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -49,7 +50,15 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 	mockShell := createMockShell(func() (string, error) {
 		return "/mock/project/root", nil
 	})
-	baseHelper := NewBaseHelper(mockConfigHandler, mockShell)
+	mockContext := &context.MockContext{
+		GetContextFunc: func() (string, error) {
+			return "test-context", nil
+		},
+		GetConfigRootFunc: func() (string, error) {
+			return "/mock/project/root/contexts/test-context", nil
+		},
+	}
+	baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
 
 	t.Run("Success", func(t *testing.T) {
 		// When calling GetEnvVars
@@ -85,7 +94,15 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 			},
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 		)
-		baseHelper := NewBaseHelper(mockConfigHandler, mockShell)
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "", errors.New("error retrieving context")
+			},
+			GetConfigRootFunc: func() (string, error) {
+				return "/mock/project/root/contexts/test-context", nil
+			},
+		}
+		baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
 
 		// When calling GetEnvVars
 		expectedError := errors.New("error retrieving context: error retrieving context")
@@ -117,7 +134,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 				return nil, errors.New("context not found")
 			},
 		)
-		baseHelper := NewBaseHelper(mockConfigHandler, mockShell)
+		baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
 
 		// When calling GetEnvVars
 		expectedError := errors.New("non-string value found in environment variables for context test-context")
@@ -144,10 +161,10 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 				if key == "contexts.test-context.environment" {
 					return map[string]interface{}{}, nil
 				}
-				return nil, errors.New("context not found")
+				return map[string]interface{}{}, nil
 			},
 		)
-		baseHelper := NewBaseHelper(mockConfigHandler, mockShell)
+		baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
 
 		// When calling GetEnvVars
 		expectedResult := map[string]string{
@@ -185,7 +202,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 				return nil, errors.New("error getting nested map")
 			},
 		)
-		baseHelper := NewBaseHelper(mockConfigHandler, mockShell)
+		baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
 
 		// When calling GetEnvVars
 		expectedResult := map[string]string{
@@ -215,7 +232,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 		mockShell := createMockShell(func() (string, error) {
 			return "", errors.New("failed to get project root")
 		})
-		baseHelper := NewBaseHelper(mockConfigHandler, mockShell)
+		baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
 
 		// When calling GetEnvVars
 		_, err := baseHelper.GetEnvVars()

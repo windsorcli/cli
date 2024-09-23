@@ -6,12 +6,15 @@ import (
 
 // MockHelper is a mock implementation of the Helper interface
 type MockHelper struct {
+	// GetEnvVarsFunc is a function that mocks the GetEnvVars method
 	GetEnvVarsFunc func() (map[string]string, error)
-	Shell          shell.Shell
+	// Shell is an instance of the shell interface
+	Shell shell.Shell
 }
 
 // NewMockHelper is a constructor for MockHelper
 func NewMockHelper(
+	// getEnvVarsFunc is a function that mocks the GetEnvVars method
 	getEnvVarsFunc func() (map[string]string, error),
 	shell shell.Shell,
 ) *MockHelper {
@@ -21,6 +24,7 @@ func NewMockHelper(
 	}
 }
 
+// GetEnvVars calls the mock GetEnvVarsFunc if it is set, otherwise returns nil
 func (m *MockHelper) GetEnvVars() (map[string]string, error) {
 	if m.GetEnvVarsFunc != nil {
 		return m.GetEnvVarsFunc()
