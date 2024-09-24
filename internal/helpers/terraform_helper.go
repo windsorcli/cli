@@ -15,6 +15,12 @@ import (
 // Define a variable for os.Getwd() for easier testing
 var getwd = os.Getwd
 
+// Define a variable for filepath.Glob for easier testing
+var glob = filepath.Glob
+
+// Wrapper function for os.WriteFile
+var writeFile = os.WriteFile
+
 // TerraformHelperInterface defines the methods for TerraformHelper
 type TerraformHelperInterface interface {
 	FindTerraformProjectPath() (string, error)
@@ -41,7 +47,7 @@ func NewTerraformHelper(configHandler config.ConfigHandler, shell shell.Shell, c
 	}
 }
 
-// Implement the interface methods...
+// FindTerraformProjectPath finds the path to the Terraform project
 func (h *TerraformHelper) FindTerraformProjectPath() (string, error) {
 	// Get the current working directory
 	currentPath, err := getwd()
@@ -49,22 +55,29 @@ func (h *TerraformHelper) FindTerraformProjectPath() (string, error) {
 		return "", fmt.Errorf("error getting current directory: %w", err)
 	}
 
+	// Check if the current directory contains any Terraform files
+	globPattern := filepath.Join(currentPath, "*.tf")
+	matches, err := glob(globPattern)
+	if err != nil {
+		return "", fmt.Errorf("error finding project path: %w", err)
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("no Terraform files found in the current directory")
+	}
+
 	// Split the current path into its components
 	pathParts := strings.Split(currentPath, string(os.PathSeparator))
+
 	// Iterate through the path components to find the "terraform" directory
-	for i, part := range pathParts {
-		if part == "terraform" {
-			// Join the path components from the "terraform" directory onwards
-			terraformPath := filepath.Join(pathParts[i:]...)
-			// Check if the directory contains any Terraform files
-			if matches, _ := filepath.Glob(filepath.Join(terraformPath, "*.tf")); len(matches) > 0 {
-				return terraformPath, nil
-			}
-			break
+	for i := len(pathParts) - 1; i >= 0; i-- {
+		if pathParts[i] == "terraform" {
+			// Join the path components after the "terraform" directory
+			relativePath := filepath.Join(pathParts[i+1:]...)
+			return relativePath, nil
 		}
 	}
 
-	return "", nil
+	return "", fmt.Errorf("no 'terraform' directory found in the current path")
 }
 
 // GetCurrentBackend retrieves the current backend configuration for Terraform
@@ -112,18 +125,18 @@ func (h *TerraformHelper) SanitizeForK8s(input string) string {
 // GenerateTerraformTfvarsFlags generates the flags for Terraform tfvars files
 func (h *TerraformHelper) GenerateTerraformTfvarsFlags() (string, error) {
 	// Find the Terraform project path
-	projectPath, err := h.FindTerraformProjectPath()
-	if err != nil || projectPath == "" {
+	relativePath, err := h.FindTerraformProjectPath()
+	if err != nil || relativePath == "" {
 		return "", err
 	}
 
 	// Define patterns for tfvars files
 	patterns := []string{
-		fmt.Sprintf("%s.tfvars", projectPath),
-		fmt.Sprintf("%s.json", projectPath),
-		fmt.Sprintf("%s_generated.tfvars", projectPath),
-		fmt.Sprintf("%s_generated.json", projectPath),
-		fmt.Sprintf("%s_generated.tfvars.json", projectPath),
+		fmt.Sprintf("%s.tfvars", relativePath),
+		fmt.Sprintf("%s.json", relativePath),
+		fmt.Sprintf("%s_generated.tfvars", relativePath),
+		fmt.Sprintf("%s_generated.json", relativePath),
+		fmt.Sprintf("%s_generated.tfvars.json", relativePath),
 	}
 
 	var varFileArgs []string
@@ -133,9 +146,14 @@ func (h *TerraformHelper) GenerateTerraformTfvarsFlags() (string, error) {
 		return "", err
 	}
 
+	// Debug print to check the config root and patterns
+	fmt.Printf("Config Root: %s\n", configRoot)
+	fmt.Printf("Patterns: %v\n", patterns)
+
 	// Check for the existence of each tfvars file and add it to the arguments
 	for _, pattern := range patterns {
 		filePath := filepath.Join(configRoot, pattern)
+		fmt.Printf("Checking file: %s\n", filePath)
 		if _, err := os.Stat(filePath); err == nil {
 			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=%s", filePath))
 		}
@@ -149,44 +167,49 @@ func (h *TerraformHelper) GenerateTerraformInitBackendFlags() (string, error) {
 	// Find the Terraform project path
 	projectPath, err := h.FindTerraformProjectPath()
 	if err != nil || projectPath == "" {
+		fmt.Printf("Error finding project path: %v\n", err)
 		return "", err
 	}
 
 	// Get the current backend configuration
 	backend, err := h.GetCurrentBackend()
-	if err != nil {
-		return "", err
+	if err != nil || backend == "" {
+		fmt.Printf("Error getting backend: %v\n", err)
+		return "", fmt.Errorf("backend not found")
 	}
 
-	var backendConfigs []string
 	// Get the configuration root directory
 	configRoot, err := h.Context.GetConfigRoot()
 	if err != nil {
-		return "", err
+		fmt.Printf("Error getting config root: %v\n", err)
+		return "", fmt.Errorf("error getting config root: %w", err)
 	}
 
-	// Check for the existence of the backend configuration file
+	// Define the backend configuration file
 	backendConfigFile := filepath.Join(configRoot, "backend.tfvars")
-	if _, err := os.Stat(backendConfigFile); err == nil {
-		backendConfigs = append(backendConfigs, backendConfigFile)
+	backendConfigs := []string{}
+
+	// Check if the backend configuration file exists
+	_, err = os.Stat(backendConfigFile)
+	if err == nil {
+		backendConfigs = append(backendConfigs, fmt.Sprintf("-backend-config=%s", backendConfigFile))
 	}
 
-	// Generate backend configuration based on the backend type
-	switch backend {
-	case "local":
+	// Generate the backend configuration based on the backend type
+	if backend == "local" {
 		baseDir := filepath.Join(configRoot, ".tfstate")
 		statePath := filepath.Join(baseDir, projectPath, "terraform.tfstate")
-		backendConfigs = append(backendConfigs, fmt.Sprintf("path=%s", statePath))
-	case "s3":
-		backendConfigs = append(backendConfigs, fmt.Sprintf("key=%s/terraform.tfstate", projectPath))
-	case "kubernetes":
+		backendConfigs = append(backendConfigs, fmt.Sprintf("-backend-config=path=%s", statePath))
+	} else if backend == "s3" {
+		backendConfigs = append(backendConfigs, fmt.Sprintf("-backend-config=key=%s/terraform.tfstate", projectPath))
 		projectNameSanitized := h.SanitizeForK8s(projectPath)
-		backendConfigs = append(backendConfigs, fmt.Sprintf("secret_suffix=%s", projectNameSanitized))
+		backendConfigs = append(backendConfigs, fmt.Sprintf("-backend-config=secret_suffix=%s", projectNameSanitized))
 	}
 
-	// Return the backend configuration flags
+	// Generate the backend flags
 	if len(backendConfigs) > 0 {
-		return fmt.Sprintf("-backend=true %s", strings.Join(backendConfigs, " -backend-config=")), nil
+		backendFlags := "-backend=true " + strings.Join(backendConfigs, " ")
+		return backendFlags, nil
 	}
 
 	return "", nil
@@ -210,106 +233,138 @@ func (h *TerraformHelper) GetAlias() (map[string]string, error) {
 
 // GetEnvVars retrieves the environment variables for the Terraform project
 func (h *TerraformHelper) GetEnvVars() (map[string]string, error) {
-	// Find the Terraform project path
-	projectPath, err := h.FindTerraformProjectPath()
-	if err != nil || projectPath == "" {
-		return map[string]string{
-			"TF_DATA_DIR":         "",
-			"TF_CLI_ARGS_init":    "",
-			"TF_CLI_ARGS_plan":    "",
-			"TF_CLI_ARGS_apply":   "",
-			"TF_CLI_ARGS_import":  "",
-			"TF_CLI_ARGS_destroy": "",
-			"TF_VAR_context_path": "",
-		}, nil
+	envVars := map[string]string{
+		"TF_DATA_DIR":         "",
+		"TF_CLI_ARGS_init":    "",
+		"TF_CLI_ARGS_plan":    "",
+		"TF_CLI_ARGS_apply":   "",
+		"TF_CLI_ARGS_import":  "",
+		"TF_CLI_ARGS_destroy": "",
+		"TF_VAR_context_path": "",
 	}
 
 	// Get the configuration root directory
 	configRoot, err := h.Context.GetConfigRoot()
 	if err != nil {
-		return nil, err
+		fmt.Printf("Error getting config root: %v\n", err)
+		return envVars, fmt.Errorf("error getting config root: %w", err)
 	}
+	fmt.Printf("Config Root: %s\n", configRoot)
 
-	// Define the data directory for Terraform
-	dataDir := filepath.Join(configRoot, ".terraform", projectPath)
-	// Generate the tfvars flags
-	varFlagString, err := h.GenerateTerraformTfvarsFlags()
+	// Get the current working directory
+	currentPath, err := getwd()
 	if err != nil {
-		return nil, err
+		fmt.Printf("Error getting current directory: %v\n", err)
+		return envVars, fmt.Errorf("error getting current directory: %w", err)
 	}
-	// Generate the backend initialization flags
-	backendFlagString, err := h.GenerateTerraformInitBackendFlags()
+	fmt.Printf("Current working directory: %s\n", currentPath)
+
+	// Find the Terraform project path
+	projectPath, err := h.FindTerraformProjectPath()
 	if err != nil {
-		return nil, err
+		fmt.Printf("Error finding project path: %v\n", err)
+		return envVars, fmt.Errorf("error finding project path: %w", err)
 	}
 
-	// Generate backend_override.tf
-	if err := h.GenerateBackendOverrideTf(); err != nil {
-		return nil, err
-	}
+	// Set the TF_DATA_DIR environment variable
+	tfDataDir := filepath.Join(configRoot, ".terraform", projectPath)
+	envVars["TF_DATA_DIR"] = tfDataDir
 
-	// Return the environment variables for Terraform
-	return map[string]string{
-		"TF_DATA_DIR":         dataDir,
-		"TF_CLI_ARGS_init":    backendFlagString,
-		"TF_CLI_ARGS_plan":    fmt.Sprintf("-out=%s %s", filepath.Join(dataDir, "terraform.tfplan"), varFlagString),
-		"TF_CLI_ARGS_apply":   filepath.Join(dataDir, "terraform.tfplan"),
-		"TF_CLI_ARGS_import":  varFlagString,
-		"TF_CLI_ARGS_destroy": varFlagString,
-		"TF_VAR_context_path": configRoot,
-	}, nil
-}
+	// Set the TF_CLI_ARGS_init environment variable
+	tfStatePath := filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate")
+	envVars["TF_CLI_ARGS_init"] = fmt.Sprintf("-backend=true -backend-config=path=%s", tfStatePath)
 
-// WriteFile writes content to a file at the specified path
-func (h *TerraformHelper) WriteFile(path string, content string) error {
-	return os.WriteFile(path, []byte(content), 0644)
+	// Set the TF_CLI_ARGS_plan environment variable
+	tfPlanPath := filepath.Join(configRoot, ".terraform", projectPath, "terraform.tfplan")
+	envVars["TF_CLI_ARGS_plan"] = fmt.Sprintf("-out=%s -var-file=%s.tfvars -var-file=%s.json -var-file=%s_generated.tfvars -var-file=%s_generated.json -var-file=%s_generated.tfvars.json",
+		tfPlanPath, projectPath, projectPath, projectPath, projectPath, projectPath)
+
+	// Set the TF_CLI_ARGS_apply environment variable
+	envVars["TF_CLI_ARGS_apply"] = tfPlanPath
+
+	// Set the TF_CLI_ARGS_import environment variable
+	envVars["TF_CLI_ARGS_import"] = fmt.Sprintf("-var-file=%s.tfvars -var-file=%s.json -var-file=%s_generated.tfvars -var-file=%s_generated.json -var-file=%s_generated.tfvars.json",
+		projectPath, projectPath, projectPath, projectPath, projectPath)
+
+	// Set the TF_CLI_ARGS_destroy environment variable
+	envVars["TF_CLI_ARGS_destroy"] = fmt.Sprintf("-var-file=%s.tfvars -var-file=%s.json -var-file=%s_generated.tfvars -var-file=%s_generated.json -var-file=%s_generated.tfvars.json",
+		projectPath, projectPath, projectPath, projectPath, projectPath)
+
+	// Set the TF_VAR_context_path environment variable
+	envVars["TF_VAR_context_path"] = configRoot
+
+	return envVars, nil
 }
 
 // GenerateBackendOverrideTf generates the backend_override.tf file for the Terraform project
 func (h *TerraformHelper) GenerateBackendOverrideTf() error {
-	// Find the Terraform project path
-	projectPath, err := h.FindTerraformProjectPath()
-	if err != nil || projectPath == "" {
-		return nil
-	}
-
-	// Get the current backend configuration
+	// Get the current backend
 	backend, err := h.GetCurrentBackend()
-	if err != nil || backend == "" {
-		return nil
+	if err != nil {
+		return fmt.Errorf("error getting backend: %w", err)
 	}
 
 	// Get the configuration root directory
 	configRoot, err := h.Context.GetConfigRoot()
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting config root: %w", err)
 	}
 
 	// Get the current working directory
-	workingDir, err := getwd()
+	currentPath, err := getwd()
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
-	// Define the path for the backend override file
-	backendConfigPath := filepath.Join(workingDir, "backend_override.tf")
-	var backendConfigContent string
+	// Find the Terraform project path
+	projectPath, err := h.FindTerraformProjectPath()
+	if err != nil {
+		return fmt.Errorf("error finding project path: %w", err)
+	}
 
-	// Generate the content for the backend override file based on the backend type
-	if backend == "local" {
-		backendConfigContent = fmt.Sprintf(
-			`terraform {
-  backend "local" {
-    path = "%s/terraform.tfstate"
+	// Create the backend_override.tf file
+	backendOverridePath := filepath.Join(currentPath, "backend_override.tf")
+	backendConfig := fmt.Sprintf(`
+terraform {
+  backend "%s" {
+    path = "%s"
   }
-}`, configRoot)
-	} else {
-		backendConfigContent = fmt.Sprintf(
-			`terraform {
-  backend "%s" {}
-}`, backend)
+}`, backend, filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate"))
+
+	err = writeFile(backendOverridePath, []byte(backendConfig), os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("error writing backend_override.tf: %w", err)
 	}
 
-	// Write the backend override file
-	return h.WriteFile(backendConfigPath, backendConfigContent)
+	return nil
+}
+
+// FindTerraformProjectRoot finds the root directory containing the "terraform" directory
+func (h *TerraformHelper) FindTerraformProjectRoot() (string, error) {
+	// Get the current working directory
+	currentPath, err := getwd()
+	if err != nil {
+		return "", fmt.Errorf("error getting current directory: %w", err)
+	}
+
+	// Debug print to check the current working directory
+	fmt.Printf("Current working directory: %s\n", currentPath)
+
+	// Split the current path into its components
+	pathParts := strings.Split(currentPath, string(os.PathSeparator))
+	// Debug print to check the path components
+	fmt.Printf("Path components: %v\n", pathParts)
+
+	// Iterate through the path components to find the "terraform" directory
+	for i := len(pathParts) - 1; i >= 0; i-- {
+		if pathParts[i] == "terraform" {
+			// Join the path components up to the "terraform" directory
+			projectRoot := filepath.Join(pathParts[:i+1]...)
+			fmt.Printf("Found 'terraform' directory, project root: %s\n", projectRoot)
+			return projectRoot, nil
+		}
+	}
+
+	fmt.Printf("No 'terraform' directory found in the current path: %s\n", currentPath)
+	return "", fmt.Errorf("no 'terraform' directory found in the current path")
 }
