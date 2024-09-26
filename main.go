@@ -45,6 +45,10 @@ func main() {
 	omniHelper := helpers.NewOmniHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("omniHelper", omniHelper)
 
+	// Create and register the SopsHelper instance
+	sopsHelper := helpers.NewSopsHelper(cliConfigHandler, shellInstance, contextInstance)
+	container.Register("sopsHelper", sopsiHelper)
+
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)
 
