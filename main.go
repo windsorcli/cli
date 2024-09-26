@@ -47,7 +47,7 @@ func main() {
 
 	// Create and register the SopsHelper instance
 	sopsHelper := helpers.NewSopsHelper(cliConfigHandler, shellInstance, contextInstance)
-	container.Register("sopsHelper", sopsiHelper)
+	container.Register("sopsHelper", sopsHelper)
 
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)
