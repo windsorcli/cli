@@ -10,7 +10,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-// SopsHelper is a helper struct that provides Sopsrnetes-specific utility functions
+// SopsHelper is a helper struct that provides Kubernetes-specific utility functions
 type SopsHelper struct {
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
@@ -26,7 +26,7 @@ func NewSopsHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx co
 	}
 }
 
-// GetEnvVars retrieves Sopsrnetes-specific environment variables for the current context
+// GetEnvVars retrieves Kubernetes-specific environment variables for the current context
 func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 	// Get the configuration root directory
 	configRoot, err := h.Context.GetConfigRoot()
@@ -34,7 +34,7 @@ func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving config root: %w", err)
 	}
 
-	// Construct the path to the sopsconfig file
+	// Construct the path to the sops config file
 	sopsConfigPath := filepath.Join(configRoot, ".sops", "config")
 	if _, err := os.Stat(sopsConfigPath); os.IsNotExist(err) {
 		sopsConfigPath = ""

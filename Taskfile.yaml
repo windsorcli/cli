@@ -8,6 +8,7 @@ tasks:
       - go mod verify
       - go install github.com/spf13/cobra-cli@latest
       - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - go get github.com/getsops/sops/v3/decrypt
       - go test -v ./cmd
 
   build:
@@ -39,7 +40,7 @@ tasks:
   test:
     desc: Run tests
     cmds:
-      - go test -coverprofile=coverage.out ./...
+      - go test -v -coverprofile=coverage.out ./...
       - go tool cover -html=coverage.out -o coverage.html
 
   run:
