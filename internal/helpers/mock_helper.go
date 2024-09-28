@@ -32,5 +32,10 @@ func (m *MockHelper) GetEnvVars() (map[string]string, error) {
 	return nil, nil
 }
 
+// PostEnvExec runs any necessary commands after the environment variables have been set.
+func (m *MockHelper) PostEnvExec() error {
+	return nil
+}
+
 // Ensure MockHelper implements Helper interface
 var _ Helper = (*MockHelper)(nil)

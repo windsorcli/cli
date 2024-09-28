@@ -285,18 +285,6 @@ func (h *TerraformHelper) GetEnvVars() (map[string]string, error) {
 
 // GenerateBackendOverrideTf generates the backend_override.tf file for the Terraform project
 func (h *TerraformHelper) GenerateBackendOverrideTf() error {
-	// Get the current backend
-	backend, err := h.GetCurrentBackend()
-	if err != nil {
-		return fmt.Errorf("error getting backend: %w", err)
-	}
-
-	// Get the configuration root directory
-	configRoot, err := h.Context.GetConfigRoot()
-	if err != nil {
-		return fmt.Errorf("error getting config root: %w", err)
-	}
-
 	// Get the current working directory
 	currentPath, err := getwd()
 	if err != nil {
@@ -307,6 +295,23 @@ func (h *TerraformHelper) GenerateBackendOverrideTf() error {
 	projectPath, err := h.FindRelativeTerraformProjectPath()
 	if err != nil {
 		return fmt.Errorf("error finding project path: %w", err)
+	}
+
+	// If projectPath is empty, do nothing
+	if projectPath == "" {
+		return nil
+	}
+
+	// Get the current backend
+	backend, err := h.GetCurrentBackend()
+	if err != nil {
+		return fmt.Errorf("error getting backend: %w", err)
+	}
+
+	// Get the configuration root directory
+	configRoot, err := h.Context.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error getting config root: %w", err)
 	}
 
 	// Create the backend_override.tf file
@@ -348,3 +353,12 @@ func (h *TerraformHelper) FindTerraformProjectRoot() (string, error) {
 
 	return "", fmt.Errorf("no 'terraform' directory found in the current path")
 }
+
+// PostEnvExec runs any necessary commands after the environment variables have been set.
+func (h *TerraformHelper) PostEnvExec() error {
+	// Generate the backend_override.tf file
+	return h.GenerateBackendOverrideTf()
+}
+
+// Ensure TerraformHelper implements Helper interface
+var _ Helper = (*TerraformHelper)(nil)

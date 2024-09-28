@@ -62,5 +62,10 @@ func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
 	return stringEnvVars, nil
 }
 
+// PostEnvExec runs any necessary commands after the environment variables have been set.
+func (h *BaseHelper) PostEnvExec() error {
+	return nil
+}
+
 // Ensure BaseHelper implements Helper interface
 var _ Helper = (*BaseHelper)(nil)

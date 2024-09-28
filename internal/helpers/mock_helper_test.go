@@ -79,3 +79,19 @@ func TestMockHelper_GetEnvVars(t *testing.T) {
 		}
 	})
 }
+
+func TestMockHelper_PostEnvExec(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a MockHelper instance
+		mockShell := createMockShell(func() (string, error) { return "", nil })
+		mockHelper := NewMockHelper(nil, mockShell)
+
+		// When calling PostEnvExec
+		err := mockHelper.PostEnvExec()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}

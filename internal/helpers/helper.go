@@ -5,4 +5,7 @@ package helpers
 type Helper interface {
 	// GetEnvVars retrieves environment variables for the current context.
 	GetEnvVars() (map[string]string, error)
+
+	// PostEnvExec runs any necessary commands after the environment variables have been set.
+	PostEnvExec() error
 }
