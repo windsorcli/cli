@@ -37,6 +37,10 @@ func main() {
 	kubeHelper := helpers.NewKubeHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("kubeHelper", kubeHelper)
 
+	// Create and register the TerraformHelper instance
+	terraformHelper := helpers.NewTerraformHelper(cliConfigHandler, shellInstance, contextInstance)
+	container.Register("terraformHelper", terraformHelper)
+
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)
 
