@@ -52,6 +52,7 @@ func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 		awsProfile = "default"
 	}
 
+	// Retrieve AWS endpoint URL if set
 	awsEndpointURL, err := h.ConfigHandler.GetConfigValue("aws_endpoint_url")
 	if err != nil || awsEndpointURL == "" {
 		if currentContext == "local" {
@@ -61,17 +62,20 @@ func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
+	// Set the environment variables
 	envVars := map[string]string{
 		"AWS_CONFIG_FILE":  awsConfigPath,
 		"AWS_PROFILE":      awsProfile,
 		"AWS_ENDPOINT_URL": awsEndpointURL,
 	}
 
+	// Retrieve custom S3 hostname if set
 	s3Hostname, err := h.ConfigHandler.GetConfigValue("s3_hostname")
 	if err == nil && s3Hostname != "" {
 		envVars["S3_HOSTNAME"] = s3Hostname
 	}
 
+	// Retrieve MWAA endpoint if set
 	mwaaEndpoint, err := h.ConfigHandler.GetConfigValue("mwaa_endpoint")
 	if err == nil && mwaaEndpoint != "" {
 		envVars["MWAA_ENDPOINT"] = mwaaEndpoint
