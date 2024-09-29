@@ -1127,7 +1127,7 @@ func TestTerraformHelper_FindTerraformProjectRoot(t *testing.T) {
 		// Mock getwd to return a path with a "terraform" directory
 		originalGetwd := getwd
 		getwd = func() (string, error) {
-			return filepath.Clean("/mock/project/root/terraform/subdir"), nil
+			return filepath.FromSlash("/mock/project/root/terraform/subdir"), nil
 		}
 		defer func() { getwd = originalGetwd }()
 
@@ -1137,10 +1137,18 @@ func TestTerraformHelper_FindTerraformProjectRoot(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		expectedRoot := filepath.Clean("/mock/project/root/terraform")
-		if !strings.HasPrefix(projectRoot, "/") {
-			projectRoot = "/" + projectRoot
+		expectedRoot := filepath.FromSlash("/mock/project/root/terraform")
+		projectRoot = filepath.Clean(projectRoot)
+		expectedRoot = filepath.Clean(expectedRoot)
+
+		// Ensure both paths are absolute
+		if !filepath.IsAbs(projectRoot) {
+			projectRoot = filepath.Join("/", projectRoot)
 		}
+		if !filepath.IsAbs(expectedRoot) {
+			expectedRoot = filepath.Join("/", expectedRoot)
+		}
+
 		if projectRoot != expectedRoot {
 			t.Fatalf("Expected project root '%s', got '%s'", expectedRoot, projectRoot)
 		}
