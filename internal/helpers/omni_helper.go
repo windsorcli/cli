@@ -47,5 +47,10 @@ func (h *OmniHelper) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
+// PostEnvExec runs any necessary commands after the environment variables have been set.
+func (h *OmniHelper) PostEnvExec() error {
+	return nil
+}
+
 // Ensure OmniHelper implements Helper interface
 var _ Helper = (*OmniHelper)(nil)
