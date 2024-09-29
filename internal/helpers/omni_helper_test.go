@@ -102,3 +102,27 @@ func TestOmniHelper_GetEnvVars(t *testing.T) {
 		}
 	})
 }
+
+func TestOmniHelper_PostEnvExec(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a OmniHelper instance
+		mockConfigHandler := createMockConfigHandler(
+			func(key string) (string, error) { return "", nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+		)
+		mockShell := createMockShell(func() (string, error) { return "", nil })
+		mockContext := &context.MockContext{
+			GetContextFunc:    func() (string, error) { return "", nil },
+			GetConfigRootFunc: func() (string, error) { return "", nil },
+		}
+		omniHelper := NewOmniHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When calling PostEnvExec
+		err := omniHelper.PostEnvExec()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
