@@ -1127,7 +1127,7 @@ func TestTerraformHelper_FindTerraformProjectRoot(t *testing.T) {
 		// Mock getwd to return a path with a "terraform" directory
 		originalGetwd := getwd
 		getwd = func() (string, error) {
-			return "/mock/project/root/terraform/subdir", nil
+			return filepath.Clean("/mock/project/root/terraform/subdir"), nil
 		}
 		defer func() { getwd = originalGetwd }()
 
@@ -1387,11 +1387,14 @@ func TestTerraformHelper_GenerateBackendOverrideTf(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}
-		_, err = os.Create(filepath.Join(projectPath, "main.tf"))
+		tfFile, err := os.Create(filepath.Join(projectPath, "main.tf"))
 		if err != nil {
 			t.Fatalf("Failed to create .tf file: %v", err)
 		}
-		defer os.RemoveAll(tempDir)
+		tfFile.Close() // Ensure the file is closed before cleanup
+		t.Cleanup(func() {
+			os.RemoveAll(tempDir)
+		})
 
 		// When: GenerateBackendOverrideTf is called
 		helper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
@@ -1441,11 +1444,14 @@ func TestTerraformHelper_GenerateBackendOverrideTf(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}
-		_, err = os.Create(filepath.Join(projectPath, "main.tf"))
+		tfFile, err := os.Create(filepath.Join(projectPath, "main.tf"))
 		if err != nil {
 			t.Fatalf("Failed to create .tf file: %v", err)
 		}
-		defer os.RemoveAll(tempDir)
+		tfFile.Close() // Ensure the file is closed before cleanup
+		t.Cleanup(func() {
+			os.RemoveAll(tempDir)
+		})
 
 		// When: GenerateBackendOverrideTf is called
 		helper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
@@ -1463,7 +1469,6 @@ func TestTerraformHelper_GenerateBackendOverrideTf(t *testing.T) {
 	t.Run("ErrorWritingBackendOverrideTf", func(t *testing.T) {
 		tempDir := t.TempDir()
 		projectPath := filepath.Join(tempDir, "terraform/project")
-		configRoot := filepath.Join(tempDir, "config/root")
 
 		// Mock getwd to return the project path
 		originalGetwd := getwd
@@ -1474,7 +1479,7 @@ func TestTerraformHelper_GenerateBackendOverrideTf(t *testing.T) {
 
 		// Mock context to return the config root
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
+			return "/mock/config/root", nil
 		}
 
 		// Mock GetCurrentBackend to return "local"
@@ -1491,10 +1496,10 @@ func TestTerraformHelper_GenerateBackendOverrideTf(t *testing.T) {
 			return nil, fmt.Errorf("unexpected key: %s", key)
 		}
 
-		// Mock writeFile to return an error
+		// Mock WriteFile to return an error
 		originalWriteFile := writeFile
 		writeFile = func(filename string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("mock error writing file")
+			return fmt.Errorf("mock error writing backend override tf")
 		}
 		defer func() { writeFile = originalWriteFile }()
 
@@ -1503,11 +1508,14 @@ func TestTerraformHelper_GenerateBackendOverrideTf(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}
-		_, err = os.Create(filepath.Join(projectPath, "main.tf"))
+		tfFile, err := os.Create(filepath.Join(projectPath, "main.tf"))
 		if err != nil {
 			t.Fatalf("Failed to create .tf file: %v", err)
 		}
-		defer os.RemoveAll(tempDir)
+		tfFile.Close() // Ensure the file is closed before cleanup
+		t.Cleanup(func() {
+			os.RemoveAll(tempDir)
+		})
 
 		// When: GenerateBackendOverrideTf is called
 		helper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
@@ -1517,8 +1525,8 @@ func TestTerraformHelper_GenerateBackendOverrideTf(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "error writing backend_override.tf") {
-			t.Fatalf("Expected error message to contain 'error writing backend_override.tf', got %v", err)
+		if !strings.Contains(err.Error(), "error writing backend override tf") {
+			t.Fatalf("Expected error message to contain 'error writing backend override tf', got %v", err)
 		}
 	})
 
@@ -1557,11 +1565,14 @@ func TestTerraformHelper_GenerateBackendOverrideTf(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}
-		_, err = os.Create(filepath.Join(projectPath, "main.tf"))
+		tfFile, err := os.Create(filepath.Join(projectPath, "main.tf"))
 		if err != nil {
 			t.Fatalf("Failed to create .tf file: %v", err)
 		}
-		defer os.RemoveAll(tempDir)
+		tfFile.Close() // Ensure the file is closed before cleanup
+		t.Cleanup(func() {
+			os.RemoveAll(tempDir)
+		})
 
 		// When: GenerateBackendOverrideTf is called
 		helper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
