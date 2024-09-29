@@ -49,6 +49,10 @@ func main() {
 	omniHelper := helpers.NewOmniHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("omniHelper", omniHelper)
 
+	// Create and register the AwsHelper instance
+	awsHelper := helpers.NewAwsHelper(cliConfigHandler, shellInstance, contextInstance)
+	container.Register("awsHelper", awsHelper)
+
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)
 
