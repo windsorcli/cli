@@ -86,6 +86,48 @@ func TestMockHelper_PostEnvExec(t *testing.T) {
 		mockShell := createMockShell(func() (string, error) { return "", nil })
 		mockHelper := NewMockHelper(nil, mockShell)
 
+		// Set the PostEnvExecFunc
+		mockHelper.SetPostEnvExecFunc(func() error {
+			return nil
+		})
+
+		// When calling PostEnvExec
+		err := mockHelper.PostEnvExec()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a MockHelper instance with an error PostEnvExecFunc
+		mockShell := createMockShell(func() (string, error) { return "", nil })
+		mockHelper := NewMockHelper(nil, mockShell)
+
+		// Set the PostEnvExecFunc to return an error
+		mockHelper.SetPostEnvExecFunc(func() error {
+			return errors.New("post env exec error")
+		})
+
+		// When calling PostEnvExec
+		expectedError := errors.New("post env exec error")
+		err := mockHelper.PostEnvExec()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected error %v, got nil", expectedError)
+		}
+		if err.Error() != expectedError.Error() {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NilFunction", func(t *testing.T) {
+		// Given a MockHelper instance with a nil PostEnvExecFunc
+		mockShell := createMockShell(func() (string, error) { return "", nil })
+		mockHelper := NewMockHelper(nil, mockShell)
+
 		// When calling PostEnvExec
 		err := mockHelper.PostEnvExec()
 

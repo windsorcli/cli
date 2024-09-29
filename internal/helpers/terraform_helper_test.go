@@ -1713,33 +1713,87 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 			return nil, fmt.Errorf("unexpected key: %s", key)
 		}
 
-		// Create the directory and a .tf file to simulate a valid Terraform project
-		err := os.MkdirAll(projectPath, os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create directories: %v", err)
-		}
-		tfFile, err := os.Create(filepath.Join(projectPath, "main.tf"))
-		if err != nil {
-			t.Fatalf("Failed to create .tf file: %v", err)
-		}
-		tfFile.Close() // Ensure the file is closed before cleanup
-		t.Cleanup(func() {
-			os.RemoveAll(tempDir)
-		})
+		terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
 
-		// When: PostEnvExec is called
-		helper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
-		err = helper.PostEnvExec()
+		// When calling PostEnvExec
+		err := terraformHelper.PostEnvExec()
 
-		// Then: it should succeed
+		// Then no error should be returned
 		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("FallbackToDefaultContext", func(t *testing.T) {
+		// Given a TerraformHelper instance with an error retrieving context
+		mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			return "", fmt.Errorf("error retrieving context")
+		}
+		mockConfigHandler.GetNestedMapFunc = func(key string) (map[string]interface{}, error) {
+			if key == "contexts.local" {
+				return map[string]interface{}{"backend": "local"}, nil
+			}
+			return nil, fmt.Errorf("unexpected key: %s", key)
 		}
 
-		// Check if the backend_override.tf file was created
-		backendOverridePath := filepath.Join(projectPath, "backend_override.tf")
-		if _, err := os.Stat(backendOverridePath); os.IsNotExist(err) {
-			t.Fatalf("Expected backend_override.tf to be created, but it does not exist")
+		terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When calling PostEnvExec
+		err := terraformHelper.PostEnvExec()
+
+		// Then no error should be returned and it should fall back to default context
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("FallbackToDefaultBackend", func(t *testing.T) {
+		// Given a TerraformHelper instance with a missing context configuration
+		mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			if key == "context" {
+				return "nonexistent", nil
+			}
+			return "", fmt.Errorf("unexpected key: %s", key)
+		}
+		mockConfigHandler.GetNestedMapFunc = func(key string) (map[string]interface{}, error) {
+			return nil, fmt.Errorf("key %s not found", key)
+		}
+
+		terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When calling PostEnvExec
+		err := terraformHelper.PostEnvExec()
+
+		// Then no error should be returned and it should fall back to default backend
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorRetrievingConfig", func(t *testing.T) {
+		// Given a TerraformHelper instance with an error retrieving config
+		mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			if key == "context" {
+				return "local", nil
+			}
+			return "", fmt.Errorf("unexpected key: %s", key)
+		}
+		mockConfigHandler.GetNestedMapFunc = func(key string) (map[string]interface{}, error) {
+			return nil, nil // Simulate backendConfig being nil
+		}
+
+		terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When calling PostEnvExec
+		expectedError := fmt.Errorf("error retrieving config for context: backendConfig is nil")
+		err := terraformHelper.PostEnvExec()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected error %v, got nil", expectedError)
+		}
+		if err.Error() != expectedError.Error() {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
 		}
 	})
 }

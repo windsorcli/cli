@@ -8,6 +8,8 @@ import (
 type MockHelper struct {
 	// GetEnvVarsFunc is a function that mocks the GetEnvVars method
 	GetEnvVarsFunc func() (map[string]string, error)
+	// PostEnvExecFunc is a function that mocks the PostEnvExec method
+	PostEnvExecFunc func() error
 	// Shell is an instance of the shell interface
 	Shell shell.Shell
 }
@@ -32,9 +34,17 @@ func (m *MockHelper) GetEnvVars() (map[string]string, error) {
 	return nil, nil
 }
 
-// PostEnvExec runs any necessary commands after the environment variables have been set.
+// PostEnvExec calls the mock PostEnvExecFunc if it is set, otherwise returns nil
 func (m *MockHelper) PostEnvExec() error {
+	if m.PostEnvExecFunc != nil {
+		return m.PostEnvExecFunc()
+	}
 	return nil
+}
+
+// SetPostEnvExecFunc sets the PostEnvExecFunc for the mock helper
+func (m *MockHelper) SetPostEnvExecFunc(postEnvExecFunc func() error) {
+	m.PostEnvExecFunc = postEnvExecFunc
 }
 
 // Ensure MockHelper implements Helper interface

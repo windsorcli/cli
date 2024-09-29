@@ -40,6 +40,11 @@ var envCmd = &cobra.Command{
 				sortedEnvVars[k] = envVars[k]
 			}
 			shellInstance.PrintEnvVars(sortedEnvVars)
+
+			// Call PostEnvExec on the helper
+			if err := helper.PostEnvExec(); err != nil {
+				return fmt.Errorf("Error executing PostEnvExec: %w", err)
+			}
 		}
 
 		return nil

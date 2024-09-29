@@ -61,6 +61,9 @@ func TestEnvCmd(t *testing.T) {
 			},
 			mockShell,
 		)
+		mockHelper.SetPostEnvExecFunc(func() error {
+			return nil
+		})
 		setupMockEnvContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper)
 
 		// When: the env command is executed
@@ -182,6 +185,9 @@ func TestEnvCmd(t *testing.T) {
 			},
 			mockShell,
 		)
+		mockHelper.SetPostEnvExecFunc(func() error {
+			return nil
+		})
 		setupMockEnvContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper)
 
 		// When: the env command is executed
@@ -195,6 +201,52 @@ func TestEnvCmd(t *testing.T) {
 
 		// Then: the output should indicate the error
 		expectedOutput := "Error getting environment variables: get env vars error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("PostEnvExecError", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				if r != "exit code: 1" {
+					t.Fatalf("unexpected panic: %v", r)
+				}
+			}
+		}()
+
+		// Given: a helper that returns an error when executing PostEnvExec
+		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := helpers.NewMockHelper(
+			func() (map[string]string, error) {
+				return map[string]string{
+					"VAR1": "value1",
+					"VAR2": "value2",
+				}, nil
+			},
+			mockShell,
+		)
+		mockHelper.SetPostEnvExecFunc(func() error {
+			return errors.New("post env exec error")
+		})
+		setupMockEnvContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper)
+
+		// When: the env command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"env"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "Error executing PostEnvExec: post env exec error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
