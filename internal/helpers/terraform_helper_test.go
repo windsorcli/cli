@@ -229,15 +229,11 @@ func TestTerraformHelper_GenerateTerraformTfvarsFlags(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		expectedFlags := []string{
-			"-var-file=" + filepath.Join(tfvarsDir, "blueprint.tfvars"),
-			"-var-file=" + filepath.Join(tfvarsDir, "blueprint_generated.tfvars.json"),
-		}
-		sort.Strings(expectedFlags)
-		actualFlags := strings.Split(flags, " ")
-		sort.Strings(actualFlags)
-		if !reflect.DeepEqual(expectedFlags, actualFlags) {
-			t.Errorf("Expected %v, got %v", expectedFlags, actualFlags)
+		expectedFlags := fmt.Sprintf("-var-file=%s -var-file=%s",
+			filepath.Join(configRoot, "windsor/blueprint.tfvars"),
+			filepath.Join(configRoot, "windsor/blueprint_generated.tfvars.json"))
+		if flags != expectedFlags {
+			t.Errorf("Expected %s, got %s", expectedFlags, flags)
 		}
 	})
 
@@ -1673,6 +1669,100 @@ func TestTerraformHelper_GenerateBackendOverrideTf(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error finding project path") {
 			t.Fatalf("Expected error message to contain 'error finding project path', got %v", err)
+		}
+	})
+}
+
+func TestTerraformHelper_SetConfig(t *testing.T) {
+	mockConfigHandler := &config.MockConfigHandler{}
+	helper := NewTerraformHelper(mockConfigHandler, nil, nil)
+
+	t.Run("SetBackend", func(t *testing.T) {
+		// Mock SetConfigValue to return no error
+		mockConfigHandler.SetConfigValueFunc = func(key, value string) error {
+			if key == "contexts.test-context.terraform.backend" {
+				return nil
+			}
+			return fmt.Errorf("unexpected key: %s", key)
+		}
+
+		// Mock GetContext to return "test-context"
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+		}
+		helper := NewTerraformHelper(mockConfigHandler, nil, mockContext)
+
+		// When: SetConfig is called with "backend" key
+		err := helper.SetConfig("backend", "s3")
+
+		// Then: it should return no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("UnsupportedKey", func(t *testing.T) {
+		// When: SetConfig is called with an unsupported key
+		err := helper.SetConfig("unsupported_key", "value")
+
+		// Then: it should return an error
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if err.Error() != "unsupported config key: unsupported_key" {
+			t.Fatalf("expected error 'unsupported config key: unsupported_key', got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingBackend", func(t *testing.T) {
+		// Mock SetConfigValue to return an error
+		mockConfigHandler.SetConfigValueFunc = func(key, value string) error {
+			if key == "contexts.test-context.terraform.backend" {
+				return fmt.Errorf("mock error setting backend")
+			}
+			return nil
+		}
+
+		// Mock GetContext to return "test-context"
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+		}
+		helper := NewTerraformHelper(mockConfigHandler, nil, mockContext)
+
+		// When: SetConfig is called with "backend" key
+		err := helper.SetConfig("backend", "s3")
+
+		// Then: it should return an error
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if err.Error() != "error setting backend: mock error setting backend" {
+			t.Fatalf("expected error 'error setting backend: mock error setting backend', got %v", err)
+		}
+	})
+
+	t.Run("ErrorRetrievingContext", func(t *testing.T) {
+		// Mock GetContext to return an error
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "", fmt.Errorf("mock error retrieving context")
+			},
+		}
+		helper := NewTerraformHelper(mockConfigHandler, nil, mockContext)
+
+		// When: SetConfig is called with "backend" key
+		err := helper.SetConfig("backend", "s3")
+
+		// Then: it should return an error
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if err.Error() != "error retrieving context: mock error retrieving context" {
+			t.Fatalf("expected error 'error retrieving context: mock error retrieving context', got %v", err)
 		}
 	})
 }
