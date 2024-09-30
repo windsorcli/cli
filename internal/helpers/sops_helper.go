@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/getsops/sops/v3/decrypt"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/shell"
@@ -26,6 +27,22 @@ func NewSopsHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx co
 	}
 }
 
+// decryptFile decrypts a file using the SOPS package
+func decryptFile(filePath string) ([]byte, error) {
+	// Check if the file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("file does not exist: %s", filePath)
+	}
+
+	// Decrypt the file using SOPS
+	plaintextBytes, err := decrypt.File(filePath, "yaml")
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt file: %w", err)
+	}
+
+	return plaintextBytes, nil
+}
+
 // GetEnvVars retrieves Kubernetes-specific environment variables for the current context
 func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 	// Get the configuration root directory
@@ -35,7 +52,7 @@ func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Construct the path to the sops config file
-	sopsConfigPath := filepath.Join(configRoot, ".sops", "config")
+	sopsConfigPath := filepath.Join(configRoot, "sops.yaml")
 	if _, err := os.Stat(sopsConfigPath); os.IsNotExist(err) {
 		sopsConfigPath = ""
 	}

@@ -15,7 +15,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		sopsConfigPath := filepath.Join(contextPath, ".sops", "config")
+		sopsConfigPath := filepath.Join(contextPath, "sops.yaml")
 
 		// Ensure the sops config file exists
 		err := os.MkdirAll(filepath.Dir(sopsConfigPath), 0755)
