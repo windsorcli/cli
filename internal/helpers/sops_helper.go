@@ -28,8 +28,8 @@ func NewSopsHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx co
 	}
 }
 
-// decryptFile decrypts a file using the SOPS package
-func decryptFile(filePath string) ([]byte, error) {
+// DecryptFile decrypts a file using the SOPS package
+func DecryptFile(filePath string) ([]byte, error) {
 	// Check if the file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("file does not exist: %s", filePath)
@@ -52,13 +52,13 @@ func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving config root: %w", err)
 	}
 
-	// Construct the path to the sops config file
-	sopsConfigPath := filepath.Join(configRoot, ".sops/config.yaml")
+	// Construct the path to the sops config file, return nils if it doesn't exist
+	sopsConfigPath := filepath.Join(configRoot, ".sops/secrets.enc.yaml")
 	if _, err := os.Stat(sopsConfigPath); os.IsNotExist(err) {
-		sopsConfigPath = ""
+		return nil, nil
 	}
 
-	plaintextBytes, err := decryptFile(sopsConfigPath)
+	plaintextBytes, err := DecryptFile(sopsConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("error decrypting sops file: %w", err)
 	}

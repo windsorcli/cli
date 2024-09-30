@@ -12,8 +12,8 @@ import (
 	"github.com/windsor-hotel/cli/internal/context"
 )
 
-// encryptFileWithSops encrypts the specified file using SOPS.
-func encryptFileWithSops(filePath string) error {
+// EncryptFile encrypts the specified file using SOPS.
+func EncryptFile(filePath string, dstPath string) error {
 	cmd := exec.Command("sops", "-e", filePath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -21,14 +21,15 @@ func encryptFileWithSops(filePath string) error {
 	}
 
 	// Write the encrypted output back to the file
-	return os.WriteFile(filePath, output, 0644)
+	return os.WriteFile(dstPath, output, 0644)
 }
 
 func TestSopsHelper_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		sopsConfigPath := filepath.Join(contextPath, ".sops/config.yaml")
+		sopsConfigPath := filepath.Join(contextPath, ".sops/secrets.yaml")
+		sopsEncConfigPath := filepath.Join(contextPath, ".sops/secrets.enc.yaml")
 
 		// Ensure the sops config file exists
 		err := os.MkdirAll(filepath.Dir(sopsConfigPath), 0755)
@@ -44,7 +45,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		os.WriteFile(sopsConfigPath, []byte("\"SOPSCONFIG\": "+sopsConfigPath), 0644)
 
 		// Encrypt the sops config file using SOPS
-		err = encryptFileWithSops(sopsConfigPath)
+		err = EncryptFile(sopsConfigPath, sopsEncConfigPath)
 		if err != nil {
 			t.Fatalf("Failed to encrypt sops config file: %v", err)
 		}
@@ -52,6 +53,12 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		// Defer removal of the sops config file
 		defer func() {
 			if err := os.Remove(sopsConfigPath); err != nil {
+				t.Fatalf("Failed to remove sops config file: %v", err)
+			}
+		}()
+
+		defer func() {
+			if err := os.Remove(sopsEncConfigPath); err != nil {
 				t.Fatalf("Failed to remove sops config file: %v", err)
 			}
 		}()
@@ -138,7 +145,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		sopsConfigPath := filepath.Join(contextPath, ".sops/config.yaml")
+		sopsConfigPath := filepath.Join(contextPath, ".sops/secrets.yaml")
 
 		// Ensure the sops config file exists
 		err := os.MkdirAll(filepath.Dir(sopsConfigPath), 0755)
@@ -189,7 +196,8 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		sopsConfigPath := filepath.Join(contextPath, ".sops/config.yaml")
+		sopsConfigPath := filepath.Join(contextPath, ".sops/secrets.yaml")
+		sopsEncConfigPath := filepath.Join(contextPath, ".sops/secrets.enc.yaml")
 
 		// Ensure the sops config file exists
 		err := os.MkdirAll(filepath.Dir(sopsConfigPath), 0755)
@@ -205,13 +213,13 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		os.WriteFile(sopsConfigPath, []byte("\"SOPS-CONFIG\": "+sopsConfigPath), 0644)
 
 		// Encrypt the sops config file using SOPS
-		err = encryptFileWithSops(sopsConfigPath)
+		err = EncryptFile(sopsConfigPath, sopsEncConfigPath)
 		if err != nil {
 			t.Fatalf("Failed to encrypt sops config file: %v", err)
 		}
 
 		// Append "breaking-code" to the sops config file
-		err = os.WriteFile(sopsConfigPath, []byte("breaking-code\n"), 0644) // Overwrites the file
+		err = os.WriteFile(sopsEncConfigPath, []byte("breaking-code\n"), 0644) // Overwrites the file
 		if err != nil {
 			t.Fatalf("Failed to write to sops config file: %v", err)
 		}
@@ -219,6 +227,12 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		// Defer removal of the sops config file
 		defer func() {
 			if err := os.Remove(sopsConfigPath); err != nil {
+				t.Fatalf("Failed to remove sops config file: %v", err)
+			}
+		}()
+		// Defer removal of the sops config file
+		defer func() {
+			if err := os.Remove(sopsEncConfigPath); err != nil {
 				t.Fatalf("Failed to remove sops config file: %v", err)
 			}
 		}()
