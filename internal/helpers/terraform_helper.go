@@ -22,17 +22,6 @@ var glob = filepath.Glob
 // Wrapper function for os.WriteFile
 var writeFile = os.WriteFile
 
-// TerraformHelperInterface defines the methods for TerraformHelper
-type TerraformHelperInterface interface {
-	FindRelativeTerraformProjectPath() (string, error)
-	GetCurrentBackend() (string, error)
-	GenerateTerraformTfvarsFlags() (string, error)
-	GenerateTerraformInitBackendFlags() (string, error)
-	GenerateBackendOverrideTf() error
-	GetEnvVars() (map[string]string, error)
-	SetConfig(key, value string) error
-}
-
 // TerraformHelper is a struct that provides various utility functions for working with Terraform
 type TerraformHelper struct {
 	ConfigHandler config.ConfigHandler
