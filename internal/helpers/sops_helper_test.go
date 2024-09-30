@@ -42,7 +42,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		}
 
 		// Create and initialize the sops config file
-		os.WriteFile(sopsConfigPath, []byte("\"SOPSCONFIG\": "+sopsConfigPath), 0644)
+		os.WriteFile(sopsConfigPath, []byte("\"SOPSCONFIG\": "+sopsEncConfigPath), 0644)
 
 		// Encrypt the sops config file using SOPS
 		err = EncryptFile(sopsConfigPath, sopsEncConfigPath)
@@ -212,7 +212,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		}
 
 		// Create and initialize the sops config file
-		os.WriteFile(sopsConfigPath, []byte("\"SOPS-CONFIG\": "+sopsConfigPath), 0644)
+		os.WriteFile(sopsConfigPath, []byte("\"SOPS-CONFIG\": "+sopsEncConfigPath), 0644)
 
 		// Encrypt the sops config file using SOPS
 		err = EncryptFile(sopsConfigPath, sopsEncConfigPath)
