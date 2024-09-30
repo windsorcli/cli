@@ -43,23 +43,19 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 		mockConfigHandler := &config.MockConfigHandler{
 			GetConfigValueFunc: func(key string) (string, error) {
 				switch key {
-				case "aws_profile":
+				case "contexts.local.aws.aws_profile":
 					return "mock_profile", nil
-				case "aws_endpoint_url":
-					return "", nil
-				case "s3_hostname":
+				case "contexts.local.aws.aws_endpoint_url":
+					return "mock_aws_endpoint_url", nil
+				case "contexts.local.aws.s3_hostname":
 					return "mock_s3_hostname", nil
-				case "mwaa_endpoint":
+				case "contexts.local.aws.mwaa_endpoint":
 					return "mock_mwaa_endpoint", nil
 				default:
 					return "", nil
 				}
 			},
 		}
-
-		// Set environment variable
-		os.Setenv("AWS_ENDPOINT_URL", "mock_aws_endpoint_url")
-		defer os.Unsetenv("AWS_ENDPOINT_URL") // Clean up
 
 		// Create AwsHelper
 		awsHelper := NewAwsHelper(mockConfigHandler, nil, mockContext)
@@ -101,10 +97,18 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 		// Mock config handler
 		mockConfigHandler := &config.MockConfigHandler{
 			GetConfigValueFunc: func(key string) (string, error) {
-				if key == "aws_profile" {
+				switch key {
+				case "contexts.local.aws.aws_profile":
 					return "default", nil
+				case "contexts.local.aws.aws_endpoint_url":
+					return "", nil
+				case "contexts.local.aws.s3_hostname":
+					return "", nil
+				case "contexts.local.aws.mwaa_endpoint":
+					return "", nil
+				default:
+					return "", nil
 				}
-				return "", nil
 			},
 		}
 
@@ -121,7 +125,9 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 		expectedEnvVars := map[string]string{
 			"AWS_CONFIG_FILE":  awsConfigPath,
 			"AWS_PROFILE":      "default",
-			"AWS_ENDPOINT_URL": "",
+			"AWS_ENDPOINT_URL": "http://aws.test:4566",
+			"S3_HOSTNAME":      "http://s3.local.aws.test:4566",
+			"MWAA_ENDPOINT":    "http://mwaa.local.aws.test:4566",
 		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
@@ -206,10 +212,18 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 		// Mock config handler
 		mockConfigHandler := &config.MockConfigHandler{
 			GetConfigValueFunc: func(key string) (string, error) {
-				if key == "aws_profile" {
-					return "", errors.New("error retrieving aws_profile")
+				switch key {
+				case "contexts.local.aws.aws_profile":
+					return "", errors.New("mock error retrieving aws profile")
+				case "contexts.local.aws.aws_endpoint_url":
+					return "http://aws.test:4566", nil
+				case "contexts.local.aws.s3_hostname":
+					return "http://s3.local.aws.test:4566", nil
+				case "contexts.local.aws.mwaa_endpoint":
+					return "http://mwaa.local.aws.test:4566", nil
+				default:
+					return "", nil
 				}
-				return "", nil
 			},
 		}
 
@@ -222,11 +236,13 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars() error = %v", err)
 		}
 
-		// Then: the environment variables should be set correctly with default AWS_PROFILE
+		// Then: the environment variables should be set correctly with default local values
 		expectedEnvVars := map[string]string{
 			"AWS_CONFIG_FILE":  awsConfigPath,
 			"AWS_PROFILE":      "default",
-			"AWS_ENDPOINT_URL": "",
+			"AWS_ENDPOINT_URL": "http://aws.test:4566",
+			"S3_HOSTNAME":      "http://s3.local.aws.test:4566",
+			"MWAA_ENDPOINT":    "http://mwaa.local.aws.test:4566",
 		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
@@ -255,20 +271,25 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 				return contextPath, nil
 			},
 			GetContextFunc: func() (string, error) {
-				return "remote", nil
+				return "local", nil
 			},
 		}
 
 		// Mock config handler
 		mockConfigHandler := &config.MockConfigHandler{
 			GetConfigValueFunc: func(key string) (string, error) {
-				if key == "aws_profile" {
-					return "", errors.New("error retrieving aws_profile")
+				switch key {
+				case "contexts.local.aws.aws_profile":
+					return "default", nil
+				case "contexts.local.aws.aws_endpoint_url":
+					return "", errors.New("mock error retrieving aws endpoint url")
+				case "contexts.local.aws.s3_hostname":
+					return "http://s3.local.aws.test:4566", nil
+				case "contexts.local.aws.mwaa_endpoint":
+					return "http://mwaa.local.aws.test:4566", nil
+				default:
+					return "", nil
 				}
-				if key == "aws_endpoint_url" {
-					return "", errors.New("error retrieving aws_endpoint_url")
-				}
-				return "", nil
 			},
 		}
 
@@ -281,11 +302,123 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars() error = %v", err)
 		}
 
-		// Then: the environment variables should be set correctly with empty AWS_ENDPOINT_URL
+		// Then: the environment variables should be set correctly with default local values
+		expectedEnvVars := map[string]string{
+			"AWS_CONFIG_FILE":  awsConfigPath,
+			"AWS_PROFILE":      "default",
+			"AWS_ENDPOINT_URL": "http://aws.test:4566",
+			"S3_HOSTNAME":      "http://s3.local.aws.test:4566",
+			"MWAA_ENDPOINT":    "http://mwaa.local.aws.test:4566",
+		}
+		if !reflect.DeepEqual(envVars, expectedEnvVars) {
+			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
+		}
+	})
+
+	t.Run("LocalContextWithDefaults", func(t *testing.T) {
+		// Given: a local context with no specific endpoint URLs set
+		contextPath := "/mock/config/root"
+		awsConfigPath := ""
+
+		// Mock context
+		mockContext := &context.MockContext{
+			GetConfigRootFunc: func() (string, error) {
+				return contextPath, nil
+			},
+			GetContextFunc: func() (string, error) {
+				return "local", nil
+			},
+		}
+
+		// Mock config handler
+		mockConfigHandler := &config.MockConfigHandler{
+			GetConfigValueFunc: func(key string) (string, error) {
+				switch key {
+				case "contexts.local.aws.aws_profile":
+					return "default", nil
+				case "contexts.local.aws.aws_endpoint_url":
+					return "", nil
+				case "contexts.local.aws.s3_hostname":
+					return "", nil
+				case "contexts.local.aws.mwaa_endpoint":
+					return "", nil
+				default:
+					return "", nil
+				}
+			},
+		}
+
+		// Create AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, nil, mockContext)
+
+		// When: GetEnvVars is called
+		envVars, err := awsHelper.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars() error = %v", err)
+		}
+
+		// Then: the environment variables should be set correctly with default local values
+		expectedEnvVars := map[string]string{
+			"AWS_CONFIG_FILE":  awsConfigPath,
+			"AWS_PROFILE":      "default",
+			"AWS_ENDPOINT_URL": "http://aws.test:4566",
+			"S3_HOSTNAME":      "http://s3.local.aws.test:4566",
+			"MWAA_ENDPOINT":    "http://mwaa.local.aws.test:4566",
+		}
+		if !reflect.DeepEqual(envVars, expectedEnvVars) {
+			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
+		}
+	})
+
+	t.Run("NonLocalContext", func(t *testing.T) {
+		// Given: a non-local context with no specific endpoint URLs set
+		contextPath := "/mock/config/root"
+		awsConfigPath := ""
+
+		// Mock context
+		mockContext := &context.MockContext{
+			GetConfigRootFunc: func() (string, error) {
+				return contextPath, nil
+			},
+			GetContextFunc: func() (string, error) {
+				return "remote", nil
+			},
+		}
+
+		// Mock config handler
+		mockConfigHandler := &config.MockConfigHandler{
+			GetConfigValueFunc: func(key string) (string, error) {
+				switch key {
+				case "contexts.remote.aws.aws_profile":
+					return "default", nil
+				case "contexts.remote.aws.aws_endpoint_url":
+					return "", nil
+				case "contexts.remote.aws.s3_hostname":
+					return "", nil
+				case "contexts.remote.aws.mwaa_endpoint":
+					return "", nil
+				default:
+					return "", nil
+				}
+			},
+		}
+
+		// Create AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, nil, mockContext)
+
+		// When: GetEnvVars is called
+		envVars, err := awsHelper.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars() error = %v", err)
+		}
+
+		// Then: the environment variables should be set correctly with empty values for S3_HOSTNAME and MWAA_ENDPOINT
 		expectedEnvVars := map[string]string{
 			"AWS_CONFIG_FILE":  awsConfigPath,
 			"AWS_PROFILE":      "default",
 			"AWS_ENDPOINT_URL": "",
+			"S3_HOSTNAME":      "",
+			"MWAA_ENDPOINT":    "",
 		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
