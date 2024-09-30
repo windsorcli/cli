@@ -1,5 +1,8 @@
 version: '3'
 
+vars:
+  SECRETS_FILE: ./contexts/testenv/.sops/secrets
+
 tasks:
   setup:
     desc: Set up the project
@@ -9,6 +12,7 @@ tasks:
       - go install github.com/spf13/cobra-cli@latest
       - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
       - go get github.com/getsops/sops/v3/decrypt
+      - go get github.com/windsor-hotel/cli@sops-support
       - go test -v ./cmd
 
   build:
@@ -41,6 +45,22 @@ tasks:
     desc: Run tests
     cmds:
       - go test -v -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+
+  encrypt-secrets-file:
+    desc: Encrypt the secrets file
+    cmds:
+      - sops -e {{.SECRETS_FILE}}.yaml > {{.SECRETS_FILE}}.enc.yaml
+
+  decrypt-secrets-file:
+    desc: Decrypt the secrets file
+    cmds:
+      - sops -d {{.SECRETS_FILE}}.enc.yaml > {{.SECRETS_FILE}}.yaml
+
+  test-sops:
+    desc: Run tests
+    cmds:
+      - go test -v -run SopsHelper ./internal/helpers/ -coverprofile=coverage.out ./...
       - go tool cover -html=coverage.out -o coverage.html
 
   run:
