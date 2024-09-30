@@ -19,6 +19,12 @@ type SopsHelper struct {
 	Context       context.ContextInterface
 }
 
+// Assuming the signature of PostEnvExec from the Helper interface
+func (h *SopsHelper) PostEnvExec() error {
+	// You can add the actual logic here, for now, return nil if it's unimplemented
+	return nil
+}
+
 // NewSopsHelper is a constructor for SopsHelper
 func NewSopsHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *SopsHelper {
 	return &SopsHelper{
