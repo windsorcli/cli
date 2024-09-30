@@ -9,10 +9,10 @@ tasks:
     cmds:
       - go mod tidy
       - go mod verify
+      - go install github.com/windsor-hotel/cli@sops-support
       - go install github.com/spf13/cobra-cli@latest
       - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
       - go get github.com/getsops/sops/v3/decrypt
-      - go get github.com/windsor-hotel/cli@sops-support
       - go test -v ./cmd
 
   build:
