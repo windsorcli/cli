@@ -89,5 +89,23 @@ func (h *AwsHelper) PostEnvExec() error {
 	return nil
 }
 
+// SetConfig sets new values for aws_endpoint_url and aws_profile
+func (h *AwsHelper) SetConfig(awsEndpointURL, awsProfile string) error {
+	if awsEndpointURL != "" {
+		if err := h.ConfigHandler.SetConfigValue("aws_endpoint_url", awsEndpointURL); err != nil {
+			return fmt.Errorf("error setting aws_endpoint_url: %w", err)
+		}
+	}
+	if awsProfile != "" {
+		if err := h.ConfigHandler.SetConfigValue("aws_profile", awsProfile); err != nil {
+			return fmt.Errorf("error setting aws_profile: %w", err)
+		}
+	}
+	if err := h.ConfigHandler.SaveConfig(""); err != nil {
+		return fmt.Errorf("error saving config: %w", err)
+	}
+	return nil
+}
+
 // Ensure AwsHelper implements Helper interface
 var _ Helper = (*AwsHelper)(nil)

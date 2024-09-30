@@ -310,3 +310,173 @@ func TestAwsHelper_PostEnvExec(t *testing.T) {
 		}
 	})
 }
+
+func TestAwsHelper_SetConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		setConfigValueCallCount := 0
+		saveConfigCallCount := 0
+
+		// Mock config handler
+		mockConfigHandler := &config.MockConfigHandler{
+			SetConfigValueFunc: func(key, value string) error {
+				setConfigValueCallCount++
+				return nil
+			},
+			SaveConfigFunc: func(path string) error {
+				saveConfigCallCount++
+				return nil
+			},
+		}
+
+		// Create AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, nil, &context.MockContext{})
+
+		// When: SetConfig is called with non-empty values
+		err := awsHelper.SetConfig("new_endpoint_url", "new_profile")
+		if err != nil {
+			t.Fatalf("SetConfig() error = %v", err)
+		}
+
+		// Then: the config values should be set correctly
+		if setConfigValueCallCount != 2 {
+			t.Errorf("expected 2 calls to SetConfigValue, got %d", setConfigValueCallCount)
+		}
+		if saveConfigCallCount != 1 {
+			t.Errorf("expected 1 call to SaveConfig, got %d", saveConfigCallCount)
+		}
+	})
+
+	t.Run("EmptyValues", func(t *testing.T) {
+		setConfigValueCallCount := 0
+		saveConfigCallCount := 0
+
+		// Mock config handler
+		mockConfigHandler := &config.MockConfigHandler{
+			SetConfigValueFunc: func(key, value string) error {
+				setConfigValueCallCount++
+				return nil
+			},
+			SaveConfigFunc: func(path string) error {
+				saveConfigCallCount++
+				return nil
+			},
+		}
+
+		// Create AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, nil, &context.MockContext{})
+
+		// When: SetConfig is called with empty values
+		err := awsHelper.SetConfig("", "")
+		if err != nil {
+			t.Fatalf("SetConfig() error = %v", err)
+		}
+
+		// Then: the config values should not be set
+		if setConfigValueCallCount != 0 {
+			t.Errorf("expected 0 calls to SetConfigValue, got %d", setConfigValueCallCount)
+		}
+		if saveConfigCallCount != 1 {
+			t.Errorf("expected 1 call to SaveConfig, got %d", saveConfigCallCount)
+		}
+	})
+
+	t.Run("OnlyAwsProfile", func(t *testing.T) {
+		setConfigValueCallCount := 0
+		saveConfigCallCount := 0
+
+		// Mock config handler
+		mockConfigHandler := &config.MockConfigHandler{
+			SetConfigValueFunc: func(key, value string) error {
+				setConfigValueCallCount++
+				return nil
+			},
+			SaveConfigFunc: func(path string) error {
+				saveConfigCallCount++
+				return nil
+			},
+		}
+
+		// Create AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, nil, &context.MockContext{})
+
+		// When: SetConfig is called with only awsProfile non-empty
+		err := awsHelper.SetConfig("", "new_profile")
+		if err != nil {
+			t.Fatalf("SetConfig() error = %v", err)
+		}
+
+		// Then: only awsProfile should be set
+		if setConfigValueCallCount != 1 {
+			t.Errorf("expected 1 call to SetConfigValue, got %d", setConfigValueCallCount)
+		}
+		if saveConfigCallCount != 1 {
+			t.Errorf("expected 1 call to SaveConfig, got %d", saveConfigCallCount)
+		}
+	})
+
+	t.Run("ErrorSettingAwsProfile", func(t *testing.T) {
+		// Mock config handler
+		mockConfigHandler := &config.MockConfigHandler{
+			SetConfigValueFunc: func(key, value string) error {
+				if key == "aws_profile" {
+					return errors.New("error setting aws_profile")
+				}
+				return nil
+			},
+			SaveConfigFunc: func(path string) error {
+				return nil
+			},
+		}
+
+		// Create AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, nil, &context.MockContext{})
+
+		// When: SetConfig is called with non-empty awsProfile
+		err := awsHelper.SetConfig("", "new_profile")
+		if err == nil || err.Error() != "error setting aws_profile: error setting aws_profile" {
+			t.Fatalf("expected error setting aws_profile, got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingConfigValue", func(t *testing.T) {
+		// Mock config handler
+		mockConfigHandler := &config.MockConfigHandler{
+			SetConfigValueFunc: func(key, value string) error {
+				return errors.New("error setting config value")
+			},
+			SaveConfigFunc: func(path string) error {
+				return nil
+			},
+		}
+
+		// Create AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, nil, &context.MockContext{})
+
+		// When: SetConfig is called with non-empty values
+		err := awsHelper.SetConfig("new_endpoint_url", "new_profile")
+		if err == nil || err.Error() != "error setting aws_endpoint_url: error setting config value" {
+			t.Fatalf("expected error setting aws_endpoint_url, got %v", err)
+		}
+	})
+
+	t.Run("ErrorSavingConfig", func(t *testing.T) {
+		// Mock config handler
+		mockConfigHandler := &config.MockConfigHandler{
+			SetConfigValueFunc: func(key, value string) error {
+				return nil
+			},
+			SaveConfigFunc: func(path string) error {
+				return errors.New("error saving config")
+			},
+		}
+
+		// Create AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, nil, &context.MockContext{})
+
+		// When: SetConfig is called with non-empty values
+		err := awsHelper.SetConfig("new_endpoint_url", "new_profile")
+		if err == nil || err.Error() != "error saving config: error saving config" {
+			t.Fatalf("expected error saving config, got %v", err)
+		}
+	})
+}
