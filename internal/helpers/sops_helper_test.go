@@ -81,7 +81,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// Then: the environment variables should be set correctly
 		expectedEnvVars := map[string]string{
-			"SOPSCONFIG": sopsConfigPath,
+			"SOPSCONFIG": sopsEncConfigPath,
 		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
