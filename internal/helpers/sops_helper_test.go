@@ -48,6 +48,8 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		err = EncryptFile(sopsConfigPath, sopsEncConfigPath)
 		if err != nil {
 			t.Fatalf("Failed to encrypt sops config file: %v", err)
+			t.Fatalf("sopsConfigPath: %v", sopsConfigPath)
+			t.Fatalf("sopsEncConfigPath: %v", sopsEncConfigPath)
 		}
 
 		// Defer removal of the sops config file
