@@ -53,7 +53,7 @@ func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Construct the path to the sops config file
-	sopsConfigPath := filepath.Join(configRoot, "sops.yaml")
+	sopsConfigPath := filepath.Join(configRoot, ".sops/config.yaml")
 	if _, err := os.Stat(sopsConfigPath); os.IsNotExist(err) {
 		sopsConfigPath = ""
 	}

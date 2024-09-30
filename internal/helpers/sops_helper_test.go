@@ -28,7 +28,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		sopsConfigPath := filepath.Join(contextPath, "sops.yaml")
+		sopsConfigPath := filepath.Join(contextPath, ".sops/config.yaml")
 
 		// Ensure the sops config file exists
 		err := os.MkdirAll(filepath.Dir(sopsConfigPath), 0755)
@@ -81,11 +81,64 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		}
 	})
 
-	t.Run("DecodeFailure", func(t *testing.T) {
+	t.Run("FileNotExist", func(t *testing.T) {
+		// Given: a non-existent context path
+		contextPath := filepath.Join(os.TempDir(), "contexts", "non-existent-context")
+
+		// Mock context
+		mockContext := &context.MockContext{
+			GetConfigRootFunc: func() (string, error) {
+				return contextPath, nil
+			},
+		}
+
+		// Create SopsHelper
+		sopsHelper := NewSopsHelper(nil, nil, mockContext)
+
+		// When: GetEnvVars is called
+		_, err := sopsHelper.GetEnvVars()
+
+		if err != nil {
+			expectedError := "file does not exist"
+
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Fatalf("expected error containing %v, got %v", expectedError, err)
+				// } else {
+				// 	t.Logf("err: %v", err)
+			}
+		}
+	})
+
+	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
+		// Given a mock shell and context that returns an error for config root
+		mockContext := &context.MockContext{
+			GetConfigRootFunc: func() (string, error) {
+				return "", errors.New("error retrieving config root")
+			},
+		}
+
+		// Create SopsHelper
+		sopsHelper := NewSopsHelper(nil, nil, mockContext)
+
+		_, err := sopsHelper.GetEnvVars()
+
+		if err != nil {
+
+			expectedError := "error retrieving config root"
+
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Fatalf("expected error containing %v, got %v", expectedError, err)
+				// } else {
+				// 	t.Logf("err: %v", err)
+			}
+		}
+	})
+
+	t.Run("SopsMetaDataNotFound", func(t *testing.T) {
 
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		sopsConfigPath := filepath.Join(contextPath, "sops.yaml")
+		sopsConfigPath := filepath.Join(contextPath, ".sops/config.yaml")
 
 		// Ensure the sops config file exists
 		err := os.MkdirAll(filepath.Dir(sopsConfigPath), 0755)
@@ -121,20 +174,22 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		_, err = sopsHelper.GetEnvVars()
 
 		if err != nil {
-			// When calling GetEnvVars
+
 			expectedError := "sops metadata not found"
 
-			if err == nil || !strings.Contains(err.Error(), expectedError) {
+			if !strings.Contains(err.Error(), expectedError) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
+				// } else {
+				// 	t.Logf("err: %v", err)
 			}
 		}
 	})
 
-	t.Run("ParseFailure", func(t *testing.T) {
+	t.Run("ErrorUnmarshallingYaml", func(t *testing.T) {
 
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		sopsConfigPath := filepath.Join(contextPath, "sops.yaml")
+		sopsConfigPath := filepath.Join(contextPath, ".sops/config.yaml")
 
 		// Ensure the sops config file exists
 		err := os.MkdirAll(filepath.Dir(sopsConfigPath), 0755)
@@ -147,7 +202,19 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		}
 
 		// Create and initialize the sops config file
-		os.WriteFile(sopsConfigPath, []byte("\"SOPSCONFIG\" "+sopsConfigPath), 0644)
+		os.WriteFile(sopsConfigPath, []byte("\"SOPS-CONFIG\": "+sopsConfigPath), 0644)
+
+		// Encrypt the sops config file using SOPS
+		err = encryptFileWithSops(sopsConfigPath)
+		if err != nil {
+			t.Fatalf("Failed to encrypt sops config file: %v", err)
+		}
+
+		// Append "breaking-code" to the sops config file
+		err = os.WriteFile(sopsConfigPath, []byte("breaking-code\n"), 0644) // Overwrites the file
+		if err != nil {
+			t.Fatalf("Failed to write to sops config file: %v", err)
+		}
 
 		// Defer removal of the sops config file
 		defer func() {
@@ -170,58 +237,15 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		_, err = sopsHelper.GetEnvVars()
 
 		if err != nil {
-			// When calling GetEnvVars
+
 			expectedError := "Error unmarshalling input yaml"
 
-			if err == nil || !strings.Contains(err.Error(), expectedError) {
+			if !strings.Contains(err.Error(), expectedError) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
+				// } else {
+				// 	t.Logf("err: %v", err)
 			}
 		}
-	})
 
-	t.Run("FileNotExist", func(t *testing.T) {
-		// Given: a non-existent context path
-		contextPath := filepath.Join(os.TempDir(), "contexts", "non-existent-context")
-
-		// Mock context
-		mockContext := &context.MockContext{
-			GetConfigRootFunc: func() (string, error) {
-				return contextPath, nil
-			},
-		}
-
-		// Create SopsHelper
-		sopsHelper := NewSopsHelper(nil, nil, mockContext)
-
-		// When: GetEnvVars is called
-		_, err := sopsHelper.GetEnvVars()
-		if err != nil {
-			// When calling GetEnvVars
-			expectedError := "file does not exist"
-
-			if err == nil || !strings.Contains(err.Error(), expectedError) {
-				t.Fatalf("expected error containing %v, got %v", expectedError, err)
-			}
-		}
-	})
-
-	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
-		// Given a mock shell and context that returns an error for config root
-		mockContext := &context.MockContext{
-			GetConfigRootFunc: func() (string, error) {
-				return "", errors.New("error retrieving config root")
-			},
-		}
-
-		// Create SopsHelper
-		sopsHelper := NewSopsHelper(nil, nil, mockContext)
-
-		// When calling GetEnvVars
-		expectedError := "error retrieving config root"
-
-		_, err := sopsHelper.GetEnvVars()
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error containing %v, got %v", expectedError, err)
-		}
 	})
 }
