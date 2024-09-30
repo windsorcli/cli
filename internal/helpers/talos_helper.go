@@ -52,5 +52,11 @@ func (h *TalosHelper) PostEnvExec() error {
 	return nil
 }
 
+// SetConfig sets the configuration value for the given key
+func (h *TalosHelper) SetConfig(key, value string) error {
+	// This is a stub implementation
+	return nil
+}
+
 // Ensure TalosHelper implements Helper interface
 var _ Helper = (*TalosHelper)(nil)

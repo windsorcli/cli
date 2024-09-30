@@ -30,6 +30,7 @@ type TerraformHelperInterface interface {
 	GenerateTerraformInitBackendFlags() (string, error)
 	GenerateBackendOverrideTf() error
 	GetEnvVars() (map[string]string, error)
+	SetConfig(key, value string) error
 }
 
 // TerraformHelper is a struct that provides various utility functions for working with Terraform
@@ -372,6 +373,21 @@ func (h *TerraformHelper) PostEnvExec() error {
 	}
 
 	return nil
+}
+
+// SetConfig sets the configuration value for the given key
+func (h *TerraformHelper) SetConfig(key, value string) error {
+	if key == "backend" {
+		context, err := h.Context.GetContext()
+		if err != nil {
+			return fmt.Errorf("error retrieving context: %w", err)
+		}
+		if err := h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", context), value); err != nil {
+			return fmt.Errorf("error setting backend: %w", err)
+		}
+		return nil
+	}
+	return fmt.Errorf("unsupported config key: %s", key)
 }
 
 // Ensure TerraformHelper implements Helper interface
