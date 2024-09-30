@@ -4,8 +4,24 @@ vars:
   SECRETS_FILE: ./contexts/testenv/.sops/secrets
 
 tasks:
+  install-sops:
+    desc: Setup sops
+    cmds:
+      - |
+        # Download the binary
+        curl -LO https://github.com/getsops/sops/releases/download/v3.9.0/sops-v3.9.0.linux.amd64
+
+        # Move the binary in to your PATH
+        mv sops-v3.9.0.linux.amd64 /usr/local/bin/sops
+
+        # Make the binary executable
+        chmod +x /usr/local/bin/sops
+
   setup:
     desc: Set up the project
+    deps: 
+      - install-sops
+
     cmds:
       - go mod tidy
       - go mod verify
