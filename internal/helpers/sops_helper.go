@@ -9,6 +9,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/shell"
+	"gopkg.in/yaml.v2"
 )
 
 // SopsHelper is a helper struct that provides Kubernetes-specific utility functions
@@ -57,8 +58,21 @@ func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 		sopsConfigPath = ""
 	}
 
-	envVars := map[string]string{
-		"SOPSCONFIG": sopsConfigPath,
+	plaintextBytes, err := decryptFile(sopsConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("error decrypting sops file: %w", err)
+	}
+
+	// Parse the decrypted YAML content into a map
+	var sopsConfig map[string]string
+	if err := yaml.Unmarshal(plaintextBytes, &sopsConfig); err != nil {
+		return nil, fmt.Errorf("error parsing sops file: %w", err)
+	}
+
+	// Populate envVars from the decrypted config
+	envVars := make(map[string]string)
+	for key, value := range sopsConfig {
+		envVars[key] = value
 	}
 
 	return envVars, nil
