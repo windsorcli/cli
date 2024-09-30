@@ -137,3 +137,40 @@ func TestMockHelper_PostEnvExec(t *testing.T) {
 		}
 	})
 }
+
+func TestMockHelper_SetConfig(t *testing.T) {
+	t.Run("SetConfigStub", func(t *testing.T) {
+		helper := NewMockHelper(nil, nil)
+
+		// When: SetConfig is called
+		err := helper.SetConfig("some_key", "some_value")
+
+		// Then: it should return no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("SetConfigFunc", func(t *testing.T) {
+		// Given: a mock helper with a SetConfigFunc
+		expectedError := errors.New("mock error setting config")
+		helper := NewMockHelper(nil, nil)
+		helper.SetConfigFunc = func(key, value string) error {
+			if key == "some_key" && value == "some_value" {
+				return expectedError
+			}
+			return nil
+		}
+
+		// When: SetConfig is called with the expected key and value
+		err := helper.SetConfig("some_key", "some_value")
+
+		// Then: it should return the expected error
+		if err == nil {
+			t.Fatalf("expected error %v, got nil", expectedError)
+		}
+		if err.Error() != expectedError.Error() {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
+		}
+	})
+}

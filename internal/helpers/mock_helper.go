@@ -10,6 +10,8 @@ type MockHelper struct {
 	GetEnvVarsFunc func() (map[string]string, error)
 	// PostEnvExecFunc is a function that mocks the PostEnvExec method
 	PostEnvExecFunc func() error
+	// SetConfigFunc is a function that mocks the SetConfig method
+	SetConfigFunc func(key, value string) error
 	// Shell is an instance of the shell interface
 	Shell shell.Shell
 }
@@ -38,6 +40,14 @@ func (m *MockHelper) GetEnvVars() (map[string]string, error) {
 func (m *MockHelper) PostEnvExec() error {
 	if m.PostEnvExecFunc != nil {
 		return m.PostEnvExecFunc()
+	}
+	return nil
+}
+
+// SetConfig calls the mock SetConfigFunc if it is set, otherwise returns nil
+func (m *MockHelper) SetConfig(key, value string) error {
+	if m.SetConfigFunc != nil {
+		return m.SetConfigFunc(key, value)
 	}
 	return nil
 }

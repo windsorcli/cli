@@ -270,3 +270,19 @@ func TestBaseHelper_PostEnvExec(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseHelper_SetConfig(t *testing.T) {
+	mockConfigHandler := &config.MockConfigHandler{}
+	mockContext := &context.MockContext{}
+	helper := NewBaseHelper(mockConfigHandler, nil, mockContext)
+
+	t.Run("SetConfigStub", func(t *testing.T) {
+		// When: SetConfig is called
+		err := helper.SetConfig("some_key", "some_value")
+
+		// Then: it should return no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
