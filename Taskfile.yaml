@@ -1,25 +1,6 @@
 version: '3'
 
-vars:
-  SECRETS_FILE: ./contexts/testenv/.sops/secrets
-
 tasks:
-  install-sops:
-    desc: Setup sops
-    cmds:
-      - |
-        # Download the binary
-        curl -LO https://github.com/getsops/sops/releases/download/v3.9.0/sops-v3.9.0.linux.amd64
-
-        # Move the binary in to your PATH
-        mv sops-v3.9.0.linux.amd64 /usr/local/bin/sops
-
-        # Make the binary executable
-        chmod +x /usr/local/bin/sops
-
-        which sops
-        sops --version
-
   setup:
     desc: Set up the project
     cmds:
@@ -59,18 +40,8 @@ tasks:
   test:
     desc: Run tests
     cmds:
-      - go test -v -coverprofile=coverage.out ./...
+      - go test -coverprofile=coverage.out ./...
       - go tool cover -html=coverage.out -o coverage.html
-
-  encrypt-secrets-file:
-    desc: Encrypt the secrets file
-    cmds:
-      - sops -e {{.SECRETS_FILE}}.yaml > {{.SECRETS_FILE}}.enc.yaml
-
-  decrypt-secrets-file:
-    desc: Decrypt the secrets file
-    cmds:
-      - sops -d {{.SECRETS_FILE}}.enc.yaml > {{.SECRETS_FILE}}.yaml
 
   test-sops:
     desc: Run tests
