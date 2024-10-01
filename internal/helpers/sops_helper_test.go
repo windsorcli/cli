@@ -2,7 +2,6 @@ package helpers
 
 import (
 	"errors"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,46 +32,53 @@ func EncryptFile(t *testing.T, filePath string, dstPath string) error {
 	}
 	t.Logf("SOPS version: %s", versionOutput)
 
-	// Create the command to encrypt the file
-	cmd := exec.Command("sops", "-e", filePath)
-
-	// Create a pipe to capture the output
-	outputPipe, err := cmd.StdoutPipe()
+	cmdEncrypt := exec.Command("sops", "-e", filePath)
+	cmdEncryptOutput, err := cmdEncrypt.CombinedOutput()
 	if err != nil {
-		return err
+		t.Fatalf("Failed to execute sops -e %v: %v", filePath, err)
 	}
+	t.Logf("SOPS encrypt output: %s", cmdEncryptOutput)
 
-	t.Logf("OUTPUTPIPE : %v", outputPipe)
+	// // Create the command to encrypt the file
+	// cmd := exec.Command("sops", "-e", filePath)
 
-	// Start the command
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	// Create the output file
-	outputFile, err := os.Create(dstPath)
-	if err != nil {
-		return err
-	}
-	defer outputFile.Close() // Ensure the file is closed after writing
-
-	// Copy the output from the command to the output file
-	if _, err := io.Copy(outputFile, outputPipe); err != nil {
-		return err
-	}
-
-	// // Wait for the command to finish
-	// if err := cmd.Wait(); err != nil {
-	// 	t.Logf("SOPS COMMAND err : %v", err)
+	// // Create a pipe to capture the output
+	// outputPipe, err := cmd.StdoutPipe()
+	// if err != nil {
 	// 	return err
 	// }
 
-	// Print the contents of the sops config file
-	content, err = os.ReadFile(dstPath)
-	if err != nil {
-		t.Fatalf("Failed to read sops config file: %v", err)
-	}
-	t.Logf("Contents of sops encrypted file: %s", content)
+	// t.Logf("OUTPUTPIPE : %v", outputPipe)
+
+	// // Start the command
+	// if err := cmd.Start(); err != nil {
+	// 	return err
+	// }
+
+	// // Create the output file
+	// outputFile, err := os.Create(dstPath)
+	// if err != nil {
+	// 	return err
+	// }
+	// defer outputFile.Close() // Ensure the file is closed after writing
+
+	// // Copy the output from the command to the output file
+	// if _, err := io.Copy(outputFile, outputPipe); err != nil {
+	// 	return err
+	// }
+
+	// // // Wait for the command to finish
+	// // if err := cmd.Wait(); err != nil {
+	// // 	t.Logf("SOPS COMMAND err : %v", err)
+	// // 	return err
+	// // }
+
+	// // Print the contents of the sops config file
+	// content, err = os.ReadFile(dstPath)
+	// if err != nil {
+	// 	t.Fatalf("Failed to read sops config file: %v", err)
+	// }
+	// t.Logf("Contents of sops encrypted file: %s", content)
 
 	return nil
 }
