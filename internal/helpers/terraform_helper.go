@@ -260,7 +260,7 @@ func (h *TerraformHelper) FindTerraformProjectRoot() (string, error) {
 
 // PostEnvExec runs any necessary commands after the environment variables have been set.
 func (h *TerraformHelper) PostEnvExec() error {
-	return GenerateBackendOverrideTf(h)
+	return generateBackendOverrideTf(h)
 }
 
 // SetConfig sets the configuration value for the given key
@@ -281,8 +281,8 @@ func (h *TerraformHelper) SetConfig(key, value string) error {
 // Ensure TerraformHelper implements Helper interface
 var _ Helper = (*TerraformHelper)(nil)
 
-// GenerateBackendOverrideTf generates the backend_override.tf file for the Terraform project
-func GenerateBackendOverrideTf(h *TerraformHelper) error {
+// generateBackendOverrideTf generates the backend_override.tf file for the Terraform project
+func generateBackendOverrideTf(h *TerraformHelper) error {
 	// Get the current working directory
 	currentPath, err := getwd()
 	if err != nil {
