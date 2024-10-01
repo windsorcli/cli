@@ -65,6 +65,13 @@ func EncryptFile(t *testing.T, filePath string, dstPath string) error {
 	// 	return err
 	// }
 
+	// Print the contents of the sops config file
+	content, err = os.ReadFile(dstPath)
+	if err != nil {
+		t.Fatalf("Failed to read sops config file: %v", err)
+	}
+	t.Logf("Contents of sops encrypted file: %s", content)
+
 	return nil
 }
 
