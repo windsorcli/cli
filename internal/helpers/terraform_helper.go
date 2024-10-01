@@ -38,8 +38,8 @@ func NewTerraformHelper(configHandler config.ConfigHandler, shell shell.Shell, c
 	}
 }
 
-// FindRelativeTerraformProjectPath finds the path to the Terraform project from the terraform directory
-func (h *TerraformHelper) FindRelativeTerraformProjectPath() (string, error) {
+// findRelativeTerraformProjectPath finds the path to the Terraform project from the terraform directory
+func findRelativeTerraformProjectPath() (string, error) {
 	// Get the current working directory
 	currentPath, err := getwd()
 	if err != nil {
@@ -118,7 +118,7 @@ func (h *TerraformHelper) SanitizeForK8s(input string) string {
 // GenerateTerraformTfvarsFlags generates the flags for Terraform tfvars files
 func (h *TerraformHelper) GenerateTerraformTfvarsFlags() (string, error) {
 	// Find the Terraform project path
-	relativePath, err := h.FindRelativeTerraformProjectPath()
+	relativePath, err := findRelativeTerraformProjectPath()
 	if err != nil || relativePath == "" {
 		return "", err
 	}
@@ -155,7 +155,7 @@ func (h *TerraformHelper) GenerateTerraformTfvarsFlags() (string, error) {
 // GenerateTerraformInitBackendFlags generates the flags for initializing the Terraform backend
 func (h *TerraformHelper) GenerateTerraformInitBackendFlags() (string, error) {
 	// Find the Terraform project path
-	projectPath, err := h.FindRelativeTerraformProjectPath()
+	projectPath, err := findRelativeTerraformProjectPath()
 	if err != nil || projectPath == "" {
 		return "", err
 	}
@@ -224,7 +224,7 @@ func (h *TerraformHelper) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Find the Terraform project path
-	projectPath, err := h.FindRelativeTerraformProjectPath()
+	projectPath, err := findRelativeTerraformProjectPath()
 	if err != nil {
 		// Return empty environment variables if there's a legitimate error
 		return envVars, err
@@ -282,7 +282,7 @@ func (h *TerraformHelper) GenerateBackendOverrideTf() error {
 	}
 
 	// Find the Terraform project path
-	projectPath, err := h.FindRelativeTerraformProjectPath()
+	projectPath, err := findRelativeTerraformProjectPath()
 	if err != nil {
 		return fmt.Errorf("error finding project path: %w", err)
 	}

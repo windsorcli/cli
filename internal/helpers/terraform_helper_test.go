@@ -22,157 +22,6 @@ func sortString(s string) string {
 	return strings.Join(parts, " ")
 }
 
-func TestTerraformHelper_FindRelativeTerraformProjectPath(t *testing.T) {
-	// Override getwd and glob for the test
-	originalGetwd := getwd
-	originalGlob := glob
-	defer func() {
-		getwd = originalGetwd
-		glob = originalGlob
-	}() // Restore original functions after test
-
-	t.Run("ValidProjectPath", func(t *testing.T) {
-		// Given: a valid project path with .tf files
-		tempDir := os.TempDir()
-		projectPath := filepath.Join(tempDir, "project/root/terraform/something")
-		getwd = func() (string, error) {
-			return projectPath, nil
-		}
-
-		// Create a mock .tf file to ensure the directory is recognized as a Terraform project
-		err := os.MkdirAll(projectPath, os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create directories: %v", err)
-		}
-		err = os.WriteFile(filepath.Join(projectPath, "main.tf"), []byte(""), os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create .tf file: %v", err)
-		}
-		t.Cleanup(func() {
-			os.RemoveAll(filepath.Join(tempDir, "project"))
-		})
-
-		// When: FindRelativeTerraformProjectPath is called
-		helper := NewTerraformHelper(nil, nil, nil)
-		relativePath, err := helper.FindRelativeTerraformProjectPath()
-
-		// Then: it should return the correct relative path
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		expectedPath := "something"
-		if relativePath != expectedPath {
-			t.Errorf("Expected %s, got %s", expectedPath, relativePath)
-		}
-	})
-
-	t.Run("NoTerraformFiles", func(t *testing.T) {
-		// Given: a directory without Terraform files
-		tempDir := t.TempDir()
-		noTfDir := filepath.Join(tempDir, "project/root/nodir")
-
-		// Mock getwd to return the directory without Terraform files
-		originalGetwd := getwd
-		getwd = func() (string, error) {
-			return noTfDir, nil
-		}
-		defer func() { getwd = originalGetwd }()
-
-		// Create the directory
-		err := os.MkdirAll(noTfDir, os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create directories: %v", err)
-		}
-		t.Cleanup(func() {
-			os.RemoveAll(filepath.Join(tempDir, "project"))
-		})
-
-		// When: FindRelativeTerraformProjectPath is called
-		helper := NewTerraformHelper(nil, nil, nil)
-		relativePath, err := helper.FindRelativeTerraformProjectPath()
-
-		// Then: it should return no error and an empty string
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if relativePath != "" {
-			t.Errorf("Expected empty string, got %s", relativePath)
-		}
-	})
-
-	t.Run("NoTerraformDirectory", func(t *testing.T) {
-		// Given: a directory with Terraform files but no "terraform" directory in the path
-		tempDir := os.TempDir()
-		noTfDir := filepath.Join(tempDir, "project/root/nodir")
-		getwd = func() (string, error) {
-			return noTfDir, nil
-		}
-
-		err := os.MkdirAll(noTfDir, os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create directories: %v", err)
-		}
-		_, err = os.Create(filepath.Join(noTfDir, "main.tf"))
-		if err != nil {
-			t.Fatalf("Failed to create .tf file: %v", err)
-		}
-		t.Cleanup(func() {
-			os.RemoveAll(filepath.Join(tempDir, "project"))
-		})
-
-		// When: FindRelativeTerraformProjectPath is called
-		helper := NewTerraformHelper(nil, nil, nil)
-		_, err = helper.FindRelativeTerraformProjectPath()
-
-		// Then: it should return an error
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-		if err.Error() != "no 'terraform' directory found in the current path" {
-			t.Fatalf("Expected error 'no 'terraform' directory found in the current path', got %v", err)
-		}
-	})
-
-	t.Run("ErrorFindingProjectPath", func(t *testing.T) {
-		// Given: an error occurs when finding the Terraform project path
-		tempDir := t.TempDir()
-		projectPath := filepath.Join(tempDir, "project/root/terraform/something")
-
-		// Mock getwd to return an error
-		originalGetwd := getwd
-		getwd = func() (string, error) {
-			return "", fmt.Errorf("mock error getting current directory")
-		}
-		defer func() { getwd = originalGetwd }()
-
-		// Create the directory
-		err := os.MkdirAll(projectPath, os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create directories: %v", err)
-		}
-		t.Cleanup(func() {
-			os.RemoveAll(filepath.Join(tempDir, "project"))
-		})
-
-		// When: GetEnvVars is called
-		mockContext := &context.MockContext{}
-		mockShell := &shell.MockShell{}
-		helper := NewTerraformHelper(nil, mockShell, mockContext)
-		envVars, err := helper.GetEnvVars()
-
-		// Then: it should return an error and empty environment variables
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock error getting current directory") {
-			t.Fatalf("Expected error message to contain 'mock error getting current directory', got %v", err)
-		}
-		if len(envVars) != 0 {
-			t.Errorf("Expected empty environment variables, got %v", envVars)
-		}
-	})
-}
-
 func TestTerraformHelper_GenerateTerraformTfvarsFlags(t *testing.T) {
 	// Given: a mock context and config handler
 	projectRoot := t.TempDir()
@@ -924,7 +773,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		}
 		defer func() { getwd = originalGetwd }()
 
-		// Mock glob to return a valid result for FindRelativeTerraformProjectPath
+		// Mock glob to return a valid result for findRelativeTerraformProjectPath
 		originalGlob := glob
 		glob = func(pattern string) ([]string, error) {
 			if strings.Contains(pattern, "*.tf") {
@@ -998,6 +847,46 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("Expected %v, got %v", expectedEnvVars, envVars)
+		}
+	})
+
+	t.Run("NoTerraformDir", func(t *testing.T) {
+		// Mock getwd to return a path without a "terraform" directory
+		originalGetwd := getwd
+		getwd = func() (string, error) {
+			return "/path/to/project", nil
+		}
+		defer func() { getwd = originalGetwd }()
+
+		// Mock glob to return matches
+		originalGlob := glob
+		glob = func(pattern string) ([]string, error) {
+			return []string{"/path/to/project/main.tf"}, nil
+		}
+		defer func() { glob = originalGlob }()
+
+		// Mock context
+		mockContext := &context.MockContext{
+			GetConfigRootFunc: func() (string, error) {
+				return "/path/to/config", nil
+			},
+		}
+
+		// Create TerraformHelper
+		terraformHelper := NewTerraformHelper(nil, nil, mockContext)
+
+		// When: GetEnvVars is called
+		envVars, err := terraformHelper.GetEnvVars()
+
+		// Then: it should return an error indicating no "terraform" directory found
+		expectedError := "no 'terraform' directory found in the current path"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %v", expectedError, err)
+		}
+
+		// Ensure envVars is empty
+		if len(envVars) != 0 {
+			t.Errorf("Expected empty envVars, got %v", envVars)
 		}
 	})
 }
