@@ -52,10 +52,10 @@ func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving config root: %w", err)
 	}
 
-	// Construct the path to the sops config file, return nils if it doesn't exist
+	// Construct the path to the sops encrypted secrets file, return nils if it doesn't exist
 	sopsEncSecretsPath := filepath.Join(configRoot, ".sops/secrets.enc.yaml")
 	if _, err := os.Stat(sopsEncSecretsPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("file does not exist : %v", sopsEncSecretsPath)
+		return nil, nil
 	}
 
 	plaintextBytes, err := DecryptFile(sopsEncSecretsPath)
@@ -69,7 +69,7 @@ func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error parsing sops file: %w", err)
 	}
 
-	// Populate envVars from the decrypted config
+	// Populate envVars from the decrypted secrets file
 	envVars := make(map[string]string)
 	for key, value := range sopsSecrets {
 		envVars[key] = value
