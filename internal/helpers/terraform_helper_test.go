@@ -21,6 +21,64 @@ func sortString(s string) string {
 	return strings.Join(parts, " ")
 }
 
+// Helper function to set up the test environment
+func setupTestEnv(t *testing.T, backend string) (string, func(), *TerraformHelper) {
+	tempDir := t.TempDir()
+	projectPath := filepath.Join(tempDir, "terraform/project")
+
+	// Create the necessary directory structure
+	err := os.MkdirAll(projectPath, os.ModePerm)
+	if err != nil {
+		t.Fatalf("Failed to create project directories: %v", err)
+	}
+
+	// Mock getwd to return the project path
+	originalGetwd := getwd
+	getwd = func() (string, error) {
+		return projectPath, nil
+	}
+
+	// Mock glob to return a valid result for findRelativeTerraformProjectPath
+	originalGlob := glob
+	glob = func(pattern string) ([]string, error) {
+		if strings.Contains(pattern, "*.tf") {
+			return []string{filepath.Join(projectPath, "main.tf")}, nil
+		}
+		return nil, fmt.Errorf("error globbing files")
+	}
+
+	// Mock config handler to return a context configuration with the specified backend
+	mockConfigHandler := &config.MockConfigHandler{}
+	mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+		if key == "context" {
+			return "local", nil
+		}
+		return "", fmt.Errorf("unexpected key: %s", key)
+	}
+	mockConfigHandler.GetNestedMapFunc = func(key string) (map[string]interface{}, error) {
+		if key == "contexts.local" {
+			return map[string]interface{}{"backend": backend}, nil
+		}
+		return nil, fmt.Errorf("unexpected key: %s", key)
+	}
+
+	mockContext := &context.MockContext{
+		GetConfigRootFunc: func() (string, error) {
+			return "/mock/config/root", nil
+		},
+	}
+	mockShell := &shell.MockShell{}
+	terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
+
+	// Cleanup function to restore original functions
+	cleanup := func() {
+		getwd = originalGetwd
+		glob = originalGlob
+	}
+
+	return projectPath, cleanup, terraformHelper
+}
+
 // TestTerraformHelper_GetEnvVars tests the GetEnvVars method
 func TestTerraformHelper_GetEnvVars(t *testing.T) {
 	// Mock dependencies
@@ -943,6 +1001,116 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 		// Then no error should be returned and the backend should default to "local"
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("BackendLocal", func(t *testing.T) {
+		projectPath, cleanup, terraformHelper := setupTestEnv(t, "local")
+		defer cleanup()
+
+		// When calling PostEnvExec
+		err := terraformHelper.PostEnvExec()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Verify that the backend_override.tf file was created with the correct content
+		backendOverridePath := filepath.Join(projectPath, "backend_override.tf")
+		content, err := os.ReadFile(backendOverridePath)
+		if err != nil {
+			t.Fatalf("failed to read backend_override.tf: %v", err)
+		}
+
+		expectedContent := fmt.Sprintf(`
+terraform {
+  backend "local" {
+    path = "%s"
+  }
+}`, filepath.Join("/mock/config/root", ".tfstate", "project", "terraform.tfstate"))
+
+		if strings.TrimSpace(string(content)) != strings.TrimSpace(expectedContent) {
+			t.Errorf("expected %s, got %s", expectedContent, string(content))
+		}
+	})
+
+	t.Run("BackendS3", func(t *testing.T) {
+		projectPath, cleanup, terraformHelper := setupTestEnv(t, "s3")
+		defer cleanup()
+
+		// When calling PostEnvExec
+		err := terraformHelper.PostEnvExec()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Verify that the backend_override.tf file was created with the correct content
+		backendOverridePath := filepath.Join(projectPath, "backend_override.tf")
+		content, err := os.ReadFile(backendOverridePath)
+		if err != nil {
+			t.Fatalf("failed to read backend_override.tf: %v", err)
+		}
+
+		expectedContent := fmt.Sprintf(`
+terraform {
+  backend "s3" {
+    key = "%s"
+  }
+}`, filepath.Join("project", "terraform.tfstate"))
+
+		if strings.TrimSpace(string(content)) != strings.TrimSpace(expectedContent) {
+			t.Errorf("expected %s, got %s", expectedContent, string(content))
+		}
+	})
+
+	t.Run("BackendKubernetes", func(t *testing.T) {
+		projectPath, cleanup, terraformHelper := setupTestEnv(t, "kubernetes")
+		defer cleanup()
+
+		// When calling PostEnvExec
+		err := terraformHelper.PostEnvExec()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Verify that the backend_override.tf file was created with the correct content
+		backendOverridePath := filepath.Join(projectPath, "backend_override.tf")
+		content, err := os.ReadFile(backendOverridePath)
+		if err != nil {
+			t.Fatalf("failed to read backend_override.tf: %v", err)
+		}
+
+		expectedContent := fmt.Sprintf(`
+terraform {
+  backend "kubernetes" {
+    secret_suffix = "%s"
+  }
+}`, "project")
+
+		if strings.TrimSpace(string(content)) != strings.TrimSpace(expectedContent) {
+			t.Errorf("expected %s, got %s", expectedContent, string(content))
+		}
+	})
+
+	t.Run("UnsupportedBackend", func(t *testing.T) {
+		_, cleanup, terraformHelper := setupTestEnv(t, "unsupported")
+		defer cleanup()
+
+		// When calling PostEnvExec
+		err := terraformHelper.PostEnvExec()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedErrorMsg := "unsupported backend: unsupported"
+		if !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Fatalf("expected error message to contain '%s', got %v", expectedErrorMsg, err)
 		}
 	})
 }

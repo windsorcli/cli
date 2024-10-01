@@ -240,12 +240,34 @@ func generateBackendOverrideTf(h *TerraformHelper) error {
 
 	// Create the backend_override.tf file
 	backendOverridePath := filepath.Join(currentPath, "backend_override.tf")
-	backendConfig := fmt.Sprintf(`
+	var backendConfig string
+
+	switch backend {
+	case "local":
+		backendConfig = fmt.Sprintf(`
 terraform {
-  backend "%s" {
+  backend "local" {
     path = "%s"
   }
-}`, backend, filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate"))
+}`, filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate"))
+	case "s3":
+		backendConfig = fmt.Sprintf(`
+terraform {
+  backend "s3" {
+    key = "%s"
+  }
+}`, filepath.Join(projectPath, "terraform.tfstate"))
+	case "kubernetes":
+		projectNameSanitized := sanitizeForK8s(projectPath)
+		backendConfig = fmt.Sprintf(`
+terraform {
+  backend "kubernetes" {
+    secret_suffix = "%s"
+  }
+}`, projectNameSanitized)
+	default:
+		return fmt.Errorf("unsupported backend: %s", backend)
+	}
 
 	err = writeFile(backendOverridePath, []byte(backendConfig), os.ModePerm)
 	if err != nil {
