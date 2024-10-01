@@ -1718,31 +1718,4 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
-
-	t.Run("ErrorRetrievingConfig", func(t *testing.T) {
-		// Given a TerraformHelper instance with an error retrieving config
-		mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
-			if key == "context" {
-				return "local", nil
-			}
-			return "", fmt.Errorf("unexpected key: %s", key)
-		}
-		mockConfigHandler.GetNestedMapFunc = func(key string) (map[string]interface{}, error) {
-			return nil, nil // Simulate backendConfig being nil
-		}
-
-		terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
-
-		// When calling PostEnvExec
-		expectedError := fmt.Errorf("error retrieving config for context: backendConfig is nil")
-		err := terraformHelper.PostEnvExec()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected error %v, got nil", expectedError)
-		}
-		if err.Error() != expectedError.Error() {
-			t.Fatalf("expected error %v, got %v", expectedError, err)
-		}
-	})
 }

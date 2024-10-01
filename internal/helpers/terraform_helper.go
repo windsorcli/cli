@@ -346,22 +346,7 @@ func (h *TerraformHelper) FindTerraformProjectRoot() (string, error) {
 
 // PostEnvExec runs any necessary commands after the environment variables have been set.
 func (h *TerraformHelper) PostEnvExec() error {
-	context, err := h.ConfigHandler.GetConfigValue("context")
-	if err != nil {
-		// Default to "local" context if not found
-		context = "local"
-	}
-
-	backendConfig, err := h.ConfigHandler.GetNestedMap(fmt.Sprintf("contexts.%s", context))
-	if err != nil {
-		// Default to "local" backend if context configuration is missing
-		backendConfig = map[string]interface{}{"backend": "local"}
-	} else if backendConfig == nil {
-		// Propagate other errors
-		return fmt.Errorf("error retrieving config for context: backendConfig is nil")
-	}
-
-	return nil
+	return h.GenerateBackendOverrideTf()
 }
 
 // SetConfig sets the configuration value for the given key
