@@ -37,7 +37,7 @@ func EncryptFile(t *testing.T, filePath string, dstPath string) error {
 	output, err := cmd.CombinedOutput()
 
 	// t.Logf("output : %v", output)
-	// t.Logf("err : %v", err)
+	t.Logf("SOPS COMMAND err : %v", err)
 
 	if err != nil {
 		return err
