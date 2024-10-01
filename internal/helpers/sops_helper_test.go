@@ -18,18 +18,43 @@ func EncryptFile(t *testing.T, filePath string, dstPath string) error {
 	t.Logf("sopsConfigPath: %v", filePath)
 	t.Logf("sopsEncConfigPath: %v", dstPath)
 
+	// Print the contents of the sops config file
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to read sops config file: %v", err)
+	}
+	t.Logf("Contents of sops config file: %s", content)
+
+	// Print the version of SOPS being used
+	cmdVersion := exec.Command("sops", "--version")
+	versionOutput, err := cmdVersion.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Failed to get SOPS version: %v", err)
+	}
+	t.Logf("SOPS version: %s", versionOutput)
+
 	cmd := exec.Command("sops", "-e", filePath)
 	output, err := cmd.CombinedOutput()
 
-	t.Logf("output : %v", output)
-	t.Logf("err : %v", err)
+	// t.Logf("output : %v", output)
+	// t.Logf("err : %v", err)
 
 	if err != nil {
 		return err
 	}
 
 	// Write the encrypted output back to the file
-	os.WriteFile(dstPath, output, 0644)
+	err = os.WriteFile(dstPath, output, 0644)
+	if err != nil {
+		t.Fatalf("Error while writing file: %v err: %v", dstPath, err)
+	}
+
+	// Print the contents of the sops config file
+	content, err = os.ReadFile(dstPath)
+	if err != nil {
+		t.Fatalf("Failed to read sops encrypted file: %v", err)
+	}
+	t.Logf("Contents of sops encrypted file: %s", content)
 
 	return nil
 }
@@ -53,21 +78,6 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// Create and initialize the sops config file
 		os.WriteFile(sopsConfigPath, []byte("\"SOPSCONFIG\": "+sopsEncConfigPath), 0644)
-
-		// Print the contents of the sops config file
-		content, err := os.ReadFile(sopsConfigPath)
-		if err != nil {
-			t.Fatalf("Failed to read sops config file: %v", err)
-		}
-		t.Logf("Contents of sops config file: %s", content)
-
-		// Print the version of SOPS being used
-		cmdVersion := exec.Command("sops", "--version")
-		versionOutput, err := cmdVersion.CombinedOutput()
-		if err != nil {
-			t.Fatalf("Failed to get SOPS version: %v", err)
-		}
-		t.Logf("SOPS version: %s", versionOutput)
 
 		// Encrypt the sops config file using SOPS
 		err = EncryptFile(t, sopsConfigPath, sopsEncConfigPath)
