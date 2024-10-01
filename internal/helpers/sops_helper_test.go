@@ -72,38 +72,38 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		sopsConfigPath := filepath.Join(contextPath, ".sops/secrets.yaml")
-		sopsEncConfigPath := filepath.Join(contextPath, ".sops/secrets.enc.yaml")
+		plaintextSecretsFile := filepath.Join(contextPath, ".sops/secrets.yaml")
+		encryptedSecretsFile := filepath.Join(contextPath, ".sops/secrets.enc.yaml")
 
-		// Ensure the sops config file exists
-		err := os.MkdirAll(filepath.Dir(sopsConfigPath), 0755)
+		// Ensure the secrets file exists
+		err := os.MkdirAll(filepath.Dir(plaintextSecretsFile), 0755)
 		if err != nil {
-			t.Fatalf("Failed to create sops config directory: %v", err)
+			t.Fatalf("Failed to create secrets directory: %v", err)
 		}
-		_, err = os.Create(sopsConfigPath)
+		_, err = os.Create(plaintextSecretsFile)
 		if err != nil {
-			t.Fatalf("Failed to create sops config file: %v", err)
-		}
-
-		// Create and initialize the sops config file
-		os.WriteFile(sopsConfigPath, []byte("\"SOPSCONFIG\": "+sopsEncConfigPath), 0644)
-
-		// Encrypt the sops config file using SOPS
-		err = EncryptFile(t, sopsConfigPath, sopsEncConfigPath)
-		if err != nil {
-			t.Fatalf("Failed to encrypt sops config file: %v", err)
+			t.Fatalf("Failed to create secrets file: %v", err)
 		}
 
-		// Defer removal of the sops config file
+		// Create and initialize the secrets file
+		os.WriteFile(plaintextSecretsFile, []byte("\"SOPS_TEST\": "+encryptedSecretsFile), 0644)
+
+		// Encrypt the secrets file using SOPS
+		err = EncryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
+		if err != nil {
+			t.Fatalf("Failed to encrypt secrets file: %v", err)
+		}
+
+		// Defer removal of the secrets file
 		defer func() {
-			if err := os.Remove(sopsConfigPath); err != nil {
-				t.Fatalf("Failed to remove sops config file: %v", err)
+			if err := os.Remove(plaintextSecretsFile); err != nil {
+				t.Fatalf("Failed to remove secrets file: %v", err)
 			}
 		}()
 
 		defer func() {
-			if err := os.Remove(sopsEncConfigPath); err != nil {
-				t.Fatalf("Failed to remove sops config file: %v", err)
+			if err := os.Remove(encryptedSecretsFile); err != nil {
+				t.Fatalf("Failed to remove encrypted secrets file: %v", err)
 			}
 		}()
 
@@ -125,7 +125,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// Then: the environment variables should be set correctly
 		expectedEnvVars := map[string]string{
-			"SOPSCONFIG": sopsEncConfigPath,
+			"SOPS_TEST": encryptedSecretsFile,
 		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
@@ -154,17 +154,15 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 			if !strings.Contains(err.Error(), expectedError) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
-				// } else {
-				// 	t.Logf("err: %v", err)
 			}
 		}
 	})
 
 	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
-		// Given a mock shell and context that returns an error for config root
+		// Given a mock shell and context that returns an error for project root
 		mockContext := &context.MockContext{
 			GetConfigRootFunc: func() (string, error) {
-				return "", errors.New("error retrieving config root")
+				return "", errors.New("error retrieving project root")
 			},
 		}
 
@@ -179,8 +177,6 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 			if !strings.Contains(err.Error(), expectedError) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
-				// } else {
-				// 	t.Logf("err: %v", err)
 			}
 		}
 	})
@@ -189,25 +185,25 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		sopsConfigPath := filepath.Join(contextPath, ".sops/secrets.yaml")
+		plaintextSecretsFile := filepath.Join(contextPath, ".sops/secrets.yaml")
 
-		// Ensure the sops config file exists
-		err := os.MkdirAll(filepath.Dir(sopsConfigPath), 0755)
+		// Ensure the secrets file exists
+		err := os.MkdirAll(filepath.Dir(plaintextSecretsFile), 0755)
 		if err != nil {
-			t.Fatalf("Failed to create sops config directory: %v", err)
+			t.Fatalf("Failed to create secrets directory: %v", err)
 		}
-		_, err = os.Create(sopsConfigPath)
+		_, err = os.Create(plaintextSecretsFile)
 		if err != nil {
-			t.Fatalf("Failed to create sops config file: %v", err)
+			t.Fatalf("Failed to create secrets file: %v", err)
 		}
 
-		// Create and initialize the sops config file
-		os.WriteFile(sopsConfigPath, []byte("\"SOPSCONFIG\": "+sopsConfigPath), 0644)
+		// Create and initialize the secrets file
+		os.WriteFile(plaintextSecretsFile, []byte("\"SOPS_TEST\": "+plaintextSecretsFile), 0644)
 
-		// Defer removal of the sops config file
+		// Defer removal of the secrets file
 		defer func() {
-			if err := os.Remove(sopsConfigPath); err != nil {
-				t.Fatalf("Failed to remove sops config file: %v", err)
+			if err := os.Remove(plaintextSecretsFile); err != nil {
+				t.Fatalf("Failed to remove secrets file: %v", err)
 			}
 		}()
 
@@ -230,8 +226,6 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 			if !strings.Contains(err.Error(), expectedError) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
-				// } else {
-				// 	t.Logf("err: %v", err)
 			}
 		}
 	})
@@ -240,44 +234,44 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		sopsConfigPath := filepath.Join(contextPath, ".sops/secrets.yaml")
-		sopsEncConfigPath := filepath.Join(contextPath, ".sops/secrets.enc.yaml")
+		plaintextSecretsFile := filepath.Join(contextPath, ".sops/secrets.yaml")
+		encryptedSecretsFile := filepath.Join(contextPath, ".sops/secrets.enc.yaml")
 
-		// Ensure the sops config file exists
-		err := os.MkdirAll(filepath.Dir(sopsConfigPath), 0755)
+		// Ensure the secrets file exists
+		err := os.MkdirAll(filepath.Dir(plaintextSecretsFile), 0755)
 		if err != nil {
-			t.Fatalf("Failed to create sops config directory: %v", err)
+			t.Fatalf("Failed to create secrets files directory: %v", err)
 		}
-		_, err = os.Create(sopsConfigPath)
+		_, err = os.Create(plaintextSecretsFile)
 		if err != nil {
-			t.Fatalf("Failed to create sops config file: %v", err)
-		}
-
-		// Create and initialize the sops config file
-		os.WriteFile(sopsConfigPath, []byte("\"SOPS-CONFIG\": "+sopsEncConfigPath), 0644)
-
-		// Encrypt the sops config file using SOPS
-		err = EncryptFile(t, sopsConfigPath, sopsEncConfigPath)
-		if err != nil {
-			t.Fatalf("Failed to encrypt sops config file: %v", err)
+			t.Fatalf("Failed to create secrets file file: %v", err)
 		}
 
-		// Append "breaking-code" to the sops config file
-		err = os.WriteFile(sopsEncConfigPath, []byte("breaking-code\n"), 0644) // Overwrites the file
+		// Create and initialize the secrets file
+		os.WriteFile(plaintextSecretsFile, []byte("\"SOPS-TEST\": "+encryptedSecretsFile), 0644)
+
+		// Encrypt the secrets file using SOPS
+		err = EncryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
 		if err != nil {
-			t.Fatalf("Failed to write to sops config file: %v", err)
+			t.Fatalf("Failed to encrypt secrets file: %v", err)
 		}
 
-		// Defer removal of the sops config file
+		// Append "breaking-code" to the encrypted secrets file
+		err = os.WriteFile(encryptedSecretsFile, []byte("breaking-code\n"), 0644) // Overwrites the file
+		if err != nil {
+			t.Fatalf("Failed to write to encrypted secrets file: %v", err)
+		}
+
+		// Defer removal of the secrets file
 		defer func() {
-			if err := os.Remove(sopsConfigPath); err != nil {
-				t.Fatalf("Failed to remove sops config file: %v", err)
+			if err := os.Remove(plaintextSecretsFile); err != nil {
+				t.Fatalf("Failed to remove secrets file: %v", err)
 			}
 		}()
-		// Defer removal of the sops config file
+		// Defer removal of the encrypted secrets file
 		defer func() {
-			if err := os.Remove(sopsEncConfigPath); err != nil {
-				t.Fatalf("Failed to remove sops config file: %v", err)
+			if err := os.Remove(encryptedSecretsFile); err != nil {
+				t.Fatalf("Failed to remove encrypted secrets file: %v", err)
 			}
 		}()
 
@@ -300,8 +294,6 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 			if !strings.Contains(err.Error(), expectedError) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
-				// } else {
-				// 	t.Logf("err: %v", err)
 			}
 		}
 
