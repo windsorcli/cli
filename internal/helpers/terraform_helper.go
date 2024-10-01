@@ -235,29 +235,6 @@ func (h *TerraformHelper) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
-// FindTerraformProjectRoot finds the root directory containing the "terraform" directory
-func (h *TerraformHelper) FindTerraformProjectRoot() (string, error) {
-	// Get the current working directory
-	currentPath, err := getwd()
-	if err != nil {
-		return "", fmt.Errorf("error getting current directory: %w", err)
-	}
-
-	// Split the current path into its components
-	pathParts := strings.Split(currentPath, string(os.PathSeparator))
-
-	// Iterate through the path components to find the "terraform" directory
-	for i := len(pathParts) - 1; i >= 0; i-- {
-		if pathParts[i] == "terraform" {
-			// Join the path components up to the "terraform" directory
-			projectRoot := filepath.Join(pathParts[:i+1]...)
-			return projectRoot, nil
-		}
-	}
-
-	return "", fmt.Errorf("no 'terraform' directory found in the current path")
-}
-
 // PostEnvExec runs any necessary commands after the environment variables have been set.
 func (h *TerraformHelper) PostEnvExec() error {
 	return generateBackendOverrideTf(h)
