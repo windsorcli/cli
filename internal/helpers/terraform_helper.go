@@ -37,58 +37,7 @@ func NewTerraformHelper(configHandler config.ConfigHandler, shell shell.Shell, c
 	}
 }
 
-// GenerateTerraformInitBackendFlags generates the flags for initializing the Terraform backend
-func (h *TerraformHelper) GenerateTerraformInitBackendFlags() (string, error) {
-	// Find the Terraform project path
-	projectPath, err := findRelativeTerraformProjectPath()
-	if err != nil || projectPath == "" {
-		return "", err
-	}
-
-	// Get the current backend configuration
-	backend, err := getCurrentBackend(h)
-	if err != nil || backend == "" {
-		return "", fmt.Errorf("backend not found")
-	}
-
-	// Get the configuration root directory
-	configRoot, err := h.Context.GetConfigRoot()
-	if err != nil {
-		return "", fmt.Errorf("error getting config root: %w", err)
-	}
-
-	// Define the backend configuration file
-	backendConfigFile := filepath.Join(configRoot, "backend.tfvars")
-	backendConfigs := []string{}
-
-	// Check if the backend configuration file exists
-	_, err = os.Stat(backendConfigFile)
-	if err == nil {
-		backendConfigs = append(backendConfigs, fmt.Sprintf("-backend-config=%s", backendConfigFile))
-	}
-
-	// Generate the backend configuration based on the backend type
-	if backend == "local" {
-		baseDir := filepath.Join(configRoot, ".tfstate")
-		statePath := filepath.Join(baseDir, projectPath, "terraform.tfstate")
-		backendConfigs = append(backendConfigs, fmt.Sprintf("-backend-config=path=%s", statePath))
-	} else if backend == "s3" {
-		backendConfigs = append(backendConfigs, fmt.Sprintf("-backend-config=key=%s/terraform.tfstate", projectPath))
-	} else if backend == "kubernetes" {
-		projectNameSanitized := sanitizeForK8s(projectPath)
-		backendConfigs = append(backendConfigs, fmt.Sprintf("-backend-config=secret_suffix=%s", projectNameSanitized))
-	}
-
-	// Generate the backend flags
-	if len(backendConfigs) > 0 {
-		backendFlags := "-backend=true " + strings.Join(backendConfigs, " ")
-		return backendFlags, nil
-	}
-
-	return "", nil
-}
-
-// GetAlias retrieves the alias for the Terraform command based on the current context
+// getAlias retrieves the alias for the Terraform command based on the current context
 func (h *TerraformHelper) GetAlias() (map[string]string, error) {
 	// Get the current context
 	context, err := h.ConfigHandler.GetConfigValue("context")
