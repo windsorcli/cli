@@ -44,6 +44,21 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		// Create and initialize the sops config file
 		os.WriteFile(sopsConfigPath, []byte("\"SOPSCONFIG\": "+sopsEncConfigPath), 0644)
 
+		// Print the contents of the sops config file
+		content, err := os.ReadFile(sopsConfigPath)
+		if err != nil {
+			t.Fatalf("Failed to read sops config file: %v", err)
+		}
+		t.Logf("Contents of sops config file: %s", content)
+
+		// Print the version of SOPS being used
+		cmdVersion := exec.Command("sops", "--version")
+		versionOutput, err := cmdVersion.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Failed to get SOPS version: %v", err)
+		}
+		t.Logf("SOPS version: %s", versionOutput)
+
 		// Encrypt the sops config file using SOPS
 		err = EncryptFile(sopsConfigPath, sopsEncConfigPath)
 		if err != nil {
