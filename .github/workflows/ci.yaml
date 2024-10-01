@@ -64,11 +64,6 @@ jobs:
       - name: Install tools from .tool-versions
         if: runner.os != 'Windows'
         run: asdf install
-
-      - name: Setup SOPS
-        uses: nhedger/setup-sops@v2
-        with:
-          version: 3.9.0
       
       - name: Run SOPS
         run: sops --version
