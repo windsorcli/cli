@@ -235,8 +235,54 @@ func (h *TerraformHelper) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
+// FindTerraformProjectRoot finds the root directory containing the "terraform" directory
+func (h *TerraformHelper) FindTerraformProjectRoot() (string, error) {
+	// Get the current working directory
+	currentPath, err := getwd()
+	if err != nil {
+		return "", fmt.Errorf("error getting current directory: %w", err)
+	}
+
+	// Split the current path into its components
+	pathParts := strings.Split(currentPath, string(os.PathSeparator))
+
+	// Iterate through the path components to find the "terraform" directory
+	for i := len(pathParts) - 1; i >= 0; i-- {
+		if pathParts[i] == "terraform" {
+			// Join the path components up to the "terraform" directory
+			projectRoot := filepath.Join(pathParts[:i+1]...)
+			return projectRoot, nil
+		}
+	}
+
+	return "", fmt.Errorf("no 'terraform' directory found in the current path")
+}
+
+// PostEnvExec runs any necessary commands after the environment variables have been set.
+func (h *TerraformHelper) PostEnvExec() error {
+	return GenerateBackendOverrideTf(h)
+}
+
+// SetConfig sets the configuration value for the given key
+func (h *TerraformHelper) SetConfig(key, value string) error {
+	if key == "backend" {
+		context, err := h.Context.GetContext()
+		if err != nil {
+			return fmt.Errorf("error retrieving context: %w", err)
+		}
+		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", context), value); err != nil {
+			return fmt.Errorf("error setting backend: %w", err)
+		}
+		return nil
+	}
+	return fmt.Errorf("unsupported config key: %s", key)
+}
+
+// Ensure TerraformHelper implements Helper interface
+var _ Helper = (*TerraformHelper)(nil)
+
 // GenerateBackendOverrideTf generates the backend_override.tf file for the Terraform project
-func (h *TerraformHelper) GenerateBackendOverrideTf() error {
+func GenerateBackendOverrideTf(h *TerraformHelper) error {
 	// Get the current working directory
 	currentPath, err := getwd()
 	if err != nil {
@@ -282,49 +328,3 @@ terraform {
 
 	return nil
 }
-
-// FindTerraformProjectRoot finds the root directory containing the "terraform" directory
-func (h *TerraformHelper) FindTerraformProjectRoot() (string, error) {
-	// Get the current working directory
-	currentPath, err := getwd()
-	if err != nil {
-		return "", fmt.Errorf("error getting current directory: %w", err)
-	}
-
-	// Split the current path into its components
-	pathParts := strings.Split(currentPath, string(os.PathSeparator))
-
-	// Iterate through the path components to find the "terraform" directory
-	for i := len(pathParts) - 1; i >= 0; i-- {
-		if pathParts[i] == "terraform" {
-			// Join the path components up to the "terraform" directory
-			projectRoot := filepath.Join(pathParts[:i+1]...)
-			return projectRoot, nil
-		}
-	}
-
-	return "", fmt.Errorf("no 'terraform' directory found in the current path")
-}
-
-// PostEnvExec runs any necessary commands after the environment variables have been set.
-func (h *TerraformHelper) PostEnvExec() error {
-	return h.GenerateBackendOverrideTf()
-}
-
-// SetConfig sets the configuration value for the given key
-func (h *TerraformHelper) SetConfig(key, value string) error {
-	if key == "backend" {
-		context, err := h.Context.GetContext()
-		if err != nil {
-			return fmt.Errorf("error retrieving context: %w", err)
-		}
-		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", context), value); err != nil {
-			return fmt.Errorf("error setting backend: %w", err)
-		}
-		return nil
-	}
-	return fmt.Errorf("unsupported config key: %s", key)
-}
-
-// Ensure TerraformHelper implements Helper interface
-var _ Helper = (*TerraformHelper)(nil)
