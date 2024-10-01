@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/windsor-hotel/cli/internal/config"
@@ -113,43 +112,6 @@ func sanitizeForK8s(input string) string {
 		sanitized = sanitized[:63]
 	}
 	return sanitized
-}
-
-// GenerateTerraformTfvarsFlags generates the flags for Terraform tfvars files
-func (h *TerraformHelper) GenerateTerraformTfvarsFlags() (string, error) {
-	// Find the Terraform project path
-	relativePath, err := findRelativeTerraformProjectPath()
-	if err != nil || relativePath == "" {
-		return "", err
-	}
-
-	// Get the configuration root directory
-	configRoot, err := h.Context.GetConfigRoot()
-	if err != nil {
-		return "", err
-	}
-
-	// Define patterns for tfvars files based on the relative path
-	patterns := []string{
-		fmt.Sprintf("%s.tfvars", relativePath),
-		fmt.Sprintf("%s.tfvars.json", relativePath),
-		fmt.Sprintf("%s_generated.tfvars", relativePath),
-		fmt.Sprintf("%s_generated.tfvars.json", relativePath),
-	}
-
-	var varFileArgs []string
-	// Check for the existence of each tfvars file and add it to the arguments
-	for _, pattern := range patterns {
-		filePath := filepath.Join(configRoot, pattern)
-		if _, err := os.Stat(filePath); err == nil {
-			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=%s", filePath))
-		}
-	}
-
-	// Sort the varFileArgs to ensure consistent order
-	sort.Strings(varFileArgs)
-
-	return strings.Join(varFileArgs, " "), nil
 }
 
 // GenerateTerraformInitBackendFlags generates the flags for initializing the Terraform backend
