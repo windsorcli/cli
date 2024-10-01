@@ -32,11 +32,11 @@ func EncryptFile(t *testing.T, filePath string, dstPath string) error {
 	}
 	t.Logf("SOPS version: %s", versionOutput)
 
-	cmdEncrypt := exec.Command("sops", "-e", filePath, "--output", dstPath)
+	cmdEncrypt := exec.Command("sops", "--output", dstPath, "-e", filePath)
 	cmdEncryptOutput, err := cmdEncrypt.CombinedOutput()
 	t.Logf("SOPS encrypt output: %s", cmdEncryptOutput)
 	if err != nil {
-		t.Fatalf("Failed to execute sops -e %v --output %v: %v", filePath, dstPath, err)
+		t.Fatalf("Failed to execute sops --output %v -e %v : %v", dstPath, filePath, err)
 	}
 
 	// // Create the command to encrypt the file
