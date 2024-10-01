@@ -37,83 +37,6 @@ func NewTerraformHelper(configHandler config.ConfigHandler, shell shell.Shell, c
 	}
 }
 
-// findRelativeTerraformProjectPath finds the path to the Terraform project from the terraform directory
-func findRelativeTerraformProjectPath() (string, error) {
-	// Get the current working directory
-	currentPath, err := getwd()
-	if err != nil {
-		return "", fmt.Errorf("error getting current directory: %w", err)
-	}
-
-	// Check if the current directory contains any Terraform files
-	globPattern := filepath.Join(currentPath, "*.tf")
-	matches, err := glob(globPattern)
-	if err != nil {
-		return "", fmt.Errorf("error finding project path: %w", err)
-	}
-	if len(matches) == 0 {
-		// No Terraform files found, return an empty string without an error
-		return "", nil
-	}
-
-	// Split the current path into its components
-	pathParts := strings.Split(currentPath, string(os.PathSeparator))
-
-	// Iterate through the path components to find the "terraform" directory
-	for i := len(pathParts) - 1; i >= 0; i-- {
-		if pathParts[i] == "terraform" {
-			// Join the path components after the "terraform" directory
-			relativePath := filepath.Join(pathParts[i+1:]...)
-			return relativePath, nil
-		}
-	}
-
-	// No "terraform" directory found, return an error
-	return "", fmt.Errorf("no 'terraform' directory found in the current path")
-}
-
-// getCurrentBackend retrieves the current backend configuration for Terraform
-func getCurrentBackend(h *TerraformHelper) (string, error) {
-	// Get the current context
-	context, err := h.ConfigHandler.GetConfigValue("context")
-	if err != nil {
-		return "local", fmt.Errorf("error retrieving context, defaulting to 'local': %w", err)
-	}
-
-	// Get the configuration for the current context
-	config, err := h.ConfigHandler.GetNestedMap(fmt.Sprintf("contexts.%s", context))
-	if err != nil {
-		return "local", fmt.Errorf("error retrieving config for context, defaulting to 'local': %w", err)
-	}
-
-	// Extract the backend configuration
-	backend, ok := config["backend"].(string)
-	if !ok {
-		return "local", nil
-	}
-
-	return backend, nil
-}
-
-// sanitizeForK8s sanitizes a string to be compatible with Kubernetes naming conventions
-func sanitizeForK8s(input string) string {
-	// Convert the input string to lowercase
-	sanitized := strings.ToLower(input)
-	// Replace underscores with hyphens
-	sanitized = regexp.MustCompile(`[_]+`).ReplaceAllString(sanitized, "-")
-	// Remove any character that is not a lowercase letter, digit, or hyphen
-	sanitized = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(sanitized, "-")
-	// Replace multiple consecutive hyphens with a single hyphen
-	sanitized = regexp.MustCompile(`-+`).ReplaceAllString(sanitized, "-")
-	// Trim leading and trailing hyphens
-	sanitized = strings.Trim(sanitized, "-")
-	// Ensure the sanitized string does not exceed 63 characters
-	if len(sanitized) > 63 {
-		sanitized = sanitized[:63]
-	}
-	return sanitized
-}
-
 // GenerateTerraformInitBackendFlags generates the flags for initializing the Terraform backend
 func (h *TerraformHelper) GenerateTerraformInitBackendFlags() (string, error) {
 	// Find the Terraform project path
@@ -257,6 +180,83 @@ func (h *TerraformHelper) SetConfig(key, value string) error {
 
 // Ensure TerraformHelper implements Helper interface
 var _ Helper = (*TerraformHelper)(nil)
+
+// findRelativeTerraformProjectPath finds the path to the Terraform project from the terraform directory
+func findRelativeTerraformProjectPath() (string, error) {
+	// Get the current working directory
+	currentPath, err := getwd()
+	if err != nil {
+		return "", fmt.Errorf("error getting current directory: %w", err)
+	}
+
+	// Check if the current directory contains any Terraform files
+	globPattern := filepath.Join(currentPath, "*.tf")
+	matches, err := glob(globPattern)
+	if err != nil {
+		return "", fmt.Errorf("error finding project path: %w", err)
+	}
+	if len(matches) == 0 {
+		// No Terraform files found, return an empty string without an error
+		return "", nil
+	}
+
+	// Split the current path into its components
+	pathParts := strings.Split(currentPath, string(os.PathSeparator))
+
+	// Iterate through the path components to find the "terraform" directory
+	for i := len(pathParts) - 1; i >= 0; i-- {
+		if pathParts[i] == "terraform" {
+			// Join the path components after the "terraform" directory
+			relativePath := filepath.Join(pathParts[i+1:]...)
+			return relativePath, nil
+		}
+	}
+
+	// No "terraform" directory found, return an error
+	return "", fmt.Errorf("no 'terraform' directory found in the current path")
+}
+
+// getCurrentBackend retrieves the current backend configuration for Terraform
+func getCurrentBackend(h *TerraformHelper) (string, error) {
+	// Get the current context
+	context, err := h.ConfigHandler.GetConfigValue("context")
+	if err != nil {
+		return "local", fmt.Errorf("error retrieving context, defaulting to 'local': %w", err)
+	}
+
+	// Get the configuration for the current context
+	config, err := h.ConfigHandler.GetNestedMap(fmt.Sprintf("contexts.%s", context))
+	if err != nil {
+		return "local", fmt.Errorf("error retrieving config for context, defaulting to 'local': %w", err)
+	}
+
+	// Extract the backend configuration
+	backend, ok := config["backend"].(string)
+	if !ok {
+		return "local", nil
+	}
+
+	return backend, nil
+}
+
+// sanitizeForK8s sanitizes a string to be compatible with Kubernetes naming conventions
+func sanitizeForK8s(input string) string {
+	// Convert the input string to lowercase
+	sanitized := strings.ToLower(input)
+	// Replace underscores with hyphens
+	sanitized = regexp.MustCompile(`[_]+`).ReplaceAllString(sanitized, "-")
+	// Remove any character that is not a lowercase letter, digit, or hyphen
+	sanitized = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(sanitized, "-")
+	// Replace multiple consecutive hyphens with a single hyphen
+	sanitized = regexp.MustCompile(`-+`).ReplaceAllString(sanitized, "-")
+	// Trim leading and trailing hyphens
+	sanitized = strings.Trim(sanitized, "-")
+	// Ensure the sanitized string does not exceed 63 characters
+	if len(sanitized) > 63 {
+		sanitized = sanitized[:63]
+	}
+	return sanitized
+}
 
 // generateBackendOverrideTf generates the backend_override.tf file for the Terraform project
 func generateBackendOverrideTf(h *TerraformHelper) error {
