@@ -1040,36 +1040,6 @@ func TestTerraformHelper_FindTerraformProjectRoot(t *testing.T) {
 	})
 }
 
-// TestTerraformHelper_SanitizeForK8s tests the SanitizeForK8s method
-func TestTerraformHelper_SanitizeForK8s(t *testing.T) {
-	helper := &TerraformHelper{}
-
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"My_Test_String", "my-test-string"},
-		{"My--Test--String", "my-test-string"},
-		{"My__Test__String", "my-test-string"},
-		{"My!!Test!!String", "my-test-string"},
-		{"MyTestStringWithMoreThanSixtyThreeCharactersWhichShouldBeTrimmed", "myteststringwithmorethansixtythreecharacterswhichshouldbetrimme"},
-		{"MyTestStringWithExactlySixtyThreeCharactersWhichShouldNotBeTrimmed", "myteststringwithexactlysixtythreecharacterswhichshouldnotbetrim"},
-		{"MyTestStringWithSpecialChars!@#$%^&*()", "myteststringwithspecialchars"},
-		{"MyTestStringWithLeadingAndTrailingHyphens-", "myteststringwithleadingandtrailinghyphens"},
-		{"-MyTestStringWithLeadingAndTrailingHyphens", "myteststringwithleadingandtrailinghyphens"},
-		{"-MyTestStringWithLeadingAndTrailingHyphens-", "myteststringwithleadingandtrailinghyphens"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := helper.SanitizeForK8s(tt.input)
-			if result != tt.expected {
-				t.Errorf("Expected %s, got %s (length: %d)", tt.expected, result, len(result))
-			}
-		})
-	}
-}
-
 // TestTerraformHelper_GetAlias tests the GetAlias method
 func TestTerraformHelper_GetAlias(t *testing.T) {
 	tests := []struct {

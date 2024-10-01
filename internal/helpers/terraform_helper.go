@@ -96,8 +96,8 @@ func (h *TerraformHelper) GetCurrentBackend() (string, error) {
 	return backend, nil
 }
 
-// SanitizeForK8s sanitizes a string to be compatible with Kubernetes naming conventions
-func (h *TerraformHelper) SanitizeForK8s(input string) string {
+// sanitizeForK8s sanitizes a string to be compatible with Kubernetes naming conventions
+func sanitizeForK8s(input string) string {
 	// Convert the input string to lowercase
 	sanitized := strings.ToLower(input)
 	// Replace underscores with hyphens
@@ -190,7 +190,7 @@ func (h *TerraformHelper) GenerateTerraformInitBackendFlags() (string, error) {
 	} else if backend == "s3" {
 		backendConfigs = append(backendConfigs, fmt.Sprintf("-backend-config=key=%s/terraform.tfstate", projectPath))
 	} else if backend == "kubernetes" {
-		projectNameSanitized := h.SanitizeForK8s(projectPath)
+		projectNameSanitized := sanitizeForK8s(projectPath)
 		backendConfigs = append(backendConfigs, fmt.Sprintf("-backend-config=secret_suffix=%s", projectNameSanitized))
 	}
 
@@ -371,7 +371,7 @@ func (h *TerraformHelper) SetConfig(key, value string) error {
 		if err != nil {
 			return fmt.Errorf("error retrieving context: %w", err)
 		}
-		if err := h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", context), value); err != nil {
+		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", context), value); err != nil {
 			return fmt.Errorf("error setting backend: %w", err)
 		}
 		return nil
