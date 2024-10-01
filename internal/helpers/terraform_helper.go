@@ -72,8 +72,8 @@ func findRelativeTerraformProjectPath() (string, error) {
 	return "", fmt.Errorf("no 'terraform' directory found in the current path")
 }
 
-// GetCurrentBackend retrieves the current backend configuration for Terraform
-func (h *TerraformHelper) GetCurrentBackend() (string, error) {
+// getCurrentBackend retrieves the current backend configuration for Terraform
+func getCurrentBackend(h *TerraformHelper) (string, error) {
 	// Get the current context
 	context, err := h.ConfigHandler.GetConfigValue("context")
 	if err != nil {
@@ -123,7 +123,7 @@ func (h *TerraformHelper) GenerateTerraformInitBackendFlags() (string, error) {
 	}
 
 	// Get the current backend configuration
-	backend, err := h.GetCurrentBackend()
+	backend, err := getCurrentBackend(h)
 	if err != nil || backend == "" {
 		return "", fmt.Errorf("backend not found")
 	}
@@ -301,7 +301,7 @@ func generateBackendOverrideTf(h *TerraformHelper) error {
 	}
 
 	// Get the current backend
-	backend, err := h.GetCurrentBackend()
+	backend, err := getCurrentBackend(h)
 	if err != nil {
 		return fmt.Errorf("error getting backend: %w", err)
 	}
