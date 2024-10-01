@@ -42,6 +42,8 @@ func EncryptFile(t *testing.T, filePath string, dstPath string) error {
 		return err
 	}
 
+	t.Logf("OUTPUTPIPE : %v", outputPipe)
+
 	// Start the command
 	if err := cmd.Start(); err != nil {
 		return err
