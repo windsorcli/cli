@@ -55,7 +55,7 @@ func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 	// Construct the path to the sops config file, return nils if it doesn't exist
 	sopsConfigPath := filepath.Join(configRoot, ".sops/secrets.enc.yaml")
 	if _, err := os.Stat(sopsConfigPath); os.IsNotExist(err) {
-		return nil, nil
+		return nil, fmt.Errorf("sopsConfigPath not found : %v", sopsConfigPath)
 	}
 
 	plaintextBytes, err := DecryptFile(sopsConfigPath)
