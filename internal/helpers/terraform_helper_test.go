@@ -14,6 +14,19 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
+// Mock stat to return a specific error
+var originalStat = stat
+
+func mockStatWithError(err error) {
+	stat = func(name string) (os.FileInfo, error) {
+		return nil, err
+	}
+}
+
+func restoreStat() {
+	stat = originalStat
+}
+
 // Helper function to sort space-separated strings
 func sortString(s string) string {
 	parts := strings.Split(s, " ")
@@ -22,9 +35,10 @@ func sortString(s string) string {
 }
 
 // Helper function to set up the test environment
-func setupTestEnv(t *testing.T, backend string) (string, func(), *TerraformHelper) {
+func setupTestEnv(t *testing.T, backend string, tfvarsFiles map[string]string) (string, func(), *TerraformHelper) {
 	tempDir := t.TempDir()
-	projectPath := filepath.Join(tempDir, "terraform/project")
+	projectPath := filepath.Join(tempDir, "terraform/windsor")
+	configRoot := filepath.Join(tempDir, "contexts/local")
 
 	// Create the necessary directory structure
 	err := os.MkdirAll(projectPath, os.ModePerm)
@@ -32,11 +46,29 @@ func setupTestEnv(t *testing.T, backend string) (string, func(), *TerraformHelpe
 		t.Fatalf("Failed to create project directories: %v", err)
 	}
 
-	// Mock getwd to return the project path
+	// Create the necessary directory structure for tfvars files
+	for path := range tfvarsFiles {
+		dir := filepath.Dir(filepath.Join(tempDir, path))
+		err = os.MkdirAll(dir, os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create tfvars directories: %v", err)
+		}
+	}
+
+	// Create .tfvars and .tfvars.json files in the config root directory
+	for path, content := range tfvarsFiles {
+		err = os.WriteFile(filepath.Join(tempDir, path), []byte(content), os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create tfvars file: %v", err)
+		}
+	}
+
+	// Mock getwd to return the terraform project directory
 	originalGetwd := getwd
 	getwd = func() (string, error) {
 		return projectPath, nil
 	}
+	t.Cleanup(func() { getwd = originalGetwd })
 
 	// Mock glob to return a valid result for findRelativeTerraformProjectPath
 	originalGlob := glob
@@ -44,8 +76,18 @@ func setupTestEnv(t *testing.T, backend string) (string, func(), *TerraformHelpe
 		if strings.Contains(pattern, "*.tf") {
 			return []string{filepath.Join(projectPath, "main.tf")}, nil
 		}
+		if strings.Contains(pattern, "*.tfvars") {
+			var matches []string
+			for path := range tfvarsFiles {
+				if strings.HasSuffix(path, ".tfvars") || strings.HasSuffix(path, ".tfvars.json") {
+					matches = append(matches, filepath.Join(tempDir, path))
+				}
+			}
+			return matches, nil
+		}
 		return nil, fmt.Errorf("error globbing files")
 	}
+	t.Cleanup(func() { glob = originalGlob })
 
 	// Mock config handler to return a context configuration with the specified backend
 	mockConfigHandler := &config.MockConfigHandler{}
@@ -64,19 +106,13 @@ func setupTestEnv(t *testing.T, backend string) (string, func(), *TerraformHelpe
 
 	mockContext := &context.MockContext{
 		GetConfigRootFunc: func() (string, error) {
-			return "/mock/config/root", nil
+			return configRoot, nil
 		},
 	}
 	mockShell := &shell.MockShell{}
 	terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
 
-	// Cleanup function to restore original functions
-	cleanup := func() {
-		getwd = originalGetwd
-		glob = originalGlob
-	}
-
-	return projectPath, cleanup, terraformHelper
+	return projectPath, func() {}, terraformHelper
 }
 
 // TestTerraformHelper_GetEnvVars tests the GetEnvVars method
@@ -241,32 +277,14 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorGlobbingTfvarsFiles", func(t *testing.T) {
-		tempDir := t.TempDir()
-		configRoot := filepath.Join(tempDir, "mock/config/root")
-		mockContext := &context.MockContext{
-			GetConfigRootFunc: func() (string, error) {
-				return configRoot, nil
-			},
-		}
-		mockShell := &shell.MockShell{}
-		helper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
+		tfvarsFiles := map[string]string{}
+		_, cleanup, helper := setupTestEnv(t, "local", tfvarsFiles)
+		defer cleanup()
 
-		// Given: a valid project path
-		projectPath := filepath.Join(tempDir, "terraform/windsor/blueprint")
-
-		originalGetwd := getwd
-		getwd = func() (string, error) {
-			return projectPath, nil
-		}
-		defer func() { getwd = originalGetwd }()
-
-		// Mock glob to return a valid result for findRelativeTerraformProjectPath
+		// Mock glob to return an error
 		originalGlob := glob
 		glob = func(pattern string) ([]string, error) {
-			if strings.Contains(pattern, "*.tf") {
-				return []string{filepath.Join(projectPath, "main.tf")}, nil
-			}
-			return nil, fmt.Errorf("error globbing files")
+			return nil, fmt.Errorf("glob error")
 		}
 		defer func() { glob = originalGlob }()
 
@@ -277,7 +295,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
 		}
-		expectedErrMsg := "error globbing files"
+		expectedErrMsg := "glob error"
 		if !strings.Contains(err.Error(), expectedErrMsg) {
 			t.Errorf("Expected error message to contain %s, got %s", expectedErrMsg, err.Error())
 		}
@@ -440,6 +458,86 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error finding project path") {
 			t.Errorf("Expected error message to contain 'error finding project path', got %v", err)
+		}
+	})
+
+	t.Run("ErrorCheckingFile", func(t *testing.T) {
+		tfvarsFiles := map[string]string{
+			"contexts/local/terraform/windsor/blueprint.tfvars":                "",
+			"contexts/local/terraform/windsor/blueprint_generated.tfvars.json": "",
+		}
+		projectPath, cleanup, helper := setupTestEnv(t, "local", tfvarsFiles)
+		defer cleanup()
+
+		// Ensure the file does not exist
+		fileToCheck := filepath.Join(projectPath, "non_existent_file.tfvars")
+		if _, err := os.Stat(fileToCheck); !os.IsNotExist(err) {
+			t.Fatalf("Expected file to not exist, but it does")
+		}
+
+		// Mock stat to return an error other than os.ErrNotExist
+		mockStatWithError(fmt.Errorf("mock error"))
+		defer restoreStat()
+
+		// When: GetEnvVars is called
+		_, err := helper.GetEnvVars()
+
+		// Then: it should return an error
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedErrMsg := "error checking file"
+		if !strings.Contains(err.Error(), expectedErrMsg) {
+			t.Errorf("Expected error message to contain %s, got %s", expectedErrMsg, err.Error())
+		}
+	})
+
+	t.Run("TruncateLongStringInKubernetesBackend", func(t *testing.T) {
+		tfvarsFiles := map[string]string{}
+		projectPath, cleanup, terraformHelper := setupTestEnv(t, "kubernetes", tfvarsFiles)
+		defer cleanup()
+
+		// Mock a long project path that exceeds 63 characters
+		longProjectPath := filepath.Join(projectPath, "terraform", "supercalifragilisticexpialidocioussupercalifragilisticexpialidocious")
+		expected := "supercalifragilisticexpialidocioussupercalifragilisticexpialido"
+
+		// Ensure the long project path exists
+		err := os.MkdirAll(longProjectPath, os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create long project path: %v", err)
+		}
+
+		// Ensure the project path is set to a long path
+		originalGetwd := getwd
+		getwd = func() (string, error) {
+			return longProjectPath, nil
+		}
+		defer func() { getwd = originalGetwd }()
+
+		// When calling PostEnvExec
+		err = terraformHelper.PostEnvExec()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Verify that the backend_override.tf file was created with the correct content
+		backendOverridePath := filepath.Join(longProjectPath, "backend_override.tf")
+		content, err := os.ReadFile(backendOverridePath)
+		if err != nil {
+			t.Fatalf("failed to read backend_override.tf: %v", err)
+		}
+
+		expectedContent := fmt.Sprintf(`
+terraform {
+  backend "kubernetes" {
+    secret_suffix = "%s"
+  }
+}`, expected)
+
+		if strings.TrimSpace(string(content)) != strings.TrimSpace(expectedContent) {
+			t.Errorf("expected %s, got %s", expectedContent, string(content))
 		}
 	})
 }
@@ -1005,7 +1103,7 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 	})
 
 	t.Run("BackendLocal", func(t *testing.T) {
-		projectPath, cleanup, terraformHelper := setupTestEnv(t, "local")
+		projectPath, cleanup, terraformHelper := setupTestEnv(t, "local", nil)
 		defer cleanup()
 
 		// When calling PostEnvExec
@@ -1023,12 +1121,14 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 			t.Fatalf("failed to read backend_override.tf: %v", err)
 		}
 
+		// Dynamically construct the expected path based on the temporary directory structure
+		expectedPath := filepath.Join(projectPath, "../../contexts/local/.tfstate/windsor/terraform.tfstate")
 		expectedContent := fmt.Sprintf(`
 terraform {
   backend "local" {
     path = "%s"
   }
-}`, filepath.Join("/mock/config/root", ".tfstate", "project", "terraform.tfstate"))
+}`, expectedPath)
 
 		if strings.TrimSpace(string(content)) != strings.TrimSpace(expectedContent) {
 			t.Errorf("expected %s, got %s", expectedContent, string(content))
@@ -1036,7 +1136,7 @@ terraform {
 	})
 
 	t.Run("BackendS3", func(t *testing.T) {
-		projectPath, cleanup, terraformHelper := setupTestEnv(t, "s3")
+		projectPath, cleanup, terraformHelper := setupTestEnv(t, "s3", nil)
 		defer cleanup()
 
 		// When calling PostEnvExec
@@ -1054,12 +1154,14 @@ terraform {
 			t.Fatalf("failed to read backend_override.tf: %v", err)
 		}
 
+		// Dynamically construct the expected key based on the temporary directory structure
+		expectedKey := "windsor/terraform.tfstate"
 		expectedContent := fmt.Sprintf(`
 terraform {
   backend "s3" {
     key = "%s"
   }
-}`, filepath.Join("project", "terraform.tfstate"))
+}`, expectedKey)
 
 		if strings.TrimSpace(string(content)) != strings.TrimSpace(expectedContent) {
 			t.Errorf("expected %s, got %s", expectedContent, string(content))
@@ -1067,7 +1169,7 @@ terraform {
 	})
 
 	t.Run("BackendKubernetes", func(t *testing.T) {
-		projectPath, cleanup, terraformHelper := setupTestEnv(t, "kubernetes")
+		projectPath, cleanup, terraformHelper := setupTestEnv(t, "kubernetes", nil)
 		defer cleanup()
 
 		// When calling PostEnvExec
@@ -1085,12 +1187,14 @@ terraform {
 			t.Fatalf("failed to read backend_override.tf: %v", err)
 		}
 
+		// Dynamically construct the expected secret_suffix based on the temporary directory structure
+		expectedSuffix := "windsor"
 		expectedContent := fmt.Sprintf(`
 terraform {
   backend "kubernetes" {
     secret_suffix = "%s"
   }
-}`, "project")
+}`, expectedSuffix)
 
 		if strings.TrimSpace(string(content)) != strings.TrimSpace(expectedContent) {
 			t.Errorf("expected %s, got %s", expectedContent, string(content))
@@ -1098,7 +1202,7 @@ terraform {
 	})
 
 	t.Run("UnsupportedBackend", func(t *testing.T) {
-		_, cleanup, terraformHelper := setupTestEnv(t, "unsupported")
+		_, cleanup, terraformHelper := setupTestEnv(t, "unsupported", nil)
 		defer cleanup()
 
 		// When calling PostEnvExec

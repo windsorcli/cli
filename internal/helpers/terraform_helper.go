@@ -21,6 +21,9 @@ var glob = filepath.Glob
 // Wrapper function for os.WriteFile
 var writeFile = os.WriteFile
 
+// Override variable for os.Stat
+var stat = os.Stat
+
 // TerraformHelper is a struct that provides various utility functions for working with Terraform
 type TerraformHelper struct {
 	ConfigHandler config.ConfigHandler
@@ -85,13 +88,12 @@ func (h *TerraformHelper) GetEnvVars() (map[string]string, error) {
 
 	var varFileArgs []string
 	for _, pattern := range patterns {
-		matches, err := glob(pattern)
-		if err != nil {
-			return nil, fmt.Errorf("error globbing files: %w", err)
-		}
-
-		for _, match := range matches {
-			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=%s", match))
+		if _, err := stat(pattern); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("error checking file: %w", err)
+			}
+		} else {
+			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=%s", pattern))
 		}
 	}
 
@@ -251,12 +253,14 @@ terraform {
   }
 }`, filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate"))
 	case "s3":
+		// Normalize the key to use Unix-style path separators
+		key := filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate"))
 		backendConfig = fmt.Sprintf(`
 terraform {
   backend "s3" {
     key = "%s"
   }
-}`, filepath.Join(projectPath, "terraform.tfstate"))
+}`, key)
 	case "kubernetes":
 		projectNameSanitized := sanitizeForK8s(projectPath)
 		backendConfig = fmt.Sprintf(`
