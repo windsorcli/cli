@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +15,6 @@ import (
 
 // EncryptFile encrypts the specified file using SOPS.
 func EncryptFile(t *testing.T, filePath string, dstPath string) error {
-
 	t.Logf("sopsConfigPath: %v", filePath)
 	t.Logf("sopsEncConfigPath: %v", dstPath)
 
@@ -33,31 +33,84 @@ func EncryptFile(t *testing.T, filePath string, dstPath string) error {
 	}
 	t.Logf("SOPS version: %s", versionOutput)
 
+	// Create the command to encrypt the file
 	cmd := exec.Command("sops", "-e", filePath)
-	output, err := cmd.CombinedOutput()
 
-	// t.Logf("output : %v", output)
-	t.Logf("SOPS COMMAND err : %v", err)
-
+	// Create a pipe to capture the output
+	outputPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
 	}
 
-	// Write the encrypted output back to the file
-	err = os.WriteFile(dstPath, output, 0644)
-	if err != nil {
-		t.Fatalf("Error while writing file: %v err: %v", dstPath, err)
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return err
 	}
 
-	// Print the contents of the sops config file
-	content, err = os.ReadFile(dstPath)
+	// Create the output file
+	outputFile, err := os.Create(dstPath)
 	if err != nil {
-		t.Fatalf("Failed to read sops encrypted file: %v", err)
+		return err
 	}
-	t.Logf("Contents of sops encrypted file: %s", content)
+	defer outputFile.Close() // Ensure the file is closed after writing
+
+	// Copy the output from the command to the output file
+	if _, err := io.Copy(outputFile, outputPipe); err != nil {
+		return err
+	}
+
+	// Wait for the command to finish
+	if err := cmd.Wait(); err != nil {
+		t.Logf("SOPS COMMAND err : %v", err)
+		return err
+	}
 
 	return nil
 }
+
+// // EncryptFile encrypts the specified file using SOPS.
+// func EncryptFile(t *testing.T, filePath string, dstPath string) error {
+
+// 	t.Logf("sopsConfigPath: %v", filePath)
+// 	t.Logf("sopsEncConfigPath: %v", dstPath)
+
+// 	// Print the contents of the sops config file
+// 	content, err := os.ReadFile(filePath)
+// 	if err != nil {
+// 		t.Fatalf("Failed to read sops config file: %v", err)
+// 	}
+// 	t.Logf("Contents of sops config file: %s", content)
+
+// 	// Print the version of SOPS being used
+// 	cmdVersion := exec.Command("sops", "--version")
+// 	versionOutput, err := cmdVersion.CombinedOutput()
+// 	if err != nil {
+// 		t.Fatalf("Failed to get SOPS version: %v", err)
+// 	}
+// 	t.Logf("SOPS version: %s", versionOutput)
+
+// 	// Create the command to encrypt the file
+// 	cmd := exec.Command("sops", "-e", filePath)
+
+// 	// Create the output file
+// 	outputFile, err := os.Create(dstPath)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer outputFile.Close() // Ensure the file is closed after writing
+
+// 	// Set the command's output to the output file
+// 	cmd.Stdout = outputFile
+
+// 	// Run the command
+// 	_, err = cmd.CombinedOutput()
+// 	if err != nil {
+// 		t.Logf("SOPS COMMAND err : %v", err)
+// 		return err
+// 	}
+
+// 	return nil
+// }
 
 func TestSopsHelper_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
