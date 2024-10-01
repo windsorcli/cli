@@ -6,19 +6,8 @@ import (
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
-
-// Helper function to set up the container with a mock config handler
-func setupMockContainer(mockCLIHandler, mockProjectHandler config.ConfigHandler, mockShell shell.Shell) di.ContainerInterface {
-	container := di.NewContainer()
-	container.Register("cliConfigHandler", mockCLIHandler)
-	container.Register("projectConfigHandler", mockProjectHandler)
-	container.Register("shell", mockShell)
-	Initialize(container)
-	return container
-}
 
 func TestInitCmd(t *testing.T) {
 	originalArgs := rootCmd.Args
@@ -40,7 +29,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil)
 
 		// When: the init command is executed with a valid context
 		output := captureStdout(func() {
@@ -72,7 +61,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -104,7 +93,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -144,7 +133,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContainer(mockCLIHandler, mockProjectHandler, mockShell)
+		setupContainer(mockCLIHandler, mockProjectHandler, mockShell, nil)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
