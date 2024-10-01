@@ -13,9 +13,13 @@ import (
 )
 
 // EncryptFile encrypts the specified file using SOPS.
-func EncryptFile(filePath string, dstPath string) error {
+func EncryptFile(t *testing.T, filePath string, dstPath string) error {
 	cmd := exec.Command("sops", "-e", filePath)
 	output, err := cmd.CombinedOutput()
+
+	t.Logf("output : %v", output)
+	t.Logf("output : %v", err)
+
 	if err != nil {
 		return err
 	}
@@ -60,7 +64,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		t.Logf("SOPS version: %s", versionOutput)
 
 		// Encrypt the sops config file using SOPS
-		err = EncryptFile(sopsConfigPath, sopsEncConfigPath)
+		err = EncryptFile(t, sopsConfigPath, sopsEncConfigPath)
 		if err != nil {
 			t.Logf("sopsConfigPath: %v", sopsConfigPath)
 			t.Logf("sopsEncConfigPath: %v", sopsEncConfigPath)
@@ -230,7 +234,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		os.WriteFile(sopsConfigPath, []byte("\"SOPS-CONFIG\": "+sopsEncConfigPath), 0644)
 
 		// Encrypt the sops config file using SOPS
-		err = EncryptFile(sopsConfigPath, sopsEncConfigPath)
+		err = EncryptFile(t, sopsConfigPath, sopsEncConfigPath)
 		if err != nil {
 			t.Fatalf("Failed to encrypt sops config file: %v", err)
 		}
