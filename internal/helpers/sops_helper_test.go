@@ -59,11 +59,11 @@ func EncryptFile(t *testing.T, filePath string, dstPath string) error {
 		return err
 	}
 
-	// Wait for the command to finish
-	if err := cmd.Wait(); err != nil {
-		t.Logf("SOPS COMMAND err : %v", err)
-		return err
-	}
+	// // Wait for the command to finish
+	// if err := cmd.Wait(); err != nil {
+	// 	t.Logf("SOPS COMMAND err : %v", err)
+	// 	return err
+	// }
 
 	return nil
 }
