@@ -17,6 +17,9 @@ tasks:
         # Make the binary executable
         chmod +x /usr/local/bin/sops
 
+        which sops
+        sops --version
+
   setup:
     desc: Set up the project
     deps: 
