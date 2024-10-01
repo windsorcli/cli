@@ -66,6 +66,7 @@ jobs:
         run: |
           choco install go-task --version=3.37.2 -y
           choco install age.portable
+          choco install sops 
 
       - name: Install dependencies
         run: task setup
