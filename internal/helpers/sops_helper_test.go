@@ -94,19 +94,6 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 			t.Fatalf("Failed to encrypt secrets file: %v", err)
 		}
 
-		// // Defer removal of the secrets file
-		// defer func() {
-		// 	if err := os.Remove(plaintextSecretsFile); err != nil {
-		// 		t.Fatalf("Failed to remove secrets file: %v", err)
-		// 	}
-		// }()
-
-		// defer func() {
-		// 	if err := os.Remove(encryptedSecretsFile); err != nil {
-		// 		t.Fatalf("Failed to remove encrypted secrets file: %v", err)
-		// 	}
-		// }()
-
 		// Mock context
 		mockContext := &context.MockContext{
 			GetConfigRootFunc: func() (string, error) {
@@ -200,13 +187,6 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		// Create and initialize the secrets file
 		os.WriteFile(plaintextSecretsFile, []byte("\"SOPS_TEST\": "+plaintextSecretsFile), 0644)
 
-		// // Defer removal of the secrets file
-		// defer func() {
-		// 	if err := os.Remove(plaintextSecretsFile); err != nil {
-		// 		t.Fatalf("Failed to remove secrets file: %v", err)
-		// 	}
-		// }()
-
 		// Mock context
 		mockContext := &context.MockContext{
 			GetConfigRootFunc: func() (string, error) {
@@ -261,19 +241,6 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to write to encrypted secrets file: %v", err)
 		}
-
-		// // Defer removal of the secrets file
-		// defer func() {
-		// 	if err := os.Remove(plaintextSecretsFile); err != nil {
-		// 		t.Fatalf("Failed to remove secrets file: %v", err)
-		// 	}
-		// }()
-		// // Defer removal of the encrypted secrets file
-		// defer func() {
-		// 	if err := os.Remove(encryptedSecretsFile); err != nil {
-		// 		t.Fatalf("Failed to remove encrypted secrets file: %v", err)
-		// 	}
-		// }()
 
 		// Mock context
 		mockContext := &context.MockContext{
