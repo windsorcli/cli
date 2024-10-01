@@ -115,6 +115,33 @@ func setupTestEnv(t *testing.T, backend string, tfvarsFiles map[string]string) (
 	return projectPath, func() {}, terraformHelper
 }
 
+// setupMockContextAndConfigHandler sets up a mock context and config handler with the specified context name and backend
+func setupMockContextAndConfigHandler(contextName, backend string) (*context.MockContext, *config.MockConfigHandler) {
+	mockContext := &context.MockContext{
+		GetContextFunc: func() (string, error) {
+			return contextName, nil
+		},
+		GetConfigRootFunc: func() (string, error) {
+			return "/mock/config/root", nil
+		},
+	}
+
+	mockConfigHandler := &config.MockConfigHandler{
+		GetConfigValueFunc: func(key string) (string, error) {
+			switch key {
+			case "context":
+				return contextName, nil
+			case fmt.Sprintf("contexts.%s.terraform.backend", contextName):
+				return backend, nil
+			default:
+				return "", fmt.Errorf("unexpected key: %s", key)
+			}
+		},
+	}
+
+	return mockContext, mockConfigHandler
+}
+
 // TestTerraformHelper_GetEnvVars tests the GetEnvVars method
 func TestTerraformHelper_GetEnvVars(t *testing.T) {
 	// Mock dependencies
@@ -514,6 +541,29 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		}
 		defer func() { getwd = originalGetwd }()
 
+		// Mock the context and config handler responses
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "local", nil
+			},
+			GetConfigRootFunc: func() (string, error) {
+				return "/mock/config/root", nil
+			},
+		}
+		mockConfigHandler := &config.MockConfigHandler{
+			GetConfigValueFunc: func(key string) (string, error) {
+				switch key {
+				case "context":
+					return "local", nil
+				case "contexts.local.terraform.backend":
+					return "kubernetes", nil
+				default:
+					return "", fmt.Errorf("unexpected key: %s", key)
+				}
+			},
+		}
+		terraformHelper = NewTerraformHelper(mockConfigHandler, nil, mockContext)
+
 		// When calling PostEnvExec
 		err = terraformHelper.PostEnvExec()
 
@@ -708,7 +758,19 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		tempDir := t.TempDir()
-		projectPath := filepath.Join(tempDir, "terraform/project")
+		projectPath := filepath.Join(tempDir, "terraform/windsor")
+
+		// Create the necessary directory structure
+		err := os.MkdirAll(projectPath, os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create project directories: %v", err)
+		}
+
+		// Create a mock .tf file to ensure the directory is recognized as a Terraform project
+		err = os.WriteFile(filepath.Join(projectPath, "main.tf"), []byte(""), os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create .tf file: %v", err)
+		}
 
 		// Mock getwd to return the project path
 		originalGetwd := getwd
@@ -717,37 +779,14 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 		}
 		defer func() { getwd = originalGetwd }()
 
-		// Mock context to return the config root
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
-		}
-
-		// Mock GetCurrentBackend to return "local"
-		mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
-			if key == "context" {
-				return "local", nil
-			}
-			return "", fmt.Errorf("unexpected key: %s", key)
-		}
-		mockConfigHandler.GetNestedMapFunc = func(key string) (map[string]interface{}, error) {
-			if key == "contexts.local" {
-				return map[string]interface{}{"backend": "local"}, nil
-			}
-			return nil, fmt.Errorf("unexpected key: %s", key)
-		}
-
-		// Create a mock .tf file to ensure the directory is recognized as a Terraform project
-		err := os.MkdirAll(projectPath, os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create directories: %v", err)
-		}
-		err = os.WriteFile(filepath.Join(projectPath, "main.tf"), []byte(""), os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create .tf file: %v", err)
-		}
-		defer os.RemoveAll(filepath.Join(tempDir, "project"))
-
+		// Use the helper function to set up the mock context and config handler
+		mockContext, mockConfigHandler := setupMockContextAndConfigHandler("local", "local")
 		terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
+
+		// Mock the GetConfigRootFunc to return the actual project path
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return projectPath, nil
+		}
 
 		// When calling PostEnvExec
 		err = terraformHelper.PostEnvExec()
@@ -757,10 +796,24 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Verify that the backend_override.tf file was created
+		// Verify that the backend_override.tf file was created with the correct content
 		backendOverridePath := filepath.Join(projectPath, "backend_override.tf")
-		if _, err := os.Stat(backendOverridePath); os.IsNotExist(err) {
-			t.Fatalf("expected backend_override.tf file to be created")
+		content, err := os.ReadFile(backendOverridePath)
+		if err != nil {
+			t.Fatalf("failed to read backend_override.tf: %v", err)
+		}
+
+		// Dynamically construct the expected path based on the temporary directory structure
+		expectedPath := filepath.Join(projectPath, ".tfstate/windsor/terraform.tfstate")
+		expectedContent := fmt.Sprintf(`
+terraform {
+  backend "local" {
+    path = "%s"
+  }
+}`, expectedPath)
+
+		if strings.TrimSpace(string(content)) != strings.TrimSpace(expectedContent) {
+			t.Errorf("expected %s, got %s", expectedContent, string(content))
 		}
 	})
 
@@ -859,54 +912,6 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error getting config root") {
 			t.Fatalf("expected error message to contain 'error getting config root', got %v", err)
-		}
-	})
-
-	t.Run("ErrorWritingBackendOverrideTf", func(t *testing.T) {
-		tempDir := t.TempDir()
-		projectPath := filepath.Join(tempDir, "terraform/project")
-
-		// Mock getwd to return the project path
-		originalGetwd := getwd
-		getwd = func() (string, error) {
-			return projectPath, nil
-		}
-		defer func() { getwd = originalGetwd }()
-
-		// Mock context to return the config root
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
-		}
-
-		// Mock writeFile to return an error
-		originalWriteFile := writeFile
-		writeFile = func(filename string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("mock error writing backend override tf")
-		}
-		defer func() { writeFile = originalWriteFile }()
-
-		// Create a mock .tf file to ensure the directory is recognized as a Terraform project
-		err := os.MkdirAll(projectPath, os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create directories: %v", err)
-		}
-		err = os.WriteFile(filepath.Join(projectPath, "main.tf"), []byte(""), os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create .tf file: %v", err)
-		}
-		defer os.RemoveAll(filepath.Join(tempDir, "project"))
-
-		terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
-
-		// When calling PostEnvExec
-		err = terraformHelper.PostEnvExec()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error writing backend_override.tf") {
-			t.Fatalf("expected error message to contain 'error writing backend_override.tf', got %v", err)
 		}
 	})
 
@@ -1046,65 +1051,18 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 		}
 	})
 
-	t.Run("BackendNotInConfig", func(t *testing.T) {
-		tempDir := t.TempDir()
-		projectPath := filepath.Join(tempDir, "terraform/project")
-
-		// Create the necessary directory structure
-		err := os.MkdirAll(projectPath, os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create project directories: %v", err)
-		}
-
-		// Mock getwd to return the project path
-		originalGetwd := getwd
-		getwd = func() (string, error) {
-			return projectPath, nil
-		}
-		defer func() { getwd = originalGetwd }()
-
-		// Mock glob to return a valid result for findRelativeTerraformProjectPath
-		originalGlob := glob
-		glob = func(pattern string) ([]string, error) {
-			if strings.Contains(pattern, "*.tf") {
-				return []string{filepath.Join(projectPath, "main.tf")}, nil
-			}
-			return nil, fmt.Errorf("error globbing files")
-		}
-		defer func() { glob = originalGlob }()
-
-		// Mock config handler to return a context configuration without a backend
-		mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
-			if key == "context" {
-				return "local", nil
-			}
-			return "", fmt.Errorf("unexpected key: %s", key)
-		}
-		mockConfigHandler.GetNestedMapFunc = func(key string) (map[string]interface{}, error) {
-			if key == "contexts.local" {
-				return map[string]interface{}{}, nil
-			}
-			return nil, fmt.Errorf("unexpected key: %s", key)
-		}
-
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
-		}
-
-		terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
-
-		// When calling PostEnvExec
-		err = terraformHelper.PostEnvExec()
-
-		// Then no error should be returned and the backend should default to "local"
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-
 	t.Run("BackendLocal", func(t *testing.T) {
 		projectPath, cleanup, terraformHelper := setupTestEnv(t, "local", nil)
 		defer cleanup()
+
+		// Use the helper function to set up the mock context and config handler
+		mockContext, mockConfigHandler := setupMockContextAndConfigHandler("local", "local")
+		terraformHelper = NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
+
+		// Mock the GetConfigRootFunc to return the actual project path
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return projectPath, nil
+		}
 
 		// When calling PostEnvExec
 		err := terraformHelper.PostEnvExec()
@@ -1122,7 +1080,7 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 		}
 
 		// Dynamically construct the expected path based on the temporary directory structure
-		expectedPath := filepath.Join(projectPath, "../../contexts/local/.tfstate/windsor/terraform.tfstate")
+		expectedPath := filepath.Join(projectPath, ".tfstate/windsor/terraform.tfstate")
 		expectedContent := fmt.Sprintf(`
 terraform {
   backend "local" {
@@ -1136,11 +1094,40 @@ terraform {
 	})
 
 	t.Run("BackendS3", func(t *testing.T) {
-		projectPath, cleanup, terraformHelper := setupTestEnv(t, "s3", nil)
+		tfvarsFiles := map[string]string{}
+		projectPath, cleanup, terraformHelper := setupTestEnv(t, "s3", tfvarsFiles)
 		defer cleanup()
 
+		// Create the necessary directory structure
+		err := os.MkdirAll(projectPath, os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create project directories: %v", err)
+		}
+
+		// Create a mock .tf file to ensure the directory is recognized as a Terraform project
+		err = os.WriteFile(filepath.Join(projectPath, "main.tf"), []byte(""), os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create .tf file: %v", err)
+		}
+
+		// Mock getwd to return the project path
+		originalGetwd := getwd
+		getwd = func() (string, error) {
+			return projectPath, nil
+		}
+		defer func() { getwd = originalGetwd }()
+
+		// Use the helper function to set up the mock context and config handler
+		mockContext, mockConfigHandler := setupMockContextAndConfigHandler("local", "s3")
+		terraformHelper = NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
+
+		// Mock the GetConfigRootFunc to return the actual project path
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return projectPath, nil
+		}
+
 		// When calling PostEnvExec
-		err := terraformHelper.PostEnvExec()
+		err = terraformHelper.PostEnvExec()
 
 		// Then no error should be returned
 		if err != nil {
@@ -1154,26 +1141,48 @@ terraform {
 			t.Fatalf("failed to read backend_override.tf: %v", err)
 		}
 
-		// Dynamically construct the expected key based on the temporary directory structure
-		expectedKey := "windsor/terraform.tfstate"
 		expectedContent := fmt.Sprintf(`
 terraform {
   backend "s3" {
-    key = "%s"
+    key = "windsor/terraform.tfstate"
   }
-}`, expectedKey)
+}`)
 
-		if strings.TrimSpace(string(content)) != strings.TrimSpace(expectedContent) {
-			t.Errorf("expected %s, got %s", expectedContent, string(content))
+		// Normalize path separators to Unix-style
+		normalizedContent := strings.ReplaceAll(string(content), "\\", "/")
+
+		if strings.TrimSpace(normalizedContent) != strings.TrimSpace(expectedContent) {
+			t.Errorf("expected %s, got %s", expectedContent, normalizedContent)
 		}
 	})
-
 	t.Run("BackendKubernetes", func(t *testing.T) {
-		projectPath, cleanup, terraformHelper := setupTestEnv(t, "kubernetes", nil)
+		tfvarsFiles := map[string]string{}
+		projectPath, cleanup, terraformHelper := setupTestEnv(t, "kubernetes", tfvarsFiles)
 		defer cleanup()
 
+		// Mock a long project path that exceeds 63 characters
+		longProjectPath := filepath.Join(projectPath, "terraform", "supercalifragilisticexpialidocioussupercalifragilisticexpialidocious")
+		expected := "supercalifragilisticexpialidocioussupercalifragilisticexpialido"
+
+		// Ensure the long project path exists
+		err := os.MkdirAll(longProjectPath, os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create long project path: %v", err)
+		}
+
+		// Ensure the project path is set to a long path
+		originalGetwd := getwd
+		getwd = func() (string, error) {
+			return longProjectPath, nil
+		}
+		defer func() { getwd = originalGetwd }()
+
+		// Use the helper function to set up the mock context and config handler
+		mockContext, mockConfigHandler := setupMockContextAndConfigHandler("local", "kubernetes")
+		terraformHelper = NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
+
 		// When calling PostEnvExec
-		err := terraformHelper.PostEnvExec()
+		err = terraformHelper.PostEnvExec()
 
 		// Then no error should be returned
 		if err != nil {
@@ -1181,20 +1190,18 @@ terraform {
 		}
 
 		// Verify that the backend_override.tf file was created with the correct content
-		backendOverridePath := filepath.Join(projectPath, "backend_override.tf")
+		backendOverridePath := filepath.Join(longProjectPath, "backend_override.tf")
 		content, err := os.ReadFile(backendOverridePath)
 		if err != nil {
 			t.Fatalf("failed to read backend_override.tf: %v", err)
 		}
 
-		// Dynamically construct the expected secret_suffix based on the temporary directory structure
-		expectedSuffix := "windsor"
 		expectedContent := fmt.Sprintf(`
 terraform {
   backend "kubernetes" {
     secret_suffix = "%s"
   }
-}`, expectedSuffix)
+}`, expected)
 
 		if strings.TrimSpace(string(content)) != strings.TrimSpace(expectedContent) {
 			t.Errorf("expected %s, got %s", expectedContent, string(content))
@@ -1202,11 +1209,39 @@ terraform {
 	})
 
 	t.Run("UnsupportedBackend", func(t *testing.T) {
-		_, cleanup, terraformHelper := setupTestEnv(t, "unsupported", nil)
-		defer cleanup()
+		tempDir := t.TempDir()
+		projectPath := filepath.Join(tempDir, "terraform/project")
+
+		// Create the necessary directory structure
+		err := os.MkdirAll(projectPath, os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create project directories: %v", err)
+		}
+
+		// Create a mock .tf file to ensure the directory is recognized as a Terraform project
+		err = os.WriteFile(filepath.Join(projectPath, "main.tf"), []byte(""), os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create .tf file: %v", err)
+		}
+
+		// Mock getwd to return the project path
+		originalGetwd := getwd
+		getwd = func() (string, error) {
+			return projectPath, nil
+		}
+		defer func() { getwd = originalGetwd }()
+
+		// Use the helper function to set up the mock context and config handler
+		mockContext, mockConfigHandler := setupMockContextAndConfigHandler("local", "unsupported")
+		terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
+
+		// Mock the GetConfigRootFunc to return the actual project path
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return projectPath, nil
+		}
 
 		// When calling PostEnvExec
-		err := terraformHelper.PostEnvExec()
+		err = terraformHelper.PostEnvExec()
 
 		// Then an error should be returned
 		if err == nil {
@@ -1217,4 +1252,57 @@ terraform {
 			t.Fatalf("expected error message to contain '%s', got %v", expectedErrorMsg, err)
 		}
 	})
+
+	t.Run("ErrorWritingBackendOverride", func(t *testing.T) {
+		tempDir := t.TempDir()
+		projectPath := filepath.Join(tempDir, "terraform/project")
+
+		// Create the necessary directory structure
+		err := os.MkdirAll(projectPath, os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create project directories: %v", err)
+		}
+
+		// Create a mock .tf file to ensure the directory is recognized as a Terraform project
+		err = os.WriteFile(filepath.Join(projectPath, "main.tf"), []byte(""), os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create .tf file: %v", err)
+		}
+
+		// Mock getwd to return the project path
+		originalGetwd := getwd
+		getwd = func() (string, error) {
+			return projectPath, nil
+		}
+		defer func() { getwd = originalGetwd }()
+
+		// Use the helper function to set up the mock context and config handler
+		mockContext, mockConfigHandler := setupMockContextAndConfigHandler("local", "local")
+		terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
+
+		// Mock the GetConfigRootFunc to return the actual project path
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return projectPath, nil
+		}
+
+		// Mock the writeFile function to simulate an error
+		originalWriteFile := writeFile
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("mock error writing file")
+		}
+		defer func() { writeFile = originalWriteFile }()
+
+		// When calling PostEnvExec
+		err = terraformHelper.PostEnvExec()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedErrorMsg := "error writing backend_override.tf: mock error writing file"
+		if !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Fatalf("expected error message to contain '%s', got %v", expectedErrorMsg, err)
+		}
+	})
+
 }

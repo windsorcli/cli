@@ -176,15 +176,9 @@ func getCurrentBackend(h *TerraformHelper) (string, error) {
 	}
 
 	// Get the configuration for the current context
-	config, err := h.ConfigHandler.GetNestedMap(fmt.Sprintf("contexts.%s", context))
+	backend, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", context))
 	if err != nil {
 		return "local", fmt.Errorf("error retrieving config for context, defaulting to 'local': %w", err)
-	}
-
-	// Extract the backend configuration
-	backend, ok := config["backend"].(string)
-	if !ok {
-		return "local", nil
 	}
 
 	return backend, nil
