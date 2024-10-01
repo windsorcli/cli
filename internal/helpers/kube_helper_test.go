@@ -8,24 +8,26 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 )
 
 func TestKubeHelper_GetEnvVars(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
+	t.Run("ValidConfigRoot", func(t *testing.T) {
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
 		kubeConfigPath := filepath.Join(contextPath, ".kube", "config")
 
-		// Ensure the kube config file exists
-		err := os.MkdirAll(filepath.Dir(kubeConfigPath), 0755)
+		// Create the directory and kubeconfig file
+		err := os.MkdirAll(filepath.Join(contextPath, ".kube"), os.ModePerm)
 		if err != nil {
-			t.Fatalf("Failed to create kube config directory: %v", err)
+			t.Fatalf("Failed to create directories: %v", err)
 		}
 		_, err = os.Create(kubeConfigPath)
 		if err != nil {
-			t.Fatalf("Failed to create kube config file: %v", err)
+			t.Fatalf("Failed to create kubeconfig file: %v", err)
 		}
+		defer os.RemoveAll(filepath.Join(os.TempDir(), "contexts"))
 
 		// Mock context
 		mockContext := &context.MockContext{
@@ -99,6 +101,46 @@ func TestKubeHelper_GetEnvVars(t *testing.T) {
 		_, err := kubeHelper.GetEnvVars()
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error containing %v, got %v", expectedError, err)
+		}
+	})
+}
+
+func TestKubeHelper_PostEnvExec(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a KubeHelper instance
+		mockConfigHandler := createMockConfigHandler(
+			func(key string) (string, error) { return "", nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+		)
+		mockShell := createMockShell(func() (string, error) { return "", nil })
+		mockContext := &context.MockContext{
+			GetContextFunc:    func() (string, error) { return "", nil },
+			GetConfigRootFunc: func() (string, error) { return "", nil },
+		}
+		kubeHelper := NewKubeHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When calling PostEnvExec
+		err := kubeHelper.PostEnvExec()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestKubeHelper_SetConfig(t *testing.T) {
+	mockConfigHandler := &config.MockConfigHandler{}
+	mockContext := &context.MockContext{}
+	helper := NewKubeHelper(mockConfigHandler, nil, mockContext)
+
+	t.Run("SetConfigStub", func(t *testing.T) {
+		// When: SetConfig is called
+		err := helper.SetConfig("some_key", "some_value")
+
+		// Then: it should return no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }

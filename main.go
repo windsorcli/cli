@@ -37,6 +37,10 @@ func main() {
 	kubeHelper := helpers.NewKubeHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("kubeHelper", kubeHelper)
 
+	// Create and register the TerraformHelper instance
+	terraformHelper := helpers.NewTerraformHelper(cliConfigHandler, shellInstance, contextInstance)
+	container.Register("terraformHelper", terraformHelper)
+
 	// Create and register the TalosHelper instance
 	talosHelper := helpers.NewTalosHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("talosHelper", talosHelper)

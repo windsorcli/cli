@@ -47,5 +47,16 @@ func (h *TalosHelper) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
+// PostEnvExec runs any necessary commands after the environment variables have been set.
+func (h *TalosHelper) PostEnvExec() error {
+	return nil
+}
+
+// SetConfig sets the configuration value for the given key
+func (h *TalosHelper) SetConfig(key, value string) error {
+	// This is a stub implementation
+	return nil
+}
+
 // Ensure TalosHelper implements Helper interface
 var _ Helper = (*TalosHelper)(nil)

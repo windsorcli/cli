@@ -47,5 +47,16 @@ func (h *KubeHelper) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
+// PostEnvExec runs any necessary commands after the environment variables have been set.
+func (h *KubeHelper) PostEnvExec() error {
+	return nil
+}
+
+// SetConfig sets the configuration value for the given key
+func (h *KubeHelper) SetConfig(key, value string) error {
+	// This is a stub implementation
+	return nil
+}
+
 // Ensure KubeHelper implements Helper interface
 var _ Helper = (*KubeHelper)(nil)

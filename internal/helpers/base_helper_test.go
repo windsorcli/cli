@@ -10,14 +10,14 @@ import (
 )
 
 // Helper function to create a mock config handler
-func createMockConfigHandler(getContextFunc func(string) (string, error), getNestedMapFunc func(string) (map[string]interface{}, error)) *config.MockConfigHandler {
+func createMockConfigHandler(getConfigValueFunc func(string) (string, error), getNestedMapFunc func(string) (map[string]interface{}, error)) *config.MockConfigHandler {
 	return config.NewMockConfigHandler(
 		func(path string) error { return nil },
-		getContextFunc,
-		func(key string, value string) error { return nil }, // SetConfigValueFunc
-		func(path string) error { return nil },              // SaveConfigFunc
+		getConfigValueFunc,
+		func(key, value string) error { return nil },
+		func(path string) error { return nil },
 		getNestedMapFunc,
-		func(key string) ([]string, error) { return nil, nil }, // ListKeysFunc
+		func(key string) ([]string, error) { return nil, nil },
 	)
 }
 
@@ -243,6 +243,46 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 		expectedError := "error retrieving project root: failed to get project root"
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %s, got %s", expectedError, err.Error())
+		}
+	})
+}
+
+func TestBaseHelper_PostEnvExec(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a BaseHelper instance
+		mockConfigHandler := createMockConfigHandler(
+			func(key string) (string, error) { return "", nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+		)
+		mockShell := createMockShell(func() (string, error) { return "", nil })
+		mockContext := &context.MockContext{
+			GetContextFunc:    func() (string, error) { return "", nil },
+			GetConfigRootFunc: func() (string, error) { return "", nil },
+		}
+		baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When calling PostEnvExec
+		err := baseHelper.PostEnvExec()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestBaseHelper_SetConfig(t *testing.T) {
+	mockConfigHandler := &config.MockConfigHandler{}
+	mockContext := &context.MockContext{}
+	helper := NewBaseHelper(mockConfigHandler, nil, mockContext)
+
+	t.Run("SetConfigStub", func(t *testing.T) {
+		// When: SetConfig is called
+		err := helper.SetConfig("some_key", "some_value")
+
+		// Then: it should return no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }

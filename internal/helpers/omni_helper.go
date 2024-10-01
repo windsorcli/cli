@@ -47,5 +47,16 @@ func (h *OmniHelper) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
+// PostEnvExec runs any necessary commands after the environment variables have been set.
+func (h *OmniHelper) PostEnvExec() error {
+	return nil
+}
+
+// SetConfig sets the configuration value for the given key
+func (h *OmniHelper) SetConfig(key, value string) error {
+	// This is a stub implementation
+	return nil
+}
+
 // Ensure OmniHelper implements Helper interface
 var _ Helper = (*OmniHelper)(nil)
