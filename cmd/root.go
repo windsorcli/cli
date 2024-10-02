@@ -30,6 +30,9 @@ var shellInstance shell.Shell
 // terraformHelper instance
 var terraformHelper helpers.Helper
 
+// awsHelper instance
+var awsHelper helpers.Helper
+
 // context instance
 var contextInstance *context.Context
 
@@ -159,6 +162,7 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("projectConfigHandler", &projectConfigHandler)
 	resolveAndAssign("shell", &shellInstance)
 	resolveAndAssign("terraformHelper", &terraformHelper)
+	resolveAndAssign("awsHelper", &awsHelper)
 
 	// Initialize contextInstance
 	contextInstance = context.NewContext(cliConfigHandler, shellInstance)
