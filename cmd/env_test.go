@@ -12,19 +12,6 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-// Helper function to set up the container with mock handlers
-func setupMockEnvContainer(mockCliConfigHandler, mockProjectConfigHandler config.ConfigHandler, mockShell shell.Shell, mockHelpers ...helpers.Helper) di.ContainerInterface {
-	container := di.NewContainer()
-	container.Register("cliConfigHandler", mockCliConfigHandler)
-	container.Register("projectConfigHandler", mockProjectConfigHandler)
-	container.Register("shell", mockShell)
-	for i, helper := range mockHelpers {
-		container.Register(fmt.Sprintf("mockHelper%d", i), helper)
-	}
-	Initialize(container)
-	return container
-}
-
 func TestEnvCmd(t *testing.T) {
 	originalExitFunc := exitFunc
 	var exitCode int
@@ -64,7 +51,7 @@ func TestEnvCmd(t *testing.T) {
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return nil
 		})
-		setupMockEnvContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper)
+		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper)
 
 		// When: the env command is executed
 		output := captureStdout(func() {
@@ -98,11 +85,13 @@ func TestEnvCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
+		mockHelper := helpers.NewMockHelper(nil, mockShell)
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
 		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
 		mockContainer.Register("projectConfigHandler", mockProjectConfigHandler)
 		mockContainer.Register("shell", mockShell)
+		mockContainer.Register("terraformHelper", mockHelper)
 		Initialize(mockContainer)
 
 		// When: the env command is executed
@@ -188,7 +177,7 @@ func TestEnvCmd(t *testing.T) {
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return nil
 		})
-		setupMockEnvContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper)
+		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper)
 
 		// When: the env command is executed
 		output := captureStderr(func() {
@@ -234,7 +223,7 @@ func TestEnvCmd(t *testing.T) {
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return errors.New("post env exec error")
 		})
-		setupMockEnvContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper)
+		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper)
 
 		// When: the env command is executed
 		output := captureStderr(func() {

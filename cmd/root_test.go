@@ -13,15 +13,40 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // Helper function to create a new container and register mock handlers
-func setupContainer(mockCLIConfigHandler, mockProjectConfigHandler config.ConfigHandler, mockShell *shell.MockShell) di.ContainerInterface {
+func setupContainer(mockCLIConfigHandler, mockProjectConfigHandler config.ConfigHandler, mockShell *shell.MockShell, mockTerraformHelper helpers.Helper) di.ContainerInterface {
 	container := di.NewContainer()
+
+	// Create simple mock handlers if not provided
+	if mockCLIConfigHandler == nil {
+		mockCLIConfigHandler = config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			nil, nil, nil, nil,
+		)
+	}
+	if mockProjectConfigHandler == nil {
+		mockProjectConfigHandler = config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			nil, nil, nil, nil,
+		)
+	}
+	if mockShell == nil {
+		mockShell, _ = shell.NewMockShell("unix")
+	}
+	if mockTerraformHelper == nil {
+		mockTerraformHelper = helpers.NewMockHelper(nil, mockShell)
+	}
+
 	container.Register("cliConfigHandler", mockCLIConfigHandler)
 	container.Register("projectConfigHandler", mockProjectConfigHandler)
 	container.Register("shell", mockShell)
+	container.Register("terraformHelper", mockTerraformHelper)
 	Initialize(container)
 
 	// Ensure handlers are set correctly
@@ -42,6 +67,12 @@ func setupContainer(mockCLIConfigHandler, mockProjectConfigHandler config.Config
 		panic("Error resolving shell: " + err.Error())
 	}
 	shellInstance, _ = instance.(shell.Shell)
+
+	instance, err = container.Resolve("terraformHelper")
+	if err != nil {
+		panic("Error resolving terraformHelper: " + err.Error())
+	}
+	terraformHelper, _ = instance.(helpers.Helper)
 
 	return container
 }
@@ -106,7 +137,7 @@ func TestPreRunLoadConfig(t *testing.T) {
 		)
 		mockShell, _ := shell.NewMockShell("unix")
 		mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil)
 
 		// When preRunLoadConfig is executed
 		err := preRunLoadConfig(nil, nil)
@@ -175,7 +206,7 @@ func TestPreRunLoadConfig(t *testing.T) {
 		)
 		mockShell, _ := shell.NewMockShell("unix")
 		mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil)
 
 		// When preRunLoadConfig is executed
 		err := preRunLoadConfig(nil, nil)
@@ -204,7 +235,7 @@ func TestPreRunLoadConfig(t *testing.T) {
 		)
 		mockShell, _ := shell.NewMockShell("unix")
 		mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil)
 
 		// Ensure the project config path is set
 		tempDir := t.TempDir()
@@ -250,7 +281,7 @@ func TestExecute(t *testing.T) {
 		)
 		mockShell, _ := shell.NewMockShell("unix")
 		mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil)
 
 		// Mock exitFunc to capture the exit code
 		var exitCode int
@@ -339,7 +370,7 @@ func TestInitialize(t *testing.T) {
 		)
 		mockShell, _ := shell.NewMockShell("unix")
 		mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-		container := setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+		setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil)
 
 		// Mock exitFunc to capture the exit code
 		var exitCode int
@@ -461,7 +492,7 @@ func TestGetProjectConfigPath_GetwdError(t *testing.T) {
 	)
 	mockShell, _ := shell.NewMockShell("unix")
 	mockShell.GetProjectRootFunc = func() (string, error) { return "", errors.New("mock error") }
-	setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+	setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil)
 
 	// Capture the output to os.Stderr
 	stderr := captureStderr(func() {
@@ -495,7 +526,7 @@ func TestGetProjectConfigPath_WindsorYaml(t *testing.T) {
 	mockShell, _ := shell.NewMockShell("unix")
 	tempDir := t.TempDir()
 	mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
-	setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+	setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil)
 
 	// Create a temporary windsor.yaml file in the project root
 	windsorYamlPath := filepath.Join(tempDir, "windsor.yaml")
@@ -529,7 +560,7 @@ func TestGetProjectConfigPath_WindsorYml(t *testing.T) {
 	mockShell, _ := shell.NewMockShell("unix")
 	tempDir := t.TempDir()
 	mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
-	setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell)
+	setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil)
 
 	// Create a temporary windsor.yml file in the project root
 	windsorYmlPath := filepath.Join(tempDir, "windsor.yml")
