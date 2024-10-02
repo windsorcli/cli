@@ -748,6 +748,39 @@ func TestTerraformHelper_SetConfig(t *testing.T) {
 			t.Fatalf("expected error 'error retrieving context: mock error retrieving context', got %v", err)
 		}
 	})
+
+	t.Run("EmptyValue", func(t *testing.T) {
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			func(key, value string) error { return nil },
+			func(path string) error { return nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
+		)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+			GetConfigRootFunc: func() (string, error) {
+				return "/path/to/config", nil
+			},
+		}
+
+		// Create an instance of TerraformHelper
+		terraformHelper := NewTerraformHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When: SetConfig is called with an empty value
+		err = terraformHelper.SetConfig("backend", "")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
 }
 
 func TestTerraformHelper_PostEnvExec(t *testing.T) {

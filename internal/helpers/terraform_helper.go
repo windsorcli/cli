@@ -117,6 +117,9 @@ func (h *TerraformHelper) PostEnvExec() error {
 // SetConfig sets the configuration value for the given key
 func (h *TerraformHelper) SetConfig(key, value string) error {
 	if key == "backend" {
+		if value == "" {
+			return nil
+		}
 		context, err := h.Context.GetContext()
 		if err != nil {
 			return fmt.Errorf("error retrieving context: %w", err)
