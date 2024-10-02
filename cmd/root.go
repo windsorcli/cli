@@ -9,6 +9,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -25,6 +26,12 @@ var projectConfigHandler config.ConfigHandler
 
 // shell instance
 var shellInstance shell.Shell
+
+// terraformHelper instance
+var terraformHelper helpers.Helper
+
+// awsHelper instance
+var awsHelper helpers.Helper
 
 // context instance
 var contextInstance *context.Context
@@ -141,12 +148,21 @@ func Initialize(cont di.ContainerInterface) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type shell.Shell\n", key)
 				exitFunc(1)
 			}
+		case *helpers.Helper:
+			if resolved, ok := instance.(helpers.Helper); ok {
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type helpers.Helper\n", key)
+				exitFunc(1)
+			}
 		}
 	}
 
 	resolveAndAssign("cliConfigHandler", &cliConfigHandler)
 	resolveAndAssign("projectConfigHandler", &projectConfigHandler)
 	resolveAndAssign("shell", &shellInstance)
+	resolveAndAssign("terraformHelper", &terraformHelper)
+	resolveAndAssign("awsHelper", &awsHelper)
 
 	// Initialize contextInstance
 	contextInstance = context.NewContext(cliConfigHandler, shellInstance)

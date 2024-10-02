@@ -6,19 +6,8 @@ import (
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
-
-// Helper function to set up the container with mock handlers
-func setupMockContextContainer(mockCliConfigHandler, mockProjectConfigHandler config.ConfigHandler, mockShell shell.Shell) di.ContainerInterface {
-	container := di.NewContainer()
-	container.Register("cliConfigHandler", mockCliConfigHandler)
-	container.Register("projectConfigHandler", mockProjectConfigHandler)
-	container.Register("shell", mockShell)
-	Initialize(container)
-	return container
-}
 
 func TestGetContextCmd(t *testing.T) {
 	originalExitFunc := exitFunc
@@ -38,7 +27,7 @@ func TestGetContextCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContextContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil, nil)
 
 		// When: the get context command is executed
 		output := captureStdout(func() {
@@ -67,7 +56,7 @@ func TestGetContextCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContextContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil, nil)
 
 		// When: the get context command is executed
 		output := captureStderr(func() {
@@ -106,7 +95,7 @@ func TestSetContextCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContextContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil, nil)
 
 		// When: the set context command is executed with a valid context
 		output := captureStdout(func() {
@@ -136,7 +125,7 @@ func TestSetContextCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContextContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil, nil)
 
 		// When: the set context command is executed
 		output := captureStderr(func() {
@@ -167,7 +156,7 @@ func TestSetContextCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContextContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil, nil)
 
 		// When: the set context command is executed
 		output := captureStderr(func() {
@@ -204,7 +193,7 @@ func TestGetContextAliasCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContextContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil, nil)
 
 		// When: the get-context alias command is executed
 		output := captureStdout(func() {
@@ -233,7 +222,7 @@ func TestGetContextAliasCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContextContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil, nil)
 
 		// When: the get-context alias command is executed
 		output := captureStderr(func() {
@@ -272,7 +261,7 @@ func TestSetContextAliasCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContextContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil, nil)
 
 		// When: the set-context alias command is executed with a valid context
 		output := captureStdout(func() {
@@ -302,7 +291,7 @@ func TestSetContextAliasCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContextContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil, nil)
 
 		// When: the set-context alias command is executed
 		output := captureStderr(func() {
@@ -333,7 +322,7 @@ func TestSetContextAliasCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupMockContextContainer(mockHandler, mockHandler, mockShell)
+		setupContainer(mockHandler, mockHandler, mockShell, nil, nil)
 
 		// When: the set-context alias command is executed
 		output := captureStderr(func() {
