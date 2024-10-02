@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 )
@@ -180,6 +181,24 @@ func TestSopsHelper_PostEnvExec(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
+
+	t.Run("RunCommand", func(t *testing.T) {
+		mockConfigHandler := createMockConfigHandler(
+			func(key string) (string, error) { return "", nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+		)
+		mockShell := createMockShell(func() (string, error) { return "echo 'PostEnvExec'", nil })
+		mockContext := &context.MockContext{
+			GetContextFunc:    func() (string, error) { return "", nil },
+			GetConfigRootFunc: func() (string, error) { return "", nil },
+		}
+		sopsHelper := NewSopsHelper(mockConfigHandler, mockShell, mockContext)
+
+		err := sopsHelper.PostEnvExec()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
 }
 
 func TestSopsHelper_SetConfig(t *testing.T) {
@@ -191,6 +210,55 @@ func TestSopsHelper_SetConfig(t *testing.T) {
 		err := helper.SetConfig("some_key", "some_value")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("SetConfigActual", func(t *testing.T) {
+		mockConfigHandler := createMockConfigHandler(
+			func(key string) (string, error) { return "", nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+		)
+		mockContext := &context.MockContext{
+			GetContextFunc:    func() (string, error) { return "", nil },
+			GetConfigRootFunc: func() (string, error) { return "", nil },
+		}
+		sopsHelper := NewSopsHelper(mockConfigHandler, nil, mockContext)
+
+		err := sopsHelper.SetConfig("some_key", "some_value")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestDecryptFile(t *testing.T) {
+	t.Run("FileNotExist", func(t *testing.T) {
+		_, err := DecryptFile("non-existent-file.yaml")
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "file does not exist"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error containing %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("DecryptError", func(t *testing.T) {
+		// Create a dummy file
+		filePath := "dummy-file.yaml"
+		err := os.WriteFile(filePath, []byte("dummy content"), 0644)
+		if err != nil {
+			t.Fatalf("failed to create dummy file: %v", err)
+		}
+		defer os.Remove(filePath)
+
+		_, err = DecryptFile(filePath)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "failed to decrypt file"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error containing %v, got %v", expectedError, err)
 		}
 	})
 }
@@ -245,6 +313,95 @@ func encryptFile(t *testing.T, filePath string, dstPath string) error {
 		cmdEncrypt = exec.Command("sops", "--output", dstPath, "-e", filePath)
 	}
 
-	_, err := cmdEncrypt.CombinedOutput()
+	output, err := cmdEncrypt.CombinedOutput()
+	if err != nil {
+		t.Logf("SOPS encrypt output: %s", string(output))
+	}
 	return err
+}
+
+func TestencryptFile(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		_, plaintextSecretsFile, encryptedSecretsFile := setupTestContext(t, "test-context")
+
+		// Create and initialize the secrets file
+		os.WriteFile(plaintextSecretsFile, []byte("dummy content"), 0644)
+
+		// Generate AGE keys
+		_, err := GenerateAgeKeys()
+		if err != nil {
+			t.Fatalf("Failed to generate AGE keys: %v", err)
+		}
+
+		// Encrypt the secrets file using SOPS
+		err = encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
+		if err != nil {
+			t.Fatalf("Failed to encrypt secrets file: %v", err)
+		}
+	})
+
+	t.Run("MissingPublicKey", func(t *testing.T) {
+		_, plaintextSecretsFile, encryptedSecretsFile := setupTestContext(t, "test-context")
+
+		// Create and initialize the secrets file
+		os.WriteFile(plaintextSecretsFile, []byte("dummy content"), 0644)
+
+		// Set SOPS_AGE_KEY_FILE without generating public key
+		os.Setenv("SOPS_AGE_KEY_FILE", "age.key")
+
+		// Encrypt the secrets file using SOPS
+		err := encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "failed to read public key"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error containing %v, got %v", expectedError, err)
+		}
+	})
+}
+
+func TestDecryptFile_FileDoesNotExist(t *testing.T) {
+	_, err := DecryptFile("nonexistent_file.yaml")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "file does not exist")
+}
+
+func TestDecryptFile_Success(t *testing.T) {
+	_, plaintextSecretsFile, encryptedSecretsFile := setupTestContext(t, "test-context")
+
+	// Create and initialize the secrets file
+	os.WriteFile(plaintextSecretsFile, []byte("dummy: content"), 0644)
+
+	// Generate AGE keys
+	_, err := GenerateAgeKeys()
+	if err != nil {
+		t.Fatalf("Failed to generate AGE keys: %v", err)
+	}
+
+	// Encrypt the secrets file using SOPS
+	err = encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
+	if err != nil {
+		t.Fatalf("Failed to encrypt secrets file: %v", err)
+	}
+
+	// Test decryption
+	plaintextBytes, err := DecryptFile(encryptedSecretsFile)
+	assert.NoError(t, err)
+	assert.NotNil(t, plaintextBytes)
+	// Add more assertions based on the expected plaintext content
+}
+
+func TestDecryptFile_DecryptionFailure(t *testing.T) {
+	// Create a temporary invalid encrypted file for testing
+	invalidEncryptedFilePath := "invalid_secrets.enc.yaml"
+	invalidContent := `invalid content`
+	err := os.WriteFile(invalidEncryptedFilePath, []byte(invalidContent), 0644)
+	assert.NoError(t, err)
+	defer os.Remove(invalidEncryptedFilePath)
+
+	// Test decryption failure
+	_, err = DecryptFile(invalidEncryptedFilePath)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to decrypt file")
 }

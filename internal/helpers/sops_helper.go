@@ -42,7 +42,7 @@ func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 		return nil, nil
 	}
 
-	plaintextBytes, err := decryptFile(sopsEncSecretsPath)
+	plaintextBytes, err := DecryptFile(sopsEncSecretsPath)
 	if err != nil {
 		return nil, fmt.Errorf("error decrypting sops file: %w", err)
 	}
@@ -76,8 +76,8 @@ func (h *SopsHelper) SetConfig(key, value string) error {
 // Ensure SopsHelper implements Helper interface
 var _ Helper = (*SopsHelper)(nil)
 
-// decryptFile decrypts a file using the SOPS package
-func decryptFile(filePath string) ([]byte, error) {
+// DecryptFile decrypts a file using the SOPS package
+func DecryptFile(filePath string) ([]byte, error) {
 	// Check if the file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("file does not exist: %s", filePath)
