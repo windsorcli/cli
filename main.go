@@ -53,6 +53,10 @@ func main() {
 	awsHelper := helpers.NewAwsHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("awsHelper", awsHelper)
 
+	// Create and register the DockerHelper instance
+	dockerHelper := helpers.NewDockerHelper(cliConfigHandler, shellInstance, contextInstance)
+	container.Register("dockerHelper", dockerHelper)
+
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)
 
