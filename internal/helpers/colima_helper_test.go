@@ -13,23 +13,6 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-type mockFile struct {
-	writeStringFunc func(s string) (n int, err error)
-	writeFunc       func(p []byte) (n int, err error)
-}
-
-func (m *mockFile) WriteString(s string) (n int, err error) {
-	return m.writeStringFunc(s)
-}
-
-func (m *mockFile) Write(p []byte) (n int, err error) {
-	return m.writeFunc(p)
-}
-
-func (m *mockFile) Close() error {
-	return nil
-}
-
 type mockYAMLEncoder struct {
 	encodeFunc func(v interface{}) error
 	closeFunc  func() error
@@ -277,79 +260,6 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorWritingHeaderComment", func(t *testing.T) {
-		configHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
-				return nil
-			},
-			GetConfigValueFunc: func(key string) (string, error) {
-				return "", errors.New("unknown key")
-			},
-		}
-		shell := &shell.MockShell{}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
-
-		helper := NewColimaHelper(configHandler, shell, ctx)
-
-		// Mock os.Create to return a file with a mocked WriteString method
-		originalCreate := osCreate
-		mockFile := &mockFile{
-			writeStringFunc: func(s string) (n int, err error) {
-				return 0, errors.New("mock error writing header comment")
-			},
-		}
-		osCreate = func(name string) (FileWriter, error) {
-			return mockFile, nil
-		}
-		defer func() { osCreate = originalCreate }()
-
-		err := helper.SetConfig("driver", "colima")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "error writing header comment: mock error writing header comment" {
-			t.Fatalf("expected error 'error writing header comment: mock error writing header comment', got %v", err)
-		}
-	})
-
-	t.Run("ErrorCreatingColimaConfigFile", func(t *testing.T) {
-		configHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
-				return nil
-			},
-			GetConfigValueFunc: func(key string) (string, error) {
-				return "", errors.New("unknown key")
-			},
-		}
-		shell := &shell.MockShell{}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
-
-		helper := NewColimaHelper(configHandler, shell, ctx)
-
-		// Mock osCreate to return an error
-		originalCreate := osCreate
-		osCreate = func(name string) (FileWriter, error) {
-			return nil, errors.New("mock error creating file")
-		}
-		defer func() { osCreate = originalCreate }()
-
-		err := helper.SetConfig("driver", "colima")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "error creating colima config file: mock error creating file" {
-			t.Fatalf("expected error 'error creating colima config file: mock error creating file', got %v", err)
-		}
-	})
-
 	t.Run("ErrorCreatingTemporaryFile", func(t *testing.T) {
 		configHandler := &config.MockConfigHandler{
 			SetConfigValueFunc: func(key, value string) error {
@@ -368,19 +278,19 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 
 		helper := NewColimaHelper(configHandler, shell, ctx)
 
-		// Mock os.CreateTemp to return an error
-		originalCreateTemp := osCreateTemp
-		osCreateTemp = func(dir, pattern string) (*os.File, error) {
-			return nil, errors.New("mock error creating temporary file")
+		// Mock writeFile to return an error
+		originalWriteFile := writeFile
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return errors.New("mock error writing to temporary file")
 		}
-		defer func() { osCreateTemp = originalCreateTemp }()
+		defer func() { writeFile = originalWriteFile }()
 
 		err := helper.SetConfig("driver", "colima")
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		if err.Error() != "error creating temporary file: mock error creating temporary file" {
-			t.Fatalf("expected error 'error creating temporary file: mock error creating temporary file', got %v", err)
+		if err.Error() != "error writing to temporary file: mock error writing to temporary file" {
+			t.Fatalf("expected error 'error writing to temporary file: mock error writing to temporary file', got %v", err)
 		}
 	})
 
@@ -422,6 +332,74 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 		}
 		if err.Error() != "error encoding yaml: mock error encoding yaml" {
 			t.Fatalf("expected error 'error encoding yaml: mock error encoding yaml', got %v", err)
+		}
+	})
+
+	t.Run("ErrorRenamingTemporaryFile", func(t *testing.T) {
+		configHandler := &config.MockConfigHandler{
+			SetConfigValueFunc: func(key, value string) error {
+				return nil
+			},
+			GetConfigValueFunc: func(key string) (string, error) {
+				return "", errors.New("unknown key")
+			},
+		}
+		shell := &shell.MockShell{}
+		ctx := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+		}
+
+		helper := NewColimaHelper(configHandler, shell, ctx)
+
+		// Mock os.Rename to return an error
+		originalRename := rename
+		rename = func(oldpath, newpath string) error {
+			return errors.New("mock error renaming file")
+		}
+		defer func() { rename = originalRename }()
+
+		err := helper.SetConfig("driver", "colima")
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if err.Error() != "error renaming temporary file to colima config file: mock error renaming file" {
+			t.Fatalf("expected error 'error renaming temporary file to colima config file: mock error renaming file', got %v", err)
+		}
+	})
+
+	t.Run("DarwinAarch64Arch", func(t *testing.T) {
+		configHandler := &config.MockConfigHandler{
+			SetConfigValueFunc: func(key, value string) error {
+				if key != "contexts.test-context.vm.driver" || value != "colima" {
+					t.Fatalf("unexpected key/value: %s/%s", key, value)
+				}
+				return nil
+			},
+			GetConfigValueFunc: func(key string) (string, error) {
+				return "", nil
+			},
+		}
+		shell := &shell.MockShell{}
+		ctx := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+		}
+
+		helper := NewColimaHelper(configHandler, shell, ctx)
+
+		// Mock goArch to return "aarch64"
+		originalGoArch := goArch
+		goArch = func() string {
+			return "aarch64"
+		}
+		defer func() { goArch = originalGoArch }()
+
+		err := helper.SetConfig("driver", "colima")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
