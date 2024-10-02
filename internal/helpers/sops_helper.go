@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 
 	"github.com/getsops/sops/v3/decrypt"
+	"github.com/goccy/go-yaml"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/shell"
-	"gopkg.in/yaml.v2"
 )
 
 // SopsHelper is a helper struct that provides Kubernetes-specific utility functions
@@ -85,15 +85,15 @@ func DecryptFile(filePath string) ([]byte, error) {
 // yamlToEnvVars retrieves Kubernetes-specific environment variables for the current context
 func YamlToEnvVars(yamlData []byte) (map[string]string, error) {
 	// Parse the decrypted YAML content into a map
-	var sopsSecrets map[string]string
+	var sopsSecrets map[string]interface{}
 	if err := yaml.Unmarshal(yamlData, &sopsSecrets); err != nil {
-		return nil, fmt.Errorf("error parsing sops file: %w", err)
+		return nil, err
 	}
 
 	// Populate envVars from the decrypted secrets file
 	envVars := make(map[string]string)
 	for key, value := range sopsSecrets {
-		envVars[key] = value
+		envVars[key] = value.(string)
 	}
 
 	return envVars, nil
