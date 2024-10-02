@@ -14,49 +14,49 @@ import (
 	"github.com/windsor-hotel/cli/internal/context"
 )
 
+func setupTestContext(t *testing.T, contextName string) (string, string, string) {
+	contextPath := filepath.Join(os.TempDir(), "contexts", contextName)
+	plaintextSecretsFile := filepath.Join(contextPath, "secrets.yaml")
+	encryptedSecretsFile := filepath.Join(contextPath, "secrets.enc.yaml")
+
+	err := os.MkdirAll(filepath.Dir(plaintextSecretsFile), 0755)
+	if err != nil {
+		t.Fatalf("Failed to create secrets directory: %v", err)
+	}
+	_, err = os.Create(plaintextSecretsFile)
+	if err != nil {
+		t.Fatalf("Failed to create secrets file: %v", err)
+	}
+
+	return contextPath, plaintextSecretsFile, encryptedSecretsFile
+}
+
 func TestSopsHelper_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a valid context path
-		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		plaintextSecretsFile := filepath.Join(contextPath, "secrets.yaml")
-		encryptedSecretsFile := filepath.Join(contextPath, "secrets.enc.yaml")
-
-		// Ensure the secrets file exists
-		err := os.MkdirAll(filepath.Dir(plaintextSecretsFile), 0755)
-		if err != nil {
-			t.Fatalf("Failed to create secrets directory: %v", err)
-		}
-		_, err = os.Create(plaintextSecretsFile)
-		if err != nil {
-			t.Fatalf("Failed to create secrets file: %v", err)
-		}
+		contextPath, plaintextSecretsFile, encryptedSecretsFile := setupTestContext(t, "test-context")
 
 		// Create and initialize the secrets file
 		os.WriteFile(plaintextSecretsFile, []byte("\"SOPS_TEST\": "+encryptedSecretsFile), 0644)
 
 		// Encrypt the secrets file using SOPS
-		err = encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
+		err := encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
 		if err != nil {
 			t.Fatalf("Failed to encrypt secrets file: %v", err)
 		}
 
-		// Mock context
 		mockContext := &context.MockContext{
 			GetConfigRootFunc: func() (string, error) {
 				return contextPath, nil
 			},
 		}
 
-		// Create SopsHelper
 		sopsHelper := NewSopsHelper(nil, nil, mockContext)
 
-		// When: GetEnvVars is called
 		envVars, err := sopsHelper.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars() error = %v", err)
 		}
 
-		// Then: the environment variables should be set correctly
 		expectedEnvVars := map[string]string{
 			"SOPS_TEST": encryptedSecretsFile,
 		}
@@ -66,25 +66,19 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("FileNotExist", func(t *testing.T) {
-		// Given: a non-existent context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "non-existent-context")
 
-		// Mock context
 		mockContext := &context.MockContext{
 			GetConfigRootFunc: func() (string, error) {
 				return contextPath, nil
 			},
 		}
 
-		// Create SopsHelper
 		sopsHelper := NewSopsHelper(nil, nil, mockContext)
 
-		// When: GetEnvVars is called
 		_, err := sopsHelper.GetEnvVars()
-
 		if err != nil {
 			expectedError := "file does not exist"
-
 			if !strings.Contains(err.Error(), expectedError) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
 			}
@@ -92,22 +86,17 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
-		// Given a mock shell and context that returns an error for project root
 		mockContext := &context.MockContext{
 			GetConfigRootFunc: func() (string, error) {
 				return "", errors.New("error retrieving project root")
 			},
 		}
 
-		// Create SopsHelper
 		sopsHelper := NewSopsHelper(nil, nil, mockContext)
 
 		_, err := sopsHelper.GetEnvVars()
-
 		if err != nil {
-
 			expectedError := "error retrieving config root"
-
 			if !strings.Contains(err.Error(), expectedError) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
 			}
@@ -115,41 +104,22 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("SopsMetaDataNotFound", func(t *testing.T) {
-
-		// Given: a valid context path
-		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		plaintextSecretsFile := filepath.Join(contextPath, "secrets.yaml")
-
-		// Ensure the secrets file exists
-		err := os.MkdirAll(filepath.Dir(plaintextSecretsFile), 0755)
-		if err != nil {
-			t.Fatalf("Failed to create secrets directory: %v", err)
-		}
-		_, err = os.Create(plaintextSecretsFile)
-		if err != nil {
-			t.Fatalf("Failed to create secrets file: %v", err)
-		}
+		contextPath, plaintextSecretsFile, _ := setupTestContext(t, "test-context")
 
 		// Create and initialize the secrets file
 		os.WriteFile(plaintextSecretsFile, []byte("\"SOPS_TEST\": "+plaintextSecretsFile), 0644)
 
-		// Mock context
 		mockContext := &context.MockContext{
 			GetConfigRootFunc: func() (string, error) {
 				return contextPath, nil
 			},
 		}
 
-		// Create SopsHelper
 		sopsHelper := NewSopsHelper(nil, nil, mockContext)
 
-		// When: GetEnvVars is called
-		_, err = sopsHelper.GetEnvVars()
-
+		_, err := sopsHelper.GetEnvVars()
 		if err != nil {
-
 			expectedError := "file does not exist"
-
 			if !strings.Contains(err.Error(), expectedError) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
 			}
@@ -157,27 +127,13 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorUnmarshallingYaml", func(t *testing.T) {
-
-		// Given: a valid context path
-		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		plaintextSecretsFile := filepath.Join(contextPath, "secrets.yaml")
-		encryptedSecretsFile := filepath.Join(contextPath, "secrets.enc.yaml")
-
-		// Ensure the secrets file exists
-		err := os.MkdirAll(filepath.Dir(plaintextSecretsFile), 0755)
-		if err != nil {
-			t.Fatalf("Failed to create secrets files directory: %v", err)
-		}
-		_, err = os.Create(plaintextSecretsFile)
-		if err != nil {
-			t.Fatalf("Failed to create secrets file file: %v", err)
-		}
+		contextPath, plaintextSecretsFile, encryptedSecretsFile := setupTestContext(t, "test-context")
 
 		// Create and initialize the secrets file
 		os.WriteFile(plaintextSecretsFile, []byte("\"SOPS-TEST\": "+encryptedSecretsFile), 0644)
 
 		// Encrypt the secrets file using SOPS
-		err = encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
+		err := encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
 		if err != nil {
 			t.Fatalf("Failed to encrypt secrets file: %v", err)
 		}
@@ -188,34 +144,26 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 			t.Fatalf("Failed to write to encrypted secrets file: %v", err)
 		}
 
-		// Mock context
 		mockContext := &context.MockContext{
 			GetConfigRootFunc: func() (string, error) {
 				return contextPath, nil
 			},
 		}
 
-		// Create SopsHelper
 		sopsHelper := NewSopsHelper(nil, nil, mockContext)
 
-		// When: GetEnvVars is called
 		_, err = sopsHelper.GetEnvVars()
-
 		if err != nil {
-
 			expectedError := "Error unmarshalling input yaml"
-
 			if !strings.Contains(err.Error(), expectedError) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
 			}
 		}
-
 	})
 }
 
 func TestSopsHelper_PostEnvExec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a SopsHelper instance
 		mockConfigHandler := createMockConfigHandler(
 			func(key string) (string, error) { return "", nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
@@ -227,10 +175,7 @@ func TestSopsHelper_PostEnvExec(t *testing.T) {
 		}
 		sopsHelper := NewSopsHelper(mockConfigHandler, mockShell, mockContext)
 
-		// When calling PostEnvExec
 		err := sopsHelper.PostEnvExec()
-
-		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -243,32 +188,26 @@ func TestSopsHelper_SetConfig(t *testing.T) {
 	helper := NewSopsHelper(mockConfigHandler, nil, mockContext)
 
 	t.Run("SetConfigStub", func(t *testing.T) {
-		// When: SetConfig is called
 		err := helper.SetConfig("some_key", "some_value")
-
-		// Then: it should return no error
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
 
-// generateAgeKey generates age.key and age.public.key
-func generateAgeKey() (string, error) {
-	// Check if age.key already exists and remove it
+// GenerateAgeKeys generates age.key and age.public.key
+func GenerateAgeKeys() (string, error) {
 	if _, err := os.Stat("age.key"); err == nil {
 		if err := os.Remove("age.key"); err != nil {
 			return "", fmt.Errorf("failed to remove existing age.key: %w", err)
 		}
 	}
 
-	// Generate the private key
 	cmdKeygen := exec.Command("age-keygen", "-o", "age.key")
 	if err := cmdKeygen.Run(); err != nil {
 		return "", fmt.Errorf("failed to generate age key: %w", err)
 	}
 
-	// Generate the public key
 	cmdPublicKey := exec.Command("age-keygen", "-y", "age.key")
 	publicKeyFile, err := os.Create("age.public.key")
 	if err != nil {
@@ -281,10 +220,8 @@ func generateAgeKey() (string, error) {
 		return "", fmt.Errorf("failed to generate public key: %w", err)
 	}
 
-	// Set the environment variable
 	os.Setenv("SOPS_AGE_KEY_FILE", "age.key")
 
-	// Read the public key from the file
 	publicKey, err := os.ReadFile("age.public.key")
 	if err != nil {
 		return "", fmt.Errorf("failed to read public key: %w", err)
@@ -295,15 +232,19 @@ func generateAgeKey() (string, error) {
 
 // encryptFile encrypts the specified file using SOPS.
 func encryptFile(t *testing.T, filePath string, dstPath string) error {
+	ageKeyFile := os.Getenv("SOPS_AGE_KEY_FILE")
+	var cmdEncrypt *exec.Cmd
 
-	publicKey, err := generateAgeKey()
-
-	if err != nil {
-		return err
+	if ageKeyFile != "" {
+		publicKey, err := os.ReadFile("age.public.key")
+		if err != nil {
+			return fmt.Errorf("failed to read public key: %w", err)
+		}
+		cmdEncrypt = exec.Command("sops", "--output", dstPath, "--age", string(publicKey), "-e", filePath)
+	} else {
+		cmdEncrypt = exec.Command("sops", "--output", dstPath, "-e", filePath)
 	}
 
-	cmdEncrypt := exec.Command("sops", "--output", dstPath, "--age", publicKey, "-e", filePath)
-	_, err = cmdEncrypt.CombinedOutput()
-
+	_, err := cmdEncrypt.CombinedOutput()
 	return err
 }
