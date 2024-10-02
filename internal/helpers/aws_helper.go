@@ -102,14 +102,20 @@ func (h *AwsHelper) PostEnvExec() error {
 }
 
 // SetConfig sets new values for aws_endpoint_url and aws_profile
-func (h *AwsHelper) SetConfig(awsEndpointURL, awsProfile string) error {
-	if awsEndpointURL != "" {
-		if err := h.ConfigHandler.SetConfigValue("aws_endpoint_url", awsEndpointURL); err != nil {
+func (h *AwsHelper) SetConfig(key, value string) error {
+	// Retrieve the current context
+	currentContext, err := h.Context.GetContext()
+	if err != nil {
+		return fmt.Errorf("error retrieving current context: %w", err)
+	}
+
+	if key == "aws_endpoint_url" {
+		if err := h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", currentContext), value); err != nil {
 			return fmt.Errorf("error setting aws_endpoint_url: %w", err)
 		}
 	}
-	if awsProfile != "" {
-		if err := h.ConfigHandler.SetConfigValue("aws_profile", awsProfile); err != nil {
+	if key == "aws_profile" {
+		if err := h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_profile", currentContext), value); err != nil {
 			return fmt.Errorf("error setting aws_profile: %w", err)
 		}
 	}

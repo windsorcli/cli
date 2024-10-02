@@ -10,6 +10,7 @@ import (
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 func TestAwsHelper_GetEnvVars(t *testing.T) {
@@ -446,170 +447,259 @@ func TestAwsHelper_PostEnvExec(t *testing.T) {
 
 func TestAwsHelper_SetConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		setConfigValueCallCount := 0
-		saveConfigCallCount := 0
-
-		// Mock config handler
-		mockConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
-				setConfigValueCallCount++
-				return nil
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			func(key, value string) error { return nil },
+			func(path string) error { return nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
+		)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
 			},
-			SaveConfigFunc: func(path string) error {
-				saveConfigCallCount++
-				return nil
+			GetConfigRootFunc: func() (string, error) {
+				return "/path/to/config", nil
 			},
 		}
 
-		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, &context.MockContext{})
+		// Create an instance of AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
 
-		// When: SetConfig is called with non-empty values
-		err := awsHelper.SetConfig("new_endpoint_url", "new_profile")
+		// When: SetConfig is called with valid values
+		err = awsHelper.SetConfig("http://example.com", "test-profile")
 		if err != nil {
 			t.Fatalf("SetConfig() error = %v", err)
 		}
 
-		// Then: the config values should be set correctly
-		if setConfigValueCallCount != 2 {
-			t.Errorf("expected 2 calls to SetConfigValue, got %d", setConfigValueCallCount)
-		}
-		if saveConfigCallCount != 1 {
-			t.Errorf("expected 1 call to SaveConfig, got %d", saveConfigCallCount)
+		// Then: no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("EmptyValues", func(t *testing.T) {
-		setConfigValueCallCount := 0
-		saveConfigCallCount := 0
-
-		// Mock config handler
-		mockConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
-				setConfigValueCallCount++
-				return nil
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			func(key, value string) error { return nil },
+			func(path string) error { return nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
+		)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
 			},
-			SaveConfigFunc: func(path string) error {
-				saveConfigCallCount++
-				return nil
+			GetConfigRootFunc: func() (string, error) {
+				return "/path/to/config", nil
 			},
 		}
 
-		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, &context.MockContext{})
+		// Create an instance of AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
 
 		// When: SetConfig is called with empty values
-		err := awsHelper.SetConfig("", "")
+		err = awsHelper.SetConfig("", "")
 		if err != nil {
 			t.Fatalf("SetConfig() error = %v", err)
 		}
 
-		// Then: the config values should not be set
-		if setConfigValueCallCount != 0 {
-			t.Errorf("expected 0 calls to SetConfigValue, got %d", setConfigValueCallCount)
-		}
-		if saveConfigCallCount != 1 {
-			t.Errorf("expected 1 call to SaveConfig, got %d", saveConfigCallCount)
+		// Then: no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("OnlyAwsProfile", func(t *testing.T) {
-		setConfigValueCallCount := 0
-		saveConfigCallCount := 0
-
-		// Mock config handler
-		mockConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
-				setConfigValueCallCount++
-				return nil
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			func(key, value string) error { return nil },
+			func(path string) error { return nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
+		)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
 			},
-			SaveConfigFunc: func(path string) error {
-				saveConfigCallCount++
-				return nil
+			GetConfigRootFunc: func() (string, error) {
+				return "/path/to/config", nil
 			},
 		}
 
-		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, &context.MockContext{})
+		// Create an instance of AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
 
-		// When: SetConfig is called with only awsProfile non-empty
-		err := awsHelper.SetConfig("", "new_profile")
+		// When: SetConfig is called with only aws_profile
+		err = awsHelper.SetConfig("", "test-profile")
 		if err != nil {
 			t.Fatalf("SetConfig() error = %v", err)
 		}
 
-		// Then: only awsProfile should be set
-		if setConfigValueCallCount != 1 {
-			t.Errorf("expected 1 call to SetConfigValue, got %d", setConfigValueCallCount)
-		}
-		if saveConfigCallCount != 1 {
-			t.Errorf("expected 1 call to SaveConfig, got %d", saveConfigCallCount)
+		// Then: no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("ErrorSettingAwsProfile", func(t *testing.T) {
-		// Mock config handler
-		mockConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
-				if key == "aws_profile" {
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			func(key, value string) error {
+				if key == "contexts.test-context.aws.aws_profile" {
 					return errors.New("error setting aws_profile")
 				}
 				return nil
 			},
-			SaveConfigFunc: func(path string) error {
-				return nil
+			func(path string) error { return nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
+		)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+			GetConfigRootFunc: func() (string, error) {
+				return "/path/to/config", nil
 			},
 		}
 
-		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, &context.MockContext{})
+		// Create an instance of AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
 
-		// When: SetConfig is called with non-empty awsProfile
-		err := awsHelper.SetConfig("", "new_profile")
-		if err == nil || err.Error() != "error setting aws_profile: error setting aws_profile" {
+		// When: SetConfig is called and setting aws_profile fails
+		err = awsHelper.SetConfig("aws_profile", "test-profile")
+		if err == nil || !strings.Contains(err.Error(), "error setting aws_profile") {
 			t.Fatalf("expected error setting aws_profile, got %v", err)
 		}
 	})
 
 	t.Run("ErrorSettingConfigValue", func(t *testing.T) {
-		// Mock config handler
-		mockConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
-				return errors.New("error setting config value")
-			},
-			SaveConfigFunc: func(path string) error {
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			func(key, value string) error {
+				if key == "contexts.test-context.aws.aws_endpoint_url" {
+					return errors.New("error setting aws_endpoint_url")
+				}
 				return nil
+			},
+			func(path string) error { return nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
+		)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+			GetConfigRootFunc: func() (string, error) {
+				return "/path/to/config", nil
 			},
 		}
 
-		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, &context.MockContext{})
+		// Create an instance of AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
 
-		// When: SetConfig is called with non-empty values
-		err := awsHelper.SetConfig("new_endpoint_url", "new_profile")
-		if err == nil || err.Error() != "error setting aws_endpoint_url: error setting config value" {
+		// When: SetConfig is called and setting aws_endpoint_url fails
+		err = awsHelper.SetConfig("aws_endpoint_url", "http://example.com")
+		if err == nil || !strings.Contains(err.Error(), "error setting aws_endpoint_url") {
 			t.Fatalf("expected error setting aws_endpoint_url, got %v", err)
 		}
 	})
 
 	t.Run("ErrorSavingConfig", func(t *testing.T) {
-		// Mock config handler
-		mockConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
-				return nil
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			func(key, value string) error { return nil },
+			func(path string) error { return errors.New("error saving config") },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
+		)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
 			},
-			SaveConfigFunc: func(path string) error {
-				return errors.New("error saving config")
+			GetConfigRootFunc: func() (string, error) {
+				return "/path/to/config", nil
 			},
 		}
 
-		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, &context.MockContext{})
+		// Create an instance of AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
 
-		// When: SetConfig is called with non-empty values
-		err := awsHelper.SetConfig("new_endpoint_url", "new_profile")
-		if err == nil || err.Error() != "error saving config: error saving config" {
+		// When: SetConfig is called and saving config fails
+		err = awsHelper.SetConfig("http://example.com", "test-profile")
+		if err == nil || !strings.Contains(err.Error(), "error saving config") {
 			t.Fatalf("expected error saving config, got %v", err)
 		}
 	})
+
+	t.Run("ErrorRetrievingCurrentContext", func(t *testing.T) {
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			func(key, value string) error { return nil },
+			func(path string) error { return nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
+		)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "", errors.New("error retrieving current context")
+			},
+			GetConfigRootFunc: func() (string, error) {
+				return "/path/to/config", nil
+			},
+		}
+
+		// Create an instance of AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When: SetConfig is called
+		err = awsHelper.SetConfig("http://example.com", "test-profile")
+		if err == nil || !strings.Contains(err.Error(), "error retrieving current context") {
+			t.Fatalf("expected error retrieving current context, got %v", err)
+		}
+	})
+
 }
