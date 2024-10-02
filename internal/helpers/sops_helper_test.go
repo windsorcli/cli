@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 )
 
@@ -209,6 +210,46 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 			}
 		}
 
+	})
+}
+
+func TestSopsHelper_PostEnvExec(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a SopsHelper instance
+		mockConfigHandler := createMockConfigHandler(
+			func(key string) (string, error) { return "", nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+		)
+		mockShell := createMockShell(func() (string, error) { return "", nil })
+		mockContext := &context.MockContext{
+			GetContextFunc:    func() (string, error) { return "", nil },
+			GetConfigRootFunc: func() (string, error) { return "", nil },
+		}
+		sopsHelper := NewSopsHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When calling PostEnvExec
+		err := sopsHelper.PostEnvExec()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestSopsHelper_SetConfig(t *testing.T) {
+	mockConfigHandler := &config.MockConfigHandler{}
+	mockContext := &context.MockContext{}
+	helper := NewSopsHelper(mockConfigHandler, nil, mockContext)
+
+	t.Run("SetConfigStub", func(t *testing.T) {
+		// When: SetConfig is called
+		err := helper.SetConfig("some_key", "some_value")
+
+		// Then: it should return no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 	})
 }
 
