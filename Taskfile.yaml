@@ -42,12 +42,6 @@ tasks:
       - go test -coverprofile=coverage.out ./...
       - go tool cover -html=coverage.out -o coverage.html
 
-  test-sops:
-    desc: Run tests
-    cmds:
-      - go test -v -run SopsHelper ./internal/helpers/ -coverprofile=coverage.out ./...
-      - go tool cover -html=coverage.out -o coverage.html
-
   run:
     desc: Run the Windsor CLI
     cmds:
