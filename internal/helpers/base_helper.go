@@ -67,5 +67,11 @@ func (h *BaseHelper) PostEnvExec() error {
 	return nil
 }
 
+// SetConfig sets the configuration value for the given key
+func (h *BaseHelper) SetConfig(key, value string) error {
+	// This is a stub implementation
+	return nil
+}
+
 // Ensure BaseHelper implements Helper interface
 var _ Helper = (*BaseHelper)(nil)

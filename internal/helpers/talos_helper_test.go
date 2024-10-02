@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 )
 
@@ -121,6 +122,22 @@ func TestTalosHelper_PostEnvExec(t *testing.T) {
 		err := talosHelper.PostEnvExec()
 
 		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestTalosHelper_SetConfig(t *testing.T) {
+	mockConfigHandler := &config.MockConfigHandler{}
+	mockContext := &context.MockContext{}
+	helper := NewTalosHelper(mockConfigHandler, nil, mockContext)
+
+	t.Run("SetConfigStub", func(t *testing.T) {
+		// When: SetConfig is called
+		err := helper.SetConfig("some_key", "some_value")
+
+		// Then: it should return no error
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
