@@ -1765,6 +1765,55 @@ func TestTerraformHelper_SetConfig(t *testing.T) {
 			t.Fatalf("expected error 'error retrieving context: mock error retrieving context', got %v", err)
 		}
 	})
+
+	t.Run("EmptyBackendValue", func(t *testing.T) {
+		// Mock SetConfigValue to return an error if called
+		mockConfigHandler.SetConfigValueFunc = func(key, value string) error {
+			return fmt.Errorf("SetConfigValue should not be called")
+		}
+
+		// Mock GetContext to return "test-context"
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+		}
+		helper := NewTerraformHelper(mockConfigHandler, nil, mockContext)
+
+		// When: SetConfig is called with an empty "backend" value
+		err := helper.SetConfig("backend", "")
+
+		// Then: it should return no error and not call SetConfigValue
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("UnsupportedBackendValue", func(t *testing.T) {
+		// Mock SetConfigValue to return an error if called
+		mockConfigHandler.SetConfigValueFunc = func(key, value string) error {
+			return fmt.Errorf("SetConfigValue should not be called")
+		}
+
+		// Mock GetContext to return "test-context"
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+		}
+		helper := NewTerraformHelper(mockConfigHandler, nil, mockContext)
+
+		// When: SetConfig is called with an unsupported backend value
+		err := helper.SetConfig("backend", "unsupported")
+
+		// Then: it should return an error
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "unsupported backend value: unsupported") {
+			t.Fatalf("expected error 'unsupported backend value: unsupported', got %v", err)
+		}
+	})
 }
 
 func TestTerraformHelper_PostEnvExec(t *testing.T) {

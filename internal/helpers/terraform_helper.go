@@ -378,6 +378,21 @@ func (h *TerraformHelper) PostEnvExec() error {
 // SetConfig sets the configuration value for the given key
 func (h *TerraformHelper) SetConfig(key, value string) error {
 	if key == "backend" {
+		// If the backend value is empty, do not write the backend
+		if value == "" {
+			return nil
+		}
+
+		// Validate that the backend is "s3", "local", or "kubernetes"
+		validBackends := map[string]bool{
+			"s3":         true,
+			"local":      true,
+			"kubernetes": true,
+		}
+		if !validBackends[value] {
+			return fmt.Errorf("unsupported backend value: %s. Supported values are: s3, local, kubernetes", value)
+		}
+
 		context, err := h.Context.GetContext()
 		if err != nil {
 			return fmt.Errorf("error retrieving context: %w", err)
