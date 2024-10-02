@@ -6,7 +6,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var backend string
+var (
+	backend        string
+	awsProfile     string
+	awsEndpointURL string
+)
 
 var initCmd = &cobra.Command{
 	Use:   "init [context]",
@@ -26,6 +30,14 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error setting backend value: %w", err)
 		}
 
+		// Set the AWS configuration values using the AwsHelper
+		if err := awsHelper.SetConfig("aws_endpoint_url", awsEndpointURL); err != nil {
+			return fmt.Errorf("error setting AWS configuration: %w", err)
+		}
+		if err := awsHelper.SetConfig("aws_profile", awsProfile); err != nil {
+			return fmt.Errorf("error setting AWS configuration: %w", err)
+		}
+
 		// Save the cli configuration
 		if err := cliConfigHandler.SaveConfig(""); err != nil {
 			return fmt.Errorf("Error saving config file: %w", err)
@@ -41,6 +53,8 @@ var initCmd = &cobra.Command{
 }
 
 func init() {
-	initCmd.Flags().StringVar(&backend, "backend", "", "Specify the backend to use")
+	initCmd.Flags().StringVar(&backend, "backend", "", "Specify the terraform backend to use")
+	initCmd.Flags().StringVar(&awsProfile, "aws-profile", "", "Specify the AWS profile to use")
+	initCmd.Flags().StringVar(&awsEndpointURL, "aws-endpoint-url", "", "Specify the AWS endpoint URL to use")
 	rootCmd.AddCommand(initCmd)
 }
