@@ -11,10 +11,10 @@ import (
 
 func TestColimaHelper_GetEnvVars(t *testing.T) {
 	configHandler := &config.MockConfigHandler{}
-	shellInstance := &shell.MockShell{}
+	shell := &shell.MockShell{}
 	ctx := &context.MockContext{}
 
-	helper := NewColimaHelper(configHandler, shellInstance, ctx)
+	helper := NewColimaHelper(configHandler, shell, ctx)
 
 	envVars, err := helper.GetEnvVars()
 	if err != nil {
@@ -27,10 +27,10 @@ func TestColimaHelper_GetEnvVars(t *testing.T) {
 
 func TestColimaHelper_PostEnvExec(t *testing.T) {
 	configHandler := &config.MockConfigHandler{}
-	shellInstance := &shell.MockShell{}
+	shell := &shell.MockShell{}
 	ctx := &context.MockContext{}
 
-	helper := NewColimaHelper(configHandler, shellInstance, ctx)
+	helper := NewColimaHelper(configHandler, shell, ctx)
 
 	err := helper.PostEnvExec()
 	if err != nil {
@@ -39,7 +39,7 @@ func TestColimaHelper_PostEnvExec(t *testing.T) {
 }
 
 func TestColimaHelper_SetConfig(t *testing.T) {
-	t.Run("successful set config", func(t *testing.T) {
+	t.Run("SuccessfulSetConfig", func(t *testing.T) {
 		configHandler := &config.MockConfigHandler{
 			SetConfigValueFunc: func(key, value string) error {
 				if key != "contexts.test-context.vm.driver" || value != "colima" {
@@ -48,33 +48,33 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 				return nil
 			},
 		}
-		shellInstance := &shell.MockShell{}
+		shell := &shell.MockShell{}
 		ctx := &context.MockContext{
 			GetContextFunc: func() (string, error) {
 				return "test-context", nil
 			},
 		}
 
-		helper := NewColimaHelper(configHandler, shellInstance, ctx)
+		helper := NewColimaHelper(configHandler, shell, ctx)
 
-		err := helper.SetConfig("vm_driver", "colima")
+		err := helper.SetConfig("driver", "colima")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
-	t.Run("error retrieving context", func(t *testing.T) {
+	t.Run("ErrorRetrievingContext", func(t *testing.T) {
 		configHandler := &config.MockConfigHandler{}
-		shellInstance := &shell.MockShell{}
+		shell := &shell.MockShell{}
 		ctx := &context.MockContext{
 			GetContextFunc: func() (string, error) {
 				return "", errors.New("context error")
 			},
 		}
 
-		helper := NewColimaHelper(configHandler, shellInstance, ctx)
+		helper := NewColimaHelper(configHandler, shell, ctx)
 
-		err := helper.SetConfig("vm_driver", "colima")
+		err := helper.SetConfig("driver", "colima")
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -83,22 +83,22 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("error setting config value", func(t *testing.T) {
+	t.Run("ErrorSettingConfigValue", func(t *testing.T) {
 		configHandler := &config.MockConfigHandler{
 			SetConfigValueFunc: func(key, value string) error {
 				return errors.New("set config error")
 			},
 		}
-		shellInstance := &shell.MockShell{}
+		shell := &shell.MockShell{}
 		ctx := &context.MockContext{
 			GetContextFunc: func() (string, error) {
 				return "test-context", nil
 			},
 		}
 
-		helper := NewColimaHelper(configHandler, shellInstance, ctx)
+		helper := NewColimaHelper(configHandler, shell, ctx)
 
-		err := helper.SetConfig("vm_driver", "colima")
+		err := helper.SetConfig("driver", "colima")
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -107,16 +107,56 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("unsupported config key", func(t *testing.T) {
+	t.Run("UnsupportedConfigKey", func(t *testing.T) {
 		configHandler := &config.MockConfigHandler{}
-		shellInstance := &shell.MockShell{}
-		ctx := &context.MockContext{}
+		shell := &shell.MockShell{}
+		ctx := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+		}
 
-		helper := NewColimaHelper(configHandler, shellInstance, ctx)
+		helper := NewColimaHelper(configHandler, shell, ctx)
 
 		err := helper.SetConfig("unsupported", "value")
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if err.Error() != "unsupported config key: unsupported" {
+			t.Fatalf("expected unsupported config key error, got %v", err)
+		}
+	})
+
+	t.Run("ArchConversion", func(t *testing.T) {
+		configHandler := &config.MockConfigHandler{}
+		shell := &shell.MockShell{}
+		ctx := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+		}
+
+		NewColimaHelper(configHandler, shell, ctx)
+
+		// Override the getArchWrapper function for testing
+		originalGetArchWrapper := getArchWrapper
+		defer func() { getArchWrapper = originalGetArchWrapper }()
+
+		tests := []struct {
+			mockArch string
+			expected string
+		}{
+			{"amd64", "x86_64"},
+			{"arm64", "aarch64"},
+			{"unknown", "unknown"}, // Default case
+		}
+
+		for _, tt := range tests {
+			getArchWrapper = func() string { return tt.mockArch }
+			_, _, _, _, arch := getDefaultValues("test-context")
+			if arch != tt.expected {
+				t.Fatalf("expected arch to be %v, got %v", tt.expected, arch)
+			}
 		}
 	})
 }

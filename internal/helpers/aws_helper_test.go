@@ -20,7 +20,7 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 		awsConfigPath := filepath.Join(contextPath, ".aws", "config")
 
 		// Ensure the AWS config file exists
-		err := os.MkdirAll(filepath.Dir(awsConfigPath), 0755)
+		err := mkdirAll(filepath.Dir(awsConfigPath), 0755)
 		if err != nil {
 			t.Fatalf("Failed to create AWS config directory: %v", err)
 		}
@@ -190,7 +190,7 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 		awsConfigPath := filepath.Join(contextPath, ".aws", "config")
 
 		// Ensure the AWS config file exists
-		err := os.MkdirAll(filepath.Dir(awsConfigPath), 0755)
+		err := mkdirAll(filepath.Dir(awsConfigPath), 0755)
 		if err != nil {
 			t.Fatalf("Failed to create AWS config directory: %v", err)
 		}
@@ -256,7 +256,7 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 		awsConfigPath := filepath.Join(contextPath, ".aws", "config")
 
 		// Ensure the AWS config file exists
-		err := os.MkdirAll(filepath.Dir(awsConfigPath), 0755)
+		err := mkdirAll(filepath.Dir(awsConfigPath), 0755)
 		if err != nil {
 			t.Fatalf("Failed to create AWS config directory: %v", err)
 		}

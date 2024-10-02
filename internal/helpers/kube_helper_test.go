@@ -19,7 +19,7 @@ func TestKubeHelper_GetEnvVars(t *testing.T) {
 		kubeConfigPath := filepath.Join(contextPath, ".kube", "config")
 
 		// Create the directory and kubeconfig file
-		err := os.MkdirAll(filepath.Join(contextPath, ".kube"), os.ModePerm)
+		err := mkdirAll(filepath.Join(contextPath, ".kube"), os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}

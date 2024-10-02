@@ -41,7 +41,7 @@ func setupTestEnv(t *testing.T, backend string, tfvarsFiles map[string]string) (
 	configRoot := filepath.Join(tempDir, "contexts/local")
 
 	// Create the necessary directory structure
-	err := os.MkdirAll(projectPath, os.ModePerm)
+	err := mkdirAll(projectPath, os.ModePerm)
 	if err != nil {
 		t.Fatalf("Failed to create project directories: %v", err)
 	}
@@ -49,7 +49,7 @@ func setupTestEnv(t *testing.T, backend string, tfvarsFiles map[string]string) (
 	// Create the necessary directory structure for tfvars files
 	for path := range tfvarsFiles {
 		dir := filepath.Dir(filepath.Join(tempDir, path))
-		err = os.MkdirAll(dir, os.ModePerm)
+		err = mkdirAll(dir, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create tfvars directories: %v", err)
 		}
@@ -153,14 +153,14 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		projectPath := filepath.Join(tempDir, "terraform/windsor/blueprint")
 
 		// Create the necessary directory structure
-		err := os.MkdirAll(projectPath, os.ModePerm)
+		err := mkdirAll(projectPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create project directories: %v", err)
 		}
 
 		// Create the necessary directory structure for tfvars files
 		tfvarsDir := filepath.Join(configRoot, "terraform/windsor")
-		err = os.MkdirAll(tfvarsDir, os.ModePerm)
+		err = mkdirAll(tfvarsDir, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create tfvars directories: %v", err)
 		}
@@ -264,7 +264,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		projectPath := filepath.Join(tempDir, "terraform/windsor/blueprint")
 
 		// Create the necessary directory structure
-		err := os.MkdirAll(projectPath, os.ModePerm)
+		err := mkdirAll(projectPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create project directories: %v", err)
 		}
@@ -334,7 +334,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		projectPath := filepath.Join(tempDir, "terraform/windsor/blueprint")
 
 		// Create the necessary directory structure
-		err := os.MkdirAll(projectPath, os.ModePerm)
+		err := mkdirAll(projectPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create project directories: %v", err)
 		}
@@ -529,7 +529,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		expected := "supercalifragilisticexpialidocioussupercalifragilisticexpialido"
 
 		// Ensure the long project path exists
-		err := os.MkdirAll(longProjectPath, os.ModePerm)
+		err := mkdirAll(longProjectPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create long project path: %v", err)
 		}
@@ -794,7 +794,7 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 		projectPath := filepath.Join(tempDir, "terraform/windsor")
 
 		// Create the necessary directory structure
-		err := os.MkdirAll(projectPath, os.ModePerm)
+		err := mkdirAll(projectPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create project directories: %v", err)
 		}
@@ -884,7 +884,7 @@ terraform {
 		defer func() { getwd = originalGetwd }()
 
 		// Create a directory without .tf files to simulate an invalid project path
-		err := os.MkdirAll(projectPath, os.ModePerm)
+		err := mkdirAll(projectPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}
@@ -919,7 +919,7 @@ terraform {
 		defer func() { getwd = originalGetwd }()
 
 		// Create a mock .tf file to ensure the directory is recognized as a Terraform project
-		err := os.MkdirAll(projectPath, os.ModePerm)
+		err := mkdirAll(projectPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}
@@ -1132,7 +1132,7 @@ terraform {
 		defer cleanup()
 
 		// Create the necessary directory structure
-		err := os.MkdirAll(projectPath, os.ModePerm)
+		err := mkdirAll(projectPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create project directories: %v", err)
 		}
@@ -1198,7 +1198,7 @@ terraform {
 		expected := "supercalifragilisticexpialidocioussupercalifragilisticexpialido"
 
 		// Ensure the long project path exists
-		err := os.MkdirAll(longProjectPath, os.ModePerm)
+		err := mkdirAll(longProjectPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create long project path: %v", err)
 		}
@@ -1246,7 +1246,7 @@ terraform {
 		projectPath := filepath.Join(tempDir, "terraform/project")
 
 		// Create the necessary directory structure
-		err := os.MkdirAll(projectPath, os.ModePerm)
+		err := mkdirAll(projectPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create project directories: %v", err)
 		}
@@ -1291,7 +1291,7 @@ terraform {
 		projectPath := filepath.Join(tempDir, "terraform/project")
 
 		// Create the necessary directory structure
-		err := os.MkdirAll(projectPath, os.ModePerm)
+		err := mkdirAll(projectPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create project directories: %v", err)
 		}

@@ -19,7 +19,7 @@ func TestOmniHelper_GetEnvVars(t *testing.T) {
 		omniConfigPath := filepath.Join(contextPath, ".omni", "config")
 
 		// Ensure the omni config file exists
-		err := os.MkdirAll(filepath.Dir(omniConfigPath), 0755)
+		err := mkdirAll(filepath.Dir(omniConfigPath), 0755)
 		if err != nil {
 			t.Fatalf("Failed to create omni config directory: %v", err)
 		}
