@@ -49,6 +49,10 @@ func main() {
 	omniHelper := helpers.NewOmniHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("omniHelper", omniHelper)
 
+	// Create and register the SopsHelper instance
+	sopsHelper := helpers.NewSopsHelper(cliConfigHandler, shellInstance, contextInstance)
+	container.Register("sopsHelper", sopsHelper)
+
 	// Create and register the AwsHelper instance
 	awsHelper := helpers.NewAwsHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("awsHelper", awsHelper)
