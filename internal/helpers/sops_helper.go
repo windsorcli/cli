@@ -28,22 +28,6 @@ func NewSopsHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx co
 	}
 }
 
-// DecryptFile decrypts a file using the SOPS package
-func DecryptFile(filePath string) ([]byte, error) {
-	// Check if the file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("file does not exist: %s", filePath)
-	}
-
-	// Decrypt the file using SOPS
-	plaintextBytes, err := decrypt.File(filePath, "yaml")
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt file: %w", err)
-	}
-
-	return plaintextBytes, nil
-}
-
 // GetEnvVars retrieves Kubernetes-specific environment variables for the current context
 func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 	// Get the configuration root directory
@@ -53,12 +37,12 @@ func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Construct the path to the sops encrypted secrets file, return nils if it doesn't exist
-	sopsEncSecretsPath := filepath.Join(configRoot, ".sops/secrets.enc.yaml")
+	sopsEncSecretsPath := filepath.Join(configRoot, "secrets.enc.yaml")
 	if _, err := os.Stat(sopsEncSecretsPath); os.IsNotExist(err) {
 		return nil, nil
 	}
 
-	plaintextBytes, err := DecryptFile(sopsEncSecretsPath)
+	plaintextBytes, err := decryptFile(sopsEncSecretsPath)
 	if err != nil {
 		return nil, fmt.Errorf("error decrypting sops file: %w", err)
 	}
@@ -91,3 +75,19 @@ func (h *SopsHelper) SetConfig(key, value string) error {
 
 // Ensure SopsHelper implements Helper interface
 var _ Helper = (*SopsHelper)(nil)
+
+// decryptFile decrypts a file using the SOPS package
+func decryptFile(filePath string) ([]byte, error) {
+	// Check if the file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("file does not exist: %s", filePath)
+	}
+
+	// Decrypt the file using SOPS
+	plaintextBytes, err := decrypt.File(filePath, "yaml")
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt file: %w", err)
+	}
+
+	return plaintextBytes, nil
+}

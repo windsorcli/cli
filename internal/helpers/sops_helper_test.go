@@ -13,67 +13,12 @@ import (
 	"github.com/windsor-hotel/cli/internal/context"
 )
 
-// GenerateAgeKey generates age.key and age.public.key
-func GenerateAgeKey() (string, error) {
-	// Check if age.key already exists and remove it
-	if _, err := os.Stat("age.key"); err == nil {
-		if err := os.Remove("age.key"); err != nil {
-			return "", fmt.Errorf("failed to remove existing age.key: %w", err)
-		}
-	}
-
-	// Generate the private key
-	cmdKeygen := exec.Command("age-keygen", "-o", "age.key")
-	if err := cmdKeygen.Run(); err != nil {
-		return "", fmt.Errorf("failed to generate age key: %w", err)
-	}
-
-	// Generate the public key
-	cmdPublicKey := exec.Command("age-keygen", "-y", "age.key")
-	publicKeyFile, err := os.Create("age.public.key")
-	if err != nil {
-		return "", fmt.Errorf("failed to create public key file: %w", err)
-	}
-	defer publicKeyFile.Close()
-
-	cmdPublicKey.Stdout = publicKeyFile
-	if err := cmdPublicKey.Run(); err != nil {
-		return "", fmt.Errorf("failed to generate public key: %w", err)
-	}
-
-	// Set the environment variable
-	os.Setenv("SOPS_AGE_KEY_FILE", "age.key")
-
-	// Read the public key from the file
-	publicKey, err := os.ReadFile("age.public.key")
-	if err != nil {
-		return "", fmt.Errorf("failed to read public key: %w", err)
-	}
-
-	return string(publicKey), nil
-}
-
-// EncryptFile encrypts the specified file using SOPS.
-func EncryptFile(t *testing.T, filePath string, dstPath string) error {
-
-	publicKey, err := GenerateAgeKey()
-
-	if err != nil {
-		return err
-	}
-
-	cmdEncrypt := exec.Command("sops", "--output", dstPath, "--age", publicKey, "-e", filePath)
-	_, err = cmdEncrypt.CombinedOutput()
-
-	return err
-}
-
 func TestSopsHelper_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		plaintextSecretsFile := filepath.Join(contextPath, ".sops/secrets.yaml")
-		encryptedSecretsFile := filepath.Join(contextPath, ".sops/secrets.enc.yaml")
+		plaintextSecretsFile := filepath.Join(contextPath, "secrets.yaml")
+		encryptedSecretsFile := filepath.Join(contextPath, "secrets.enc.yaml")
 
 		// Ensure the secrets file exists
 		err := os.MkdirAll(filepath.Dir(plaintextSecretsFile), 0755)
@@ -89,7 +34,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		os.WriteFile(plaintextSecretsFile, []byte("\"SOPS_TEST\": "+encryptedSecretsFile), 0644)
 
 		// Encrypt the secrets file using SOPS
-		err = EncryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
+		err = encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
 		if err != nil {
 			t.Fatalf("Failed to encrypt secrets file: %v", err)
 		}
@@ -172,7 +117,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		plaintextSecretsFile := filepath.Join(contextPath, ".sops/secrets.yaml")
+		plaintextSecretsFile := filepath.Join(contextPath, "secrets.yaml")
 
 		// Ensure the secrets file exists
 		err := os.MkdirAll(filepath.Dir(plaintextSecretsFile), 0755)
@@ -214,8 +159,8 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// Given: a valid context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		plaintextSecretsFile := filepath.Join(contextPath, ".sops/secrets.yaml")
-		encryptedSecretsFile := filepath.Join(contextPath, ".sops/secrets.enc.yaml")
+		plaintextSecretsFile := filepath.Join(contextPath, "secrets.yaml")
+		encryptedSecretsFile := filepath.Join(contextPath, "secrets.enc.yaml")
 
 		// Ensure the secrets file exists
 		err := os.MkdirAll(filepath.Dir(plaintextSecretsFile), 0755)
@@ -231,7 +176,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		os.WriteFile(plaintextSecretsFile, []byte("\"SOPS-TEST\": "+encryptedSecretsFile), 0644)
 
 		// Encrypt the secrets file using SOPS
-		err = EncryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
+		err = encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
 		if err != nil {
 			t.Fatalf("Failed to encrypt secrets file: %v", err)
 		}
@@ -265,4 +210,59 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 		}
 
 	})
+}
+
+// generateAgeKey generates age.key and age.public.key
+func generateAgeKey() (string, error) {
+	// Check if age.key already exists and remove it
+	if _, err := os.Stat("age.key"); err == nil {
+		if err := os.Remove("age.key"); err != nil {
+			return "", fmt.Errorf("failed to remove existing age.key: %w", err)
+		}
+	}
+
+	// Generate the private key
+	cmdKeygen := exec.Command("age-keygen", "-o", "age.key")
+	if err := cmdKeygen.Run(); err != nil {
+		return "", fmt.Errorf("failed to generate age key: %w", err)
+	}
+
+	// Generate the public key
+	cmdPublicKey := exec.Command("age-keygen", "-y", "age.key")
+	publicKeyFile, err := os.Create("age.public.key")
+	if err != nil {
+		return "", fmt.Errorf("failed to create public key file: %w", err)
+	}
+	defer publicKeyFile.Close()
+
+	cmdPublicKey.Stdout = publicKeyFile
+	if err := cmdPublicKey.Run(); err != nil {
+		return "", fmt.Errorf("failed to generate public key: %w", err)
+	}
+
+	// Set the environment variable
+	os.Setenv("SOPS_AGE_KEY_FILE", "age.key")
+
+	// Read the public key from the file
+	publicKey, err := os.ReadFile("age.public.key")
+	if err != nil {
+		return "", fmt.Errorf("failed to read public key: %w", err)
+	}
+
+	return string(publicKey), nil
+}
+
+// encryptFile encrypts the specified file using SOPS.
+func encryptFile(t *testing.T, filePath string, dstPath string) error {
+
+	publicKey, err := generateAgeKey()
+
+	if err != nil {
+		return err
+	}
+
+	cmdEncrypt := exec.Command("sops", "--output", dstPath, "--age", publicKey, "-e", filePath)
+	_, err = cmdEncrypt.CombinedOutput()
+
+	return err
 }
