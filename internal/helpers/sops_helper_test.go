@@ -300,6 +300,13 @@ func generateAgeKeys() (string, error) {
 
 // encryptFile encrypts the specified file using SOPS.
 func encryptFile(t *testing.T, filePath string, dstPath string) error {
+
+	// Generate AGE keys
+	_, err := generateAgeKeys()
+	if err != nil {
+		t.Fatalf("Failed to generate AGE keys: %v", err)
+	}
+
 	ageKeyFile := os.Getenv("SOPS_AGE_KEY_FILE")
 	var cmdEncrypt *exec.Cmd
 
@@ -327,40 +334,12 @@ func TestSopsHelper_EncryptFile(t *testing.T) {
 		// Create and initialize the secrets file
 		os.WriteFile(plaintextSecretsFile, []byte("dummy: content"), 0644)
 
-		// Generate AGE keys
-		_, err := generateAgeKeys()
-		if err != nil {
-			t.Fatalf("Failed to generate AGE keys: %v", err)
-		}
-
 		// Encrypt the secrets file using SOPS
-		err = encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
+		err := encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
 		if err != nil {
 			t.Fatalf("Failed to encrypt secrets file: %v", err)
 		}
 	})
-
-	// t.Run("MissingPublicKey", func(t *testing.T) {
-	// 	_, plaintextSecretsFile, encryptedSecretsFile := setupTestContext(t, "test-context")
-
-	// 	// Create and initialize the secrets file
-	// 	os.WriteFile(plaintextSecretsFile, []byte("dummy: content"), 0644)
-
-	// 	// Set SOPS_AGE_KEY_FILE without generating public key
-	// 	// os.Setenv("SOPS_AGE_KEY_FILE", "age.key")
-
-	// 	os.Unsetenv("SOPS_AGE_KEY_FILE")
-
-	// 	// Encrypt the secrets file using SOPS
-	// 	err := encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
-	// 	if err == nil {
-	// 		t.Fatalf("expected error, got nil")
-	// 	}
-	// 	expectedError := "failed to read public key"
-	// 	if !strings.Contains(err.Error(), expectedError) {
-	// 		t.Fatalf("expected error containing %v, got %v", expectedError, err)
-	// 	}
-	// })
 }
 
 func TestSopsHelper_DecryptFile_FileDoesNotExist(t *testing.T) {
@@ -375,14 +354,8 @@ func TestSopsHelper_DecryptFile_Success(t *testing.T) {
 	// Create and initialize the secrets file
 	os.WriteFile(plaintextSecretsFile, []byte("dummy: content"), 0644)
 
-	// Generate AGE keys
-	_, err := generateAgeKeys()
-	if err != nil {
-		t.Fatalf("Failed to generate AGE keys: %v", err)
-	}
-
 	// Encrypt the secrets file using SOPS
-	err = encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
+	err := encryptFile(t, plaintextSecretsFile, encryptedSecretsFile)
 	if err != nil {
 		t.Fatalf("Failed to encrypt secrets file: %v", err)
 	}
@@ -391,7 +364,6 @@ func TestSopsHelper_DecryptFile_Success(t *testing.T) {
 	plaintextBytes, err := DecryptFile(encryptedSecretsFile)
 	assert.NoError(t, err)
 	assert.NotNil(t, plaintextBytes)
-	// Add more assertions based on the expected plaintext content
 }
 
 func TestSopsHelper_DecryptFile_DecryptionFailure(t *testing.T) {
@@ -406,4 +378,45 @@ func TestSopsHelper_DecryptFile_DecryptionFailure(t *testing.T) {
 	_, err = DecryptFile(invalidEncryptedFilePath)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to decrypt file")
+}
+
+func TestSopsHelper_YamlToEnvVars(t *testing.T) {
+	tests := []struct {
+		name      string
+		yamlData  string
+		want      map[string]string
+		expectErr bool
+	}{
+		{
+			name: "valid yaml",
+			yamlData: `
+key1: value1
+key2: value2
+`,
+			want: map[string]string{
+				"key1": "value1",
+				"key2": "value2",
+			},
+			expectErr: false,
+		},
+		{
+			name:      "invalid yaml",
+			yamlData:  `: invalid yaml`,
+			want:      nil,
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := YamlToEnvVars([]byte(tt.yamlData)) // Convert string to []byte
+			if (err != nil) != tt.expectErr {
+				t.Errorf("yamlToEnvVars() error = %v, expectErr %v", err, tt.expectErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("yamlToEnvVars() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

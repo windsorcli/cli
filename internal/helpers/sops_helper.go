@@ -28,6 +28,23 @@ func NewSopsHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx co
 	}
 }
 
+// yamlToEnvVars retrieves Kubernetes-specific environment variables for the current context
+func YamlToEnvVars(yamlData []byte) (map[string]string, error) {
+	// Parse the decrypted YAML content into a map
+	var sopsSecrets map[string]string
+	if err := yaml.Unmarshal(yamlData, &sopsSecrets); err != nil {
+		return nil, fmt.Errorf("error parsing sops file: %w", err)
+	}
+
+	// Populate envVars from the decrypted secrets file
+	envVars := make(map[string]string)
+	for key, value := range sopsSecrets {
+		envVars[key] = value
+	}
+
+	return envVars, nil
+}
+
 // GetEnvVars retrieves Kubernetes-specific environment variables for the current context
 func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 	// Get the configuration root directory
@@ -47,17 +64,7 @@ func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error decrypting sops file: %w", err)
 	}
 
-	// Parse the decrypted YAML content into a map
-	var sopsSecrets map[string]string
-	if err := yaml.Unmarshal(plaintextBytes, &sopsSecrets); err != nil {
-		return nil, fmt.Errorf("error parsing sops file: %w", err)
-	}
-
-	// Populate envVars from the decrypted secrets file
-	envVars := make(map[string]string)
-	for key, value := range sopsSecrets {
-		envVars[key] = value
-	}
+	envVars, err := YamlToEnvVars(plaintextBytes)
 
 	return envVars, nil
 }
