@@ -44,7 +44,7 @@ var initCmd = &cobra.Command{
 		}
 
 		// Set the Colima configuration values using the ColimaHelper
-		if err := colimaHelper.SetConfig("type", vmType); err != nil {
+		if err := colimaHelper.SetConfig("driver", vmType); err != nil {
 			return fmt.Errorf("error setting Colima configuration: %w", err)
 		}
 		if err := colimaHelper.SetConfig("cpu", cpu); err != nil {
@@ -78,7 +78,7 @@ func init() {
 	initCmd.Flags().StringVar(&backend, "backend", "", "Specify the terraform backend to use")
 	initCmd.Flags().StringVar(&awsProfile, "aws-profile", "", "Specify the AWS profile to use")
 	initCmd.Flags().StringVar(&awsEndpointURL, "aws-endpoint-url", "", "Specify the AWS endpoint URL to use")
-	initCmd.Flags().StringVar(&vmType, "vm-type", "", "Specify the VM type for Colima")
+	initCmd.Flags().StringVar(&vmType, "vm-driver", "", "Specify the VM driver. Only Colima is supported for now.")
 	initCmd.Flags().StringVar(&cpu, "vm-cpu", "", "Specify the number of CPUs for Colima")
 	initCmd.Flags().StringVar(&disk, "vm-disk", "", "Specify the disk size for Colima")
 	initCmd.Flags().StringVar(&memory, "vm-memory", "", "Specify the memory size for Colima")
