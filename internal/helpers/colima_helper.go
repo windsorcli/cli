@@ -117,7 +117,7 @@ func (h *ColimaHelper) SetConfig(key, value string) error {
 		if value == "" {
 			value = arch
 		}
-		if value != "amd64" && value != "arm64" {
+		if value != "aarch64" && value != "x86_64" {
 			return fmt.Errorf("invalid value for arch: %s", value)
 		}
 		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", context), value); err != nil {
@@ -144,9 +144,8 @@ func generateColimaConfig(context string, configHandler config.ConfigHandler) er
 
 	// Get default values
 	cpu, disk, memory, hostname, arch := getDefaultValues(context)
-
 	vmType := "qemu"
-	if runtime.GOOS == "darwin" && arch == "aarch64" {
+	if getArch() == "aarch64" {
 		vmType = "vz"
 	}
 
