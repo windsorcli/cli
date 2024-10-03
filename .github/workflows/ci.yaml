@@ -80,30 +80,25 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
-            if [ "${{ matrix.arch }}" == "amd64" ]; then
-              GOOS=linux GOARCH=amd64 go build -o dist/windsor main.go
-            else
-              GOOS=linux GOARCH=arm64 go build -o dist/windsor main.go
-            fi
+            GOOS=linux GOARCH=${{ matrix.arch }} go build -o dist/windsor-linux-${{ matrix.arch }} cmd/windsor/main.go
           elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-            if [ "${{ matrix.arch }}" == "amd64" ]; then
-              GOOS=darwin GOARCH=amd64 go build -o dist/windsor main.go
-            else
-              GOOS=darwin GOARCH=arm64 go build -o dist/windsor main.go
-            fi
+            GOOS=darwin GOARCH=${{ matrix.arch }} go build -o dist/windsor-darwin-${{ matrix.arch }} cmd/windsor/main.go
           fi
 
       - name: Build Windsor CLI on Windows
         if: runner.os == 'Windows'
         run: |
-          $env:GOOS="windows"
-          $env:GOARCH="amd64"
-          go build -o dist/windsor.exe main.go
+          $env:GOOS = "windows"
+          $env:GOARCH = "${{ matrix.arch }}"
+          go build -o dist/windsor.exe cmd/windsor/main.go
         shell: pwsh
 
-      - name: Upload Windsor CLI artifact
-        # if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '.')
-        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3.2.1
+      - name: Upload Artifacts to Release (Windows)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191 # v2.0.8
         with:
-          name: windsor-cli-${{ matrix.os }}-${{ matrix.arch }}
-          path: dist/windsor*
+          files: |
+            dist/windsor*
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
