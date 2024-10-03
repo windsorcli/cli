@@ -1,0 +1,23 @@
+name: Enforce PR Labels
+
+on:
+  pull_request:
+    types: [opened, labeled, unlabeled, synchronize, reopened]
+
+jobs:
+  check-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for required labels
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const requiredLabels = [
+              'feature', 'enhancement', 'fix', 'bugfix', 'bug', 'chore', 'dependencies', 'major', 'minor', 'patch'
+            ];
+            const prLabels = context.payload.pull_request.labels.map(label => label.name);
+            const hasRequiredLabel = prLabels.some(label => requiredLabels.includes(label));
+            
+            if (!hasRequiredLabel) {
+              core.setFailed('Your PR must have at least one of the required labels: ' + requiredLabels.join(', '));
+            }
