@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   pull_request:
     branches:
       - main
@@ -98,3 +100,10 @@ jobs:
           $env:GOARCH="amd64"
           go build -o dist/windsor.exe main.go
         shell: pwsh
+
+      - name: Upload Windsor CLI artifact
+        if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '.')
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3.2.1
+        with:
+          name: windsor-cli-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/windsor*
