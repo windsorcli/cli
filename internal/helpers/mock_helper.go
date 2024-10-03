@@ -52,6 +52,11 @@ func (m *MockHelper) SetConfig(key, value string) error {
 	return nil
 }
 
+// SetSetConfigFunc sets the SetConfigFunc for the mock helper
+func (m *MockHelper) SetSetConfigFunc(setConfigFunc func(key, value string) error) {
+	m.SetConfigFunc = setConfigFunc
+}
+
 // SetPostEnvExecFunc sets the PostEnvExecFunc for the mock helper
 func (m *MockHelper) SetPostEnvExecFunc(postEnvExecFunc func() error) {
 	m.PostEnvExecFunc = postEnvExecFunc

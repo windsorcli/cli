@@ -61,6 +61,10 @@ func main() {
 	dockerHelper := helpers.NewDockerHelper(cliConfigHandler, shellInstance, contextInstance)
 	container.Register("dockerHelper", dockerHelper)
 
+	// Create and register the ColimaHelper instance
+	colimaHelper := helpers.NewColimaHelper(cliConfigHandler, shellInstance, contextInstance)
+	container.Register("colimaHelper", colimaHelper)
+
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)
 

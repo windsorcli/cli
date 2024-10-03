@@ -19,7 +19,7 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 		talosConfigPath := filepath.Join(contextPath, ".talos", "config")
 
 		// Ensure the talos config file exists
-		err := os.MkdirAll(filepath.Dir(talosConfigPath), 0755)
+		err := mkdirAll(filepath.Dir(talosConfigPath), 0755)
 		if err != nil {
 			t.Fatalf("Failed to create talos config directory: %v", err)
 		}

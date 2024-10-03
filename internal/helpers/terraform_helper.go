@@ -12,18 +12,6 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-// Define a variable for os.Getwd() for easier testing
-var getwd = os.Getwd
-
-// Define a variable for filepath.Glob for easier testing
-var glob = filepath.Glob
-
-// Wrapper function for os.WriteFile
-var writeFile = os.WriteFile
-
-// Override variable for os.Stat
-var stat = os.Stat
-
 // TerraformHelper is a struct that provides various utility functions for working with Terraform
 type TerraformHelper struct {
 	ConfigHandler config.ConfigHandler

@@ -19,7 +19,7 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		composeFilePath := filepath.Join(contextPath, "docker-compose.yaml")
 
 		// Create the directory and docker-compose.yaml file
-		err := os.MkdirAll(contextPath, os.ModePerm)
+		err := mkdirAll(contextPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}
@@ -60,7 +60,7 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		composeFilePath := filepath.Join(contextPath, "docker-compose.yml")
 
 		// Create the directory and docker-compose.yml file
-		err := os.MkdirAll(contextPath, os.ModePerm)
+		err := mkdirAll(contextPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}
