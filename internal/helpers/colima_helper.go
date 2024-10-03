@@ -60,11 +60,9 @@ func getDefaultValues(context string) (int, int, int, string, string) {
 	if err != nil {
 		// Fallback to a default value if memory retrieval fails
 		memory = 2 // Default to 2GB
-		fmt.Println("Error retrieving memory:", err)
 	} else {
 		// Convert total system memory from bytes to gigabytes and use 50%
 		memory = int(vmStat.Total / (1024 * 1024 * 1024) / 2)
-		fmt.Println("Total system memory (GB):", vmStat.Total/(1024*1024*1024))
 	}
 
 	hostname := fmt.Sprintf("windsor-%s", context)
@@ -92,7 +90,6 @@ func (h *ColimaHelper) SetConfig(key, value string) error {
 	}
 
 	cpu, disk, memory, _, arch := getDefaultValues(context)
-	fmt.Printf("Setting config for key: %s, value: %s\n", key, value)
 
 	switch key {
 	case "driver":
@@ -243,7 +240,5 @@ func generateColimaConfig(context string, configHandler config.ConfigHandler) er
 	if err := rename(tempFilePath, colimaConfigPath); err != nil {
 		return fmt.Errorf("error renaming temporary file to colima config file: %w", err)
 	}
-
-	fmt.Println("Colima config generated successfully.")
 	return nil
 }
