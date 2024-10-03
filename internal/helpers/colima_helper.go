@@ -8,10 +8,14 @@ import (
 	"runtime"
 	"strconv"
 
+	"github.com/shirou/gopsutil/mem"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
+
+// Mockable function for mem.VirtualMemory
+var virtualMemory = mem.VirtualMemory
 
 // ColimaHelper is a struct that provides various utility functions for working with Colima
 type ColimaHelper struct {
@@ -49,7 +53,20 @@ var getArch = func() string {
 func getDefaultValues(context string) (int, int, int, string, string) {
 	cpu := runtime.NumCPU() / 2
 	disk := 60
-	memory := int(float64(os.Getpagesize()) * float64(runtime.NumCPU()) / (1024.0 * 1024.0 * 1024.0) / 2)
+
+	// Use the mockable function to get the total system memory
+	vmStat, err := virtualMemory()
+	var memory int
+	if err != nil {
+		// Fallback to a default value if memory retrieval fails
+		memory = 2 // Default to 2GB
+		fmt.Println("Error retrieving memory:", err)
+	} else {
+		// Convert total system memory from bytes to gigabytes and use 50%
+		memory = int(vmStat.Total / (1024 * 1024 * 1024) / 2)
+		fmt.Println("Total system memory (GB):", vmStat.Total/(1024*1024*1024))
+	}
+
 	hostname := fmt.Sprintf("windsor-%s", context)
 	arch := getArch()
 	return cpu, disk, memory, hostname, arch
@@ -75,6 +92,7 @@ func (h *ColimaHelper) SetConfig(key, value string) error {
 	}
 
 	cpu, disk, memory, _, arch := getDefaultValues(context)
+	fmt.Printf("Setting config for key: %s, value: %s\n", key, value)
 
 	switch key {
 	case "driver":
@@ -226,5 +244,6 @@ func generateColimaConfig(context string, configHandler config.ConfigHandler) er
 		return fmt.Errorf("error renaming temporary file to colima config file: %w", err)
 	}
 
+	fmt.Println("Colima config generated successfully.")
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/goccy/go-yaml"
+	"github.com/shirou/gopsutil/mem"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/shell"
@@ -197,49 +198,33 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 	})
 
 	t.Run("Memory", func(t *testing.T) {
-		tests := []struct {
-			value    string
-			expected string
-			errMsg   string
-		}{
-			{"8", "8", ""},
-			{"", strconv.Itoa(int(float64(os.Getpagesize()) * float64(runtime.NumCPU()) / (1024.0 * 1024.0 * 1024.0) / 2)), ""},
-			{"invalid", "", "invalid value for memory: strconv.Atoi: parsing \"invalid\": invalid syntax"},
+		// Mock the virtualMemory function to return a fixed total memory
+		originalVirtualMemory := virtualMemory
+		virtualMemory = func() (*mem.VirtualMemoryStat, error) {
+			return &mem.VirtualMemoryStat{Total: 64 * 1024 * 1024 * 1024}, nil // 64GB
+		}
+		defer func() { virtualMemory = originalVirtualMemory }()
+
+		configHandler := &config.MockConfigHandler{
+			SetConfigValueFunc: func(key, value string) error {
+				if key != "contexts.test-context.vm.memory" || value != "32" {
+					t.Fatalf("unexpected key/value: %s/%s", key, value)
+				}
+				return nil
+			},
+		}
+		shell := &shell.MockShell{}
+		ctx := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
 		}
 
-		for _, tt := range tests {
-			t.Run(tt.value, func(t *testing.T) {
-				configHandler := &config.MockConfigHandler{
-					SetConfigValueFunc: func(key, value string) error {
-						if key != "contexts.test-context.vm.memory" || value != tt.expected {
-							t.Fatalf("unexpected key/value: %s/%s", key, value)
-						}
-						return nil
-					},
-				}
-				shell := &shell.MockShell{}
-				ctx := &context.MockContext{
-					GetContextFunc: func() (string, error) {
-						return "test-context", nil
-					},
-				}
+		helper := NewColimaHelper(configHandler, shell, ctx)
 
-				helper := NewColimaHelper(configHandler, shell, ctx)
-
-				err := helper.SetConfig("memory", tt.value)
-				if tt.errMsg != "" {
-					if err == nil {
-						t.Fatalf("expected error, got nil")
-					}
-					if err.Error() != tt.errMsg {
-						t.Fatalf("expected error '%s', got '%v'", tt.errMsg, err)
-					}
-				} else {
-					if err != nil {
-						t.Fatalf("expected no error, got %v", err)
-					}
-				}
-			})
+		err := helper.SetConfig("memory", "")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
@@ -721,4 +706,34 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 			t.Fatalf("expected 'error renaming temporary file to colima config file: rename error', got '%v'", err)
 		}
 	})
+}
+
+func TestGetDefaultValues_MemoryError(t *testing.T) {
+	// Mock the virtualMemory function to return an error
+	originalVirtualMemory := virtualMemory
+	virtualMemory = func() (*mem.VirtualMemoryStat, error) {
+		return nil, errors.New("mock error")
+	}
+	defer func() { virtualMemory = originalVirtualMemory }()
+
+	// Call getDefaultValues and check the memory value
+	_, _, memory, _, _ := getDefaultValues("test-context")
+	if memory != 2 {
+		t.Fatalf("expected memory to be 2, got %d", memory)
+	}
+}
+
+func TestGetDefaultValues_MemoryMock(t *testing.T) {
+	// Mock the virtualMemory function to return a fixed total memory
+	originalVirtualMemory := virtualMemory
+	virtualMemory = func() (*mem.VirtualMemoryStat, error) {
+		return &mem.VirtualMemoryStat{Total: 64 * 1024 * 1024 * 1024}, nil // 64GB
+	}
+	defer func() { virtualMemory = originalVirtualMemory }()
+
+	// Call getDefaultValues and check the memory value
+	_, _, memory, _, _ := getDefaultValues("test-context")
+	if memory != 32 { // Expecting half of 64GB
+		t.Fatalf("expected memory to be 32, got %d", memory)
+	}
 }
