@@ -102,7 +102,7 @@ jobs:
         shell: pwsh
 
       - name: Upload Windsor CLI artifact
-        if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '.')
+        # if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '.')
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3.2.1
         with:
           name: windsor-cli-${{ matrix.os }}-${{ matrix.arch }}
