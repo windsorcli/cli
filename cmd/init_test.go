@@ -12,9 +12,23 @@ import (
 
 func TestInitCmd(t *testing.T) {
 	originalArgs := rootCmd.Args
+	originalExitFunc := exitFunc
+	originalTerraformHelper := terraformHelper
+	originalColimaHelper := colimaHelper
+	originalContextInstance := contextInstance
+
 	t.Cleanup(func() {
 		rootCmd.Args = originalArgs
+		exitFunc = originalExitFunc
+		terraformHelper = originalTerraformHelper
+		colimaHelper = originalColimaHelper
+		contextInstance = originalContextInstance
 	})
+
+	// Mock the exit function to prevent the test from exiting
+	exitFunc = func(code int) {
+		panic("exit called")
+	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given: a valid config handler

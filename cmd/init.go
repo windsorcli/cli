@@ -10,6 +10,11 @@ var (
 	backend        string
 	awsProfile     string
 	awsEndpointURL string
+	vmType         string
+	cpu            string
+	disk           string
+	memory         string
+	arch           string
 )
 
 var initCmd = &cobra.Command{
@@ -38,6 +43,23 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("error setting AWS configuration: %w", err)
 		}
 
+		// Set the Colima configuration values using the ColimaHelper
+		if err := colimaHelper.SetConfig("type", vmType); err != nil {
+			return fmt.Errorf("error setting Colima configuration: %w", err)
+		}
+		if err := colimaHelper.SetConfig("cpu", cpu); err != nil {
+			return fmt.Errorf("error setting Colima configuration: %w", err)
+		}
+		if err := colimaHelper.SetConfig("disk", disk); err != nil {
+			return fmt.Errorf("error setting Colima configuration: %w", err)
+		}
+		if err := colimaHelper.SetConfig("memory", memory); err != nil {
+			return fmt.Errorf("error setting Colima configuration: %w", err)
+		}
+		if err := colimaHelper.SetConfig("arch", arch); err != nil {
+			return fmt.Errorf("error setting Colima configuration: %w", err)
+		}
+
 		// Save the cli configuration
 		if err := cliConfigHandler.SaveConfig(""); err != nil {
 			return fmt.Errorf("Error saving config file: %w", err)
@@ -56,5 +78,10 @@ func init() {
 	initCmd.Flags().StringVar(&backend, "backend", "", "Specify the terraform backend to use")
 	initCmd.Flags().StringVar(&awsProfile, "aws-profile", "", "Specify the AWS profile to use")
 	initCmd.Flags().StringVar(&awsEndpointURL, "aws-endpoint-url", "", "Specify the AWS endpoint URL to use")
+	initCmd.Flags().StringVar(&vmType, "vm-type", "", "Specify the VM type for Colima")
+	initCmd.Flags().StringVar(&cpu, "vm-cpu", "", "Specify the number of CPUs for Colima")
+	initCmd.Flags().StringVar(&disk, "vm-disk", "", "Specify the disk size for Colima")
+	initCmd.Flags().StringVar(&memory, "vm-memory", "", "Specify the memory size for Colima")
+	initCmd.Flags().StringVar(&arch, "vm-arch", "", "Specify the architecture for Colima")
 	rootCmd.AddCommand(initCmd)
 }
