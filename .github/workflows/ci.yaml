@@ -81,15 +81,15 @@ jobs:
         run: |
           if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
             if [ "${{ matrix.arch }}" == "amd64" ]; then
-              GOOS=linux GOARCH=amd64 go build -o dist/windsor main.go
+              GOOS=linux GOARCH=amd64 go build -o dist/windsor cmd/windsor/main.go
             else
-              GOOS=linux GOARCH=arm64 go build -o dist/windsor main.go
+              GOOS=linux GOARCH=arm64 go build -o dist/windsor cmd/windsor/main.go
             fi
           elif [ "${{ matrix.os }}" == "macos-latest" ]; then
             if [ "${{ matrix.arch }}" == "amd64" ]; then
-              GOOS=darwin GOARCH=amd64 go build -o dist/windsor main.go
+              GOOS=darwin GOARCH=amd64 go build -o dist/windsor cmd/windsor/main.go
             else
-              GOOS=darwin GOARCH=arm64 go build -o dist/windsor main.go
+              GOOS=darwin GOARCH=arm64 go build -o dist/windsor cmd/windsor/main.go
             fi
           fi
 
@@ -98,7 +98,7 @@ jobs:
         run: |
           $env:GOOS="windows"
           $env:GOARCH="amd64"
-          go build -o dist/windsor.exe main.go
+          go build -o dist/windsor.exe cmd/windsor/main.go
         shell: pwsh
 
       - name: Upload Windsor CLI artifact
