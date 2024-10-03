@@ -60,11 +60,13 @@ jobs:
       - name: Install tools from .tool-versions
         if: runner.os != 'Windows'
         run: asdf install
-
+      
       - name: Install dependencies on Windows
         if: runner.os == 'Windows'
         run: |
           choco install go-task --version=3.37.2 -y
+          choco install age.portable
+          choco install sops 
 
       - name: Install dependencies
         run: task setup

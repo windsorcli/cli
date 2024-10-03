@@ -174,3 +174,31 @@ func TestMockHelper_SetConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestMockHelper_SetSetConfigFunc(t *testing.T) {
+	t.Run("SetSetConfigFunc", func(t *testing.T) {
+		// Given: a mock helper
+		helper := NewMockHelper(nil, nil)
+
+		// Define a mock SetConfigFunc
+		expectedError := errors.New("mock error setting config")
+		mockSetConfigFunc := func(key, value string) error {
+			if key == "test_key" && value == "test_value" {
+				return expectedError
+			}
+			return nil
+		}
+
+		// When: SetSetConfigFunc is called
+		helper.SetSetConfigFunc(mockSetConfigFunc)
+
+		// Then: the SetConfigFunc should be set and return the expected error
+		err := helper.SetConfig("test_key", "test_value")
+		if err == nil {
+			t.Fatalf("expected error %v, got nil", expectedError)
+		}
+		if err.Error() != expectedError.Error() {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
+		}
+	})
+}
