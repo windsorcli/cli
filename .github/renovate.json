@@ -41,5 +41,6 @@
       "datasourceTemplate": "chocolatey",
       "versioningTemplate": "semver"
     }
-  ]
+  ],
+  "labels": ["dependencies"]
 }
