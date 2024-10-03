@@ -33,7 +33,7 @@ func TestInitCmd(t *testing.T) {
 		mockHelper := &helpers.MockHelper{
 			SetConfigFunc: func(key, value string) error { return nil },
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil)
 
 		// When: the init command is executed with a valid context
 		output := captureStdout(func() {
@@ -68,7 +68,7 @@ func TestInitCmd(t *testing.T) {
 		mockHelper := &helpers.MockHelper{
 			SetConfigFunc: func(key, value string) error { return nil },
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -103,7 +103,7 @@ func TestInitCmd(t *testing.T) {
 		mockHelper := &helpers.MockHelper{
 			SetConfigFunc: func(key, value string) error { return nil },
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -146,7 +146,7 @@ func TestInitCmd(t *testing.T) {
 		mockHelper := &helpers.MockHelper{
 			SetConfigFunc: func(key, value string) error { return nil },
 		}
-		setupContainer(mockCLIHandler, mockProjectHandler, mockShell, mockHelper, mockHelper)
+		setupContainer(mockCLIHandler, mockProjectHandler, mockShell, mockHelper, mockHelper, nil)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -189,7 +189,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, terraformHelper, nil)
+		setupContainer(mockHandler, mockHandler, mockShell, terraformHelper, nil, nil)
 
 		// When: the init command is executed with a backend flag
 		output := captureStderr(func() {
@@ -234,7 +234,7 @@ func TestInitCmd(t *testing.T) {
 		originalContextInstance := contextInstance
 		defer func() { contextInstance = originalContextInstance }()
 
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -274,7 +274,7 @@ func TestInitCmd(t *testing.T) {
 				return nil
 			},
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil)
 
 		// When: the init command is executed with aws-endpoint-url flag and context
 		output := captureStderr(func() {
@@ -314,7 +314,7 @@ func TestInitCmd(t *testing.T) {
 				return nil
 			},
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil)
 
 		// When: the init command is executed with aws-profile flag and context
 		output := captureStderr(func() {

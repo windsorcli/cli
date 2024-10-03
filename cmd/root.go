@@ -33,6 +33,9 @@ var terraformHelper helpers.Helper
 // awsHelper instance
 var awsHelper helpers.Helper
 
+// colimaHelper instance
+var colimaHelper helpers.Helper
+
 // context instance
 var contextInstance *context.Context
 
@@ -163,6 +166,7 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("shell", &shellInstance)
 	resolveAndAssign("terraformHelper", &terraformHelper)
 	resolveAndAssign("awsHelper", &awsHelper)
+	resolveAndAssign("colimaHelper", &colimaHelper)
 
 	// Initialize contextInstance
 	contextInstance = context.NewContext(cliConfigHandler, shellInstance)
