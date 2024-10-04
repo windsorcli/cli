@@ -42,6 +42,7 @@ func (h *KubeHelper) GetEnvVars() (map[string]string, error) {
 
 	envVars := map[string]string{
 		"KUBECONFIG": kubeConfigPath,
+		"KUBE_CONFIG_PATH": kubeConfigPath,
 	}
 
 	return envVars, nil

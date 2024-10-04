@@ -47,7 +47,8 @@ func TestKubeHelper_GetEnvVars(t *testing.T) {
 
 		// Then: the environment variables should be set correctly
 		expectedEnvVars := map[string]string{
-			"KUBECONFIG": kubeConfigPath,
+			"KUBECONFIG":       kubeConfigPath,
+			"KUBE_CONFIG_PATH": kubeConfigPath,
 		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
@@ -77,7 +78,8 @@ func TestKubeHelper_GetEnvVars(t *testing.T) {
 
 		// Then: the environment variables should be set correctly with an empty KUBECONFIG
 		expectedEnvVars := map[string]string{
-			"KUBECONFIG": kubeConfigPath,
+			"KUBECONFIG":       kubeConfigPath,
+			"KUBE_CONFIG_PATH": kubeConfigPath,
 		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
