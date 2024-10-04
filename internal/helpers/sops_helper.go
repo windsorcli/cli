@@ -7,25 +7,25 @@ import (
 
 	"github.com/getsops/sops/v3/decrypt"
 	"github.com/goccy/go-yaml"
-	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // SopsHelper is a helper struct that provides Kubernetes-specific utility functions
 type SopsHelper struct {
-	ConfigHandler config.ConfigHandler
-	Shell         shell.Shell
-	Context       context.ContextInterface
+	Context context.ContextInterface
 }
 
 // NewSopsHelper is a constructor for SopsHelper
-func NewSopsHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *SopsHelper {
-	return &SopsHelper{
-		ConfigHandler: configHandler,
-		Shell:         shell,
-		Context:       ctx,
+func NewSopsHelper(di *di.DIContainer) (*SopsHelper, error) {
+	resolvedContext, err := di.Resolve("context")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
+
+	return &SopsHelper{
+		Context: resolvedContext.(context.ContextInterface),
+	}, nil
 }
 
 // GetEnvVars retrieves Kubernetes-specific environment variables for the current context

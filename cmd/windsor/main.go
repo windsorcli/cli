@@ -67,7 +67,10 @@ func main() {
 	container.Register("omniHelper", omniHelper)
 
 	// Create and register the SopsHelper instance
-	sopsHelper := helpers.NewSopsHelper(cliConfigHandler, shellInstance, contextInstance)
+	sopsHelper, err := helpers.NewSopsHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create sops helper: %v", err)
+	}
 	container.Register("sopsHelper", sopsHelper)
 
 	// Create and register the AwsHelper instance
