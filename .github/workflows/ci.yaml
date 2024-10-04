@@ -76,11 +76,6 @@ jobs:
       - name: Run tests
         run: task test
 
-      - name: Run Gosec Security Scanner
-        uses: securego/gosec@d4617f51baf75f4f809066386a4f9d27b3ac3e46 # v2.21.4
-        with:
-          args: ./...
-
       - name: Build Windsor CLI on macOS/Linux
         if: runner.os != 'Windows'
         run: |
@@ -107,3 +102,19 @@ jobs:
           tag_name: ${{ github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sast-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: Set up Go
+        uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
+        with:
+          go-version: '1.22.2'
+
+      - name: Run Gosec Security Scanner
+        uses: securego/gosec@d4617f51baf75f4f809066386a4f9d27b3ac3e46 # v2.21.4
+        with:
+          args: ./...
