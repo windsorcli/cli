@@ -60,7 +60,10 @@ func main() {
 	container.Register("talosHelper", talosHelper)
 
 	// Create and register the OmniHelper instance
-	omniHelper := helpers.NewOmniHelper(cliConfigHandler, shellInstance, contextInstance)
+	omniHelper, err := helpers.NewOmniHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create omni helper: %v", err)
+	}
 	container.Register("omniHelper", omniHelper)
 
 	// Create and register the SopsHelper instance

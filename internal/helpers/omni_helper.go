@@ -5,25 +5,30 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // OmniHelper is a helper struct that provides Omnirnetes-specific utility functions
 type OmniHelper struct {
-	ConfigHandler config.ConfigHandler
-	Shell         shell.Shell
-	Context       context.ContextInterface
+	Context context.ContextInterface
 }
 
 // NewOmniHelper is a constructor for OmniHelper
-func NewOmniHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *OmniHelper {
-	return &OmniHelper{
-		ConfigHandler: configHandler,
-		Shell:         shell,
-		Context:       ctx,
+func NewOmniHelper(di *di.DIContainer) (*OmniHelper, error) {
+	resolvedContext, err := di.Resolve("context")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
+
+	contextInterface, ok := resolvedContext.(context.ContextInterface)
+	if !ok {
+		return nil, fmt.Errorf("resolved context is not of type ContextInterface")
+	}
+
+	return &OmniHelper{
+		Context: contextInterface,
+	}, nil
 }
 
 // GetEnvVars retrieves Omnirnetes-specific environment variables for the current context
