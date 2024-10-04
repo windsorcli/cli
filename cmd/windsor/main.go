@@ -45,7 +45,10 @@ func main() {
 	container.Register("baseHelper", baseHelper)
 
 	// Create and register the KubeHelper instance
-	kubeHelper := helpers.NewKubeHelper(cliConfigHandler, shellInstance, contextInstance)
+	kubeHelper, err := helpers.NewKubeHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create kube helper: %v", err)
+	}
 	container.Register("kubeHelper", kubeHelper)
 
 	// Create and register the TerraformHelper instance
