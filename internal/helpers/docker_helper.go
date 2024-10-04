@@ -61,8 +61,17 @@ func (h *DockerHelper) PostEnvExec() error {
 
 // SetConfig sets the configuration value for the given key
 func (h *DockerHelper) SetConfig(key, value string) error {
-	// This is a stub implementation
-	return nil
+	if key == "enabled" {
+		currentContext, err := h.Context.GetContext()
+		if err != nil {
+			return fmt.Errorf("error retrieving current context: %w", err)
+		}
+		if err := h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", currentContext), value); err != nil {
+			return fmt.Errorf("error setting docker.enabled: %w", err)
+		}
+		return nil
+	}
+	return fmt.Errorf("unsupported config key: %s", key)
 }
 
 // writeDockerComposeFile is a private method to write the docker-compose configuration to a file.

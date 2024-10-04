@@ -172,17 +172,76 @@ func TestDockerHelper_PostEnvExec(t *testing.T) {
 }
 
 func TestDockerHelper_SetConfig(t *testing.T) {
-	mockConfigHandler := &config.MockConfigHandler{}
-	mockContext := &context.MockContext{}
+	mockConfigHandler := &config.MockConfigHandler{
+		SetConfigValueFunc: func(key, value string) error {
+			if key == "contexts.test-context.docker.enabled" && value == "true" {
+				return nil
+			}
+			return errors.New("unexpected key or value")
+		},
+	}
+	mockContext := &context.MockContext{
+		GetContextFunc: func() (string, error) {
+			return "test-context", nil
+		},
+	}
 	helper := NewDockerHelper(mockConfigHandler, nil, mockContext)
 
-	t.Run("SetConfigStub", func(t *testing.T) {
-		// When: SetConfig is called
-		err := helper.SetConfig("some_key", "some_value")
+	t.Run("SetEnabledConfigSuccess", func(t *testing.T) {
+		// When: SetConfig is called with "enabled" key
+		err := helper.SetConfig("enabled", "true")
 
 		// Then: it should return no error
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("SetEnabledConfigError", func(t *testing.T) {
+		// Given: a mock context that returns an error
+		mockContextWithError := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "", errors.New("error retrieving current context")
+			},
+		}
+		helperWithError := NewDockerHelper(mockConfigHandler, nil, mockContextWithError)
+
+		// When: SetConfig is called with "enabled" key
+		err := helperWithError.SetConfig("enabled", "true")
+
+		// Then: it should return an error
+		if err == nil || !strings.Contains(err.Error(), "error retrieving current context") {
+			t.Fatalf("expected error containing 'error retrieving current context', got %v", err)
+		}
+	})
+
+	t.Run("UnsupportedConfigKey", func(t *testing.T) {
+		// When: SetConfig is called with an unsupported key
+		err := helper.SetConfig("unsupported_key", "some_value")
+
+		// Then: it should return an error
+		expectedError := "unsupported config key: unsupported_key"
+		if err == nil || err.Error() != expectedError {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorSettingDockerEnabled", func(t *testing.T) {
+		// Given: a mock config handler that returns an error when setting the config value
+		mockConfigHandlerWithError := &config.MockConfigHandler{
+			SetConfigValueFunc: func(key, value string) error {
+				return errors.New("mock error setting config value")
+			},
+		}
+		helperWithError := NewDockerHelper(mockConfigHandlerWithError, nil, mockContext)
+
+		// When: SetConfig is called with "enabled" key
+		err := helperWithError.SetConfig("enabled", "true")
+
+		// Then: it should return an error indicating the failure to set the config
+		expectedError := "error setting docker.enabled: mock error setting config value"
+		if err == nil || err.Error() != expectedError {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
 		}
 	})
 }
