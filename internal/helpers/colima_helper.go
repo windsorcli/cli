@@ -12,7 +12,7 @@ import (
 	"github.com/shirou/gopsutil/mem"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // Mockable function for mem.VirtualMemory
@@ -24,17 +24,25 @@ var testForceMemoryOverflow = false
 // ColimaHelper is a struct that provides various utility functions for working with Colima
 type ColimaHelper struct {
 	ConfigHandler config.ConfigHandler
-	Shell         shell.Shell
 	Context       context.ContextInterface
 }
 
 // NewColimaHelper is a constructor for ColimaHelper
-func NewColimaHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *ColimaHelper {
-	return &ColimaHelper{
-		ConfigHandler: configHandler,
-		Shell:         shell,
-		Context:       ctx,
+func NewColimaHelper(di *di.DIContainer) (*ColimaHelper, error) {
+	configHandler, err := di.Resolve("configHandler")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving configHandler: %w", err)
 	}
+
+	resolvedContext, err := di.Resolve("context")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving context: %w", err)
+	}
+
+	return &ColimaHelper{
+		ConfigHandler: configHandler.(config.ConfigHandler),
+		Context:       resolvedContext.(context.ContextInterface),
+	}, nil
 }
 
 type YAMLEncoder interface {
