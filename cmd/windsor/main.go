@@ -38,7 +38,10 @@ func main() {
 	container.Register("context", contextInstance)
 
 	// Create and register the BaseHelper instance
-	baseHelper := helpers.NewBaseHelper(cliConfigHandler, shellInstance, contextInstance)
+	baseHelper, err := helpers.NewBaseHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create base helper: %v", err)
+	}
 	container.Register("baseHelper", baseHelper)
 
 	// Create and register the KubeHelper instance
@@ -62,7 +65,10 @@ func main() {
 	container.Register("sopsHelper", sopsHelper)
 
 	// Create and register the AwsHelper instance
-	awsHelper := helpers.NewAwsHelper(cliConfigHandler, shellInstance, contextInstance)
+	awsHelper, err := helpers.NewAwsHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create aws helper: %v", err)
+	}
 	container.Register("awsHelper", awsHelper)
 
 	// Create and register the DockerHelper instance

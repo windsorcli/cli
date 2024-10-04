@@ -10,6 +10,7 @@ import (
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -58,8 +59,23 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 			},
 		}
 
+		// Ensure the shell mock is properly created and registered
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell) // Ensure this is not nil
+		diContainer.Register("context", mockContext)
+
 		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: GetEnvVars is called
 		envVars, err := awsHelper.GetEnvVars()
@@ -113,8 +129,23 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 			},
 		}
 
+		// Ensure the shell mock is properly created and registered
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell) // Ensure this is not nil
+		diContainer.Register("context", mockContext)
+
 		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: GetEnvVars is called
 		envVars, err := awsHelper.GetEnvVars()
@@ -146,13 +177,28 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 		// Mock config handler
 		mockConfigHandler := &config.MockConfigHandler{}
 
+		// Ensure the shell mock is properly created and registered
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell) // Ensure this is not nil
+		diContainer.Register("context", mockContext)
+
 		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When calling GetEnvVars
 		expectedError := "error retrieving config root"
 
-		_, err := awsHelper.GetEnvVars()
+		_, err = awsHelper.GetEnvVars()
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error containing %v, got %v", expectedError, err)
 		}
@@ -172,13 +218,28 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 		// Mock config handler
 		mockConfigHandler := &config.MockConfigHandler{}
 
+		// Ensure the shell mock is properly created and registered
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell) // Ensure this is not nil
+		diContainer.Register("context", mockContext)
+
 		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When calling GetEnvVars
 		expectedError := "error retrieving current context"
 
-		_, err := awsHelper.GetEnvVars()
+		_, err = awsHelper.GetEnvVars()
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error containing %v, got %v", expectedError, err)
 		}
@@ -228,8 +289,23 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 			},
 		}
 
+		// Ensure the shell mock is properly created and registered
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell) // Ensure this is not nil
+		diContainer.Register("context", mockContext)
+
 		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: GetEnvVars is called
 		envVars, err := awsHelper.GetEnvVars()
@@ -294,8 +370,23 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 			},
 		}
 
+		// Ensure the shell mock is properly created and registered
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell) // Ensure this is not nil
+		diContainer.Register("context", mockContext)
+
 		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: GetEnvVars is called
 		envVars, err := awsHelper.GetEnvVars()
@@ -349,8 +440,23 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 			},
 		}
 
+		// Ensure the shell mock is properly created and registered
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell) // Ensure this is not nil
+		diContainer.Register("context", mockContext)
+
 		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: GetEnvVars is called
 		envVars, err := awsHelper.GetEnvVars()
@@ -404,8 +510,23 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 			},
 		}
 
+		// Ensure the shell mock is properly created and registered
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell) // Ensure this is not nil
+		diContainer.Register("context", mockContext)
+
 		// Create AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: GetEnvVars is called
 		envVars, err := awsHelper.GetEnvVars()
@@ -433,10 +554,25 @@ func TestAwsHelper_PostEnvExec(t *testing.T) {
 		mockConfigHandler := &config.MockConfigHandler{}
 		mockContext := &context.MockContext{}
 
-		awsHelper := NewAwsHelper(mockConfigHandler, nil, mockContext)
+		// Ensure the shell mock is properly created and registered
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell) // Ensure this is not nil
+		diContainer.Register("context", mockContext)
+
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When calling PostEnvExec
-		err := awsHelper.PostEnvExec()
+		err = awsHelper.PostEnvExec()
 
 		// Then no error should be returned
 		if err != nil {
@@ -469,8 +605,17 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 			},
 		}
 
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
 		// Create an instance of AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: SetConfig is called with valid values
 		err = awsHelper.SetConfig("http://example.com", "test-profile")
@@ -507,8 +652,17 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 			},
 		}
 
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
 		// Create an instance of AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: SetConfig is called with empty values
 		err = awsHelper.SetConfig("", "")
@@ -545,8 +699,17 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 			},
 		}
 
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
 		// Create an instance of AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: SetConfig is called with only aws_profile
 		err = awsHelper.SetConfig("", "test-profile")
@@ -588,8 +751,17 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 			},
 		}
 
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
 		// Create an instance of AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: SetConfig is called and setting aws_profile fails
 		err = awsHelper.SetConfig("aws_profile", "test-profile")
@@ -626,8 +798,17 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 			},
 		}
 
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
 		// Create an instance of AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: SetConfig is called and setting aws_endpoint_url fails
 		err = awsHelper.SetConfig("aws_endpoint_url", "http://example.com")
@@ -659,8 +840,17 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 			},
 		}
 
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
 		// Create an instance of AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: SetConfig is called and saving config fails
 		err = awsHelper.SetConfig("http://example.com", "test-profile")
@@ -692,8 +882,17 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 			},
 		}
 
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
 		// Create an instance of AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 
 		// When: SetConfig is called
 		err = awsHelper.SetConfig("http://example.com", "test-profile")
