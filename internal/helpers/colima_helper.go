@@ -3,6 +3,7 @@ package helpers
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +17,9 @@ import (
 
 // Mockable function for mem.VirtualMemory
 var virtualMemory = mem.VirtualMemory
+
+// Test hook to force memory overflow
+var testForceMemoryOverflow = false
 
 // ColimaHelper is a struct that provides various utility functions for working with Colima
 type ColimaHelper struct {
@@ -61,8 +65,20 @@ func getDefaultValues(context string) (int, int, int, string, string) {
 		// Fallback to a default value if memory retrieval fails
 		memory = 2 // Default to 2GB
 	} else {
-		// Convert total system memory from bytes to gigabytes and use 50%
-		memory = int(vmStat.Total / (1024 * 1024 * 1024) / 2)
+		// Convert total system memory from bytes to gigabytes
+		totalMemoryGB := vmStat.Total / (1024 * 1024 * 1024)
+		halfMemoryGB := totalMemoryGB / 2
+
+		// Use the test hook to force the overflow condition
+		if testForceMemoryOverflow || halfMemoryGB > uint64(math.MaxInt) {
+			memory = math.MaxInt
+		} else {
+			memory = int(halfMemoryGB)
+		}
+
+		hostname := fmt.Sprintf("windsor-%s", context)
+		arch := getArch()
+		return cpu, disk, memory, hostname, arch
 	}
 
 	hostname := fmt.Sprintf("windsor-%s", context)
@@ -228,7 +244,9 @@ func generateColimaConfig(context string, configHandler config.ConfigHandler) er
 	if err := encoder.Encode(configData); err != nil {
 		return fmt.Errorf("error encoding yaml: %w", err)
 	}
-	encoder.Close()
+	if err := encoder.Close(); err != nil {
+		return fmt.Errorf("error closing encoder: %w", err)
+	}
 
 	// Write the encoded content to the temporary file
 	if err := writeFile(tempFilePath, buf.Bytes(), 0644); err != nil {

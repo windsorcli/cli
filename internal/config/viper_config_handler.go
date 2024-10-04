@@ -12,12 +12,14 @@ import (
 type ViperConfigHandler struct{}
 
 // NewViperConfigHandler is a constructor for ViperConfigHandler that accepts a path
-func NewViperConfigHandler(path string) *ViperConfigHandler {
+func NewViperConfigHandler(path string) (*ViperConfigHandler, error) {
 	handler := &ViperConfigHandler{}
 	if path != "" {
-		handler.LoadConfig(path)
+		if err := handler.LoadConfig(path); err != nil {
+			return nil, fmt.Errorf("error loading config: %w", err)
+		}
 	}
-	return handler
+	return handler, nil
 }
 
 // osUserHomeDir is a variable to allow mocking os.UserHomeDir in tests

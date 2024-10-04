@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+
 	"github.com/windsor-hotel/cli/cmd"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
@@ -14,7 +16,10 @@ func main() {
 	container := di.NewContainer()
 
 	// Register CLI Config Handler (to be initialized later)
-	cliConfigHandler := config.NewViperConfigHandler("")
+	cliConfigHandler, err := config.NewViperConfigHandler("")
+	if err != nil {
+		log.Fatalf("failed to create CLI config handler: %v", err)
+	}
 	container.Register("cliConfigHandler", cliConfigHandler)
 
 	// Register Shell instance
@@ -22,7 +27,10 @@ func main() {
 	container.Register("shell", shellInstance)
 
 	// Register the Project Config Handler (to be initialized later)
-	projectConfigHandler := config.NewViperConfigHandler("")
+	projectConfigHandler, err := config.NewViperConfigHandler("")
+	if err != nil {
+		log.Fatalf("failed to create project config handler: %v", err)
+	}
 	container.Register("projectConfigHandler", projectConfigHandler)
 
 	// Create and register the Context instance

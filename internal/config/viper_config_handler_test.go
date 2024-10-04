@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -353,9 +354,40 @@ func TestViperConfigHandler_ListKeys(t *testing.T) {
 
 func TestNewViperConfigHandler(t *testing.T) {
 	t.Run("NewViperConfigHandler", func(t *testing.T) {
-		handler := NewViperConfigHandler(tempDir)
+		// Create a temporary file
+		tempFile, err := ioutil.TempFile("", "testconfig*.yaml")
+		if err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+		defer os.Remove(tempFile.Name()) // Clean up
+
+		// Close the file so it can be used by Viper
+		if err := tempFile.Close(); err != nil {
+			t.Fatalf("failed to close temp file: %v", err)
+		}
+
+		// Use the temporary file path
+		handler, err := NewViperConfigHandler(tempFile.Name())
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 		if handler == nil {
 			t.Errorf("expected NewViperConfigHandler to return a non-nil instance")
+		}
+	})
+}
+
+func TestNewViperConfigHandler_ErrorLoadingConfig(t *testing.T) {
+	t.Run("ErrorLoadingConfig", func(t *testing.T) {
+		// Provide an invalid path to trigger an error
+		invalidPath := "/invalid/path/to/config.yaml"
+
+		handler, err := NewViperConfigHandler(invalidPath)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if handler != nil {
+			t.Errorf("expected handler to be nil, got %v", handler)
 		}
 	})
 }
