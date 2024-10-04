@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/goccy/go-yaml"
@@ -14,7 +15,6 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 type mockYAMLEncoder struct {
@@ -892,7 +892,6 @@ func TestGetDefaultValues(t *testing.T) {
 				return nil
 			},
 		}
-		shell := &shell.MockShell{}
 		ctx := &context.MockContext{
 			GetContextFunc: func() (string, error) {
 				return "test-context", nil
@@ -901,7 +900,6 @@ func TestGetDefaultValues(t *testing.T) {
 
 		diContainer := di.NewContainer()
 		diContainer.Register("configHandler", configHandler)
-		diContainer.Register("shell", shell)
 		diContainer.Register("context", ctx)
 
 		helper, err := NewColimaHelper(diContainer)
@@ -931,6 +929,32 @@ func TestGetDefaultValues(t *testing.T) {
 
 		if memory != math.MaxInt {
 			t.Fatalf("expected memory to be set to MaxInt, got %d", memory)
+		}
+	})
+}
+
+func TestNewColimaHelper(t *testing.T) {
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		// Create DI container without registering configHandler
+		diContainer := di.NewContainer()
+
+		// Attempt to create ColimaHelper
+		_, err := NewColimaHelper(diContainer)
+		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
+			t.Fatalf("expected error resolving configHandler, got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingContext", func(t *testing.T) {
+		// Create DI container and register only configHandler
+		diContainer := di.NewContainer()
+		mockConfigHandler := &config.MockConfigHandler{}
+		diContainer.Register("configHandler", mockConfigHandler)
+
+		// Attempt to create ColimaHelper
+		_, err := NewColimaHelper(diContainer)
+		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
+			t.Fatalf("expected error resolving context, got %v", err)
 		}
 	})
 }
