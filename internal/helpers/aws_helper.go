@@ -9,13 +9,11 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // AwsHelper is a helper struct that provides AWS-specific utility functions
 type AwsHelper struct {
 	ConfigHandler config.ConfigHandler
-	Shell         shell.Shell
 	Context       context.ContextInterface
 }
 
@@ -26,11 +24,6 @@ func NewAwsHelper(di *di.DIContainer) (*AwsHelper, error) {
 		return nil, fmt.Errorf("error resolving configHandler: %w", err)
 	}
 
-	resolvedShell, err := di.Resolve("shell")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving shell: %w", err)
-	}
-
 	resolvedContext, err := di.Resolve("context")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
@@ -38,7 +31,6 @@ func NewAwsHelper(di *di.DIContainer) (*AwsHelper, error) {
 
 	return &AwsHelper{
 		ConfigHandler: configHandler.(config.ConfigHandler),
-		Shell:         resolvedShell.(shell.Shell),
 		Context:       resolvedContext.(context.ContextInterface),
 	}, nil
 }

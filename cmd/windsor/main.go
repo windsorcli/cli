@@ -72,7 +72,10 @@ func main() {
 	container.Register("awsHelper", awsHelper)
 
 	// Create and register the DockerHelper instance
-	dockerHelper := helpers.NewDockerHelper(cliConfigHandler, shellInstance, contextInstance)
+	dockerHelper, err := helpers.NewDockerHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create docker helper: %v", err)
+	}
 	container.Register("dockerHelper", dockerHelper)
 
 	// Create and register the ColimaHelper instance
