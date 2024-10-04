@@ -88,8 +88,8 @@ jobs:
       - name: Build Windsor CLI on Windows
         if: runner.os == 'Windows'
         run: |
-          $env:GOOS="windows"
-          $env:GOARCH=${{ matrix.arch }}
+          $env:GOOS = "windows"
+          $env:GOARCH = "${{ matrix.arch }}"
           go build -o dist/windsor.exe cmd/windsor/main.go
         shell: pwsh
 
