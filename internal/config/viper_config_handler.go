@@ -40,6 +40,12 @@ var viperSafeWriteConfigAs = viper.SafeWriteConfigAs
 // viperConfigFileUsed is a variable to allow mocking viper.ConfigFileUsed in tests
 var viperConfigFileUsed = viper.ConfigFileUsed
 
+// viperReadInConfig is a variable to allow mocking viper.ReadInConfig in tests
+var viperReadInConfig = viper.ReadInConfig
+
+// osStat is a variable to allow mocking os.Stat in tests
+var osStat = os.Stat
+
 // createParentDirs ensures that all parent directories for the given path exist
 func createParentDirs(path string) error {
 	dir := filepath.Dir(path)
@@ -69,13 +75,19 @@ func (v *ViperConfigHandler) LoadConfig(input string) error {
 	}
 
 	// Check if the config file exists, if not create it
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	if _, err := osStat(path); os.IsNotExist(err) {
 		if err := viperSafeWriteConfigAs(path); err != nil {
 			return fmt.Errorf("error creating config file, %s", err)
 		}
+	} else if err != nil {
+		return err
 	}
 
-	return viper.ReadInConfig()
+	if err := viperReadInConfig(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // GetConfigValue retrieves the value for the specified key from the configuration
