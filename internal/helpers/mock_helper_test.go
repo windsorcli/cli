@@ -202,3 +202,21 @@ func TestMockHelper_SetSetConfigFunc(t *testing.T) {
 		}
 	})
 }
+
+func TestMockHelper_GetContainerConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock helper
+		helper := NewMockHelper(nil, nil)
+
+		// When: GetContainerConfig is called
+		containerConfig, err := helper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
+		}
+	})
+}

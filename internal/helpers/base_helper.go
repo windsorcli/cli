@@ -73,5 +73,11 @@ func (h *BaseHelper) SetConfig(key, value string) error {
 	return nil
 }
 
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *BaseHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
+}
+
 // Ensure BaseHelper implements Helper interface
 var _ Helper = (*BaseHelper)(nil)

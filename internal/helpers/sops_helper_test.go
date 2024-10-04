@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // setupTestContext sets paths and names for secrets
@@ -341,4 +342,25 @@ key2: value2
 			}
 		})
 	}
+}
+
+func TestSopsHelper_GetContainerConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := &config.MockConfigHandler{}
+		mockShell := &shell.MockShell{}
+		mockContext := &context.MockContext{}
+		helper := NewSopsHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When: GetContainerConfig is called
+		containerConfig, err := helper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
+		}
+	})
 }

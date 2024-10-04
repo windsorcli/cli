@@ -125,5 +125,11 @@ func (h *AwsHelper) SetConfig(key, value string) error {
 	return nil
 }
 
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *AwsHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
+}
+
 // Ensure AwsHelper implements Helper interface
 var _ Helper = (*AwsHelper)(nil)

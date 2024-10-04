@@ -260,3 +260,9 @@ func generateColimaConfig(context string, configHandler config.ConfigHandler) er
 	}
 	return nil
 }
+
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *ColimaHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
+}

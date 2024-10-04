@@ -62,5 +62,11 @@ func (m *MockHelper) SetPostEnvExecFunc(postEnvExecFunc func() error) {
 	m.PostEnvExecFunc = postEnvExecFunc
 }
 
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *MockHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
+}
+
 // Ensure MockHelper implements Helper interface
 var _ Helper = (*MockHelper)(nil)

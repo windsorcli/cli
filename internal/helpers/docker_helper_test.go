@@ -10,6 +10,7 @@ import (
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 func TestDockerHelper_GetEnvVars(t *testing.T) {
@@ -182,6 +183,27 @@ func TestDockerHelper_SetConfig(t *testing.T) {
 		// Then: it should return no error
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestDockerHelper_GetContainerConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := &config.MockConfigHandler{}
+		mockShell := &shell.MockShell{}
+		mockContext := &context.MockContext{}
+		helper := NewDockerHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When: GetContainerConfig is called
+		containerConfig, err := helper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
 		}
 	})
 }

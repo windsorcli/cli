@@ -41,7 +41,7 @@ func (h *KubeHelper) GetEnvVars() (map[string]string, error) {
 	}
 
 	envVars := map[string]string{
-		"KUBECONFIG": kubeConfigPath,
+		"KUBECONFIG":       kubeConfigPath,
 		"KUBE_CONFIG_PATH": kubeConfigPath,
 	}
 
@@ -57,6 +57,12 @@ func (h *KubeHelper) PostEnvExec() error {
 func (h *KubeHelper) SetConfig(key, value string) error {
 	// This is a stub implementation
 	return nil
+}
+
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *KubeHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
 }
 
 // Ensure KubeHelper implements Helper interface

@@ -799,3 +799,24 @@ func TestGetDefaultValues(t *testing.T) {
 		}
 	})
 }
+
+func TestColimaHelper_GetContainerConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := &config.MockConfigHandler{}
+		mockShell := &shell.MockShell{}
+		mockContext := &context.MockContext{}
+		helper := NewColimaHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When: GetContainerConfig is called
+		containerConfig, err := helper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
+		}
+	})
+}

@@ -703,3 +703,29 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 	})
 
 }
+
+func TestAwsHelper_GetContainerConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := &config.MockConfigHandler{}
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockContext := &context.MockContext{}
+
+		// Create an instance of AwsHelper
+		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
+
+		// When: GetContainerConfig is called
+		containerConfig, err := awsHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
+		}
+	})
+}

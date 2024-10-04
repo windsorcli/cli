@@ -120,6 +120,12 @@ func (h *TerraformHelper) SetConfig(key, value string) error {
 	return fmt.Errorf("unsupported config key: %s", key)
 }
 
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *TerraformHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
+}
+
 // Ensure TerraformHelper implements Helper interface
 var _ Helper = (*TerraformHelper)(nil)
 
