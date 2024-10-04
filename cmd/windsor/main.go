@@ -56,7 +56,10 @@ func main() {
 	container.Register("terraformHelper", terraformHelper)
 
 	// Create and register the TalosHelper instance
-	talosHelper := helpers.NewTalosHelper(cliConfigHandler, shellInstance, contextInstance)
+	talosHelper, err := helpers.NewTalosHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create talos helper: %v", err)
+	}
 	container.Register("talosHelper", talosHelper)
 
 	// Create and register the OmniHelper instance
