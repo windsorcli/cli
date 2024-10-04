@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -352,10 +353,69 @@ func TestViperConfigHandler_ListKeys(t *testing.T) {
 }
 
 func TestNewViperConfigHandler(t *testing.T) {
-	t.Run("NewViperConfigHandler", func(t *testing.T) {
-		handler := NewViperConfigHandler(tempDir)
+	t.Run("ErrorLoadingConfig", func(t *testing.T) {
+		// Save the original function to restore later
+		originalViperReadInConfig := viperReadInConfig
+		defer func() { viperReadInConfig = originalViperReadInConfig }()
+
+		// Mock viperReadInConfig to simulate an error
+		viperReadInConfig = func() error {
+			return errors.New("mock error reading config")
+		}
+
+		// Provide a valid path, but the mock will cause an error
+		tempDir := t.TempDir()
+		validPath := filepath.Join(tempDir, "config.yaml")
+
+		handler, err := NewViperConfigHandler(validPath)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if handler != nil {
+			t.Errorf("expected handler to be nil, got %v", handler)
+		}
+	})
+
+	t.Run("SuccessfulConfigLoad", func(t *testing.T) {
+		// Use the original viperReadInConfig for a successful load
+		originalViperReadInConfig := viperReadInConfig
+		defer func() { viperReadInConfig = originalViperReadInConfig }()
+
+		// Provide a valid path and expect no error
+		tempDir := t.TempDir()
+		validPath := filepath.Join(tempDir, "config.yaml")
+
+		// Create an empty config file to simulate a successful load
+		if err := os.WriteFile(validPath, []byte(""), 0644); err != nil {
+			t.Fatalf("failed to create config file: %v", err)
+		}
+
+		handler, err := NewViperConfigHandler(validPath)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 		if handler == nil {
-			t.Errorf("expected NewViperConfigHandler to return a non-nil instance")
+			t.Errorf("expected handler to be non-nil")
+		}
+	})
+
+	t.Run("FileStatError", func(t *testing.T) {
+		// Mock osStat to simulate an error
+		originalOsStat := osStat
+		osStat = func(name string) (os.FileInfo, error) {
+			return nil, errors.New("mock error checking file existence")
+		}
+		defer func() { osStat = originalOsStat }() // Restore original function after test
+
+		tempDir := t.TempDir()
+		invalidPath := filepath.Join(tempDir, "config.yaml")
+
+		handler, err := NewViperConfigHandler(invalidPath)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if handler != nil {
+			t.Errorf("expected handler to be nil, got %v", handler)
 		}
 	})
 }

@@ -12,12 +12,14 @@ import (
 type ViperConfigHandler struct{}
 
 // NewViperConfigHandler is a constructor for ViperConfigHandler that accepts a path
-func NewViperConfigHandler(path string) *ViperConfigHandler {
+func NewViperConfigHandler(path string) (*ViperConfigHandler, error) {
 	handler := &ViperConfigHandler{}
 	if path != "" {
-		handler.LoadConfig(path)
+		if err := handler.LoadConfig(path); err != nil {
+			return nil, fmt.Errorf("error loading config: %w", err)
+		}
 	}
-	return handler
+	return handler, nil
 }
 
 // osUserHomeDir is a variable to allow mocking os.UserHomeDir in tests
@@ -37,6 +39,12 @@ var viperSafeWriteConfigAs = viper.SafeWriteConfigAs
 
 // viperConfigFileUsed is a variable to allow mocking viper.ConfigFileUsed in tests
 var viperConfigFileUsed = viper.ConfigFileUsed
+
+// viperReadInConfig is a variable to allow mocking viper.ReadInConfig in tests
+var viperReadInConfig = viper.ReadInConfig
+
+// osStat is a variable to allow mocking os.Stat in tests
+var osStat = os.Stat
 
 // createParentDirs ensures that all parent directories for the given path exist
 func createParentDirs(path string) error {
@@ -67,13 +75,19 @@ func (v *ViperConfigHandler) LoadConfig(input string) error {
 	}
 
 	// Check if the config file exists, if not create it
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	if _, err := osStat(path); os.IsNotExist(err) {
 		if err := viperSafeWriteConfigAs(path); err != nil {
 			return fmt.Errorf("error creating config file, %s", err)
 		}
+	} else if err != nil {
+		return err
 	}
 
-	return viper.ReadInConfig()
+	if err := viperReadInConfig(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // GetConfigValue retrieves the value for the specified key from the configuration

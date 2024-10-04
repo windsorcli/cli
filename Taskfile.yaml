@@ -42,6 +42,12 @@ tasks:
       - go test -coverprofile=coverage.out ./...
       - go tool cover -html=coverage.out -o coverage.html
 
+  scan:
+    desc: Scan for security vulnerabilities
+    cmds:
+      - go install github.com/securego/gosec/v2/cmd/gosec@latest
+      - gosec ./...
+
   run:
     desc: Run the Windsor CLI
     cmds:

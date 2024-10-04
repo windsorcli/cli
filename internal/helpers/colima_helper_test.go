@@ -3,6 +3,7 @@ package helpers
 import (
 	"errors"
 	"io"
+	"math"
 	"os"
 	"runtime"
 	"strconv"
@@ -708,32 +709,93 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 	})
 }
 
-func TestGetDefaultValues_MemoryError(t *testing.T) {
-	// Mock the virtualMemory function to return an error
-	originalVirtualMemory := virtualMemory
-	virtualMemory = func() (*mem.VirtualMemoryStat, error) {
-		return nil, errors.New("mock error")
-	}
-	defer func() { virtualMemory = originalVirtualMemory }()
+func TestGetDefaultValues(t *testing.T) {
+	t.Run("MemoryError", func(t *testing.T) {
+		// Mock the virtualMemory function to return an error
+		originalVirtualMemory := virtualMemory
+		virtualMemory = func() (*mem.VirtualMemoryStat, error) {
+			return nil, errors.New("mock error")
+		}
+		defer func() { virtualMemory = originalVirtualMemory }()
 
-	// Call getDefaultValues and check the memory value
-	_, _, memory, _, _ := getDefaultValues("test-context")
-	if memory != 2 {
-		t.Fatalf("expected memory to be 2, got %d", memory)
-	}
-}
+		// Call getDefaultValues and check the memory value
+		_, _, memory, _, _ := getDefaultValues("test-context")
+		if memory != 2 {
+			t.Fatalf("expected memory to be 2, got %d", memory)
+		}
+	})
 
-func TestGetDefaultValues_MemoryMock(t *testing.T) {
-	// Mock the virtualMemory function to return a fixed total memory
-	originalVirtualMemory := virtualMemory
-	virtualMemory = func() (*mem.VirtualMemoryStat, error) {
-		return &mem.VirtualMemoryStat{Total: 64 * 1024 * 1024 * 1024}, nil // 64GB
-	}
-	defer func() { virtualMemory = originalVirtualMemory }()
+	t.Run("MemoryMock", func(t *testing.T) {
+		// Mock the virtualMemory function to return a fixed total memory
+		originalVirtualMemory := virtualMemory
+		virtualMemory = func() (*mem.VirtualMemoryStat, error) {
+			return &mem.VirtualMemoryStat{Total: 64 * 1024 * 1024 * 1024}, nil // 64GB
+		}
+		defer func() { virtualMemory = originalVirtualMemory }()
 
-	// Call getDefaultValues and check the memory value
-	_, _, memory, _, _ := getDefaultValues("test-context")
-	if memory != 32 { // Expecting half of 64GB
-		t.Fatalf("expected memory to be 32, got %d", memory)
-	}
+		// Call getDefaultValues and check the memory value
+		_, _, memory, _, _ := getDefaultValues("test-context")
+		if memory != 32 { // Expecting half of 64GB
+			t.Fatalf("expected memory to be 32, got %d", memory)
+		}
+	})
+
+	t.Run("EncoderCloseError", func(t *testing.T) {
+		// Mock the newYAMLEncoder function to return a mock encoder that simulates an error on Close
+		originalNewYAMLEncoder := newYAMLEncoder
+		defer func() { newYAMLEncoder = originalNewYAMLEncoder }()
+
+		newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
+			return &mockYAMLEncoder{
+				encodeFunc: func(v interface{}) error {
+					return nil
+				},
+				closeFunc: func() error {
+					return errors.New("close error")
+				},
+			}
+		}
+
+		configHandler := &config.MockConfigHandler{
+			GetConfigValueFunc: func(key string) (string, error) {
+				return "", nil
+			},
+			SetConfigValueFunc: func(key, value string) error {
+				return nil
+			},
+		}
+		shell := &shell.MockShell{}
+		ctx := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+		}
+
+		helper := NewColimaHelper(configHandler, shell, ctx)
+
+		err := helper.SetConfig("cpu", "4")
+		if err == nil || err.Error() != "error closing encoder: close error" {
+			t.Fatalf("expected 'error closing encoder: close error', got '%v'", err)
+		}
+	})
+
+	t.Run("MemoryOverflowHandling", func(t *testing.T) {
+		originalVirtualMemory := virtualMemory
+		defer func() { virtualMemory = originalVirtualMemory }()
+
+		// Mock the virtualMemory function to return a normal value
+		virtualMemory = func() (*mem.VirtualMemoryStat, error) {
+			return &mem.VirtualMemoryStat{Total: 64 * 1024 * 1024 * 1024}, nil // 64GB
+		}
+
+		// Force the overflow condition
+		testForceMemoryOverflow = true
+		defer func() { testForceMemoryOverflow = false }()
+
+		_, _, memory, _, _ := getDefaultValues("test-context")
+
+		if memory != math.MaxInt {
+			t.Fatalf("expected memory to be set to MaxInt, got %d", memory)
+		}
+	})
 }
