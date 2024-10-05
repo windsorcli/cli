@@ -16,7 +16,7 @@ jobs:
     # runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [self-hosted, windows-latest, macos-latest]
         arch: [amd64, arm64]
         exclude:
           - os: windows-latest
@@ -27,7 +27,7 @@ jobs:
             arch: arm64
           - os: macos-latest
             arch: amd64
-          - os: ubuntu-latest
+          - os: self-hosted
             arch: arm64
 
     steps:
