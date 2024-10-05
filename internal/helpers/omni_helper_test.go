@@ -192,3 +192,29 @@ func TestNewOmniHelper(t *testing.T) {
 		}
 	})
 }
+
+func TestOmniHelper_GetContainerConfig(t *testing.T) {
+	// Given a mock context
+	mockContext := &context.MockContext{}
+	container := di.NewContainer()
+	container.Register("context", mockContext)
+
+	// Create OmniHelper
+	omniHelper, err := NewOmniHelper(container)
+	if err != nil {
+		t.Fatalf("NewOmniHelper() error = %v", err)
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// When: GetContainerConfig is called
+		containerConfig, err := omniHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
+		}
+	})
+}

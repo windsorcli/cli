@@ -958,3 +958,31 @@ func TestNewColimaHelper(t *testing.T) {
 		}
 	})
 }
+
+func TestColimaHelper_GetContainerConfig(t *testing.T) {
+	// Given a mock context and mock config handler
+	mockContext := &context.MockContext{}
+	mockConfigHandler := &config.MockConfigHandler{}
+	container := di.NewContainer()
+	container.Register("context", mockContext)
+	container.Register("configHandler", mockConfigHandler)
+
+	// Create ColimaHelper
+	colimaHelper, err := NewColimaHelper(container)
+	if err != nil {
+		t.Fatalf("NewColimaHelper() error = %v", err)
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// When: GetContainerConfig is called
+		containerConfig, err := colimaHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
+		}
+	})
+}

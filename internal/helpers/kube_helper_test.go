@@ -195,3 +195,29 @@ func TestNewKubeHelper(t *testing.T) {
 		}
 	})
 }
+
+func TestKubeHelper_GetContainerConfig(t *testing.T) {
+	// Given a mock context
+	mockContext := &context.MockContext{}
+	container := di.NewContainer()
+	container.Register("context", mockContext)
+
+	// Create KubeHelper
+	kubeHelper, err := NewKubeHelper(container)
+	if err != nil {
+		t.Fatalf("NewKubeHelper() error = %v", err)
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// When: GetContainerConfig is called
+		containerConfig, err := kubeHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
+		}
+	})
+}

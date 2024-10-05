@@ -1642,3 +1642,31 @@ terraform {
 		}
 	})
 }
+
+func TestTerraformHelper_GetContainerConfig(t *testing.T) {
+	// Given a mock context and mock config handler
+	mockContext := &context.MockContext{}
+	mockConfigHandler := &config.MockConfigHandler{}
+	container := di.NewContainer()
+	container.Register("context", mockContext)
+	container.Register("cliConfigHandler", mockConfigHandler)
+
+	// Create TerraformHelper
+	terraformHelper, err := NewTerraformHelper(container)
+	if err != nil {
+		t.Fatalf("NewTerraformHelper() error = %v", err)
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// When: GetContainerConfig is called
+		containerConfig, err := terraformHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
+		}
+	})
+}
