@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -197,9 +198,7 @@ func TestMockHelper_SetConfig(t *testing.T) {
 			t.Fatalf("expected error %v, got %v", expectedError, err)
 		}
 	})
-}
 
-func TestMockHelper_SetSetConfigFunc(t *testing.T) {
 	t.Run("SetSetConfigFunc", func(t *testing.T) {
 		// Given: a mock helper
 		mockHelper := NewMockHelper(func() (map[string]string, error) {
@@ -231,20 +230,48 @@ func TestMockHelper_SetSetConfigFunc(t *testing.T) {
 
 func TestMockHelper_GetContainerConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock helper
-		helper := NewMockHelper(func() (map[string]string, error) {
-			return nil, nil
-		})
+		// Given: a mock helper with a GetContainerConfigFunc
+		expectedConfig := []map[string]interface{}{
+			{
+				"service1": map[string]interface{}{
+					"image": "nginx:latest",
+				},
+			},
+		}
+		mockHelper := &MockHelper{
+			GetContainerConfigFunc: func() ([]map[string]interface{}, error) {
+				return expectedConfig, nil
+			},
+		}
 
 		// When: GetContainerConfig is called
-		containerConfig, err := helper.GetContainerConfig()
+		containerConfig, err := mockHelper.GetContainerConfig()
 		if err != nil {
 			t.Fatalf("GetContainerConfig() error = %v", err)
 		}
 
-		// Then: the result should be nil as per the stub implementation
-		if containerConfig != nil {
-			t.Errorf("expected nil, got %v", containerConfig)
+		// Then: the result should match the expected configuration
+		if !reflect.DeepEqual(containerConfig, expectedConfig) {
+			t.Errorf("expected %v, got %v", expectedConfig, containerConfig)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given: a mock helper with a GetContainerConfigFunc that returns an error
+		expectedError := errors.New("mock error getting container config")
+		mockHelper := &MockHelper{
+			GetContainerConfigFunc: func() ([]map[string]interface{}, error) {
+				return nil, expectedError
+			},
+		}
+
+		// When: GetContainerConfig is called
+		_, err := mockHelper.GetContainerConfig()
+		if err == nil {
+			t.Fatalf("expected error %v, got nil", expectedError)
+		}
+		if err.Error() != expectedError.Error() {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
 		}
 	})
 }

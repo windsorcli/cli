@@ -11,7 +11,6 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 func TestNewDockerHelper(t *testing.T) {
@@ -47,7 +46,7 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		composeFilePath := filepath.Join(contextPath, "docker-compose.yaml")
 
 		// Create the directory and docker-compose.yaml file
-		err := mkdirAll(contextPath, os.ModePerm)
+		err := os.MkdirAll(contextPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}
@@ -68,6 +67,12 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		diContainer := di.NewContainer()
 		diContainer.Register("configHandler", &config.MockConfigHandler{})
 		diContainer.Register("context", mockContext)
+
+		// Register MockHelper
+		mockHelper := NewMockHelper(func() (map[string]string, error) {
+			return map[string]string{"COMPOSE_FILE": composeFilePath}, nil
+		})
+		diContainer.Register("helper", mockHelper)
 
 		// Create DockerHelper
 		dockerHelper, err := NewDockerHelper(diContainer)
@@ -96,7 +101,7 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		composeFilePath := filepath.Join(contextPath, "docker-compose.yml")
 
 		// Create the directory and docker-compose.yml file
-		err := mkdirAll(contextPath, os.ModePerm)
+		err := os.MkdirAll(contextPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}
@@ -117,6 +122,12 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		diContainer := di.NewContainer()
 		diContainer.Register("configHandler", &config.MockConfigHandler{})
 		diContainer.Register("context", mockContext)
+
+		// Register MockHelper
+		mockHelper := NewMockHelper(func() (map[string]string, error) {
+			return map[string]string{"COMPOSE_FILE": composeFilePath}, nil
+		})
+		diContainer.Register("helper", mockHelper)
 
 		// Create DockerHelper
 		dockerHelper, err := NewDockerHelper(diContainer)
@@ -156,6 +167,14 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		diContainer.Register("configHandler", &config.MockConfigHandler{})
 		diContainer.Register("context", mockContext)
 
+		// Register MockHelper
+		mockHelper := NewMockHelper(func() (map[string]string, error) {
+			return map[string]string{
+				"service1": "nginx:latest",
+			}, nil
+		})
+		diContainer.Register("helper", mockHelper)
+
 		// Create DockerHelper
 		dockerHelper, err := NewDockerHelper(diContainer)
 		if err != nil {
@@ -190,6 +209,14 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		diContainer.Register("configHandler", &config.MockConfigHandler{})
 		diContainer.Register("context", mockContext)
 
+		// Register MockHelper
+		mockHelper := NewMockHelper(func() (map[string]string, error) {
+			return map[string]string{
+				"service1": "nginx:latest",
+			}, nil
+		})
+		diContainer.Register("helper", mockHelper)
+
 		// Create DockerHelper
 		dockerHelper, err := NewDockerHelper(diContainer)
 		if err != nil {
@@ -221,6 +248,14 @@ func TestDockerHelper_PostEnvExec(t *testing.T) {
 		diContainer.Register("configHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
+		// Register MockHelper
+		mockHelper := NewMockHelper(func() (map[string]string, error) {
+			return map[string]string{
+				"service1": "nginx:latest",
+			}, nil
+		})
+		diContainer.Register("helper", mockHelper)
+
 		dockerHelper, err := NewDockerHelper(diContainer)
 		if err != nil {
 			t.Fatalf("NewDockerHelper() error = %v", err)
@@ -249,6 +284,14 @@ func TestDockerHelper_SetConfig(t *testing.T) {
 		diContainer.Register("configHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
+		// Register MockHelper
+		mockHelper := NewMockHelper(func() (map[string]string, error) {
+			return map[string]string{
+				"service1": "nginx:latest",
+			}, nil
+		})
+		diContainer.Register("helper", mockHelper)
+
 		helper, err := NewDockerHelper(diContainer)
 		if err != nil {
 			t.Fatalf("NewDockerHelper() error = %v", err)
@@ -275,6 +318,14 @@ func TestDockerHelper_SetConfig(t *testing.T) {
 		diContainer.Register("context", mockContextWithError)
 		diContainer.Register("configHandler", mockConfigHandler)
 
+		// Register MockHelper
+		mockHelper := NewMockHelper(func() (map[string]string, error) {
+			return map[string]string{
+				"service1": "nginx:latest",
+			}, nil
+		})
+		diContainer.Register("helper", mockHelper)
+
 		// Create DockerHelper
 		helper, err := NewDockerHelper(diContainer)
 		if err != nil {
@@ -297,6 +348,14 @@ func TestDockerHelper_SetConfig(t *testing.T) {
 		diContainer := di.NewContainer()
 		diContainer.Register("configHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
+
+		// Register MockHelper
+		mockHelper := NewMockHelper(func() (map[string]string, error) {
+			return map[string]string{
+				"service1": "nginx:latest",
+			}, nil
+		})
+		diContainer.Register("helper", mockHelper)
 
 		helper, err := NewDockerHelper(diContainer)
 		if err != nil {
@@ -329,6 +388,14 @@ func TestDockerHelper_SetConfig(t *testing.T) {
 		diContainer.Register("configHandler", mockConfigHandlerWithError)
 		diContainer.Register("context", mockContext)
 
+		// Register MockHelper
+		mockHelper := NewMockHelper(func() (map[string]string, error) {
+			return map[string]string{
+				"service1": "nginx:latest",
+			}, nil
+		})
+		diContainer.Register("helper", mockHelper)
+
 		// Create DockerHelper
 		helper, err := NewDockerHelper(diContainer)
 		if err != nil {
@@ -348,16 +415,20 @@ func TestDockerHelper_SetConfig(t *testing.T) {
 
 func TestDockerHelper_GetContainerConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler, shell, and context
+		// Given: a mock config handler, shell, context, and helper
 		mockConfigHandler := &config.MockConfigHandler{}
-		mockShell := &shell.MockShell{}
 		mockContext := &context.MockContext{}
+		mockHelper := NewMockHelper(func() (map[string]string, error) {
+			return map[string]string{
+				"service1": "nginx:latest",
+			}, nil
+		})
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("configHandler", mockConfigHandler)
-		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
+		diContainer.Register("helper", mockHelper)
 
 		helper, err := NewDockerHelper(diContainer)
 		if err != nil {
@@ -370,7 +441,7 @@ func TestDockerHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("GetContainerConfig() error = %v", err)
 		}
 
-		// Then: the result should be nil as per the stub implementation
+		// Then: the result should be nil
 		if containerConfig != nil {
 			t.Errorf("expected nil, got %v", containerConfig)
 		}
