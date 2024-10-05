@@ -832,8 +832,8 @@ func TestDockerHelper_SetConfig(t *testing.T) {
 				return "", fmt.Errorf("key not found: %s", key)
 			},
 			SetConfigValueFunc: func(key string, value interface{}) error {
-				if key == "contexts.local.docker.enabled" && value != "true" {
-					t.Fatalf("expected docker enabled to be set to 'true', got %s", value)
+				if key == "contexts.local.docker.enabled" && value != true {
+					t.Fatalf("expected docker enabled to be set to 'true', got %v", value)
 				}
 				return nil
 			},

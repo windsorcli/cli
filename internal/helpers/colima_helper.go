@@ -126,30 +126,33 @@ func (h *ColimaHelper) SetConfig(key, value string) error {
 		if value == "" {
 			value = strconv.Itoa(cpu)
 		}
-		if _, err := strconv.Atoi(value); err != nil {
+		cpuValue, err := strconv.Atoi(value)
+		if err != nil {
 			return fmt.Errorf("invalid value for %s: %w", key, err)
 		}
-		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), value); err != nil {
+		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), cpuValue); err != nil {
 			return fmt.Errorf("error setting colima config: %w", err)
 		}
 	case "disk":
 		if value == "" {
 			value = strconv.Itoa(disk)
 		}
-		if _, err := strconv.Atoi(value); err != nil {
+		diskValue, err := strconv.Atoi(value)
+		if err != nil {
 			return fmt.Errorf("invalid value for %s: %w", key, err)
 		}
-		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), value); err != nil {
+		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), diskValue); err != nil {
 			return fmt.Errorf("error setting colima config: %w", err)
 		}
 	case "memory":
 		if value == "" {
 			value = strconv.Itoa(memory)
 		}
-		if _, err := strconv.Atoi(value); err != nil {
+		memoryValue, err := strconv.Atoi(value)
+		if err != nil {
 			return fmt.Errorf("invalid value for %s: %w", key, err)
 		}
-		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), value); err != nil {
+		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), memoryValue); err != nil {
 			return fmt.Errorf("error setting colima config: %w", err)
 		}
 	case "arch":

@@ -6,7 +6,6 @@ import (
 	"math"
 	"os"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -132,12 +131,12 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 	t.Run("CPU", func(t *testing.T) {
 		tests := []struct {
 			value    string
-			expected string
+			expected interface{}
 			errMsg   string
 		}{
-			{"4", "4", ""},
-			{"", strconv.Itoa(runtime.NumCPU() / 2), ""},
-			{"invalid", "", "invalid value for cpu: strconv.Atoi: parsing \"invalid\": invalid syntax"},
+			{"4", 4, ""},
+			{"", runtime.NumCPU() / 2, ""},
+			{"invalid", nil, "invalid value for cpu: strconv.Atoi: parsing \"invalid\": invalid syntax"},
 		}
 
 		for _, tt := range tests {
@@ -145,7 +144,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 				cliConfigHandler := &config.MockConfigHandler{
 					SetConfigValueFunc: func(key string, value interface{}) error {
 						if key != "contexts.test-context.vm.cpu" || value != tt.expected {
-							t.Fatalf("unexpected key/value: %s/%s", key, value)
+							t.Fatalf("unexpected key/value: %s/%v", key, value)
 						}
 						return nil
 					},
@@ -185,12 +184,12 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 	t.Run("Disk", func(t *testing.T) {
 		tests := []struct {
 			value    string
-			expected string
+			expected interface{}
 			errMsg   string
 		}{
-			{"100", "100", ""},
-			{"", "60", ""},
-			{"invalid", "", "invalid value for disk: strconv.Atoi: parsing \"invalid\": invalid syntax"},
+			{"100", 100, ""},
+			{"", 60, ""},
+			{"invalid", nil, "invalid value for disk: strconv.Atoi: parsing \"invalid\": invalid syntax"},
 		}
 
 		for _, tt := range tests {
@@ -198,7 +197,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 				cliConfigHandler := &config.MockConfigHandler{
 					SetConfigValueFunc: func(key string, value interface{}) error {
 						if key != "contexts.test-context.vm.disk" || value != tt.expected {
-							t.Fatalf("unexpected key/value: %s/%s", key, value)
+							t.Fatalf("unexpected key/value: %s/%v", key, value)
 						}
 						return nil
 					},
@@ -245,8 +244,8 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 
 		cliConfigHandler := &config.MockConfigHandler{
 			SetConfigValueFunc: func(key string, value interface{}) error {
-				if key != "contexts.test-context.vm.memory" || value != "32" {
-					t.Fatalf("unexpected key/value: %s/%s", key, value)
+				if key != "contexts.test-context.vm.memory" || value != 32 {
+					t.Fatalf("unexpected key/value: %s/%v", key, value)
 				}
 				return nil
 			},

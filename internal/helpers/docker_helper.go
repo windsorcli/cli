@@ -89,14 +89,17 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
+	var boolValue bool
 	if value == "" {
 		if context == "local" || strings.HasPrefix(context, "local-") {
-			value = "true"
+			boolValue = true
 		}
+	} else {
+		boolValue = value == "true"
 	}
 
 	// Proceed with setting the configuration
-	err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context), value)
+	err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context), boolValue)
 	if err != nil {
 		return err
 	}
