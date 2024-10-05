@@ -2,10 +2,12 @@ package helpers
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -26,6 +28,47 @@ func createMockShell(getProjectRootFunc func() (string, error)) *shell.MockShell
 	return &shell.MockShell{
 		GetProjectRootFunc: getProjectRootFunc,
 	}
+}
+
+func TestNewBaseHelper(t *testing.T) {
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		diContainer := di.NewContainer()
+
+		// Do not register configHandler to simulate resolution error
+		diContainer.Register("shell", &shell.MockShell{})
+		diContainer.Register("context", &context.MockContext{})
+
+		_, err := NewBaseHelper(diContainer)
+		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
+			t.Fatalf("expected error resolving configHandler, got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingShell", func(t *testing.T) {
+		diContainer := di.NewContainer()
+
+		// Register configHandler but not shell to simulate resolution error
+		diContainer.Register("configHandler", &config.MockConfigHandler{})
+		diContainer.Register("context", &context.MockContext{})
+
+		_, err := NewBaseHelper(diContainer)
+		if err == nil || !strings.Contains(err.Error(), "error resolving shell") {
+			t.Fatalf("expected error resolving shell, got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingContext", func(t *testing.T) {
+		diContainer := di.NewContainer()
+
+		// Register configHandler and shell but not context to simulate resolution error
+		diContainer.Register("configHandler", &config.MockConfigHandler{})
+		diContainer.Register("shell", &shell.MockShell{})
+
+		_, err := NewBaseHelper(diContainer)
+		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
+			t.Fatalf("expected error resolving context, got %v", err)
+		}
+	})
 }
 
 func TestBaseHelper_GetEnvVars(t *testing.T) {
@@ -58,7 +101,17 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 			return "/mock/project/root/contexts/test-context", nil
 		},
 	}
-	baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
+
+	// Create DI container and register mocks
+	diContainer := di.NewContainer()
+	diContainer.Register("configHandler", mockConfigHandler)
+	diContainer.Register("shell", mockShell)
+	diContainer.Register("context", mockContext)
+
+	baseHelper, err := NewBaseHelper(diContainer)
+	if err != nil {
+		t.Fatalf("NewBaseHelper() error = %v", err)
+	}
 
 	t.Run("Success", func(t *testing.T) {
 		// When calling GetEnvVars
@@ -102,12 +155,22 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 				return "/mock/project/root/contexts/test-context", nil
 			},
 		}
-		baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
+		baseHelper, err := NewBaseHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewBaseHelper() error = %v", err)
+		}
 
 		// When calling GetEnvVars
 		expectedError := errors.New("error retrieving context: error retrieving context")
 
-		_, err := baseHelper.GetEnvVars()
+		_, err = baseHelper.GetEnvVars()
 		if err == nil {
 			t.Fatalf("expected error %v, got nil", expectedError)
 		}
@@ -134,12 +197,22 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 				return nil, errors.New("context not found")
 			},
 		)
-		baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
+		baseHelper, err := NewBaseHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewBaseHelper() error = %v", err)
+		}
 
 		// When calling GetEnvVars
 		expectedError := errors.New("non-string value found in environment variables for context test-context")
 
-		_, err := baseHelper.GetEnvVars()
+		_, err = baseHelper.GetEnvVars()
 		if err == nil {
 			t.Fatalf("expected error %v, got nil", expectedError)
 		}
@@ -164,7 +237,17 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 				return map[string]interface{}{}, nil
 			},
 		)
-		baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
+		baseHelper, err := NewBaseHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewBaseHelper() error = %v", err)
+		}
 
 		// When calling GetEnvVars
 		expectedResult := map[string]string{
@@ -202,7 +285,17 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 				return nil, errors.New("error getting nested map")
 			},
 		)
-		baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
+		baseHelper, err := NewBaseHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewBaseHelper() error = %v", err)
+		}
 
 		// When calling GetEnvVars
 		expectedResult := map[string]string{
@@ -232,10 +325,20 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 		mockShell := createMockShell(func() (string, error) {
 			return "", errors.New("failed to get project root")
 		})
-		baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
+		baseHelper, err := NewBaseHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewBaseHelper() error = %v", err)
+		}
 
 		// When calling GetEnvVars
-		_, err := baseHelper.GetEnvVars()
+		_, err = baseHelper.GetEnvVars()
 		if err == nil {
 			t.Fatalf("expected an error, got nil")
 		}
@@ -259,10 +362,20 @@ func TestBaseHelper_PostEnvExec(t *testing.T) {
 			GetContextFunc:    func() (string, error) { return "", nil },
 			GetConfigRootFunc: func() (string, error) { return "", nil },
 		}
-		baseHelper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
+		baseHelper, err := NewBaseHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewBaseHelper() error = %v", err)
+		}
 
 		// When calling PostEnvExec
-		err := baseHelper.PostEnvExec()
+		err = baseHelper.PostEnvExec()
 
 		// Then no error should be returned
 		if err != nil {
@@ -273,12 +386,23 @@ func TestBaseHelper_PostEnvExec(t *testing.T) {
 
 func TestBaseHelper_SetConfig(t *testing.T) {
 	mockConfigHandler := &config.MockConfigHandler{}
+	mockShell := &shell.MockShell{}
 	mockContext := &context.MockContext{}
-	helper := NewBaseHelper(mockConfigHandler, nil, mockContext)
+
+	// Create DI container and register mocks
+	diContainer := di.NewContainer()
+	diContainer.Register("configHandler", mockConfigHandler)
+	diContainer.Register("context", mockContext)
+	diContainer.Register("shell", mockShell)
+
+	baseHelper, err := NewBaseHelper(diContainer)
+	if err != nil {
+		t.Fatalf("NewBaseHelper() error = %v", err)
+	}
 
 	t.Run("SetConfigStub", func(t *testing.T) {
 		// When: SetConfig is called
-		err := helper.SetConfig("some_key", "some_value")
+		err := baseHelper.SetConfig("some_key", "some_value")
 
 		// Then: it should return no error
 		if err != nil {

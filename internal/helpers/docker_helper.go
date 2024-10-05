@@ -7,23 +7,31 @@ import (
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // DockerHelper is a helper struct that provides Docker-specific utility functions
 type DockerHelper struct {
 	ConfigHandler config.ConfigHandler
-	Shell         shell.Shell
 	Context       context.ContextInterface
 }
 
 // NewDockerHelper is a constructor for DockerHelper
-func NewDockerHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *DockerHelper {
-	return &DockerHelper{
-		ConfigHandler: configHandler,
-		Shell:         shell,
-		Context:       ctx,
+func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
+	configHandler, err := di.Resolve("configHandler")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving configHandler: %w", err)
 	}
+
+	resolvedContext, err := di.Resolve("context")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving context: %w", err)
+	}
+
+	return &DockerHelper{
+		ConfigHandler: configHandler.(config.ConfigHandler),
+		Context:       resolvedContext.(context.ContextInterface),
+	}, nil
 }
 
 // GetEnvVars retrieves Docker-specific environment variables for the current context

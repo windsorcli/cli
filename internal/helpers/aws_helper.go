@@ -8,23 +8,31 @@ import (
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // AwsHelper is a helper struct that provides AWS-specific utility functions
 type AwsHelper struct {
 	ConfigHandler config.ConfigHandler
-	Shell         shell.Shell
 	Context       context.ContextInterface
 }
 
 // NewAwsHelper is a constructor for AwsHelper
-func NewAwsHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *AwsHelper {
-	return &AwsHelper{
-		ConfigHandler: configHandler,
-		Shell:         shell,
-		Context:       ctx,
+func NewAwsHelper(di *di.DIContainer) (*AwsHelper, error) {
+	configHandler, err := di.Resolve("configHandler")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving configHandler: %w", err)
 	}
+
+	resolvedContext, err := di.Resolve("context")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving context: %w", err)
+	}
+
+	return &AwsHelper{
+		ConfigHandler: configHandler.(config.ConfigHandler),
+		Context:       resolvedContext.(context.ContextInterface),
+	}, nil
 }
 
 // isLocal checks if the context is "local" or has a "local-" prefix

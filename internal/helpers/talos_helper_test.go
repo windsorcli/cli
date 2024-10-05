@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 func TestTalosHelper_GetEnvVars(t *testing.T) {
@@ -19,7 +19,7 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 		talosConfigPath := filepath.Join(contextPath, ".talos", "config")
 
 		// Ensure the talos config file exists
-		err := mkdirAll(filepath.Dir(talosConfigPath), 0755)
+		err := os.MkdirAll(filepath.Dir(talosConfigPath), 0755)
 		if err != nil {
 			t.Fatalf("Failed to create talos config directory: %v", err)
 		}
@@ -36,7 +36,12 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 		}
 
 		// Create TalosHelper
-		talosHelper := NewTalosHelper(nil, nil, mockContext)
+		container := di.NewContainer()
+		container.Register("context", mockContext)
+		talosHelper, err := NewTalosHelper(container)
+		if err != nil {
+			t.Fatalf("failed to create talos helper: %v", err)
+		}
 
 		// When: GetEnvVars is called
 		envVars, err := talosHelper.GetEnvVars()
@@ -66,7 +71,12 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 		}
 
 		// Create TalosHelper
-		talosHelper := NewTalosHelper(nil, nil, mockContext)
+		container := di.NewContainer()
+		container.Register("context", mockContext)
+		talosHelper, err := NewTalosHelper(container)
+		if err != nil {
+			t.Fatalf("failed to create talos helper: %v", err)
+		}
 
 		// When: GetEnvVars is called
 		envVars, err := talosHelper.GetEnvVars()
@@ -92,12 +102,17 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 		}
 
 		// Create TalosHelper
-		talosHelper := NewTalosHelper(nil, nil, mockContext)
+		container := di.NewContainer()
+		container.Register("context", mockContext)
+		talosHelper, err := NewTalosHelper(container)
+		if err != nil {
+			t.Fatalf("failed to create talos helper: %v", err)
+		}
 
 		// When calling GetEnvVars
 		expectedError := "error retrieving config root"
 
-		_, err := talosHelper.GetEnvVars()
+		_, err = talosHelper.GetEnvVars()
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error containing %v, got %v", expectedError, err)
 		}
@@ -107,19 +122,19 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 func TestTalosHelper_PostEnvExec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a TalosHelper instance
-		mockConfigHandler := createMockConfigHandler(
-			func(key string) (string, error) { return "", nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-		)
-		mockShell := createMockShell(func() (string, error) { return "", nil })
 		mockContext := &context.MockContext{
 			GetContextFunc:    func() (string, error) { return "", nil },
 			GetConfigRootFunc: func() (string, error) { return "", nil },
 		}
-		talosHelper := NewTalosHelper(mockConfigHandler, mockShell, mockContext)
+		container := di.NewContainer()
+		container.Register("context", mockContext)
+		talosHelper, err := NewTalosHelper(container)
+		if err != nil {
+			t.Fatalf("failed to create talos helper: %v", err)
+		}
 
 		// When calling PostEnvExec
-		err := talosHelper.PostEnvExec()
+		err = talosHelper.PostEnvExec()
 
 		// Then no error should be returned
 		if err != nil {
@@ -129,9 +144,13 @@ func TestTalosHelper_PostEnvExec(t *testing.T) {
 }
 
 func TestTalosHelper_SetConfig(t *testing.T) {
-	mockConfigHandler := &config.MockConfigHandler{}
 	mockContext := &context.MockContext{}
-	helper := NewTalosHelper(mockConfigHandler, nil, mockContext)
+	container := di.NewContainer()
+	container.Register("context", mockContext)
+	helper, err := NewTalosHelper(container)
+	if err != nil {
+		t.Fatalf("failed to create talos helper: %v", err)
+	}
 
 	t.Run("SetConfigStub", func(t *testing.T) {
 		// When: SetConfig is called
@@ -140,6 +159,19 @@ func TestTalosHelper_SetConfig(t *testing.T) {
 		// Then: it should return no error
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestNewTalosHelper(t *testing.T) {
+	t.Run("ErrorResolvingContext", func(t *testing.T) {
+		// Create DI container without registering context
+		diContainer := di.NewContainer()
+
+		// Attempt to create TalosHelper
+		_, err := NewTalosHelper(diContainer)
+		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
+			t.Fatalf("expected error resolving context, got %v", err)
 		}
 	})
 }

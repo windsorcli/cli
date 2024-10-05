@@ -38,39 +38,66 @@ func main() {
 	container.Register("context", contextInstance)
 
 	// Create and register the BaseHelper instance
-	baseHelper := helpers.NewBaseHelper(cliConfigHandler, shellInstance, contextInstance)
+	baseHelper, err := helpers.NewBaseHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create base helper: %v", err)
+	}
 	container.Register("baseHelper", baseHelper)
 
 	// Create and register the KubeHelper instance
-	kubeHelper := helpers.NewKubeHelper(cliConfigHandler, shellInstance, contextInstance)
+	kubeHelper, err := helpers.NewKubeHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create kube helper: %v", err)
+	}
 	container.Register("kubeHelper", kubeHelper)
 
 	// Create and register the TerraformHelper instance
-	terraformHelper := helpers.NewTerraformHelper(cliConfigHandler, shellInstance, contextInstance)
+	terraformHelper, err := helpers.NewTerraformHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create terraform helper: %v", err)
+	}
 	container.Register("terraformHelper", terraformHelper)
 
 	// Create and register the TalosHelper instance
-	talosHelper := helpers.NewTalosHelper(cliConfigHandler, shellInstance, contextInstance)
+	talosHelper, err := helpers.NewTalosHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create talos helper: %v", err)
+	}
 	container.Register("talosHelper", talosHelper)
 
 	// Create and register the OmniHelper instance
-	omniHelper := helpers.NewOmniHelper(cliConfigHandler, shellInstance, contextInstance)
+	omniHelper, err := helpers.NewOmniHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create omni helper: %v", err)
+	}
 	container.Register("omniHelper", omniHelper)
 
 	// Create and register the SopsHelper instance
-	sopsHelper := helpers.NewSopsHelper(cliConfigHandler, shellInstance, contextInstance)
+	sopsHelper, err := helpers.NewSopsHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create sops helper: %v", err)
+	}
 	container.Register("sopsHelper", sopsHelper)
 
 	// Create and register the AwsHelper instance
-	awsHelper := helpers.NewAwsHelper(cliConfigHandler, shellInstance, contextInstance)
+	awsHelper, err := helpers.NewAwsHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create aws helper: %v", err)
+	}
 	container.Register("awsHelper", awsHelper)
 
 	// Create and register the DockerHelper instance
-	dockerHelper := helpers.NewDockerHelper(cliConfigHandler, shellInstance, contextInstance)
+	dockerHelper, err := helpers.NewDockerHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create docker helper: %v", err)
+	}
 	container.Register("dockerHelper", dockerHelper)
 
 	// Create and register the ColimaHelper instance
-	colimaHelper := helpers.NewColimaHelper(cliConfigHandler, shellInstance, contextInstance)
+	colimaHelper, err := helpers.NewColimaHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create colima helper: %v", err)
+	}
 	container.Register("colimaHelper", colimaHelper)
 
 	// Inject the DI container into the cmd package
