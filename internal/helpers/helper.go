@@ -52,3 +52,6 @@ var goArch = func() string {
 
 // Wrapper function for os.Rename
 var rename = os.Rename
+
+// Override variable for yaml.Marshal
+var yamlMarshal = yaml.Marshal

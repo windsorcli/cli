@@ -275,3 +275,36 @@ func TestMockHelper_GetContainerConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestMockHelper_SetGetContainerConfigFunc(t *testing.T) {
+	t.Run("SetGetContainerConfigFunc", func(t *testing.T) {
+		// Given: a mock helper
+		mockHelper := NewMockHelper(func() (map[string]string, error) {
+			return nil, nil
+		})
+
+		// Define a mock GetContainerConfigFunc
+		expectedConfig := []map[string]interface{}{
+			{
+				"service1": map[string]interface{}{
+					"image": "nginx:latest",
+				},
+			},
+		}
+		mockGetContainerConfigFunc := func() ([]map[string]interface{}, error) {
+			return expectedConfig, nil
+		}
+
+		// When: SetGetContainerConfigFunc is called
+		mockHelper.SetGetContainerConfigFunc(mockGetContainerConfigFunc)
+
+		// Then: the GetContainerConfigFunc should be set and return the expected configuration
+		containerConfig, err := mockHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if !reflect.DeepEqual(containerConfig, expectedConfig) {
+			t.Errorf("expected %v, got %v", expectedConfig, containerConfig)
+		}
+	})
+}

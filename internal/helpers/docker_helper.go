@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/goccy/go-yaml"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
@@ -80,31 +79,37 @@ func (h *DockerHelper) PostEnvExec() error {
 
 // SetConfig sets the configuration value for the given key
 func (h *DockerHelper) SetConfig(key, value string) error {
+	currentContext, err := h.Context.GetContext()
+	if err != nil {
+		return fmt.Errorf("error retrieving current context: %w", err)
+	}
+
 	if key == "enabled" {
-		currentContext, err := h.Context.GetContext()
-		if err != nil {
-			return fmt.Errorf("error retrieving current context: %w", err)
-		}
 		if err := h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", currentContext), value); err != nil {
 			return fmt.Errorf("error setting docker.enabled: %w", err)
 		}
+	}
+
+	enabled, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", currentContext))
+	if err != nil {
+		return fmt.Errorf("error retrieving docker.enabled config: %w", err)
+	}
+	if enabled == "true" {
+		if err := h.writeDockerComposeFile(); err != nil {
+			return fmt.Errorf("error writing docker-compose file: %w", err)
+		}
 		return nil
 	}
+
 	return fmt.Errorf("unsupported config key: %s", key)
 }
 
 // writeDockerComposeFile is a private method to write the docker-compose configuration to a file.
-func (h *DockerHelper) writeDockerComposeFile(di *di.DIContainer, filePath string) error {
-	// Resolve all helpers that implement the Helper interface
-	helpers, err := di.ResolveAll((*Helper)(nil))
-	if err != nil {
-		return fmt.Errorf("error resolving helpers: %w", err)
-	}
-
+func (h *DockerHelper) writeDockerComposeFile() error {
 	var allContainerConfigs []map[string]interface{}
 
 	// Iterate through each helper and collect container configs
-	for _, helper := range helpers {
+	for _, helper := range h.Helpers {
 		if helperInstance, ok := helper.(Helper); ok {
 			containerConfig, err := helperInstance.GetContainerConfig()
 			if err != nil {
@@ -122,13 +127,20 @@ func (h *DockerHelper) writeDockerComposeFile(di *di.DIContainer, filePath strin
 	}
 
 	// Serialize the docker-compose config to YAML
-	yamlData, err := yaml.Marshal(dockerComposeConfig)
+	yamlData, err := yamlMarshal(dockerComposeConfig)
 	if err != nil {
 		return fmt.Errorf("error marshaling docker-compose config to YAML: %w", err)
 	}
 
+	// Get the config root and construct the file path
+	configRoot, err := h.Context.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving config root: %w", err)
+	}
+	composeFilePath := filepath.Join(configRoot, "docker-compose.yaml")
+
 	// Write the YAML data to the specified file
-	err = os.WriteFile(filePath, yamlData, 0644)
+	err = writeFile(composeFilePath, yamlData, 0644)
 	if err != nil {
 		return fmt.Errorf("error writing docker-compose file: %w", err)
 	}
