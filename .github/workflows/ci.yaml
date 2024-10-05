@@ -20,10 +20,10 @@ jobs:
         exclude:
           - os: self-hosted-ubuntu
             arch: arm64
-          - os: ubuntu-latest
-            arch: amd64
-          - os: ubuntu-latest
-            arch: arm64
+          # - os: ubuntu-latest
+          #   arch: amd64
+          # - os: ubuntu-latest
+          #   arch: arm64
           - os: windows-latest
             arch: arm64
           - os: windows-latest
