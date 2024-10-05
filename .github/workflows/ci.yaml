@@ -15,13 +15,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [self-hosted, windows-latest, macos-latest]
+        os: [self-hosted-ubuntu, ubuntu-latest, windows-latest, macos-latest]
         arch: [amd64, arm64]
         exclude:
           - os: windows-latest
             arch: arm64
-          - os: self-hosted
+          - os: self-hosted-ubuntu
             arch: arm64
+          # - os: ubuntu-latest
+          #   arch: amd64
+          # - os: ubuntu-latest
+          #   arch: arm64
 
     steps:
       - name: Checkout code
