@@ -12,8 +12,7 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: self-hosted
-    # runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [self-hosted, windows-latest, macos-latest]
@@ -21,12 +20,6 @@ jobs:
         exclude:
           - os: windows-latest
             arch: arm64
-          - os: windows-latest
-            arch: amd64
-          - os: macos-latest
-            arch: arm64
-          - os: macos-latest
-            arch: amd64
           - os: self-hosted
             arch: arm64
 
