@@ -6,7 +6,11 @@ import (
 )
 
 func TestNewMockContext(t *testing.T) {
-	mockContext := NewMockContext()
+	mockContext := NewMockContext(
+		func() (string, error) { return "", nil },
+		func(context string) error { return nil },
+		func() (string, error) { return "", nil },
+	)
 	if mockContext == nil {
 		t.Fatalf("expected a new MockContext instance, got nil")
 	}
