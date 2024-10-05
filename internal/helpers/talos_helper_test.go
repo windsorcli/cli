@@ -58,40 +58,40 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 		}
 	})
 
-	// t.Run("FileNotExist", func(t *testing.T) {
-	// 	// Given: a non-existent context path
-	// 	contextPath := filepath.Join(os.TempDir(), "contexts", "non-existent-context")
-	// 	talosConfigPath := ""
+	t.Run("FileNotExist", func(t *testing.T) {
+		// Given: a non-existent context path
+		contextPath := filepath.Join(os.TempDir(), "contexts", "non-existent-context")
+		talosConfigPath := ""
 
-	// 	// Mock context
-	// 	mockContext := &context.MockContext{
-	// 		GetConfigRootFunc: func() (string, error) {
-	// 			return contextPath, nil
-	// 		},
-	// 	}
+		// Mock context
+		mockContext := &context.MockContext{
+			GetConfigRootFunc: func() (string, error) {
+				return contextPath, nil
+			},
+		}
 
-	// 	// Create TalosHelper
-	// 	container := di.NewContainer()
-	// 	container.Register("context", mockContext)
-	// 	talosHelper, err := NewTalosHelper(container)
-	// 	if err != nil {
-	// 		t.Fatalf("failed to create talos helper: %v", err)
-	// 	}
+		// Create TalosHelper
+		container := di.NewContainer()
+		container.Register("context", mockContext)
+		talosHelper, err := NewTalosHelper(container)
+		if err != nil {
+			t.Fatalf("failed to create talos helper: %v", err)
+		}
 
-	// 	// When: GetEnvVars is called
-	// 	envVars, err := talosHelper.GetEnvVars()
-	// 	if err != nil {
-	// 		t.Fatalf("GetEnvVars() error = %v", err)
-	// 	}
+		// When: GetEnvVars is called
+		envVars, err := talosHelper.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars() error = %v", err)
+		}
 
-	// 	// Then: the environment variables should be set correctly with an empty TALOSCONFIG
-	// 	expectedEnvVars := map[string]string{
-	// 		"TALOSCONFIG": talosConfigPath,
-	// 	}
-	// 	if !reflect.DeepEqual(envVars, expectedEnvVars) {
-	// 		t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
-	// 	}
-	// })
+		// Then: the environment variables should be set correctly with an empty TALOSCONFIG
+		expectedEnvVars := map[string]string{
+			"TALOSCONFIG": talosConfigPath,
+		}
+		if !reflect.DeepEqual(envVars, expectedEnvVars) {
+			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
+		}
+	})
 
 	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
 		// Given a mock shell and context that returns an error for config root
