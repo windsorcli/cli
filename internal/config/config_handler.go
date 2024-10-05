@@ -9,7 +9,7 @@ type ConfigHandler interface {
 	GetConfigValue(key string) (string, error)
 
 	// SetConfigValue sets the value for the specified key in the configuration
-	SetConfigValue(key string, value string) error
+	SetConfigValue(key string, value interface{}) error
 
 	// SaveConfig saves the current configuration to the specified path
 	SaveConfig(path string) error

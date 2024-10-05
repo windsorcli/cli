@@ -87,7 +87,7 @@ func TestSetContextCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			nil,
 			nil,
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			nil, nil,
 		)
@@ -118,7 +118,7 @@ func TestSetContextCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			nil,
 			nil,
-			func(key, value string) error { return errors.New("set context error") },
+			func(key string, value interface{}) error { return errors.New("set context error") },
 			nil, nil, nil,
 		)
 		mockShell, err := shell.NewMockShell("cmd")
@@ -148,7 +148,7 @@ func TestSetContextCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			nil,
 			nil,
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return errors.New("save config error") },
 			nil, nil,
 		)
@@ -253,7 +253,7 @@ func TestSetContextAliasCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			nil,
 			nil,
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			nil, nil,
 		)
@@ -284,7 +284,7 @@ func TestSetContextAliasCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			nil,
 			nil,
-			func(key, value string) error { return errors.New("set context error") },
+			func(key string, value interface{}) error { return errors.New("set context error") },
 			nil, nil, nil,
 		)
 		mockShell, err := shell.NewMockShell("cmd")
@@ -314,7 +314,7 @@ func TestSetContextAliasCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			nil,
 			nil,
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return errors.New("save config error") },
 			nil, nil,
 		)

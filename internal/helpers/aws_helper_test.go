@@ -523,7 +523,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -565,7 +565,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -607,7 +607,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -649,7 +649,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error {
+			func(key string, value interface{}) error {
 				if key == "contexts.test-context.aws.aws_profile" {
 					return errors.New("error setting aws_profile")
 				}
@@ -691,7 +691,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error {
+			func(key string, value interface{}) error {
 				if key == "contexts.test-context.aws.aws_endpoint_url" {
 					return errors.New("error setting aws_endpoint_url")
 				}
@@ -733,7 +733,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return errors.New("error saving config") },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -770,7 +770,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },

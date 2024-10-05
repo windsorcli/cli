@@ -759,7 +759,7 @@ func TestTerraformHelper_SetConfig(t *testing.T) {
 
 	t.Run("SetBackend", func(t *testing.T) {
 		// Mock SetConfigValue to return no error
-		mockConfigHandler.SetConfigValueFunc = func(key, value string) error {
+		mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.terraform.backend" {
 				return nil
 			}
@@ -801,7 +801,7 @@ func TestTerraformHelper_SetConfig(t *testing.T) {
 
 	t.Run("ErrorSettingBackend", func(t *testing.T) {
 		// Mock SetConfigValue to return an error
-		mockConfigHandler.SetConfigValueFunc = func(key, value string) error {
+		mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.terraform.backend" {
 				return fmt.Errorf("mock error setting backend")
 			}
@@ -866,7 +866,7 @@ func TestTerraformHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },

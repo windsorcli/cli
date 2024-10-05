@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
@@ -79,29 +80,38 @@ func (h *DockerHelper) PostEnvExec() error {
 
 // SetConfig sets the configuration value for the given key
 func (h *DockerHelper) SetConfig(key, value string) error {
-	currentContext, err := h.Context.GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving current context: %w", err)
+	if key != "enabled" {
+		return fmt.Errorf("unsupported config key: %s", key)
 	}
 
-	if key == "enabled" {
-		if err := h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", currentContext), value); err != nil {
-			return fmt.Errorf("error setting docker.enabled: %w", err)
+	context, err := h.Context.GetContext()
+	if err != nil {
+		return fmt.Errorf("error retrieving context: %w", err)
+	}
+
+	if value == "" {
+		if context == "local" || strings.HasPrefix(context, "local-") {
+			value = "true"
 		}
 	}
 
-	enabled, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", currentContext))
+	// Proceed with setting the configuration
+	err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context), value)
 	if err != nil {
-		return fmt.Errorf("error retrieving docker.enabled config: %w", err)
-	}
-	if enabled == "true" {
-		if err := h.writeDockerComposeFile(); err != nil {
-			return fmt.Errorf("error writing docker-compose file: %w", err)
-		}
-		return nil
+		return err
 	}
 
-	return fmt.Errorf("unsupported config key: %s", key)
+	// Check if the "enabled" key is set to "true" before writing the docker compose file
+	enabledValue, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context))
+	if err != nil {
+		return fmt.Errorf("error retrieving docker enabled config: %w", err)
+	}
+
+	if enabledValue == "true" {
+		return h.writeDockerComposeFile()
+	}
+
+	return nil
 }
 
 // writeDockerComposeFile is a private method to write the docker-compose configuration to a file.

@@ -16,7 +16,7 @@ func createMockConfigHandler(getConfigValueFunc func(string) (string, error), ge
 	return config.NewMockConfigHandler(
 		func(path string) error { return nil },
 		getConfigValueFunc,
-		func(key, value string) error { return nil },
+		func(key string, value interface{}) error { return nil },
 		func(path string) error { return nil },
 		getNestedMapFunc,
 		func(key string) ([]string, error) { return nil, nil },

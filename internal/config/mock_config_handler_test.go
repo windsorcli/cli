@@ -77,7 +77,7 @@ func TestMockConfigHandler_GetConfigValue(t *testing.T) {
 func TestMockConfigHandler_SetConfigValue(t *testing.T) {
 	mockSetErr := errors.New("mock set config value error")
 	handler := &MockConfigHandler{
-		SetConfigValueFunc: func(key, value string) error {
+		SetConfigValueFunc: func(key string, value interface{}) error {
 			return mockSetErr
 		},
 	}
@@ -205,7 +205,7 @@ func TestNewMockConfigHandler(t *testing.T) {
 
 	loadConfigFunc := func(path string) error { return mockError }
 	getConfigValueFunc := func(key string) (string, error) { return "value", mockError }
-	setConfigValueFunc := func(key, value string) error { return mockError }
+	setConfigValueFunc := func(key string, value interface{}) error { return mockError }
 	saveConfigFunc := func(path string) error { return mockError }
 	getNestedMapFunc := func(key string) (map[string]interface{}, error) {
 		return map[string]interface{}{"key": "value"}, mockError

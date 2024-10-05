@@ -101,7 +101,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 
 	t.Run("Driver", func(t *testing.T) {
 		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				if key != "contexts.test-context.vm.driver" || value != "colima" {
 					t.Fatalf("unexpected key/value: %s/%s", key, value)
 				}
@@ -143,7 +143,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.value, func(t *testing.T) {
 				cliConfigHandler := &config.MockConfigHandler{
-					SetConfigValueFunc: func(key, value string) error {
+					SetConfigValueFunc: func(key string, value interface{}) error {
 						if key != "contexts.test-context.vm.cpu" || value != tt.expected {
 							t.Fatalf("unexpected key/value: %s/%s", key, value)
 						}
@@ -196,7 +196,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.value, func(t *testing.T) {
 				cliConfigHandler := &config.MockConfigHandler{
-					SetConfigValueFunc: func(key, value string) error {
+					SetConfigValueFunc: func(key string, value interface{}) error {
 						if key != "contexts.test-context.vm.disk" || value != tt.expected {
 							t.Fatalf("unexpected key/value: %s/%s", key, value)
 						}
@@ -244,7 +244,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 		defer func() { virtualMemory = originalVirtualMemory }()
 
 		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				if key != "contexts.test-context.vm.memory" || value != "32" {
 					t.Fatalf("unexpected key/value: %s/%s", key, value)
 				}
@@ -307,7 +307,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 		goArch = func() string { return "amd64" }
 
 		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				if key != "contexts.test-context.vm.arch" || value != "x86_64" {
 					t.Fatalf("unexpected key/value: %s/%s", key, value)
 				}
@@ -363,7 +363,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 
 	t.Run("ErrorSettingDriverConfig", func(t *testing.T) {
 		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				return errors.New("config error")
 			},
 		}
@@ -393,7 +393,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 
 	t.Run("ErrorSettingCPUConfig", func(t *testing.T) {
 		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				return errors.New("config error")
 			},
 		}
@@ -423,7 +423,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 
 	t.Run("ErrorSettingDiskConfig", func(t *testing.T) {
 		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				return errors.New("config error")
 			},
 		}
@@ -453,7 +453,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 
 	t.Run("ErrorSettingMemoryConfig", func(t *testing.T) {
 		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				return errors.New("config error")
 			},
 		}
@@ -509,7 +509,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 
 	t.Run("ErrorSettingArchConfig", func(t *testing.T) {
 		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				return errors.New("config error")
 			},
 		}
@@ -552,7 +552,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 			GetConfigValueFunc: func(key string) (string, error) {
 				return "", nil
 			},
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				return nil
 			},
 		}
@@ -618,7 +618,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 					return "", errors.New("unknown key")
 				}
 			},
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				return nil
 			},
 		}
@@ -667,7 +667,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 					return "", errors.New("unknown key")
 				}
 			},
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				return nil
 			},
 		}
@@ -722,7 +722,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 			GetConfigValueFunc: func(key string) (string, error) {
 				return "", nil
 			},
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				return nil
 			},
 		}
@@ -765,7 +765,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 			GetConfigValueFunc: func(key string) (string, error) {
 				return "", nil
 			},
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				return nil
 			},
 		}
@@ -808,7 +808,7 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 			GetConfigValueFunc: func(key string) (string, error) {
 				return "", nil
 			},
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				return nil
 			},
 		}
@@ -888,7 +888,7 @@ func TestGetDefaultValues(t *testing.T) {
 			GetConfigValueFunc: func(key string) (string, error) {
 				return "", nil
 			},
-			SetConfigValueFunc: func(key, value string) error {
+			SetConfigValueFunc: func(key string, value interface{}) error {
 				return nil
 			},
 		}

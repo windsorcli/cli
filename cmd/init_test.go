@@ -35,7 +35,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -70,7 +70,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return errors.New("set config value error") },
+			func(key string, value interface{}) error { return errors.New("set config value error") },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -105,7 +105,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return errors.New("save config error") },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -140,7 +140,7 @@ func TestInitCmd(t *testing.T) {
 		mockCLIHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -148,7 +148,7 @@ func TestInitCmd(t *testing.T) {
 		mockProjectHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return errors.New("save project config error") },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -194,7 +194,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -226,7 +226,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -271,7 +271,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -311,7 +311,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -351,7 +351,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -392,7 +392,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -432,7 +432,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -472,7 +472,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -512,7 +512,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -552,7 +552,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
