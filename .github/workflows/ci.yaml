@@ -18,14 +18,20 @@ jobs:
         os: [self-hosted-ubuntu, ubuntu-latest, windows-latest, macos-latest]
         arch: [amd64, arm64]
         exclude:
-          - os: windows-latest
-            arch: arm64
           - os: self-hosted-ubuntu
             arch: arm64
           # - os: ubuntu-latest
           #   arch: amd64
-          # - os: ubuntu-latest
-          #   arch: arm64
+          - os: ubuntu-latest
+            arch: arm64
+          - os: windows-latest
+            arch: arm64
+          - os: windows-latest
+            arch: amd64
+          - os: macos-latest
+            arch: arm64
+          - os: macos-latest
+            arch: amd64
 
     steps:
       - name: Checkout code
