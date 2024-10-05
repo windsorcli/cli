@@ -1,9 +1,5 @@
 package helpers
 
-import (
-	"github.com/windsor-hotel/cli/internal/shell"
-)
-
 // MockHelper is a mock implementation of the Helper interface
 type MockHelper struct {
 	// GetEnvVarsFunc is a function that mocks the GetEnvVars method
@@ -12,19 +8,15 @@ type MockHelper struct {
 	PostEnvExecFunc func() error
 	// SetConfigFunc is a function that mocks the SetConfig method
 	SetConfigFunc func(key, value string) error
-	// Shell is an instance of the shell interface
-	Shell shell.Shell
 }
 
 // NewMockHelper is a constructor for MockHelper
 func NewMockHelper(
 	// getEnvVarsFunc is a function that mocks the GetEnvVars method
 	getEnvVarsFunc func() (map[string]string, error),
-	shell shell.Shell,
 ) *MockHelper {
 	return &MockHelper{
 		GetEnvVarsFunc: getEnvVarsFunc,
-		Shell:          shell,
 	}
 }
 

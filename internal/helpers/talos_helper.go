@@ -5,28 +5,28 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
-// TalosHelper is a helper struct that provides Talosrnetes-specific utility functions
+// TalosHelper is a helper struct that provides Talos-specific utility functions
 type TalosHelper struct {
-	ConfigHandler config.ConfigHandler
-	Shell         shell.Shell
-	Context       context.ContextInterface
+	Context context.ContextInterface
 }
 
 // NewTalosHelper is a constructor for TalosHelper
-func NewTalosHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *TalosHelper {
-	return &TalosHelper{
-		ConfigHandler: configHandler,
-		Shell:         shell,
-		Context:       ctx,
+func NewTalosHelper(di *di.DIContainer) (*TalosHelper, error) {
+	resolvedContext, err := di.Resolve("context")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
+
+	return &TalosHelper{
+		Context: resolvedContext.(context.ContextInterface),
+	}, nil
 }
 
-// GetEnvVars retrieves Talosrnetes-specific environment variables for the current context
+// GetEnvVars retrieves Talos-specific environment variables for the current context
 func (h *TalosHelper) GetEnvVars() (map[string]string, error) {
 	// Get the configuration root directory
 	configRoot, err := h.Context.GetConfigRoot()

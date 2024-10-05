@@ -6,6 +6,7 @@ import (
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -17,12 +18,27 @@ type BaseHelper struct {
 }
 
 // NewBaseHelper is a constructor for BaseHelper
-func NewBaseHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *BaseHelper {
-	return &BaseHelper{
-		ConfigHandler: configHandler,
-		Shell:         shell,
-		Context:       ctx,
+func NewBaseHelper(di *di.DIContainer) (*BaseHelper, error) {
+	configHandler, err := di.Resolve("configHandler")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving configHandler: %w", err)
 	}
+
+	resolvedShell, err := di.Resolve("shell")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving shell: %w", err)
+	}
+
+	resolvedContext, err := di.Resolve("context")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving context: %w", err)
+	}
+
+	return &BaseHelper{
+		ConfigHandler: configHandler.(config.ConfigHandler),
+		Shell:         resolvedShell.(shell.Shell),
+		Context:       resolvedContext.(context.ContextInterface),
+	}, nil
 }
 
 // GetEnvVars retrieves environment variables for the current context

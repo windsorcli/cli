@@ -10,10 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // setupTestContext sets paths and names for secrets
@@ -117,7 +115,13 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 			},
 		}
 
-		sopsHelper := NewSopsHelper(nil, nil, mockContext)
+		container := di.NewContainer()
+		container.Register("context", mockContext)
+
+		sopsHelper, err := NewSopsHelper(container)
+		if err != nil {
+			t.Fatalf("Failed to create SopsHelper: %v", err)
+		}
 
 		envVars, err := sopsHelper.GetEnvVars()
 		if err != nil {
@@ -141,9 +145,15 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 			},
 		}
 
-		sopsHelper := NewSopsHelper(nil, nil, mockContext)
+		container := di.NewContainer()
+		container.Register("context", mockContext)
 
-		_, err := sopsHelper.GetEnvVars()
+		sopsHelper, err := NewSopsHelper(container)
+		if err != nil {
+			t.Fatalf("Failed to create SopsHelper: %v", err)
+		}
+
+		_, err = sopsHelper.GetEnvVars()
 		if err != nil {
 			expectedError := "file does not exist"
 			if !strings.Contains(err.Error(), expectedError) {
@@ -159,9 +169,15 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 			},
 		}
 
-		sopsHelper := NewSopsHelper(nil, nil, mockContext)
+		container := di.NewContainer()
+		container.Register("context", mockContext)
 
-		_, err := sopsHelper.GetEnvVars()
+		sopsHelper, err := NewSopsHelper(container)
+		if err != nil {
+			t.Fatalf("Failed to create SopsHelper: %v", err)
+		}
+
+		_, err = sopsHelper.GetEnvVars()
 		if err != nil {
 			expectedError := "error retrieving config root"
 			if !strings.Contains(err.Error(), expectedError) {
@@ -182,9 +198,15 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 			},
 		}
 
-		sopsHelper := NewSopsHelper(nil, nil, mockContext)
+		container := di.NewContainer()
+		container.Register("context", mockContext)
 
-		_, err := sopsHelper.GetEnvVars()
+		sopsHelper, err := NewSopsHelper(container)
+		if err != nil {
+			t.Fatalf("Failed to create SopsHelper: %v", err)
+		}
+
+		_, err = sopsHelper.GetEnvVars()
 		if err != nil {
 			expectedError := "file does not exist"
 			if !strings.Contains(err.Error(), expectedError) {
@@ -217,7 +239,13 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 			},
 		}
 
-		sopsHelper := NewSopsHelper(nil, nil, mockContext)
+		container := di.NewContainer()
+		container.Register("context", mockContext)
+
+		sopsHelper, err := NewSopsHelper(container)
+		if err != nil {
+			t.Fatalf("Failed to create SopsHelper: %v", err)
+		}
 
 		_, err = sopsHelper.GetEnvVars()
 		if err != nil {
@@ -231,36 +259,40 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 func TestSopsHelper_PostEnvExec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mockConfigHandler := createMockConfigHandler(
-			func(key string) (string, error) { return "", nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-		)
-		mockShell := createMockShell(func() (string, error) { return "", nil })
 		mockContext := &context.MockContext{
 			GetContextFunc:    func() (string, error) { return "", nil },
 			GetConfigRootFunc: func() (string, error) { return "", nil },
 		}
-		sopsHelper := NewSopsHelper(mockConfigHandler, mockShell, mockContext)
 
-		err := sopsHelper.PostEnvExec()
+		container := di.NewContainer()
+		container.Register("context", mockContext)
+
+		sopsHelper, err := NewSopsHelper(container)
+		if err != nil {
+			t.Fatalf("Failed to create SopsHelper: %v", err)
+		}
+
+		err = sopsHelper.PostEnvExec()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("RunCommand", func(t *testing.T) {
-		mockConfigHandler := createMockConfigHandler(
-			func(key string) (string, error) { return "", nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-		)
-		mockShell := createMockShell(func() (string, error) { return "echo 'PostEnvExec'", nil })
 		mockContext := &context.MockContext{
 			GetContextFunc:    func() (string, error) { return "", nil },
 			GetConfigRootFunc: func() (string, error) { return "", nil },
 		}
-		sopsHelper := NewSopsHelper(mockConfigHandler, mockShell, mockContext)
 
-		err := sopsHelper.PostEnvExec()
+		container := di.NewContainer()
+		container.Register("context", mockContext)
+
+		sopsHelper, err := NewSopsHelper(container)
+		if err != nil {
+			t.Fatalf("Failed to create SopsHelper: %v", err)
+		}
+
+		err = sopsHelper.PostEnvExec()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -268,29 +300,21 @@ func TestSopsHelper_PostEnvExec(t *testing.T) {
 }
 
 func TestSopsHelper_SetConfig(t *testing.T) {
-	mockConfigHandler := &config.MockConfigHandler{}
-	mockContext := &context.MockContext{}
-	helper := NewSopsHelper(mockConfigHandler, nil, mockContext)
+	mockContext := &context.MockContext{
+		GetContextFunc:    func() (string, error) { return "", nil },
+		GetConfigRootFunc: func() (string, error) { return "", nil },
+	}
+
+	container := di.NewContainer()
+	container.Register("context", mockContext)
 
 	t.Run("SetConfigStub", func(t *testing.T) {
-		err := helper.SetConfig("some_key", "some_value")
+		sopsHelper, err := NewSopsHelper(container)
 		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
+			t.Fatalf("Failed to create SopsHelper: %v", err)
 		}
-	})
 
-	t.Run("SetConfigActual", func(t *testing.T) {
-		mockConfigHandler := createMockConfigHandler(
-			func(key string) (string, error) { return "", nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-		)
-		mockContext := &context.MockContext{
-			GetContextFunc:    func() (string, error) { return "", nil },
-			GetConfigRootFunc: func() (string, error) { return "", nil },
-		}
-		sopsHelper := NewSopsHelper(mockConfigHandler, nil, mockContext)
-
-		err := sopsHelper.SetConfig("some_key", "some_value")
+		err = sopsHelper.SetConfig("some_key", "some_value")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -299,8 +323,9 @@ func TestSopsHelper_SetConfig(t *testing.T) {
 
 func TestSopsHelper_DecryptFile_FileDoesNotExist(t *testing.T) {
 	_, err := DecryptFile("nonexistent_file.yaml")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "file does not exist")
+	if err == nil || !strings.Contains(err.Error(), "file does not exist") {
+		t.Fatalf("expected error containing 'file does not exist', got %v", err)
+	}
 }
 
 func TestSopsHelper_YamlToEnvVars(t *testing.T) {
@@ -334,33 +359,25 @@ key2: value2
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := YamlToEnvVars([]byte(tt.yamlData)) // Convert string to []byte
 			if (err != nil) != tt.expectErr {
-				t.Errorf("yamlToEnvVars() error = %v, expectErr %v", err, tt.expectErr)
+				t.Errorf("YamlToEnvVars() error = %v, expectErr %v", err, tt.expectErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("yamlToEnvVars() = %v, want %v", got, tt.want)
+				t.Errorf("YamlToEnvVars() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestSopsHelper_GetContainerConfig(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler, shell, and context
-		mockConfigHandler := &config.MockConfigHandler{}
-		mockShell := &shell.MockShell{}
-		mockContext := &context.MockContext{}
-		helper := NewSopsHelper(mockConfigHandler, mockShell, mockContext)
+func TestNewSopsHelper(t *testing.T) {
+	t.Run("ErrorResolvingContext", func(t *testing.T) {
+		// Create DI container without registering context
+		diContainer := di.NewContainer()
 
-		// When: GetContainerConfig is called
-		containerConfig, err := helper.GetContainerConfig()
-		if err != nil {
-			t.Fatalf("GetContainerConfig() error = %v", err)
-		}
-
-		// Then: the result should be nil as per the stub implementation
-		if containerConfig != nil {
-			t.Errorf("expected nil, got %v", containerConfig)
+		// Attempt to create SopsHelper
+		_, err := NewSopsHelper(diContainer)
+		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
+			t.Fatalf("expected error resolving context, got %v", err)
 		}
 	})
 }

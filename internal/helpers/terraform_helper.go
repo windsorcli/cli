@@ -9,23 +9,41 @@ import (
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // TerraformHelper is a struct that provides various utility functions for working with Terraform
 type TerraformHelper struct {
 	ConfigHandler config.ConfigHandler
-	Shell         shell.Shell
 	Context       context.ContextInterface
 }
 
 // NewTerraformHelper is a constructor for TerraformHelper
-func NewTerraformHelper(configHandler config.ConfigHandler, shell shell.Shell, ctx context.ContextInterface) *TerraformHelper {
+func NewTerraformHelper(container *di.DIContainer) (*TerraformHelper, error) {
+	resolvedConfigHandler, err := container.Resolve("cliConfigHandler")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving configHandler: %w", err)
+	}
+
+	configHandler, ok := resolvedConfigHandler.(config.ConfigHandler)
+	if !ok {
+		return nil, fmt.Errorf("resolved configHandler is not of type ConfigHandler")
+	}
+
+	resolvedContext, err := container.Resolve("context")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving context: %w", err)
+	}
+
+	contextInterface, ok := resolvedContext.(context.ContextInterface)
+	if !ok {
+		return nil, fmt.Errorf("resolved context is not of type ContextInterface")
+	}
+
 	return &TerraformHelper{
 		ConfigHandler: configHandler,
-		Shell:         shell,
-		Context:       ctx,
-	}
+		Context:       contextInterface,
+	}, nil
 }
 
 // getAlias retrieves the alias for the Terraform command based on the current context
