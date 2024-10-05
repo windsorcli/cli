@@ -52,7 +52,10 @@ func main() {
 	container.Register("kubeHelper", kubeHelper)
 
 	// Create and register the TerraformHelper instance
-	terraformHelper := helpers.NewTerraformHelper(cliConfigHandler, shellInstance, contextInstance)
+	terraformHelper, err := helpers.NewTerraformHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create terraform helper: %v", err)
+	}
 	container.Register("terraformHelper", terraformHelper)
 
 	// Create and register the TalosHelper instance
