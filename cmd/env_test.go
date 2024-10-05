@@ -50,7 +50,7 @@ func TestEnvCmd(t *testing.T) {
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return nil
 		})
-		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil)
+		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
 
 		// When: the env command is executed
 		output := captureStdout(func() {
@@ -94,7 +94,8 @@ func TestEnvCmd(t *testing.T) {
 		mockContainer.Register("shell", mockShell)
 		mockContainer.Register("terraformHelper", mockHelper)
 		mockContainer.Register("awsHelper", mockHelper)
-		mockContainer.Register("colimaHelper", mockHelper) // Register ColimaHelper
+		mockContainer.Register("colimaHelper", mockHelper)
+		mockContainer.Register("dockerHelper", mockHelper)
 		Initialize(mockContainer)
 
 		// When: the env command is executed
@@ -179,7 +180,7 @@ func TestEnvCmd(t *testing.T) {
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return nil
 		})
-		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil)
+		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
 
 		// When: the env command is executed
 		output := captureStderr(func() {
@@ -224,7 +225,7 @@ func TestEnvCmd(t *testing.T) {
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return errors.New("post env exec error")
 		})
-		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil)
+		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
 
 		// When: the env command is executed
 		output := captureStderr(func() {
