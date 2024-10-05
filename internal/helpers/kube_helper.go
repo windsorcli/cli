@@ -15,20 +15,14 @@ type KubeHelper struct {
 }
 
 // NewKubeHelper is a constructor for KubeHelper
-func NewKubeHelper(container *di.DIContainer) (*KubeHelper, error) {
-
-	resolvedContext, err := container.Resolve("context")
+func NewKubeHelper(di *di.DIContainer) (*KubeHelper, error) {
+	resolvedContext, err := di.Resolve("context")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
-	contextInterface, ok := resolvedContext.(context.ContextInterface)
-	if !ok {
-		return nil, fmt.Errorf("resolved context is not of type ContextInterface")
-	}
-
 	return &KubeHelper{
-		Context: contextInterface,
+		Context: resolvedContext.(context.ContextInterface),
 	}, nil
 }
 
