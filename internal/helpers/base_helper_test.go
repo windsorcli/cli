@@ -417,10 +417,20 @@ func TestBaseHelper_GetContainerConfig(t *testing.T) {
 		mockConfigHandler := &config.MockConfigHandler{}
 		mockShell := &shell.MockShell{}
 		mockContext := &context.MockContext{}
-		helper := NewBaseHelper(mockConfigHandler, mockShell, mockContext)
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
+		baseHelper, err := NewBaseHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewBaseHelper() error = %v", err)
+		}
 
 		// When: GetContainerConfig is called
-		containerConfig, err := helper.GetContainerConfig()
+		containerConfig, err := baseHelper.GetContainerConfig()
 		if err != nil {
 			t.Fatalf("GetContainerConfig() error = %v", err)
 		}

@@ -232,7 +232,9 @@ func TestMockHelper_SetSetConfigFunc(t *testing.T) {
 func TestMockHelper_GetContainerConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock helper
-		helper := NewMockHelper(nil, nil)
+		helper := NewMockHelper(func() (map[string]string, error) {
+			return nil, nil
+		})
 
 		// When: GetContainerConfig is called
 		containerConfig, err := helper.GetContainerConfig()

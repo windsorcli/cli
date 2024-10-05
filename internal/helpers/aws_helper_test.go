@@ -831,17 +831,20 @@ func TestNewAwsHelper(t *testing.T) {
 
 func TestAwsHelper_GetContainerConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler, shell, and context
+		// Given: a mock config handler and context
 		mockConfigHandler := &config.MockConfigHandler{}
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
 		mockContext := &context.MockContext{}
 
-		// Create an instance of AwsHelper
-		awsHelper := NewAwsHelper(mockConfigHandler, mockShell, mockContext)
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
 
+		// Create an instance of AwsHelper
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
 		// When: GetContainerConfig is called
 		containerConfig, err := awsHelper.GetContainerConfig()
 		if err != nil {

@@ -210,7 +210,11 @@ func TestDockerHelper_PostEnvExec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a DockerHelper instance
 		mockConfigHandler := &config.MockConfigHandler{}
-		mockContext := &context.MockContext{}
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+		}
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
@@ -233,22 +237,25 @@ func TestDockerHelper_PostEnvExec(t *testing.T) {
 }
 
 func TestDockerHelper_SetConfig(t *testing.T) {
-	mockConfigHandler := &config.MockConfigHandler{}
-	mockContext := &context.MockContext{}
-
-	// Create DI container and register mocks
-	diContainer := di.NewContainer()
-	diContainer.Register("configHandler", mockConfigHandler)
-	diContainer.Register("context", mockContext)
-
-	helper, err := NewDockerHelper(diContainer)
-	if err != nil {
-		t.Fatalf("NewDockerHelper() error = %v", err)
-	}
-
 	t.Run("SetEnabledConfigSuccess", func(t *testing.T) {
+		// Given: a new DockerHelper instance for this test
+		mockConfigHandler := &config.MockConfigHandler{}
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+		}
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		helper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
 		// When: SetConfig is called with "enabled" key
-		err := helper.SetConfig("enabled", "true")
+		err = helper.SetConfig("enabled", "true")
 
 		// Then: it should return no error
 		if err != nil {
@@ -263,10 +270,19 @@ func TestDockerHelper_SetConfig(t *testing.T) {
 				return "", errors.New("error retrieving current context")
 			},
 		}
+		mockConfigHandler := &config.MockConfigHandler{}
+		diContainer := di.NewContainer()
 		diContainer.Register("context", mockContextWithError)
+		diContainer.Register("configHandler", mockConfigHandler)
+
+		// Create DockerHelper
+		helper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
 
 		// When: SetConfig is called with "enabled" key
-		err := helper.SetConfig("enabled", "true")
+		err = helper.SetConfig("enabled", "true")
 
 		// Then: it should return an error
 		if err == nil || !strings.Contains(err.Error(), "error retrieving current context") {
@@ -275,8 +291,20 @@ func TestDockerHelper_SetConfig(t *testing.T) {
 	})
 
 	t.Run("UnsupportedConfigKey", func(t *testing.T) {
+		// Given: a new DockerHelper instance for this test
+		mockConfigHandler := &config.MockConfigHandler{}
+		mockContext := &context.MockContext{}
+		diContainer := di.NewContainer()
+		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		helper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
 		// When: SetConfig is called with an unsupported key
-		err := helper.SetConfig("unsupported_key", "some_value")
+		err = helper.SetConfig("unsupported_key", "some_value")
 
 		// Then: it should return an error
 		expectedError := "unsupported config key: unsupported_key"
@@ -292,10 +320,23 @@ func TestDockerHelper_SetConfig(t *testing.T) {
 				return errors.New("mock error setting config value")
 			},
 		}
+		mockContext := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "local", nil
+			},
+		}
+		diContainer := di.NewContainer()
 		diContainer.Register("configHandler", mockConfigHandlerWithError)
+		diContainer.Register("context", mockContext)
+
+		// Create DockerHelper
+		helper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
 
 		// When: SetConfig is called with "enabled" key
-		err := helper.SetConfig("enabled", "true")
+		err = helper.SetConfig("enabled", "true")
 
 		// Then: it should return an error indicating the failure to set the config
 		expectedError := "error setting docker.enabled: mock error setting config value"
