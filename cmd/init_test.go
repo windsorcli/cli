@@ -546,4 +546,44 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
+
+	t.Run("SetDockerConfigError", func(t *testing.T) {
+		// Given: a docker helper that returns an error on setting config
+		mockHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			func(key, value string) error { return nil },
+			func(path string) error { return nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
+		)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{
+			SetConfigFunc: func(key, value string) error {
+				if key == "enabled" {
+					return errors.New("set docker config error")
+				}
+				return nil
+			},
+		}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, mockHelper)
+
+		// When: the init command is executed with the docker flag
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context", "--docker"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "error setting Docker configuration: set docker config error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
 }
