@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
@@ -27,6 +28,47 @@ func createMockShell(getProjectRootFunc func() (string, error)) *shell.MockShell
 	return &shell.MockShell{
 		GetProjectRootFunc: getProjectRootFunc,
 	}
+}
+
+func TestNewBaseHelper(t *testing.T) {
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		diContainer := di.NewContainer()
+
+		// Do not register configHandler to simulate resolution error
+		diContainer.Register("shell", &shell.MockShell{})
+		diContainer.Register("context", &context.MockContext{})
+
+		_, err := NewBaseHelper(diContainer)
+		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
+			t.Fatalf("expected error resolving configHandler, got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingShell", func(t *testing.T) {
+		diContainer := di.NewContainer()
+
+		// Register configHandler but not shell to simulate resolution error
+		diContainer.Register("configHandler", &config.MockConfigHandler{})
+		diContainer.Register("context", &context.MockContext{})
+
+		_, err := NewBaseHelper(diContainer)
+		if err == nil || !strings.Contains(err.Error(), "error resolving shell") {
+			t.Fatalf("expected error resolving shell, got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingContext", func(t *testing.T) {
+		diContainer := di.NewContainer()
+
+		// Register configHandler and shell but not context to simulate resolution error
+		diContainer.Register("configHandler", &config.MockConfigHandler{})
+		diContainer.Register("shell", &shell.MockShell{})
+
+		_, err := NewBaseHelper(diContainer)
+		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
+			t.Fatalf("expected error resolving context, got %v", err)
+		}
+	})
 }
 
 func TestBaseHelper_GetEnvVars(t *testing.T) {
