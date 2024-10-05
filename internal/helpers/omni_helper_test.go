@@ -169,7 +169,7 @@ func TestNewOmniHelper(t *testing.T) {
 		// Create DI container without registering context
 		diContainer := di.NewContainer()
 		mockConfigHandler := &config.MockConfigHandler{}
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 		// Attempt to create OmniHelper
 		_, err := NewOmniHelper(diContainer)
@@ -182,7 +182,7 @@ func TestNewOmniHelper(t *testing.T) {
 		// Create DI container and register a wrong type for context
 		diContainer := di.NewContainer()
 		mockConfigHandler := &config.MockConfigHandler{}
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", "not a context interface")
 
 		// Attempt to create OmniHelper

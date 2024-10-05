@@ -19,9 +19,9 @@ type DockerHelper struct {
 
 // NewDockerHelper is a constructor for DockerHelper
 func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
-	configHandler, err := di.Resolve("configHandler")
+	cliConfigHandler, err := di.Resolve("cliConfigHandler")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving configHandler: %w", err)
+		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
 	resolvedContext, err := di.Resolve("context")
@@ -40,7 +40,7 @@ func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
 	}
 
 	return &DockerHelper{
-		ConfigHandler: configHandler.(config.ConfigHandler),
+		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
 		Helpers:       helperInstances,
 	}, nil

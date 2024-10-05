@@ -19,9 +19,9 @@ type AwsHelper struct {
 
 // NewAwsHelper is a constructor for AwsHelper
 func NewAwsHelper(di *di.DIContainer) (*AwsHelper, error) {
-	configHandler, err := di.Resolve("configHandler")
+	cliConfigHandler, err := di.Resolve("cliConfigHandler")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving configHandler: %w", err)
+		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
 	resolvedContext, err := di.Resolve("context")
@@ -30,7 +30,7 @@ func NewAwsHelper(di *di.DIContainer) (*AwsHelper, error) {
 	}
 
 	return &AwsHelper{
-		ConfigHandler: configHandler.(config.ConfigHandler),
+		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
 	}, nil
 }

@@ -186,7 +186,7 @@ func TestNewKubeHelper(t *testing.T) {
 		// Create DI container without registering context
 		diContainer := di.NewContainer()
 		mockConfigHandler := &config.MockConfigHandler{}
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 		// Attempt to create KubeHelper
 		_, err := NewKubeHelper(diContainer)

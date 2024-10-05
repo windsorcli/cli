@@ -34,21 +34,21 @@ func TestNewBaseHelper(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		diContainer := di.NewContainer()
 
-		// Do not register configHandler to simulate resolution error
+		// Do not register cliConfigHandler to simulate resolution error
 		diContainer.Register("shell", &shell.MockShell{})
 		diContainer.Register("context", &context.MockContext{})
 
 		_, err := NewBaseHelper(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
-			t.Fatalf("expected error resolving configHandler, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
+			t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
 		}
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
 		diContainer := di.NewContainer()
 
-		// Register configHandler but not shell to simulate resolution error
-		diContainer.Register("configHandler", &config.MockConfigHandler{})
+		// Register cliConfigHandler but not shell to simulate resolution error
+		diContainer.Register("cliConfigHandler", &config.MockConfigHandler{})
 		diContainer.Register("context", &context.MockContext{})
 
 		_, err := NewBaseHelper(diContainer)
@@ -60,8 +60,8 @@ func TestNewBaseHelper(t *testing.T) {
 	t.Run("ErrorResolvingContext", func(t *testing.T) {
 		diContainer := di.NewContainer()
 
-		// Register configHandler and shell but not context to simulate resolution error
-		diContainer.Register("configHandler", &config.MockConfigHandler{})
+		// Register cliConfigHandler and shell but not context to simulate resolution error
+		diContainer.Register("cliConfigHandler", &config.MockConfigHandler{})
 		diContainer.Register("shell", &shell.MockShell{})
 
 		_, err := NewBaseHelper(diContainer)
@@ -104,7 +104,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 	// Create DI container and register mocks
 	diContainer := di.NewContainer()
-	diContainer.Register("configHandler", mockConfigHandler)
+	diContainer.Register("cliConfigHandler", mockConfigHandler)
 	diContainer.Register("shell", mockShell)
 	diContainer.Register("context", mockContext)
 
@@ -158,7 +158,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 
@@ -200,7 +200,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 
@@ -240,7 +240,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 
@@ -288,7 +288,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 
@@ -328,7 +328,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 
@@ -365,7 +365,7 @@ func TestBaseHelper_PostEnvExec(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 
@@ -391,7 +391,7 @@ func TestBaseHelper_SetConfig(t *testing.T) {
 
 	// Create DI container and register mocks
 	diContainer := di.NewContainer()
-	diContainer.Register("configHandler", mockConfigHandler)
+	diContainer.Register("cliConfigHandler", mockConfigHandler)
 	diContainer.Register("context", mockContext)
 	diContainer.Register("shell", mockShell)
 
@@ -420,7 +420,7 @@ func TestBaseHelper_GetContainerConfig(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 

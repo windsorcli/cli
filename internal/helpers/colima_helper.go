@@ -29,9 +29,9 @@ type ColimaHelper struct {
 
 // NewColimaHelper is a constructor for ColimaHelper
 func NewColimaHelper(di *di.DIContainer) (*ColimaHelper, error) {
-	configHandler, err := di.Resolve("configHandler")
+	cliConfigHandler, err := di.Resolve("cliConfigHandler")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving configHandler: %w", err)
+		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
 	resolvedContext, err := di.Resolve("context")
@@ -40,7 +40,7 @@ func NewColimaHelper(di *di.DIContainer) (*ColimaHelper, error) {
 	}
 
 	return &ColimaHelper{
-		ConfigHandler: configHandler.(config.ConfigHandler),
+		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
 	}, nil
 }
@@ -173,7 +173,7 @@ func (h *ColimaHelper) SetConfig(key, value string) error {
 var _ Helper = (*ColimaHelper)(nil)
 
 // generateColimaConfig generates the colima.yaml configuration file based on the Windsor context
-func generateColimaConfig(context string, configHandler config.ConfigHandler) error {
+func generateColimaConfig(context string, cliConfigHandler config.ConfigHandler) error {
 	colimaConfigDir := filepath.Join(os.Getenv("HOME"), fmt.Sprintf(".colima/windsor-%s", context))
 	colimaConfigPath := filepath.Join(colimaConfigDir, "colima.yaml")
 
@@ -189,22 +189,22 @@ func generateColimaConfig(context string, configHandler config.ConfigHandler) er
 	}
 
 	// Override default values with context-specific values if provided
-	if val, err := configHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.cpu", context)); err == nil {
+	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.cpu", context)); err == nil {
 		if cpuVal, err := strconv.Atoi(val); err == nil {
 			cpu = cpuVal
 		}
 	}
-	if val, err := configHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.disk", context)); err == nil {
+	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.disk", context)); err == nil {
 		if diskVal, err := strconv.Atoi(val); err == nil {
 			disk = diskVal
 		}
 	}
-	if val, err := configHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.memory", context)); err == nil {
+	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.memory", context)); err == nil {
 		if memoryVal, err := strconv.Atoi(val); err == nil {
 			memory = memoryVal
 		}
 	}
-	if val, err := configHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", context)); err == nil {
+	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", context)); err == nil {
 		arch = val
 	}
 

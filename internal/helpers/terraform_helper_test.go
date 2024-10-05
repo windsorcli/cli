@@ -136,13 +136,13 @@ func TestNewTerraformHelper(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Create DI container without registering configHandler
+		// Create DI container without registering cliConfigHandler
 		diContainer := di.NewContainer()
 
 		// Attempt to create TerraformHelper
 		_, err := NewTerraformHelper(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
-			t.Fatalf("expected error resolving configHandler, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
+			t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
 		}
 	})
 
@@ -157,8 +157,8 @@ func TestNewTerraformHelper(t *testing.T) {
 		diContainer.Register("context", mockContext)
 
 		_, err := NewTerraformHelper(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "resolved configHandler is not of type ConfigHandler") {
-			t.Fatalf("expected error about configHandler type, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "resolved cliConfigHandler is not of type ConfigHandler") {
+			t.Fatalf("expected error about cliConfigHandler type, got %v", err)
 		}
 	})
 
