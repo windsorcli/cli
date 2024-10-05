@@ -26,7 +26,7 @@ var initCmd = &cobra.Command{
 		contextName := args[0]
 
 		// Set the context value
-		if err := cliConfigHandler.SetConfigValue("context", contextName); err != nil {
+		if err := configHandler.SetConfigValue("context", contextName); err != nil {
 			return fmt.Errorf("Error setting config value: %w", err)
 		}
 
@@ -61,7 +61,7 @@ var initCmd = &cobra.Command{
 		}
 
 		// Save the cli configuration
-		if err := cliConfigHandler.SaveConfig(""); err != nil {
+		if err := configHandler.SaveConfig(""); err != nil {
 			return fmt.Errorf("Error saving config file: %w", err)
 		}
 

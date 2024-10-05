@@ -15,14 +15,20 @@ type TalosHelper struct {
 }
 
 // NewTalosHelper is a constructor for TalosHelper
-func NewTalosHelper(di *di.DIContainer) (*TalosHelper, error) {
-	resolvedContext, err := di.Resolve("context")
+func NewTalosHelper(container *di.DIContainer) (*TalosHelper, error) {
+
+	resolvedContext, err := container.Resolve("context")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
+	contextInterface, ok := resolvedContext.(context.ContextInterface)
+	if !ok {
+		return nil, fmt.Errorf("resolved context is not of type ContextInterface")
+	}
+
 	return &TalosHelper{
-		Context: resolvedContext.(context.ContextInterface),
+		Context: contextInterface,
 	}, nil
 }
 

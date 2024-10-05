@@ -16,11 +16,11 @@ func main() {
 	container := di.NewContainer()
 
 	// Register CLI Config Handler (to be initialized later)
-	cliConfigHandler, err := config.NewViperConfigHandler("")
+	configHandler, err := config.NewViperConfigHandler("")
 	if err != nil {
 		log.Fatalf("failed to create CLI config handler: %v", err)
 	}
-	container.Register("cliConfigHandler", cliConfigHandler)
+	container.Register("configHandler", configHandler)
 
 	// Register Shell instance
 	shellInstance := shell.NewDefaultShell()
@@ -34,7 +34,7 @@ func main() {
 	container.Register("projectConfigHandler", projectConfigHandler)
 
 	// Create and register the Context instance
-	contextInstance := context.NewContext(cliConfigHandler, shellInstance)
+	contextInstance := context.NewContext(configHandler, shellInstance)
 	container.Register("context", contextInstance)
 
 	// Create and register the BaseHelper instance

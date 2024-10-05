@@ -89,7 +89,7 @@ func TestEnvCmd(t *testing.T) {
 		})
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
-		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
+		mockContainer.Register("configHandler", mockCliConfigHandler)
 		mockContainer.Register("projectConfigHandler", mockProjectConfigHandler)
 		mockContainer.Register("shell", mockShell)
 		mockContainer.Register("terraformHelper", mockHelper)
@@ -127,7 +127,7 @@ func TestEnvCmd(t *testing.T) {
 		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveError("shell", errors.New("resolve shell error")) // Simulate error
-		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
+		mockContainer.Register("configHandler", mockCliConfigHandler)
 		mockContainer.Register("projectConfigHandler", mockProjectConfigHandler)
 		Initialize(mockContainer)
 

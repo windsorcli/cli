@@ -21,7 +21,7 @@ var (
 )
 
 // ConfigHandler instances
-var cliConfigHandler config.ConfigHandler
+var configHandler config.ConfigHandler
 var projectConfigHandler config.ConfigHandler
 
 // shell instance
@@ -82,9 +82,9 @@ func getProjectConfigPath() string {
 
 // preRunLoadConfig is the function assigned to PersistentPreRunE
 func preRunLoadConfig(cmd *cobra.Command, args []string) error {
-	// Check if cliConfigHandler is initialized
-	if cliConfigHandler == nil {
-		return fmt.Errorf("cliConfigHandler is not initialized")
+	// Check if configHandler is initialized
+	if configHandler == nil {
+		return fmt.Errorf("configHandler is not initialized")
 	}
 
 	// Check if projectConfigHandler is initialized
@@ -94,7 +94,7 @@ func preRunLoadConfig(cmd *cobra.Command, args []string) error {
 
 	// Load CLI configuration
 	cliConfigPath := getCLIConfigPath()
-	if err := cliConfigHandler.LoadConfig(cliConfigPath); err != nil {
+	if err := configHandler.LoadConfig(cliConfigPath); err != nil {
 		return fmt.Errorf("error loading CLI config: %w", err)
 	}
 
@@ -161,7 +161,7 @@ func Initialize(cont di.ContainerInterface) {
 		}
 	}
 
-	resolveAndAssign("cliConfigHandler", &cliConfigHandler)
+	resolveAndAssign("configHandler", &configHandler)
 	resolveAndAssign("projectConfigHandler", &projectConfigHandler)
 	resolveAndAssign("shell", &shellInstance)
 	resolveAndAssign("terraformHelper", &terraformHelper)
@@ -169,5 +169,5 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("colimaHelper", &colimaHelper)
 
 	// Initialize contextInstance
-	contextInstance = context.NewContext(cliConfigHandler, shellInstance)
+	contextInstance = context.NewContext(configHandler, shellInstance)
 }

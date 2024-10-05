@@ -20,7 +20,7 @@ type TerraformHelper struct {
 
 // NewTerraformHelper is a constructor for TerraformHelper
 func NewTerraformHelper(container *di.DIContainer) (*TerraformHelper, error) {
-	resolvedConfigHandler, err := container.Resolve("cliConfigHandler")
+	resolvedConfigHandler, err := container.Resolve("configHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving configHandler: %w", err)
 	}

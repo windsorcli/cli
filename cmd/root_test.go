@@ -62,7 +62,7 @@ func setupContainer(
 		})
 	}
 
-	container.Register("cliConfigHandler", mockCLIConfigHandler)
+	container.Register("configHandler", mockCLIConfigHandler)
 	container.Register("projectConfigHandler", mockProjectConfigHandler)
 	container.Register("shell", mockShell)
 	container.Register("terraformHelper", mockTerraformHelper)
@@ -71,11 +71,11 @@ func setupContainer(
 	Initialize(container)
 
 	// Ensure handlers are set correctly
-	instance, err := container.Resolve("cliConfigHandler")
+	instance, err := container.Resolve("configHandler")
 	if err != nil {
-		panic("Error resolving cliConfigHandler: " + err.Error())
+		panic("Error resolving configHandler: " + err.Error())
 	}
-	cliConfigHandler, _ = instance.(config.ConfigHandler)
+	configHandler, _ = instance.(config.ConfigHandler)
 
 	instance, err = container.Resolve("projectConfigHandler")
 	if err != nil {
@@ -177,7 +177,7 @@ func TestPreRunLoadConfig(t *testing.T) {
 
 	t.Run("NoCLIConfigHandler", func(t *testing.T) {
 		// Given no CLI config handler is registered
-		cliConfigHandler = nil
+		configHandler = nil
 		projectConfigHandler = config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
@@ -191,7 +191,7 @@ func TestPreRunLoadConfig(t *testing.T) {
 		if err == nil {
 			t.Fatalf("preRunLoadConfig() expected error, got nil")
 		}
-		expectedError := "cliConfigHandler is not initialized"
+		expectedError := "configHandler is not initialized"
 		if err.Error() != expectedError {
 			t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
 		}
@@ -199,7 +199,7 @@ func TestPreRunLoadConfig(t *testing.T) {
 
 	t.Run("NoProjectConfigHandler", func(t *testing.T) {
 		// Given no project config handler is registered
-		cliConfigHandler = config.NewMockConfigHandler(
+		configHandler = config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
 			nil, nil, nil, nil,
@@ -341,7 +341,7 @@ func TestExecute(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		// Given no config handlers are registered
-		cliConfigHandler = nil
+		configHandler = nil
 		projectConfigHandler = nil
 
 		// Mock exitFunc to capture the exit code
@@ -367,7 +367,7 @@ func TestExecute(t *testing.T) {
 		if exitCode != 1 {
 			t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
 		}
-		expectedErrorMsg := "cliConfigHandler is not initialized\n"
+		expectedErrorMsg := "configHandler is not initialized\n"
 		if !strings.Contains(actualErrorMsg, expectedErrorMsg) {
 			t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
 		}
@@ -438,7 +438,7 @@ func TestInitialize(t *testing.T) {
 		if exitCode != 1 {
 			t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
 		}
-		expectedErrorMsg := "Error resolving cliConfigHandler: no instance registered with name cliConfigHandler\n"
+		expectedErrorMsg := "Error resolving configHandler: no instance registered with name configHandler\n"
 		if !strings.Contains(actualErrorMsg, expectedErrorMsg) {
 			t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
 		}
