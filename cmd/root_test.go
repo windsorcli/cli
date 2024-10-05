@@ -47,13 +47,19 @@ func setupContainer(
 		mockShell, _ = shell.NewMockShell("unix")
 	}
 	if mockTerraformHelper == nil {
-		mockTerraformHelper = helpers.NewMockHelper(nil, mockShell)
+		mockTerraformHelper = helpers.NewMockHelper(func() (map[string]string, error) {
+			return nil, nil
+		})
 	}
 	if mockAwsHelper == nil {
-		mockAwsHelper = helpers.NewMockHelper(nil, mockShell)
+		mockAwsHelper = helpers.NewMockHelper(func() (map[string]string, error) {
+			return nil, nil
+		})
 	}
 	if mockColimaHelper == nil {
-		mockColimaHelper = helpers.NewMockHelper(nil, mockShell)
+		mockColimaHelper = helpers.NewMockHelper(func() (map[string]string, error) {
+			return nil, nil
+		})
 	}
 
 	container.Register("cliConfigHandler", mockCLIConfigHandler)

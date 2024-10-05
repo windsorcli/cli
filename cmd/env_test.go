@@ -46,7 +46,6 @@ func TestEnvCmd(t *testing.T) {
 					"VAR2": "value2",
 				}, nil
 			},
-			mockShell,
 		)
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return nil
@@ -85,7 +84,9 @@ func TestEnvCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := helpers.NewMockHelper(nil, mockShell)
+		mockHelper := helpers.NewMockHelper(func() (map[string]string, error) {
+			return nil, nil
+		})
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
 		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
@@ -174,7 +175,6 @@ func TestEnvCmd(t *testing.T) {
 			func() (map[string]string, error) {
 				return nil, errors.New("get env vars error")
 			},
-			mockShell,
 		)
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return nil
@@ -220,7 +220,6 @@ func TestEnvCmd(t *testing.T) {
 					"VAR2": "value2",
 				}, nil
 			},
-			mockShell,
 		)
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return errors.New("post env exec error")
