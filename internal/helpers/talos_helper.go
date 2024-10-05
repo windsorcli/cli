@@ -2,7 +2,6 @@ package helpers
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/windsor-hotel/cli/internal/context"
@@ -36,9 +35,9 @@ func (h *TalosHelper) GetEnvVars() (map[string]string, error) {
 
 	// Construct the path to the talosconfig file
 	talosConfigPath := filepath.Join(configRoot, ".talos", "config")
-	if _, err := os.Stat(talosConfigPath); os.IsNotExist(err) {
-		talosConfigPath = ""
-	}
+	// if _, err := os.Stat(talosConfigPath); os.IsNotExist(err) {
+	// 	talosConfigPath = ""
+	// }
 
 	envVars := map[string]string{
 		"TALOSCONFIG": talosConfigPath,

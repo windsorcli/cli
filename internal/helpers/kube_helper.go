@@ -2,7 +2,6 @@ package helpers
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/windsor-hotel/cli/internal/context"
@@ -36,9 +35,9 @@ func (h *KubeHelper) GetEnvVars() (map[string]string, error) {
 
 	// Construct the path to the kubeconfig file
 	kubeConfigPath := filepath.Join(configRoot, ".kube", "config")
-	if _, err := os.Stat(kubeConfigPath); os.IsNotExist(err) {
-		kubeConfigPath = ""
-	}
+	// if _, err := os.Stat(kubeConfigPath); os.IsNotExist(err) {
+	// 	kubeConfigPath = ""
+	// }
 
 	envVars := map[string]string{
 		"KUBECONFIG":       kubeConfigPath,
