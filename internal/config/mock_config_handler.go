@@ -11,22 +11,8 @@ type MockConfigHandler struct {
 }
 
 // NewMockConfigHandler is a constructor for MockConfigHandler
-func NewMockConfigHandler(
-	loadConfigFunc func(path string) error,
-	getConfigValueFunc func(key string) (string, error),
-	setConfigValueFunc func(key string, value interface{}) error,
-	saveConfigFunc func(path string) error,
-	getNestedMapFunc func(key string) (map[string]interface{}, error),
-	listKeysFunc func(key string) ([]string, error),
-) *MockConfigHandler {
-	return &MockConfigHandler{
-		LoadConfigFunc:     loadConfigFunc,
-		GetConfigValueFunc: getConfigValueFunc,
-		SetConfigValueFunc: setConfigValueFunc,
-		SaveConfigFunc:     saveConfigFunc,
-		GetNestedMapFunc:   getNestedMapFunc,
-		ListKeysFunc:       listKeysFunc,
-	}
+func NewMockConfigHandler() *MockConfigHandler {
+	return &MockConfigHandler{}
 }
 
 // LoadConfig calls the mock LoadConfigFunc if set, otherwise returns nil

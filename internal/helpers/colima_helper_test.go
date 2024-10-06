@@ -29,618 +29,700 @@ func (m *mockYAMLEncoder) Close() error {
 	return m.closeFunc()
 }
 
-func TestColimaHelper_GetEnvVars(t *testing.T) {
-	cliConfigHandler := &config.MockConfigHandler{}
-	ctx := &context.MockContext{}
+func TestColimaHelper(t *testing.T) {
+	t.Run("NewColimaHelper", func(t *testing.T) {
+		t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+			// Given a DI container without registering cliConfigHandler
+			diContainer := di.NewContainer()
 
-	diContainer := di.NewContainer()
-	diContainer.Register("cliConfigHandler", cliConfigHandler)
-	diContainer.Register("context", ctx)
+			// When attempting to create ColimaHelper
+			_, err := NewColimaHelper(diContainer)
 
-	helper, err := NewColimaHelper(diContainer)
-	if err != nil {
-		t.Fatalf("NewColimaHelper() error = %v", err)
-	}
+			// Then it should return an error indicating cliConfigHandler resolution failure
+			if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
+				t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
+			}
+		})
 
-	envVars, err := helper.GetEnvVars()
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if len(envVars) != 0 {
-		t.Fatalf("expected empty envVars, got %v", envVars)
-	}
-}
+		t.Run("ErrorResolvingContext", func(t *testing.T) {
+			// Given a DI container with only cliConfigHandler registered
+			diContainer := di.NewContainer()
+			mockConfigHandler := config.NewMockConfigHandler()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
-func TestColimaHelper_PostEnvExec(t *testing.T) {
-	cliConfigHandler := &config.MockConfigHandler{}
-	ctx := &context.MockContext{}
+			// When attempting to create ColimaHelper
+			_, err := NewColimaHelper(diContainer)
 
-	diContainer := di.NewContainer()
-	diContainer.Register("cliConfigHandler", cliConfigHandler)
-	diContainer.Register("context", ctx)
-
-	helper, err := NewColimaHelper(diContainer)
-	if err != nil {
-		t.Fatalf("NewColimaHelper() error = %v", err)
-	}
-
-	err = helper.PostEnvExec()
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-}
-
-func TestColimaHelper_SetConfig(t *testing.T) {
-
-	t.Run("ErrorRetrievingContext", func(t *testing.T) {
-		cliConfigHandler := &config.MockConfigHandler{}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "", errors.New("context error")
-			},
-		}
-
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
-
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
-
-		err = helper.SetConfig("driver", "colima")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "error retrieving context: context error" {
-			t.Fatalf("expected 'error retrieving context: context error', got '%v'", err)
-		}
+			// Then it should return an error indicating context resolution failure
+			if err == nil || !strings.Contains(err.Error(), "error resolving context") {
+				t.Fatalf("expected error resolving context, got %v", err)
+			}
+		})
 	})
 
-	t.Run("Driver", func(t *testing.T) {
-		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key string, value interface{}) error {
+	t.Run("SetConfig", func(t *testing.T) {
+		t.Run("ErrorRetrievingContext", func(t *testing.T) {
+			// Given a mock context that returns an error when retrieving context
+			cliConfigHandler := config.NewMockConfigHandler()
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "", errors.New("context error")
+				},
+			}
+
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
+
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And setting the config
+			err = helper.SetConfig("driver", "colima")
+
+			// Then it should return an error indicating context retrieval failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "error retrieving context: context error" {
+				t.Fatalf("expected 'error retrieving context: context error', got '%v'", err)
+			}
+		})
+
+		t.Run("Driver", func(t *testing.T) {
+			// Given a mock config handler that expects a specific key/value pair
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				if key != "contexts.test-context.vm.driver" || value != "colima" {
 					t.Fatalf("unexpected key/value: %s/%s", key, value)
 				}
 				return nil
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-		err = helper.SetConfig("driver", "colima")
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
+			// And setting the config
+			err = helper.SetConfig("driver", "colima")
 
-	t.Run("CPU", func(t *testing.T) {
-		tests := []struct {
-			value    string
-			expected interface{}
-			errMsg   string
-		}{
-			{"4", 4, ""},
-			{"", runtime.NumCPU() / 2, ""},
-			{"invalid", nil, "invalid value for cpu: strconv.Atoi: parsing \"invalid\": invalid syntax"},
-		}
+			// Then it should not return an error
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
 
-		for _, tt := range tests {
-			t.Run(tt.value, func(t *testing.T) {
-				cliConfigHandler := &config.MockConfigHandler{
-					SetConfigValueFunc: func(key string, value interface{}) error {
+		t.Run("CPU", func(t *testing.T) {
+			tests := []struct {
+				value    string
+				expected interface{}
+				errMsg   string
+			}{
+				{"4", 4, ""},
+				{"", runtime.NumCPU() / 2, ""},
+				{"invalid", nil, "invalid value for cpu: strconv.Atoi: parsing \"invalid\": invalid syntax"},
+			}
+
+			for _, tt := range tests {
+				t.Run(tt.value, func(t *testing.T) {
+					// Given a mock config handler that expects a specific key/value pair
+					cliConfigHandler := config.NewMockConfigHandler()
+					cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 						if key != "contexts.test-context.vm.cpu" || value != tt.expected {
 							t.Fatalf("unexpected key/value: %s/%v", key, value)
 						}
 						return nil
-					},
-				}
-				ctx := &context.MockContext{
-					GetContextFunc: func() (string, error) {
-						return "test-context", nil
-					},
-				}
-
-				diContainer := di.NewContainer()
-				diContainer.Register("cliConfigHandler", cliConfigHandler)
-				diContainer.Register("context", ctx)
-
-				helper, err := NewColimaHelper(diContainer)
-				if err != nil {
-					t.Fatalf("NewColimaHelper() error = %v", err)
-				}
-
-				err = helper.SetConfig("cpu", tt.value)
-				if tt.errMsg != "" {
-					if err == nil {
-						t.Fatalf("expected error, got nil")
 					}
-					if err.Error() != tt.errMsg {
-						t.Fatalf("expected error '%s', got '%v'", tt.errMsg, err)
+					// And a mock context that returns a specific context
+					ctx := &context.MockContext{
+						GetContextFunc: func() (string, error) {
+							return "test-context", nil
+						},
 					}
-				} else {
+
+					// And a DI container with the mock context and config handler registered
+					diContainer := di.NewContainer()
+					diContainer.Register("cliConfigHandler", cliConfigHandler)
+					diContainer.Register("context", ctx)
+
+					// When creating a new ColimaHelper
+					helper, err := NewColimaHelper(diContainer)
 					if err != nil {
-						t.Fatalf("expected no error, got %v", err)
+						t.Fatalf("NewColimaHelper() error = %v", err)
 					}
-				}
-			})
-		}
-	})
 
-	t.Run("Disk", func(t *testing.T) {
-		tests := []struct {
-			value    string
-			expected interface{}
-			errMsg   string
-		}{
-			{"100", 100, ""},
-			{"", 60, ""},
-			{"invalid", nil, "invalid value for disk: strconv.Atoi: parsing \"invalid\": invalid syntax"},
-		}
+					// And setting the config
+					err = helper.SetConfig("cpu", tt.value)
 
-		for _, tt := range tests {
-			t.Run(tt.value, func(t *testing.T) {
-				cliConfigHandler := &config.MockConfigHandler{
-					SetConfigValueFunc: func(key string, value interface{}) error {
+					// Then it should return the expected error or no error
+					if tt.errMsg != "" {
+						if err == nil {
+							t.Fatalf("expected error, got nil")
+						}
+						if err.Error() != tt.errMsg {
+							t.Fatalf("expected error '%s', got '%v'", tt.errMsg, err)
+						}
+					} else {
+						if err != nil {
+							t.Fatalf("expected no error, got %v", err)
+						}
+					}
+				})
+			}
+		})
+
+		t.Run("Disk", func(t *testing.T) {
+			tests := []struct {
+				value    string
+				expected interface{}
+				errMsg   string
+			}{
+				{"100", 100, ""},
+				{"", 60, ""},
+				{"invalid", nil, "invalid value for disk: strconv.Atoi: parsing \"invalid\": invalid syntax"},
+			}
+
+			for _, tt := range tests {
+				t.Run(tt.value, func(t *testing.T) {
+					// Given a mock config handler that expects a specific key/value pair
+					cliConfigHandler := config.NewMockConfigHandler()
+					cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 						if key != "contexts.test-context.vm.disk" || value != tt.expected {
 							t.Fatalf("unexpected key/value: %s/%v", key, value)
 						}
 						return nil
-					},
-				}
-				ctx := &context.MockContext{
-					GetContextFunc: func() (string, error) {
-						return "test-context", nil
-					},
-				}
-
-				diContainer := di.NewContainer()
-				diContainer.Register("cliConfigHandler", cliConfigHandler)
-				diContainer.Register("context", ctx)
-
-				helper, err := NewColimaHelper(diContainer)
-				if err != nil {
-					t.Fatalf("NewColimaHelper() error = %v", err)
-				}
-
-				err = helper.SetConfig("disk", tt.value)
-				if tt.errMsg != "" {
-					if err == nil {
-						t.Fatalf("expected error, got nil")
 					}
-					if err.Error() != tt.errMsg {
-						t.Fatalf("expected error '%s', got '%v'", tt.errMsg, err)
+					// And a mock context that returns a specific context
+					ctx := &context.MockContext{
+						GetContextFunc: func() (string, error) {
+							return "test-context", nil
+						},
 					}
-				} else {
+
+					// And a DI container with the mock context and config handler registered
+					diContainer := di.NewContainer()
+					diContainer.Register("cliConfigHandler", cliConfigHandler)
+					diContainer.Register("context", ctx)
+
+					// When creating a new ColimaHelper
+					helper, err := NewColimaHelper(diContainer)
 					if err != nil {
-						t.Fatalf("expected no error, got %v", err)
+						t.Fatalf("NewColimaHelper() error = %v", err)
 					}
-				}
-			})
-		}
-	})
 
-	t.Run("Memory", func(t *testing.T) {
-		// Mock the virtualMemory function to return a fixed total memory
-		originalVirtualMemory := virtualMemory
-		virtualMemory = func() (*mem.VirtualMemoryStat, error) {
-			return &mem.VirtualMemoryStat{Total: 64 * 1024 * 1024 * 1024}, nil // 64GB
-		}
-		defer func() { virtualMemory = originalVirtualMemory }()
+					// And setting the config
+					err = helper.SetConfig("disk", tt.value)
 
-		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key string, value interface{}) error {
+					// Then it should return the expected error or no error
+					if tt.errMsg != "" {
+						if err == nil {
+							t.Fatalf("expected error, got nil")
+						}
+						if err.Error() != tt.errMsg {
+							t.Fatalf("expected error '%s', got '%v'", tt.errMsg, err)
+						}
+					} else {
+						if err != nil {
+							t.Fatalf("expected no error, got %v", err)
+						}
+					}
+				})
+			}
+		})
+
+		t.Run("Memory", func(t *testing.T) {
+			// Given a mock virtualMemory function that returns a fixed total memory
+			originalVirtualMemory := virtualMemory
+			virtualMemory = func() (*mem.VirtualMemoryStat, error) {
+				return &mem.VirtualMemoryStat{Total: 64 * 1024 * 1024 * 1024}, nil // 64GB
+			}
+			defer func() { virtualMemory = originalVirtualMemory }()
+
+			// And a mock config handler that expects a specific key/value pair
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				if key != "contexts.test-context.vm.memory" || value != 32 {
 					t.Fatalf("unexpected key/value: %s/%v", key, value)
 				}
 				return nil
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-		err = helper.SetConfig("memory", "")
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
+			// And setting the config
+			err = helper.SetConfig("memory", "")
 
-	t.Run("GetArch", func(t *testing.T) {
-		// Save the original goArch function
-		originalGoArch := goArch
-		defer func() { goArch = originalGoArch }()
+			// Then it should not return an error
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
 
-		tests := []struct {
-			mockArch string
-			expected string
-		}{
-			{"amd64", "x86_64"},
-			{"arm64", "aarch64"},
-			{"unknown", "unknown"},
-		}
+		t.Run("GetArch", func(t *testing.T) {
+			// Given a mock goArch function that returns different architectures
+			originalGoArch := goArch
+			defer func() { goArch = originalGoArch }()
 
-		for _, tt := range tests {
-			t.Run(tt.mockArch, func(t *testing.T) {
-				// Mock the goArch function
-				goArch = func() string { return tt.mockArch }
+			tests := []struct {
+				mockArch string
+				expected string
+			}{
+				{"amd64", "x86_64"},
+				{"arm64", "aarch64"},
+				{"unknown", "unknown"},
+			}
 
-				arch := getArch()
-				if arch != tt.expected {
-					t.Fatalf("expected %s, got %s", tt.expected, arch)
-				}
-			})
-		}
-	})
+			for _, tt := range tests {
+				t.Run(tt.mockArch, func(t *testing.T) {
+					// When the goArch function is mocked to return a specific architecture
+					goArch = func() string { return tt.mockArch }
 
-	t.Run("ArchDefault", func(t *testing.T) {
-		// Override the goArch function for testing
-		originalGoArch := goArch
-		defer func() { goArch = originalGoArch }()
+					// And getArch is called
+					arch := getArch()
 
-		goArch = func() string { return "amd64" }
+					// Then it should return the expected architecture
+					if arch != tt.expected {
+						t.Fatalf("expected %s, got %s", tt.expected, arch)
+					}
+				})
+			}
+		})
 
-		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key string, value interface{}) error {
+		t.Run("ArchDefault", func(t *testing.T) {
+			// Given a mock goArch function that returns "amd64"
+			originalGoArch := goArch
+			defer func() { goArch = originalGoArch }()
+
+			goArch = func() string { return "amd64" }
+
+			// And a mock config handler that expects a specific key/value pair
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				if key != "contexts.test-context.vm.arch" || value != "x86_64" {
 					t.Fatalf("unexpected key/value: %s/%s", key, value)
 				}
 				return nil
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-		err = helper.SetConfig("arch", "")
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
+			// And setting the config
+			err = helper.SetConfig("arch", "")
 
-	t.Run("RetrieveAndSetArchValue", func(t *testing.T) {
-		mockConfigHandler := &config.MockConfigHandler{
-			GetConfigValueFunc: func(key string) (string, error) {
+			// Then it should not return an error
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+
+		t.Run("RetrieveAndSetArchValue", func(t *testing.T) {
+			// Given a mock config handler that returns a specific architecture value
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				if key == "contexts.test-context.vm.arch" {
 					return "x86_64", nil
 				}
 				return "", nil
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", ctx)
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", ctx)
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-		err = helper.SetConfig("arch", "x86_64")
-		if err != nil {
-			t.Fatalf("SetConfig() error = %v", err)
-		}
+			// And setting the config
+			err = helper.SetConfig("arch", "x86_64")
 
-		// Verify that the architecture was set correctly
-		if arch, err := mockConfigHandler.GetConfigValue("contexts.test-context.vm.arch"); err != nil || arch != "x86_64" {
-			t.Errorf("expected arch to be 'x86_64', got '%v'", arch)
-		}
-	})
+			// Then it should not return an error
+			if err != nil {
+				t.Fatalf("SetConfig() error = %v", err)
+			}
 
-	t.Run("UnsupportedConfigKey", func(t *testing.T) {
-		cliConfigHandler := &config.MockConfigHandler{}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			// And the architecture should be set correctly
+			if arch, err := mockConfigHandler.GetConfigValue("contexts.test-context.vm.arch"); err != nil || arch != "x86_64" {
+				t.Errorf("expected arch to be 'x86_64', got '%v'", arch)
+			}
+		})
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+		t.Run("UnsupportedConfigKey", func(t *testing.T) {
+			// Given a mock config handler
+			cliConfigHandler := config.NewMockConfigHandler()
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		err = helper.SetConfig("unsupported", "value")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "unsupported config key: unsupported" {
-			t.Fatalf("expected unsupported config key error, got %v", err)
-		}
-	})
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-	t.Run("ErrorSettingDriverConfig", func(t *testing.T) {
-		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key string, value interface{}) error {
+			// And setting an unsupported config key
+			err = helper.SetConfig("unsupported", "value")
+
+			// Then it should return an error indicating unsupported config key
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "unsupported config key: unsupported" {
+				t.Fatalf("expected unsupported config key error, got %v", err)
+			}
+		})
+
+		t.Run("ErrorSettingDriverConfig", func(t *testing.T) {
+			// Given a mock config handler that returns an error when setting config value
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				return errors.New("config error")
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-		err = helper.SetConfig("driver", "colima")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "error setting colima config: config error" {
-			t.Fatalf("expected 'error setting colima config: config error', got '%v'", err)
-		}
-	})
+			// And setting the config
+			err = helper.SetConfig("driver", "colima")
 
-	t.Run("ErrorSettingCPUConfig", func(t *testing.T) {
-		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key string, value interface{}) error {
+			// Then it should return an error indicating config setting failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "error setting colima config: config error" {
+				t.Fatalf("expected 'error setting colima config: config error', got '%v'", err)
+			}
+		})
+
+		t.Run("ErrorSettingCPUConfig", func(t *testing.T) {
+			// Given a mock config handler that returns an error when setting config value
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				return errors.New("config error")
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// And setting the config
+			err = helper.SetConfig("cpu", "4")
 
-		err = helper.SetConfig("cpu", "4")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "error setting colima config: config error" {
-			t.Fatalf("expected 'error setting colima config: config error', got '%v'", err)
-		}
-	})
+			// Then it should return an error indicating config setting failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "error setting colima config: config error" {
+				t.Fatalf("expected 'error setting colima config: config error', got '%v'", err)
+			}
+		})
 
-	t.Run("ErrorSettingDiskConfig", func(t *testing.T) {
-		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key string, value interface{}) error {
+		t.Run("ErrorSettingDiskConfig", func(t *testing.T) {
+			// Given a mock config handler that returns an error when setting config value
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				return errors.New("config error")
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-		err = helper.SetConfig("disk", "100")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "error setting colima config: config error" {
-			t.Fatalf("expected 'error setting colima config: config error', got '%v'", err)
-		}
-	})
+			// And setting the config
+			err = helper.SetConfig("disk", "100")
 
-	t.Run("ErrorSettingMemoryConfig", func(t *testing.T) {
-		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key string, value interface{}) error {
+			// Then it should return an error indicating config setting failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "error setting colima config: config error" {
+				t.Fatalf("expected 'error setting colima config: config error', got '%v'", err)
+			}
+		})
+
+		t.Run("ErrorSettingMemoryConfig", func(t *testing.T) {
+			// Given a mock config handler that returns an error when setting config value
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				return errors.New("config error")
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-		err = helper.SetConfig("memory", "8")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "error setting colima config: config error" {
-			t.Fatalf("expected 'error setting colima config: config error', got '%v'", err)
-		}
-	})
+			// And setting the config
+			err = helper.SetConfig("memory", "8")
 
-	t.Run("InvalidArchValue", func(t *testing.T) {
-		cliConfigHandler := &config.MockConfigHandler{}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			// Then it should return an error indicating config setting failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "error setting colima config: config error" {
+				t.Fatalf("expected 'error setting colima config: config error', got '%v'", err)
+			}
+		})
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+		t.Run("InvalidArchValue", func(t *testing.T) {
+			// Given a mock config handler
+			cliConfigHandler := config.NewMockConfigHandler()
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		err = helper.SetConfig("arch", "invalid-arch")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "invalid value for arch: invalid-arch" {
-			t.Fatalf("expected 'invalid value for arch: invalid-arch', got '%v'", err)
-		}
-	})
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-	t.Run("ErrorSettingArchConfig", func(t *testing.T) {
-		cliConfigHandler := &config.MockConfigHandler{
-			SetConfigValueFunc: func(key string, value interface{}) error {
+			// And setting an invalid architecture value
+			err = helper.SetConfig("arch", "invalid-arch")
+
+			// Then it should return an error indicating invalid architecture value
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "invalid value for arch: invalid-arch" {
+				t.Fatalf("expected 'invalid value for arch: invalid-arch', got '%v'", err)
+			}
+		})
+		t.Run("ErrorSettingArchConfig", func(t *testing.T) {
+			// Given a mock config handler that returns an error when setting config value
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				return errors.New("config error")
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		err = helper.SetConfig("arch", "x86_64")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "error setting colima config: config error" {
-			t.Fatalf("expected 'error setting colima config: config error', got '%v'", err)
-		}
-	})
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-	t.Run("VMTypeVZForAarch64", func(t *testing.T) {
-		// Save the original getArch function
-		originalGetArch := getArch
-		// Restore the original getArch function after the test
-		defer func() { getArch = originalGetArch }()
+			// And setting the config
+			err = helper.SetConfig("arch", "x86_64")
 
-		// Mock the getArch function to simulate "aarch64"
-		getArch = func() string {
-			return "aarch64"
-		}
+			// Then it should return an error indicating config setting failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "error setting colima config: config error" {
+				t.Fatalf("expected 'error setting colima config: config error', got '%v'", err)
+			}
+		})
 
-		cliConfigHandler := &config.MockConfigHandler{
-			GetConfigValueFunc: func(key string) (string, error) {
+		t.Run("VMTypeVZForAarch64", func(t *testing.T) {
+			// Given a mock getArch function that returns "aarch64"
+			originalGetArch := getArch
+			defer func() { getArch = originalGetArch }()
+
+			getArch = func() string {
+				return "aarch64"
+			}
+
+			// And a mock config handler
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				return "", nil
-			},
-			SetConfigValueFunc: func(key string, value interface{}) error {
+			}
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				return nil
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
 
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		// Assuming generateColimaConfig is called within SetConfig
-		err = helper.SetConfig("cpu", "4")
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-		// Here you would check if vmType was set to "vz" in the configuration
-		// This might involve checking the state of the cliConfigHandler or other side effects
-	})
+			// And setting the config
+			err = helper.SetConfig("cpu", "4")
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
 
-	t.Run("ErrorCreatingConfigDirectory", func(t *testing.T) {
-		// Save the original mkdirAll function
-		originalMkdirAll := mkdirAll
-		// Restore the original mkdirAll function after the test
-		defer func() { mkdirAll = originalMkdirAll }()
+			// Then vmType should be set to "vz" in the configuration
+			// This might involve checking the state of the cliConfigHandler or other side effects
+		})
 
-		// Mock the mkdirAll function to simulate an error
-		mkdirAll = func(path string, perm os.FileMode) error {
-			return errors.New("mkdir error")
-		}
+		t.Run("ErrorCreatingConfigDirectory", func(t *testing.T) {
+			// Given the original mkdirAll function
+			originalMkdirAll := mkdirAll
+			// And restoring the original mkdirAll function after the test
+			defer func() { mkdirAll = originalMkdirAll }()
 
-		cliConfigHandler := &config.MockConfigHandler{}
+			// And a mock mkdirAll function to simulate an error
+			mkdirAll = func(path string, perm os.FileMode) error {
+				return errors.New("mkdir error")
+			}
 
-		err := generateColimaConfig("test-context", cliConfigHandler)
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "error creating colima config directory: mkdir error" {
-			t.Fatalf("expected 'error creating colima config directory: mkdir error', got '%v'", err)
-		}
-	})
+			cliConfigHandler := config.NewMockConfigHandler()
 
-	t.Run("ValidConfigValues", func(t *testing.T) {
-		cliConfigHandler := &config.MockConfigHandler{
-			GetConfigValueFunc: func(key string) (string, error) {
+			// When generating the Colima config
+			err := generateColimaConfig("test-context", cliConfigHandler)
+
+			// Then it should return an error indicating directory creation failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "error creating colima config directory: mkdir error" {
+				t.Fatalf("expected 'error creating colima config directory: mkdir error', got '%v'", err)
+			}
+		})
+
+		t.Run("ValidConfigValues", func(t *testing.T) {
+			// Given a mock config handler with valid config values
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.test-context.vm.cpu":
 					return "4", nil
@@ -651,45 +733,50 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 				default:
 					return "", errors.New("unknown key")
 				}
-			},
-			SetConfigValueFunc: func(key string, value interface{}) error {
+			}
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				return nil
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		err = helper.SetConfig("cpu", "4")
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-		err = helper.SetConfig("disk", "100")
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+			// And setting the config with valid values
+			err = helper.SetConfig("cpu", "4")
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
 
-		err = helper.SetConfig("memory", "8")
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
+			err = helper.SetConfig("disk", "100")
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
 
-	t.Run("InvalidConfigValues", func(t *testing.T) {
-		cliConfigHandler := &config.MockConfigHandler{
-			GetConfigValueFunc: func(key string) (string, error) {
+			err = helper.SetConfig("memory", "8")
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+
+		t.Run("InvalidConfigValues", func(t *testing.T) {
+			// Given a mock config handler with invalid config values
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.test-context.vm.cpu":
 					return "invalid", nil
@@ -700,323 +787,389 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 				default:
 					return "", errors.New("unknown key")
 				}
-			},
-			SetConfigValueFunc: func(key string, value interface{}) error {
+			}
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				return nil
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
-
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
-
-		err = helper.SetConfig("cpu", "invalid")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-
-		err = helper.SetConfig("disk", "invalid")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-
-		err = helper.SetConfig("memory", "invalid")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-	})
-
-	t.Run("ErrorEncodingYAML", func(t *testing.T) {
-		// Mock the newYAMLEncoder function to return a mock encoder that simulates an error
-		originalNewYAMLEncoder := newYAMLEncoder
-		defer func() { newYAMLEncoder = originalNewYAMLEncoder }()
-
-		newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
-			return &mockYAMLEncoder{
-				encodeFunc: func(v interface{}) error {
-					return errors.New("encoding error")
-				},
-				closeFunc: func() error {
-					return nil
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
 				},
 			}
-		}
 
-		cliConfigHandler := &config.MockConfigHandler{
-			GetConfigValueFunc: func(key string) (string, error) {
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
+
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And setting the config with invalid values
+			err = helper.SetConfig("cpu", "invalid")
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+
+			err = helper.SetConfig("disk", "invalid")
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+
+			err = helper.SetConfig("memory", "invalid")
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+		})
+
+		t.Run("ErrorEncodingYAML", func(t *testing.T) {
+			// Given the original newYAMLEncoder function
+			originalNewYAMLEncoder := newYAMLEncoder
+			// And restoring the original newYAMLEncoder function after the test
+			defer func() { newYAMLEncoder = originalNewYAMLEncoder }()
+
+			// And a mock newYAMLEncoder function to simulate an encoding error
+			newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
+				return &mockYAMLEncoder{
+					encodeFunc: func(v interface{}) error {
+						return errors.New("encoding error")
+					},
+					closeFunc: func() error {
+						return nil
+					},
+				}
+			}
+
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				return "", nil
-			},
-			SetConfigValueFunc: func(key string, value interface{}) error {
+			}
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				return nil
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
+			}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
-
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
-
-		err = helper.SetConfig("cpu", "4")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "error encoding yaml: encoding error" {
-			t.Fatalf("expected 'error encoding yaml: encoding error', got '%v'", err)
-		}
-	})
-
-	t.Run("ErrorWritingToFile", func(t *testing.T) {
-		// Save the original writeFile function
-		originalWriteFile := writeFile
-		// Restore the original writeFile function after the test
-		defer func() { writeFile = originalWriteFile }()
-
-		// Mock the writeFile function to simulate an error
-		writeFile = func(filename string, data []byte, perm os.FileMode) error {
-			return errors.New("write error")
-		}
-
-		cliConfigHandler := &config.MockConfigHandler{
-			GetConfigValueFunc: func(key string) (string, error) {
-				return "", nil
-			},
-			SetConfigValueFunc: func(key string, value interface{}) error {
-				return nil
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
-
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
-
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
-
-		err = helper.SetConfig("cpu", "4")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "error writing to temporary file: write error" {
-			t.Fatalf("expected 'error writing to temporary file: write error', got '%v'", err)
-		}
-	})
-
-	t.Run("ErrorRenamingFile", func(t *testing.T) {
-		// Save the original rename function
-		originalRename := rename
-		// Restore the original rename function after the test
-		defer func() { rename = originalRename }()
-
-		// Mock the rename function to simulate an error
-		rename = func(oldpath, newpath string) error {
-			return errors.New("rename error")
-		}
-
-		cliConfigHandler := &config.MockConfigHandler{
-			GetConfigValueFunc: func(key string) (string, error) {
-				return "", nil
-			},
-			SetConfigValueFunc: func(key string, value interface{}) error {
-				return nil
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
-				return "test-context", nil
-			},
-		}
-
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
-
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
-
-		err = helper.SetConfig("cpu", "4")
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if err.Error() != "error renaming temporary file to colima config file: rename error" {
-			t.Fatalf("expected 'error renaming temporary file to colima config file: rename error', got '%v'", err)
-		}
-	})
-}
-
-func TestGetDefaultValues(t *testing.T) {
-	t.Run("MemoryError", func(t *testing.T) {
-		// Mock the virtualMemory function to return an error
-		originalVirtualMemory := virtualMemory
-		virtualMemory = func() (*mem.VirtualMemoryStat, error) {
-			return nil, errors.New("mock error")
-		}
-		defer func() { virtualMemory = originalVirtualMemory }()
-
-		// Call getDefaultValues and check the memory value
-		_, _, memory, _, _ := getDefaultValues("test-context")
-		if memory != 2 {
-			t.Fatalf("expected memory to be 2, got %d", memory)
-		}
-	})
-
-	t.Run("MemoryMock", func(t *testing.T) {
-		// Mock the virtualMemory function to return a fixed total memory
-		originalVirtualMemory := virtualMemory
-		virtualMemory = func() (*mem.VirtualMemoryStat, error) {
-			return &mem.VirtualMemoryStat{Total: 64 * 1024 * 1024 * 1024}, nil // 64GB
-		}
-		defer func() { virtualMemory = originalVirtualMemory }()
-
-		// Call getDefaultValues and check the memory value
-		_, _, memory, _, _ := getDefaultValues("test-context")
-		if memory != 32 { // Expecting half of 64GB
-			t.Fatalf("expected memory to be 32, got %d", memory)
-		}
-	})
-
-	t.Run("EncoderCloseError", func(t *testing.T) {
-		// Mock the newYAMLEncoder function to return a mock encoder that simulates an error on Close
-		originalNewYAMLEncoder := newYAMLEncoder
-		defer func() { newYAMLEncoder = originalNewYAMLEncoder }()
-
-		newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
-			return &mockYAMLEncoder{
-				encodeFunc: func(v interface{}) error {
-					return nil
-				},
-				closeFunc: func() error {
-					return errors.New("close error")
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
 				},
 			}
-		}
 
-		cliConfigHandler := &config.MockConfigHandler{
-			GetConfigValueFunc: func(key string) (string, error) {
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
+
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And setting the config
+			err = helper.SetConfig("cpu", "4")
+
+			// Then it should return an error indicating YAML encoding failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "error encoding yaml: encoding error" {
+				t.Fatalf("expected 'error encoding yaml: encoding error', got '%v'", err)
+			}
+		})
+
+		t.Run("ErrorWritingToFile", func(t *testing.T) {
+			// Given the original writeFile function
+			originalWriteFile := writeFile
+			// And restoring the original writeFile function after the test
+			defer func() { writeFile = originalWriteFile }()
+
+			// And a mock writeFile function to simulate a write error
+			writeFile = func(filename string, data []byte, perm os.FileMode) error {
+				return errors.New("write error")
+			}
+
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				return "", nil
-			},
-			SetConfigValueFunc: func(key string, value interface{}) error {
+			}
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				return nil
-			},
-		}
-		ctx := &context.MockContext{
-			GetContextFunc: func() (string, error) {
+			}
+
+			// And a mock context that returns a specific context
+			ctx := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
+
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
+
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And setting the config
+			err = helper.SetConfig("cpu", "4")
+
+			// Then it should return an error indicating file write failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "error writing to temporary file: write error" {
+				t.Fatalf("expected 'error writing to temporary file: write error', got '%v'", err)
+			}
+		})
+
+		t.Run("ErrorRenamingFile", func(t *testing.T) {
+			// Given the original rename function
+			originalRename := rename
+			// And restoring the original rename function after the test
+			defer func() { rename = originalRename }()
+
+			// And a mock rename function to simulate a rename error
+			rename = func(oldpath, newpath string) error {
+				return errors.New("rename error")
+			}
+
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				return "", nil
+			}
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return nil
+			}
+
+			// And a mock context that returns a specific context
+			ctx := context.NewMockContext()
+			ctx.GetContextFunc = func() (string, error) {
 				return "test-context", nil
-			},
-		}
+			}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", cliConfigHandler)
-		diContainer.Register("context", ctx)
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		helper, err := NewColimaHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewColimaHelper() error = %v", err)
-		}
-		err = helper.SetConfig("cpu", "4")
-		if err == nil || err.Error() != "error closing encoder: close error" {
-			t.Fatalf("expected 'error closing encoder: close error', got '%v'", err)
-		}
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And setting the config
+			err = helper.SetConfig("cpu", "4")
+
+			// Then it should return an error indicating file rename failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != "error renaming temporary file to colima config file: rename error" {
+				t.Fatalf("expected 'error renaming temporary file to colima config file: rename error', got '%v'", err)
+			}
+		})
 	})
 
-	t.Run("MemoryOverflowHandling", func(t *testing.T) {
-		originalVirtualMemory := virtualMemory
-		defer func() { virtualMemory = originalVirtualMemory }()
+	t.Run("GetEnvVars", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given a mock config handler and context
+			cliConfigHandler := config.NewMockConfigHandler()
+			ctx := context.NewMockContext()
 
-		// Mock the virtualMemory function to return a normal value
-		virtualMemory = func() (*mem.VirtualMemoryStat, error) {
-			return &mem.VirtualMemoryStat{Total: 64 * 1024 * 1024 * 1024}, nil // 64GB
-		}
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
 
-		// Force the overflow condition
-		testForceMemoryOverflow = true
-		defer func() { testForceMemoryOverflow = false }()
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
 
-		_, _, memory, _, _ := getDefaultValues("test-context")
+			// And getting environment variables
+			envVars, err := helper.GetEnvVars()
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
 
-		if memory != math.MaxInt {
-			t.Fatalf("expected memory to be set to MaxInt, got %d", memory)
-		}
-	})
-}
-
-func TestNewColimaHelper(t *testing.T) {
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Create DI container without registering cliConfigHandler
-		diContainer := di.NewContainer()
-
-		// Attempt to create ColimaHelper
-		_, err := NewColimaHelper(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
-			t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
-		}
+			// Then it should return an empty map
+			if len(envVars) != 0 {
+				t.Fatalf("expected empty envVars, got %v", envVars)
+			}
+		})
 	})
 
-	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Create DI container and register only cliConfigHandler
-		diContainer := di.NewContainer()
-		mockConfigHandler := &config.MockConfigHandler{}
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
+	t.Run("PostEnvExec", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given a mock config handler and context
+			cliConfigHandler := config.NewMockConfigHandler()
+			ctx := context.NewMockContext()
 
-		// Attempt to create ColimaHelper
-		_, err := NewColimaHelper(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
-			t.Fatalf("expected error resolving context, got %v", err)
-		}
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
+
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And executing post environment setup
+			err = helper.PostEnvExec()
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
 	})
-}
 
-func TestColimaHelper_GetContainerConfig(t *testing.T) {
-	// Given a mock context and mock config handler
-	mockContext := &context.MockContext{}
-	mockConfigHandler := &config.MockConfigHandler{}
-	container := di.NewContainer()
-	container.Register("context", mockContext)
-	container.Register("cliConfigHandler", mockConfigHandler)
+	t.Run("GetDefaultValues", func(t *testing.T) {
+		t.Run("MemoryError", func(t *testing.T) {
+			// Given a mock virtualMemory function that returns an error
+			originalVirtualMemory := virtualMemory
+			virtualMemory = func() (*mem.VirtualMemoryStat, error) {
+				return nil, errors.New("mock error")
+			}
+			defer func() { virtualMemory = originalVirtualMemory }()
 
-	// Create ColimaHelper
-	colimaHelper, err := NewColimaHelper(container)
-	if err != nil {
-		t.Fatalf("NewColimaHelper() error = %v", err)
-	}
+			// When calling getDefaultValues
+			_, _, memory, _, _ := getDefaultValues("test-context")
 
-	t.Run("Success", func(t *testing.T) {
-		// When: GetContainerConfig is called
-		containerConfig, err := colimaHelper.GetContainerConfig()
-		if err != nil {
-			t.Fatalf("GetContainerConfig() error = %v", err)
-		}
+			// Then it should return a default memory value of 2
+			if memory != 2 {
+				t.Fatalf("expected memory to be 2, got %d", memory)
+			}
+		})
 
-		// Then: the result should be nil as per the stub implementation
-		if containerConfig != nil {
-			t.Errorf("expected nil, got %v", containerConfig)
-		}
+		t.Run("MemoryMock", func(t *testing.T) {
+			// Given a mock virtualMemory function that returns a fixed total memory
+			originalVirtualMemory := virtualMemory
+			virtualMemory = func() (*mem.VirtualMemoryStat, error) {
+				return &mem.VirtualMemoryStat{Total: 64 * 1024 * 1024 * 1024}, nil // 64GB
+			}
+			defer func() { virtualMemory = originalVirtualMemory }()
+
+			// When calling getDefaultValues
+			_, _, memory, _, _ := getDefaultValues("test-context")
+
+			// Then it should return half of the total memory
+			if memory != 32 { // Expecting half of 64GB
+				t.Fatalf("expected memory to be 32, got %d", memory)
+			}
+		})
+
+		t.Run("EncoderCloseError", func(t *testing.T) {
+			// Given a mock newYAMLEncoder function that returns a mock encoder that simulates an error on Close
+			originalNewYAMLEncoder := newYAMLEncoder
+			defer func() { newYAMLEncoder = originalNewYAMLEncoder }()
+
+			newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
+				return &mockYAMLEncoder{
+					encodeFunc: func(v interface{}) error {
+						return nil
+					},
+					closeFunc: func() error {
+						return errors.New("close error")
+					},
+				}
+			}
+
+			// And a mock config handler and context
+			cliConfigHandler := config.NewMockConfigHandler()
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				return "", nil
+			}
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return nil
+			}
+			ctx := context.NewMockContext()
+			ctx.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", cliConfigHandler)
+			diContainer.Register("context", ctx)
+
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And setting the config
+			err = helper.SetConfig("cpu", "4")
+
+			// Then it should return an error indicating encoder close failure
+			if err == nil || err.Error() != "error closing encoder: close error" {
+				t.Fatalf("expected 'error closing encoder: close error', got '%v'", err)
+			}
+		})
+
+		t.Run("MemoryOverflowHandling", func(t *testing.T) {
+			// Given a mock virtualMemory function that returns a normal value
+			originalVirtualMemory := virtualMemory
+			defer func() { virtualMemory = originalVirtualMemory }()
+
+			virtualMemory = func() (*mem.VirtualMemoryStat, error) {
+				return &mem.VirtualMemoryStat{Total: 64 * 1024 * 1024 * 1024}, nil // 64GB
+			}
+
+			// And forcing the overflow condition
+			testForceMemoryOverflow = true
+			defer func() { testForceMemoryOverflow = false }()
+
+			// When calling getDefaultValues
+			_, _, memory, _, _ := getDefaultValues("test-context")
+
+			// Then it should return the maximum integer value for memory
+			if memory != math.MaxInt {
+				t.Fatalf("expected memory to be set to MaxInt, got %d", memory)
+			}
+		})
+	})
+
+	t.Run("GetContainerConfig", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given a mock context and config handler
+			mockContext := context.NewMockContext()
+			mockConfigHandler := config.NewMockConfigHandler()
+
+			// And a DI container with the mock context and config handler registered
+			container := di.NewContainer()
+			container.Register("context", mockContext)
+			container.Register("cliConfigHandler", mockConfigHandler)
+
+			// When creating a new ColimaHelper
+			colimaHelper, err := NewColimaHelper(container)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And getting container configuration
+			containerConfig, err := colimaHelper.GetContainerConfig()
+			if err != nil {
+				t.Fatalf("GetContainerConfig() error = %v", err)
+			}
+
+			// Then it should return nil as per the stub implementation
+			if containerConfig != nil {
+				t.Errorf("expected nil, got %v", containerConfig)
+			}
+		})
 	})
 }

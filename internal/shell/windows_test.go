@@ -37,7 +37,7 @@ func normalizeWindowsPath(path string) string {
 	return normalizePath(longPath)
 }
 
-func TestDefaultShell_PrintEnvVars_Windows(t *testing.T) {
+func TestDefaultShell(t *testing.T) {
 	t.Run("PrintEnvVars", func(t *testing.T) {
 		// Given a default shell and a set of environment variables
 		shell := NewDefaultShell()
@@ -70,50 +70,54 @@ func TestDefaultShell_PrintEnvVars_Windows(t *testing.T) {
 			t.Errorf("PrintEnvVars() output = %v, want %v", output.String(), expectedOutputPowerShell)
 		}
 	})
-}
 
-func TestGetProjectRoot_Windows(t *testing.T) {
-	testCases := []struct {
-		name     string
-		fileName string
-	}{
-		{"WindsorYaml", "windsor.yaml"},
-		{"WindsorYml", "windsor.yml"},
-	}
+	t.Run("GetProjectRoot", func(t *testing.T) {
+		testCases := []struct {
+			name     string
+			fileName string
+		}{
+			{"WindsorYaml", "windsor.yaml"},
+			{"WindsorYml", "windsor.yml"},
+		}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Given a temporary directory structure with the specified file
-			rootDir := createTempDir(t, "project-root")
-			subDir := filepath.Join(rootDir, "subdir")
-			if err := os.Mkdir(subDir, 0755); err != nil {
-				t.Fatalf("Failed to create subdir: %v", err)
-			}
-			createFile(t, rootDir, tc.fileName)
-			changeDir(t, subDir)
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				// Given a temporary directory structure with the specified file
+				rootDir := createTempDir(t, "project-root")
+				subDir := filepath.Join(rootDir, "subdir")
+				if err := os.Mkdir(subDir, 0755); err != nil {
+					t.Fatalf("Failed to create subdir: %v", err)
+				}
 
-			shell := NewDefaultShell()
+				// When creating the specified file in the root directory
+				createFile(t, rootDir, tc.fileName, "")
 
-			// When finding the project root using the specified file
-			projectRoot, err := shell.GetProjectRoot()
-			if err != nil {
-				t.Fatalf("GetProjectRoot returned an error: %v", err)
-			}
+				// And changing the working directory to subDir
+				changeDir(t, subDir)
 
-			// Resolve symlinks to handle macOS /private prefix
-			expectedRootDir, err := filepath.EvalSymlinks(rootDir)
-			if err != nil {
-				t.Fatalf("Failed to evaluate symlinks for rootDir: %v", err)
-			}
+				shell := NewDefaultShell()
 
-			// Normalize paths for comparison
-			expectedRootDir = normalizeWindowsPath(expectedRootDir)
-			projectRoot = normalizeWindowsPath(projectRoot)
+				// When finding the project root using the specified file
+				projectRoot, err := shell.GetProjectRoot()
+				if err != nil {
+					t.Fatalf("GetProjectRoot returned an error: %v", err)
+				}
 
-			// Then the project root should match the expected root directory
-			if projectRoot != expectedRootDir {
-				t.Errorf("Expected project root to be %s, got %s", expectedRootDir, projectRoot)
-			}
-		})
-	}
+				// Resolve symlinks to handle macOS /private prefix
+				expectedRootDir, err := filepath.EvalSymlinks(rootDir)
+				if err != nil {
+					t.Fatalf("Failed to evaluate symlinks for rootDir: %v", err)
+				}
+
+				// Normalize paths for comparison
+				expectedRootDir = normalizeWindowsPath(expectedRootDir)
+				projectRoot = normalizeWindowsPath(projectRoot)
+
+				// Then the project root should match the expected root directory
+				if projectRoot != expectedRootDir {
+					t.Errorf("Expected project root to be %s, got %s", expectedRootDir, projectRoot)
+				}
+			})
+		}
+	})
 }
