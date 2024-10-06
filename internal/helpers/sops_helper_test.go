@@ -112,7 +112,7 @@ func TestSopsHelper(t *testing.T) {
 			}
 
 			// And a mock context is set up
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -147,7 +147,7 @@ func TestSopsHelper(t *testing.T) {
 			contextPath := filepath.Join(os.TempDir(), "contexts", "non-existent-context")
 
 			// And a mock context is set up
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -175,7 +175,7 @@ func TestSopsHelper(t *testing.T) {
 
 		t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
 			// Given a mock context that returns an error for config root
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "", errors.New("error retrieving project root")
 			}
@@ -209,7 +209,7 @@ func TestSopsHelper(t *testing.T) {
 			os.WriteFile(plaintextSecretsFile, []byte("\"SOPS_TEST\": "+plaintextSecretsFile), 0644)
 
 			// And a mock context is set up
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -255,7 +255,7 @@ func TestSopsHelper(t *testing.T) {
 			}
 
 			// And a mock context is set up
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -285,7 +285,7 @@ func TestSopsHelper(t *testing.T) {
 	t.Run("PostEnvExec", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) { return "", nil }
 			mockContext.GetConfigRootFunc = func() (string, error) { return "", nil }
 
@@ -309,7 +309,7 @@ func TestSopsHelper(t *testing.T) {
 
 		t.Run("RunCommand", func(t *testing.T) {
 			// Given a mock context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) { return "", nil }
 			mockContext.GetConfigRootFunc = func() (string, error) { return "", nil }
 
@@ -334,7 +334,7 @@ func TestSopsHelper(t *testing.T) {
 
 	t.Run("SetConfig", func(t *testing.T) {
 		// Given a mock context
-		mockContext := context.NewMockContext(nil, nil, nil)
+		mockContext := context.NewMockContext()
 		mockContext.GetContextFunc = func() (string, error) { return "", nil }
 		mockContext.GetConfigRootFunc = func() (string, error) { return "", nil }
 
@@ -429,7 +429,7 @@ key2: value2
 
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		// Given a mock context
-		mockContext := context.NewMockContext(nil, nil, nil)
+		mockContext := context.NewMockContext()
 		container := di.NewContainer()
 		container.Register("context", mockContext)
 

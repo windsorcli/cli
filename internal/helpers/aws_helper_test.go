@@ -32,7 +32,7 @@ func TestAwsHelper(t *testing.T) {
 			defer os.RemoveAll(filepath.Dir(awsConfigPath)) // Clean up
 
 			// Mock context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -93,7 +93,7 @@ func TestAwsHelper(t *testing.T) {
 			awsConfigPath := ""
 
 			// Mock context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -150,7 +150,7 @@ func TestAwsHelper(t *testing.T) {
 
 		t.Run("ErrorRetrievingConfigRoot", func(t *testing.T) {
 			// Given a mock context that returns an error for config root
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "", errors.New("error retrieving config root")
 			}
@@ -180,7 +180,7 @@ func TestAwsHelper(t *testing.T) {
 
 		t.Run("ErrorRetrievingCurrentContext", func(t *testing.T) {
 			// Given a mock context that returns an error for current context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "/mock/config/root", nil
 			}
@@ -228,7 +228,7 @@ func TestAwsHelper(t *testing.T) {
 			defer os.RemoveAll(filepath.Dir(awsConfigPath)) // Clean up
 
 			// Mock context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -300,7 +300,7 @@ func TestAwsHelper(t *testing.T) {
 			defer os.RemoveAll(filepath.Dir(awsConfigPath)) // Clean up
 
 			// Mock context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -361,7 +361,7 @@ func TestAwsHelper(t *testing.T) {
 			awsConfigPath := ""
 
 			// Mock context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -422,7 +422,7 @@ func TestAwsHelper(t *testing.T) {
 			awsConfigPath := ""
 
 			// Mock context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -482,7 +482,7 @@ func TestAwsHelper(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a AwsHelper instance
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 
 			// Create DI container and register mocks
 			diContainer := di.NewContainer()
@@ -508,7 +508,7 @@ func TestAwsHelper(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given: a mock config handler, shell, and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
@@ -542,7 +542,7 @@ func TestAwsHelper(t *testing.T) {
 		t.Run("EmptyValues", func(t *testing.T) {
 			// Given: a mock config handler, and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
@@ -576,7 +576,7 @@ func TestAwsHelper(t *testing.T) {
 		t.Run("OnlyAwsProfile", func(t *testing.T) {
 			// Given: a mock config handler, shell, and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
@@ -616,7 +616,7 @@ func TestAwsHelper(t *testing.T) {
 				}
 				return nil
 			}
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
@@ -651,7 +651,7 @@ func TestAwsHelper(t *testing.T) {
 				}
 				return nil
 			}
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
@@ -683,7 +683,7 @@ func TestAwsHelper(t *testing.T) {
 			mockConfigHandler.SaveConfigFunc = func(path string) error {
 				return errors.New("error saving config")
 			}
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
@@ -712,7 +712,7 @@ func TestAwsHelper(t *testing.T) {
 		t.Run("ErrorRetrievingCurrentContext", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "", errors.New("error retrieving current context")
 			}
@@ -769,7 +769,7 @@ func TestAwsHelper(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 
 			// Create DI container and register mocks
 			diContainer := di.NewContainer()

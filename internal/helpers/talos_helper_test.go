@@ -30,7 +30,7 @@ func TestTalosHelper(t *testing.T) {
 			}
 
 			// And a mock context is set up
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -66,7 +66,7 @@ func TestTalosHelper(t *testing.T) {
 			talosConfigPath := ""
 
 			// And a mock context is set up
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -98,7 +98,7 @@ func TestTalosHelper(t *testing.T) {
 
 		t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
 			// Given a mock context that returns an error for config root
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "", errors.New("error retrieving config root")
 			}
@@ -128,7 +128,7 @@ func TestTalosHelper(t *testing.T) {
 	t.Run("PostEnvExec", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a TalosHelper instance
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			container := di.NewContainer()
 			container.Register("context", mockContext)
 			talosHelper, err := NewTalosHelper(container)
@@ -148,7 +148,7 @@ func TestTalosHelper(t *testing.T) {
 
 	t.Run("SetConfig", func(t *testing.T) {
 		// Given a mock context
-		mockContext := context.NewMockContext(nil, nil, nil)
+		mockContext := context.NewMockContext()
 		container := di.NewContainer()
 		container.Register("context", mockContext)
 
@@ -186,7 +186,7 @@ func TestTalosHelper(t *testing.T) {
 
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		// Given a mock context
-		mockContext := context.NewMockContext(nil, nil, nil)
+		mockContext := context.NewMockContext()
 		container := di.NewContainer()
 		container.Register("context", mockContext)
 

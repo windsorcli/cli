@@ -157,7 +157,7 @@ func TestTerraformHelper(t *testing.T) {
 			diContainer.Register("cliConfigHandler", "not a config handler")
 
 			// And a valid context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			diContainer.Register("context", mockContext)
 
 			// When creating a new TerraformHelper
@@ -231,7 +231,7 @@ func TestTerraformHelper(t *testing.T) {
 			}
 			defer func() { getwd = originalGetwd }()
 
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return configRoot, nil
 			}
@@ -286,7 +286,7 @@ func TestTerraformHelper(t *testing.T) {
 			}
 			defer func() { getwd = originalGetwd }()
 
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return configRoot, nil
 			}
@@ -338,7 +338,7 @@ func TestTerraformHelper(t *testing.T) {
 			defer func() { getwd = originalGetwd }()
 
 			// Mock context to return an error when getting the config root
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "", fmt.Errorf("error getting config root")
 			}
@@ -457,7 +457,7 @@ func TestTerraformHelper(t *testing.T) {
 			defer func() { getwd = originalGetwd }()
 
 			// Mock context to return the config root
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return configRoot, nil
 			}
@@ -495,7 +495,6 @@ func TestTerraformHelper(t *testing.T) {
 				t.Errorf("Expected %v, got %v", expectedEnvVars, envVars)
 			}
 		})
-
 		t.Run("NoTerraformDir", func(t *testing.T) {
 			// Given a path without a "terraform" directory
 			originalGetwd := getwd
@@ -512,7 +511,7 @@ func TestTerraformHelper(t *testing.T) {
 			defer func() { glob = originalGlob }()
 
 			// Mock context to return the config root
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "/path/to/config", nil
 			}
@@ -553,7 +552,7 @@ func TestTerraformHelper(t *testing.T) {
 			defer func() { getwd = originalGetwd }()
 
 			// Mock context to return the config root
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "/mock/config/root", nil
 			}
@@ -602,7 +601,7 @@ func TestTerraformHelper(t *testing.T) {
 			defer func() { glob = originalGlob }()
 
 			// Mock context to return the config root
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "/mock/config/root", nil
 			}
@@ -762,7 +761,7 @@ func TestTerraformHelper(t *testing.T) {
 			defer func() { getwd = originalGetwd }()
 
 			// Mock the context and config handler responses
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "local", nil
 			}
@@ -818,7 +817,7 @@ terraform {
 	t.Run("GetAlias", func(t *testing.T) {
 		t.Run("LocalContext", func(t *testing.T) {
 			// Given a mock context and config handler
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				if key == "context" {
@@ -855,7 +854,7 @@ terraform {
 
 		t.Run("NonLocalContext", func(t *testing.T) {
 			// Given a mock context and config handler
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				if key == "context" {
@@ -892,7 +891,7 @@ terraform {
 
 		t.Run("ErrorRetrievingContext", func(t *testing.T) {
 			// Given a mock context and config handler that returns an error for context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				if key == "context" {
@@ -992,7 +991,7 @@ terraform {
 			}
 
 			// Mock GetContext to return "test-context"
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
@@ -1018,7 +1017,7 @@ terraform {
 
 		t.Run("ErrorRetrievingContext", func(t *testing.T) {
 			// Mock GetContext to return an error
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "", fmt.Errorf("mock error retrieving context")
 			}
@@ -1045,7 +1044,7 @@ terraform {
 		t.Run("EmptyValue", func(t *testing.T) {
 			// Given a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
@@ -1099,7 +1098,7 @@ terraform {
 			defer func() { getwd = originalGetwd }()
 
 			// Mock the context and config handler
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return projectPath, nil
 			}
@@ -1164,7 +1163,7 @@ terraform {
 			defer func() { getwd = originalGetwd }()
 
 			// Mock the context and config handler
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockConfigHandler := config.NewMockConfigHandler()
 
 			// Set up DI container
@@ -1210,7 +1209,7 @@ terraform {
 			defer os.RemoveAll(filepath.Join(tempDir, "non-terraform"))
 
 			// Mock the context and config handler
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockConfigHandler := config.NewMockConfigHandler()
 
 			// Set up DI container
@@ -1263,7 +1262,7 @@ terraform {
 			defer os.RemoveAll(filepath.Join(tempDir, "project"))
 
 			// Mock context to return an error when getting the config root
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "", fmt.Errorf("mock error getting config root")
 			}
@@ -1311,7 +1310,7 @@ terraform {
 			}
 			defer func() { glob = originalGlob }()
 
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "/mock/config/root", nil
 			}
@@ -1374,7 +1373,7 @@ terraform {
 				return "", fmt.Errorf("unexpected key: %s", key)
 			}
 
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "/mock/config/root", nil
 			}
@@ -1432,7 +1431,7 @@ terraform {
 				return "", fmt.Errorf("unexpected key: %s", key)
 			}
 
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "/mock/config/root", nil
 			}
@@ -1477,7 +1476,7 @@ terraform {
 				return "", fmt.Errorf("unexpected key: %s", key)
 			}
 
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return projectPath, nil
 			}
@@ -1555,7 +1554,7 @@ terraform {
 				return "", fmt.Errorf("unexpected key: %s", key)
 			}
 
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return projectPath, nil
 			}
@@ -1635,7 +1634,7 @@ terraform {
 				return "", fmt.Errorf("unexpected key: %s", key)
 			}
 
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return longProjectPath, nil
 			}
@@ -1713,7 +1712,7 @@ terraform {
 				return "", fmt.Errorf("unexpected key: %s", key)
 			}
 
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return projectPath, nil
 			}
@@ -1740,7 +1739,6 @@ terraform {
 				t.Fatalf("expected error message to contain '%s', got %v", expectedErrorMsg, err)
 			}
 		})
-
 		t.Run("ErrorWritingBackendOverride", func(t *testing.T) {
 			// Given a setup test environment with a local backend
 			tempDir := t.TempDir()
@@ -1777,7 +1775,7 @@ terraform {
 				return "", fmt.Errorf("unexpected key: %s", key)
 			}
 
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return projectPath, nil
 			}
@@ -1816,7 +1814,7 @@ terraform {
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context and mock config handler
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockConfigHandler := config.NewMockConfigHandler()
 
 			container := di.NewContainer()

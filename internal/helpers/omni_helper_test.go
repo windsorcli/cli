@@ -60,7 +60,7 @@ func TestOmniHelper(t *testing.T) {
 			}
 
 			// Mock context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -94,7 +94,7 @@ func TestOmniHelper(t *testing.T) {
 			omniConfigPath := ""
 
 			// Mock context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -124,7 +124,7 @@ func TestOmniHelper(t *testing.T) {
 
 		t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
 			// Given a mock context that returns an error for config root
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "", errors.New("error retrieving config root")
 			}
@@ -150,7 +150,7 @@ func TestOmniHelper(t *testing.T) {
 	t.Run("PostEnvExec", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a OmniHelper instance
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			container := di.NewContainer()
 			container.Register("context", mockContext)
 			omniHelper, err := NewOmniHelper(container)
@@ -171,7 +171,7 @@ func TestOmniHelper(t *testing.T) {
 	t.Run("SetConfig", func(t *testing.T) {
 		t.Run("SetConfigStub", func(t *testing.T) {
 			// Given a OmniHelper instance
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			container := di.NewContainer()
 			container.Register("context", mockContext)
 			helper, err := NewOmniHelper(container)
@@ -192,7 +192,7 @@ func TestOmniHelper(t *testing.T) {
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			container := di.NewContainer()
 			container.Register("context", mockContext)
 

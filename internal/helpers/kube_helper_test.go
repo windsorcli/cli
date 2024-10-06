@@ -49,7 +49,7 @@ func TestKubeHelper(t *testing.T) {
 			defer os.RemoveAll(filepath.Join(os.TempDir(), "contexts"))
 
 			// And a mock context is set up
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -86,7 +86,7 @@ func TestKubeHelper(t *testing.T) {
 			kubeConfigPath := ""
 
 			// And a mock context is set up
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
 			}
@@ -119,7 +119,7 @@ func TestKubeHelper(t *testing.T) {
 
 		t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
 			// Given a mock context that returns an error for config root
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "", errors.New("error retrieving config root")
 			}
@@ -149,7 +149,7 @@ func TestKubeHelper(t *testing.T) {
 	t.Run("PostEnvExec", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a KubeHelper instance
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) { return "", nil }
 			mockContext.GetConfigRootFunc = func() (string, error) { return "", nil }
 
@@ -174,7 +174,7 @@ func TestKubeHelper(t *testing.T) {
 	t.Run("SetConfig", func(t *testing.T) {
 		t.Run("SetConfigStub", func(t *testing.T) {
 			// Given a KubeHelper instance
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 
 			// And a DI container with the mock context is created
 			diContainer := di.NewContainer()
@@ -197,7 +197,7 @@ func TestKubeHelper(t *testing.T) {
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			container := di.NewContainer()
 			container.Register("context", mockContext)
 

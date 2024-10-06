@@ -9,7 +9,7 @@ func TestMockContext(t *testing.T) {
 	t.Run("GetContext", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context that returns a context
-			mockContext := NewMockContext(nil, nil, nil)
+			mockContext := NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
@@ -26,7 +26,7 @@ func TestMockContext(t *testing.T) {
 
 		t.Run("Error", func(t *testing.T) {
 			// Given a mock context that returns an error
-			mockContext := NewMockContext(nil, nil, nil)
+			mockContext := NewMockContext()
 			mockContext.GetContextFunc = func() (string, error) {
 				return "", errors.New("error retrieving context")
 			}
@@ -43,7 +43,7 @@ func TestMockContext(t *testing.T) {
 
 		t.Run("NotImplemented", func(t *testing.T) {
 			// Given a mock context with no implementation
-			mockContext := NewMockContext(nil, nil, nil)
+			mockContext := NewMockContext()
 
 			// When calling GetContext
 			_, err := mockContext.GetContext()
@@ -59,7 +59,7 @@ func TestMockContext(t *testing.T) {
 	t.Run("SetContext", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context that sets the context successfully
-			mockContext := NewMockContext(nil, nil, nil)
+			mockContext := NewMockContext()
 			mockContext.SetContextFunc = func(context string) error {
 				return nil
 			}
@@ -73,7 +73,7 @@ func TestMockContext(t *testing.T) {
 
 		t.Run("Error", func(t *testing.T) {
 			// Given a mock context that returns an error when setting the context
-			mockContext := NewMockContext(nil, nil, nil)
+			mockContext := NewMockContext()
 			mockContext.SetContextFunc = func(context string) error {
 				return errors.New("error setting context")
 			}
@@ -90,7 +90,7 @@ func TestMockContext(t *testing.T) {
 
 		t.Run("NotImplemented", func(t *testing.T) {
 			// Given a mock context with no implementation
-			mockContext := NewMockContext(nil, nil, nil)
+			mockContext := NewMockContext()
 
 			// When calling SetContext
 			err := mockContext.SetContext("test-context")
@@ -106,7 +106,7 @@ func TestMockContext(t *testing.T) {
 	t.Run("GetConfigRoot", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context that returns a config root
-			mockContext := NewMockContext(nil, nil, nil)
+			mockContext := NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "/mock/project/root/contexts/test-context", nil
 			}
@@ -123,7 +123,7 @@ func TestMockContext(t *testing.T) {
 
 		t.Run("Error", func(t *testing.T) {
 			// Given a mock context that returns an error when getting the config root
-			mockContext := NewMockContext(nil, nil, nil)
+			mockContext := NewMockContext()
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "", errors.New("error retrieving config root")
 			}
@@ -140,7 +140,7 @@ func TestMockContext(t *testing.T) {
 
 		t.Run("NotImplemented", func(t *testing.T) {
 			// Given a mock context with no implementation
-			mockContext := NewMockContext(nil, nil, nil)
+			mockContext := NewMockContext()
 
 			// When calling GetConfigRoot
 			_, err := mockContext.GetConfigRoot()

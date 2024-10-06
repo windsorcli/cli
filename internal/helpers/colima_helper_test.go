@@ -952,7 +952,7 @@ func TestColimaHelper(t *testing.T) {
 			}
 
 			// And a mock context that returns a specific context
-			ctx := context.NewMockContext(nil, nil, nil)
+			ctx := context.NewMockContext()
 			ctx.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
@@ -985,7 +985,7 @@ func TestColimaHelper(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler and context
 			cliConfigHandler := config.NewMockConfigHandler()
-			ctx := context.NewMockContext(nil, nil, nil)
+			ctx := context.NewMockContext()
 
 			// And a DI container with the mock context and config handler registered
 			diContainer := di.NewContainer()
@@ -1015,7 +1015,7 @@ func TestColimaHelper(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler and context
 			cliConfigHandler := config.NewMockConfigHandler()
-			ctx := context.NewMockContext(nil, nil, nil)
+			ctx := context.NewMockContext()
 
 			// And a DI container with the mock context and config handler registered
 			diContainer := di.NewContainer()
@@ -1095,7 +1095,7 @@ func TestColimaHelper(t *testing.T) {
 			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				return nil
 			}
-			ctx := context.NewMockContext(nil, nil, nil)
+			ctx := context.NewMockContext()
 			ctx.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
@@ -1146,7 +1146,7 @@ func TestColimaHelper(t *testing.T) {
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context and config handler
-			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext := context.NewMockContext()
 			mockConfigHandler := config.NewMockConfigHandler()
 
 			// And a DI container with the mock context and config handler registered
