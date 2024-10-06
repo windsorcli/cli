@@ -47,7 +47,7 @@ func TestColimaHelper(t *testing.T) {
 		t.Run("ErrorResolvingContext", func(t *testing.T) {
 			// Given a DI container with only cliConfigHandler registered
 			diContainer := di.NewContainer()
-			mockConfigHandler := &config.MockConfigHandler{}
+			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 			// When attempting to create ColimaHelper
@@ -63,7 +63,7 @@ func TestColimaHelper(t *testing.T) {
 	t.Run("SetConfig", func(t *testing.T) {
 		t.Run("ErrorRetrievingContext", func(t *testing.T) {
 			// Given a mock context that returns an error when retrieving context
-			cliConfigHandler := &config.MockConfigHandler{}
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			ctx := &context.MockContext{
 				GetContextFunc: func() (string, error) {
 					return "", errors.New("context error")
@@ -95,13 +95,12 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("Driver", func(t *testing.T) {
 			// Given a mock config handler that expects a specific key/value pair
-			cliConfigHandler := &config.MockConfigHandler{
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					if key != "contexts.test-context.vm.driver" || value != "colima" {
-						t.Fatalf("unexpected key/value: %s/%s", key, value)
-					}
-					return nil
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				if key != "contexts.test-context.vm.driver" || value != "colima" {
+					t.Fatalf("unexpected key/value: %s/%s", key, value)
+				}
+				return nil
 			}
 			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
@@ -144,13 +143,12 @@ func TestColimaHelper(t *testing.T) {
 			for _, tt := range tests {
 				t.Run(tt.value, func(t *testing.T) {
 					// Given a mock config handler that expects a specific key/value pair
-					cliConfigHandler := &config.MockConfigHandler{
-						SetConfigValueFunc: func(key string, value interface{}) error {
-							if key != "contexts.test-context.vm.cpu" || value != tt.expected {
-								t.Fatalf("unexpected key/value: %s/%v", key, value)
-							}
-							return nil
-						},
+					cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+					cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+						if key != "contexts.test-context.vm.cpu" || value != tt.expected {
+							t.Fatalf("unexpected key/value: %s/%v", key, value)
+						}
+						return nil
 					}
 					// And a mock context that returns a specific context
 					ctx := &context.MockContext{
@@ -204,13 +202,12 @@ func TestColimaHelper(t *testing.T) {
 			for _, tt := range tests {
 				t.Run(tt.value, func(t *testing.T) {
 					// Given a mock config handler that expects a specific key/value pair
-					cliConfigHandler := &config.MockConfigHandler{
-						SetConfigValueFunc: func(key string, value interface{}) error {
-							if key != "contexts.test-context.vm.disk" || value != tt.expected {
-								t.Fatalf("unexpected key/value: %s/%v", key, value)
-							}
-							return nil
-						},
+					cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+					cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+						if key != "contexts.test-context.vm.disk" || value != tt.expected {
+							t.Fatalf("unexpected key/value: %s/%v", key, value)
+						}
+						return nil
 					}
 					// And a mock context that returns a specific context
 					ctx := &context.MockContext{
@@ -259,13 +256,12 @@ func TestColimaHelper(t *testing.T) {
 			defer func() { virtualMemory = originalVirtualMemory }()
 
 			// And a mock config handler that expects a specific key/value pair
-			cliConfigHandler := &config.MockConfigHandler{
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					if key != "contexts.test-context.vm.memory" || value != 32 {
-						t.Fatalf("unexpected key/value: %s/%v", key, value)
-					}
-					return nil
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				if key != "contexts.test-context.vm.memory" || value != 32 {
+					t.Fatalf("unexpected key/value: %s/%v", key, value)
+				}
+				return nil
 			}
 			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
@@ -332,13 +328,12 @@ func TestColimaHelper(t *testing.T) {
 			goArch = func() string { return "amd64" }
 
 			// And a mock config handler that expects a specific key/value pair
-			cliConfigHandler := &config.MockConfigHandler{
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					if key != "contexts.test-context.vm.arch" || value != "x86_64" {
-						t.Fatalf("unexpected key/value: %s/%s", key, value)
-					}
-					return nil
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				if key != "contexts.test-context.vm.arch" || value != "x86_64" {
+					t.Fatalf("unexpected key/value: %s/%s", key, value)
+				}
+				return nil
 			}
 			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
@@ -369,13 +364,12 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("RetrieveAndSetArchValue", func(t *testing.T) {
 			// Given a mock config handler that returns a specific architecture value
-			mockConfigHandler := &config.MockConfigHandler{
-				GetConfigValueFunc: func(key string) (string, error) {
-					if key == "contexts.test-context.vm.arch" {
-						return "x86_64", nil
-					}
-					return "", nil
-				},
+			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				if key == "contexts.test-context.vm.arch" {
+					return "x86_64", nil
+				}
+				return "", nil
 			}
 			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
@@ -411,7 +405,7 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("UnsupportedConfigKey", func(t *testing.T) {
 			// Given a mock config handler
-			cliConfigHandler := &config.MockConfigHandler{}
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
 				GetContextFunc: func() (string, error) {
@@ -444,10 +438,9 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("ErrorSettingDriverConfig", func(t *testing.T) {
 			// Given a mock config handler that returns an error when setting config value
-			cliConfigHandler := &config.MockConfigHandler{
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					return errors.New("config error")
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return errors.New("config error")
 			}
 			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
@@ -481,10 +474,9 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("ErrorSettingCPUConfig", func(t *testing.T) {
 			// Given a mock config handler that returns an error when setting config value
-			cliConfigHandler := &config.MockConfigHandler{
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					return errors.New("config error")
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return errors.New("config error")
 			}
 			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
@@ -518,10 +510,9 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("ErrorSettingDiskConfig", func(t *testing.T) {
 			// Given a mock config handler that returns an error when setting config value
-			cliConfigHandler := &config.MockConfigHandler{
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					return errors.New("config error")
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return errors.New("config error")
 			}
 			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
@@ -555,10 +546,9 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("ErrorSettingMemoryConfig", func(t *testing.T) {
 			// Given a mock config handler that returns an error when setting config value
-			cliConfigHandler := &config.MockConfigHandler{
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					return errors.New("config error")
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return errors.New("config error")
 			}
 			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
@@ -592,7 +582,7 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("InvalidArchValue", func(t *testing.T) {
 			// Given a mock config handler
-			cliConfigHandler := &config.MockConfigHandler{}
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
 				GetContextFunc: func() (string, error) {
@@ -622,14 +612,13 @@ func TestColimaHelper(t *testing.T) {
 				t.Fatalf("expected 'invalid value for arch: invalid-arch', got '%v'", err)
 			}
 		})
-
 		t.Run("ErrorSettingArchConfig", func(t *testing.T) {
 			// Given a mock config handler that returns an error when setting config value
-			cliConfigHandler := &config.MockConfigHandler{
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					return errors.New("config error")
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return errors.New("config error")
 			}
+
 			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
 				GetContextFunc: func() (string, error) {
@@ -670,14 +659,15 @@ func TestColimaHelper(t *testing.T) {
 			}
 
 			// And a mock config handler
-			cliConfigHandler := &config.MockConfigHandler{
-				GetConfigValueFunc: func(key string) (string, error) {
-					return "", nil
-				},
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					return nil
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				return "", nil
 			}
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return nil
+			}
+
+			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
 				GetContextFunc: func() (string, error) {
 					return "test-context", nil
@@ -716,7 +706,7 @@ func TestColimaHelper(t *testing.T) {
 				return errors.New("mkdir error")
 			}
 
-			cliConfigHandler := &config.MockConfigHandler{}
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 
 			// When generating the Colima config
 			err := generateColimaConfig("test-context", cliConfigHandler)
@@ -732,23 +722,24 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("ValidConfigValues", func(t *testing.T) {
 			// Given a mock config handler with valid config values
-			cliConfigHandler := &config.MockConfigHandler{
-				GetConfigValueFunc: func(key string) (string, error) {
-					switch key {
-					case "contexts.test-context.vm.cpu":
-						return "4", nil
-					case "contexts.test-context.vm.disk":
-						return "100", nil
-					case "contexts.test-context.vm.memory":
-						return "8", nil
-					default:
-						return "", errors.New("unknown key")
-					}
-				},
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					return nil
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				switch key {
+				case "contexts.test-context.vm.cpu":
+					return "4", nil
+				case "contexts.test-context.vm.disk":
+					return "100", nil
+				case "contexts.test-context.vm.memory":
+					return "8", nil
+				default:
+					return "", errors.New("unknown key")
+				}
 			}
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return nil
+			}
+
+			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
 				GetContextFunc: func() (string, error) {
 					return "test-context", nil
@@ -785,23 +776,24 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("InvalidConfigValues", func(t *testing.T) {
 			// Given a mock config handler with invalid config values
-			cliConfigHandler := &config.MockConfigHandler{
-				GetConfigValueFunc: func(key string) (string, error) {
-					switch key {
-					case "contexts.test-context.vm.cpu":
-						return "invalid", nil
-					case "contexts.test-context.vm.disk":
-						return "invalid", nil
-					case "contexts.test-context.vm.memory":
-						return "invalid", nil
-					default:
-						return "", errors.New("unknown key")
-					}
-				},
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					return nil
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				switch key {
+				case "contexts.test-context.vm.cpu":
+					return "invalid", nil
+				case "contexts.test-context.vm.disk":
+					return "invalid", nil
+				case "contexts.test-context.vm.memory":
+					return "invalid", nil
+				default:
+					return "", errors.New("unknown key")
+				}
 			}
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return nil
+			}
+
+			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
 				GetContextFunc: func() (string, error) {
 					return "test-context", nil
@@ -854,14 +846,15 @@ func TestColimaHelper(t *testing.T) {
 				}
 			}
 
-			cliConfigHandler := &config.MockConfigHandler{
-				GetConfigValueFunc: func(key string) (string, error) {
-					return "", nil
-				},
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					return nil
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				return "", nil
 			}
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return nil
+			}
+
+			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
 				GetContextFunc: func() (string, error) {
 					return "test-context", nil
@@ -902,14 +895,15 @@ func TestColimaHelper(t *testing.T) {
 				return errors.New("write error")
 			}
 
-			cliConfigHandler := &config.MockConfigHandler{
-				GetConfigValueFunc: func(key string) (string, error) {
-					return "", nil
-				},
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					return nil
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				return "", nil
 			}
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return nil
+			}
+
+			// And a mock context that returns a specific context
 			ctx := &context.MockContext{
 				GetContextFunc: func() (string, error) {
 					return "test-context", nil
@@ -950,18 +944,18 @@ func TestColimaHelper(t *testing.T) {
 				return errors.New("rename error")
 			}
 
-			cliConfigHandler := &config.MockConfigHandler{
-				GetConfigValueFunc: func(key string) (string, error) {
-					return "", nil
-				},
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					return nil
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				return "", nil
 			}
-			ctx := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return nil
+			}
+
+			// And a mock context that returns a specific context
+			ctx := context.NewMockContext(nil, nil, nil)
+			ctx.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 
 			// And a DI container with the mock context and config handler registered
@@ -991,8 +985,8 @@ func TestColimaHelper(t *testing.T) {
 	t.Run("GetEnvVars", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler and context
-			cliConfigHandler := &config.MockConfigHandler{}
-			ctx := &context.MockContext{}
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			ctx := context.NewMockContext(nil, nil, nil)
 
 			// And a DI container with the mock context and config handler registered
 			diContainer := di.NewContainer()
@@ -1021,8 +1015,8 @@ func TestColimaHelper(t *testing.T) {
 	t.Run("PostEnvExec", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler and context
-			cliConfigHandler := &config.MockConfigHandler{}
-			ctx := &context.MockContext{}
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			ctx := context.NewMockContext(nil, nil, nil)
 
 			// And a DI container with the mock context and config handler registered
 			diContainer := di.NewContainer()
@@ -1095,18 +1089,16 @@ func TestColimaHelper(t *testing.T) {
 			}
 
 			// And a mock config handler and context
-			cliConfigHandler := &config.MockConfigHandler{
-				GetConfigValueFunc: func(key string) (string, error) {
-					return "", nil
-				},
-				SetConfigValueFunc: func(key string, value interface{}) error {
-					return nil
-				},
+			cliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			cliConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				return "", nil
 			}
-			ctx := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			cliConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+				return nil
+			}
+			ctx := context.NewMockContext(nil, nil, nil)
+			ctx.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 
 			// And a DI container with the mock context and config handler registered
@@ -1155,8 +1147,8 @@ func TestColimaHelper(t *testing.T) {
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context and config handler
-			mockContext := &context.MockContext{}
-			mockConfigHandler := &config.MockConfigHandler{}
+			mockContext := context.NewMockContext(nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 
 			// And a DI container with the mock context and config handler registered
 			container := di.NewContainer()
