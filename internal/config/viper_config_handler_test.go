@@ -5,13 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
 )
+
+// containsErrorMessage checks if the actual error message contains the expected error message
+func containsErrorMessage(actual, expected string) bool {
+	return strings.Contains(actual, expected)
+}
 
 var tempDir string
 
@@ -36,19 +40,12 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// containsErrorMessage checks if the actual error message contains the expected error message
-func containsErrorMessage(actual, expected string) bool {
-	return strings.Contains(actual, expected)
-}
-
 func TestViperConfigHandler_LoadConfig(t *testing.T) {
 	handler := &ViperConfigHandler{}
 
 	t.Run("ValidConfigPath", func(t *testing.T) {
 		err := handler.LoadConfig(tempDir + "/config.yaml")
-		if err != nil {
-			t.Errorf("LoadConfig() error = %v, expected nil", err)
-		}
+		assertError(t, err, nil)
 	})
 
 	t.Run("InvalidConfigPath", func(t *testing.T) {
@@ -60,9 +57,7 @@ func TestViperConfigHandler_LoadConfig(t *testing.T) {
 
 	t.Run("NonExistentConfigPath", func(t *testing.T) {
 		err := handler.LoadConfig(tempDir + "/nonexistent.yaml")
-		if err != nil {
-			t.Errorf("LoadConfig() error = %v, expected nil", err)
-		}
+		assertError(t, err, nil)
 	})
 
 	t.Run("NonExistentConfigFilePath", func(t *testing.T) {
@@ -74,9 +69,7 @@ func TestViperConfigHandler_LoadConfig(t *testing.T) {
 		}
 
 		err := handler.LoadConfig(configPath)
-		if err != nil {
-			t.Fatalf("LoadConfig() error = %v, expected nil", err)
-		}
+		assertError(t, err, nil)
 
 		if _, err := os.Stat(configPath); os.IsNotExist(err) {
 			t.Fatalf("Config file was not created at %s", configPath)
@@ -132,9 +125,7 @@ func TestViperConfigHandler_LoadConfig(t *testing.T) {
 		defer os.Unsetenv(envVar)
 
 		err := handler.LoadConfig(envVar)
-		if err != nil {
-			t.Errorf("LoadConfig() error = %v, expected nil", err)
-		}
+		assertError(t, err, nil)
 	})
 }
 
@@ -144,12 +135,8 @@ func TestViperConfigHandler_GetConfigValue(t *testing.T) {
 
 	t.Run("ExistingKey", func(t *testing.T) {
 		got, err := handler.GetConfigValue("testKey")
-		if err != nil {
-			t.Errorf("GetConfigValue() error = %v, expected nil", err)
-		}
-		if got != "testValue" {
-			t.Errorf("GetConfigValue() = %v, want %v", got, "testValue")
-		}
+		assertError(t, err, nil)
+		assertEqual(t, "testValue", got, "GetConfigValue")
 	})
 
 	t.Run("NonExistentKey", func(t *testing.T) {
@@ -165,23 +152,15 @@ func TestViperConfigHandler_SetConfigValue(t *testing.T) {
 
 	t.Run("NewKeyValuePair", func(t *testing.T) {
 		err := handler.SetConfigValue("newKey", "newValue")
-		if err != nil {
-			t.Errorf("SetConfigValue() error = %v", err)
-		}
-		if got := viper.GetString("newKey"); got != "newValue" {
-			t.Errorf("SetConfigValue() = %v, want %v", got, "newValue")
-		}
+		assertError(t, err, nil)
+		assertEqual(t, "newValue", viper.GetString("newKey"), "SetConfigValue")
 	})
 
 	t.Run("ExistingKeyWithNewValue", func(t *testing.T) {
 		viper.Set("testKey", "testValue")
 		err := handler.SetConfigValue("testKey", "newTestValue")
-		if err != nil {
-			t.Errorf("SetConfigValue() error = %v", err)
-		}
-		if got := viper.GetString("testKey"); got != "newTestValue" {
-			t.Errorf("SetConfigValue() = %v, want %v", got, "newTestValue")
-		}
+		assertError(t, err, nil)
+		assertEqual(t, "newTestValue", viper.GetString("testKey"), "SetConfigValue")
 	})
 }
 
@@ -201,9 +180,7 @@ func TestViperConfigHandler_SaveConfig(t *testing.T) {
 		}
 
 		err := handler.SaveConfig(configPath)
-		if err != nil {
-			t.Fatalf("SaveConfig() error = %v, expected nil", err)
-		}
+		assertError(t, err, nil)
 
 		if _, err := os.Stat(configPath); os.IsNotExist(err) {
 			t.Fatalf("Config file was not created at %s", configPath)
@@ -267,9 +244,7 @@ func TestViperConfigHandler_SaveConfig(t *testing.T) {
 		}
 
 		err := handler.SaveConfig("")
-		if err != nil {
-			t.Fatalf("SaveConfig() error = %v, expected nil", err)
-		}
+		assertError(t, err, nil)
 
 		if _, err := os.Stat(configPath); os.IsNotExist(err) {
 			t.Fatalf("Config file was not created at %s", configPath)
@@ -304,16 +279,12 @@ func TestViperConfigHandler_GetNestedMap(t *testing.T) {
 
 	t.Run("ExistingNestedMapKey", func(t *testing.T) {
 		got, err := handler.GetNestedMap("contexts.blah.env")
-		if err != nil {
-			t.Errorf("GetNestedMap() error = %v, expected nil", err)
-		}
+		assertError(t, err, nil)
 		want := map[string]interface{}{
 			"some_env":       "value1",
 			"some_other_env": "value2",
 		}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("GetNestedMap() = %v, want %v", got, want)
-		}
+		assertEqual(t, want, got, "GetNestedMap")
 	})
 
 	t.Run("NonExistentNestedMapKey", func(t *testing.T) {
@@ -333,15 +304,11 @@ func TestViperConfigHandler_ListKeys(t *testing.T) {
 
 	t.Run("ExistingKey", func(t *testing.T) {
 		got, err := handler.ListKeys("contexts.blah.env")
-		if err != nil {
-			t.Errorf("ListKeys() error = %v, expected nil", err)
-		}
+		assertError(t, err, nil)
 		want := []string{"some_env", "some_other_env"}
 		sort.Strings(got)
 		sort.Strings(want)
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("ListKeys() = %v, want %v", got, want)
-		}
+		assertEqual(t, want, got, "ListKeys")
 	})
 
 	t.Run("NonExistentKey", func(t *testing.T) {
@@ -354,16 +321,13 @@ func TestViperConfigHandler_ListKeys(t *testing.T) {
 
 func TestNewViperConfigHandler(t *testing.T) {
 	t.Run("ErrorLoadingConfig", func(t *testing.T) {
-		// Save the original function to restore later
 		originalViperReadInConfig := viperReadInConfig
 		defer func() { viperReadInConfig = originalViperReadInConfig }()
 
-		// Mock viperReadInConfig to simulate an error
 		viperReadInConfig = func() error {
 			return errors.New("mock error reading config")
 		}
 
-		// Provide a valid path, but the mock will cause an error
 		tempDir := t.TempDir()
 		validPath := filepath.Join(tempDir, "config.yaml")
 
@@ -377,35 +341,29 @@ func TestNewViperConfigHandler(t *testing.T) {
 	})
 
 	t.Run("SuccessfulConfigLoad", func(t *testing.T) {
-		// Use the original viperReadInConfig for a successful load
 		originalViperReadInConfig := viperReadInConfig
 		defer func() { viperReadInConfig = originalViperReadInConfig }()
 
-		// Provide a valid path and expect no error
 		tempDir := t.TempDir()
 		validPath := filepath.Join(tempDir, "config.yaml")
 
-		// Create an empty config file to simulate a successful load
 		if err := os.WriteFile(validPath, []byte(""), 0644); err != nil {
 			t.Fatalf("failed to create config file: %v", err)
 		}
 
 		handler, err := NewViperConfigHandler(validPath)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		assertError(t, err, nil)
 		if handler == nil {
 			t.Errorf("expected handler to be non-nil")
 		}
 	})
 
 	t.Run("FileStatError", func(t *testing.T) {
-		// Mock osStat to simulate an error
 		originalOsStat := osStat
 		osStat = func(name string) (os.FileInfo, error) {
 			return nil, errors.New("mock error checking file existence")
 		}
-		defer func() { osStat = originalOsStat }() // Restore original function after test
+		defer func() { osStat = originalOsStat }()
 
 		tempDir := t.TempDir()
 		invalidPath := filepath.Join(tempDir, "config.yaml")
