@@ -18,6 +18,7 @@ var (
 	osUserHomeDir = os.UserHomeDir
 	getwd         = os.Getwd
 	container     di.ContainerInterface
+	verbose       bool
 )
 
 // ConfigHandler instances
@@ -118,6 +119,11 @@ var rootCmd = &cobra.Command{
 	Short:             "A command line interface to assist in a context flow development environment",
 	Long:              "A command line interface to assist in a context flow development environment",
 	PersistentPreRunE: preRunLoadConfig,
+}
+
+func init() {
+	// Define the --verbose flag
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
