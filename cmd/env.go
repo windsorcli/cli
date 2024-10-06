@@ -16,7 +16,10 @@ var envCmd = &cobra.Command{
 		// Resolve all helpers from the DI container
 		helperInstances, err := container.ResolveAll((*helpers.Helper)(nil))
 		if err != nil {
-			return fmt.Errorf("Error resolving helpers: %w", err)
+			if verbose {
+				return fmt.Errorf("Error resolving helpers: %w", err)
+			}
+			return nil
 		}
 
 		// Iterate through all helpers and get environment variables
@@ -24,7 +27,10 @@ var envCmd = &cobra.Command{
 			helper := instance.(helpers.Helper)
 			envVars, err := helper.GetEnvVars()
 			if err != nil {
-				return fmt.Errorf("Error getting environment variables: %w", err)
+				if verbose {
+					return fmt.Errorf("Error getting environment variables: %w", err)
+				}
+				return nil
 			}
 
 			// Sort the environment variables by key
@@ -43,7 +49,10 @@ var envCmd = &cobra.Command{
 
 			// Call PostEnvExec on the helper
 			if err := helper.PostEnvExec(); err != nil {
-				return fmt.Errorf("Error executing PostEnvExec: %w", err)
+				if verbose {
+					return fmt.Errorf("Error executing PostEnvExec: %w", err)
+				}
+				return nil
 			}
 		}
 

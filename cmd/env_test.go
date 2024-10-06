@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -24,13 +25,8 @@ func TestEnvCmd(t *testing.T) {
 	})
 
 	t.Run("Success", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r != nil {
-				if r != "exit code: 1" {
-					t.Fatalf("unexpected panic: %v", r)
-				}
-			}
-		}()
+		defer resetRootCmd()
+		defer recoverPanic(t)
 
 		// Given: a valid config handler, shell, and helper
 		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
@@ -69,13 +65,8 @@ func TestEnvCmd(t *testing.T) {
 	})
 
 	t.Run("ResolveHelpersError", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r != nil {
-				if r != "exit code: 1" {
-					t.Fatalf("unexpected panic: %v", r)
-				}
-			}
-		}()
+		defer resetRootCmd()
+		defer recoverPanic(t)
 
 		// Given: a container that returns an error when resolving helpers
 		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
@@ -98,9 +89,9 @@ func TestEnvCmd(t *testing.T) {
 		mockContainer.Register("dockerHelper", mockHelper)
 		Initialize(mockContainer)
 
-		// When: the env command is executed
+		// When: the env command is executed with verbose flag
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"env"})
+			rootCmd.SetArgs([]string{"env", "--verbose"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
@@ -114,14 +105,51 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ResolveHelpersErrorWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given: a container that returns an error when resolving helpers
+		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := helpers.NewMockHelper(func() (map[string]string, error) {
+			return nil, nil
+		})
+		mockContainer := di.NewMockContainer()
+		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
+		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
+		mockContainer.Register("projectConfigHandler", mockProjectConfigHandler)
+		mockContainer.Register("shell", mockShell)
+		mockContainer.Register("terraformHelper", mockHelper)
+		mockContainer.Register("awsHelper", mockHelper)
+		mockContainer.Register("colimaHelper", mockHelper)
+		mockContainer.Register("dockerHelper", mockHelper)
+		Initialize(mockContainer)
+
+		// Capture the output
+		var buf bytes.Buffer
+		rootCmd.SetOut(&buf)
+		rootCmd.SetErr(&buf)
+
+		// When: the env command is executed without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err = rootCmd.Execute()
+		// Then: the error should be nil and no output should be produced
+		if err != nil {
+			t.Fatalf("Expected error nil, got %v", err)
+		}
+		if buf.Len() != 0 {
+			t.Fatalf("Expected no output, got %s", buf.String())
+		}
+	})
+
 	t.Run("ResolveShellError", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r != nil {
-				if r != "exit code: 1" {
-					t.Fatalf("unexpected panic: %v", r)
-				}
-			}
-		}()
+		defer resetRootCmd()
+		defer recoverPanic(t)
 
 		// Given: a container that returns an error when resolving the shell
 		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
@@ -132,9 +160,9 @@ func TestEnvCmd(t *testing.T) {
 		mockContainer.Register("projectConfigHandler", mockProjectConfigHandler)
 		Initialize(mockContainer)
 
-		// When: the env command is executed
+		// When: the env command is executed with verbose flag
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"env"})
+			rootCmd.SetArgs([]string{"env", "--verbose"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
@@ -157,13 +185,8 @@ func TestEnvCmd(t *testing.T) {
 	})
 
 	t.Run("GetEnvVarsError", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r != nil {
-				if r != "exit code: 1" {
-					t.Fatalf("unexpected panic: %v", r)
-				}
-			}
-		}()
+		defer resetRootCmd()
+		defer recoverPanic(t)
 
 		// Given: a helper that returns an error when getting environment variables
 		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
@@ -182,9 +205,9 @@ func TestEnvCmd(t *testing.T) {
 		})
 		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
 
-		// When: the env command is executed
+		// When: the env command is executed with verbose flag
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"env"})
+			rootCmd.SetArgs([]string{"env", "--verbose"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
@@ -198,14 +221,48 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("GetEnvVarsErrorWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given: a helper that returns an error when getting environment variables
+		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := helpers.NewMockHelper(
+			func() (map[string]string, error) {
+				return nil, errors.New("get env vars error")
+			},
+		)
+		mockHelper.SetPostEnvExecFunc(func() error {
+			return nil
+		})
+		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
+
+		// Capture the output
+		var buf bytes.Buffer
+		rootCmd.SetOut(&buf)
+		rootCmd.SetErr(&buf)
+
+		// When: the env command is executed without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err = rootCmd.Execute()
+
+		// Then: the error should be nil and no output should be produced
+		if err != nil {
+			t.Fatalf("Expected error nil, got %v", err)
+		}
+		if buf.Len() != 0 {
+			t.Fatalf("Expected no output, got %s", buf.String())
+		}
+	})
+
 	t.Run("PostEnvExecError", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r != nil {
-				if r != "exit code: 1" {
-					t.Fatalf("unexpected panic: %v", r)
-				}
-			}
-		}()
+		defer resetRootCmd()
+		defer recoverPanic(t)
 
 		// Given: a helper that returns an error when executing PostEnvExec
 		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
@@ -227,9 +284,9 @@ func TestEnvCmd(t *testing.T) {
 		})
 		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
 
-		// When: the env command is executed
+		// When: the env command is executed with verbose flag
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"env"})
+			rootCmd.SetArgs([]string{"env", "--verbose"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
@@ -242,4 +299,63 @@ func TestEnvCmd(t *testing.T) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
+
+	t.Run("PostEnvExecErrorWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given: a helper that returns an error when executing PostEnvExec
+		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := helpers.NewMockHelper(
+			func() (map[string]string, error) {
+				return map[string]string{
+					"VAR1": "value1",
+					"VAR2": "value2",
+				}, nil
+			},
+		)
+		mockHelper.SetPostEnvExecFunc(func() error {
+			return errors.New("post env exec error")
+		})
+		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
+
+		// Capture the output
+		var buf bytes.Buffer
+		rootCmd.SetOut(&buf)
+		rootCmd.SetErr(&buf)
+
+		// When: the env command is executed without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err = rootCmd.Execute()
+
+		// Then: the error should be nil and no output should be produced
+		if err != nil {
+			t.Fatalf("Expected error nil, got %v", err)
+		}
+		if buf.Len() != 0 {
+			t.Fatalf("Expected no output, got %s", buf.String())
+		}
+	})
+}
+
+// resetRootCmd resets the root command to its initial state.
+func resetRootCmd() {
+	rootCmd.SetArgs([]string{})
+	rootCmd.SetOut(nil)
+	rootCmd.SetErr(nil)
+	verbose = false // Reset the verbose flag
+}
+
+// recoverPanic recovers from a panic and checks for the expected exit code.
+func recoverPanic(t *testing.T) {
+	if r := recover(); r != nil {
+		if r != "exit code: 1" {
+			t.Fatalf("unexpected panic: %v", r)
+		}
+	}
 }
