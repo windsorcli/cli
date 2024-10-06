@@ -62,18 +62,18 @@ func TestNewDockerHelper(t *testing.T) {
 
 func TestDockerHelper_GetEnvVars(t *testing.T) {
 	t.Run("ValidConfigRootWithYaml", func(t *testing.T) {
-		// Given: a valid context path with docker-compose.yaml
+		// Given: a valid context path with compose.yaml
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context-yaml")
-		composeFilePath := filepath.Join(contextPath, "docker-compose.yaml")
+		composeFilePath := filepath.Join(contextPath, "compose.yaml")
 
-		// Create the directory and docker-compose.yaml file
+		// Create the directory and compose.yaml file
 		err := os.MkdirAll(contextPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}
 		_, err = os.Create(composeFilePath)
 		if err != nil {
-			t.Fatalf("Failed to create docker-compose.yaml file: %v", err)
+			t.Fatalf("Failed to create compose.yaml file: %v", err)
 		}
 		defer os.RemoveAll(filepath.Join(os.TempDir(), "contexts", "test-context-yaml"))
 
@@ -117,18 +117,18 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ValidConfigRootWithYml", func(t *testing.T) {
-		// Given: a valid context path with docker-compose.yml
+		// Given: a valid context path with compose.yml
 		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context-yml")
-		composeFilePath := filepath.Join(contextPath, "docker-compose.yml")
+		composeFilePath := filepath.Join(contextPath, "compose.yml")
 
-		// Create the directory and docker-compose.yml file
+		// Create the directory and compose.yml file
 		err := os.MkdirAll(contextPath, os.ModePerm)
 		if err != nil {
 			t.Fatalf("Failed to create directories: %v", err)
 		}
 		_, err = os.Create(composeFilePath)
 		if err != nil {
-			t.Fatalf("Failed to create docker-compose.yml file: %v", err)
+			t.Fatalf("Failed to create compose.yml file: %v", err)
 		}
 		defer os.RemoveAll(filepath.Join(os.TempDir(), "contexts", "test-context-yml"))
 
