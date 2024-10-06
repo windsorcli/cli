@@ -115,7 +115,7 @@ require (
 	github.com/spf13/cast v1.7.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
-	github.com/urfave/cli v1.22.15 // indirect
+	github.com/urfave/cli/v2 v2.27.4 // indirect
 	github.com/urfave/cli/v2 v2.27.4 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opencensus.io v0.24.0 // indirect
