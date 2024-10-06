@@ -186,12 +186,38 @@ func TestNewKubeHelper(t *testing.T) {
 		// Create DI container without registering context
 		diContainer := di.NewContainer()
 		mockConfigHandler := &config.MockConfigHandler{}
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 		// Attempt to create KubeHelper
 		_, err := NewKubeHelper(diContainer)
 		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
 			t.Fatalf("expected error resolving context, got %v", err)
+		}
+	})
+}
+
+func TestKubeHelper_GetContainerConfig(t *testing.T) {
+	// Given a mock context
+	mockContext := &context.MockContext{}
+	container := di.NewContainer()
+	container.Register("context", mockContext)
+
+	// Create KubeHelper
+	kubeHelper, err := NewKubeHelper(container)
+	if err != nil {
+		t.Fatalf("NewKubeHelper() error = %v", err)
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// When: GetContainerConfig is called
+		containerConfig, err := kubeHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
 		}
 	})
 }

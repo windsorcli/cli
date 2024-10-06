@@ -16,7 +16,7 @@ func createMockConfigHandler(getConfigValueFunc func(string) (string, error), ge
 	return config.NewMockConfigHandler(
 		func(path string) error { return nil },
 		getConfigValueFunc,
-		func(key, value string) error { return nil },
+		func(key string, value interface{}) error { return nil },
 		func(path string) error { return nil },
 		getNestedMapFunc,
 		func(key string) ([]string, error) { return nil, nil },
@@ -34,21 +34,21 @@ func TestNewBaseHelper(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		diContainer := di.NewContainer()
 
-		// Do not register configHandler to simulate resolution error
+		// Do not register cliConfigHandler to simulate resolution error
 		diContainer.Register("shell", &shell.MockShell{})
 		diContainer.Register("context", &context.MockContext{})
 
 		_, err := NewBaseHelper(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
-			t.Fatalf("expected error resolving configHandler, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
+			t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
 		}
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
 		diContainer := di.NewContainer()
 
-		// Register configHandler but not shell to simulate resolution error
-		diContainer.Register("configHandler", &config.MockConfigHandler{})
+		// Register cliConfigHandler but not shell to simulate resolution error
+		diContainer.Register("cliConfigHandler", &config.MockConfigHandler{})
 		diContainer.Register("context", &context.MockContext{})
 
 		_, err := NewBaseHelper(diContainer)
@@ -60,8 +60,8 @@ func TestNewBaseHelper(t *testing.T) {
 	t.Run("ErrorResolvingContext", func(t *testing.T) {
 		diContainer := di.NewContainer()
 
-		// Register configHandler and shell but not context to simulate resolution error
-		diContainer.Register("configHandler", &config.MockConfigHandler{})
+		// Register cliConfigHandler and shell but not context to simulate resolution error
+		diContainer.Register("cliConfigHandler", &config.MockConfigHandler{})
 		diContainer.Register("shell", &shell.MockShell{})
 
 		_, err := NewBaseHelper(diContainer)
@@ -104,7 +104,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 	// Create DI container and register mocks
 	diContainer := di.NewContainer()
-	diContainer.Register("configHandler", mockConfigHandler)
+	diContainer.Register("cliConfigHandler", mockConfigHandler)
 	diContainer.Register("shell", mockShell)
 	diContainer.Register("context", mockContext)
 
@@ -158,7 +158,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 
@@ -200,7 +200,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 
@@ -240,7 +240,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 
@@ -288,7 +288,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 
@@ -328,7 +328,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 
@@ -365,7 +365,7 @@ func TestBaseHelper_PostEnvExec(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
 
@@ -391,7 +391,7 @@ func TestBaseHelper_SetConfig(t *testing.T) {
 
 	// Create DI container and register mocks
 	diContainer := di.NewContainer()
-	diContainer.Register("configHandler", mockConfigHandler)
+	diContainer.Register("cliConfigHandler", mockConfigHandler)
 	diContainer.Register("context", mockContext)
 	diContainer.Register("shell", mockShell)
 
@@ -407,6 +407,37 @@ func TestBaseHelper_SetConfig(t *testing.T) {
 		// Then: it should return no error
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestBaseHelper_GetContainerConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock config handler, shell, and context
+		mockConfigHandler := &config.MockConfigHandler{}
+		mockShell := &shell.MockShell{}
+		mockContext := &context.MockContext{}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("shell", mockShell)
+		diContainer.Register("context", mockContext)
+
+		baseHelper, err := NewBaseHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewBaseHelper() error = %v", err)
+		}
+
+		// When: GetContainerConfig is called
+		containerConfig, err := baseHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
 		}
 	})
 }

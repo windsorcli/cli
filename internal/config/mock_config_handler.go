@@ -4,7 +4,7 @@ package config
 type MockConfigHandler struct {
 	LoadConfigFunc     func(path string) error
 	GetConfigValueFunc func(key string) (string, error)
-	SetConfigValueFunc func(key, value string) error
+	SetConfigValueFunc func(key string, value interface{}) error
 	SaveConfigFunc     func(path string) error
 	GetNestedMapFunc   func(key string) (map[string]interface{}, error)
 	ListKeysFunc       func(key string) ([]string, error)
@@ -14,7 +14,7 @@ type MockConfigHandler struct {
 func NewMockConfigHandler(
 	loadConfigFunc func(path string) error,
 	getConfigValueFunc func(key string) (string, error),
-	setConfigValueFunc func(key, value string) error,
+	setConfigValueFunc func(key string, value interface{}) error,
 	saveConfigFunc func(path string) error,
 	getNestedMapFunc func(key string) (map[string]interface{}, error),
 	listKeysFunc func(key string) ([]string, error),
@@ -46,7 +46,7 @@ func (m *MockConfigHandler) GetConfigValue(key string) (string, error) {
 }
 
 // SetConfigValue calls the mock SetConfigValueFunc if set, otherwise returns nil
-func (m *MockConfigHandler) SetConfigValue(key, value string) error {
+func (m *MockConfigHandler) SetConfigValue(key string, value interface{}) error {
 	if m.SetConfigValueFunc != nil {
 		return m.SetConfigValueFunc(key, value)
 	}

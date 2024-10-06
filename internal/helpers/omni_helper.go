@@ -63,5 +63,11 @@ func (h *OmniHelper) SetConfig(key, value string) error {
 	return nil
 }
 
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *OmniHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
+}
+
 // Ensure OmniHelper implements Helper interface
 var _ Helper = (*OmniHelper)(nil)

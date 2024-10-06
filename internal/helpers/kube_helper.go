@@ -59,5 +59,11 @@ func (h *KubeHelper) SetConfig(key, value string) error {
 	return nil
 }
 
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *KubeHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
+}
+
 // Ensure KubeHelper implements Helper interface
 var _ Helper = (*KubeHelper)(nil)

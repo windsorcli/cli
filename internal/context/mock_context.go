@@ -12,8 +12,16 @@ type MockContext struct {
 }
 
 // NewMockContext creates a new instance of MockContext
-func NewMockContext() *MockContext {
-	return &MockContext{}
+func NewMockContext(
+	getContextFunc func() (string, error),
+	setContextFunc func(context string) error,
+	getConfigRootFunc func() (string, error),
+) *MockContext {
+	return &MockContext{
+		GetContextFunc:    getContextFunc,
+		SetContextFunc:    setContextFunc,
+		GetConfigRootFunc: getConfigRootFunc,
+	}
 }
 
 // GetContext calls the mock GetContextFunc if set, otherwise returns an error

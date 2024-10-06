@@ -381,3 +381,29 @@ func TestNewSopsHelper(t *testing.T) {
 		}
 	})
 }
+
+func TestSopsHelper_GetContainerConfig(t *testing.T) {
+	// Given a mock context
+	mockContext := &context.MockContext{}
+	container := di.NewContainer()
+	container.Register("context", mockContext)
+
+	// Create SopsHelper
+	sopsHelper, err := NewSopsHelper(container)
+	if err != nil {
+		t.Fatalf("NewSopsHelper() error = %v", err)
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// When: GetContainerConfig is called
+		containerConfig, err := sopsHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
+		}
+	})
+}

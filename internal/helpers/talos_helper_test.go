@@ -175,3 +175,29 @@ func TestNewTalosHelper(t *testing.T) {
 		}
 	})
 }
+
+func TestTalosHelper_GetContainerConfig(t *testing.T) {
+	// Given a mock context
+	mockContext := &context.MockContext{}
+	container := di.NewContainer()
+	container.Register("context", mockContext)
+
+	// Create TalosHelper
+	talosHelper, err := NewTalosHelper(container)
+	if err != nil {
+		t.Fatalf("NewTalosHelper() error = %v", err)
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// When: GetContainerConfig is called
+		containerConfig, err := talosHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
+		}
+	})
+}

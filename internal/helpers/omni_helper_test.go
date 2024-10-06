@@ -169,7 +169,7 @@ func TestNewOmniHelper(t *testing.T) {
 		// Create DI container without registering context
 		diContainer := di.NewContainer()
 		mockConfigHandler := &config.MockConfigHandler{}
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 		// Attempt to create OmniHelper
 		_, err := NewOmniHelper(diContainer)
@@ -182,13 +182,39 @@ func TestNewOmniHelper(t *testing.T) {
 		// Create DI container and register a wrong type for context
 		diContainer := di.NewContainer()
 		mockConfigHandler := &config.MockConfigHandler{}
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", "not a context interface")
 
 		// Attempt to create OmniHelper
 		_, err := NewOmniHelper(diContainer)
 		if err == nil || !strings.Contains(err.Error(), "resolved context is not of type ContextInterface") {
 			t.Fatalf("expected error for context type assertion, got %v", err)
+		}
+	})
+}
+
+func TestOmniHelper_GetContainerConfig(t *testing.T) {
+	// Given a mock context
+	mockContext := &context.MockContext{}
+	container := di.NewContainer()
+	container.Register("context", mockContext)
+
+	// Create OmniHelper
+	omniHelper, err := NewOmniHelper(container)
+	if err != nil {
+		t.Fatalf("NewOmniHelper() error = %v", err)
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// When: GetContainerConfig is called
+		containerConfig, err := omniHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
 		}
 	})
 }

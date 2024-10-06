@@ -63,6 +63,12 @@ func (h *SopsHelper) SetConfig(key, value string) error {
 	return nil
 }
 
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *SopsHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
+}
+
 // Ensure SopsHelper implements Helper interface
 var _ Helper = (*SopsHelper)(nil)
 

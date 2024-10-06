@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
@@ -14,13 +15,14 @@ import (
 type DockerHelper struct {
 	ConfigHandler config.ConfigHandler
 	Context       context.ContextInterface
+	Helpers       []Helper
 }
 
 // NewDockerHelper is a constructor for DockerHelper
 func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
-	configHandler, err := di.Resolve("configHandler")
+	cliConfigHandler, err := di.Resolve("cliConfigHandler")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving configHandler: %w", err)
+		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
 	resolvedContext, err := di.Resolve("context")
@@ -28,9 +30,20 @@ func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
+	helpers, err := di.ResolveAll((*Helper)(nil))
+	if err != nil {
+		return nil, fmt.Errorf("error resolving helpers: %w", err)
+	}
+
+	helperInstances := make([]Helper, len(helpers))
+	for i, helper := range helpers {
+		helperInstances[i] = helper.(Helper)
+	}
+
 	return &DockerHelper{
-		ConfigHandler: configHandler.(config.ConfigHandler),
+		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
+		Helpers:       helperInstances,
 	}, nil
 }
 
@@ -67,8 +80,98 @@ func (h *DockerHelper) PostEnvExec() error {
 
 // SetConfig sets the configuration value for the given key
 func (h *DockerHelper) SetConfig(key, value string) error {
-	// This is a stub implementation
+	if key != "enabled" {
+		return fmt.Errorf("unsupported config key: %s", key)
+	}
+
+	context, err := h.Context.GetContext()
+	if err != nil {
+		return fmt.Errorf("error retrieving context: %w", err)
+	}
+
+	var boolValue bool
+	if value == "" {
+		if context == "local" || strings.HasPrefix(context, "local-") {
+			boolValue = true
+		} else {
+			return nil
+		}
+	} else {
+		boolValue = value == "true"
+	}
+
+	// Proceed with setting the configuration
+	err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context), boolValue)
+	if err != nil {
+		return err
+	}
+
+	// Check if the "enabled" key is set to "true" before writing the docker compose file
+	enabledValue, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context))
+	if err != nil {
+		return fmt.Errorf("error retrieving docker enabled config: %w", err)
+	}
+
+	if enabledValue == "true" {
+		return h.writeDockerComposeFile()
+	}
+
 	return nil
+}
+
+// writeDockerComposeFile is a private method to write the docker-compose configuration to a file.
+func (h *DockerHelper) writeDockerComposeFile() error {
+	var allContainerConfigs []map[string]interface{}
+
+	// Iterate through each helper and collect container configs
+	for _, helper := range h.Helpers {
+		if helperInstance, ok := helper.(Helper); ok {
+			containerConfig, err := helperInstance.GetContainerConfig()
+			if err != nil {
+				return fmt.Errorf("error getting container config: %w", err)
+			}
+			if containerConfig != nil {
+				allContainerConfigs = append(allContainerConfigs, containerConfig...)
+			}
+		}
+	}
+
+	// Structure the data for docker-compose
+	dockerComposeConfig := map[string]interface{}{
+		"services": allContainerConfigs,
+	}
+
+	// Serialize the docker-compose config to YAML
+	yamlData, err := yamlMarshal(dockerComposeConfig)
+	if err != nil {
+		return fmt.Errorf("error marshaling docker-compose config to YAML: %w", err)
+	}
+
+	// Get the config root and construct the file path
+	configRoot, err := h.Context.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving config root: %w", err)
+	}
+	composeFilePath := filepath.Join(configRoot, "docker-compose.yaml")
+
+	// Ensure the parent context folder exists
+	if err := mkdirAll(filepath.Dir(composeFilePath), 0755); err != nil {
+		return fmt.Errorf("error creating parent context folder: %w", err)
+	}
+
+	// Write the YAML data to the specified file
+	err = writeFile(composeFilePath, yamlData, 0644)
+	if err != nil {
+		return fmt.Errorf("error writing docker-compose file: %w", err)
+	}
+
+	return nil
+}
+
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *DockerHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
 }
 
 // Ensure DockerHelper implements Helper interface

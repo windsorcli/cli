@@ -99,7 +99,7 @@ func (v *ViperConfigHandler) GetConfigValue(key string) (string, error) {
 }
 
 // SetConfigValue sets the value for the specified key in the configuration
-func (v *ViperConfigHandler) SetConfigValue(key string, value string) error {
+func (v *ViperConfigHandler) SetConfigValue(key string, value interface{}) error {
 	viper.Set(key, value)
 	return nil
 }

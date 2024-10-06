@@ -10,7 +10,7 @@ import (
 )
 
 // Helper function to create a mock config handler
-func createMockConfigHandler(getConfigValueFunc func(string) (string, error), setConfigValueFunc func(string, string) error, saveConfigFunc func(string) error) *config.MockConfigHandler {
+func createMockConfigHandler(getConfigValueFunc func(string) (string, error), setConfigValueFunc func(string, interface{}) error, saveConfigFunc func(string) error) *config.MockConfigHandler {
 	return config.NewMockConfigHandler(
 		func(path string) error { return nil },
 		getConfigValueFunc,
@@ -88,7 +88,7 @@ func TestContext(t *testing.T) {
 			// Given a mock config handler that sets and saves the context successfully
 			mockConfigHandler := createMockConfigHandler(
 				nil,
-				func(key, value string) error {
+				func(key string, value interface{}) error {
 					if key == "context" && value == "new-context" {
 						return nil
 					}
@@ -114,7 +114,7 @@ func TestContext(t *testing.T) {
 			// Given a mock config handler that returns an error when setting the context
 			mockConfigHandler := createMockConfigHandler(
 				nil,
-				func(key, value string) error {
+				func(key string, value interface{}) error {
 					return errors.New("error setting context")
 				},
 				nil,
@@ -139,7 +139,7 @@ func TestContext(t *testing.T) {
 			// Given a mock config handler that returns an error when saving the config
 			mockConfigHandler := createMockConfigHandler(
 				nil,
-				func(key, value string) error {
+				func(key string, value interface{}) error {
 					return nil
 				},
 				func(path string) error {

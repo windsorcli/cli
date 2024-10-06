@@ -20,6 +20,9 @@ type Helper interface {
 
 	// SetConfig sets the configuration value for the given key.
 	SetConfig(key, value string) error
+
+	// GetContainerConfig returns a list of container data for docker-compose.
+	GetContainerConfig() ([]map[string]interface{}, error)
 }
 
 // Define a variable for os.Getwd() for easier testing
@@ -49,3 +52,6 @@ var goArch = func() string {
 
 // Wrapper function for os.Rename
 var rename = os.Rename
+
+// Override variable for yaml.Marshal
+var yamlMarshal = yaml.Marshal

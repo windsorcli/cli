@@ -22,12 +22,12 @@ type TerraformHelper struct {
 func NewTerraformHelper(container *di.DIContainer) (*TerraformHelper, error) {
 	resolvedConfigHandler, err := container.Resolve("cliConfigHandler")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving configHandler: %w", err)
+		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
-	configHandler, ok := resolvedConfigHandler.(config.ConfigHandler)
+	cliConfigHandler, ok := resolvedConfigHandler.(config.ConfigHandler)
 	if !ok {
-		return nil, fmt.Errorf("resolved configHandler is not of type ConfigHandler")
+		return nil, fmt.Errorf("resolved cliConfigHandler is not of type ConfigHandler")
 	}
 
 	resolvedContext, err := container.Resolve("context")
@@ -41,7 +41,7 @@ func NewTerraformHelper(container *di.DIContainer) (*TerraformHelper, error) {
 	}
 
 	return &TerraformHelper{
-		ConfigHandler: configHandler,
+		ConfigHandler: cliConfigHandler,
 		Context:       contextInterface,
 	}, nil
 }
@@ -136,6 +136,12 @@ func (h *TerraformHelper) SetConfig(key, value string) error {
 		return nil
 	}
 	return fmt.Errorf("unsupported config key: %s", key)
+}
+
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *TerraformHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
 }
 
 // Ensure TerraformHelper implements Helper interface

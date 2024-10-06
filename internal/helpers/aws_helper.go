@@ -19,9 +19,9 @@ type AwsHelper struct {
 
 // NewAwsHelper is a constructor for AwsHelper
 func NewAwsHelper(di *di.DIContainer) (*AwsHelper, error) {
-	configHandler, err := di.Resolve("configHandler")
+	cliConfigHandler, err := di.Resolve("cliConfigHandler")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving configHandler: %w", err)
+		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
 	resolvedContext, err := di.Resolve("context")
@@ -30,7 +30,7 @@ func NewAwsHelper(di *di.DIContainer) (*AwsHelper, error) {
 	}
 
 	return &AwsHelper{
-		ConfigHandler: configHandler.(config.ConfigHandler),
+		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
 	}, nil
 }
@@ -117,12 +117,12 @@ func (h *AwsHelper) SetConfig(key, value string) error {
 		return fmt.Errorf("error retrieving current context: %w", err)
 	}
 
-	if key == "aws_endpoint_url" {
+	if key == "aws_endpoint_url" && value != "" {
 		if err := h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", currentContext), value); err != nil {
 			return fmt.Errorf("error setting aws_endpoint_url: %w", err)
 		}
 	}
-	if key == "aws_profile" {
+	if key == "aws_profile" && value != "" {
 		if err := h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_profile", currentContext), value); err != nil {
 			return fmt.Errorf("error setting aws_profile: %w", err)
 		}
@@ -131,6 +131,12 @@ func (h *AwsHelper) SetConfig(key, value string) error {
 		return fmt.Errorf("error saving config: %w", err)
 	}
 	return nil
+}
+
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *AwsHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
 }
 
 // Ensure AwsHelper implements Helper interface

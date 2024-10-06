@@ -136,13 +136,13 @@ func TestNewTerraformHelper(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Create DI container without registering configHandler
+		// Create DI container without registering cliConfigHandler
 		diContainer := di.NewContainer()
 
 		// Attempt to create TerraformHelper
 		_, err := NewTerraformHelper(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
-			t.Fatalf("expected error resolving configHandler, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
+			t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
 		}
 	})
 
@@ -157,8 +157,8 @@ func TestNewTerraformHelper(t *testing.T) {
 		diContainer.Register("context", mockContext)
 
 		_, err := NewTerraformHelper(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "resolved configHandler is not of type ConfigHandler") {
-			t.Fatalf("expected error about configHandler type, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "resolved cliConfigHandler is not of type ConfigHandler") {
+			t.Fatalf("expected error about cliConfigHandler type, got %v", err)
 		}
 	})
 
@@ -759,7 +759,7 @@ func TestTerraformHelper_SetConfig(t *testing.T) {
 
 	t.Run("SetBackend", func(t *testing.T) {
 		// Mock SetConfigValue to return no error
-		mockConfigHandler.SetConfigValueFunc = func(key, value string) error {
+		mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.terraform.backend" {
 				return nil
 			}
@@ -801,7 +801,7 @@ func TestTerraformHelper_SetConfig(t *testing.T) {
 
 	t.Run("ErrorSettingBackend", func(t *testing.T) {
 		// Mock SetConfigValue to return an error
-		mockConfigHandler.SetConfigValueFunc = func(key, value string) error {
+		mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.terraform.backend" {
 				return fmt.Errorf("mock error setting backend")
 			}
@@ -866,7 +866,7 @@ func TestTerraformHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -1639,6 +1639,34 @@ terraform {
 		expectedErrorMsg := "error writing backend_override.tf: mock error writing file"
 		if !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Fatalf("expected error message to contain '%s', got %v", expectedErrorMsg, err)
+		}
+	})
+}
+
+func TestTerraformHelper_GetContainerConfig(t *testing.T) {
+	// Given a mock context and mock config handler
+	mockContext := &context.MockContext{}
+	mockConfigHandler := &config.MockConfigHandler{}
+	container := di.NewContainer()
+	container.Register("context", mockContext)
+	container.Register("cliConfigHandler", mockConfigHandler)
+
+	// Create TerraformHelper
+	terraformHelper, err := NewTerraformHelper(container)
+	if err != nil {
+		t.Fatalf("NewTerraformHelper() error = %v", err)
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// When: GetContainerConfig is called
+		containerConfig, err := terraformHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
 		}
 	})
 }

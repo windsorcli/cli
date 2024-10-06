@@ -35,7 +35,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -47,7 +47,7 @@ func TestInitCmd(t *testing.T) {
 		mockHelper := &helpers.MockHelper{
 			SetConfigFunc: func(key, value string) error { return nil },
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed with a valid context
 		output := captureStdout(func() {
@@ -70,7 +70,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return errors.New("set config value error") },
+			func(key string, value interface{}) error { return errors.New("set config value error") },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -82,7 +82,7 @@ func TestInitCmd(t *testing.T) {
 		mockHelper := &helpers.MockHelper{
 			SetConfigFunc: func(key, value string) error { return nil },
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -105,7 +105,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return errors.New("save config error") },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -117,7 +117,7 @@ func TestInitCmd(t *testing.T) {
 		mockHelper := &helpers.MockHelper{
 			SetConfigFunc: func(key, value string) error { return nil },
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -140,7 +140,7 @@ func TestInitCmd(t *testing.T) {
 		mockCLIHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -148,7 +148,7 @@ func TestInitCmd(t *testing.T) {
 		mockProjectHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return errors.New("save project config error") },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -160,7 +160,7 @@ func TestInitCmd(t *testing.T) {
 		mockHelper := &helpers.MockHelper{
 			SetConfigFunc: func(key, value string) error { return nil },
 		}
-		setupContainer(mockCLIHandler, mockProjectHandler, mockShell, mockHelper, mockHelper, nil)
+		setupContainer(mockCLIHandler, mockProjectHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -194,7 +194,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -203,7 +203,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, terraformHelper, nil, nil)
+		setupContainer(mockHandler, mockHandler, mockShell, terraformHelper, nil, nil, dockerHelper)
 
 		// When: the init command is executed with a backend flag
 		output := captureStderr(func() {
@@ -226,7 +226,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -248,7 +248,7 @@ func TestInitCmd(t *testing.T) {
 		originalContextInstance := contextInstance
 		defer func() { contextInstance = originalContextInstance }()
 
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -271,7 +271,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -288,7 +288,7 @@ func TestInitCmd(t *testing.T) {
 				return nil
 			},
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed with aws-endpoint-url flag and context
 		output := captureStderr(func() {
@@ -311,7 +311,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -328,7 +328,7 @@ func TestInitCmd(t *testing.T) {
 				return nil
 			},
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed with aws-profile flag and context
 		output := captureStderr(func() {
@@ -351,7 +351,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -369,7 +369,7 @@ func TestInitCmd(t *testing.T) {
 			},
 		}
 		// Pass mockHelper as the Colima helper
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-driver flag and context
 		output := captureStderr(func() {
@@ -392,7 +392,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -409,7 +409,7 @@ func TestInitCmd(t *testing.T) {
 				return nil
 			},
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-cpu flag and context
 		output := captureStderr(func() {
@@ -432,7 +432,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -449,7 +449,7 @@ func TestInitCmd(t *testing.T) {
 				return nil
 			},
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-disk flag and context
 		output := captureStderr(func() {
@@ -472,7 +472,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -489,7 +489,7 @@ func TestInitCmd(t *testing.T) {
 				return nil
 			},
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-memory flag and context
 		output := captureStderr(func() {
@@ -512,7 +512,7 @@ func TestInitCmd(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -529,7 +529,7 @@ func TestInitCmd(t *testing.T) {
 				return nil
 			},
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper)
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-arch flag and context
 		output := captureStderr(func() {
@@ -542,6 +542,46 @@ func TestInitCmd(t *testing.T) {
 
 		// Then: the output should indicate the error
 		expectedOutput := "error setting Colima configuration: set arch error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("SetDockerConfigError", func(t *testing.T) {
+		// Given: a docker helper that returns an error on setting config
+		mockHandler := config.NewMockConfigHandler(
+			func(path string) error { return nil },
+			func(key string) (string, error) { return "value", nil },
+			func(key string, value interface{}) error { return nil },
+			func(path string) error { return nil },
+			func(key string) (map[string]interface{}, error) { return nil, nil },
+			func(key string) ([]string, error) { return nil, nil },
+		)
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{
+			SetConfigFunc: func(key, value string) error {
+				if key == "enabled" {
+					return errors.New("set docker config error")
+				}
+				return nil
+			},
+		}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, mockHelper)
+
+		// When: the init command is executed with the docker flag
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context", "--docker"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "error setting Docker configuration: set docker config error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}

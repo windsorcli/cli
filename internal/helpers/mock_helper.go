@@ -8,6 +8,8 @@ type MockHelper struct {
 	PostEnvExecFunc func() error
 	// SetConfigFunc is a function that mocks the SetConfig method
 	SetConfigFunc func(key, value string) error
+	// GetContainerConfigFunc is a function that mocks the GetContainerConfig method
+	GetContainerConfigFunc func() ([]map[string]interface{}, error)
 }
 
 // NewMockHelper is a constructor for MockHelper
@@ -44,6 +46,14 @@ func (m *MockHelper) SetConfig(key, value string) error {
 	return nil
 }
 
+// GetContainerConfig calls the mock GetContainerConfigFunc if it is set, otherwise returns nil
+func (m *MockHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	if m.GetContainerConfigFunc != nil {
+		return m.GetContainerConfigFunc()
+	}
+	return nil, nil
+}
+
 // SetSetConfigFunc sets the SetConfigFunc for the mock helper
 func (m *MockHelper) SetSetConfigFunc(setConfigFunc func(key, value string) error) {
 	m.SetConfigFunc = setConfigFunc
@@ -52,6 +62,11 @@ func (m *MockHelper) SetSetConfigFunc(setConfigFunc func(key, value string) erro
 // SetPostEnvExecFunc sets the PostEnvExecFunc for the mock helper
 func (m *MockHelper) SetPostEnvExecFunc(postEnvExecFunc func() error) {
 	m.PostEnvExecFunc = postEnvExecFunc
+}
+
+// SetGetContainerConfigFunc sets the GetContainerConfigFunc for the mock helper
+func (m *MockHelper) SetGetContainerConfigFunc(getContainerConfigFunc func() ([]map[string]interface{}, error)) {
+	m.GetContainerConfigFunc = getContainerConfigFunc
 }
 
 // Ensure MockHelper implements Helper interface

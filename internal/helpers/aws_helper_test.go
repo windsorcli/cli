@@ -60,7 +60,7 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create AwsHelper
@@ -123,7 +123,7 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create AwsHelper
@@ -164,7 +164,7 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create AwsHelper
@@ -198,7 +198,7 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create AwsHelper
@@ -262,7 +262,7 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create AwsHelper
@@ -336,7 +336,7 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create AwsHelper
@@ -399,7 +399,7 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create AwsHelper
@@ -462,7 +462,7 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create AwsHelper
@@ -499,7 +499,7 @@ func TestAwsHelper_PostEnvExec(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		awsHelper, err := NewAwsHelper(diContainer)
@@ -523,7 +523,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -539,7 +539,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create an instance of AwsHelper
@@ -565,7 +565,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -581,7 +581,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create an instance of AwsHelper
@@ -607,7 +607,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -623,7 +623,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create an instance of AwsHelper
@@ -649,7 +649,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error {
+			func(key string, value interface{}) error {
 				if key == "contexts.test-context.aws.aws_profile" {
 					return errors.New("error setting aws_profile")
 				}
@@ -670,7 +670,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create an instance of AwsHelper
@@ -691,7 +691,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error {
+			func(key string, value interface{}) error {
 				if key == "contexts.test-context.aws.aws_endpoint_url" {
 					return errors.New("error setting aws_endpoint_url")
 				}
@@ -712,7 +712,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create an instance of AwsHelper
@@ -733,7 +733,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return errors.New("error saving config") },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -749,7 +749,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create an instance of AwsHelper
@@ -770,7 +770,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler(
 			func(path string) error { return nil },
 			func(key string) (string, error) { return "value", nil },
-			func(key, value string) error { return nil },
+			func(key string, value interface{}) error { return nil },
 			func(path string) error { return nil },
 			func(key string) (map[string]interface{}, error) { return nil, nil },
 			func(key string) ([]string, error) { return nil, nil },
@@ -786,7 +786,7 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
 		// Create an instance of AwsHelper
@@ -805,26 +805,55 @@ func TestAwsHelper_SetConfig(t *testing.T) {
 
 func TestNewAwsHelper(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Create DI container without registering configHandler
+		// Create DI container without registering cliConfigHandler
 		diContainer := di.NewContainer()
 
 		// Attempt to create AwsHelper
 		_, err := NewAwsHelper(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
-			t.Fatalf("expected error resolving configHandler, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
+			t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
 		}
 	})
 
 	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Create DI container and register only configHandler
+		// Create DI container and register only cliConfigHandler
 		diContainer := di.NewContainer()
 		mockConfigHandler := &config.MockConfigHandler{}
-		diContainer.Register("configHandler", mockConfigHandler)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 		// Attempt to create AwsHelper
 		_, err := NewAwsHelper(diContainer)
 		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
 			t.Fatalf("expected error resolving context, got %v", err)
+		}
+	})
+}
+
+func TestAwsHelper_GetContainerConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock config handler and context
+		mockConfigHandler := &config.MockConfigHandler{}
+		mockContext := &context.MockContext{}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Create an instance of AwsHelper
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
+		// When: GetContainerConfig is called
+		containerConfig, err := awsHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
+
+		// Then: the result should be nil as per the stub implementation
+		if containerConfig != nil {
+			t.Errorf("expected nil, got %v", containerConfig)
 		}
 	})
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/spf13/cobra"
 )
@@ -15,6 +16,7 @@ var (
 	disk           string
 	memory         string
 	arch           string
+	docker         bool
 )
 
 var initCmd = &cobra.Command{
@@ -33,6 +35,15 @@ var initCmd = &cobra.Command{
 		// Pass the backend flag to the terraformHelper.SetConfig function
 		if err := terraformHelper.SetConfig("backend", backend); err != nil {
 			return fmt.Errorf("Error setting backend value: %w", err)
+		}
+
+		// Set the Docker configuration values using the DockerHelper
+		dockerValue := ""
+		if cmd.Flags().Changed("docker") {
+			dockerValue = strconv.FormatBool(docker)
+		}
+		if err := dockerHelper.SetConfig("enabled", dockerValue); err != nil {
+			return fmt.Errorf("error setting Docker configuration: %w", err)
 		}
 
 		// Set the AWS configuration values using the AwsHelper
@@ -83,5 +94,6 @@ func init() {
 	initCmd.Flags().StringVar(&disk, "vm-disk", "", "Specify the disk size for Colima")
 	initCmd.Flags().StringVar(&memory, "vm-memory", "", "Specify the memory size for Colima")
 	initCmd.Flags().StringVar(&arch, "vm-arch", "", "Specify the architecture for Colima")
+	initCmd.Flags().BoolVar(&docker, "docker", false, "Enable Docker")
 	rootCmd.AddCommand(initCmd)
 }

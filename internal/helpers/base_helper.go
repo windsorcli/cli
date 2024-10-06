@@ -19,9 +19,9 @@ type BaseHelper struct {
 
 // NewBaseHelper is a constructor for BaseHelper
 func NewBaseHelper(di *di.DIContainer) (*BaseHelper, error) {
-	configHandler, err := di.Resolve("configHandler")
+	cliConfigHandler, err := di.Resolve("cliConfigHandler")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving configHandler: %w", err)
+		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
 	resolvedShell, err := di.Resolve("shell")
@@ -35,7 +35,7 @@ func NewBaseHelper(di *di.DIContainer) (*BaseHelper, error) {
 	}
 
 	return &BaseHelper{
-		ConfigHandler: configHandler.(config.ConfigHandler),
+		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
 		Shell:         resolvedShell.(shell.Shell),
 		Context:       resolvedContext.(context.ContextInterface),
 	}, nil
@@ -87,6 +87,12 @@ func (h *BaseHelper) PostEnvExec() error {
 func (h *BaseHelper) SetConfig(key, value string) error {
 	// This is a stub implementation
 	return nil
+}
+
+// GetContainerConfig returns a list of container data for docker-compose.
+func (h *BaseHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+	// Stub implementation
+	return nil, nil
 }
 
 // Ensure BaseHelper implements Helper interface
