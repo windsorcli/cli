@@ -13,211 +13,210 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-func TestKubeHelper_GetEnvVars(t *testing.T) {
-	t.Run("ValidConfigRoot", func(t *testing.T) {
-		// Given: a valid context path
-		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
-		kubeConfigPath := filepath.Join(contextPath, ".kube", "config")
+func TestKubeHelper(t *testing.T) {
+	t.Run("NewKubeHelper", func(t *testing.T) {
+		t.Run("ErrorResolvingContext", func(t *testing.T) {
+			// Given a DI container without registering context
+			diContainer := di.NewContainer()
+			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
-		// Create the directory and kubeconfig file
-		err := mkdirAll(filepath.Join(contextPath, ".kube"), os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create directories: %v", err)
-		}
-		_, err = os.Create(kubeConfigPath)
-		if err != nil {
-			t.Fatalf("Failed to create kubeconfig file: %v", err)
-		}
-		defer os.RemoveAll(filepath.Join(os.TempDir(), "contexts"))
+			// When attempting to create KubeHelper
+			_, err := NewKubeHelper(diContainer)
 
-		// Mock context
-		mockContext := &context.MockContext{
-			GetConfigRootFunc: func() (string, error) {
-				return contextPath, nil
-			},
-		}
-
-		// Create DI container and register mock context
-		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
-
-		// Create KubeHelper
-		kubeHelper, err := NewKubeHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewKubeHelper() error = %v", err)
-		}
-
-		// When: GetEnvVars is called
-		envVars, err := kubeHelper.GetEnvVars()
-		if err != nil {
-			t.Fatalf("GetEnvVars() error = %v", err)
-		}
-
-		// Then: the environment variables should be set correctly
-		expectedEnvVars := map[string]string{
-			"KUBECONFIG":       kubeConfigPath,
-			"KUBE_CONFIG_PATH": kubeConfigPath,
-		}
-		if !reflect.DeepEqual(envVars, expectedEnvVars) {
-			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
-		}
+			// Then it should return an error indicating context resolution failure
+			if err == nil || !strings.Contains(err.Error(), "error resolving context") {
+				t.Fatalf("expected error resolving context, got %v", err)
+			}
+		})
 	})
 
-	t.Run("FileNotExist", func(t *testing.T) {
-		// Given: a non-existent context path
-		contextPath := filepath.Join(os.TempDir(), "contexts", "non-existent-context")
-		kubeConfigPath := ""
+	t.Run("GetEnvVars", func(t *testing.T) {
+		t.Run("ValidConfigRoot", func(t *testing.T) {
+			// Given a valid context path
+			contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
+			kubeConfigPath := filepath.Join(contextPath, ".kube", "config")
 
-		// Mock context
-		mockContext := &context.MockContext{
-			GetConfigRootFunc: func() (string, error) {
+			// And the directory and kubeconfig file are created
+			err := os.MkdirAll(filepath.Join(contextPath, ".kube"), os.ModePerm)
+			if err != nil {
+				t.Fatalf("Failed to create directories: %v", err)
+			}
+			_, err = os.Create(kubeConfigPath)
+			if err != nil {
+				t.Fatalf("Failed to create kubeconfig file: %v", err)
+			}
+			defer os.RemoveAll(filepath.Join(os.TempDir(), "contexts"))
+
+			// And a mock context is set up
+			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext.GetConfigRootFunc = func() (string, error) {
 				return contextPath, nil
-			},
-		}
+			}
 
-		// Create DI container and register mock context
-		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
+			// And a DI container with the mock context is created
+			diContainer := di.NewContainer()
+			diContainer.Register("context", mockContext)
 
-		// Create KubeHelper
-		kubeHelper, err := NewKubeHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewKubeHelper() error = %v", err)
-		}
+			// When creating KubeHelper
+			kubeHelper, err := NewKubeHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewKubeHelper() error = %v", err)
+			}
 
-		// When: GetEnvVars is called
-		envVars, err := kubeHelper.GetEnvVars()
-		if err != nil {
-			t.Fatalf("GetEnvVars() error = %v", err)
-		}
+			// And calling GetEnvVars
+			envVars, err := kubeHelper.GetEnvVars()
+			if err != nil {
+				t.Fatalf("GetEnvVars() error = %v", err)
+			}
 
-		// Then: the environment variables should be set correctly with an empty KUBECONFIG
-		expectedEnvVars := map[string]string{
-			"KUBECONFIG":       kubeConfigPath,
-			"KUBE_CONFIG_PATH": kubeConfigPath,
-		}
-		if !reflect.DeepEqual(envVars, expectedEnvVars) {
-			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
-		}
-	})
+			// Then the environment variables should be set correctly
+			expectedEnvVars := map[string]string{
+				"KUBECONFIG":       kubeConfigPath,
+				"KUBE_CONFIG_PATH": kubeConfigPath,
+			}
+			if !reflect.DeepEqual(envVars, expectedEnvVars) {
+				t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
+			}
+		})
 
-	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
-		// Given a mock context that returns an error for config root
-		mockContext := &context.MockContext{
-			GetConfigRootFunc: func() (string, error) {
+		t.Run("FileNotExist", func(t *testing.T) {
+			// Given a non-existent context path
+			contextPath := filepath.Join(os.TempDir(), "contexts", "non-existent-context")
+			kubeConfigPath := ""
+
+			// And a mock context is set up
+			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return contextPath, nil
+			}
+
+			// And a DI container with the mock context is created
+			diContainer := di.NewContainer()
+			diContainer.Register("context", mockContext)
+
+			// When creating KubeHelper
+			kubeHelper, err := NewKubeHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewKubeHelper() error = %v", err)
+			}
+
+			// And calling GetEnvVars
+			envVars, err := kubeHelper.GetEnvVars()
+			if err != nil {
+				t.Fatalf("GetEnvVars() error = %v", err)
+			}
+
+			// Then the environment variables should be set correctly with an empty KUBECONFIG
+			expectedEnvVars := map[string]string{
+				"KUBECONFIG":       kubeConfigPath,
+				"KUBE_CONFIG_PATH": kubeConfigPath,
+			}
+			if !reflect.DeepEqual(envVars, expectedEnvVars) {
+				t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
+			}
+		})
+
+		t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
+			// Given a mock context that returns an error for config root
+			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "", errors.New("error retrieving config root")
-			},
-		}
+			}
 
-		// Create DI container and register mock context
-		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
+			// And a DI container with the mock context is created
+			diContainer := di.NewContainer()
+			diContainer.Register("context", mockContext)
 
-		// Create KubeHelper
-		kubeHelper, err := NewKubeHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewKubeHelper() error = %v", err)
-		}
+			// When creating KubeHelper
+			kubeHelper, err := NewKubeHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewKubeHelper() error = %v", err)
+			}
 
-		// When calling GetEnvVars
-		expectedError := "error retrieving config root"
+			// And calling GetEnvVars
+			expectedError := "error retrieving config root"
 
-		_, err = kubeHelper.GetEnvVars()
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error containing %v, got %v", expectedError, err)
-		}
+			_, err = kubeHelper.GetEnvVars()
+
+			// Then it should return an error indicating config root retrieval failure
+			if err == nil || !strings.Contains(err.Error(), expectedError) {
+				t.Fatalf("expected error containing %v, got %v", expectedError, err)
+			}
+		})
 	})
-}
 
-func TestKubeHelper_PostEnvExec(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a KubeHelper instance
-		mockContext := &context.MockContext{
-			GetContextFunc:    func() (string, error) { return "", nil },
-			GetConfigRootFunc: func() (string, error) { return "", nil },
-		}
+	t.Run("PostEnvExec", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given a KubeHelper instance
+			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext.GetContextFunc = func() (string, error) { return "", nil }
+			mockContext.GetConfigRootFunc = func() (string, error) { return "", nil }
 
-		// Create DI container and register mock context
-		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
+			// And a DI container with the mock context is created
+			diContainer := di.NewContainer()
+			diContainer.Register("context", mockContext)
 
-		// Create KubeHelper
-		kubeHelper, err := NewKubeHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewKubeHelper() error = %v", err)
-		}
+			// When creating KubeHelper
+			kubeHelper, err := NewKubeHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewKubeHelper() error = %v", err)
+			}
 
-		// When calling PostEnvExec
-		err = kubeHelper.PostEnvExec()
+			// And calling PostEnvExec
+			err = kubeHelper.PostEnvExec()
 
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+			// Then no error should be returned
+			assertError(t, err, false)
+		})
 	})
-}
 
-func TestKubeHelper_SetConfig(t *testing.T) {
-	mockContext := &context.MockContext{}
+	t.Run("SetConfig", func(t *testing.T) {
+		t.Run("SetConfigStub", func(t *testing.T) {
+			// Given a KubeHelper instance
+			mockContext := context.NewMockContext(nil, nil, nil)
 
-	// Create DI container and register mock context
-	diContainer := di.NewContainer()
-	diContainer.Register("context", mockContext)
+			// And a DI container with the mock context is created
+			diContainer := di.NewContainer()
+			diContainer.Register("context", mockContext)
 
-	// Create KubeHelper
-	helper, err := NewKubeHelper(diContainer)
-	if err != nil {
-		t.Fatalf("NewKubeHelper() error = %v", err)
-	}
+			// When creating KubeHelper
+			helper, err := NewKubeHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewKubeHelper() error = %v", err)
+			}
 
-	t.Run("SetConfigStub", func(t *testing.T) {
-		// When: SetConfig is called
-		err := helper.SetConfig("some_key", "some_value")
+			// And calling SetConfig
+			err = helper.SetConfig("some_key", "some_value")
 
-		// Then: it should return no error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+			// Then it should return no error
+			assertError(t, err, false)
+		})
 	})
-}
 
-func TestNewKubeHelper(t *testing.T) {
-	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Create DI container without registering context
-		diContainer := di.NewContainer()
-		mockConfigHandler := &config.MockConfigHandler{}
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
+	t.Run("GetContainerConfig", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given a mock context
+			mockContext := context.NewMockContext(nil, nil, nil)
+			container := di.NewContainer()
+			container.Register("context", mockContext)
 
-		// Attempt to create KubeHelper
-		_, err := NewKubeHelper(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
-			t.Fatalf("expected error resolving context, got %v", err)
-		}
-	})
-}
+			// When creating KubeHelper
+			kubeHelper, err := NewKubeHelper(container)
+			if err != nil {
+				t.Fatalf("NewKubeHelper() error = %v", err)
+			}
 
-func TestKubeHelper_GetContainerConfig(t *testing.T) {
-	// Given a mock context
-	mockContext := &context.MockContext{}
-	container := di.NewContainer()
-	container.Register("context", mockContext)
+			// And calling GetContainerConfig
+			containerConfig, err := kubeHelper.GetContainerConfig()
+			if err != nil {
+				t.Fatalf("GetContainerConfig() error = %v", err)
+			}
 
-	// Create KubeHelper
-	kubeHelper, err := NewKubeHelper(container)
-	if err != nil {
-		t.Fatalf("NewKubeHelper() error = %v", err)
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// When: GetContainerConfig is called
-		containerConfig, err := kubeHelper.GetContainerConfig()
-		if err != nil {
-			t.Fatalf("GetContainerConfig() error = %v", err)
-		}
-
-		// Then: the result should be nil as per the stub implementation
-		if containerConfig != nil {
-			t.Errorf("expected nil, got %v", containerConfig)
-		}
+			// Then the result should be nil as per the stub implementation
+			if containerConfig != nil {
+				t.Errorf("expected nil, got %v", containerConfig)
+			}
+		})
 	})
 }
