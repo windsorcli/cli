@@ -9,6 +9,14 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
+func assertError(t *testing.T, err error, shouldError bool) {
+	if shouldError && err == nil {
+		t.Errorf("Expected error, got nil")
+	} else if !shouldError && err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
 func TestContext(t *testing.T) {
 	t.Run("GetContext", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
@@ -28,9 +36,7 @@ func TestContext(t *testing.T) {
 			contextValue, err := context.GetContext()
 
 			// Then the context should be returned without error
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
+			assertError(t, err, false)
 			if contextValue != "test-context" {
 				t.Fatalf("expected context 'test-context', got %s", contextValue)
 			}
@@ -50,9 +56,7 @@ func TestContext(t *testing.T) {
 			_, err := context.GetContext()
 
 			// Then an error should be returned
-			if err == nil {
-				t.Fatalf("expected error, got nil")
-			}
+			assertError(t, err, true)
 			expectedError := "error retrieving context: error retrieving context"
 			if err.Error() != expectedError {
 				t.Fatalf("expected error %s, got %s", expectedError, err.Error())
@@ -81,9 +85,7 @@ func TestContext(t *testing.T) {
 			err := context.SetContext("new-context")
 
 			// Then no error should be returned
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
+			assertError(t, err, false)
 		})
 
 		t.Run("SetConfigValueError", func(t *testing.T) {
@@ -100,9 +102,7 @@ func TestContext(t *testing.T) {
 			err := context.SetContext("new-context")
 
 			// Then an error should be returned
-			if err == nil {
-				t.Fatalf("expected error, got nil")
-			}
+			assertError(t, err, true)
 			expectedError := "error setting context: error setting context"
 			if err.Error() != expectedError {
 				t.Fatalf("expected error %s, got %s", expectedError, err.Error())
@@ -126,9 +126,7 @@ func TestContext(t *testing.T) {
 			err := context.SetContext("new-context")
 
 			// Then an error should be returned
-			if err == nil {
-				t.Fatalf("expected error, got nil")
-			}
+			assertError(t, err, true)
 			expectedError := "error saving config: error saving config"
 			if err.Error() != expectedError {
 				t.Fatalf("expected error %s, got %s", expectedError, err.Error())
@@ -157,9 +155,7 @@ func TestContext(t *testing.T) {
 			configRoot, err := context.GetConfigRoot()
 
 			// Then the config root should be returned without error
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
+			assertError(t, err, false)
 			expectedConfigRoot := filepath.Join("/mock/project/root", "contexts", "test-context")
 			if configRoot != expectedConfigRoot {
 				t.Fatalf("expected config root %s, got %s", expectedConfigRoot, configRoot)
@@ -180,9 +176,7 @@ func TestContext(t *testing.T) {
 			_, err := context.GetConfigRoot()
 
 			// Then an error should be returned
-			if err == nil {
-				t.Fatalf("expected error, got nil")
-			}
+			assertError(t, err, true)
 			expectedError := "error retrieving context: error retrieving context"
 			if err.Error() != expectedError {
 				t.Fatalf("expected error %s, got %s", expectedError, err.Error())
@@ -206,9 +200,7 @@ func TestContext(t *testing.T) {
 			_, err := context.GetConfigRoot()
 
 			// Then an error should be returned
-			if err == nil {
-				t.Fatalf("expected error, got nil")
-			}
+			assertError(t, err, true)
 			expectedError := "error retrieving project root: error retrieving project root"
 			if err.Error() != expectedError {
 				t.Fatalf("expected error %s, got %s", expectedError, err.Error())
