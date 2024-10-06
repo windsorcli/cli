@@ -709,13 +709,17 @@ func TestTerraformHelper_GetAlias(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockContext := &context.MockContext{}
 			// Mock ConfigHandler to return the specified context value and error
-			mockConfigHandler := createMockConfigHandler(
+			mockConfigHandler := config.NewMockConfigHandler(
+				nil,
 				func(key string) (string, error) {
 					if key == "context" {
 						return tt.contextValue, tt.contextError
 					}
 					return "", fmt.Errorf("unexpected key: %s", key)
 				},
+				nil,
+				nil,
+				nil,
 				nil,
 			)
 
