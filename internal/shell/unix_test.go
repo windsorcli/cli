@@ -53,7 +53,7 @@ func TestGetProjectRoot_WindsorFiles_Unix(t *testing.T) {
 			}
 
 			// When creating the specified file in the root directory
-			createFile(t, rootDir, tc.fileName)
+			createFile(t, rootDir, tc.fileName, "")
 
 			// And changing the working directory to subDir
 			changeDir(t, subDir)

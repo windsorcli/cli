@@ -89,7 +89,11 @@ func TestGetProjectRoot_Windows(t *testing.T) {
 			if err := os.Mkdir(subDir, 0755); err != nil {
 				t.Fatalf("Failed to create subdir: %v", err)
 			}
-			createFile(t, rootDir, tc.fileName)
+
+			// When creating the specified file in the root directory
+			createFile(t, rootDir, tc.fileName, "")
+
+			// And changing the working directory to subDir
 			changeDir(t, subDir)
 
 			shell := NewDefaultShell()

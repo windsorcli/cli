@@ -23,6 +23,14 @@ func createTempDir(t *testing.T, name string) string {
 	return dir
 }
 
+// Helper function to create a file with specified content
+func createFile(t *testing.T, dir, name, content string) {
+	filePath := filepath.Join(dir, name)
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create file %s: %v", filePath, err)
+	}
+}
+
 // Helper function to change the working directory
 func changeDir(t *testing.T, dir string) {
 	originalDir, err := os.Getwd()
@@ -37,14 +45,6 @@ func changeDir(t *testing.T, dir string) {
 			t.Fatalf("Failed to revert to original directory: %v", err)
 		}
 	})
-}
-
-// Helper function to create a file
-func createFile(t *testing.T, dir, name string) {
-	filePath := filepath.Join(dir, name)
-	if err := os.WriteFile(filePath, []byte{}, 0644); err != nil {
-		t.Fatalf("Failed to create file %s: %v", filePath, err)
-	}
 }
 
 // Helper function to initialize a git repository
@@ -91,99 +91,48 @@ func mockCommand(name string, arg ...string) *exec.Cmd {
 
 func TestGetProjectRoot(t *testing.T) {
 	t.Run("GitRepo", func(t *testing.T) {
-		// Given a temporary directory structure with a git repository
 		rootDir := createTempDir(t, "project-root")
-
 		subDir := filepath.Join(rootDir, "subdir")
 		if err := os.Mkdir(subDir, 0755); err != nil {
 			t.Fatalf("Failed to create subdir: %v", err)
 		}
 
-		// When initializing a git repository in the root directory
 		initGitRepo(t, rootDir)
-
-		// And changing the working directory to a subdirectory
 		changeDir(t, subDir)
 
 		shell := NewDefaultShell()
-
-		// Then GetProjectRoot should find the project root using git
 		projectRoot, err := shell.GetProjectRoot()
-		if err != nil {
-			t.Fatalf("GetProjectRoot returned an error: %v", err)
-		}
+		assertNoError(t, err)
 
-		// Resolve symlinks to handle macOS /private prefix
-		expectedRootDir, err := filepath.EvalSymlinks(rootDir)
-		if err != nil {
-			t.Fatalf("Failed to evaluate symlinks for rootDir: %v", err)
-		}
-
-		// Normalize paths for comparison
-		expectedRootDir = normalizePath(expectedRootDir)
-		projectRoot = normalizePath(projectRoot)
-
-		if projectRoot != expectedRootDir {
-			t.Errorf("Expected project root to be %s, got %s", expectedRootDir, projectRoot)
-		}
+		expectedRootDir := resolveSymlinks(t, rootDir)
+		assertEqual(t, expectedRootDir, projectRoot, "project root")
 	})
 
 	t.Run("Cached", func(t *testing.T) {
-		// Given a temporary directory structure with a git repository
 		rootDir := createTempDir(t, "project-root")
-
 		subDir := filepath.Join(rootDir, "subdir")
 		if err := os.Mkdir(subDir, 0755); err != nil {
 			t.Fatalf("Failed to create subdir: %v", err)
 		}
 
-		// When initializing a git repository in the root directory
 		initGitRepo(t, rootDir)
-
-		// And changing the working directory to a subdirectory
 		changeDir(t, subDir)
 
 		shell := NewDefaultShell()
-
-		// Then GetProjectRoot should find the project root using git
 		projectRoot, err := shell.GetProjectRoot()
-		if err != nil {
-			t.Fatalf("GetProjectRoot returned an error: %v", err)
-		}
+		assertNoError(t, err)
 
-		// Resolve symlinks to handle macOS /private prefix
-		expectedRootDir, err := filepath.EvalSymlinks(rootDir)
-		if err != nil {
-			t.Fatalf("Failed to evaluate symlinks for rootDir: %v", err)
-		}
+		expectedRootDir := resolveSymlinks(t, rootDir)
+		assertEqual(t, expectedRootDir, projectRoot, "project root")
 
-		// Normalize paths for comparison
-		expectedRootDir = normalizePath(expectedRootDir)
-		projectRoot = normalizePath(projectRoot)
-
-		if projectRoot != expectedRootDir {
-			t.Errorf("Expected project root to be %s, got %s", expectedRootDir, projectRoot)
-		}
-
-		// And when the project root is cached
 		shell.projectRoot = expectedRootDir
 		cachedProjectRoot, err := shell.GetProjectRoot()
-		if err != nil {
-			t.Fatalf("GetProjectRoot returned an error: %v", err)
-		}
-
-		// Then GetProjectRoot should return the cached project root
-		cachedProjectRoot = normalizePath(cachedProjectRoot)
-
-		if cachedProjectRoot != expectedRootDir {
-			t.Errorf("Expected cached project root to be %s, got %s", expectedRootDir, cachedProjectRoot)
-		}
+		assertNoError(t, err)
+		assertEqual(t, expectedRootDir, cachedProjectRoot, "cached project root")
 	})
 
 	t.Run("MaxDepth", func(t *testing.T) {
-		// Given a temporary directory structure with nested subdirectories
 		rootDir := createTempDir(t, "project-root")
-
 		currentDir := rootDir
 		for i := 0; i <= maxDepth; i++ {
 			subDir := filepath.Join(currentDir, "subdir")
@@ -193,80 +142,77 @@ func TestGetProjectRoot(t *testing.T) {
 			currentDir = subDir
 		}
 
-		// When changing the working directory to the deepest directory
 		changeDir(t, currentDir)
-
 		shell := NewDefaultShell()
-
-		// Then GetProjectRoot should return an empty project root
 		projectRoot, err := shell.GetProjectRoot()
-		if err != nil {
-			t.Fatalf("GetProjectRoot returned an error: %v", err)
-		}
-
-		if projectRoot != "" {
-			t.Errorf("Expected project root to be empty, got %s", projectRoot)
-		}
+		assertNoError(t, err)
+		assertEqual(t, "", projectRoot, "project root")
 	})
 
 	t.Run("NoGitNoYaml", func(t *testing.T) {
-		// Given a temporary directory structure without git or windsor.yaml
 		rootDir := createTempDir(t, "project-root")
-
 		subDir := filepath.Join(rootDir, "subdir")
 		if err := os.Mkdir(subDir, 0755); err != nil {
 			t.Fatalf("Failed to create subdir: %v", err)
 		}
 
-		// When changing the working directory to a subdirectory
 		changeDir(t, subDir)
-
 		shell := NewDefaultShell()
-
-		// Then GetProjectRoot should return an empty project root
 		projectRoot, err := shell.GetProjectRoot()
-		if err != nil {
-			t.Fatalf("GetProjectRoot returned an error: %v", err)
-		}
-
-		if projectRoot != "" {
-			t.Errorf("Expected project root to be empty, got %s", projectRoot)
-		}
+		assertNoError(t, err)
+		assertEqual(t, "", projectRoot, "project root")
 	})
 
 	t.Run("GetwdFails", func(t *testing.T) {
-		// Given that getwd is overridden to simulate an error
 		originalGetwd := getwd
 		getwd = func() (string, error) {
-			fmt.Println("getwd overridden")
 			return "", errors.New("simulated error")
 		}
-		defer func() { getwd = originalGetwd }() // Restore original getwd after test
+		defer func() { getwd = originalGetwd }()
 
-		// Override execCommand to simulate git command failure
 		originalExecCommand := execCommand
 		execCommand = mockCommand
-		defer func() { execCommand = originalExecCommand }() // Restore original execCommand after test
+		defer func() { execCommand = originalExecCommand }()
 
 		shell := NewDefaultShell()
-
-		// Then GetProjectRoot should return an error
 		_, err := shell.GetProjectRoot()
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
-		} else {
-			fmt.Printf("GetProjectRoot returned error: %v\n", err)
 		}
 	})
 }
 
 func TestMain(m *testing.M) {
 	code := m.Run()
-	// Cleanup all temporary directories at the end
 	for _, dir := range tempDirs {
 		if err := os.RemoveAll(dir); err != nil {
 			fmt.Printf("Failed to remove temp dir %s: %v\n", dir, err)
 		}
 	}
 	os.Exit(code)
+}
+
+// Helper function to assert no error
+func assertNoError(t *testing.T, err error) {
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+}
+
+// Helper function to assert equality
+func assertEqual(t *testing.T, expected, actual, name string) {
+	expected = normalizePath(expected)
+	actual = normalizePath(actual)
+	if expected != actual {
+		t.Errorf("Expected %s to be %s, got %s", name, expected, actual)
+	}
+}
+
+// Helper function to resolve symlinks
+func resolveSymlinks(t *testing.T, path string) string {
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("Failed to evaluate symlinks for %s: %v", path, err)
+	}
+	return resolvedPath
 }
