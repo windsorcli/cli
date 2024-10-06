@@ -91,6 +91,7 @@ func mockCommand(name string, arg ...string) *exec.Cmd {
 
 func TestGetProjectRoot(t *testing.T) {
 	t.Run("GitRepo", func(t *testing.T) {
+		// Given a temporary directory with a git repository
 		rootDir := createTempDir(t, "project-root")
 		subDir := filepath.Join(rootDir, "subdir")
 		if err := os.Mkdir(subDir, 0755); err != nil {
@@ -100,15 +101,18 @@ func TestGetProjectRoot(t *testing.T) {
 		initGitRepo(t, rootDir)
 		changeDir(t, subDir)
 
+		// When calling GetProjectRoot
 		shell := NewDefaultShell()
 		projectRoot, err := shell.GetProjectRoot()
-		assertNoError(t, err)
 
+		// Then the project root should be returned without error
+		assertNoError(t, err)
 		expectedRootDir := resolveSymlinks(t, rootDir)
 		assertEqual(t, expectedRootDir, projectRoot, "project root")
 	})
 
 	t.Run("Cached", func(t *testing.T) {
+		// Given a temporary directory with a git repository and cached project root
 		rootDir := createTempDir(t, "project-root")
 		subDir := filepath.Join(rootDir, "subdir")
 		if err := os.Mkdir(subDir, 0755); err != nil {
@@ -118,6 +122,7 @@ func TestGetProjectRoot(t *testing.T) {
 		initGitRepo(t, rootDir)
 		changeDir(t, subDir)
 
+		// When calling GetProjectRoot
 		shell := NewDefaultShell()
 		projectRoot, err := shell.GetProjectRoot()
 		assertNoError(t, err)
@@ -125,13 +130,17 @@ func TestGetProjectRoot(t *testing.T) {
 		expectedRootDir := resolveSymlinks(t, rootDir)
 		assertEqual(t, expectedRootDir, projectRoot, "project root")
 
+		// When calling GetProjectRoot again with cached project root
 		shell.projectRoot = expectedRootDir
 		cachedProjectRoot, err := shell.GetProjectRoot()
+
+		// Then the cached project root should be returned without error
 		assertNoError(t, err)
 		assertEqual(t, expectedRootDir, cachedProjectRoot, "cached project root")
 	})
 
 	t.Run("MaxDepth", func(t *testing.T) {
+		// Given a directory structure exceeding max depth
 		rootDir := createTempDir(t, "project-root")
 		currentDir := rootDir
 		for i := 0; i <= maxDepth; i++ {
@@ -143,13 +152,18 @@ func TestGetProjectRoot(t *testing.T) {
 		}
 
 		changeDir(t, currentDir)
+
+		// When calling GetProjectRoot
 		shell := NewDefaultShell()
 		projectRoot, err := shell.GetProjectRoot()
+
+		// Then the project root should be empty
 		assertNoError(t, err)
 		assertEqual(t, "", projectRoot, "project root")
 	})
 
 	t.Run("NoGitNoYaml", func(t *testing.T) {
+		// Given a directory without git repository or yaml file
 		rootDir := createTempDir(t, "project-root")
 		subDir := filepath.Join(rootDir, "subdir")
 		if err := os.Mkdir(subDir, 0755); err != nil {
@@ -157,13 +171,18 @@ func TestGetProjectRoot(t *testing.T) {
 		}
 
 		changeDir(t, subDir)
+
+		// When calling GetProjectRoot
 		shell := NewDefaultShell()
 		projectRoot, err := shell.GetProjectRoot()
+
+		// Then the project root should be empty
 		assertNoError(t, err)
 		assertEqual(t, "", projectRoot, "project root")
 	})
 
 	t.Run("GetwdFails", func(t *testing.T) {
+		// Given a simulated error in getwd
 		originalGetwd := getwd
 		getwd = func() (string, error) {
 			return "", errors.New("simulated error")
@@ -174,8 +193,11 @@ func TestGetProjectRoot(t *testing.T) {
 		execCommand = mockCommand
 		defer func() { execCommand = originalExecCommand }()
 
+		// When calling GetProjectRoot
 		shell := NewDefaultShell()
 		_, err := shell.GetProjectRoot()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
 		}
