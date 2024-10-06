@@ -18,7 +18,7 @@ func TestOmniHelper(t *testing.T) {
 		t.Run("ErrorResolvingContext", func(t *testing.T) {
 			// Create DI container without registering context
 			diContainer := di.NewContainer()
-			mockConfigHandler := &config.MockConfigHandler{}
+			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 			// Attempt to create OmniHelper
@@ -31,7 +31,7 @@ func TestOmniHelper(t *testing.T) {
 		t.Run("ErrorContextTypeAssertion", func(t *testing.T) {
 			// Create DI container and register a wrong type for context
 			diContainer := di.NewContainer()
-			mockConfigHandler := &config.MockConfigHandler{}
+			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("context", "not a context interface")
 
@@ -60,10 +60,9 @@ func TestOmniHelper(t *testing.T) {
 			}
 
 			// Mock context
-			mockContext := &context.MockContext{
-				GetConfigRootFunc: func() (string, error) {
-					return contextPath, nil
-				},
+			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return contextPath, nil
 			}
 
 			// Create OmniHelper
@@ -95,10 +94,9 @@ func TestOmniHelper(t *testing.T) {
 			omniConfigPath := ""
 
 			// Mock context
-			mockContext := &context.MockContext{
-				GetConfigRootFunc: func() (string, error) {
-					return contextPath, nil
-				},
+			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return contextPath, nil
 			}
 
 			// Create OmniHelper
@@ -126,10 +124,9 @@ func TestOmniHelper(t *testing.T) {
 
 		t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
 			// Given a mock context that returns an error for config root
-			mockContext := &context.MockContext{
-				GetConfigRootFunc: func() (string, error) {
-					return "", errors.New("error retrieving config root")
-				},
+			mockContext := context.NewMockContext(nil, nil, nil)
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return "", errors.New("error retrieving config root")
 			}
 
 			// Create OmniHelper
@@ -153,10 +150,7 @@ func TestOmniHelper(t *testing.T) {
 	t.Run("PostEnvExec", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a OmniHelper instance
-			mockContext := &context.MockContext{
-				GetContextFunc:    func() (string, error) { return "", nil },
-				GetConfigRootFunc: func() (string, error) { return "", nil },
-			}
+			mockContext := context.NewMockContext(nil, nil, nil)
 			container := di.NewContainer()
 			container.Register("context", mockContext)
 			omniHelper, err := NewOmniHelper(container)
@@ -177,7 +171,7 @@ func TestOmniHelper(t *testing.T) {
 	t.Run("SetConfig", func(t *testing.T) {
 		t.Run("SetConfigStub", func(t *testing.T) {
 			// Given a OmniHelper instance
-			mockContext := &context.MockContext{}
+			mockContext := context.NewMockContext(nil, nil, nil)
 			container := di.NewContainer()
 			container.Register("context", mockContext)
 			helper, err := NewOmniHelper(container)
@@ -198,7 +192,7 @@ func TestOmniHelper(t *testing.T) {
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context
-			mockContext := &context.MockContext{}
+			mockContext := context.NewMockContext(nil, nil, nil)
 			container := di.NewContainer()
 			container.Register("context", mockContext)
 
