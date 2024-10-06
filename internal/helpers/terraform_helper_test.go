@@ -602,12 +602,87 @@ func TestTerraformHelper(t *testing.T) {
 		})
 
 		t.Run("ErrorCheckingFile", func(t *testing.T) {
+			tempDir := t.TempDir()
+			projectPath := filepath.Join(tempDir, "terraform/windsor")
+			configRoot := filepath.Join(tempDir, "contexts/local")
+
+			// Create the necessary directory structure
+			err := mkdirAll(projectPath, os.ModePerm)
+			if err != nil {
+				t.Fatalf("Failed to create project directories: %v", err)
+			}
+
+			// Create the necessary directory structure for tfvars files
 			tfvarsFiles := map[string]string{
 				"contexts/local/terraform/windsor/blueprint.tfvars":                "",
 				"contexts/local/terraform/windsor/blueprint_generated.tfvars.json": "",
 			}
-			projectPath, cleanup, helper := setupTestEnv(t, "local", tfvarsFiles)
-			defer cleanup()
+			for path, content := range tfvarsFiles {
+				dir := filepath.Dir(filepath.Join(tempDir, path))
+				err = mkdirAll(dir, os.ModePerm)
+				if err != nil {
+					t.Fatalf("Failed to create tfvars directories: %v", err)
+				}
+				err = os.WriteFile(filepath.Join(tempDir, path), []byte(content), os.ModePerm)
+				if err != nil {
+					t.Fatalf("Failed to create tfvars file: %v", err)
+				}
+			}
+
+			// Mock getwd to return the terraform project directory
+			originalGetwd := getwd
+			getwd = func() (string, error) {
+				return projectPath, nil
+			}
+			defer func() { getwd = originalGetwd }()
+
+			// Mock glob to return a valid result for findRelativeTerraformProjectPath
+			originalGlob := glob
+			glob = func(pattern string) ([]string, error) {
+				if strings.Contains(pattern, "*.tf") {
+					return []string{filepath.Join(projectPath, "main.tf")}, nil
+				}
+				if strings.Contains(pattern, "*.tfvars") {
+					var matches []string
+					for path := range tfvarsFiles {
+						if strings.HasSuffix(path, ".tfvars") || strings.HasSuffix(path, ".tfvars.json") {
+							matches = append(matches, filepath.Join(tempDir, path))
+						}
+					}
+					return matches, nil
+				}
+				return nil, fmt.Errorf("error globbing files")
+			}
+			defer func() { glob = originalGlob }()
+
+			// Mock config handler to return a context configuration with the specified backend
+			mockConfigHandler := &config.MockConfigHandler{}
+			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				switch key {
+				case "context":
+					return "local", nil
+				case "contexts.local.terraform.backend":
+					return "local", nil
+				default:
+					return "", fmt.Errorf("unexpected key: %s", key)
+				}
+			}
+
+			mockContext := &context.MockContext{
+				GetConfigRootFunc: func() (string, error) {
+					return configRoot, nil
+				},
+			}
+
+			// Set up DI container
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+
+			terraformHelper, err := NewTerraformHelper(diContainer)
+			if err != nil {
+				t.Fatalf("Failed to create TerraformHelper: %v", err)
+			}
 
 			// Ensure the file does not exist
 			fileToCheck := filepath.Join(projectPath, "non_existent_file.tfvars")
@@ -620,7 +695,7 @@ func TestTerraformHelper(t *testing.T) {
 			defer restoreStat()
 
 			// When: GetEnvVars is called
-			_, err := helper.GetEnvVars()
+			_, err = terraformHelper.GetEnvVars()
 
 			// Then: it should return an error
 			if err == nil {
