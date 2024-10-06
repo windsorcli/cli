@@ -32,14 +32,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given: a valid config handler
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -67,14 +60,8 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SetConfigValueError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SetConfigValue
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return errors.New("set config value error") },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error { return errors.New("set config value error") }
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -102,14 +89,8 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SaveConfigError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SaveConfig
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return errors.New("save config error") },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -137,22 +118,9 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ProjectConfigSaveError", func(t *testing.T) {
 		// Given: a CLI config handler that succeeds and a project config handler that returns an error on SaveConfig
-		mockCLIHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
-		mockProjectHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return errors.New("save project config error") },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockCLIHandler := config.NewMockConfigHandler()
+		mockProjectHandler := config.NewMockConfigHandler()
+		mockProjectHandler.SaveConfigFunc = func(path string) error { return errors.New("save project config error") }
 		mockShell, err := shell.NewMockShell("cmd") // Ensure valid shell type
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -191,14 +159,7 @@ func TestInitCmd(t *testing.T) {
 			},
 		}
 
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -223,25 +184,14 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("CLIConfigSaveError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SaveConfig
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SaveConfigFunc = func(path string) error { return errors.New("save cli config error") }
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
 		mockHelper := &helpers.MockHelper{
 			SetConfigFunc: func(key, value string) error { return nil },
-		}
-
-		// Mock SaveConfigFunc to return an error
-		mockHandler.SaveConfigFunc = func(path string) error {
-			return errors.New("save cli config error")
 		}
 
 		// Replace the global contextInstance with the mock
@@ -268,14 +218,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SetAwsEndpointURLError", func(t *testing.T) {
 		// Given: a config handler that returns an error on setting aws_endpoint_url
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -308,14 +251,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SetAwsProfileError", func(t *testing.T) {
 		// Given: a config handler that returns an error on setting aws_profile
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -348,14 +284,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SetColimaTypeError", func(t *testing.T) {
 		// Given: a colima helper that returns an error on setting type
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -389,14 +318,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SetColimaCpuError", func(t *testing.T) {
 		// Given: a colima helper that returns an error on setting cpu
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -429,14 +351,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SetColimaDiskError", func(t *testing.T) {
 		// Given: a colima helper that returns an error on setting disk
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -466,17 +381,9 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
-
 	t.Run("SetColimaMemoryError", func(t *testing.T) {
 		// Given: a colima helper that returns an error on setting memory
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -509,14 +416,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SetColimaArchError", func(t *testing.T) {
 		// Given: a colima helper that returns an error on setting arch
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -549,14 +449,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SetDockerConfigError", func(t *testing.T) {
 		// Given: a docker helper that returns an error on setting config
-		mockHandler := config.NewMockConfigHandler(
-			func(path string) error { return nil },
-			func(key string) (string, error) { return "value", nil },
-			func(key string, value interface{}) error { return nil },
-			func(path string) error { return nil },
-			func(key string) (map[string]interface{}, error) { return nil, nil },
-			func(key string) ([]string, error) { return nil, nil },
-		)
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error { return nil }
+		mockHandler.SaveConfigFunc = func(path string) error { return nil }
+		mockHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)

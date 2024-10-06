@@ -41,7 +41,7 @@ func TestAwsHelper(t *testing.T) {
 			}
 
 			// Mock config handler
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
@@ -102,7 +102,7 @@ func TestAwsHelper(t *testing.T) {
 			}
 
 			// Mock config handler
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
@@ -156,7 +156,7 @@ func TestAwsHelper(t *testing.T) {
 			}
 
 			// Mock config handler
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 
 			// Create DI container and register mocks
 			diContainer := di.NewContainer()
@@ -189,7 +189,7 @@ func TestAwsHelper(t *testing.T) {
 			}
 
 			// Mock config handler
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 
 			// Create DI container and register mocks
 			diContainer := di.NewContainer()
@@ -237,7 +237,7 @@ func TestAwsHelper(t *testing.T) {
 			}
 
 			// Mock config handler
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
@@ -309,7 +309,7 @@ func TestAwsHelper(t *testing.T) {
 			}
 
 			// Mock config handler
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
@@ -370,7 +370,7 @@ func TestAwsHelper(t *testing.T) {
 			}
 
 			// Mock config handler
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
@@ -431,7 +431,7 @@ func TestAwsHelper(t *testing.T) {
 			}
 
 			// Mock config handler
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.remote.aws.aws_profile":
@@ -481,7 +481,7 @@ func TestAwsHelper(t *testing.T) {
 	t.Run("PostEnvExec", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a AwsHelper instance
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockContext := context.NewMockContext(nil, nil, nil)
 
 			// Create DI container and register mocks
@@ -507,7 +507,7 @@ func TestAwsHelper(t *testing.T) {
 	t.Run("SetConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given: a mock config handler, shell, and context
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockContext := context.NewMockContext(nil, nil, nil)
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
@@ -541,7 +541,7 @@ func TestAwsHelper(t *testing.T) {
 
 		t.Run("EmptyValues", func(t *testing.T) {
 			// Given: a mock config handler, and context
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockContext := context.NewMockContext(nil, nil, nil)
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
@@ -575,7 +575,7 @@ func TestAwsHelper(t *testing.T) {
 
 		t.Run("OnlyAwsProfile", func(t *testing.T) {
 			// Given: a mock config handler, shell, and context
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockContext := context.NewMockContext(nil, nil, nil)
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
@@ -609,7 +609,7 @@ func TestAwsHelper(t *testing.T) {
 
 		t.Run("ErrorSettingAwsProfile", func(t *testing.T) {
 			// Given: a mock config handler, shell, and context
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				if key == "contexts.test-context.aws.aws_profile" {
 					return errors.New("error setting aws_profile")
@@ -644,7 +644,7 @@ func TestAwsHelper(t *testing.T) {
 
 		t.Run("ErrorSettingConfigValue", func(t *testing.T) {
 			// Given: a mock config handler, shell, and context
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
 				if key == "contexts.test-context.aws.aws_endpoint_url" {
 					return errors.New("error setting aws_endpoint_url")
@@ -679,7 +679,7 @@ func TestAwsHelper(t *testing.T) {
 
 		t.Run("ErrorSavingConfig", func(t *testing.T) {
 			// Given: a mock config handler, shell, and context
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.SaveConfigFunc = func(path string) error {
 				return errors.New("error saving config")
 			}
@@ -711,7 +711,7 @@ func TestAwsHelper(t *testing.T) {
 
 		t.Run("ErrorRetrievingCurrentContext", func(t *testing.T) {
 			// Given: a mock config handler and context
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockContext := context.NewMockContext(nil, nil, nil)
 			mockContext.GetContextFunc = func() (string, error) {
 				return "", errors.New("error retrieving current context")
@@ -754,7 +754,7 @@ func TestAwsHelper(t *testing.T) {
 		t.Run("ErrorResolvingContext", func(t *testing.T) {
 			// Create DI container and register only cliConfigHandler
 			diContainer := di.NewContainer()
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 			// Attempt to create AwsHelper
@@ -768,7 +768,7 @@ func TestAwsHelper(t *testing.T) {
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given: a mock config handler and context
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockContext := context.NewMockContext(nil, nil, nil)
 
 			// Create DI container and register mocks

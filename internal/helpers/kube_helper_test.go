@@ -18,7 +18,7 @@ func TestKubeHelper(t *testing.T) {
 		t.Run("ErrorResolvingContext", func(t *testing.T) {
 			// Given a DI container without registering context
 			diContainer := di.NewContainer()
-			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+			mockConfigHandler := config.NewMockConfigHandler()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 			// When attempting to create KubeHelper

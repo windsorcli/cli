@@ -24,8 +24,8 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a valid config handler, shell, and helper
-		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
-		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -64,8 +64,8 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a container that returns an error when resolving helpers
-		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
-		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -105,8 +105,8 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a container that returns an error when resolving helpers
-		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
-		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -147,8 +147,8 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a container that returns an error when resolving the shell
-		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
-		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveError("shell", errors.New("resolve shell error")) // Simulate error
 		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
@@ -184,8 +184,8 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a helper that returns an error when getting environment variables
-		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
-		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -221,8 +221,8 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a helper that returns an error when getting environment variables
-		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
-		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -260,8 +260,8 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a helper that returns an error when executing PostEnvExec
-		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
-		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -300,8 +300,8 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a helper that returns an error when executing PostEnvExec
-		mockCliConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
-		mockProjectConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
