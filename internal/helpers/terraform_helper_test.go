@@ -124,63 +124,73 @@ func setupTestEnv(t *testing.T, backend string, tfvarsFiles map[string]string) (
 func TestTerraformHelper(t *testing.T) {
 	t.Run("NewTerraformHelper", func(t *testing.T) {
 		t.Run("ErrorResolvingContext", func(t *testing.T) {
-			// Create DI container without registering context
+			// Given a DI container without context registered
 			diContainer := di.NewContainer()
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
-			// Attempt to create TerraformHelper
+			// When creating a new TerraformHelper
 			_, err := NewTerraformHelper(diContainer)
+
+			// Then an error should be returned
 			if err == nil || !strings.Contains(err.Error(), "error resolving context") {
 				t.Fatalf("expected error resolving context, got %v", err)
 			}
 		})
 
 		t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-			// Create DI container without registering cliConfigHandler
+			// Given a DI container without cliConfigHandler registered
 			diContainer := di.NewContainer()
 
-			// Attempt to create TerraformHelper
+			// When creating a new TerraformHelper
 			_, err := NewTerraformHelper(diContainer)
+
+			// Then an error should be returned
 			if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
 				t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
 			}
 		})
 
 		t.Run("ConfigHandlerTypeError", func(t *testing.T) {
+			// Given a DI container with an incorrect type for cliConfigHandler
 			diContainer := di.NewContainer()
-
-			// Register a wrong type for cliConfigHandler
 			diContainer.Register("cliConfigHandler", "not a config handler")
 
-			// Register a valid context
+			// And a valid context
 			mockContext := context.NewMockContext(nil, nil, nil)
 			diContainer.Register("context", mockContext)
 
+			// When creating a new TerraformHelper
 			_, err := NewTerraformHelper(diContainer)
+
+			// Then an error about cliConfigHandler type should be returned
 			if err == nil || !strings.Contains(err.Error(), "resolved cliConfigHandler is not of type ConfigHandler") {
 				t.Fatalf("expected error about cliConfigHandler type, got %v", err)
 			}
 		})
 
 		t.Run("ContextTypeError", func(t *testing.T) {
+			// Given a DI container with a valid config handler
 			diContainer := di.NewContainer()
-
-			// Register a valid config handler
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
-			// Register a wrong type for context
+			// And an incorrect type for context
 			diContainer.Register("context", "not a context interface")
 
+			// When creating a new TerraformHelper
 			_, err := NewTerraformHelper(diContainer)
+
+			// Then an error about context type should be returned
 			if err == nil || !strings.Contains(err.Error(), "resolved context is not of type ContextInterface") {
 				t.Fatalf("expected error about context type, got %v", err)
 			}
 		})
 	})
+
 	t.Run("GetEnvVars", func(t *testing.T) {
 		t.Run("ValidTfvarsFiles", func(t *testing.T) {
+			// Given a valid project and tfvars files
 			tempDir := t.TempDir()
 			configRoot := filepath.Join(tempDir, "mock/config/root")
 			projectPath := filepath.Join(tempDir, "terraform/windsor/blueprint")
@@ -234,10 +244,10 @@ func TestTerraformHelper(t *testing.T) {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
-			// When: GetEnvVars is called
+			// When GetEnvVars is called
 			envVars, err := helper.GetEnvVars()
 
-			// Then: it should return no error and the environment variables should include the var-file arguments
+			// Then it should return no error and the environment variables should include the var-file arguments
 			expectedEnvVars := map[string]string{
 				"TF_DATA_DIR":      filepath.Join(configRoot, ".terraform/windsor/blueprint"),
 				"TF_CLI_ARGS_init": fmt.Sprintf("-backend=true -backend-config=path=%s", filepath.Join(configRoot, ".tfstate/windsor/blueprint/terraform.tfstate")),
@@ -264,6 +274,7 @@ func TestTerraformHelper(t *testing.T) {
 		})
 
 		t.Run("InvalidProjectPath", func(t *testing.T) {
+			// Given an invalid project path
 			tempDir := t.TempDir()
 			configRoot := filepath.Join(tempDir, "mock/config/root")
 			invalidProjectPath := filepath.Join(tempDir, "invalid/path")
@@ -288,10 +299,10 @@ func TestTerraformHelper(t *testing.T) {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
-			// When: GetEnvVars is called
+			// When GetEnvVars is called
 			envVars, err := helper.GetEnvVars()
 
-			// Then: it should return no error and empty environment variables
+			// Then it should return no error and empty environment variables
 			expectedEnvVars := map[string]string{}
 
 			if err != nil {
@@ -303,6 +314,7 @@ func TestTerraformHelper(t *testing.T) {
 		})
 
 		t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
+			// Given a valid project path but an error when getting the config root
 			tempDir := t.TempDir()
 			projectPath := filepath.Join(tempDir, "terraform/windsor/blueprint")
 
@@ -339,10 +351,10 @@ func TestTerraformHelper(t *testing.T) {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
-			// When: GetEnvVars is called
+			// When GetEnvVars is called
 			_, err = helper.GetEnvVars()
 
-			// Then: it should return an error
+			// Then it should return an error
 			if err == nil {
 				t.Fatalf("Expected an error, got nil")
 			}
@@ -350,8 +362,8 @@ func TestTerraformHelper(t *testing.T) {
 				t.Errorf("Expected error message to contain 'error getting config root', got %v", err)
 			}
 		})
-
 		t.Run("ErrorGlobbingTfvarsFiles", func(t *testing.T) {
+			// Given a valid project path and config root
 			tempDir := t.TempDir()
 			projectPath := filepath.Join(tempDir, "terraform/windsor")
 			configRoot := filepath.Join(tempDir, "contexts/local")
@@ -395,20 +407,21 @@ func TestTerraformHelper(t *testing.T) {
 				},
 			}
 
-			// Set up DI container
+			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("context", mockContext)
 
+			// When creating a new TerraformHelper
 			terraformHelper, err := NewTerraformHelper(diContainer)
 			if err != nil {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
-			// When: GetEnvVars is called
+			// And calling GetEnvVars
 			_, err = terraformHelper.GetEnvVars()
 
-			// Then: it should return an error
+			// Then it should return an error
 			if err == nil {
 				t.Fatalf("Expected an error, got nil")
 			}
@@ -419,6 +432,7 @@ func TestTerraformHelper(t *testing.T) {
 		})
 
 		t.Run("NoTfvarsFiles", func(t *testing.T) {
+			// Given a valid project path and config root
 			tempDir := t.TempDir()
 			configRoot := filepath.Join(tempDir, "mock/config/root")
 			projectPath := filepath.Join(tempDir, "terraform/windsor/blueprint")
@@ -442,23 +456,28 @@ func TestTerraformHelper(t *testing.T) {
 			}
 			defer func() { getwd = originalGetwd }()
 
+			// Mock context to return the config root
 			mockContext := context.NewMockContext(nil, nil, nil)
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return configRoot, nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+
+			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("context", mockContext)
+
+			// When creating a new TerraformHelper
 			helper, err := NewTerraformHelper(diContainer)
 			if err != nil {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
-			// When: GetEnvVars is called
+			// And calling GetEnvVars
 			envVars, err := helper.GetEnvVars()
 
-			// Then: it should return no error and the environment variables should not include the var-file arguments
+			// Then it should return no error and the environment variables should not include the var-file arguments
 			expectedEnvVars := map[string]string{
 				"TF_DATA_DIR":         filepath.Join(configRoot, ".terraform/windsor/blueprint"),
 				"TF_CLI_ARGS_init":    fmt.Sprintf("-backend=true -backend-config=path=%s", filepath.Join(configRoot, ".tfstate/windsor/blueprint/terraform.tfstate")),
@@ -478,7 +497,7 @@ func TestTerraformHelper(t *testing.T) {
 		})
 
 		t.Run("NoTerraformDir", func(t *testing.T) {
-			// Mock getwd to return a path without a "terraform" directory
+			// Given a path without a "terraform" directory
 			originalGetwd := getwd
 			getwd = func() (string, error) {
 				return "/path/to/project", nil
@@ -492,28 +511,28 @@ func TestTerraformHelper(t *testing.T) {
 			}
 			defer func() { glob = originalGlob }()
 
-			// Mock context
+			// Mock context to return the config root
 			mockContext := context.NewMockContext(nil, nil, nil)
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "/path/to/config", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 
-			// Set up DI container
+			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("context", mockContext)
 
-			// Create TerraformHelper
+			// When creating a new TerraformHelper
 			terraformHelper, err := NewTerraformHelper(diContainer)
 			if err != nil {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
-			// When: GetEnvVars is called
+			// And calling GetEnvVars
 			envVars, err := terraformHelper.GetEnvVars()
 
-			// Then: it should return an error indicating no "terraform" directory found
+			// Then it should return an error indicating no "terraform" directory found
 			expectedError := "no 'terraform' directory found in the current path"
 			if err == nil || err.Error() != expectedError {
 				t.Errorf("Expected error %q, got %v", expectedError, err)
@@ -526,30 +545,35 @@ func TestTerraformHelper(t *testing.T) {
 		})
 
 		t.Run("ErrorGettingCurrentDirectory", func(t *testing.T) {
-			// Mock getwd to return an error
+			// Given an error when getting the current directory
 			originalGetwd := getwd
 			getwd = func() (string, error) {
 				return "", fmt.Errorf("mock error getting current directory")
 			}
 			defer func() { getwd = originalGetwd }()
 
+			// Mock context to return the config root
 			mockContext := context.NewMockContext(nil, nil, nil)
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "/mock/config/root", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+
+			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("context", mockContext)
+
+			// When creating a new TerraformHelper
 			helper, err := NewTerraformHelper(diContainer)
 			if err != nil {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
-			// When: GetEnvVars is called
+			// And calling GetEnvVars
 			_, err = helper.GetEnvVars()
 
-			// Then: it should return an error
+			// Then it should return an error
 			if err == nil {
 				t.Fatalf("Expected an error, got nil")
 			}
@@ -559,6 +583,7 @@ func TestTerraformHelper(t *testing.T) {
 		})
 
 		t.Run("ErrorFindingProjectPath", func(t *testing.T) {
+			// Given a valid project path
 			tempDir := t.TempDir()
 			projectPath := filepath.Join(tempDir, "terraform/project")
 
@@ -576,23 +601,28 @@ func TestTerraformHelper(t *testing.T) {
 			}
 			defer func() { glob = originalGlob }()
 
+			// Mock context to return the config root
 			mockContext := context.NewMockContext(nil, nil, nil)
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "/mock/config/root", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
+
+			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("context", mockContext)
+
+			// When creating a new TerraformHelper
 			helper, err := NewTerraformHelper(diContainer)
 			if err != nil {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
-			// When: GetEnvVars is called
+			// And calling GetEnvVars
 			_, err = helper.GetEnvVars()
 
-			// Then: it should return an error
+			// Then it should return an error
 			if err == nil {
 				t.Fatalf("Expected an error, got nil")
 			}
@@ -602,6 +632,7 @@ func TestTerraformHelper(t *testing.T) {
 		})
 
 		t.Run("ErrorCheckingFile", func(t *testing.T) {
+			// Given a valid project path and config root
 			tempDir := t.TempDir()
 			projectPath := filepath.Join(tempDir, "terraform/windsor")
 			configRoot := filepath.Join(tempDir, "contexts/local")
@@ -674,11 +705,12 @@ func TestTerraformHelper(t *testing.T) {
 				},
 			}
 
-			// Set up DI container
+			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("context", mockContext)
 
+			// Create TerraformHelper
 			terraformHelper, err := NewTerraformHelper(diContainer)
 			if err != nil {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
@@ -694,10 +726,10 @@ func TestTerraformHelper(t *testing.T) {
 			mockStatWithError(fmt.Errorf("mock error"))
 			defer restoreStat()
 
-			// When: GetEnvVars is called
+			// When calling GetEnvVars
 			_, err = terraformHelper.GetEnvVars()
 
-			// Then: it should return an error
+			// Then it should return an error
 			if err == nil {
 				t.Fatalf("Expected an error, got nil")
 			}
@@ -783,9 +815,9 @@ terraform {
 			}
 		})
 	})
-
 	t.Run("GetAlias", func(t *testing.T) {
 		t.Run("LocalContext", func(t *testing.T) {
+			// Given a mock context and config handler
 			mockContext := context.NewMockContext(nil, nil, nil)
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
@@ -795,21 +827,26 @@ terraform {
 				return "", fmt.Errorf("unexpected key: %s", key)
 			}
 
+			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("context", mockContext)
 
+			// When creating a new TerraformHelper
 			helper, err := NewTerraformHelper(diContainer)
 			if err != nil {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
+			// And calling GetAlias
 			alias, err := helper.GetAlias()
 
+			// Then no error should be returned
 			if err != nil {
 				t.Fatalf("Expected no error, got: %v", err)
 			}
 
+			// And the alias should match the expected alias
 			expectedAlias := map[string]string{"terraform": "tflocal"}
 			if !reflect.DeepEqual(alias, expectedAlias) {
 				t.Errorf("Expected alias: %v, got: %v", expectedAlias, alias)
@@ -817,6 +854,7 @@ terraform {
 		})
 
 		t.Run("NonLocalContext", func(t *testing.T) {
+			// Given a mock context and config handler
 			mockContext := context.NewMockContext(nil, nil, nil)
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
@@ -826,21 +864,26 @@ terraform {
 				return "", fmt.Errorf("unexpected key: %s", key)
 			}
 
+			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("context", mockContext)
 
+			// When creating a new TerraformHelper
 			helper, err := NewTerraformHelper(diContainer)
 			if err != nil {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
+			// And calling GetAlias
 			alias, err := helper.GetAlias()
 
+			// Then no error should be returned
 			if err != nil {
 				t.Fatalf("Expected no error, got: %v", err)
 			}
 
+			// And the alias should match the expected alias
 			expectedAlias := map[string]string{"terraform": ""}
 			if !reflect.DeepEqual(alias, expectedAlias) {
 				t.Errorf("Expected alias: %v, got: %v", expectedAlias, alias)
@@ -848,6 +891,7 @@ terraform {
 		})
 
 		t.Run("ErrorRetrievingContext", func(t *testing.T) {
+			// Given a mock context and config handler that returns an error for context
 			mockContext := context.NewMockContext(nil, nil, nil)
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
@@ -857,21 +901,26 @@ terraform {
 				return "", fmt.Errorf("unexpected key: %s", key)
 			}
 
+			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("context", mockContext)
 
+			// When creating a new TerraformHelper
 			helper, err := NewTerraformHelper(diContainer)
 			if err != nil {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
+			// And calling GetAlias
 			alias, err := helper.GetAlias()
 
+			// Then an error should be returned
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
 
+			// And the alias should be nil
 			if alias != nil {
 				t.Errorf("Expected alias to be nil, got: %v", alias)
 			}
@@ -879,6 +928,7 @@ terraform {
 	})
 
 	t.Run("SetConfig", func(t *testing.T) {
+		// Given a mock config handler and context
 		mockConfigHandler := &config.MockConfigHandler{}
 		mockContext := &context.MockContext{}
 		diContainer := di.NewContainer()
@@ -909,20 +959,20 @@ terraform {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
-			// When: SetConfig is called with "backend" key
+			// When SetConfig is called with "backend" key
 			err = helper.SetConfig("backend", "s3")
 
-			// Then: it should return no error
+			// Then it should return no error
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
 			}
 		})
 
 		t.Run("UnsupportedKey", func(t *testing.T) {
-			// When: SetConfig is called with an unsupported key
+			// When SetConfig is called with an unsupported key
 			err := helper.SetConfig("unsupported_key", "value")
 
-			// Then: it should return an error
+			// Then it should return an error
 			if err == nil {
 				t.Fatalf("expected error, got nil")
 			}
@@ -954,10 +1004,10 @@ terraform {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
-			// When: SetConfig is called with "backend" key
+			// When SetConfig is called with "backend" key
 			err = helper.SetConfig("backend", "s3")
 
-			// Then: it should return an error
+			// Then it should return an error
 			if err == nil {
 				t.Fatalf("expected error, got nil")
 			}
@@ -980,10 +1030,10 @@ terraform {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
-			// When: SetConfig is called with "backend" key
+			// When SetConfig is called with "backend" key
 			err = helper.SetConfig("backend", "s3")
 
-			// Then: it should return an error
+			// Then it should return an error
 			if err == nil {
 				t.Fatalf("expected error, got nil")
 			}
@@ -993,7 +1043,7 @@ terraform {
 		})
 
 		t.Run("EmptyValue", func(t *testing.T) {
-			// Given: a mock config handler, and context
+			// Given a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			mockContext := context.NewMockContext(nil, nil, nil)
 			mockContext.GetContextFunc = func() (string, error) {
@@ -1014,16 +1064,18 @@ terraform {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
 
-			// When: SetConfig is called with an empty value
+			// When SetConfig is called with an empty value
 			err = terraformHelper.SetConfig("backend", "")
+
+			// Then no error should be returned
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
 			}
 		})
 	})
-
 	t.Run("PostEnvExec", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
+			// Given a temporary directory and project path
 			tempDir := t.TempDir()
 			projectPath := filepath.Join(tempDir, "terraform/windsor")
 
@@ -1104,7 +1156,7 @@ terraform {
 		})
 
 		t.Run("ErrorGettingCurrentDirectory", func(t *testing.T) {
-			// Mock getwd to return an error
+			// Given a mock getwd that returns an error
 			originalGetwd := getwd
 			getwd = func() (string, error) {
 				return "", fmt.Errorf("mock error getting current directory")
@@ -1139,6 +1191,7 @@ terraform {
 		})
 
 		t.Run("NoTerraformProjectPath", func(t *testing.T) {
+			// Given a temporary directory and project path
 			tempDir := t.TempDir()
 			projectPath := filepath.Join(tempDir, "non-terraform/project")
 
@@ -1170,6 +1223,8 @@ terraform {
 			if err != nil {
 				t.Fatalf("Failed to create TerraformHelper: %v", err)
 			}
+
+			// When calling PostEnvExec
 			err = terraformHelper.PostEnvExec()
 
 			// Then no error should be returned
@@ -1185,6 +1240,7 @@ terraform {
 		})
 
 		t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
+			// Given a temporary directory and project path
 			tempDir := t.TempDir()
 			projectPath := filepath.Join(tempDir, "terraform/project")
 
@@ -1235,7 +1291,9 @@ terraform {
 				t.Fatalf("expected error message to contain 'error getting config root', got %v", err)
 			}
 		})
+
 		t.Run("ErrorFindingProjectPath", func(t *testing.T) {
+			// Given a temporary directory and project path
 			tempDir := t.TempDir()
 			projectPath := filepath.Join(tempDir, "terraform/project")
 
@@ -1283,6 +1341,7 @@ terraform {
 		})
 
 		t.Run("ErrorGettingBackend", func(t *testing.T) {
+			// Given a temporary directory and project path
 			tempDir := t.TempDir()
 			projectPath := filepath.Join(tempDir, "terraform/project")
 
@@ -1344,6 +1403,7 @@ terraform {
 		})
 
 		t.Run("ErrorRetrievingContext", func(t *testing.T) {
+			// Given a temporary directory and project path
 			tempDir := t.TempDir()
 			projectPath := filepath.Join(tempDir, "terraform/project")
 
@@ -1402,6 +1462,7 @@ terraform {
 		})
 
 		t.Run("BackendLocal", func(t *testing.T) {
+			// Given a setup test environment with "local" backend
 			projectPath, cleanup, terraformHelper := setupTestEnv(t, "local", nil)
 			defer cleanup()
 
@@ -1459,8 +1520,8 @@ terraform {
 				t.Errorf("expected %s, got %s", expectedContent, string(content))
 			}
 		})
-
 		t.Run("BackendS3", func(t *testing.T) {
+			// Given a setup test environment with "s3" backend
 			tfvarsFiles := map[string]string{}
 			projectPath, cleanup, terraformHelper := setupTestEnv(t, "s3", tfvarsFiles)
 			defer cleanup()
@@ -1541,6 +1602,7 @@ terraform {
 		})
 
 		t.Run("BackendKubernetes", func(t *testing.T) {
+			// Given a setup test environment with "kubernetes" backend
 			tfvarsFiles := map[string]string{}
 			projectPath, cleanup, terraformHelper := setupTestEnv(t, "kubernetes", tfvarsFiles)
 			defer cleanup()
@@ -1562,7 +1624,7 @@ terraform {
 			}
 			defer func() { getwd = originalGetwd }()
 
-			// Use the helper function to set up the mock context and config handler
+			// Mock config handler to return a context configuration with the specified backend
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				if key == "context" {
@@ -1617,6 +1679,7 @@ terraform {
 		})
 
 		t.Run("UnsupportedBackend", func(t *testing.T) {
+			// Given a setup test environment with an unsupported backend
 			tempDir := t.TempDir()
 			projectPath := filepath.Join(tempDir, "terraform/project")
 
@@ -1639,7 +1702,7 @@ terraform {
 			}
 			defer func() { getwd = originalGetwd }()
 
-			// Use the helper function to set up the mock context and config handler
+			// Mock config handler to return a context configuration with the specified backend
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				if key == "context" {
@@ -1680,6 +1743,7 @@ terraform {
 		})
 
 		t.Run("ErrorWritingBackendOverride", func(t *testing.T) {
+			// Given a setup test environment with a local backend
 			tempDir := t.TempDir()
 			projectPath := filepath.Join(tempDir, "terraform/project")
 
@@ -1702,7 +1766,7 @@ terraform {
 			}
 			defer func() { getwd = originalGetwd }()
 
-			// Use the helper function to set up the mock context and config handler
+			// Mock config handler to return a context configuration with the specified backend
 			mockConfigHandler := config.NewMockConfigHandler(nil, nil, nil, nil, nil, nil)
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
 				if key == "context" {
@@ -1749,6 +1813,7 @@ terraform {
 			}
 		})
 	})
+
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context and mock config handler
