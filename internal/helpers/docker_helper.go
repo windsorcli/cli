@@ -93,6 +93,8 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 	if value == "" {
 		if context == "local" || strings.HasPrefix(context, "local-") {
 			boolValue = true
+		} else {
+			return nil
 		}
 	} else {
 		boolValue = value == "true"
@@ -151,6 +153,11 @@ func (h *DockerHelper) writeDockerComposeFile() error {
 		return fmt.Errorf("error retrieving config root: %w", err)
 	}
 	composeFilePath := filepath.Join(configRoot, "docker-compose.yaml")
+
+	// Ensure the parent context folder exists
+	if err := mkdirAll(filepath.Dir(composeFilePath), 0755); err != nil {
+		return fmt.Errorf("error creating parent context folder: %w", err)
+	}
 
 	// Write the YAML data to the specified file
 	err = writeFile(composeFilePath, yamlData, 0644)
