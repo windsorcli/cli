@@ -334,6 +334,41 @@ func TestColimaHelper_SetConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("RetrieveAndSetArchValue", func(t *testing.T) {
+		mockConfigHandler := &config.MockConfigHandler{
+			GetConfigValueFunc: func(key string) (string, error) {
+				if key == "contexts.test-context.vm.arch" {
+					return "x86_64", nil
+				}
+				return "", nil
+			},
+		}
+		ctx := &context.MockContext{
+			GetContextFunc: func() (string, error) {
+				return "test-context", nil
+			},
+		}
+
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", ctx)
+
+		helper, err := NewColimaHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewColimaHelper() error = %v", err)
+		}
+
+		err = helper.SetConfig("arch", "x86_64")
+		if err != nil {
+			t.Fatalf("SetConfig() error = %v", err)
+		}
+
+		// Verify that the architecture was set correctly
+		if arch, err := mockConfigHandler.GetConfigValue("contexts.test-context.vm.arch"); err != nil || arch != "x86_64" {
+			t.Errorf("expected arch to be 'x86_64', got '%v'", arch)
+		}
+	})
+
 	t.Run("UnsupportedConfigKey", func(t *testing.T) {
 		cliConfigHandler := &config.MockConfigHandler{}
 		ctx := &context.MockContext{

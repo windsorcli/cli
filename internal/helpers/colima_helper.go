@@ -113,7 +113,7 @@ func (h *ColimaHelper) SetConfig(key, value string) error {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	cpu, disk, memory, _, arch := getDefaultValues(context)
+	writeColimaConfig := false
 
 	switch key {
 	case "driver":
@@ -121,55 +121,60 @@ func (h *ColimaHelper) SetConfig(key, value string) error {
 			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", context), value); err != nil {
 				return fmt.Errorf("error setting colima config: %w", err)
 			}
+			writeColimaConfig = true
 		}
 	case "cpu":
-		if value == "" {
-			value = strconv.Itoa(cpu)
-		}
-		cpuValue, err := strconv.Atoi(value)
-		if err != nil {
-			return fmt.Errorf("invalid value for %s: %w", key, err)
-		}
-		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), cpuValue); err != nil {
-			return fmt.Errorf("error setting colima config: %w", err)
+		if value != "" {
+			cpuValue, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("invalid value for %s: %w", key, err)
+			}
+			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), cpuValue); err != nil {
+				return fmt.Errorf("error setting colima config: %w", err)
+			}
+			writeColimaConfig = true
 		}
 	case "disk":
-		if value == "" {
-			value = strconv.Itoa(disk)
-		}
-		diskValue, err := strconv.Atoi(value)
-		if err != nil {
-			return fmt.Errorf("invalid value for %s: %w", key, err)
-		}
-		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), diskValue); err != nil {
-			return fmt.Errorf("error setting colima config: %w", err)
+		if value != "" {
+			diskValue, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("invalid value for %s: %w", key, err)
+			}
+			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), diskValue); err != nil {
+				return fmt.Errorf("error setting colima config: %w", err)
+			}
+			writeColimaConfig = true
 		}
 	case "memory":
-		if value == "" {
-			value = strconv.Itoa(memory)
-		}
-		memoryValue, err := strconv.Atoi(value)
-		if err != nil {
-			return fmt.Errorf("invalid value for %s: %w", key, err)
-		}
-		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), memoryValue); err != nil {
-			return fmt.Errorf("error setting colima config: %w", err)
+		if value != "" {
+			memoryValue, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("invalid value for %s: %w", key, err)
+			}
+			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), memoryValue); err != nil {
+				return fmt.Errorf("error setting colima config: %w", err)
+			}
+			writeColimaConfig = true
 		}
 	case "arch":
-		if value == "" {
-			value = arch
-		}
-		if value != "aarch64" && value != "x86_64" {
-			return fmt.Errorf("invalid value for arch: %s", value)
-		}
-		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", context), value); err != nil {
-			return fmt.Errorf("error setting colima config: %w", err)
+		if value != "" {
+			if value != "aarch64" && value != "x86_64" {
+				return fmt.Errorf("invalid value for arch: %s", value)
+			}
+			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", context), value); err != nil {
+				return fmt.Errorf("error setting colima config: %w", err)
+			}
+			writeColimaConfig = true
 		}
 	default:
 		return fmt.Errorf("unsupported config key: %s", key)
 	}
 
-	return generateColimaConfig(context, h.ConfigHandler)
+	if writeColimaConfig {
+		return generateColimaConfig(context, h.ConfigHandler)
+	}
+
+	return nil
 }
 
 // Ensure ColimaHelper implements Helper interface
@@ -192,22 +197,22 @@ func generateColimaConfig(context string, cliConfigHandler config.ConfigHandler)
 	}
 
 	// Override default values with context-specific values if provided
-	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.cpu", context)); err == nil {
+	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.cpu", context)); err == nil && val != "" {
 		if cpuVal, err := strconv.Atoi(val); err == nil {
 			cpu = cpuVal
 		}
 	}
-	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.disk", context)); err == nil {
+	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.disk", context)); err == nil && val != "" {
 		if diskVal, err := strconv.Atoi(val); err == nil {
 			disk = diskVal
 		}
 	}
-	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.memory", context)); err == nil {
+	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.memory", context)); err == nil && val != "" {
 		if memoryVal, err := strconv.Atoi(val); err == nil {
 			memory = memoryVal
 		}
 	}
-	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", context)); err == nil {
+	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", context)); err == nil && val != "" {
 		arch = val
 	}
 
