@@ -55,3 +55,6 @@ var rename = os.Rename
 
 // Override variable for yaml.Marshal
 var yamlMarshal = yaml.Marshal
+
+// Mockable function for os.UserHomeDir
+var userHomeDir = os.UserHomeDir
