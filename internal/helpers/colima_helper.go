@@ -96,8 +96,32 @@ func getDefaultValues(context string) (int, int, int, string, string) {
 
 // GetEnvVars retrieves the environment variables for the Colima command
 func (h *ColimaHelper) GetEnvVars() (map[string]string, error) {
-	// Colima does not use environment variables
-	return map[string]string{}, nil
+	context, err := h.Context.GetContext()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context: %w", err)
+	}
+
+	driver, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", context))
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving vm driver: %w", err)
+	}
+
+	if driver != "colima" {
+		return nil, nil
+	}
+
+	homeDir, err := userHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving user home directory: %w", err)
+	}
+
+	dockerSockPath := filepath.Join(homeDir, ".colima", fmt.Sprintf("windsor-%s", context), "docker.sock")
+
+	envVars := map[string]string{
+		"DOCKER_SOCK": dockerSockPath,
+	}
+
+	return envVars, nil
 }
 
 // PostEnvExec runs any necessary commands after the environment variables have been set.

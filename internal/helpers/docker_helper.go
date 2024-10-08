@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
@@ -17,6 +16,8 @@ type DockerHelper struct {
 	Context       context.ContextInterface
 	Helpers       []Helper
 }
+
+const registryImage = "registry:2.8.3"
 
 // NewDockerHelper is a constructor for DockerHelper
 func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
@@ -35,16 +36,22 @@ func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
 		return nil, fmt.Errorf("error resolving helpers: %w", err)
 	}
 
-	helperInstances := make([]Helper, len(helpers))
+	// Register DockerHelper as a Helper
+	dockerHelper := &DockerHelper{
+		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
+		Context:       resolvedContext.(context.ContextInterface),
+	}
+	helperInstances := make([]Helper, len(helpers)+1) // Increase the slice size by 1
 	for i, helper := range helpers {
 		helperInstances[i] = helper.(Helper)
 	}
 
-	return &DockerHelper{
-		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
-		Context:       resolvedContext.(context.ContextInterface),
-		Helpers:       helperInstances,
-	}, nil
+	// Add DockerHelper to the list of helpers
+	helperInstances[len(helpers)] = dockerHelper
+
+	dockerHelper.Helpers = helperInstances
+
+	return dockerHelper, nil
 }
 
 // GetEnvVars retrieves Docker-specific environment variables for the current context
@@ -80,8 +87,8 @@ func (h *DockerHelper) PostEnvExec() error {
 
 // SetConfig sets the configuration value for the given key
 func (h *DockerHelper) SetConfig(key, value string) error {
-	if key != "enabled" {
-		return fmt.Errorf("unsupported config key: %s", key)
+	if value == "" {
+		return nil
 	}
 
 	context, err := h.Context.GetContext()
@@ -89,30 +96,24 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	var boolValue bool
-	if value == "" {
-		if context == "local" || strings.HasPrefix(context, "local-") {
-			boolValue = true
-		} else {
-			return nil
-		}
-	} else {
-		boolValue = value == "true"
+	var configKey string
+	switch key {
+	case "enabled":
+		configKey = fmt.Sprintf("contexts.%s.docker.enabled", context)
+	case "registry_enabled":
+		configKey = fmt.Sprintf("contexts.%s.docker.registry_enabled", context)
+	default:
+		return fmt.Errorf("unsupported config key: %s", key)
 	}
 
-	// Proceed with setting the configuration
-	err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context), boolValue)
+	boolValue := value == "true"
+	err = h.ConfigHandler.SetConfigValue(configKey, boolValue)
 	if err != nil {
-		return err
+		return fmt.Errorf("error setting config value for %s: %w", key, err)
 	}
 
-	// Check if the "enabled" key is set to "true" before writing the docker compose file
-	enabledValue, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context))
-	if err != nil {
-		return fmt.Errorf("error retrieving docker enabled config: %w", err)
-	}
-
-	if enabledValue == "true" {
+	// If the "enabled" key is set to "true", write the docker compose file
+	if key == "enabled" && boolValue {
 		return h.writeDockerComposeFile()
 	}
 
@@ -121,24 +122,28 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 
 // writeDockerComposeFile is a private method to write the docker-compose configuration to a file.
 func (h *DockerHelper) writeDockerComposeFile() error {
-	var allContainerConfigs []map[string]interface{}
+	services := make(map[string]interface{})
 
 	// Iterate through each helper and collect container configs
 	for _, helper := range h.Helpers {
 		if helperInstance, ok := helper.(Helper); ok {
-			containerConfig, err := helperInstance.GetContainerConfig()
+			helperName := fmt.Sprintf("%T", helperInstance)
+			containerConfigs, err := helperInstance.GetContainerConfig()
 			if err != nil {
-				return fmt.Errorf("error getting container config: %w", err)
+				return fmt.Errorf("error getting container config from helper %s: %w", helperName, err)
 			}
-			if containerConfig != nil {
-				allContainerConfigs = append(allContainerConfigs, containerConfig...)
+			for _, containerConfig := range containerConfigs {
+				for key, value := range containerConfig {
+					strKey := fmt.Sprintf("%v", key)
+					services[strKey] = value
+				}
 			}
 		}
 	}
 
 	// Structure the data for docker-compose
 	dockerComposeConfig := map[string]interface{}{
-		"services": allContainerConfigs,
+		"services": services,
 	}
 
 	// Serialize the docker-compose config to YAML
@@ -170,8 +175,18 @@ func (h *DockerHelper) writeDockerComposeFile() error {
 
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *DockerHelper) GetContainerConfig() ([]map[string]interface{}, error) {
-	// Stub implementation
-	return nil, nil
+	registryConfig := map[string]interface{}{
+		"image":   registryImage,
+		"restart": "always",
+		"labels": map[string]string{
+			"role":       "registry",
+			"managed_by": "windsor",
+		},
+	}
+
+	return []map[string]interface{}{
+		{"registry.test": registryConfig},
+	}, nil
 }
 
 // Ensure DockerHelper implements Helper interface
