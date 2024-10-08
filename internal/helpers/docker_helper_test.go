@@ -896,7 +896,7 @@ func TestDockerHelper_SetConfig(t *testing.T) {
 		}
 		mockConfigHandler := &config.MockConfigHandler{
 			GetConfigValueFunc: func(key string) (string, error) {
-				if key == "contexts.test-context.docker.registryEnabled" {
+				if key == "contexts.test-context.docker.registry_enabled" {
 					return "true", nil
 				}
 				return "", fmt.Errorf("key not found: %s", key)
@@ -922,19 +922,19 @@ func TestDockerHelper_SetConfig(t *testing.T) {
 			t.Fatalf("NewDockerHelper() error = %v", err)
 		}
 
-		// And setting the registryEnabled config
-		err = helper.SetConfig("registryEnabled", "true")
+		// And setting the registry_enabled config
+		err = helper.SetConfig("registry_enabled", "true")
 		if err != nil {
 			t.Fatalf("SetConfig() error = %v", err)
 		}
 
 		// Then the config value should be set correctly
-		value, err := mockConfigHandler.GetConfigValue("contexts.test-context.docker.registryEnabled")
+		value, err := mockConfigHandler.GetConfigValue("contexts.test-context.docker.registry_enabled")
 		if err != nil {
 			t.Fatalf("GetConfigValue() error = %v", err)
 		}
 		if value != "true" {
-			t.Fatalf("expected registryEnabled to be 'true', got '%s'", value)
+			t.Fatalf("expected registry_enabled to be 'true', got '%s'", value)
 		}
 	})
 

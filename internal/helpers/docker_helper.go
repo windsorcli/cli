@@ -87,6 +87,10 @@ func (h *DockerHelper) PostEnvExec() error {
 
 // SetConfig sets the configuration value for the given key
 func (h *DockerHelper) SetConfig(key, value string) error {
+	if value == "" {
+		return nil
+	}
+
 	context, err := h.Context.GetContext()
 	if err != nil {
 		return fmt.Errorf("error retrieving context: %w", err)
@@ -96,8 +100,8 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 	switch key {
 	case "enabled":
 		configKey = fmt.Sprintf("contexts.%s.docker.enabled", context)
-	case "registryEnabled":
-		configKey = fmt.Sprintf("contexts.%s.docker.registryEnabled", context)
+	case "registry_enabled":
+		configKey = fmt.Sprintf("contexts.%s.docker.registry_enabled", context)
 	default:
 		return fmt.Errorf("unsupported config key: %s", key)
 	}

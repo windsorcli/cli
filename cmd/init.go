@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -28,6 +29,12 @@ var initCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		contextName := args[0]
 
+		// Automatically include --docker and --docker-registry flags if context is "local" or starts with "local-"
+		if contextName == "local" || strings.HasPrefix(contextName, "local-") {
+			docker = true
+			dockerRegistry = true
+		}
+
 		// Set the context value
 		if err := cliConfigHandler.SetConfigValue("context", contextName); err != nil {
 			return fmt.Errorf("Error setting config value: %w", err)
@@ -40,7 +47,7 @@ var initCmd = &cobra.Command{
 
 		// Set the Docker configuration values using the DockerHelper
 		dockerValue := ""
-		if cmd.Flags().Changed("docker") {
+		if cmd.Flags().Changed("docker") || docker {
 			dockerValue = strconv.FormatBool(docker)
 		}
 		if err := dockerHelper.SetConfig("enabled", dockerValue); err != nil {
@@ -49,10 +56,10 @@ var initCmd = &cobra.Command{
 
 		// Set the Docker Registry configuration values using the DockerHelper
 		dockerRegistryValue := ""
-		if cmd.Flags().Changed("docker-registry") {
+		if cmd.Flags().Changed("docker-registry") || dockerRegistry {
 			dockerRegistryValue = strconv.FormatBool(dockerRegistry)
 		}
-		if err := dockerHelper.SetConfig("registryEnabled", dockerRegistryValue); err != nil {
+		if err := dockerHelper.SetConfig("registry_enabled", dockerRegistryValue); err != nil {
 			return fmt.Errorf("error setting Docker Registry configuration: %w", err)
 		}
 
