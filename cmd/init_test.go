@@ -483,4 +483,41 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
+
+	t.Run("SetDockerRegistryConfigError", func(t *testing.T) {
+		// Given: a docker helper that returns an error on setting registryEnabled config
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error { return nil }
+		mockHandler.SaveConfigFunc = func(path string) error { return nil }
+		mockHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{
+			SetConfigFunc: func(key, value string) error {
+				if key == "registryEnabled" {
+					return errors.New("set docker registry config error")
+				}
+				return nil
+			},
+		}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, mockHelper)
+
+		// When: the init command is executed with the docker-registry flag
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context", "--docker-registry"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "error setting Docker Registry configuration: set docker registry config error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
 }

@@ -17,6 +17,7 @@ var (
 	memory         string
 	arch           string
 	docker         bool
+	dockerRegistry bool
 )
 
 var initCmd = &cobra.Command{
@@ -44,6 +45,15 @@ var initCmd = &cobra.Command{
 		}
 		if err := dockerHelper.SetConfig("enabled", dockerValue); err != nil {
 			return fmt.Errorf("error setting Docker configuration: %w", err)
+		}
+
+		// Set the Docker Registry configuration values using the DockerHelper
+		dockerRegistryValue := ""
+		if cmd.Flags().Changed("docker-registry") {
+			dockerRegistryValue = strconv.FormatBool(dockerRegistry)
+		}
+		if err := dockerHelper.SetConfig("registryEnabled", dockerRegistryValue); err != nil {
+			return fmt.Errorf("error setting Docker Registry configuration: %w", err)
 		}
 
 		// Set the AWS configuration values using the AwsHelper
@@ -95,5 +105,6 @@ func init() {
 	initCmd.Flags().StringVar(&memory, "vm-memory", "", "Specify the memory size for Colima")
 	initCmd.Flags().StringVar(&arch, "vm-arch", "", "Specify the architecture for Colima")
 	initCmd.Flags().BoolVar(&docker, "docker", false, "Enable Docker")
+	initCmd.Flags().BoolVar(&dockerRegistry, "docker-registry", false, "Enable Docker Registry")
 	rootCmd.AddCommand(initCmd)
 }
