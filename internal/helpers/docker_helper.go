@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
@@ -88,39 +87,29 @@ func (h *DockerHelper) PostEnvExec() error {
 
 // SetConfig sets the configuration value for the given key
 func (h *DockerHelper) SetConfig(key, value string) error {
-	if key != "enabled" {
-		return fmt.Errorf("unsupported config key: %s", key)
-	}
-
 	context, err := h.Context.GetContext()
 	if err != nil {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	var boolValue bool
-	if value == "" {
-		if context == "local" || strings.HasPrefix(context, "local-") {
-			boolValue = true
-		} else {
-			return nil
-		}
-	} else {
-		boolValue = value == "true"
+	var configKey string
+	switch key {
+	case "enabled":
+		configKey = fmt.Sprintf("contexts.%s.docker.enabled", context)
+	case "registryEnabled":
+		configKey = fmt.Sprintf("contexts.%s.docker.registryEnabled", context)
+	default:
+		return fmt.Errorf("unsupported config key: %s", key)
 	}
 
-	// Proceed with setting the configuration
-	err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context), boolValue)
+	boolValue := value == "true"
+	err = h.ConfigHandler.SetConfigValue(configKey, boolValue)
 	if err != nil {
-		return err
+		return fmt.Errorf("error setting config value for %s: %w", key, err)
 	}
 
-	// Check if the "enabled" key is set to "true" before writing the docker compose file
-	enabledValue, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context))
-	if err != nil {
-		return fmt.Errorf("error retrieving docker enabled config: %w", err)
-	}
-
-	if enabledValue == "true" {
+	// If the "enabled" key is set to "true", write the docker compose file
+	if key == "enabled" && boolValue {
 		return h.writeDockerComposeFile()
 	}
 
@@ -186,8 +175,8 @@ func (h *DockerHelper) GetContainerConfig() ([]map[string]interface{}, error) {
 		"image":   registryImage,
 		"restart": "always",
 		"labels": map[string]string{
-			"role":      "registry",
-			"managedBy": "windsor",
+			"role":       "registry",
+			"managed_by": "windsor",
 		},
 	}
 
