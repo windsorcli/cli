@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/goccy/go-yaml"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
@@ -18,6 +20,15 @@ type DockerHelper struct {
 }
 
 const registryImage = "registry:2.8.3"
+
+var defaultRegistries = []map[string]interface{}{
+	generateRegistryService("registry.test", "", ""),
+	generateRegistryService("registry-1.docker.test", "https://registry-1.docker.io", "https://docker.io"),
+	generateRegistryService("registry.k8s.test", "https://registry.k8s.io", ""),
+	generateRegistryService("gcr.test", "https://gcr.io", ""),
+	generateRegistryService("ghcr.test", "https://ghcr.io", ""),
+	generateRegistryService("quay.test", "https://quay.io", ""),
+}
 
 // NewDockerHelper is a constructor for DockerHelper
 func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
@@ -120,6 +131,32 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 	return nil
 }
 
+func generateRegistryService(name, remoteURL, localURL string) map[string]interface{} {
+	service := map[string]interface{}{
+		"name":    name,
+		"image":   registryImage,
+		"restart": "always",
+		"labels": map[string]string{
+			"role":       "registry",
+			"managed_by": "windsor",
+		},
+	}
+
+	// Add environment variables if remote or local URLs are specified
+	env := make(map[string]string)
+	if remoteURL != "" {
+		env["REGISTRY_PROXY_REMOTEURL"] = remoteURL
+	}
+	if localURL != "" {
+		env["REGISTRY_PROXY_LOCALURL"] = localURL
+	}
+	if len(env) > 0 {
+		service["environment"] = env
+	}
+
+	return service
+}
+
 // writeDockerComposeFile is a private method to write the docker-compose configuration to a file.
 func (h *DockerHelper) writeDockerComposeFile() error {
 	services := make(map[string]interface{})
@@ -175,18 +212,54 @@ func (h *DockerHelper) writeDockerComposeFile() error {
 
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *DockerHelper) GetContainerConfig() ([]map[string]interface{}, error) {
-	registryConfig := map[string]interface{}{
-		"image":   registryImage,
-		"restart": "always",
-		"labels": map[string]string{
-			"role":       "registry",
-			"managed_by": "windsor",
-		},
+	// Load the configuration
+	err := h.ConfigHandler.LoadConfig("")
+	if err != nil {
+		return nil, fmt.Errorf("error loading configuration: %w", err)
 	}
 
-	return []map[string]interface{}{
-		{"registry.test": registryConfig},
-	}, nil
+	// Prepare the services slice for docker-compose
+	var services []map[string]interface{}
+
+	// Retrieve the list of registries from the configuration
+	context, err := h.Context.GetContext()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context: %w", err)
+	}
+
+	registries, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.registries", context))
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving registries from configuration: %w", err)
+	}
+
+	var registriesList []map[string]interface{}
+	if registries == "" || context == "local" || strings.HasPrefix(context, "local-") {
+		// No registries defined or context is local, use default registries
+		registriesList = defaultRegistries
+	} else {
+		if err := yaml.Unmarshal([]byte(registries), &registriesList); err != nil {
+			return nil, fmt.Errorf("error unmarshaling registries YAML: %w", err)
+		}
+	}
+
+	// Iterate over the registries and create service definitions
+	for _, registry := range registriesList {
+		name := registry["name"].(string)
+		remoteURL := ""
+		localURL := ""
+		if env, ok := registry["environment"].(map[string]interface{}); ok {
+			if remote, ok := env["REGISTRY_PROXY_REMOTEURL"].(string); ok {
+				remoteURL = remote
+			}
+			if local, ok := env["REGISTRY_PROXY_LOCALURL"].(string); ok {
+				localURL = local
+			}
+		}
+		service := generateRegistryService(name, remoteURL, localURL)
+		services = append(services, service)
+	}
+
+	return services, nil
 }
 
 // Ensure DockerHelper implements Helper interface
