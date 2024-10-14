@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/goccy/go-yaml"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
@@ -143,7 +142,7 @@ func generateRegistryService(name, remoteURL, localURL string) map[string]interf
 	}
 
 	// Add environment variables if remote or local URLs are specified
-	env := make(map[string]string)
+	env := make(map[string]interface{})
 	if remoteURL != "" {
 		env["REGISTRY_PROXY_REMOTEURL"] = remoteURL
 	}
@@ -237,9 +236,12 @@ func (h *DockerHelper) GetContainerConfig() ([]map[string]interface{}, error) {
 		// No registries defined or context is local, use default registries
 		registriesList = defaultRegistries
 	} else {
-		if err := yaml.Unmarshal([]byte(registries), &registriesList); err != nil {
+		// Attempt to unmarshal the registries YAML into the registriesList
+		var unmarshalledRegistries []map[string]interface{}
+		if err := yamlUnmarshal([]byte(registries), &unmarshalledRegistries); err != nil {
 			return nil, fmt.Errorf("error unmarshaling registries YAML: %w", err)
 		}
+		registriesList = unmarshalledRegistries
 	}
 
 	// Iterate over the registries and create service definitions
