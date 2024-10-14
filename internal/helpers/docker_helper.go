@@ -71,6 +71,7 @@ func (h *DockerHelper) GetEnvVars() (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving config root: %w", err)
 	}
+	// fmt.Printf("Config root: %s\n", configRoot) // Debug print
 
 	// Check for the existence of compose.yaml or compose.yml
 	var composeFilePath string
@@ -194,6 +195,7 @@ func (h *DockerHelper) writeDockerComposeFile() error {
 		return fmt.Errorf("error retrieving config root: %w", err)
 	}
 	composeFilePath := filepath.Join(configRoot, "compose.yaml")
+	// fmt.Printf("Compose file path: %s\n", composeFilePath) // Debug print
 
 	// Ensure the parent context folder exists
 	if err := mkdirAll(filepath.Dir(composeFilePath), 0755); err != nil {
