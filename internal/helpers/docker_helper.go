@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
@@ -122,7 +123,7 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 
 // writeDockerComposeFile is a private method to write the docker-compose configuration to a file.
 func (h *DockerHelper) writeDockerComposeFile() error {
-	services := make(map[string]interface{})
+	services := make(types.Services, 0)
 
 	// Iterate through each helper and collect container configs
 	for _, helper := range h.Helpers {
@@ -135,19 +136,24 @@ func (h *DockerHelper) writeDockerComposeFile() error {
 			for _, containerConfig := range containerConfigs {
 				for key, value := range containerConfig {
 					strKey := fmt.Sprintf("%v", key)
-					services[strKey] = value
+					if serviceConfig, ok := value.(types.ServiceConfig); ok {
+						serviceConfig.Name = strKey // Set the service name
+						services = append(services, serviceConfig)
+					} else {
+						return fmt.Errorf("invalid service config for key %s", strKey)
+					}
 				}
 			}
 		}
 	}
 
-	// Structure the data for docker-compose
-	dockerComposeConfig := map[string]interface{}{
-		"services": services,
+	// Create a Project using compose-go
+	project := &types.Project{
+		Services: services,
 	}
 
 	// Serialize the docker-compose config to YAML
-	yamlData, err := yamlMarshal(dockerComposeConfig)
+	yamlData, err := yamlMarshal(project)
 	if err != nil {
 		return fmt.Errorf("error marshaling docker-compose config to YAML: %w", err)
 	}
@@ -175,10 +181,10 @@ func (h *DockerHelper) writeDockerComposeFile() error {
 
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *DockerHelper) GetContainerConfig() ([]map[string]interface{}, error) {
-	registryConfig := map[string]interface{}{
-		"image":   registryImage,
-		"restart": "always",
-		"labels": map[string]string{
+	registryConfig := types.ServiceConfig{
+		Image:   registryImage,
+		Restart: "always",
+		Labels: map[string]string{
 			"role":       "registry",
 			"managed_by": "windsor",
 		},
