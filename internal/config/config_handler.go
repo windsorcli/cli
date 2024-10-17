@@ -6,7 +6,7 @@ type ConfigHandler interface {
 	LoadConfig(path string) error
 
 	// GetConfigValue retrieves the value for the specified key from the configuration
-	GetConfigValue(key string) (string, error)
+	GetConfigValue(key string, defaultValue ...string) (string, error)
 
 	// SetConfigValue sets the value for the specified key in the configuration
 	SetConfigValue(key string, value interface{}) error

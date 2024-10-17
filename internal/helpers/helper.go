@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/compose-spec/compose-go/types"
 	"github.com/goccy/go-yaml"
 )
 
@@ -22,7 +23,7 @@ type Helper interface {
 	SetConfig(key, value string) error
 
 	// GetContainerConfig returns a list of container data for docker-compose.
-	GetContainerConfig() ([]map[string]interface{}, error)
+	GetContainerConfig() ([]types.ServiceConfig, error)
 }
 
 // Define a variable for os.Getwd() for easier testing
@@ -55,6 +56,9 @@ var rename = os.Rename
 
 // Override variable for yaml.Marshal
 var yamlMarshal = yaml.Marshal
+
+// Override variable for yaml.Unmarshal
+var yamlUnmarshal = yaml.Unmarshal
 
 // Mockable function for os.UserHomeDir
 var userHomeDir = os.UserHomeDir
