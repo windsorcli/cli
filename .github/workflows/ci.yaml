@@ -79,7 +79,7 @@ jobs:
       - name: Build Windsor CLI on macOS/Linux
         if: runner.os != 'Windows'
         run: |
-          VERSION=${{ github.head_ref || github.ref_name }}
+          VERSION=$(echo "${GITHUB_REF}" | sed 's/refs\/heads\///' | sed 's/refs\/tags\///')
           COMMIT_SHA=${{ github.sha }}
           if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
             GOOS=linux GOARCH=${{ matrix.arch }} go build -ldflags "-X 'cmd.version=$VERSION' -X 'cmd.commitSHA=$COMMIT_SHA'" -o dist/windsor-linux-${{ matrix.arch }} cmd/windsor/main.go
@@ -90,13 +90,7 @@ jobs:
       - name: Build Windsor CLI on Windows
         if: runner.os == 'Windows'
         run: |
-          $refName = "${{ github.ref_name }}"
-          $headRef = "${{ github.head_ref }}"
-          if ($headRef -ne "") {
-            $env:VERSION = $headRef
-          } else {
-            $env:VERSION = $refName
-          }
+          $env:VERSION = $env:GITHUB_REF -replace 'refs/heads/', '' -replace 'refs/tags/', ''
           $env:COMMIT_SHA = "${{ github.sha }}"
           $env:GOOS = "windows"
           $env:GOARCH = "${{ matrix.arch }}"
