@@ -112,8 +112,6 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 	switch key {
 	case "enabled":
 		configKey = fmt.Sprintf("contexts.%s.docker.enabled", context)
-	case "registry_enabled":
-		configKey = fmt.Sprintf("contexts.%s.docker.registry_enabled", context)
 	default:
 		return fmt.Errorf("unsupported config key: %s", key)
 	}
