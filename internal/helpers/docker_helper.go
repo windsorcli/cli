@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/goccy/go-yaml"
@@ -108,23 +107,30 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	var configKey string
-	switch key {
-	case "enabled":
-		configKey = fmt.Sprintf("contexts.%s.docker.enabled", context)
-	default:
-		return fmt.Errorf("unsupported config key: %s", key)
-	}
+	// Handle the docker enabled condition
+	if key == "enabled" {
+		isEnabled := value == "true"
+		err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context), isEnabled)
+		if err != nil {
+			return fmt.Errorf("error setting config value for %s: %w", key, err)
+		}
 
-	boolValue := value == "true"
-	err = h.ConfigHandler.SetConfigValue(configKey, boolValue)
-	if err != nil {
-		return fmt.Errorf("error setting config value for %s: %w", key, err)
-	}
+		// If the "enabled" key is set to "true", write the docker compose file
+		if isEnabled {
+			registries, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.registries", context), "")
+			if err != nil {
+				return fmt.Errorf("error retrieving registries from configuration: %w", err)
+			}
 
-	// If the "enabled" key is set to "true", write the docker compose file
-	if key == "enabled" && boolValue {
-		return h.writeDockerComposeFile()
+			if registries == "" {
+				err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.registries", context), defaultRegistries)
+				if err != nil {
+					return fmt.Errorf("error setting default registries: %w", err)
+				}
+			}
+
+			return h.writeDockerComposeFile()
+		}
 	}
 
 	return nil
@@ -239,8 +245,8 @@ func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	}
 
 	var registriesList []types.ServiceConfig
-	if (registries == "" && dockerEnabled == "true") || context == "local" || strings.HasPrefix(context, "local-") {
-		// No registries defined but docker is enabled, or context is "local" or starts with "local-", use default registries
+	if registries == "" && dockerEnabled == "true" {
+		// No registries defined but docker is enabled, use default registries
 		for _, registry := range defaultRegistries {
 			registriesList = append(registriesList, generateRegistryService(registry["name"], registry["remote"], registry["local"]))
 		}
