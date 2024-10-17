@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 
+	"github.com/compose-spec/compose-go/types"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
@@ -302,7 +303,7 @@ func generateColimaConfig(context string, cliConfigHandler config.ConfigHandler)
 }
 
 // GetContainerConfig returns a list of container data for docker-compose.
-func (h *ColimaHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+func (h *ColimaHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation
 	return nil, nil
 }

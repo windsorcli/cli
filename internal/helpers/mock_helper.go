@@ -1,5 +1,7 @@
 package helpers
 
+import "github.com/compose-spec/compose-go/types"
+
 // MockHelper is a mock implementation of the Helper interface
 type MockHelper struct {
 	// GetEnvVarsFunc is a function that mocks the GetEnvVars method
@@ -9,7 +11,7 @@ type MockHelper struct {
 	// SetConfigFunc is a function that mocks the SetConfig method
 	SetConfigFunc func(key, value string) error
 	// GetContainerConfigFunc is a function that mocks the GetContainerConfig method
-	GetContainerConfigFunc func() ([]map[string]interface{}, error)
+	GetContainerConfigFunc func() ([]types.ServiceConfig, error)
 }
 
 // NewMockHelper is a constructor for MockHelper
@@ -47,7 +49,7 @@ func (m *MockHelper) SetConfig(key, value string) error {
 }
 
 // GetContainerConfig calls the mock GetContainerConfigFunc if it is set, otherwise returns nil
-func (m *MockHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+func (m *MockHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	if m.GetContainerConfigFunc != nil {
 		return m.GetContainerConfigFunc()
 	}
@@ -65,7 +67,7 @@ func (m *MockHelper) SetPostEnvExecFunc(postEnvExecFunc func() error) {
 }
 
 // SetGetContainerConfigFunc sets the GetContainerConfigFunc for the mock helper
-func (m *MockHelper) SetGetContainerConfigFunc(getContainerConfigFunc func() ([]map[string]interface{}, error)) {
+func (m *MockHelper) SetGetContainerConfigFunc(getContainerConfigFunc func() ([]types.ServiceConfig, error)) {
 	m.GetContainerConfigFunc = getContainerConfigFunc
 }
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/compose-spec/compose-go/types"
+	"github.com/goccy/go-yaml"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
@@ -19,6 +20,15 @@ type DockerHelper struct {
 }
 
 const registryImage = "registry:2.8.3"
+
+var defaultRegistries = []map[string]string{
+	{"name": "registry.test", "local": "", "remote": ""},
+	{"name": "registry-1.docker.test", "local": "https://docker.io", "remote": "https://registry-1.docker.io"},
+	{"name": "registry.k8s.test", "local": "", "remote": "https://registry.k8s.io"},
+	{"name": "gcr.test", "local": "", "remote": "https://gcr.io"},
+	{"name": "ghcr.test", "local": "", "remote": "https://ghcr.io"},
+	{"name": "quay.test", "local": "", "remote": "https://quay.io"},
+}
 
 // NewDockerHelper is a constructor for DockerHelper
 func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
@@ -97,33 +107,75 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	var configKey string
-	switch key {
-	case "enabled":
-		configKey = fmt.Sprintf("contexts.%s.docker.enabled", context)
-	case "registry_enabled":
-		configKey = fmt.Sprintf("contexts.%s.docker.registry_enabled", context)
-	default:
-		return fmt.Errorf("unsupported config key: %s", key)
-	}
+	// Handle the docker enabled condition
+	if key == "enabled" {
+		isEnabled := value == "true"
+		err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context), isEnabled)
+		if err != nil {
+			return fmt.Errorf("error setting config value for %s: %w", key, err)
+		}
 
-	boolValue := value == "true"
-	err = h.ConfigHandler.SetConfigValue(configKey, boolValue)
-	if err != nil {
-		return fmt.Errorf("error setting config value for %s: %w", key, err)
-	}
+		// If the "enabled" key is set to "true", write the docker compose file
+		if isEnabled {
+			registries, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.registries", context), "")
+			if err != nil {
+				return fmt.Errorf("error retrieving registries from configuration: %w", err)
+			}
 
-	// If the "enabled" key is set to "true", write the docker compose file
-	if key == "enabled" && boolValue {
-		return h.writeDockerComposeFile()
+			if registries == "" {
+				err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.registries", context), defaultRegistries)
+				if err != nil {
+					return fmt.Errorf("error setting default registries: %w", err)
+				}
+			}
+
+			return h.writeDockerComposeFile()
+		}
 	}
 
 	return nil
 }
 
+// generateRegistryService creates a ServiceConfig for a Docker registry service
+// with the specified name, remote URL, and local URL.
+func generateRegistryService(name, remoteURL, localURL string) types.ServiceConfig {
+	// Initialize the ServiceConfig with the provided name, a predefined image,
+	// a restart policy, and labels indicating the role and manager.
+	service := types.ServiceConfig{
+		Name:    name,
+		Image:   registryImage,
+		Restart: "always",
+		Labels: map[string]string{
+			"role":       "registry",
+			"managed_by": "windsor",
+		},
+	}
+
+	// Initialize the environment variables map.
+	env := make(types.MappingWithEquals)
+
+	// Add the remote URL to the environment variables if specified.
+	if remoteURL != "" {
+		env["REGISTRY_PROXY_REMOTEURL"] = &remoteURL
+	}
+
+	// Add the local URL to the environment variables if specified.
+	if localURL != "" {
+		env["REGISTRY_PROXY_LOCALURL"] = &localURL
+	}
+
+	// If any environment variables were added, assign them to the service.
+	if len(env) > 0 {
+		service.Environment = env
+	}
+
+	// Return the configured ServiceConfig.
+	return service
+}
+
 // writeDockerComposeFile is a private method to write the docker-compose configuration to a file.
 func (h *DockerHelper) writeDockerComposeFile() error {
-	services := make(types.Services, 0)
+	var services []types.ServiceConfig
 
 	// Iterate through each helper and collect container configs
 	for _, helper := range h.Helpers {
@@ -134,15 +186,7 @@ func (h *DockerHelper) writeDockerComposeFile() error {
 				return fmt.Errorf("error getting container config from helper %s: %w", helperName, err)
 			}
 			for _, containerConfig := range containerConfigs {
-				for key, value := range containerConfig {
-					strKey := fmt.Sprintf("%v", key)
-					if serviceConfig, ok := value.(types.ServiceConfig); ok {
-						serviceConfig.Name = strKey // Set the service name
-						services = append(services, serviceConfig)
-					} else {
-						return fmt.Errorf("invalid service config for key %s", strKey)
-					}
-				}
+				services = append(services, containerConfig)
 			}
 		}
 	}
@@ -180,19 +224,55 @@ func (h *DockerHelper) writeDockerComposeFile() error {
 }
 
 // GetContainerConfig returns a list of container data for docker-compose.
-func (h *DockerHelper) GetContainerConfig() ([]map[string]interface{}, error) {
-	registryConfig := types.ServiceConfig{
-		Image:   registryImage,
-		Restart: "always",
-		Labels: map[string]string{
-			"role":       "registry",
-			"managed_by": "windsor",
-		},
+func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+	// Prepare the services slice for docker-compose
+	var services []types.ServiceConfig
+
+	// Retrieve the list of registries from the configuration
+	context, err := h.Context.GetContext()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	return []map[string]interface{}{
-		{"registry.test": registryConfig},
-	}, nil
+	registries, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.registries", context), "")
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving registries from configuration: %w", err)
+	}
+
+	dockerEnabled, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context), "")
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving docker enabled status from configuration: %w", err)
+	}
+
+	var registriesList []types.ServiceConfig
+	if registries == "" && dockerEnabled == "true" {
+		// No registries defined but docker is enabled, use default registries
+		for _, registry := range defaultRegistries {
+			registriesList = append(registriesList, generateRegistryService(registry["name"], registry["remote"], registry["local"]))
+		}
+	} else if registries != "" {
+		// Parse the registries YAML into a list of objects
+		var parsedRegistries []map[string]string
+		err := yaml.Unmarshal([]byte(registries), &parsedRegistries)
+		if err != nil {
+			return nil, fmt.Errorf("error unmarshaling registries YAML: %w", err)
+		}
+
+		// Create registriesList from the parsed registries
+		for _, registry := range parsedRegistries {
+			name := registry["name"]
+			remote := registry["remote"]
+			local := registry["local"]
+			registriesList = append(registriesList, generateRegistryService(name, remote, local))
+		}
+	}
+
+	// Iterate over the registries and create service definitions using generateRegistryService
+	for _, registry := range registriesList {
+		services = append(services, registry)
+	}
+
+	return services, nil
 }
 
 // Ensure DockerHelper implements Helper interface

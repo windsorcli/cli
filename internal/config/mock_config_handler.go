@@ -24,7 +24,7 @@ func (m *MockConfigHandler) LoadConfig(path string) error {
 }
 
 // GetConfigValue calls the mock GetConfigValueFunc if set, otherwise returns an empty string and nil error
-func (m *MockConfigHandler) GetConfigValue(key string) (string, error) {
+func (m *MockConfigHandler) GetConfigValue(key string, defaultValue ...string) (string, error) {
 	if m.GetConfigValueFunc != nil {
 		return m.GetConfigValueFunc(key)
 	}

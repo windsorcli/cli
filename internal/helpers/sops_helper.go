@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/compose-spec/compose-go/types"
 	"github.com/getsops/sops/v3/decrypt"
 	"github.com/goccy/go-yaml"
 	"github.com/windsor-hotel/cli/internal/context"
@@ -64,7 +65,7 @@ func (h *SopsHelper) SetConfig(key, value string) error {
 }
 
 // GetContainerConfig returns a list of container data for docker-compose.
-func (h *SopsHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+func (h *SopsHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation
 	return nil, nil
 }

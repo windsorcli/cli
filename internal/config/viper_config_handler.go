@@ -91,8 +91,11 @@ func (v *ViperConfigHandler) LoadConfig(input string) error {
 }
 
 // GetConfigValue retrieves the value for the specified key from the configuration
-func (v *ViperConfigHandler) GetConfigValue(key string) (string, error) {
+func (v *ViperConfigHandler) GetConfigValue(key string, defaultValue ...string) (string, error) {
 	if !viper.IsSet(key) {
+		if len(defaultValue) > 0 {
+			return defaultValue[0], nil
+		}
 		return "", fmt.Errorf("key %s not found in configuration", key)
 	}
 	return viper.GetString(key), nil

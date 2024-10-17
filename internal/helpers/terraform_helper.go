@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
@@ -139,7 +140,7 @@ func (h *TerraformHelper) SetConfig(key, value string) error {
 }
 
 // GetContainerConfig returns a list of container data for docker-compose.
-func (h *TerraformHelper) GetContainerConfig() ([]map[string]interface{}, error) {
+func (h *TerraformHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation
 	return nil, nil
 }

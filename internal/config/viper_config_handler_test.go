@@ -145,6 +145,13 @@ func TestViperConfigHandler_GetConfigValue(t *testing.T) {
 			t.Errorf("GetConfigValue() expected error, got nil")
 		}
 	})
+
+	// New test case for default value
+	t.Run("NonExistentKeyWithDefaultValue", func(t *testing.T) {
+		got, err := handler.GetConfigValue("nonExistentKey", "defaultValue")
+		assertError(t, err, nil)
+		assertEqual(t, "defaultValue", got, "GetConfigValue with default")
+	})
 }
 
 func TestViperConfigHandler_SetConfigValue(t *testing.T) {

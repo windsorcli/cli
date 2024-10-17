@@ -4,6 +4,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/compose-spec/compose-go/types"
 )
 
 // Helper function to compare two maps
@@ -232,15 +234,14 @@ func TestMockHelper(t *testing.T) {
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given: a mock helper with a GetContainerConfigFunc
-			expectedConfig := []map[string]interface{}{
+			expectedConfig := []types.ServiceConfig{
 				{
-					"service1": map[string]interface{}{
-						"image": "nginx:latest",
-					},
+					Name:  "service1",
+					Image: "nginx:latest",
 				},
 			}
 			mockHelper := &MockHelper{
-				GetContainerConfigFunc: func() ([]map[string]interface{}, error) {
+				GetContainerConfigFunc: func() ([]types.ServiceConfig, error) {
 					return expectedConfig, nil
 				},
 			}
@@ -261,7 +262,7 @@ func TestMockHelper(t *testing.T) {
 			// Given: a mock helper with a GetContainerConfigFunc that returns an error
 			expectedError := errors.New("mock error getting container config")
 			mockHelper := &MockHelper{
-				GetContainerConfigFunc: func() ([]map[string]interface{}, error) {
+				GetContainerConfigFunc: func() ([]types.ServiceConfig, error) {
 					return nil, expectedError
 				},
 			}
@@ -285,14 +286,13 @@ func TestMockHelper(t *testing.T) {
 			})
 
 			// Define a mock GetContainerConfigFunc
-			expectedConfig := []map[string]interface{}{
+			expectedConfig := []types.ServiceConfig{
 				{
-					"service1": map[string]interface{}{
-						"image": "nginx:latest",
-					},
+					Name:  "service1",
+					Image: "nginx:latest",
 				},
 			}
-			mockGetContainerConfigFunc := func() ([]map[string]interface{}, error) {
+			mockGetContainerConfigFunc := func() ([]types.ServiceConfig, error) {
 				return expectedConfig, nil
 			}
 
