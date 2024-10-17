@@ -102,7 +102,7 @@ func (h *ColimaHelper) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	driver, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", context))
+	driver, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", context), "")
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving vm driver: %w", err)
 	}
