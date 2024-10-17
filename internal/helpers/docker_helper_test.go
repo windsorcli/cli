@@ -1167,27 +1167,75 @@ func TestDockerHelper(t *testing.T) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
 			}
 		})
+
+		t.Run("ErrorRetrievingDockerEnabledStatus", func(t *testing.T) {
+			// Given: a mock context and config handler that returns an error for the "docker enabled" key
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				if key == "contexts.test-context.docker.enabled" {
+					return "", fmt.Errorf("mock error retrieving docker enabled status")
+				}
+				return "", nil
+			}
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+
+			// Register MockHelper
+			mockHelper := NewMockHelper(func() (map[string]string, error) {
+				return map[string]string{
+					"service1": "nginx:latest",
+				}, nil
+			})
+			diContainer.Register("helper", mockHelper)
+
+			// Create DockerHelper
+			helper, err := NewDockerHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewDockerHelper() error = %v", err)
+			}
+
+			// When: GetContainerConfig is called
+			_, err = helper.GetContainerConfig()
+
+			// Then: it should return an error indicating the failure to retrieve the docker enabled status
+			expectedError := "error retrieving docker enabled status from configuration: mock error retrieving docker enabled status"
+			if err == nil || !strings.Contains(err.Error(), expectedError) {
+				t.Fatalf("expected error %v, got %v", expectedError, err)
+			}
+		})
 	})
 
-	t.Run("ErrorRetrievingDockerEnabledStatus", func(t *testing.T) {
-		// Given: a mock context and config handler that returns an error for the "docker enabled" key
+	t.Run("UseDefaultRegistriesForLocalContext", func(t *testing.T) {
+		// Given: a mock context that returns a local context
 		mockContext := context.NewMockContext()
 		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
+			return "local", nil
 		}
 
+		// And a mock config handler that returns an empty string for registries and "true" for docker enabled
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
-			if key == "contexts.test-context.docker.enabled" {
-				return "", fmt.Errorf("mock error retrieving docker enabled status")
+			if key == "contexts.local.docker.registries" {
+				return "", nil
 			}
-			return "", nil
+			if key == "contexts.local.docker.enabled" {
+				return "true", nil
+			}
+			return "", fmt.Errorf("key not found: %s", key)
 		}
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 		// Register MockHelper
 		mockHelper := NewMockHelper(func() (map[string]string, error) {
@@ -1204,12 +1252,21 @@ func TestDockerHelper(t *testing.T) {
 		}
 
 		// When: GetContainerConfig is called
-		_, err = helper.GetContainerConfig()
+		containerConfig, err := helper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
 
-		// Then: it should return an error indicating the failure to retrieve the docker enabled status
-		expectedError := "error retrieving docker enabled status from configuration: mock error retrieving docker enabled status"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error %v, got %v", expectedError, err)
+		// Then: the default registries should be used
+		if len(containerConfig) != len(defaultRegistries) {
+			t.Fatalf("expected %d default registries, got %d", len(defaultRegistries), len(containerConfig))
+		}
+
+		for i, registry := range defaultRegistries {
+			expectedService := generateRegistryService(registry["name"], registry["remote"], registry["local"])
+			if !reflect.DeepEqual(containerConfig[i], expectedService) {
+				t.Errorf("expected service %v, got %v", expectedService, containerConfig[i])
+			}
 		}
 	})
 }
