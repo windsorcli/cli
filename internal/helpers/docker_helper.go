@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/goccy/go-yaml"
@@ -222,9 +221,14 @@ func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 		return nil, fmt.Errorf("error retrieving registries from configuration: %w", err)
 	}
 
+	dockerEnabled, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context), "")
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving docker enabled status from configuration: %w", err)
+	}
+
 	var registriesList []types.ServiceConfig
-	if registries == "" && (context == "local" || strings.HasPrefix(context, "local-")) {
-		// No registries defined and context is local, use default registries
+	if registries == "" && dockerEnabled == "true" {
+		// No registries defined but docker is enabled, use default registries
 		for _, registry := range defaultRegistries {
 			registriesList = append(registriesList, generateRegistryService(registry["name"], registry["remote"], registry["local"]))
 		}
