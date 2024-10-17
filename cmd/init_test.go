@@ -522,6 +522,43 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("SetDockerRegistryMirrorsConfigError", func(t *testing.T) {
+		// Given: a docker helper that returns an error on setting registry_mirrors config
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error { return nil }
+		mockHandler.SaveConfigFunc = func(path string) error { return nil }
+		mockHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{
+			SetConfigFunc: func(key, value string) error {
+				if key == "registry_mirrors" {
+					return errors.New("set docker registry mirrors config error")
+				}
+				return nil
+			},
+		}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, mockHelper)
+
+		// When: the init command is executed with the docker-registry-mirrors flag
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context", "--docker-registry-mirrors", "http://mirror.example.com"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "error setting Docker Registry Mirrors configuration: set docker registry mirrors config error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
 	t.Run("AutoIncludeDockerFlags", func(t *testing.T) {
 		tests := []struct {
 			contextName      string
@@ -552,7 +589,7 @@ func TestInitCmd(t *testing.T) {
 
 				// Execute the command
 				err := initCmd.RunE(cmd, args)
-				if err != nil && err.Error() != "error setting Docker Registry configuration: set docker registry config error" {
+				if err != nil && err.Error() != "error setting Docker Registry Mirrors configuration: set docker registry mirrors config error" {
 					t.Fatalf("initCmd.RunE() error = %v", err)
 				}
 

@@ -9,16 +9,17 @@ import (
 )
 
 var (
-	backend        string
-	awsProfile     string
-	awsEndpointURL string
-	vmType         string
-	cpu            string
-	disk           string
-	memory         string
-	arch           string
-	docker         bool
-	dockerRegistry bool
+	backend               string
+	awsProfile            string
+	awsEndpointURL        string
+	vmType                string
+	cpu                   string
+	disk                  string
+	memory                string
+	arch                  string
+	docker                bool
+	dockerRegistry        bool
+	dockerRegistryMirrors string
 )
 
 var initCmd = &cobra.Command{
@@ -61,6 +62,11 @@ var initCmd = &cobra.Command{
 		}
 		if err := dockerHelper.SetConfig("registry_enabled", dockerRegistryValue); err != nil {
 			return fmt.Errorf("error setting Docker Registry configuration: %w", err)
+		}
+
+		// Set the Docker Registry Mirrors configuration values using the DockerHelper
+		if err := dockerHelper.SetConfig("registry_mirrors", dockerRegistryMirrors); err != nil {
+			return fmt.Errorf("error setting Docker Registry Mirrors configuration: %w", err)
 		}
 
 		// Set the AWS configuration values using the AwsHelper
@@ -113,5 +119,6 @@ func init() {
 	initCmd.Flags().StringVar(&arch, "vm-arch", "", "Specify the architecture for Colima")
 	initCmd.Flags().BoolVar(&docker, "docker", false, "Enable Docker")
 	initCmd.Flags().BoolVar(&dockerRegistry, "docker-registry", false, "Enable Docker Registry")
+	initCmd.Flags().StringVar(&dockerRegistryMirrors, "docker-registry-mirrors", "", "Specify Docker Registry Mirrors")
 	rootCmd.AddCommand(initCmd)
 }
