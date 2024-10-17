@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/goccy/go-yaml"
@@ -129,7 +130,11 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 	return nil
 }
 
+// generateRegistryService creates a ServiceConfig for a Docker registry service
+// with the specified name, remote URL, and local URL.
 func generateRegistryService(name, remoteURL, localURL string) types.ServiceConfig {
+	// Initialize the ServiceConfig with the provided name, a predefined image,
+	// a restart policy, and labels indicating the role and manager.
 	service := types.ServiceConfig{
 		Name:    name,
 		Image:   registryImage,
@@ -140,18 +145,25 @@ func generateRegistryService(name, remoteURL, localURL string) types.ServiceConf
 		},
 	}
 
-	// Add environment variables if remote or local URLs are specified
+	// Initialize the environment variables map.
 	env := make(types.MappingWithEquals)
+
+	// Add the remote URL to the environment variables if specified.
 	if remoteURL != "" {
 		env["REGISTRY_PROXY_REMOTEURL"] = &remoteURL
 	}
+
+	// Add the local URL to the environment variables if specified.
 	if localURL != "" {
 		env["REGISTRY_PROXY_LOCALURL"] = &localURL
 	}
+
+	// If any environment variables were added, assign them to the service.
 	if len(env) > 0 {
 		service.Environment = env
 	}
 
+	// Return the configured ServiceConfig.
 	return service
 }
 
@@ -227,8 +239,8 @@ func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	}
 
 	var registriesList []types.ServiceConfig
-	if registries == "" && dockerEnabled == "true" {
-		// No registries defined but docker is enabled, use default registries
+	if (registries == "" && dockerEnabled == "true") || context == "local" || strings.HasPrefix(context, "local-") {
+		// No registries defined but docker is enabled, or context is "local" or starts with "local-", use default registries
 		for _, registry := range defaultRegistries {
 			registriesList = append(registriesList, generateRegistryService(registry["name"], registry["remote"], registry["local"]))
 		}
