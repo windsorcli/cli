@@ -62,13 +62,13 @@ func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Retrieve AWS-specific configuration values from the context
-	awsProfile, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_profile", currentContext))
+	awsProfile, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.aws.aws_profile", currentContext))
 	if err != nil {
 		awsProfile = "default"
 	}
 
 	// Retrieve AWS endpoint URL if set
-	awsEndpointURL, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", currentContext))
+	awsEndpointURL, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", currentContext))
 	if err != nil || awsEndpointURL == "" {
 		if isLocal(currentContext) {
 			awsEndpointURL = "http://aws.test:4566"
@@ -78,7 +78,7 @@ func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Retrieve custom S3 hostname if set, otherwise set default for local context
-	s3Hostname, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.aws.s3_hostname", currentContext))
+	s3Hostname, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.aws.s3_hostname", currentContext))
 	if err != nil || s3Hostname == "" {
 		if isLocal(currentContext) {
 			s3Hostname = "http://s3.local.aws.test:4566"
@@ -86,7 +86,7 @@ func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Retrieve MWAA endpoint if set, otherwise set default for local context
-	mwaaEndpoint, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.aws.mwaa_endpoint", currentContext))
+	mwaaEndpoint, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.aws.mwaa_endpoint", currentContext))
 	if err != nil || mwaaEndpoint == "" {
 		if isLocal(currentContext) {
 			mwaaEndpoint = "http://mwaa.local.aws.test:4566"

@@ -294,7 +294,7 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given: a mock config handler, shell, context, and helper
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "contexts.test-context.docker.registries" {
 					return `
 - name: registry.test
@@ -406,7 +406,7 @@ func TestDockerHelper(t *testing.T) {
 				return "test-context", nil
 			}
 			mockConfigHandlerWithError := config.NewMockConfigHandler()
-			mockConfigHandlerWithError.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandlerWithError.GetStringFunc = func(key string) (string, error) {
 				if key == "contexts.test-context.docker.registries" {
 					return "", errors.New("mock error retrieving registries")
 				}
@@ -451,7 +451,7 @@ func TestDockerHelper(t *testing.T) {
 
 			// And a mock config handler that returns an empty string for registries and "true" for docker enabled
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "contexts.local.docker.registries" {
 					return "", nil
 				}
@@ -508,7 +508,7 @@ func TestDockerHelper(t *testing.T) {
 
 			// And a mock config handler that returns malformed YAML for registries
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "contexts.test-context.docker.registries" {
 					return "invalid_yaml: [", nil // Malformed YAML
 				}
@@ -555,7 +555,7 @@ func TestDockerHelper(t *testing.T) {
 			}
 
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "contexts.test-context.docker.enabled" {
 					return "", fmt.Errorf("mock error retrieving docker enabled status")
 				}
@@ -601,7 +601,7 @@ func TestDockerHelper(t *testing.T) {
 
 		// And a mock config handler that returns an empty string for registries and "true" for docker enabled
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 			if key == "contexts.local.docker.registries" {
 				return "", nil
 			}
@@ -654,7 +654,7 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "contexts.test-context.docker.enabled" {
 					return "true", nil
 				}
@@ -667,7 +667,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return "", fmt.Errorf("key not found: %s", key)
 			}
-			mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
 				return nil
 			}
 			mockContext := context.NewMockContext()
@@ -718,7 +718,7 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("ErrorWritingDockerComposeFile", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "contexts.test-context.docker.enabled" {
 					return "true", nil
 				}
@@ -732,7 +732,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return "", fmt.Errorf("key not found: %s", key)
 			}
-			mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
 				return nil
 			}
 			mockContext := context.NewMockContext()
@@ -782,7 +782,7 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("ErrorGettingContainerConfig", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "contexts.test-context.docker.enabled" {
 					return "true", nil
 				}
@@ -791,7 +791,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return "", fmt.Errorf("key not found: %s", key)
 			}
-			mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
 				return nil
 			}
 			mockContext := context.NewMockContext()
@@ -837,7 +837,7 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("ErrorRetrievingConfigRoot", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "contexts.test-context.docker.enabled" {
 					return "true", nil
 				}
@@ -853,7 +853,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return "", fmt.Errorf("key not found: %s", key)
 			}
-			mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
 				return nil
 			}
 			mockContext := context.NewMockContext()
@@ -896,10 +896,10 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("ErrorCreatingParentContextFolder", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
 				return nil
 			}
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "contexts.test-context.docker.enabled" {
 					return "true", nil
 				}
@@ -1006,7 +1006,7 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("ErrorMarshalingYAML", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := &config.MockConfigHandler{
-				SetConfigValueFunc: func(key string, value interface{}) error {
+				SetValueFunc: func(key string, value interface{}) error {
 					return nil
 				},
 			}

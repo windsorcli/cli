@@ -2,11 +2,14 @@ package config
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
-	LoadConfigFunc     func(path string) error
-	GetConfigValueFunc func(key string) (string, error)
-	SetConfigValueFunc func(key string, value interface{}) error
-	SaveConfigFunc     func(path string) error
-	GetNestedMapFunc   func(key string) (map[string]interface{}, error)
+	LoadConfigFunc   func(path string) error
+	GetStringFunc    func(key string) (string, error)
+	GetIntFunc       func(key string) (int, error)
+	GetBoolFunc      func(key string) (bool, error)
+	SetValueFunc     func(key string, value interface{}) error
+	SaveConfigFunc   func(path string) error
+	GetNestedMapFunc func(key string) (map[string]interface{}, error)
+	ListKeysFunc     func(key string) ([]string, error)
 }
 
 // NewMockConfigHandler is a constructor for MockConfigHandler
@@ -22,18 +25,43 @@ func (m *MockConfigHandler) LoadConfig(path string) error {
 	return nil
 }
 
-// GetConfigValue calls the mock GetConfigValueFunc if set, otherwise returns an empty string and nil error
-func (m *MockConfigHandler) GetConfigValue(key string, defaultValue ...string) (string, error) {
-	if m.GetConfigValueFunc != nil {
-		return m.GetConfigValueFunc(key)
+// GetString calls the mock GetStringFunc if set, otherwise returns an empty string and nil error
+func (m *MockConfigHandler) GetString(key string, defaultValue ...string) (string, error) {
+	if m.GetStringFunc != nil {
+		return m.GetStringFunc(key)
+	}
+	if len(defaultValue) > 0 {
+		return defaultValue[0], nil
 	}
 	return "", nil
 }
 
-// SetConfigValue calls the mock SetConfigValueFunc if set, otherwise returns nil
-func (m *MockConfigHandler) SetConfigValue(key string, value interface{}) error {
-	if m.SetConfigValueFunc != nil {
-		return m.SetConfigValueFunc(key, value)
+// GetInt calls the mock GetIntFunc if set, otherwise returns 0 and nil error
+func (m *MockConfigHandler) GetInt(key string, defaultValue ...int) (int, error) {
+	if m.GetIntFunc != nil {
+		return m.GetIntFunc(key)
+	}
+	if len(defaultValue) > 0 {
+		return defaultValue[0], nil
+	}
+	return 0, nil
+}
+
+// GetBool calls the mock GetBoolFunc if set, otherwise returns false and nil error
+func (m *MockConfigHandler) GetBool(key string, defaultValue ...bool) (bool, error) {
+	if m.GetBoolFunc != nil {
+		return m.GetBoolFunc(key)
+	}
+	if len(defaultValue) > 0 {
+		return defaultValue[0], nil
+	}
+	return false, nil
+}
+
+// SetValue calls the mock SetValueFunc if set, otherwise returns nil
+func (m *MockConfigHandler) SetValue(key string, value interface{}) error {
+	if m.SetValueFunc != nil {
+		return m.SetValueFunc(key, value)
 	}
 	return nil
 }

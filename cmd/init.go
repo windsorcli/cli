@@ -44,42 +44,42 @@ var initCmd = &cobra.Command{
 		projectConfigPath := getProjectConfigPath()
 
 		// Set the context value
-		if err := cliConfigHandler.SetConfigValue("context", contextName); err != nil {
+		if err := cliConfigHandler.SetValue("context", contextName); err != nil {
 			return fmt.Errorf("Error setting config value: %w", err)
 		}
 
 		// Set the backend configuration value using the cliConfigHandler
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", contextName), backend); err != nil {
+		if err := cliConfigHandler.SetValue(fmt.Sprintf("contexts.%s.terraform.backend", contextName), backend); err != nil {
 			return fmt.Errorf("Error setting backend value: %w", err)
 		}
 
 		// Set the Docker configuration values using the DockerHelper
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", contextName), strconv.FormatBool(docker)); err != nil {
+		if err := cliConfigHandler.SetValue(fmt.Sprintf("contexts.%s.docker.enabled", contextName), strconv.FormatBool(docker)); err != nil {
 			return fmt.Errorf("error setting Docker configuration: %w", err)
 		}
 
 		// Set the AWS configuration values using the AwsHelper
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", contextName), awsEndpointURL); err != nil {
+		if err := cliConfigHandler.SetValue(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", contextName), awsEndpointURL); err != nil {
 			return fmt.Errorf("error setting aws_endpoint_url: %w", err)
 		}
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_profile", contextName), awsProfile); err != nil {
+		if err := cliConfigHandler.SetValue(fmt.Sprintf("contexts.%s.aws.aws_profile", contextName), awsProfile); err != nil {
 			return fmt.Errorf("error setting aws_profile: %w", err)
 		}
 
 		// Set the Colima configuration values using the cliConfigHandler
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", contextName), vmType); err != nil {
+		if err := cliConfigHandler.SetValue(fmt.Sprintf("contexts.%s.vm.driver", contextName), vmType); err != nil {
 			return fmt.Errorf("error setting vm driver: %w", err)
 		}
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.cpu", contextName), cpu); err != nil {
+		if err := cliConfigHandler.SetValue(fmt.Sprintf("contexts.%s.vm.cpu", contextName), cpu); err != nil {
 			return fmt.Errorf("error setting vm cpu: %w", err)
 		}
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.disk", contextName), disk); err != nil {
+		if err := cliConfigHandler.SetValue(fmt.Sprintf("contexts.%s.vm.disk", contextName), disk); err != nil {
 			return fmt.Errorf("error setting vm disk: %w", err)
 		}
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.memory", contextName), memory); err != nil {
+		if err := cliConfigHandler.SetValue(fmt.Sprintf("contexts.%s.vm.memory", contextName), memory); err != nil {
 			return fmt.Errorf("error setting vm memory: %w", err)
 		}
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", contextName), arch); err != nil {
+		if err := cliConfigHandler.SetValue(fmt.Sprintf("contexts.%s.vm.arch", contextName), arch); err != nil {
 			return fmt.Errorf("error setting vm arch: %w", err)
 		}
 

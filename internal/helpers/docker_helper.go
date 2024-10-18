@@ -144,12 +144,12 @@ func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	registries, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.registries", context), "")
+	registries, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.docker.registries", context))
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving registries from configuration: %w", err)
 	}
 
-	dockerEnabled, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context), "")
+	dockerEnabled, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.docker.enabled", context))
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving docker enabled status from configuration: %w", err)
 	}

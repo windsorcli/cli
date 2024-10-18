@@ -78,7 +78,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler and shell
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
@@ -146,7 +146,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("ErrorRetrievingContext", func(t *testing.T) {
 			// Given a mock config handler that returns an error for context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				return "", errors.New("error retrieving context")
 			}
 			mockContext := &context.MockContext{
@@ -188,7 +188,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("NonStringEnvVar", func(t *testing.T) {
 			// Given a mock config handler with a non-string environment variable
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
@@ -240,7 +240,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("EmptyEnvVars", func(t *testing.T) {
 			// Given a mock config handler with empty environment variables
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
@@ -300,7 +300,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("GetNestedMapError", func(t *testing.T) {
 			// Given a mock config handler that returns an error for GetNestedMap
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}

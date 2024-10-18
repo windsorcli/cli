@@ -22,7 +22,7 @@ func TestContext(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler that returns a context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
@@ -45,7 +45,7 @@ func TestContext(t *testing.T) {
 		t.Run("Error", func(t *testing.T) {
 			// Given a mock config handler that returns an error
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				return "", errors.New("error retrieving context")
 			}
 			mockShell, _ := shell.NewMockShell("unix")
@@ -68,7 +68,7 @@ func TestContext(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler that sets and saves the context successfully
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
 				if key == "context" && value == "new-context" {
 					return nil
 				}
@@ -91,7 +91,7 @@ func TestContext(t *testing.T) {
 		t.Run("SetConfigValueError", func(t *testing.T) {
 			// Given a mock config handler that returns an error when setting the context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
 				return errors.New("error setting context")
 			}
 			mockShell, _ := shell.NewMockShell("unix")
@@ -108,13 +108,37 @@ func TestContext(t *testing.T) {
 				t.Fatalf("expected error %s, got %s", expectedError, err.Error())
 			}
 		})
+
+		t.Run("SaveConfigError", func(t *testing.T) {
+			// Given a mock config handler that returns an error when saving the config
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
+				return nil
+			}
+			mockConfigHandler.SaveConfigFunc = func(path string) error {
+				return errors.New("error saving config")
+			}
+			mockShell, _ := shell.NewMockShell("unix")
+
+			context := NewContext(mockConfigHandler, mockShell)
+
+			// When calling SetContext
+			err := context.SetContext("new-context")
+
+			// Then an error should be returned
+			assertError(t, err, true)
+			expectedError := "error saving config: error saving config"
+			if err.Error() != expectedError {
+				t.Fatalf("expected error %s, got %s", expectedError, err.Error())
+			}
+		})
 	})
 
 	t.Run("GetConfigRoot", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler and shell that return valid values
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
@@ -141,7 +165,7 @@ func TestContext(t *testing.T) {
 		t.Run("GetContextError", func(t *testing.T) {
 			// Given a mock config handler that returns an error when getting the context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				return "", errors.New("error retrieving context")
 			}
 			mockShell, _ := shell.NewMockShell("unix")
@@ -162,7 +186,7 @@ func TestContext(t *testing.T) {
 		t.Run("GetProjectRootError", func(t *testing.T) {
 			// Given a mock shell that returns an error when getting the project root
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				return "test-context", nil
 			}
 			mockShell, _ := shell.NewMockShell("unix")

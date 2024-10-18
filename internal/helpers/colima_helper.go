@@ -102,7 +102,7 @@ func (h *ColimaHelper) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	driver, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", context), "")
+	driver, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.driver", context))
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving vm driver: %w", err)
 	}
@@ -160,7 +160,7 @@ func (h *ColimaHelper) WriteConfig() error {
 
 	// Helper function to override default values with context-specific values if provided
 	overrideValue := func(key string, defaultValue *int) {
-		if val, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key)); err == nil && val != "" {
+		if val, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.%s", context, key)); err == nil && val != "" {
 			if intValue, err := strconv.Atoi(val); err == nil {
 				*defaultValue = intValue
 			}
@@ -171,7 +171,7 @@ func (h *ColimaHelper) WriteConfig() error {
 	overrideValue("disk", &disk)
 	overrideValue("memory", &memory)
 
-	if val, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", context)); err == nil && val != "" {
+	if val, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.arch", context)); err == nil && val != "" {
 		arch = val
 	}
 
