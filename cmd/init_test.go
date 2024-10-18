@@ -217,26 +217,27 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SetAwsEndpointURLError", func(t *testing.T) {
-		// Given: a config handler that returns an error on setting aws_endpoint_url
+	t.Run("SetAwsConfigError", func(t *testing.T) {
+		// Given: a config handler that returns an error on setting AWS config values
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.aws.aws_endpoint_url" || key == "contexts.test-context.aws.aws_profile" {
+				return errors.New("set aws config error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
 		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "aws_endpoint_url" {
-					return errors.New("set aws_endpoint_url error")
-				}
-				return nil
-			},
+			SetConfigFunc: func(key, value string) error { return nil },
 		}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
-		// When: the init command is executed with aws-endpoint-url flag and context
+		// When: the init command is executed
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context", "--aws-endpoint-url", "http://example.com"})
+			rootCmd.SetArgs([]string{"init", "test-context"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
@@ -244,32 +245,33 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting AWS configuration: set aws_endpoint_url error"
+		expectedOutput := "error setting aws_endpoint_url: set aws config error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetAwsProfileError", func(t *testing.T) {
-		// Given: a config handler that returns an error on setting aws_profile
+		// Given: a config handler that returns an error on setting AWS profile
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.aws.aws_profile" {
+				return errors.New("set aws profile error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
 		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "aws_profile" {
-					return errors.New("set aws_profile error")
-				}
-				return nil
-			},
+			SetConfigFunc: func(key, value string) error { return nil },
 		}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
-		// When: the init command is executed with aws-profile flag and context
+		// When: the init command is executed
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context", "--aws-profile", "test-profile"})
+			rootCmd.SetArgs([]string{"init", "test-context"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
@@ -277,7 +279,7 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting AWS configuration: set aws_profile error"
+		expectedOutput := "error setting aws_profile: set aws profile error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
@@ -382,6 +384,7 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
+
 	t.Run("SetColimaMemoryError", func(t *testing.T) {
 		// Given: a colima helper that returns an error on setting memory
 		mockHandler := config.NewMockConfigHandler()

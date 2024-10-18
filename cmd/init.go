@@ -48,11 +48,11 @@ var initCmd = &cobra.Command{
 		}
 
 		// Set the AWS configuration values using the AwsHelper
-		if err := awsHelper.SetConfig("aws_endpoint_url", awsEndpointURL); err != nil {
-			return fmt.Errorf("error setting AWS configuration: %w", err)
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", contextName), awsEndpointURL); err != nil {
+			return fmt.Errorf("error setting aws_endpoint_url: %w", err)
 		}
-		if err := awsHelper.SetConfig("aws_profile", awsProfile); err != nil {
-			return fmt.Errorf("error setting AWS configuration: %w", err)
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_profile", contextName), awsProfile); err != nil {
+			return fmt.Errorf("error setting aws_profile: %w", err)
 		}
 
 		// Set the Colima configuration values using the ColimaHelper
