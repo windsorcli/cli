@@ -147,29 +147,27 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("TerraformHelperSetConfigError", func(t *testing.T) {
-		// Given: a terraform helper that returns an error on SetConfig
-		originalTerraformHelper := terraformHelper
-		defer func() { terraformHelper = originalTerraformHelper }()
-		terraformHelper = &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "backend" {
-					return errors.New("set backend error")
-				}
-				return nil
-			},
-		}
-
+	t.Run("SetBackendConfigError", func(t *testing.T) {
+		// Given: a config handler that returns an error on setting backend config value
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.terraform.backend" {
+				return errors.New("set backend config error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, terraformHelper, nil, nil, dockerHelper)
+		mockHelper := &helpers.MockHelper{
+			SetConfigFunc: func(key, value string) error { return nil },
+		}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
-		// When: the init command is executed with a backend flag
+		// When: the init command is executed
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context", "--backend", "test-backend"})
+			rootCmd.SetArgs([]string{"init", "test-context"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
@@ -177,7 +175,7 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "Error setting backend value: set backend error"
+		expectedOutput := "Error setting backend value: set backend config error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}

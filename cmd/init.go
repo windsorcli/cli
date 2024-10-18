@@ -33,8 +33,8 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error setting config value: %w", err)
 		}
 
-		// Pass the backend flag to the terraformHelper.SetConfig function
-		if err := terraformHelper.SetConfig("backend", backend); err != nil {
+		// Set the backend configuration value using the cliConfigHandler
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", contextName), backend); err != nil {
 			return fmt.Errorf("Error setting backend value: %w", err)
 		}
 
