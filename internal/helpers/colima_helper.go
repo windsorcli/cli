@@ -138,15 +138,12 @@ func (h *ColimaHelper) SetConfig(key, value string) error {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	writeColimaConfig := false
-
 	switch key {
 	case "driver":
 		if value == "colima" {
 			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", context), value); err != nil {
 				return fmt.Errorf("error setting colima config: %w", err)
 			}
-			writeColimaConfig = true
 		}
 	case "cpu":
 		if value != "" {
@@ -157,7 +154,6 @@ func (h *ColimaHelper) SetConfig(key, value string) error {
 			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), cpuValue); err != nil {
 				return fmt.Errorf("error setting colima config: %w", err)
 			}
-			writeColimaConfig = true
 		}
 	case "disk":
 		if value != "" {
@@ -168,7 +164,6 @@ func (h *ColimaHelper) SetConfig(key, value string) error {
 			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), diskValue); err != nil {
 				return fmt.Errorf("error setting colima config: %w", err)
 			}
-			writeColimaConfig = true
 		}
 	case "memory":
 		if value != "" {
@@ -179,7 +174,6 @@ func (h *ColimaHelper) SetConfig(key, value string) error {
 			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), memoryValue); err != nil {
 				return fmt.Errorf("error setting colima config: %w", err)
 			}
-			writeColimaConfig = true
 		}
 	case "arch":
 		if value != "" {
@@ -189,14 +183,9 @@ func (h *ColimaHelper) SetConfig(key, value string) error {
 			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", context), value); err != nil {
 				return fmt.Errorf("error setting colima config: %w", err)
 			}
-			writeColimaConfig = true
 		}
 	default:
 		return fmt.Errorf("unsupported config key: %s", key)
-	}
-
-	if writeColimaConfig {
-		return h.WriteConfig()
 	}
 
 	return nil
