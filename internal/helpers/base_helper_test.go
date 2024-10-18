@@ -422,33 +422,6 @@ func TestBaseHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("SetConfig", func(t *testing.T) {
-		t.Run("SetConfigStub", func(t *testing.T) {
-			// Given a BaseHelper instance
-			mockConfigHandler := &config.MockConfigHandler{}
-			mockShell := &shell.MockShell{}
-			mockContext := &context.MockContext{}
-
-			// Create DI container and register mocks
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("context", mockContext)
-			diContainer.Register("shell", mockShell)
-
-			// When creating a new BaseHelper
-			baseHelper, err := NewBaseHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewBaseHelper() error = %v", err)
-			}
-
-			// And calling SetConfig
-			err = baseHelper.SetConfig("some_key", "some_value")
-
-			// Then no error should be returned
-			assertError(t, err, false)
-		})
-	})
-
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler, shell, and context

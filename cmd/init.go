@@ -33,43 +33,39 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error setting config value: %w", err)
 		}
 
-		// Pass the backend flag to the terraformHelper.SetConfig function
-		if err := terraformHelper.SetConfig("backend", backend); err != nil {
+		// Set the backend configuration value using the cliConfigHandler
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", contextName), backend); err != nil {
 			return fmt.Errorf("Error setting backend value: %w", err)
 		}
 
 		// Set the Docker configuration values using the DockerHelper
-		dockerValue := ""
-		if cmd.Flags().Changed("docker") || docker {
-			dockerValue = strconv.FormatBool(docker)
-		}
-		if err := dockerHelper.SetConfig("enabled", dockerValue); err != nil {
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", contextName), strconv.FormatBool(docker)); err != nil {
 			return fmt.Errorf("error setting Docker configuration: %w", err)
 		}
 
 		// Set the AWS configuration values using the AwsHelper
-		if err := awsHelper.SetConfig("aws_endpoint_url", awsEndpointURL); err != nil {
-			return fmt.Errorf("error setting AWS configuration: %w", err)
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", contextName), awsEndpointURL); err != nil {
+			return fmt.Errorf("error setting aws_endpoint_url: %w", err)
 		}
-		if err := awsHelper.SetConfig("aws_profile", awsProfile); err != nil {
-			return fmt.Errorf("error setting AWS configuration: %w", err)
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_profile", contextName), awsProfile); err != nil {
+			return fmt.Errorf("error setting aws_profile: %w", err)
 		}
 
-		// Set the Colima configuration values using the ColimaHelper
-		if err := colimaHelper.SetConfig("driver", vmType); err != nil {
-			return fmt.Errorf("error setting Colima configuration: %w", err)
+		// Set the Colima configuration values using the cliConfigHandler
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", contextName), vmType); err != nil {
+			return fmt.Errorf("error setting vm driver: %w", err)
 		}
-		if err := colimaHelper.SetConfig("cpu", cpu); err != nil {
-			return fmt.Errorf("error setting Colima configuration: %w", err)
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.cpu", contextName), cpu); err != nil {
+			return fmt.Errorf("error setting vm cpu: %w", err)
 		}
-		if err := colimaHelper.SetConfig("disk", disk); err != nil {
-			return fmt.Errorf("error setting Colima configuration: %w", err)
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.disk", contextName), disk); err != nil {
+			return fmt.Errorf("error setting vm disk: %w", err)
 		}
-		if err := colimaHelper.SetConfig("memory", memory); err != nil {
-			return fmt.Errorf("error setting Colima configuration: %w", err)
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.memory", contextName), memory); err != nil {
+			return fmt.Errorf("error setting vm memory: %w", err)
 		}
-		if err := colimaHelper.SetConfig("arch", arch); err != nil {
-			return fmt.Errorf("error setting Colima configuration: %w", err)
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", contextName), arch); err != nil {
+			return fmt.Errorf("error setting vm arch: %w", err)
 		}
 
 		// Save the cli configuration

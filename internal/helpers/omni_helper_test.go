@@ -168,27 +168,6 @@ func TestOmniHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("SetConfig", func(t *testing.T) {
-		t.Run("SetConfigStub", func(t *testing.T) {
-			// Given a OmniHelper instance
-			mockContext := context.NewMockContext()
-			container := di.NewContainer()
-			container.Register("context", mockContext)
-			helper, err := NewOmniHelper(container)
-			if err != nil {
-				t.Fatalf("NewOmniHelper() error = %v", err)
-			}
-
-			// When: SetConfig is called
-			err = helper.SetConfig("some_key", "some_value")
-
-			// Then: it should return no error
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
-	})
-
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context

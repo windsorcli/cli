@@ -121,24 +121,6 @@ func (h *TerraformHelper) PostEnvExec() error {
 	return generateBackendOverrideTf(h)
 }
 
-// SetConfig sets the configuration value for the given key
-func (h *TerraformHelper) SetConfig(key, value string) error {
-	if key == "backend" {
-		if value == "" {
-			return nil
-		}
-		context, err := h.Context.GetContext()
-		if err != nil {
-			return fmt.Errorf("error retrieving context: %w", err)
-		}
-		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", context), value); err != nil {
-			return fmt.Errorf("error setting backend: %w", err)
-		}
-		return nil
-	}
-	return fmt.Errorf("unsupported config key: %s", key)
-}
-
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *TerraformHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation

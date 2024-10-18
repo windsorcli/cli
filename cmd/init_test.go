@@ -38,9 +38,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed with a valid context
@@ -67,9 +65,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
@@ -96,9 +92,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
@@ -126,9 +120,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockCLIHandler, mockProjectHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
@@ -147,29 +139,25 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("TerraformHelperSetConfigError", func(t *testing.T) {
-		// Given: a terraform helper that returns an error on SetConfig
-		originalTerraformHelper := terraformHelper
-		defer func() { terraformHelper = originalTerraformHelper }()
-		terraformHelper = &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "backend" {
-					return errors.New("set backend error")
-				}
-				return nil
-			},
-		}
-
+	t.Run("SetBackendConfigError", func(t *testing.T) {
+		// Given: a config handler that returns an error on setting backend config value
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.terraform.backend" {
+				return errors.New("set backend config error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		setupContainer(mockHandler, mockHandler, mockShell, terraformHelper, nil, nil, dockerHelper)
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
-		// When: the init command is executed with a backend flag
+		// When: the init command is executed
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context", "--backend", "test-backend"})
+			rootCmd.SetArgs([]string{"init", "test-context"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
@@ -177,7 +165,7 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "Error setting backend value: set backend error"
+		expectedOutput := "Error setting backend value: set backend config error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
@@ -191,9 +179,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 
 		// Replace the global contextInstance with the mock
 		originalContextInstance := contextInstance
@@ -217,26 +203,25 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SetAwsEndpointURLError", func(t *testing.T) {
-		// Given: a config handler that returns an error on setting aws_endpoint_url
+	t.Run("SetAwsConfigError", func(t *testing.T) {
+		// Given: a config handler that returns an error on setting AWS config values
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.aws.aws_endpoint_url" || key == "contexts.test-context.aws.aws_profile" {
+				return errors.New("set aws config error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "aws_endpoint_url" {
-					return errors.New("set aws_endpoint_url error")
-				}
-				return nil
-			},
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
-		// When: the init command is executed with aws-endpoint-url flag and context
+		// When: the init command is executed
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context", "--aws-endpoint-url", "http://example.com"})
+			rootCmd.SetArgs([]string{"init", "test-context"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
@@ -244,32 +229,31 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting AWS configuration: set aws_endpoint_url error"
+		expectedOutput := "error setting aws_endpoint_url: set aws config error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetAwsProfileError", func(t *testing.T) {
-		// Given: a config handler that returns an error on setting aws_profile
+		// Given: a config handler that returns an error on setting AWS profile
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.aws.aws_profile" {
+				return errors.New("set aws profile error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "aws_profile" {
-					return errors.New("set aws_profile error")
-				}
-				return nil
-			},
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
-		// When: the init command is executed with aws-profile flag and context
+		// When: the init command is executed
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context", "--aws-profile", "test-profile"})
+			rootCmd.SetArgs([]string{"init", "test-context"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
@@ -277,28 +261,26 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting AWS configuration: set aws_profile error"
+		expectedOutput := "error setting aws_profile: set aws profile error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetColimaTypeError", func(t *testing.T) {
-		// Given: a colima helper that returns an error on setting type
+		// Given: a config handler that returns an error on setting Colima driver
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.driver" {
+				return errors.New("set driver error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "driver" {
-					return errors.New("set driver error")
-				}
-				return nil
-			},
-		}
-		// Pass mockHelper as the Colima helper
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-driver flag and context
@@ -311,27 +293,26 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting Colima configuration: set driver error"
+		expectedOutput := "error setting vm driver: set driver error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetColimaCpuError", func(t *testing.T) {
-		// Given: a colima helper that returns an error on setting cpu
+		// Given: a config handler that returns an error on setting Colima CPU
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.cpu" {
+				return errors.New("set cpu error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "cpu" {
-					return errors.New("set cpu error")
-				}
-				return nil
-			},
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-cpu flag and context
@@ -344,27 +325,26 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting Colima configuration: set cpu error"
+		expectedOutput := "error setting vm cpu: set cpu error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetColimaDiskError", func(t *testing.T) {
-		// Given: a colima helper that returns an error on setting disk
+		// Given: a config handler that returns an error on setting Colima disk
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.disk" {
+				return errors.New("set disk error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "disk" {
-					return errors.New("set disk error")
-				}
-				return nil
-			},
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-disk flag and context
@@ -377,26 +357,26 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting Colima configuration: set disk error"
+		expectedOutput := "error setting vm disk: set disk error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
+
 	t.Run("SetColimaMemoryError", func(t *testing.T) {
-		// Given: a colima helper that returns an error on setting memory
+		// Given: a config handler that returns an error on setting Colima memory
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.memory" {
+				return errors.New("set memory error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "memory" {
-					return errors.New("set memory error")
-				}
-				return nil
-			},
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-memory flag and context
@@ -409,27 +389,26 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting Colima configuration: set memory error"
+		expectedOutput := "error setting vm memory: set memory error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetColimaArchError", func(t *testing.T) {
-		// Given: a colima helper that returns an error on setting arch
+		// Given: a config handler that returns an error on setting Colima arch
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.arch" {
+				return errors.New("set arch error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "arch" {
-					return errors.New("set arch error")
-				}
-				return nil
-			},
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-arch flag and context
@@ -442,53 +421,21 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting Colima configuration: set arch error"
+		expectedOutput := "error setting vm arch: set arch error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetDockerConfigError", func(t *testing.T) {
-		// Given: a docker helper that returns an error on setting config
+		// Given: a config handler that returns an error on setting Docker config
 		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error { return nil }
-		mockHandler.SaveConfigFunc = func(path string) error { return nil }
-		mockHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
-
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "enabled" {
-					return errors.New("set docker config error")
-				}
-				return nil
-			},
-		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, mockHelper)
-
-		// When: the init command is executed with the docker flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context", "--docker"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.docker.enabled" {
+				return errors.New("set docker config error")
 			}
-		})
-
-		// Then: the output should indicate the error
-		expectedOutput := "error setting Docker configuration: set docker config error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+			return nil
 		}
-	})
-
-	t.Run("SetDockerConfigError", func(t *testing.T) {
-		// Given: a docker helper that returns an error on setting config
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error { return nil }
 		mockHandler.SaveConfigFunc = func(path string) error { return nil }
 		mockHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
 
@@ -496,14 +443,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "enabled" {
-					return errors.New("set docker config error")
-				}
-				return nil
-			},
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, mockHelper)
 
 		// When: the init command is executed with the docker flag

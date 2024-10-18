@@ -147,29 +147,6 @@ func TestTalosHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("SetConfig", func(t *testing.T) {
-		// Given a mock context
-		mockContext := context.NewMockContext()
-		container := di.NewContainer()
-		container.Register("context", mockContext)
-
-		// When creating TalosHelper
-		helper, err := NewTalosHelper(container)
-		if err != nil {
-			t.Fatalf("failed to create talos helper: %v", err)
-		}
-
-		t.Run("SetConfigStub", func(t *testing.T) {
-			// When: SetConfig is called
-			err := helper.SetConfig("some_key", "some_value")
-
-			// Then: it should return no error
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
-	})
-
 	t.Run("NewTalosHelper", func(t *testing.T) {
 		t.Run("ErrorResolvingContext", func(t *testing.T) {
 			// Given a DI container without registering context
