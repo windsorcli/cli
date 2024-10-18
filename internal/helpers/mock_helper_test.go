@@ -6,6 +6,10 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
+	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // Helper function to compare two maps
@@ -306,6 +310,80 @@ func TestMockHelper(t *testing.T) {
 			}
 			if !reflect.DeepEqual(containerConfig, expectedConfig) {
 				t.Errorf("expected %v, got %v", expectedConfig, containerConfig)
+			}
+		})
+	})
+
+	t.Run("WriteConfig", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler, context, and shell
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return "/path/to/config", nil
+			}
+			mockShell := &shell.MockShell{}
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+			diContainer.Register("shell", mockShell)
+
+			// Create an instance of MockHelper
+			mockHelper := &MockHelper{
+				WriteConfigFunc: func() error {
+					return nil
+				},
+			}
+
+			// When: WriteConfig is called
+			err := mockHelper.WriteConfig()
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+
+		t.Run("SetWriteConfigFunc", func(t *testing.T) {
+			// Given: a mock helper
+			mockHelper := NewMockHelper(func() (map[string]string, error) {
+				return nil, nil
+			})
+
+			// Define a mock WriteConfigFunc
+			expectedError := errors.New("mock error writing config")
+			mockWriteConfigFunc := func() error {
+				return expectedError
+			}
+
+			// When: SetWriteConfigFunc is called
+			mockHelper.SetWriteConfigFunc(mockWriteConfigFunc)
+
+			// Then: the WriteConfigFunc should be set and return the expected error
+			err := mockHelper.WriteConfig()
+			if err == nil {
+				t.Fatalf("expected error %v, got nil", expectedError)
+			}
+			if err.Error() != expectedError.Error() {
+				t.Fatalf("expected error %v, got %v", expectedError, err)
+			}
+		})
+
+		t.Run("WriteConfigFuncNotSet", func(t *testing.T) {
+			// Given: a mock helper without a WriteConfigFunc set
+			mockHelper := &MockHelper{}
+
+			// When: WriteConfig is called
+			err := mockHelper.WriteConfig()
+
+			// Then: it should return no error
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
 			}
 		})
 	})

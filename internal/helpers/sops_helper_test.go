@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 )
@@ -449,6 +450,42 @@ key2: value2
 			// Then the result should be nil as per the stub implementation
 			if containerConfig != nil {
 				t.Errorf("expected nil, got %v", containerConfig)
+			}
+		})
+	})
+
+	t.Run("WriteConfig", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler and context
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return "/path/to/config", nil
+			}
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+
+			// Create an instance of SopsHelper
+			sopsHelper, err := NewSopsHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewSopsHelper() error = %v", err)
+			}
+
+			// When: WriteConfig is called
+			err = sopsHelper.WriteConfig()
+			if err != nil {
+				t.Fatalf("WriteConfig() error = %v", err)
+			}
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
 			}
 		})
 	})

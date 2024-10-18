@@ -1365,4 +1365,40 @@ func TestColimaHelper(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("WriteConfig", func(t *testing.T) {
+		t.Run("ErrorRetrievingContext", func(t *testing.T) {
+			// Given a mock context that returns an error when retrieving context
+			mockContext := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "", errors.New("mock error")
+				},
+			}
+			// And a mock config handler
+			mockConfigHandler := config.NewMockConfigHandler()
+
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("context", mockContext)
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And writing the configuration
+			err = helper.WriteConfig()
+
+			// Then it should return an error indicating context retrieval failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			expectedError := "error retrieving context: mock error"
+			if err.Error() != expectedError {
+				t.Fatalf("expected error to be '%s', got '%s'", expectedError, err.Error())
+			}
+		})
+	})
 }
