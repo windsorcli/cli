@@ -98,39 +98,6 @@ func (h *DockerHelper) PostEnvExec() error {
 
 // SetConfig sets the configuration value for the given key
 func (h *DockerHelper) SetConfig(key, value string) error {
-	if value == "" {
-		return nil
-	}
-
-	context, err := h.Context.GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
-
-	// Handle the docker enabled condition
-	if key == "enabled" {
-		isEnabled := value == "true"
-		err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", context), isEnabled)
-		if err != nil {
-			return fmt.Errorf("error setting config value for %s: %w", key, err)
-		}
-
-		// If the "enabled" key is set to "true", write the docker compose file
-		if isEnabled {
-			registries, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.docker.registries", context), "")
-			if err != nil {
-				return fmt.Errorf("error retrieving registries from configuration: %w", err)
-			}
-
-			if registries == "" {
-				err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.registries", context), defaultRegistries)
-				if err != nil {
-					return fmt.Errorf("error setting default registries: %w", err)
-				}
-			}
-		}
-	}
-
 	return nil
 }
 
