@@ -40,7 +40,7 @@ func (c *Context) GetContext() (string, error) {
 
 // SetContext sets the current context in the configuration and saves it
 func (c *Context) SetContext(context string) error {
-	if err := c.ConfigHandler.SetValue("context", context); err != nil {
+	if err := c.ConfigHandler.Set("context", context); err != nil {
 		return fmt.Errorf("error setting context: %w", err)
 	}
 	return nil

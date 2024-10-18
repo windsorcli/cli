@@ -27,7 +27,7 @@ func newMockConfigHandlerWithDefaults() *MockConfigHandler {
 		GetStringFunc:    func(key string) (string, error) { return "", nil },
 		GetIntFunc:       func(key string) (int, error) { return 0, nil },
 		GetBoolFunc:      func(key string) (bool, error) { return false, nil },
-		SetValueFunc:     func(key string, value interface{}) error { return nil },
+		SetFunc:          func(key string, value interface{}) error { return nil },
 		SaveConfigFunc:   func(path string) error { return nil },
 		GetNestedMapFunc: func(key string) (map[string]interface{}, error) { return nil, nil },
 		ListKeysFunc:     func(key string) ([]string, error) { return nil, nil },
@@ -130,19 +130,19 @@ func TestMockConfigHandler(t *testing.T) {
 		})
 	})
 
-	t.Run("SetValue", func(t *testing.T) {
+	t.Run("Set", func(t *testing.T) {
 		mockSetErr := errors.New("mock set value error")
 
-		t.Run("SetValueWithKeyAndValue", func(t *testing.T) {
+		t.Run("SetWithKeyAndValue", func(t *testing.T) {
 			handler := newMockConfigHandlerWithDefaults()
-			handler.SetValueFunc = func(key string, value interface{}) error { return mockSetErr }
-			err := handler.SetValue("someKey", "someValue")
+			handler.SetFunc = func(key string, value interface{}) error { return mockSetErr }
+			err := handler.Set("someKey", "someValue")
 			assertError(t, err, mockSetErr)
 		})
 
-		t.Run("SetValueWithNoFuncSet", func(t *testing.T) {
+		t.Run("SetWithNoFuncSet", func(t *testing.T) {
 			handler := NewMockConfigHandler()
-			err := handler.SetValue("someKey", "someValue")
+			err := handler.Set("someKey", "someValue")
 			assertError(t, err, nil)
 		})
 	})

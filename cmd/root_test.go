@@ -32,12 +32,12 @@ func setupContainer(
 	// Create simple mock handlers if not provided
 	if mockCLIConfigHandler == nil {
 		mockCLIConfigHandler := config.NewMockConfigHandler()
-		mockCLIConfigHandler.SetValueFunc = func(key string, value interface{}) error { return nil }
+		mockCLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
 		mockCLIConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 	}
 	if mockProjectConfigHandler == nil {
 		mockProjectConfigHandler := config.NewMockConfigHandler()
-		mockProjectConfigHandler.SetValueFunc = func(key string, value interface{}) error { return nil }
+		mockProjectConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
 		mockProjectConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 	}
 	if mockShell == nil {

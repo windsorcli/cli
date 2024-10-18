@@ -232,7 +232,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetConfigValueError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SetConfigValue
 		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetValueFunc = func(key string, value interface{}) error { return errors.New("set config value error") }
+		mockHandler.SetFunc = func(key string, value interface{}) error { return errors.New("set config value error") }
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -286,7 +286,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetBackendConfigError", func(t *testing.T) {
 		// Given: a config handler that returns an error on setting backend config value
 		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetValueFunc = func(key string, value interface{}) error {
+		mockHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.terraform.backend" {
 				return errors.New("set backend config error")
 			}
@@ -350,7 +350,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetAwsConfigError", func(t *testing.T) {
 		// Given: a config handler that returns an error on setting AWS config values
 		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetValueFunc = func(key string, value interface{}) error {
+		mockHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.aws.aws_endpoint_url" || key == "contexts.test-context.aws.aws_profile" {
 				return errors.New("set aws config error")
 			}
@@ -382,7 +382,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetAwsProfileError", func(t *testing.T) {
 		// Given: a config handler that returns an error on setting AWS profile
 		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetValueFunc = func(key string, value interface{}) error {
+		mockHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.aws.aws_profile" {
 				return errors.New("set aws profile error")
 			}
@@ -414,7 +414,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetColimaTypeError", func(t *testing.T) {
 		// Given: a config handler that returns an error on setting Colima driver
 		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetValueFunc = func(key string, value interface{}) error {
+		mockHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.driver" {
 				return errors.New("set driver error")
 			}
@@ -446,7 +446,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetColimaCpuError", func(t *testing.T) {
 		// Given: a config handler that returns an error on setting Colima CPU
 		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetValueFunc = func(key string, value interface{}) error {
+		mockHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.cpu" {
 				return errors.New("set cpu error")
 			}
@@ -478,7 +478,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetColimaDiskError", func(t *testing.T) {
 		// Given: a config handler that returns an error on setting Colima disk
 		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetValueFunc = func(key string, value interface{}) error {
+		mockHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.disk" {
 				return errors.New("set disk error")
 			}
@@ -510,7 +510,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetColimaMemoryError", func(t *testing.T) {
 		// Given: a config handler that returns an error on setting Colima memory
 		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetValueFunc = func(key string, value interface{}) error {
+		mockHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.memory" {
 				return errors.New("set memory error")
 			}
@@ -542,7 +542,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetColimaArchError", func(t *testing.T) {
 		// Given: a config handler that returns an error on setting Colima arch
 		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetValueFunc = func(key string, value interface{}) error {
+		mockHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.arch" {
 				return errors.New("set arch error")
 			}
@@ -574,7 +574,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetDockerConfigError", func(t *testing.T) {
 		// Given: a config handler that returns an error on setting Docker config
 		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetValueFunc = func(key string, value interface{}) error {
+		mockHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.docker.enabled" {
 				return errors.New("set docker config error")
 			}

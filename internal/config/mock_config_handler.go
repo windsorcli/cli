@@ -6,7 +6,7 @@ type MockConfigHandler struct {
 	GetStringFunc    func(key string) (string, error)
 	GetIntFunc       func(key string) (int, error)
 	GetBoolFunc      func(key string) (bool, error)
-	SetValueFunc     func(key string, value interface{}) error
+	SetFunc          func(key string, value interface{}) error
 	SaveConfigFunc   func(path string) error
 	GetFunc          func(key string) (interface{}, error)
 	GetNestedMapFunc func(key string) (map[string]interface{}, error)
@@ -59,10 +59,10 @@ func (m *MockConfigHandler) GetBool(key string, defaultValue ...bool) (bool, err
 	return false, nil
 }
 
-// SetValue calls the mock SetValueFunc if set, otherwise returns nil
-func (m *MockConfigHandler) SetValue(key string, value interface{}) error {
-	if m.SetValueFunc != nil {
-		return m.SetValueFunc(key, value)
+// Set calls the mock SetFunc if set, otherwise returns nil
+func (m *MockConfigHandler) Set(key string, value interface{}) error {
+	if m.SetFunc != nil {
+		return m.SetFunc(key, value)
 	}
 	return nil
 }

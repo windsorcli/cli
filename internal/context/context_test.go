@@ -68,7 +68,7 @@ func TestContext(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler that sets and saves the context successfully
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 				if key == "context" && value == "new-context" {
 					return nil
 				}
@@ -91,7 +91,7 @@ func TestContext(t *testing.T) {
 		t.Run("SetConfigValueError", func(t *testing.T) {
 			// Given a mock config handler that returns an error when setting the context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 				return errors.New("error setting context")
 			}
 			mockShell, _ := shell.NewMockShell("unix")
@@ -112,7 +112,7 @@ func TestContext(t *testing.T) {
 		t.Run("SaveConfigError", func(t *testing.T) {
 			// Given a mock config handler that returns an error when saving the config
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 				return nil
 			}
 			mockConfigHandler.SaveConfigFunc = func(path string) error {

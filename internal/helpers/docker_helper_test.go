@@ -674,7 +674,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return "", fmt.Errorf("key not found: %s", key)
 			}
-			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 				return nil
 			}
 			mockContext := context.NewMockContext()
@@ -739,7 +739,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return "", fmt.Errorf("key not found: %s", key)
 			}
-			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 				return nil
 			}
 			mockContext := context.NewMockContext()
@@ -798,7 +798,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return "", fmt.Errorf("key not found: %s", key)
 			}
-			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 				return nil
 			}
 			mockContext := context.NewMockContext()
@@ -860,7 +860,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return "", fmt.Errorf("key not found: %s", key)
 			}
-			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 				return nil
 			}
 			mockContext := context.NewMockContext()
@@ -903,7 +903,7 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("ErrorCreatingParentContextFolder", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.SetValueFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 				return nil
 			}
 			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
@@ -1085,7 +1085,7 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("ErrorMarshalingYAML", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := &config.MockConfigHandler{
-				SetValueFunc: func(key string, value interface{}) error {
+				SetFunc: func(key string, value interface{}) error {
 					return nil
 				},
 			}

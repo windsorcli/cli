@@ -52,8 +52,8 @@ type ConfigHandler interface {
 	// GetBool retrieves a boolean value for the specified key from the configuration
 	GetBool(key string, defaultValue ...bool) (bool, error)
 
-	// SetValue sets the value for the specified key in the configuration
-	SetValue(key string, value interface{}) error
+	// Set sets the value for the specified key in the configuration
+	Set(key string, value interface{}) error
 
 	// Get retrieves a value for the specified key from the configuration
 	Get(key string) (interface{}, error)

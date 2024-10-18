@@ -74,7 +74,7 @@ func TestContextSubcommand(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a valid config handler
 			mockHandler := config.NewMockConfigHandler()
-			mockHandler.SetValueFunc = func(key string, value interface{}) error { return nil }
+			mockHandler.SetFunc = func(key string, value interface{}) error { return nil }
 			mockHandler.SaveConfigFunc = func(path string) error { return nil }
 			mockShell, err := shell.NewMockShell("cmd")
 			if err != nil {
@@ -101,7 +101,7 @@ func TestContextSubcommand(t *testing.T) {
 		t.Run("SetContextError", func(t *testing.T) {
 			// Given a config handler that returns an error on SetConfigValue
 			mockHandler := config.NewMockConfigHandler()
-			mockHandler.SetValueFunc = func(key string, value interface{}) error { return errors.New("set context error") }
+			mockHandler.SetFunc = func(key string, value interface{}) error { return errors.New("set context error") }
 			mockShell, err := shell.NewMockShell("cmd")
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
@@ -127,7 +127,7 @@ func TestContextSubcommand(t *testing.T) {
 		t.Run("SaveConfigError", func(t *testing.T) {
 			// Given a config handler that returns an error on SaveConfig
 			mockHandler := config.NewMockConfigHandler()
-			mockHandler.SetValueFunc = func(key string, value interface{}) error { return nil }
+			mockHandler.SetFunc = func(key string, value interface{}) error { return nil }
 			mockHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
 			mockShell, err := shell.NewMockShell("cmd")
 			if err != nil {
@@ -210,7 +210,7 @@ func TestContextSubcommand(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a valid config handler
 			mockHandler := config.NewMockConfigHandler()
-			mockHandler.SetValueFunc = func(key string, value interface{}) error { return nil }
+			mockHandler.SetFunc = func(key string, value interface{}) error { return nil }
 			mockHandler.SaveConfigFunc = func(path string) error { return nil }
 			mockShell, err := shell.NewMockShell("cmd")
 			if err != nil {
@@ -237,7 +237,7 @@ func TestContextSubcommand(t *testing.T) {
 		t.Run("SetContextError", func(t *testing.T) {
 			// Given a config handler that returns an error on SetConfigValue
 			mockHandler := config.NewMockConfigHandler()
-			mockHandler.SetValueFunc = func(key string, value interface{}) error { return errors.New("set context error") }
+			mockHandler.SetFunc = func(key string, value interface{}) error { return errors.New("set context error") }
 			mockShell, err := shell.NewMockShell("cmd")
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
@@ -263,7 +263,7 @@ func TestContextSubcommand(t *testing.T) {
 		t.Run("SaveConfigError", func(t *testing.T) {
 			// Given a config handler that returns an error on SaveConfig
 			mockHandler := config.NewMockConfigHandler()
-			mockHandler.SetValueFunc = func(key string, value interface{}) error { return nil }
+			mockHandler.SetFunc = func(key string, value interface{}) error { return nil }
 			mockHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
 			mockShell, err := shell.NewMockShell("cmd")
 			if err != nil {
