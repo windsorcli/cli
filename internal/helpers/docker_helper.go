@@ -129,7 +129,7 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 				}
 			}
 
-			return h.writeDockerComposeFile()
+			return h.WriteConfig()
 		}
 	}
 
@@ -171,56 +171,6 @@ func generateRegistryService(name, remoteURL, localURL string) types.ServiceConf
 
 	// Return the configured ServiceConfig.
 	return service
-}
-
-// writeDockerComposeFile is a private method to write the docker-compose configuration to a file.
-func (h *DockerHelper) writeDockerComposeFile() error {
-	var services []types.ServiceConfig
-
-	// Iterate through each helper and collect container configs
-	for _, helper := range h.Helpers {
-		if helperInstance, ok := helper.(Helper); ok {
-			helperName := fmt.Sprintf("%T", helperInstance)
-			containerConfigs, err := helperInstance.GetContainerConfig()
-			if err != nil {
-				return fmt.Errorf("error getting container config from helper %s: %w", helperName, err)
-			}
-			for _, containerConfig := range containerConfigs {
-				services = append(services, containerConfig)
-			}
-		}
-	}
-
-	// Create a Project using compose-go
-	project := &types.Project{
-		Services: services,
-	}
-
-	// Serialize the docker-compose config to YAML
-	yamlData, err := yamlMarshal(project)
-	if err != nil {
-		return fmt.Errorf("error marshaling docker-compose config to YAML: %w", err)
-	}
-
-	// Get the config root and construct the file path
-	configRoot, err := h.Context.GetConfigRoot()
-	if err != nil {
-		return fmt.Errorf("error retrieving config root: %w", err)
-	}
-	composeFilePath := filepath.Join(configRoot, "compose.yaml")
-
-	// Ensure the parent context folder exists
-	if err := mkdirAll(filepath.Dir(composeFilePath), 0755); err != nil {
-		return fmt.Errorf("error creating parent context folder: %w", err)
-	}
-
-	// Write the YAML data to the specified file
-	err = writeFile(composeFilePath, yamlData, 0644)
-	if err != nil {
-		return fmt.Errorf("error writing docker-compose file: %w", err)
-	}
-
-	return nil
 }
 
 // GetContainerConfig returns a list of container data for docker-compose.
@@ -277,6 +227,51 @@ func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *DockerHelper) WriteConfig() error {
+	var services []types.ServiceConfig
+
+	// Iterate through each helper and collect container configs
+	for _, helper := range h.Helpers {
+		if helperInstance, ok := helper.(Helper); ok {
+			helperName := fmt.Sprintf("%T", helperInstance)
+			containerConfigs, err := helperInstance.GetContainerConfig()
+			if err != nil {
+				return fmt.Errorf("error getting container config from helper %s: %w", helperName, err)
+			}
+			for _, containerConfig := range containerConfigs {
+				services = append(services, containerConfig)
+			}
+		}
+	}
+
+	// Create a Project using compose-go
+	project := &types.Project{
+		Services: services,
+	}
+
+	// Serialize the docker-compose config to YAML
+	yamlData, err := yamlMarshal(project)
+	if err != nil {
+		return fmt.Errorf("error marshaling docker-compose config to YAML: %w", err)
+	}
+
+	// Get the config root and construct the file path
+	configRoot, err := h.Context.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving config root: %w", err)
+	}
+	composeFilePath := filepath.Join(configRoot, "compose.yaml")
+
+	// Ensure the parent context folder exists
+	if err := mkdirAll(filepath.Dir(composeFilePath), 0755); err != nil {
+		return fmt.Errorf("error creating parent context folder: %w", err)
+	}
+
+	// Write the YAML data to the specified file
+	err = writeFile(composeFilePath, yamlData, 0644)
+	if err != nil {
+		return fmt.Errorf("error writing docker-compose file: %w", err)
+	}
+
 	return nil
 }
 
