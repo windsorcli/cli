@@ -835,75 +835,70 @@ func TestColimaHelper(t *testing.T) {
 			}
 		})
 
-		t.Run("ArchX86_64", func(t *testing.T) {
-			// Mock goArch to return "amd64"
-			originalGoArch := goArch
-			goArch = func() string {
-				return "amd64"
-			}
-			defer func() { goArch = originalGoArch }()
-
-			// Given: a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
-			}
-			mockConfigHandler := config.NewMockConfigHandler()
-
-			// Create DI container and register mocks
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("context", mockContext)
-
-			// Create ColimaHelper
-			colimaHelper, err := NewColimaHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewColimaHelper() error = %v", err)
+		t.Run("Arch", func(t *testing.T) {
+			tests := []struct {
+				name      string
+				mockArch  string
+				expectErr bool
+			}{
+				{"ArchX86_64", "amd64", false},
+				{"ArchARM64", "arm64", false},
+				{"ArchDefault", "unknown-arch", false},
 			}
 
-			// When: WriteConfig is called
-			err = colimaHelper.WriteConfig()
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					// Mock goArch to return the specified architecture
+					originalGoArch := goArch
+					goArch = func() string {
+						return tt.mockArch
+					}
+					defer func() { goArch = originalGoArch }()
 
-			// Then: no error should be returned
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
+					// Given: a mock context and config handler
+					mockContext := &context.MockContext{
+						GetContextFunc: func() (string, error) {
+							return "test-context", nil
+						},
+					}
+					mockConfigHandler := config.NewMockConfigHandler()
 
-		t.Run("ArchDefault", func(t *testing.T) {
-			// Mock goArch to return an unknown architecture
-			originalGoArch := goArch
-			goArch = func() string {
-				return "unknown-arch"
-			}
-			defer func() { goArch = originalGoArch }()
+					// Create DI container and register mocks
+					diContainer := di.NewContainer()
+					diContainer.Register("cliConfigHandler", mockConfigHandler)
+					diContainer.Register("context", mockContext)
 
-			// Given: a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
-			}
-			mockConfigHandler := config.NewMockConfigHandler()
+					// Mock the userHomeDir function to return a valid directory
+					originalUserHomeDir := userHomeDir
+					userHomeDir = func() (string, error) {
+						return t.TempDir(), nil // Use a temporary directory for testing
+					}
+					defer func() { userHomeDir = originalUserHomeDir }()
 
-			// Create DI container and register mocks
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("context", mockContext)
+					// Mock the writeFile function to create necessary directories
+					originalWriteFile := writeFile
+					writeFile = func(filename string, data []byte, perm os.FileMode) error {
+						if err := os.MkdirAll(filepath.Dir(filename), os.ModePerm); err != nil {
+							return err
+						}
+						return originalWriteFile(filename, data, perm)
+					}
+					defer func() { writeFile = originalWriteFile }()
 
-			// Create ColimaHelper
-			colimaHelper, err := NewColimaHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewColimaHelper() error = %v", err)
-			}
+					// Create ColimaHelper
+					colimaHelper, err := NewColimaHelper(diContainer)
+					if err != nil {
+						t.Fatalf("NewColimaHelper() error = %v", err)
+					}
 
-			// When: WriteConfig is called
-			err = colimaHelper.WriteConfig()
+					// When: WriteConfig is called
+					err = colimaHelper.WriteConfig()
 
-			// Then: no error should be returned
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
+					// Then: check for expected error
+					if (err != nil) != tt.expectErr {
+						t.Fatalf("expected error: %v, got: %v", tt.expectErr, err)
+					}
+				})
 			}
 		})
 	})
