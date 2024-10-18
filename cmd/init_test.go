@@ -286,21 +286,21 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("SetColimaTypeError", func(t *testing.T) {
-		// Given: a colima helper that returns an error on setting type
+		// Given: a config handler that returns an error on setting Colima driver
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.driver" {
+				return errors.New("set driver error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
 		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "driver" {
-					return errors.New("set driver error")
-				}
-				return nil
-			},
+			SetConfigFunc: func(key, value string) error { return nil },
 		}
-		// Pass mockHelper as the Colima helper
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-driver flag and context
@@ -313,26 +313,27 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting Colima configuration: set driver error"
+		expectedOutput := "error setting vm driver: set driver error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetColimaCpuError", func(t *testing.T) {
-		// Given: a colima helper that returns an error on setting cpu
+		// Given: a config handler that returns an error on setting Colima CPU
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.cpu" {
+				return errors.New("set cpu error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
 		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "cpu" {
-					return errors.New("set cpu error")
-				}
-				return nil
-			},
+			SetConfigFunc: func(key, value string) error { return nil },
 		}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
@@ -346,26 +347,27 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting Colima configuration: set cpu error"
+		expectedOutput := "error setting vm cpu: set cpu error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetColimaDiskError", func(t *testing.T) {
-		// Given: a colima helper that returns an error on setting disk
+		// Given: a config handler that returns an error on setting Colima disk
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.disk" {
+				return errors.New("set disk error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
 		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "disk" {
-					return errors.New("set disk error")
-				}
-				return nil
-			},
+			SetConfigFunc: func(key, value string) error { return nil },
 		}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
@@ -379,26 +381,27 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting Colima configuration: set disk error"
+		expectedOutput := "error setting vm disk: set disk error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetColimaMemoryError", func(t *testing.T) {
-		// Given: a colima helper that returns an error on setting memory
+		// Given: a config handler that returns an error on setting Colima memory
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.memory" {
+				return errors.New("set memory error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
 		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "memory" {
-					return errors.New("set memory error")
-				}
-				return nil
-			},
+			SetConfigFunc: func(key, value string) error { return nil },
 		}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
@@ -412,26 +415,27 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting Colima configuration: set memory error"
+		expectedOutput := "error setting vm memory: set memory error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("SetColimaArchError", func(t *testing.T) {
-		// Given: a colima helper that returns an error on setting arch
+		// Given: a config handler that returns an error on setting Colima arch
 		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.arch" {
+				return errors.New("set arch error")
+			}
+			return nil
+		}
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
 		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "arch" {
-					return errors.New("set arch error")
-				}
-				return nil
-			},
+			SetConfigFunc: func(key, value string) error { return nil },
 		}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
@@ -445,7 +449,7 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error setting Colima configuration: set arch error"
+		expectedOutput := "error setting vm arch: set arch error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}

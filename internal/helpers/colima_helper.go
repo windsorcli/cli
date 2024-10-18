@@ -133,61 +133,6 @@ func (h *ColimaHelper) PostEnvExec() error {
 
 // SetConfig sets the configuration value for the given key
 func (h *ColimaHelper) SetConfig(key, value string) error {
-	context, err := h.Context.GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
-
-	switch key {
-	case "driver":
-		if value == "colima" {
-			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", context), value); err != nil {
-				return fmt.Errorf("error setting colima config: %w", err)
-			}
-		}
-	case "cpu":
-		if value != "" {
-			cpuValue, err := strconv.Atoi(value)
-			if err != nil {
-				return fmt.Errorf("invalid value for %s: %w", key, err)
-			}
-			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), cpuValue); err != nil {
-				return fmt.Errorf("error setting colima config: %w", err)
-			}
-		}
-	case "disk":
-		if value != "" {
-			diskValue, err := strconv.Atoi(value)
-			if err != nil {
-				return fmt.Errorf("invalid value for %s: %w", key, err)
-			}
-			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), diskValue); err != nil {
-				return fmt.Errorf("error setting colima config: %w", err)
-			}
-		}
-	case "memory":
-		if value != "" {
-			memoryValue, err := strconv.Atoi(value)
-			if err != nil {
-				return fmt.Errorf("invalid value for %s: %w", key, err)
-			}
-			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), memoryValue); err != nil {
-				return fmt.Errorf("error setting colima config: %w", err)
-			}
-		}
-	case "arch":
-		if value != "" {
-			if value != "aarch64" && value != "x86_64" {
-				return fmt.Errorf("invalid value for arch: %s", value)
-			}
-			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", context), value); err != nil {
-				return fmt.Errorf("error setting colima config: %w", err)
-			}
-		}
-	default:
-		return fmt.Errorf("unsupported config key: %s", key)
-	}
-
 	return nil
 }
 

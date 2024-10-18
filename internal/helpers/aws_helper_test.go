@@ -178,38 +178,39 @@ func TestAwsHelper(t *testing.T) {
 			}
 		})
 
-		// t.Run("ErrorRetrievingCurrentContext", func(t *testing.T) {
-		// 	// Given a mock context that returns an error for current context
-		// 	mockContext := context.NewMockContext()
-		// 	mockContext.GetConfigRootFunc = func() (string, error) {
-		// 		return "/mock/config/root", nil
-		// 	}
-		// 	mockContext.GetContextFunc = func() (string, error) {
-		// 		return "", errors.New("error retrieving current context")
-		// 	}
+		t.Run("ErrorRetrievingCurrentContext", func(t *testing.T) {
+			// Given: a mock context that returns an error for GetContext
+			mockContext := context.NewMockContext()
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return "/mock/config/root", nil
+			}
+			mockContext.GetContextFunc = func() (string, error) {
+				return "", errors.New("error retrieving current context")
+			}
 
-		// 	// Mock config handler
-		// 	mockConfigHandler := config.NewMockConfigHandler()
+			// Mock config handler
+			mockConfigHandler := config.NewMockConfigHandler()
 
-		// 	// Create DI container and register mocks
-		// 	diContainer := di.NewContainer()
-		// 	diContainer.Register("cliConfigHandler", mockConfigHandler)
-		// 	diContainer.Register("context", mockContext)
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
 
-		// 	// Create AwsHelper
-		// 	awsHelper, err := NewAwsHelper(diContainer)
-		// 	if err != nil {
-		// 		t.Fatalf("NewAwsHelper() error = %v", err)
-		// 	}
+			// Create AwsHelper
+			awsHelper, err := NewAwsHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewAwsHelper() error = %v", err)
+			}
 
-		// 	// When calling GetEnvVars
-		// 	expectedError := "error retrieving current context"
+			// When: GetEnvVars is called
+			_, err = awsHelper.GetEnvVars()
 
-		// 	_, err = awsHelper.GetEnvVars()
-		// 	if err == nil || !strings.Contains(err.Error(), expectedError) {
-		// 		t.Fatalf("expected error containing %v, got %v", expectedError, err)
-		// 	}
-		// })
+			// Then: an error should be returned
+			expectedError := "error retrieving current context"
+			if err == nil || !strings.Contains(err.Error(), expectedError) {
+				t.Fatalf("expected error containing %q, got %v", expectedError, err)
+			}
+		})
 
 		t.Run("ErrorRetrievingAwsProfile", func(t *testing.T) {
 			// Given: a valid context path
@@ -505,140 +506,27 @@ func TestAwsHelper(t *testing.T) {
 	})
 
 	t.Run("SetConfig", func(t *testing.T) {
-		t.Run("Success", func(t *testing.T) {
-			// Given: a mock config handler, shell, and context
-			mockConfigHandler := config.NewMockConfigHandler()
+		t.Run("SetConfigStub", func(t *testing.T) {
+			// Given a AwsHelper instance
 			mockContext := context.NewMockContext()
-			mockContext.GetContextFunc = func() (string, error) {
-				return "test-context", nil
-			}
-			mockContext.GetConfigRootFunc = func() (string, error) {
-				return "/path/to/config", nil
-			}
 
-			// Create DI container and register mocks
+			// And a DI container with the mock context and mock config handler is created
 			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			mockConfigHandler := config.NewMockConfigHandler()
 			diContainer.Register("context", mockContext)
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
-			// Create an instance of AwsHelper
-			awsHelper, err := NewAwsHelper(diContainer)
+			// When creating AwsHelper
+			helper, err := NewAwsHelper(diContainer)
 			if err != nil {
 				t.Fatalf("NewAwsHelper() error = %v", err)
 			}
 
-			// When: SetConfig is called with valid values
-			err = awsHelper.SetConfig("http://example.com", "test-profile")
-			if err != nil {
-				t.Fatalf("SetConfig() error = %v", err)
-			}
+			// And calling SetConfig
+			err = helper.SetConfig("some_key", "some_value")
 
-			// Then: no error should be returned
-			if err != nil {
-				t.Errorf("Expected no error, got %v", err)
-			}
-		})
-
-		t.Run("EmptyValues", func(t *testing.T) {
-			// Given: a mock config handler, and context
-			mockConfigHandler := config.NewMockConfigHandler()
-			mockContext := context.NewMockContext()
-			mockContext.GetContextFunc = func() (string, error) {
-				return "test-context", nil
-			}
-			mockContext.GetConfigRootFunc = func() (string, error) {
-				return "/path/to/config", nil
-			}
-
-			// Create DI container and register mocks
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("context", mockContext)
-
-			// Create an instance of AwsHelper
-			awsHelper, err := NewAwsHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewAwsHelper() error = %v", err)
-			}
-
-			// When: SetConfig is called with empty values
-			err = awsHelper.SetConfig("", "")
-			if err != nil {
-				t.Fatalf("SetConfig() error = %v", err)
-			}
-
-			// Then: no error should be returned
-			if err != nil {
-				t.Errorf("Expected no error, got %v", err)
-			}
-		})
-
-		t.Run("OnlyAwsProfile", func(t *testing.T) {
-			// Given: a mock config handler, shell, and context
-			mockConfigHandler := config.NewMockConfigHandler()
-			mockContext := context.NewMockContext()
-			mockContext.GetContextFunc = func() (string, error) {
-				return "test-context", nil
-			}
-			mockContext.GetConfigRootFunc = func() (string, error) {
-				return "/path/to/config", nil
-			}
-
-			// Create DI container and register mocks
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("context", mockContext)
-
-			// Create an instance of AwsHelper
-			awsHelper, err := NewAwsHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewAwsHelper() error = %v", err)
-			}
-
-			// When: SetConfig is called with only aws_profile
-			err = awsHelper.SetConfig("", "test-profile")
-			if err != nil {
-				t.Fatalf("SetConfig() error = %v", err)
-			}
-
-			// Then: no error should be returned
-			if err != nil {
-				t.Errorf("Expected no error, got %v", err)
-			}
-		})
-
-		t.Run("ErrorRetrievingCurrentContext", func(t *testing.T) {
-			// Given: a mock context that returns an error for GetContext
-			mockContext := context.NewMockContext()
-			mockContext.GetConfigRootFunc = func() (string, error) {
-				return "/mock/config/root", nil
-			}
-			mockContext.GetContextFunc = func() (string, error) {
-				return "", errors.New("error retrieving current context")
-			}
-
-			// Mock config handler
-			mockConfigHandler := config.NewMockConfigHandler()
-
-			// Create DI container and register mocks
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("context", mockContext)
-
-			// Create AwsHelper
-			awsHelper, err := NewAwsHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewAwsHelper() error = %v", err)
-			}
-
-			// When: GetEnvVars is called
-			_, err = awsHelper.GetEnvVars()
-
-			// Then: an error should be returned
-			expectedError := "error retrieving current context"
-			if err == nil || !strings.Contains(err.Error(), expectedError) {
-				t.Fatalf("expected error containing %q, got %v", expectedError, err)
-			}
+			// Then it should return no error
+			assertError(t, err, false)
 		})
 	})
 
