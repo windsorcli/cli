@@ -66,5 +66,10 @@ func (h *KubeHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	return nil, nil
 }
 
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *KubeHelper) WriteConfig() error {
+	return nil
+}
+
 // Ensure KubeHelper implements Helper interface
 var _ Helper = (*KubeHelper)(nil)

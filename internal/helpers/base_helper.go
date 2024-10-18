@@ -96,5 +96,10 @@ func (h *BaseHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	return nil, nil
 }
 
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *BaseHelper) WriteConfig() error {
+	return nil
+}
+
 // Ensure BaseHelper implements Helper interface
 var _ Helper = (*BaseHelper)(nil)

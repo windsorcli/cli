@@ -145,6 +145,11 @@ func (h *TerraformHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	return nil, nil
 }
 
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *TerraformHelper) WriteConfig() error {
+	return nil
+}
+
 // Ensure TerraformHelper implements Helper interface
 var _ Helper = (*TerraformHelper)(nil)
 

@@ -65,5 +65,10 @@ func (h *TalosHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	return nil, nil
 }
 
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *TalosHelper) WriteConfig() error {
+	return nil
+}
+
 // Ensure TalosHelper implements Helper interface
 var _ Helper = (*TalosHelper)(nil)

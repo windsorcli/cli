@@ -140,5 +140,10 @@ func (h *AwsHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	return nil, nil
 }
 
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *AwsHelper) WriteConfig() error {
+	return nil
+}
+
 // Ensure AwsHelper implements Helper interface
 var _ Helper = (*AwsHelper)(nil)

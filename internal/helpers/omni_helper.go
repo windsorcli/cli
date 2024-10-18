@@ -70,5 +70,10 @@ func (h *OmniHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	return nil, nil
 }
 
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *OmniHelper) WriteConfig() error {
+	return nil
+}
+
 // Ensure OmniHelper implements Helper interface
 var _ Helper = (*OmniHelper)(nil)

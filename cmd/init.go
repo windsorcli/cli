@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/spf13/cobra"
+	"github.com/windsor-hotel/cli/internal/helpers"
 )
 
 var (
@@ -80,6 +81,20 @@ var initCmd = &cobra.Command{
 		if err := projectConfigHandler.SaveConfig(""); err != nil {
 			return fmt.Errorf("Error saving project config file: %w", err)
 		}
+
+		// Write the vendor config files using the DI container
+		helperInstances, err := container.ResolveAll((*helpers.Helper)(nil))
+		if err != nil {
+			return fmt.Errorf("error resolving helpers: %w", err)
+		}
+
+		for _, instance := range helperInstances {
+			helper := instance.(helpers.Helper)
+			if err := helper.WriteConfig(); err != nil {
+				return fmt.Errorf("error writing config for helper: %w", err)
+			}
+		}
+
 		fmt.Println("Initialization successful")
 		return nil
 	},

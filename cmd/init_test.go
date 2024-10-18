@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
@@ -516,6 +517,77 @@ func TestInitCmd(t *testing.T) {
 
 		// Then: the output should indicate the error
 		expectedOutput := "error setting Docker configuration: set docker config error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("WriteConfigError", func(t *testing.T) {
+		// Given: a helper that returns an error on WriteConfig
+		mockHandler := config.NewMockConfigHandler()
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{
+			WriteConfigFunc: func() error {
+				return errors.New("write config error")
+			},
+		}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, nil, nil, nil)
+
+		// When: the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "error writing config for helper: write config error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ResolveHelpersError", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a container that returns an error when resolving helpers
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockProjectConfigHandler := config.NewMockConfigHandler()
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := helpers.NewMockHelper(func() (map[string]string, error) {
+			return nil, nil
+		})
+		mockContainer := di.NewMockContainer()
+		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
+		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
+		mockContainer.Register("projectConfigHandler", mockProjectConfigHandler)
+		mockContainer.Register("shell", mockShell)
+		mockContainer.Register("terraformHelper", mockHelper)
+		mockContainer.Register("awsHelper", mockHelper)
+		mockContainer.Register("colimaHelper", mockHelper)
+		mockContainer.Register("dockerHelper", mockHelper)
+		Initialize(mockContainer)
+
+		// When the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then the output should indicate the error
+		expectedOutput := "error resolving helpers: resolve helpers error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
