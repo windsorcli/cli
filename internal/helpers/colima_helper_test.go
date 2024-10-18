@@ -686,10 +686,30 @@ func TestColimaHelper(t *testing.T) {
 				t.Fatalf("NewColimaHelper() error = %v", err)
 			}
 
-			// And setting the config
-			err = helper.SetConfig("cpu", "4")
+			// Mock the userHomeDir function to return a valid directory
+			originalUserHomeDir := userHomeDir
+			userHomeDir = func() (string, error) {
+				return "/mock/home", nil
+			}
+			defer func() { userHomeDir = originalUserHomeDir }()
+
+			// Mock the writeFile and rename functions
+			originalWriteFile := writeFile
+			writeFile = func(filename string, data []byte, perm os.FileMode) error {
+				return nil
+			}
+			defer func() { writeFile = originalWriteFile }()
+
+			originalRename := rename
+			rename = func(oldpath, newpath string) error {
+				return nil
+			}
+			defer func() { rename = originalRename }()
+
+			// And writing the configuration
+			err = helper.WriteConfig()
 			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
+				t.Fatalf("WriteConfig() error = %v", err)
 			}
 
 			// Then vmType should be set to "vz" in the configuration
@@ -1450,6 +1470,37 @@ func TestColimaHelper(t *testing.T) {
 		})
 
 		t.Run("ErrorRenamingFile", func(t *testing.T) {
+			// Create a temporary directory for the test
+			tempDir := t.TempDir()
+
+			// Create a subdirectory for the test context
+			testContextDir := filepath.Join(tempDir, ".colima", "windsor-test-context")
+			err := os.MkdirAll(testContextDir, os.ModePerm)
+			if err != nil {
+				t.Fatalf("failed to create test context directory: %v", err)
+			}
+
+			// Ensure the directory for the temporary file exists
+			tempFileDir := filepath.Join(testContextDir, "colima.yaml.tmp")
+			err = os.MkdirAll(filepath.Dir(tempFileDir), os.ModePerm)
+			if err != nil {
+				t.Fatalf("failed to create directory for temporary file: %v", err)
+			}
+
+			// Create the temporary file to avoid "file not found" error on Windows
+			tempFile, err := os.Create(tempFileDir)
+			if err != nil {
+				t.Fatalf("failed to create temporary file: %v", err)
+			}
+			tempFile.Close()
+
+			// Mock the userHomeDir function to return the temporary directory
+			originalUserHomeDir := userHomeDir
+			userHomeDir = func() (string, error) {
+				return tempDir, nil
+			}
+			defer func() { userHomeDir = originalUserHomeDir }()
+
 			// Given a mock context and config handler
 			mockContext := &context.MockContext{
 				GetContextFunc: func() (string, error) {
@@ -1463,12 +1514,12 @@ func TestColimaHelper(t *testing.T) {
 			diContainer.Register("context", mockContext)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
-			// Mock the userHomeDir function to return a valid directory
-			originalUserHomeDir := userHomeDir
-			userHomeDir = func() (string, error) {
-				return "/mock/home", nil
+			// Mock the writeFile function to succeed
+			originalWriteFile := writeFile
+			writeFile = func(filename string, data []byte, perm os.FileMode) error {
+				return nil
 			}
-			defer func() { userHomeDir = originalUserHomeDir }()
+			defer func() { writeFile = originalWriteFile }()
 
 			// Mock the rename function to return an error
 			originalRename := rename
