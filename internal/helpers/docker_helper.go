@@ -275,5 +275,10 @@ func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	return services, nil
 }
 
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *DockerHelper) WriteConfig() error {
+	return nil
+}
+
 // Ensure DockerHelper implements Helper interface
 var _ Helper = (*DockerHelper)(nil)

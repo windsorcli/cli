@@ -24,6 +24,9 @@ type Helper interface {
 
 	// GetContainerConfig returns a list of container data for docker-compose.
 	GetContainerConfig() ([]types.ServiceConfig, error)
+
+	// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+	WriteConfig() error
 }
 
 // Define a variable for os.Getwd() for easier testing

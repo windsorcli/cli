@@ -302,6 +302,11 @@ func generateColimaConfig(context string, cliConfigHandler config.ConfigHandler)
 	return nil
 }
 
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *ColimaHelper) WriteConfig() error {
+	return nil
+}
+
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *ColimaHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation

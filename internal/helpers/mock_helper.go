@@ -12,6 +12,8 @@ type MockHelper struct {
 	SetConfigFunc func(key, value string) error
 	// GetContainerConfigFunc is a function that mocks the GetContainerConfig method
 	GetContainerConfigFunc func() ([]types.ServiceConfig, error)
+	// WriteConfigFunc is a function that mocks the WriteConfig method
+	WriteConfigFunc func() error
 }
 
 // NewMockHelper is a constructor for MockHelper
@@ -56,6 +58,14 @@ func (m *MockHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	return nil, nil
 }
 
+// WriteConfig calls the mock WriteConfigFunc if it is set, otherwise returns nil
+func (m *MockHelper) WriteConfig() error {
+	if m.WriteConfigFunc != nil {
+		return m.WriteConfigFunc()
+	}
+	return nil
+}
+
 // SetSetConfigFunc sets the SetConfigFunc for the mock helper
 func (m *MockHelper) SetSetConfigFunc(setConfigFunc func(key, value string) error) {
 	m.SetConfigFunc = setConfigFunc
@@ -69,6 +79,11 @@ func (m *MockHelper) SetPostEnvExecFunc(postEnvExecFunc func() error) {
 // SetGetContainerConfigFunc sets the GetContainerConfigFunc for the mock helper
 func (m *MockHelper) SetGetContainerConfigFunc(getContainerConfigFunc func() ([]types.ServiceConfig, error)) {
 	m.GetContainerConfigFunc = getContainerConfigFunc
+}
+
+// SetWriteConfigFunc sets the WriteConfigFunc for the mock helper
+func (m *MockHelper) SetWriteConfigFunc(writeConfigFunc func() error) {
+	m.WriteConfigFunc = writeConfigFunc
 }
 
 // Ensure MockHelper implements Helper interface

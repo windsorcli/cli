@@ -70,6 +70,11 @@ func (h *SopsHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	return nil, nil
 }
 
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *SopsHelper) WriteConfig() error {
+	return nil
+}
+
 // Ensure SopsHelper implements Helper interface
 var _ Helper = (*SopsHelper)(nil)
 
