@@ -927,151 +927,38 @@ terraform {
 	})
 
 	t.Run("SetConfig", func(t *testing.T) {
-		// Given a mock config handler and context
-		mockConfigHandler := &config.MockConfigHandler{}
-		mockContext := &context.MockContext{}
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-		helper, err := NewTerraformHelper(diContainer)
-		if err != nil {
-			t.Fatalf("Failed to create TerraformHelper: %v", err)
-		}
+		t.Run("SetConfigStub", func(t *testing.T) {
+			// Given a TerraformHelper instance
+			mockContext := context.NewMockContext()
 
-		t.Run("SetBackend", func(t *testing.T) {
-			// Mock SetConfigValue to return no error
-			mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
-				if key == "contexts.test-context.terraform.backend" {
-					return nil
-				}
-				return fmt.Errorf("unexpected key: %s", key)
-			}
-
-			// Mock GetContext to return "test-context"
-			mockContext.GetContextFunc = func() (string, error) {
-				return "test-context", nil
-			}
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			// And a DI container with the mock context and mock config handler is created
+			diContainer := di.NewContainer()
+			mockConfigHandler := config.NewMockConfigHandler()
 			diContainer.Register("context", mockContext)
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+
+			// Register a basic helper
+			basicHelper := NewMockHelper(func() (map[string]string, error) {
+				return map[string]string{
+					"basic_service": "basic_image:latest",
+				}, nil
+			})
+			diContainer.Register("helper", basicHelper)
+
+			// When creating TerraformHelper
 			helper, err := NewTerraformHelper(diContainer)
 			if err != nil {
-				t.Fatalf("Failed to create TerraformHelper: %v", err)
+				t.Fatalf("NewTerraformHelper() error = %v", err)
 			}
 
-			// When SetConfig is called with "backend" key
-			err = helper.SetConfig("backend", "s3")
+			// And calling SetConfig
+			err = helper.SetConfig("some_key", "some_value")
 
 			// Then it should return no error
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
-
-		t.Run("UnsupportedKey", func(t *testing.T) {
-			// When SetConfig is called with an unsupported key
-			err := helper.SetConfig("unsupported_key", "value")
-
-			// Then it should return an error
-			if err == nil {
-				t.Fatalf("expected error, got nil")
-			}
-			if err.Error() != "unsupported config key: unsupported_key" {
-				t.Fatalf("expected error 'unsupported config key: unsupported_key', got %v", err)
-			}
-		})
-
-		t.Run("ErrorSettingBackend", func(t *testing.T) {
-			// Mock SetConfigValue to return an error
-			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
-				if key == "contexts.test-context.terraform.backend" {
-					return fmt.Errorf("mock error setting backend")
-				}
-				return nil
-			}
-
-			// Mock GetContext to return "test-context"
-			mockContext := context.NewMockContext()
-			mockContext.GetContextFunc = func() (string, error) {
-				return "test-context", nil
-			}
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("context", mockContext)
-			helper, err := NewTerraformHelper(diContainer)
-			if err != nil {
-				t.Fatalf("Failed to create TerraformHelper: %v", err)
-			}
-
-			// When SetConfig is called with "backend" key
-			err = helper.SetConfig("backend", "s3")
-
-			// Then it should return an error
-			if err == nil {
-				t.Fatalf("expected error, got nil")
-			}
-			if err.Error() != "error setting backend: mock error setting backend" {
-				t.Fatalf("expected error 'error setting backend: mock error setting backend', got %v", err)
-			}
-		})
-
-		t.Run("ErrorRetrievingContext", func(t *testing.T) {
-			// Mock GetContext to return an error
-			mockContext := context.NewMockContext()
-			mockContext.GetContextFunc = func() (string, error) {
-				return "", fmt.Errorf("mock error retrieving context")
-			}
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("context", mockContext)
-			helper, err := NewTerraformHelper(diContainer)
-			if err != nil {
-				t.Fatalf("Failed to create TerraformHelper: %v", err)
-			}
-
-			// When SetConfig is called with "backend" key
-			err = helper.SetConfig("backend", "s3")
-
-			// Then it should return an error
-			if err == nil {
-				t.Fatalf("expected error, got nil")
-			}
-			if err.Error() != "error retrieving context: mock error retrieving context" {
-				t.Fatalf("expected error 'error retrieving context: mock error retrieving context', got %v", err)
-			}
-		})
-
-		t.Run("EmptyValue", func(t *testing.T) {
-			// Given a mock config handler and context
-			mockConfigHandler := config.NewMockConfigHandler()
-			mockContext := context.NewMockContext()
-			mockContext.GetContextFunc = func() (string, error) {
-				return "test-context", nil
-			}
-			mockContext.GetConfigRootFunc = func() (string, error) {
-				return "/path/to/config", nil
-			}
-
-			// Set up DI container
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("context", mockContext)
-
-			// Create an instance of TerraformHelper
-			terraformHelper, err := NewTerraformHelper(diContainer)
-			if err != nil {
-				t.Fatalf("Failed to create TerraformHelper: %v", err)
-			}
-
-			// When SetConfig is called with an empty value
-			err = terraformHelper.SetConfig("backend", "")
-
-			// Then no error should be returned
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
+			assertError(t, err, false)
 		})
 	})
+
 	t.Run("PostEnvExec", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a temporary directory and project path

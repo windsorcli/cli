@@ -289,6 +289,7 @@ func TestDockerHelper(t *testing.T) {
 			}
 		})
 	})
+
 	t.Run("SetConfig", func(t *testing.T) {
 		t.Run("SetConfigStub", func(t *testing.T) {
 			// Given a DockerHelper instance
