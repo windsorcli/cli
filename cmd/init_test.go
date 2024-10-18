@@ -456,46 +456,14 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("SetDockerConfigError", func(t *testing.T) {
-		// Given: a docker helper that returns an error on setting config
+		// Given: a config handler that returns an error on setting Docker config
 		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error { return nil }
-		mockHandler.SaveConfigFunc = func(path string) error { return nil }
-		mockHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
-
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "enabled" {
-					return errors.New("set docker config error")
-				}
-				return nil
-			},
-		}
-		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, mockHelper)
-
-		// When: the init command is executed with the docker flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context", "--docker"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
+		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.docker.enabled" {
+				return errors.New("set docker config error")
 			}
-		})
-
-		// Then: the output should indicate the error
-		expectedOutput := "error setting Docker configuration: set docker config error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+			return nil
 		}
-	})
-
-	t.Run("SetDockerConfigError", func(t *testing.T) {
-		// Given: a docker helper that returns an error on setting config
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetConfigValueFunc = func(key string, value interface{}) error { return nil }
 		mockHandler.SaveConfigFunc = func(path string) error { return nil }
 		mockHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
 
@@ -504,12 +472,7 @@ func TestInitCmd(t *testing.T) {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
 		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error {
-				if key == "enabled" {
-					return errors.New("set docker config error")
-				}
-				return nil
-			},
+			SetConfigFunc: func(key, value string) error { return nil },
 		}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, mockHelper)
 

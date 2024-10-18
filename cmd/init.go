@@ -39,11 +39,7 @@ var initCmd = &cobra.Command{
 		}
 
 		// Set the Docker configuration values using the DockerHelper
-		dockerValue := ""
-		if cmd.Flags().Changed("docker") || docker {
-			dockerValue = strconv.FormatBool(docker)
-		}
-		if err := dockerHelper.SetConfig("enabled", dockerValue); err != nil {
+		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", contextName), strconv.FormatBool(docker)); err != nil {
 			return fmt.Errorf("error setting Docker configuration: %w", err)
 		}
 
