@@ -128,8 +128,6 @@ func (h *DockerHelper) SetConfig(key, value string) error {
 					return fmt.Errorf("error setting default registries: %w", err)
 				}
 			}
-
-			return h.WriteConfig()
 		}
 	}
 
