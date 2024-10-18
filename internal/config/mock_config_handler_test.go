@@ -199,4 +199,21 @@ func TestMockConfigHandler(t *testing.T) {
 			assertEqual(t, []string(nil), keys, "ListKeys")
 		})
 	})
+
+	t.Run("Get", func(t *testing.T) {
+		t.Run("GetWithKey", func(t *testing.T) {
+			mockGetErr := errors.New("mock get error")
+			handler := newMockConfigHandlerWithDefaults()
+			handler.GetFunc = func(key string) (interface{}, error) { return nil, mockGetErr }
+			_, err := handler.Get("someKey")
+			assertError(t, err, mockGetErr)
+		})
+
+		t.Run("GetWithNoFuncSet", func(t *testing.T) {
+			handler := NewMockConfigHandler()
+			value, err := handler.Get("someKey")
+			assertError(t, err, nil)
+			assertEqual(t, nil, value, "Get")
+		})
+	})
 }

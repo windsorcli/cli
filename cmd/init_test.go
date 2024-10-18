@@ -461,7 +461,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When: the init command is executed with vm-cpu flag and context
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context", "--vm-cpu", "test-cpu"})
+			rootCmd.SetArgs([]string{"init", "test-context", "--vm-cpu", "2"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
@@ -493,7 +493,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When: the init command is executed with vm-disk flag and context
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context", "--vm-disk", "test-disk"})
+			rootCmd.SetArgs([]string{"init", "test-context", "--vm-disk", "60"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
@@ -525,7 +525,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When: the init command is executed with vm-memory flag and context
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context", "--vm-memory", "test-memory"})
+			rootCmd.SetArgs([]string{"init", "test-context", "--vm-memory", "8"})
 			err := rootCmd.Execute()
 			if err == nil {
 				t.Fatalf("Expected error, got nil")

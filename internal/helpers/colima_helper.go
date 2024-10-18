@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/shirou/gopsutil/mem"
@@ -160,10 +159,8 @@ func (h *ColimaHelper) WriteConfig() error {
 
 	// Helper function to override default values with context-specific values if provided
 	overrideValue := func(key string, defaultValue *int) {
-		if val, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.%s", context, key)); err == nil && val != "" {
-			if intValue, err := strconv.Atoi(val); err == nil {
-				*defaultValue = intValue
-			}
+		if val, err := h.ConfigHandler.GetInt(fmt.Sprintf("contexts.%s.vm.%s", context, key)); err == nil && val != 0 {
+			*defaultValue = val
 		}
 	}
 

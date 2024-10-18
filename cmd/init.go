@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/helpers"
@@ -15,9 +14,9 @@ var (
 	awsProfile     string
 	awsEndpointURL string
 	vmType         string
-	cpu            string
-	disk           string
-	memory         string
+	cpu            int
+	disk           int
+	memory         int
 	arch           string
 	docker         bool
 )
@@ -54,7 +53,7 @@ var initCmd = &cobra.Command{
 		}
 
 		// Set the Docker configuration values using the DockerHelper
-		if err := cliConfigHandler.SetValue(fmt.Sprintf("contexts.%s.docker.enabled", contextName), strconv.FormatBool(docker)); err != nil {
+		if err := cliConfigHandler.SetValue(fmt.Sprintf("contexts.%s.docker.enabled", contextName), docker); err != nil {
 			return fmt.Errorf("error setting Docker configuration: %w", err)
 		}
 
@@ -118,9 +117,9 @@ func init() {
 	initCmd.Flags().StringVar(&awsProfile, "aws-profile", "", "Specify the AWS profile to use")
 	initCmd.Flags().StringVar(&awsEndpointURL, "aws-endpoint-url", "", "Specify the AWS endpoint URL to use")
 	initCmd.Flags().StringVar(&vmType, "vm-driver", "", "Specify the VM driver. Only Colima is supported for now.")
-	initCmd.Flags().StringVar(&cpu, "vm-cpu", "", "Specify the number of CPUs for Colima")
-	initCmd.Flags().StringVar(&disk, "vm-disk", "", "Specify the disk size for Colima")
-	initCmd.Flags().StringVar(&memory, "vm-memory", "", "Specify the memory size for Colima")
+	initCmd.Flags().IntVar(&cpu, "vm-cpu", 0, "Specify the number of CPUs for Colima")
+	initCmd.Flags().IntVar(&disk, "vm-disk", 0, "Specify the disk size for Colima")
+	initCmd.Flags().IntVar(&memory, "vm-memory", 0, "Specify the memory size for Colima")
 	initCmd.Flags().StringVar(&arch, "vm-arch", "", "Specify the architecture for Colima")
 	initCmd.Flags().BoolVar(&docker, "docker", false, "Enable Docker")
 	rootCmd.AddCommand(initCmd)

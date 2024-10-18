@@ -745,11 +745,73 @@ func TestColimaHelper(t *testing.T) {
 			}
 		})
 
-		t.Run("ErrorRetrievingVMDriver", func(t *testing.T) {
-			// Create a temporary directory for the test
-			tempDir := t.TempDir()
-
+		t.Run("OverrideDefaultValues", func(t *testing.T) {
 			// Given a mock context and config handler
+			mockContext := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetIntFunc = func(key string) (int, error) {
+				switch key {
+				case "contexts.test-context.vm.cpu":
+					return 4, nil
+				case "contexts.test-context.vm.disk":
+					return 100, nil
+				case "contexts.test-context.vm.memory":
+					return 8, nil
+				default:
+					return 0, fmt.Errorf("unexpected key: %s", key)
+				}
+			}
+
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("context", mockContext)
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+
+			// Mock the userHomeDir function to return a valid directory
+			originalUserHomeDir := userHomeDir
+			userHomeDir = func() (string, error) {
+				return t.TempDir(), nil // Use a temporary directory for testing
+			}
+			defer func() { userHomeDir = originalUserHomeDir }()
+
+			// Create ColimaHelper
+			colimaHelper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// When: WriteConfig is called
+			err = colimaHelper.WriteConfig()
+			if err != nil {
+				t.Fatalf("WriteConfig() error = %v", err)
+			}
+
+			// Then: Verify that the configuration file contains the overridden values
+			configFilePath := filepath.Join(os.Getenv("HOME"), ".colima", "windsor-test-context", "colima.yaml")
+			configData, err := os.ReadFile(configFilePath)
+			if err != nil {
+				t.Fatalf("Failed to read config file: %v", err)
+			}
+
+			expectedValues := []string{
+				"cpu: 4",
+				"disk: 100",
+				"memory: 8",
+			}
+
+			for _, expectedValue := range expectedValues {
+				if !strings.Contains(string(configData), expectedValue) {
+					t.Errorf("Expected config to contain %s, but it did not", expectedValue)
+				}
+			}
+		})
+
+		t.Run("OverrideValues", func(t *testing.T) {
+			// Given a mock context and config handler with specific values
 			mockContext := &context.MockContext{
 				GetContextFunc: func() (string, error) {
 					return "test-context", nil

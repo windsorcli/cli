@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/goccy/go-yaml"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
@@ -135,51 +134,63 @@ func generateRegistryService(name, remoteURL, localURL string) types.ServiceConf
 
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
-	// Prepare the services slice for docker-compose
 	var services []types.ServiceConfig
 
-	// Retrieve the list of registries from the configuration
+	// Retrieve the current context
 	context, err := h.Context.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	registries, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.docker.registries", context))
+	// Retrieve the list of registries from the configuration
+	registriesInterface, err := h.ConfigHandler.Get(fmt.Sprintf("contexts.%s.docker.registries", context))
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving registries from configuration: %w", err)
 	}
 
-	dockerEnabled, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.docker.enabled", context))
+	// Initialize registries list
+	var registries []map[string]string
+
+	// Check if registries are defined
+	if registriesInterface != nil {
+		registriesInterfaceList, ok := registriesInterface.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("error converting registries to expected format")
+		}
+		for _, registryInterface := range registriesInterfaceList {
+			registryMap, ok := registryInterface.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("error converting registry to expected format")
+			}
+			registry := make(map[string]string)
+			for key, value := range registryMap {
+				strValue, ok := value.(string)
+				if !ok {
+					return nil, fmt.Errorf("error converting registry value to string")
+				}
+				registry[key] = strValue
+			}
+			registries = append(registries, registry)
+		}
+	}
+
+	// Check if Docker is enabled
+	dockerEnabled, err := h.ConfigHandler.GetBool(fmt.Sprintf("contexts.%s.docker.enabled", context))
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving docker enabled status from configuration: %w", err)
 	}
 
-	var registriesList []types.ServiceConfig
-	if registries == "" && dockerEnabled == "true" {
-		// No registries defined but docker is enabled, use default registries
-		for _, registry := range defaultRegistries {
-			registriesList = append(registriesList, generateRegistryService(registry["name"], registry["remote"], registry["local"]))
-		}
-	} else if registries != "" {
-		// Parse the registries YAML into a list of objects
-		var parsedRegistries []map[string]string
-		err := yaml.Unmarshal([]byte(registries), &parsedRegistries)
-		if err != nil {
-			return nil, fmt.Errorf("error unmarshaling registries YAML: %w", err)
-		}
-
-		// Create registriesList from the parsed registries
-		for _, registry := range parsedRegistries {
-			name := registry["name"]
-			remote := registry["remote"]
-			local := registry["local"]
-			registriesList = append(registriesList, generateRegistryService(name, remote, local))
-		}
+	// Use default registries if none are defined and Docker is enabled
+	if len(registries) == 0 && dockerEnabled {
+		registries = defaultRegistries
 	}
 
-	// Iterate over the registries and create service definitions using generateRegistryService
-	for _, registry := range registriesList {
-		services = append(services, registry)
+	// Convert registries to service definitions
+	for _, registry := range registries {
+		name := registry["name"]
+		remote := registry["remote"]
+		local := registry["local"]
+		services = append(services, generateRegistryService(name, remote, local))
 	}
 
 	return services, nil
