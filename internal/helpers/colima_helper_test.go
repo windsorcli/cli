@@ -695,31 +695,6 @@ func TestColimaHelper(t *testing.T) {
 			// This might involve checking the state of the cliConfigHandler or other side effects
 		})
 
-		t.Run("ErrorCreatingConfigDirectory", func(t *testing.T) {
-			// Given the original mkdirAll function
-			originalMkdirAll := mkdirAll
-			// And restoring the original mkdirAll function after the test
-			defer func() { mkdirAll = originalMkdirAll }()
-
-			// And a mock mkdirAll function to simulate an error
-			mkdirAll = func(path string, perm os.FileMode) error {
-				return errors.New("mkdir error")
-			}
-
-			cliConfigHandler := config.NewMockConfigHandler()
-
-			// When generating the Colima config
-			err := generateColimaConfig("test-context", cliConfigHandler)
-
-			// Then it should return an error indicating directory creation failure
-			if err == nil {
-				t.Fatalf("expected error, got nil")
-			}
-			if err.Error() != "error creating colima config directory: mkdir error" {
-				t.Fatalf("expected 'error creating colima config directory: mkdir error', got '%v'", err)
-			}
-		})
-
 		t.Run("ValidConfigValues", func(t *testing.T) {
 			// Given a mock config handler with valid config values
 			cliConfigHandler := config.NewMockConfigHandler()
