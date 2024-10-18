@@ -84,12 +84,6 @@ func (h *BaseHelper) PostEnvExec() error {
 	return nil
 }
 
-// SetConfig sets the configuration value for the given key
-func (h *BaseHelper) SetConfig(key, value string) error {
-	// This is a stub implementation
-	return nil
-}
-
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *BaseHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation

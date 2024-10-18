@@ -333,32 +333,6 @@ func TestSopsHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("SetConfig", func(t *testing.T) {
-		// Given a mock context
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) { return "", nil }
-		mockContext.GetConfigRootFunc = func() (string, error) { return "", nil }
-
-		// And a DI container with the mock context is created
-		container := di.NewContainer()
-		container.Register("context", mockContext)
-
-		t.Run("SetConfigStub", func(t *testing.T) {
-			// When creating SopsHelper
-			sopsHelper, err := NewSopsHelper(container)
-			if err != nil {
-				t.Fatalf("Failed to create SopsHelper: %v", err)
-			}
-
-			// And calling SetConfig
-			err = sopsHelper.SetConfig("some_key", "some_value")
-			if err != nil {
-				// Then it should return no error
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
-	})
-
 	t.Run("DecryptFile", func(t *testing.T) {
 		t.Run("FileDoesNotExist", func(t *testing.T) {
 			// When calling DecryptFile with a non-existent file

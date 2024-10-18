@@ -8,8 +8,6 @@ type MockHelper struct {
 	GetEnvVarsFunc func() (map[string]string, error)
 	// PostEnvExecFunc is a function that mocks the PostEnvExec method
 	PostEnvExecFunc func() error
-	// SetConfigFunc is a function that mocks the SetConfig method
-	SetConfigFunc func(key, value string) error
 	// GetContainerConfigFunc is a function that mocks the GetContainerConfig method
 	GetContainerConfigFunc func() ([]types.ServiceConfig, error)
 	// WriteConfigFunc is a function that mocks the WriteConfig method
@@ -42,14 +40,6 @@ func (m *MockHelper) PostEnvExec() error {
 	return nil
 }
 
-// SetConfig calls the mock SetConfigFunc if it is set, otherwise returns nil
-func (m *MockHelper) SetConfig(key, value string) error {
-	if m.SetConfigFunc != nil {
-		return m.SetConfigFunc(key, value)
-	}
-	return nil
-}
-
 // GetContainerConfig calls the mock GetContainerConfigFunc if it is set, otherwise returns nil
 func (m *MockHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	if m.GetContainerConfigFunc != nil {
@@ -64,11 +54,6 @@ func (m *MockHelper) WriteConfig() error {
 		return m.WriteConfigFunc()
 	}
 	return nil
-}
-
-// SetSetConfigFunc sets the SetConfigFunc for the mock helper
-func (m *MockHelper) SetSetConfigFunc(setConfigFunc func(key, value string) error) {
-	m.SetConfigFunc = setConfigFunc
 }
 
 // SetPostEnvExecFunc sets the PostEnvExecFunc for the mock helper

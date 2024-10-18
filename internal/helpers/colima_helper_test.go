@@ -907,29 +907,4 @@ func TestColimaHelper(t *testing.T) {
 			}
 		})
 	})
-
-	t.Run("SetConfig", func(t *testing.T) {
-		t.Run("SetConfigStub", func(t *testing.T) {
-			// Given a AwsHelper instance
-			mockContext := context.NewMockContext()
-
-			// And a DI container with the mock context and mock config handler is created
-			diContainer := di.NewContainer()
-			mockConfigHandler := config.NewMockConfigHandler()
-			diContainer.Register("context", mockContext)
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-
-			// When creating ColimaHelper
-			helper, err := NewColimaHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewColimaHelper() error = %v", err)
-			}
-
-			// And calling SetConfig
-			err = helper.SetConfig("some_key", "some_value")
-
-			// Then it should return no error
-			assertError(t, err, false)
-		})
-	})
 }

@@ -110,11 +110,6 @@ func (h *AwsHelper) PostEnvExec() error {
 	return nil
 }
 
-// SetConfig sets new values for aws_endpoint_url and aws_profile
-func (h *AwsHelper) SetConfig(key, value string) error {
-	return nil
-}
-
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *AwsHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation

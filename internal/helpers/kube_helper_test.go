@@ -171,29 +171,6 @@ func TestKubeHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("SetConfig", func(t *testing.T) {
-		t.Run("SetConfigStub", func(t *testing.T) {
-			// Given a KubeHelper instance
-			mockContext := context.NewMockContext()
-
-			// And a DI container with the mock context is created
-			diContainer := di.NewContainer()
-			diContainer.Register("context", mockContext)
-
-			// When creating KubeHelper
-			helper, err := NewKubeHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewKubeHelper() error = %v", err)
-			}
-
-			// And calling SetConfig
-			err = helper.SetConfig("some_key", "some_value")
-
-			// Then it should return no error
-			assertError(t, err, false)
-		})
-	})
-
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context

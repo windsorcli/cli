@@ -96,11 +96,6 @@ func (h *DockerHelper) PostEnvExec() error {
 	return nil
 }
 
-// SetConfig sets the configuration value for the given key
-func (h *DockerHelper) SetConfig(key, value string) error {
-	return nil
-}
-
 // generateRegistryService creates a ServiceConfig for a Docker registry service
 // with the specified name, remote URL, and local URL.
 func generateRegistryService(name, remoteURL, localURL string) types.ServiceConfig {

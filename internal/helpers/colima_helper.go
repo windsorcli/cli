@@ -131,11 +131,6 @@ func (h *ColimaHelper) PostEnvExec() error {
 	return nil
 }
 
-// SetConfig sets the configuration value for the given key
-func (h *ColimaHelper) SetConfig(key, value string) error {
-	return nil
-}
-
 // Ensure ColimaHelper implements Helper interface
 var _ Helper = (*ColimaHelper)(nil)
 

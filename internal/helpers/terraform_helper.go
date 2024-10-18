@@ -121,11 +121,6 @@ func (h *TerraformHelper) PostEnvExec() error {
 	return generateBackendOverrideTf(h)
 }
 
-// SetConfig sets the configuration value for the given key
-func (h *TerraformHelper) SetConfig(key, value string) error {
-	return nil
-}
-
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *TerraformHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation

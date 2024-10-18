@@ -38,9 +38,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed with a valid context
@@ -67,9 +65,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
@@ -96,9 +92,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
@@ -126,9 +120,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockCLIHandler, mockProjectHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
@@ -160,9 +152,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
@@ -189,9 +179,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 
 		// Replace the global contextInstance with the mock
 		originalContextInstance := contextInstance
@@ -228,9 +216,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
@@ -262,9 +248,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
 
 		// When: the init command is executed
@@ -296,9 +280,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-driver flag and context
@@ -330,9 +312,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-cpu flag and context
@@ -364,9 +344,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-disk flag and context
@@ -398,9 +376,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-memory flag and context
@@ -432,9 +408,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, dockerHelper)
 
 		// When: the init command is executed with vm-arch flag and context
@@ -469,9 +443,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := &helpers.MockHelper{
-			SetConfigFunc: func(key, value string) error { return nil },
-		}
+		mockHelper := &helpers.MockHelper{}
 		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, mockHelper, mockHelper)
 
 		// When: the init command is executed with the docker flag

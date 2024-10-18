@@ -290,39 +290,6 @@ func TestDockerHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("SetConfig", func(t *testing.T) {
-		t.Run("SetConfigStub", func(t *testing.T) {
-			// Given a DockerHelper instance
-			mockContext := context.NewMockContext()
-
-			// And a DI container with the mock context and mock config handler is created
-			diContainer := di.NewContainer()
-			mockConfigHandler := config.NewMockConfigHandler()
-			diContainer.Register("context", mockContext)
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-
-			// Register a basic helper
-			basicHelper := NewMockHelper(func() (map[string]string, error) {
-				return map[string]string{
-					"basic_service": "basic_image:latest",
-				}, nil
-			})
-			diContainer.Register("helper", basicHelper)
-
-			// When creating DockerHelper
-			helper, err := NewDockerHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewDockerHelper() error = %v", err)
-			}
-
-			// And calling SetConfig
-			err = helper.SetConfig("some_key", "some_value")
-
-			// Then it should return no error
-			assertError(t, err, false)
-		})
-	})
-
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given: a mock config handler, shell, context, and helper
