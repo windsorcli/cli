@@ -612,6 +612,7 @@ func TestColimaHelper(t *testing.T) {
 				t.Fatalf("expected 'invalid value for arch: invalid-arch', got '%v'", err)
 			}
 		})
+
 		t.Run("ErrorSettingArchConfig", func(t *testing.T) {
 			// Given a mock config handler that returns an error when setting config value
 			cliConfigHandler := config.NewMockConfigHandler()
