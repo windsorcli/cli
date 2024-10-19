@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -340,6 +341,48 @@ func TestInitCmd(t *testing.T) {
 		expectedOutput := "error resolving helpers: resolve helpers error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("LocalContextSetsDefault", func(t *testing.T) {
+		// Arrange: Create a mock config handler and a flag to check if SetDefault was called
+		mockHandler := config.NewMockConfigHandler()
+		called := false
+
+		// Set the SetDefaultFunc to update the flag and check the parameters
+		mockHandler.SetDefaultFunc = func(context config.Context) {
+			called = true
+			expectedValue := config.DefaultLocalConfig
+			if !reflect.DeepEqual(context, expectedValue) {
+				t.Errorf("Expected value %v, got %v", expectedValue, context)
+			}
+		}
+
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		// Act: Call the init command with a local context
+		output := captureStdout(func() {
+			rootCmd.SetArgs([]string{"init", "local"})
+			err := rootCmd.Execute()
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+		})
+
+		// Assert: Verify that SetDefault was called
+		if !called {
+			t.Error("Expected SetDefaultFunc to be called")
+		}
+
+		// Assert: Verify the output indicates success
+		expectedOutput := "Initialization successful\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
 		}
 	})
 }
