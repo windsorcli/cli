@@ -216,4 +216,31 @@ func TestMockConfigHandler(t *testing.T) {
 			assertEqual(t, nil, value, "Get")
 		})
 	})
+
+	t.Run("SetDefault", func(t *testing.T) {
+		t.Run("SetDefaultFuncCalled", func(t *testing.T) {
+			// Arrange: Create a mock config handler and a flag to check if the function was called
+			mockHandler := NewMockConfigHandler()
+			called := false
+
+			// Set the SetDefaultFunc to update the flag and check the parameters
+			mockHandler.SetDefaultFunc = func(key string, value interface{}) {
+				called = true
+				if key != "test-key" {
+					t.Errorf("Expected key 'test-key', got %q", key)
+				}
+				if value != "default-value" {
+					t.Errorf("Expected value 'default-value', got %v", value)
+				}
+			}
+
+			// Act: Call SetDefault
+			mockHandler.SetDefault("test-key", "default-value")
+
+			// Assert: Verify that the function was called
+			if !called {
+				t.Error("Expected SetDefaultFunc to be called")
+			}
+		})
+	})
 }

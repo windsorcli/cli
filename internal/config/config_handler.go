@@ -111,4 +111,10 @@ type ConfigHandler interface {
 
 	// GetNestedMap retrieves a nested map for the specified key from the configuration
 	GetNestedMap(key string) (map[string]interface{}, error)
+
+	// ListKeys lists all keys for the specified key from the configuration
+	ListKeys(key string) ([]string, error)
+
+	// SetDefault sets the default configuration for the specified key
+	SetDefault(key string, value interface{})
 }

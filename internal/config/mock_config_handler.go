@@ -11,6 +11,7 @@ type MockConfigHandler struct {
 	GetFunc          func(key string) (interface{}, error)
 	GetNestedMapFunc func(key string) (map[string]interface{}, error)
 	ListKeysFunc     func(key string) ([]string, error)
+	SetDefaultFunc   func(key string, value interface{})
 }
 
 // NewMockConfigHandler is a constructor for MockConfigHandler
@@ -89,6 +90,21 @@ func (m *MockConfigHandler) GetNestedMap(key string) (map[string]interface{}, er
 		return m.GetNestedMapFunc(key)
 	}
 	return nil, nil
+}
+
+// ListKeys calls the mock ListKeysFunc if set, otherwise returns nil and nil error
+func (m *MockConfigHandler) ListKeys(key string) ([]string, error) {
+	if m.ListKeysFunc != nil {
+		return m.ListKeysFunc(key)
+	}
+	return nil, nil
+}
+
+// SetDefault calls the mock SetDefaultFunc if set, otherwise does nothing
+func (m *MockConfigHandler) SetDefault(key string, value interface{}) {
+	if m.SetDefaultFunc != nil {
+		m.SetDefaultFunc(key, value)
+	}
 }
 
 // Ensure MockConfigHandler implements ConfigHandler
