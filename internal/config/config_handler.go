@@ -25,8 +25,8 @@ type VMConfig struct {
 	Memory int    `yaml:"memory"`
 }
 
-// LocalContext represents the local context configuration
-type LocalContext struct {
+// Context represents the context configuration
+type Context struct {
 	AWS       AWSConfig       `yaml:"aws"`
 	Docker    DockerConfig    `yaml:"docker"`
 	Terraform TerraformConfig `yaml:"terraform"`
@@ -35,7 +35,8 @@ type LocalContext struct {
 
 // Config represents the entire configuration
 type Config struct {
-	Contexts map[string]LocalContext `yaml:"contexts"`
+	Context  string             `yaml:"context"`
+	Contexts map[string]Context `yaml:"contexts"`
 }
 
 // ConfigHandler defines the interface for handling configuration operations

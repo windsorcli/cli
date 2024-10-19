@@ -35,6 +35,9 @@ func (c *Context) GetContext() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error retrieving context: %w", err)
 	}
+	if context == "" {
+		return "local", nil
+	}
 	return context, nil
 }
 
@@ -50,7 +53,7 @@ func (c *Context) SetContext(context string) error {
 func (c *Context) GetConfigRoot() (string, error) {
 	context, err := c.GetContext()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error retrieving context: %w", err)
 	}
 
 	projectRoot, err := c.Shell.GetProjectRoot()

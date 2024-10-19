@@ -2,10 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/helpers"
 )
 
@@ -29,57 +28,52 @@ var initCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		contextName := args[0]
 
-		// Determine the cliConfig path
-		cliConfigPath := os.Getenv("WINDSOR_CONFIG")
-		if cliConfigPath == "" {
-			homeDir, err := osUserHomeDir()
-			if err != nil {
-				return fmt.Errorf("error retrieving home directory: %w", err)
-			}
-			cliConfigPath = filepath.Join(homeDir, ".config", "windsor", "config.yaml")
-		}
+		// Start with an empty Context
+		contextConfig := config.Context{}
 
-		// Determine the projectConfig path
-		projectConfigPath := getProjectConfigPath()
-
-		// Set the context value
+		// Set the context value in the cliConfigHandler
 		if err := cliConfigHandler.Set("context", contextName); err != nil {
-			return fmt.Errorf("Error setting config value: %w", err)
+			return fmt.Errorf("Error setting context value: %w", err)
 		}
 
-		// Set the backend configuration value using the cliConfigHandler
-		if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.terraform.backend", contextName), backend); err != nil {
-			return fmt.Errorf("Error setting backend value: %w", err)
+		// Set the specific context configuration in the cliConfigHandler
+		if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s", contextName), contextConfig); err != nil {
+			return fmt.Errorf("Error setting contexts value: %w", err)
 		}
 
-		// Set the Docker configuration values using the DockerHelper
-		if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.docker.enabled", contextName), docker); err != nil {
-			return fmt.Errorf("error setting Docker configuration: %w", err)
+		// Conditionally set AWS configuration
+		if cmd.Flags().Changed("aws-endpoint-url") {
+			contextConfig.AWS.AWSEndpointURL = awsEndpointURL
+		}
+		if cmd.Flags().Changed("aws-profile") {
+			contextConfig.AWS.AWSProfile = awsProfile
 		}
 
-		// Set the AWS configuration values using the AwsHelper
-		if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", contextName), awsEndpointURL); err != nil {
-			return fmt.Errorf("error setting aws_endpoint_url: %w", err)
-		}
-		if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.aws.aws_profile", contextName), awsProfile); err != nil {
-			return fmt.Errorf("error setting aws_profile: %w", err)
+		// Conditionally set Docker configuration
+		if cmd.Flags().Changed("docker") {
+			contextConfig.Docker.Enabled = docker
 		}
 
-		// Set the Colima configuration values using the cliConfigHandler
-		if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.driver", contextName), vmType); err != nil {
-			return fmt.Errorf("error setting vm driver: %w", err)
+		// Conditionally set Terraform configuration
+		if cmd.Flags().Changed("backend") {
+			contextConfig.Terraform.Backend = backend
 		}
-		if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.cpu", contextName), cpu); err != nil {
-			return fmt.Errorf("error setting vm cpu: %w", err)
+
+		// Conditionally set VM configuration
+		if cmd.Flags().Changed("vm-driver") {
+			contextConfig.VM.Driver = vmType
 		}
-		if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.disk", contextName), disk); err != nil {
-			return fmt.Errorf("error setting vm disk: %w", err)
+		if cmd.Flags().Changed("vm-cpu") {
+			contextConfig.VM.CPU = cpu
 		}
-		if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.memory", contextName), memory); err != nil {
-			return fmt.Errorf("error setting vm memory: %w", err)
+		if cmd.Flags().Changed("vm-disk") {
+			contextConfig.VM.Disk = disk
 		}
-		if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.arch", contextName), arch); err != nil {
-			return fmt.Errorf("error setting vm arch: %w", err)
+		if cmd.Flags().Changed("vm-memory") {
+			contextConfig.VM.Memory = memory
+		}
+		if cmd.Flags().Changed("vm-arch") {
+			contextConfig.VM.Arch = arch
 		}
 
 		// Save the cli configuration
