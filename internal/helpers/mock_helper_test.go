@@ -30,9 +30,10 @@ func TestMockHelper(t *testing.T) {
 		t.Run("GetEnvVarsFuncSet", func(t *testing.T) {
 			// Given a mock helper with a set GetEnvVarsFunc
 			expectedEnvVars := map[string]string{"VAR1": "value1"}
-			mockHelper := NewMockHelper(func() (map[string]string, error) {
+			mockHelper := NewMockHelper()
+			mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 				return expectedEnvVars, nil
-			})
+			}
 
 			// When calling GetEnvVars
 			result, err := mockHelper.GetEnvVars()
@@ -53,7 +54,7 @@ func TestMockHelper(t *testing.T) {
 
 		t.Run("GetEnvVarsFuncNotSet", func(t *testing.T) {
 			// Given a mock helper without a set GetEnvVarsFunc
-			mockHelper := NewMockHelper(nil)
+			mockHelper := NewMockHelper()
 
 			// When calling GetEnvVars
 			result, err := mockHelper.GetEnvVars()
@@ -69,9 +70,10 @@ func TestMockHelper(t *testing.T) {
 
 		t.Run("Error", func(t *testing.T) {
 			// Given a mock helper with an error getEnvVarsFunc
-			mockHelper := NewMockHelper(func() (map[string]string, error) {
+			mockHelper := NewMockHelper()
+			mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 				return nil, errors.New("error getting environment variables")
-			})
+			}
 
 			// When calling GetEnvVars
 			expectedError := errors.New("error getting environment variables")
@@ -88,9 +90,7 @@ func TestMockHelper(t *testing.T) {
 
 		t.Run("NilFunction", func(t *testing.T) {
 			// Given a mock helper with a nil getEnvVarsFunc
-			mockHelper := NewMockHelper(func() (map[string]string, error) {
-				return nil, nil
-			})
+			mockHelper := NewMockHelper()
 
 			// When calling GetEnvVars
 			result, err := mockHelper.GetEnvVars()
@@ -108,9 +108,7 @@ func TestMockHelper(t *testing.T) {
 	t.Run("PostEnvExec", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a MockHelper instance
-			mockHelper := NewMockHelper(func() (map[string]string, error) {
-				return nil, nil
-			})
+			mockHelper := NewMockHelper()
 
 			// Set the PostEnvExecFunc
 			mockHelper.SetPostEnvExecFunc(func() error {
@@ -128,9 +126,7 @@ func TestMockHelper(t *testing.T) {
 
 		t.Run("Error", func(t *testing.T) {
 			// Given a MockHelper instance with an error PostEnvExecFunc
-			mockHelper := NewMockHelper(func() (map[string]string, error) {
-				return nil, nil
-			})
+			mockHelper := NewMockHelper()
 
 			// Set the PostEnvExecFunc to return an error
 			mockHelper.SetPostEnvExecFunc(func() error {
@@ -152,9 +148,7 @@ func TestMockHelper(t *testing.T) {
 
 		t.Run("NilFunction", func(t *testing.T) {
 			// Given a MockHelper instance with a nil PostEnvExecFunc
-			mockHelper := NewMockHelper(func() (map[string]string, error) {
-				return nil, nil
-			})
+			mockHelper := NewMockHelper()
 
 			// When calling PostEnvExec
 			err := mockHelper.PostEnvExec()
@@ -216,9 +210,7 @@ func TestMockHelper(t *testing.T) {
 	t.Run("SetGetContainerConfigFunc", func(t *testing.T) {
 		t.Run("SetGetContainerConfigFunc", func(t *testing.T) {
 			// Given: a mock helper
-			mockHelper := NewMockHelper(func() (map[string]string, error) {
-				return nil, nil
-			})
+			mockHelper := NewMockHelper()
 
 			// Define a mock GetContainerConfigFunc
 			expectedConfig := []types.ServiceConfig{
@@ -265,9 +257,7 @@ func TestMockHelper(t *testing.T) {
 			diContainer.Register("shell", mockShell)
 
 			// Create an instance of MockHelper
-			mockHelper := NewMockHelper(func() (map[string]string, error) {
-				return nil, nil
-			})
+			mockHelper := NewMockHelper()
 			mockHelper.WriteConfigFunc = func() error {
 				return nil
 			}
@@ -283,9 +273,7 @@ func TestMockHelper(t *testing.T) {
 
 		t.Run("SetWriteConfigFunc", func(t *testing.T) {
 			// Given: a mock helper
-			mockHelper := NewMockHelper(func() (map[string]string, error) {
-				return nil, nil
-			})
+			mockHelper := NewMockHelper()
 
 			// Define a mock WriteConfigFunc
 			expectedError := errors.New("mock error writing config")

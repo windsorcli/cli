@@ -15,13 +15,8 @@ type MockHelper struct {
 }
 
 // NewMockHelper is a constructor for MockHelper
-func NewMockHelper(
-	// getEnvVarsFunc is a function that mocks the GetEnvVars method
-	getEnvVarsFunc func() (map[string]string, error),
-) *MockHelper {
-	return &MockHelper{
-		GetEnvVarsFunc: getEnvVarsFunc,
-	}
+func NewMockHelper() *MockHelper {
+	return &MockHelper{}
 }
 
 // GetEnvVars calls the mock GetEnvVarsFunc if it is set, otherwise returns nil

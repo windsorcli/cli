@@ -47,6 +47,22 @@ type Config struct {
 	Contexts map[string]Context `yaml:"contexts"`
 }
 
+// DefaultConfig returns the default configuration for the "local" context
+var DefaultConfig = Context{
+	Environment: map[string]string{},
+	AWS: AWSConfig{
+		AWSEndpointURL: "",
+		AWSProfile:     "",
+	},
+	Docker: DockerConfig{
+		Enabled:    false,
+		Registries: []Registry{},
+	},
+	Terraform: TerraformConfig{
+		Backend: "local",
+	},
+}
+
 // DefaultLocalConfig returns the default configuration for the "local" context
 var DefaultLocalConfig = Context{
 	Environment: map[string]string{},

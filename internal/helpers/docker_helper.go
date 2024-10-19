@@ -20,15 +20,6 @@ type DockerHelper struct {
 
 const registryImage = "registry:2.8.3"
 
-var defaultRegistries = []map[string]string{
-	{"name": "registry.test", "local": "", "remote": ""},
-	{"name": "registry-1.docker.test", "local": "https://docker.io", "remote": "https://registry-1.docker.io"},
-	{"name": "registry.k8s.test", "local": "", "remote": "https://registry.k8s.io"},
-	{"name": "gcr.test", "local": "", "remote": "https://gcr.io"},
-	{"name": "ghcr.test", "local": "", "remote": "https://ghcr.io"},
-	{"name": "quay.test", "local": "", "remote": "https://quay.io"},
-}
-
 // NewDockerHelper is a constructor for DockerHelper
 func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
 	cliConfigHandler, err := di.Resolve("cliConfigHandler")
@@ -149,48 +140,14 @@ func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	}
 
 	// Initialize registries list
-	var registries []map[string]string
-
-	// Check if registries are defined
-	if registriesInterface != nil {
-		registriesInterfaceList, ok := registriesInterface.([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("error converting registries to expected format")
-		}
-		for _, registryInterface := range registriesInterfaceList {
-			registryMap, ok := registryInterface.(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("error converting registry to expected format")
-			}
-			registry := make(map[string]string)
-			for key, value := range registryMap {
-				strValue, ok := value.(string)
-				if !ok {
-					return nil, fmt.Errorf("error converting registry value to string")
-				}
-				registry[key] = strValue
-			}
-			registries = append(registries, registry)
-		}
-	}
-
-	// Check if Docker is enabled
-	dockerEnabled, err := h.ConfigHandler.GetBool(fmt.Sprintf("contexts.%s.docker.enabled", context))
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving docker enabled status from configuration: %w", err)
-	}
-
-	// Use default registries if none are defined and Docker is enabled
-	if len(registries) == 0 && dockerEnabled {
-		registries = defaultRegistries
+	registries, ok := registriesInterface.([]config.Registry)
+	if !ok {
+		return nil, fmt.Errorf("error converting registries to expected format")
 	}
 
 	// Convert registries to service definitions
 	for _, registry := range registries {
-		name := registry["name"]
-		remote := registry["remote"]
-		local := registry["local"]
-		services = append(services, generateRegistryService(name, remote, local))
+		services = append(services, generateRegistryService(registry.Name, registry.Remote, registry.Local))
 	}
 
 	return services, nil

@@ -314,9 +314,7 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
-		mockHelper := helpers.NewMockHelper(func() (map[string]string, error) {
-			return nil, nil
-		})
+		mockHelper := helpers.NewMockHelper()
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
 		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
@@ -383,6 +381,381 @@ func TestInitCmd(t *testing.T) {
 		expectedOutput := "Initialization successful\n"
 		if output != expectedOutput {
 			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("AWSConfiguration", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		calledKeys := make(map[string]bool)
+
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			calledKeys[key] = true
+			return nil
+		}
+
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := helpers.NewMockHelper()
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--aws-endpoint-url", "http://localhost:4566",
+			"--aws-profile", "test-profile",
+		})
+		err = rootCmd.Execute()
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		expectedKeys := map[string]bool{
+			"contexts.test-context.aws.aws_endpoint_url": true,
+			"contexts.test-context.aws.aws_profile":      true,
+		}
+		for key := range expectedKeys {
+			if !calledKeys[key] {
+				t.Errorf("Expected key %q to be set", key)
+			}
+		}
+	})
+
+	t.Run("DockerConfiguration", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		calledKeys := make(map[string]bool)
+
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			calledKeys[key] = true
+			return nil
+		}
+
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := helpers.NewMockHelper()
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--docker",
+		})
+		err = rootCmd.Execute()
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		expectedKeys := map[string]bool{
+			"contexts.test-context.docker.enabled": true,
+		}
+		for key := range expectedKeys {
+			if !calledKeys[key] {
+				t.Errorf("Expected key %q to be set", key)
+			}
+		}
+	})
+
+	t.Run("TerraformConfiguration", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		calledKeys := make(map[string]bool)
+
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			calledKeys[key] = true
+			return nil
+		}
+
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := helpers.NewMockHelper()
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--backend", "s3",
+		})
+		err = rootCmd.Execute()
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		expectedKeys := map[string]bool{
+			"contexts.test-context.terraform.backend": true,
+		}
+		for key := range expectedKeys {
+			if !calledKeys[key] {
+				t.Errorf("Expected key %q to be set", key)
+			}
+		}
+	})
+
+	t.Run("VMConfiguration", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		calledKeys := make(map[string]bool)
+
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			calledKeys[key] = true
+			return nil
+		}
+
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := helpers.NewMockHelper()
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--vm-driver", "colima",
+			"--vm-cpu", "2",
+			"--vm-disk", "20",
+			"--vm-memory", "4096",
+			"--vm-arch", "x86_64",
+		})
+		err = rootCmd.Execute()
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		expectedKeys := map[string]bool{
+			"contexts.test-context.vm.driver": true,
+			"contexts.test-context.vm.cpu":    true,
+			"contexts.test-context.vm.disk":   true,
+			"contexts.test-context.vm.memory": true,
+			"contexts.test-context.vm.arch":   true,
+		}
+		for key := range expectedKeys {
+			if !calledKeys[key] {
+				t.Errorf("Expected key %q to be set", key)
+			}
+		}
+	})
+
+	t.Run("ErrorSettingAWSEndpointURL", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.aws.aws_endpoint_url" {
+				return errors.New("error setting AWS endpoint URL")
+			}
+			return nil
+		}
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--aws-endpoint-url", "http://localhost:4566",
+		})
+		err = rootCmd.Execute()
+		if err == nil || err.Error() != "Error setting AWS endpoint URL: error setting AWS endpoint URL" {
+			t.Fatalf("Expected error setting AWS endpoint URL, got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingAWSProfile", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.aws.aws_profile" {
+				return errors.New("error setting AWS profile")
+			}
+			return nil
+		}
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--aws-profile", "default",
+		})
+		err = rootCmd.Execute()
+		if err == nil || err.Error() != "Error setting AWS profile: error setting AWS profile" {
+			t.Fatalf("Expected error setting AWS profile, got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingDockerConfiguration", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.docker.enabled" {
+				return errors.New("error setting Docker enabled")
+			}
+			return nil
+		}
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--docker",
+		})
+		err = rootCmd.Execute()
+		if err == nil || err.Error() != "Error setting Docker enabled: error setting Docker enabled" {
+			t.Fatalf("Expected error setting Docker enabled, got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingTerraformConfiguration", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.terraform.backend" {
+				return errors.New("error setting Terraform backend")
+			}
+			return nil
+		}
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--backend", "s3",
+		})
+		err = rootCmd.Execute()
+		if err == nil || err.Error() != "Error setting Terraform backend: error setting Terraform backend" {
+			t.Fatalf("Expected error setting Terraform backend, got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingVMConfigurationArch", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.arch" {
+				return errors.New("error setting VM architecture")
+			}
+			return nil
+		}
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--vm-arch", "x86_64",
+		})
+		err = rootCmd.Execute()
+		if err == nil || err.Error() != "Error setting VM architecture: error setting VM architecture" {
+			t.Fatalf("Expected error setting VM architecture, got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingVMConfigurationDriver", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.driver" {
+				return errors.New("error setting VM driver")
+			}
+			return nil
+		}
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--vm-driver", "colima",
+		})
+		err = rootCmd.Execute()
+		if err == nil || err.Error() != "Error setting VM driver: error setting VM driver" {
+			t.Fatalf("Expected error setting VM driver, got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingVMConfigurationCPU", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.cpu" {
+				return errors.New("error setting VM CPU")
+			}
+			return nil
+		}
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--vm-cpu", "2",
+		})
+		err = rootCmd.Execute()
+		if err == nil || err.Error() != "Error setting VM CPU: error setting VM CPU" {
+			t.Fatalf("Expected error setting VM CPU, got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingVMConfigurationDisk", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.disk" {
+				return errors.New("error setting VM disk")
+			}
+			return nil
+		}
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--vm-disk", "20",
+		})
+		err = rootCmd.Execute()
+		if err == nil || err.Error() != "Error setting VM disk: error setting VM disk" {
+			t.Fatalf("Expected error setting VM disk, got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingVMConfigurationMemory", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "contexts.test-context.vm.memory" {
+				return errors.New("error setting VM memory")
+			}
+			return nil
+		}
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--vm-memory", "4096",
+		})
+		err = rootCmd.Execute()
+		if err == nil || err.Error() != "Error setting VM memory: error setting VM memory" {
+			t.Fatalf("Expected error setting VM memory, got %v", err)
 		}
 	})
 }

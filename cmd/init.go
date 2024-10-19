@@ -44,41 +44,61 @@ var initCmd = &cobra.Command{
 		// If the context is local or starts with "local-", set the defaults to the default local config
 		if contextName == "local" || len(contextName) > 6 && contextName[:6] == "local-" {
 			cliConfigHandler.SetDefault(config.DefaultLocalConfig)
+		} else {
+			cliConfigHandler.SetDefault(config.DefaultConfig)
 		}
 
 		// Conditionally set AWS configuration
 		if cmd.Flags().Changed("aws-endpoint-url") {
-			contextConfig.AWS.AWSEndpointURL = awsEndpointURL
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", contextName), awsEndpointURL); err != nil {
+				return fmt.Errorf("Error setting AWS endpoint URL: %w", err)
+			}
 		}
 		if cmd.Flags().Changed("aws-profile") {
-			contextConfig.AWS.AWSProfile = awsProfile
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.aws.aws_profile", contextName), awsProfile); err != nil {
+				return fmt.Errorf("Error setting AWS profile: %w", err)
+			}
 		}
 
 		// Conditionally set Docker configuration
 		if cmd.Flags().Changed("docker") {
-			contextConfig.Docker.Enabled = docker
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.docker.enabled", contextName), docker); err != nil {
+				return fmt.Errorf("Error setting Docker enabled: %w", err)
+			}
 		}
 
 		// Conditionally set Terraform configuration
 		if cmd.Flags().Changed("backend") {
-			contextConfig.Terraform.Backend = backend
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.terraform.backend", contextName), backend); err != nil {
+				return fmt.Errorf("Error setting Terraform backend: %w", err)
+			}
 		}
 
 		// Conditionally set VM configuration
 		if cmd.Flags().Changed("vm-driver") {
-			contextConfig.VM.Driver = vmType
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.driver", contextName), vmType); err != nil {
+				return fmt.Errorf("Error setting VM driver: %w", err)
+			}
 		}
 		if cmd.Flags().Changed("vm-cpu") {
-			contextConfig.VM.CPU = cpu
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.cpu", contextName), cpu); err != nil {
+				return fmt.Errorf("Error setting VM CPU: %w", err)
+			}
 		}
 		if cmd.Flags().Changed("vm-disk") {
-			contextConfig.VM.Disk = disk
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.disk", contextName), disk); err != nil {
+				return fmt.Errorf("Error setting VM disk: %w", err)
+			}
 		}
 		if cmd.Flags().Changed("vm-memory") {
-			contextConfig.VM.Memory = memory
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.memory", contextName), memory); err != nil {
+				return fmt.Errorf("Error setting VM memory: %w", err)
+			}
 		}
 		if cmd.Flags().Changed("vm-arch") {
-			contextConfig.VM.Arch = arch
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.arch", contextName), arch); err != nil {
+				return fmt.Errorf("Error setting VM architecture: %w", err)
+			}
 		}
 
 		// Save the cli configuration
