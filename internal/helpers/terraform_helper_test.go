@@ -90,7 +90,7 @@ func setupTestEnv(t *testing.T, backend string, tfvarsFiles map[string]string) (
 	t.Cleanup(func() { glob = originalGlob })
 
 	// Mock config handler to return a context configuration with the specified backend
-	mockConfigHandler := &config.MockConfigHandler{}
+	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 		switch key {
 		case "context":
@@ -102,10 +102,9 @@ func setupTestEnv(t *testing.T, backend string, tfvarsFiles map[string]string) (
 		}
 	}
 
-	mockContext := &context.MockContext{
-		GetConfigRootFunc: func() (string, error) {
-			return configRoot, nil
-		},
+	mockContext := context.NewMockContext()
+	mockContext.GetConfigRootFunc = func() (string, error) {
+		return configRoot, nil
 	}
 
 	// Set up DI container
@@ -362,6 +361,7 @@ func TestTerraformHelper(t *testing.T) {
 				t.Errorf("Expected error message to contain 'error getting config root', got %v", err)
 			}
 		})
+
 		t.Run("ErrorGlobbingTfvarsFiles", func(t *testing.T) {
 			// Given a valid project path and config root
 			tempDir := t.TempDir()
@@ -389,7 +389,7 @@ func TestTerraformHelper(t *testing.T) {
 			defer func() { glob = originalGlob }()
 
 			// Mock config handler to return a context configuration with the specified backend
-			mockConfigHandler := &config.MockConfigHandler{}
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				switch key {
 				case "context":
@@ -401,10 +401,9 @@ func TestTerraformHelper(t *testing.T) {
 				}
 			}
 
-			mockContext := &context.MockContext{
-				GetConfigRootFunc: func() (string, error) {
-					return configRoot, nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return configRoot, nil
 			}
 
 			// Create DI container and register mocks
@@ -686,7 +685,7 @@ func TestTerraformHelper(t *testing.T) {
 			defer func() { glob = originalGlob }()
 
 			// Mock config handler to return a context configuration with the specified backend
-			mockConfigHandler := &config.MockConfigHandler{}
+			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				switch key {
 				case "context":
@@ -698,10 +697,9 @@ func TestTerraformHelper(t *testing.T) {
 				}
 			}
 
-			mockContext := &context.MockContext{
-				GetConfigRootFunc: func() (string, error) {
-					return configRoot, nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return configRoot, nil
 			}
 
 			// Create DI container and register mocks

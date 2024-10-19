@@ -65,10 +65,9 @@ func TestColimaHelper(t *testing.T) {
 	t.Run("GetEnvVars", func(t *testing.T) {
 		t.Run("ErrorRetrievingContext", func(t *testing.T) {
 			// Given a mock context that returns an error
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "", errors.New("mock context error")
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "", errors.New("mock context error")
 			}
 
 			// And a DI container with the mock context and a mock config handler registered
@@ -95,10 +94,9 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
@@ -341,10 +339,9 @@ func TestColimaHelper(t *testing.T) {
 	t.Run("GetEnvVars", func(t *testing.T) {
 		t.Run("ErrorRetrievingVMDriver", func(t *testing.T) {
 			// Given a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
@@ -379,10 +376,9 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("DriverNotColima", func(t *testing.T) {
 			// Given a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
@@ -417,10 +413,9 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("ErrorRetrievingUserHomeDir", func(t *testing.T) {
 			// Given a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
@@ -462,10 +457,9 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
@@ -510,10 +504,9 @@ func TestColimaHelper(t *testing.T) {
 	t.Run("WriteConfig", func(t *testing.T) {
 		t.Run("ErrorRetrievingContext", func(t *testing.T) {
 			// Given a mock context that returns an error when retrieving context
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "", errors.New("mock error")
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "", errors.New("mock error")
 			}
 			// And a mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
@@ -695,10 +688,9 @@ func TestColimaHelper(t *testing.T) {
 			tempDir := t.TempDir()
 
 			// Given a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
@@ -747,10 +739,9 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("OverrideDefaultValues", func(t *testing.T) {
 			// Given a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetIntFunc = func(key string) (int, error) {
@@ -812,10 +803,9 @@ func TestColimaHelper(t *testing.T) {
 
 		t.Run("OverrideValues", func(t *testing.T) {
 			// Given a mock context and config handler with specific values
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
@@ -869,10 +859,9 @@ func TestColimaHelper(t *testing.T) {
 			tempDir := t.TempDir()
 
 			// Given a mock context that returns an error
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "", errors.New("mock context error")
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "", errors.New("mock context error")
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 
@@ -912,10 +901,9 @@ func TestColimaHelper(t *testing.T) {
 			tempDir := t.TempDir()
 
 			// Given a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
@@ -975,10 +963,9 @@ func TestColimaHelper(t *testing.T) {
 			tempDir := t.TempDir()
 
 			// Given a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
@@ -1059,10 +1046,9 @@ func TestColimaHelper(t *testing.T) {
 			defer func() { userHomeDir = originalUserHomeDir }()
 
 			// Given a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
@@ -1115,10 +1101,9 @@ func TestColimaHelper(t *testing.T) {
 			tempDir := t.TempDir()
 
 			// Given a mock context and config handler
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {

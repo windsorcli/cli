@@ -493,26 +493,24 @@ func TestDockerHelper(t *testing.T) {
 			diContainer := di.NewContainer()
 
 			// Mock the ConfigHandler to return an invalid type for registries
-			mockConfigHandler := &config.MockConfigHandler{
-				GetFunc: func(key string) (interface{}, error) {
-					if key == "contexts.test.docker.registries" {
-						return "invalidType", nil // Return a string instead of a list
-					}
-					return nil, fmt.Errorf("unexpected key: %s", key)
-				},
-				GetBoolFunc: func(key string) (bool, error) {
-					if key == "contexts.test.docker.enabled" {
-						return true, nil // Docker is enabled
-					}
-					return false, fmt.Errorf("unexpected key: %s", key)
-				},
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+				if key == "contexts.test.docker.registries" {
+					return "invalidType", nil // Return a string instead of a list
+				}
+				return nil, fmt.Errorf("unexpected key: %s", key)
+			}
+			mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+				if key == "contexts.test.docker.enabled" {
+					return true, nil // Docker is enabled
+				}
+				return false, fmt.Errorf("unexpected key: %s", key)
 			}
 
 			// Mock the ContextInterface
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test", nil
 			}
 
 			// Register mocks in the DI container
@@ -546,28 +544,26 @@ func TestDockerHelper(t *testing.T) {
 			diContainer := di.NewContainer()
 
 			// Mock the ConfigHandler to return a list with an invalid type for a registry
-			mockConfigHandler := &config.MockConfigHandler{
-				GetFunc: func(key string) (interface{}, error) {
-					if key == "contexts.test.docker.registries" {
-						return []interface{}{
-							"invalidRegistryType", // Invalid type, should be a map
-						}, nil
-					}
-					return nil, fmt.Errorf("unexpected key: %s", key)
-				},
-				GetBoolFunc: func(key string) (bool, error) {
-					if key == "contexts.test.docker.enabled" {
-						return true, nil // Docker is enabled
-					}
-					return false, fmt.Errorf("unexpected key: %s", key)
-				},
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+				if key == "contexts.test.docker.registries" {
+					return []interface{}{
+						"invalidRegistryType", // Invalid type, should be a map
+					}, nil
+				}
+				return nil, fmt.Errorf("unexpected key: %s", key)
+			}
+			mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+				if key == "contexts.test.docker.enabled" {
+					return true, nil // Docker is enabled
+				}
+				return false, fmt.Errorf("unexpected key: %s", key)
 			}
 
 			// Mock the ContextInterface
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test", nil
 			}
 
 			// Register mocks in the DI container
@@ -601,32 +597,30 @@ func TestDockerHelper(t *testing.T) {
 			diContainer := di.NewContainer()
 
 			// Mock the ConfigHandler to return a registry with an invalid value type
-			mockConfigHandler := &config.MockConfigHandler{
-				GetFunc: func(key string) (interface{}, error) {
-					if key == "contexts.test.docker.registries" {
-						return []interface{}{
-							map[string]interface{}{
-								"name":   "registry.test",
-								"remote": 123, // Invalid type, should be a string
-								"local":  "",
-							},
-						}, nil
-					}
-					return nil, fmt.Errorf("unexpected key: %s", key)
-				},
-				GetBoolFunc: func(key string) (bool, error) {
-					if key == "contexts.test.docker.enabled" {
-						return true, nil // Docker is enabled
-					}
-					return false, fmt.Errorf("unexpected key: %s", key)
-				},
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+				if key == "contexts.test.docker.registries" {
+					return []interface{}{
+						map[string]interface{}{
+							"name":   "registry.test",
+							"remote": 123, // Invalid type, should be a string
+							"local":  "",
+						},
+					}, nil
+				}
+				return nil, fmt.Errorf("unexpected key: %s", key)
+			}
+			mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+				if key == "contexts.test.docker.enabled" {
+					return true, nil // Docker is enabled
+				}
+				return false, fmt.Errorf("unexpected key: %s", key)
 			}
 
 			// Mock the ContextInterface
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test", nil
 			}
 
 			// Register mocks in the DI container
@@ -1015,26 +1009,24 @@ func TestDockerHelper(t *testing.T) {
 			diContainer := di.NewContainer()
 
 			// Mock the ConfigHandler
-			mockConfigHandler := &config.MockConfigHandler{
-				GetStringFunc: func(key string) (string, error) {
-					if key == "contexts.test.docker.registries" {
-						return "", nil // No registries defined
-					}
-					return "", fmt.Errorf("unexpected key: %s", key)
-				},
-				GetBoolFunc: func(key string) (bool, error) {
-					if key == "contexts.test.docker.enabled" {
-						return true, nil // Docker is enabled
-					}
-					return false, fmt.Errorf("unexpected key: %s", key)
-				},
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+				if key == "contexts.test.docker.registries" {
+					return "", nil // No registries defined
+				}
+				return "", fmt.Errorf("unexpected key: %s", key)
+			}
+			mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+				if key == "contexts.test.docker.enabled" {
+					return true, nil // Docker is enabled
+				}
+				return false, fmt.Errorf("unexpected key: %s", key)
 			}
 
 			// Mock the ContextInterface
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test", nil
 			}
 
 			// Register mocks in the DI container
@@ -1084,18 +1076,16 @@ func TestDockerHelper(t *testing.T) {
 
 		t.Run("ErrorMarshalingYAML", func(t *testing.T) {
 			// Given: a mock config handler and context
-			mockConfigHandler := &config.MockConfigHandler{
-				SetFunc: func(key string, value interface{}) error {
-					return nil
-				},
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+				return nil
 			}
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
-				GetConfigRootFunc: func() (string, error) {
-					return filepath.Join(os.TempDir(), "contexts", "test-context"), nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return filepath.Join(os.TempDir(), "contexts", "test-context"), nil
 			}
 
 			// Create DI container and register mocks
