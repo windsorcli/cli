@@ -31,6 +31,7 @@ func newMockConfigHandlerWithDefaults() *MockConfigHandler {
 		SaveConfigFunc:   func(path string) error { return nil },
 		GetNestedMapFunc: func(key string) (map[string]interface{}, error) { return nil, nil },
 		ListKeysFunc:     func(key string) ([]string, error) { return nil, nil },
+		SetDefaultFunc:   func(context Context) {},
 	}
 }
 
@@ -224,18 +225,16 @@ func TestMockConfigHandler(t *testing.T) {
 			called := false
 
 			// Set the SetDefaultFunc to update the flag and check the parameters
-			mockHandler.SetDefaultFunc = func(key string, value interface{}) {
+			mockHandler.SetDefaultFunc = func(context Context) {
 				called = true
-				if key != "test-key" {
-					t.Errorf("Expected key 'test-key', got %q", key)
-				}
-				if value != "default-value" {
-					t.Errorf("Expected value 'default-value', got %v", value)
+				expectedValue := DefaultLocalConfig
+				if !reflect.DeepEqual(context, expectedValue) {
+					t.Errorf("Expected value %v, got %v", expectedValue, context)
 				}
 			}
 
 			// Act: Call SetDefault
-			mockHandler.SetDefault("test-key", "default-value")
+			mockHandler.SetDefault(DefaultLocalConfig)
 
 			// Assert: Verify that the function was called
 			if !called {

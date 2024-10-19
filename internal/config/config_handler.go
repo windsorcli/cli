@@ -115,6 +115,6 @@ type ConfigHandler interface {
 	// ListKeys lists all keys for the specified key from the configuration
 	ListKeys(key string) ([]string, error)
 
-	// SetDefault sets the default configuration for the specified key
-	SetDefault(key string, value interface{})
+	// SetDefault sets the default context configuration
+	SetDefault(context Context)
 }

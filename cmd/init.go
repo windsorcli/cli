@@ -43,7 +43,7 @@ var initCmd = &cobra.Command{
 
 		// If the context is local or starts with "local-", set the defaults to the default local config
 		if contextName == "local" || len(contextName) > 6 && contextName[:6] == "local-" {
-			cliConfigHandler.SetDefault(fmt.Sprintf("contexts.%s", contextName), config.DefaultLocalConfig)
+			cliConfigHandler.SetDefault(config.DefaultLocalConfig)
 		}
 
 		// Conditionally set AWS configuration
