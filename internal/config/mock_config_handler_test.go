@@ -23,15 +23,13 @@ func assertEqual(t *testing.T, expected, actual interface{}, name string) {
 // Helper function to create a new MockConfigHandler with default functions
 func newMockConfigHandlerWithDefaults() *MockConfigHandler {
 	return &MockConfigHandler{
-		LoadConfigFunc:   func(path string) error { return nil },
-		GetStringFunc:    func(key string) (string, error) { return "", nil },
-		GetIntFunc:       func(key string) (int, error) { return 0, nil },
-		GetBoolFunc:      func(key string) (bool, error) { return false, nil },
-		SetFunc:          func(key string, value interface{}) error { return nil },
-		SaveConfigFunc:   func(path string) error { return nil },
-		GetNestedMapFunc: func(key string) (map[string]interface{}, error) { return nil, nil },
-		ListKeysFunc:     func(key string) ([]string, error) { return nil, nil },
-		SetDefaultFunc:   func(context Context) {},
+		LoadConfigFunc: func(path string) error { return nil },
+		GetStringFunc:  func(key string) (string, error) { return "", nil },
+		GetIntFunc:     func(key string) (int, error) { return 0, nil },
+		GetBoolFunc:    func(key string) (bool, error) { return false, nil },
+		SetFunc:        func(key string, value interface{}) error { return nil },
+		SaveConfigFunc: func(path string) error { return nil },
+		SetDefaultFunc: func(context Context) {},
 	}
 }
 
@@ -162,42 +160,6 @@ func TestMockConfigHandler(t *testing.T) {
 			handler := NewMockConfigHandler()
 			err := handler.SaveConfig("some/path")
 			assertError(t, err, nil)
-		})
-	})
-
-	t.Run("GetNestedMap", func(t *testing.T) {
-		mockGetNestedMapErr := errors.New("mock get nested map error")
-
-		t.Run("GetNestedMapWithKey", func(t *testing.T) {
-			handler := newMockConfigHandlerWithDefaults()
-			handler.GetNestedMapFunc = func(key string) (map[string]interface{}, error) { return nil, mockGetNestedMapErr }
-			_, err := handler.GetNestedMap("someKey")
-			assertError(t, err, mockGetNestedMapErr)
-		})
-
-		t.Run("GetNestedMapWithNoFuncSet", func(t *testing.T) {
-			handler := NewMockConfigHandler()
-			value, err := handler.GetNestedMap("someKey")
-			assertError(t, err, nil)
-			assertEqual(t, map[string]interface{}(nil), value, "GetNestedMap")
-		})
-	})
-
-	t.Run("ListKeys", func(t *testing.T) {
-		mockListKeysErr := errors.New("mock list keys error")
-
-		t.Run("ListKeysWithPrefix", func(t *testing.T) {
-			handler := newMockConfigHandlerWithDefaults()
-			handler.ListKeysFunc = func(prefix string) ([]string, error) { return nil, mockListKeysErr }
-			_, err := handler.ListKeys("somePrefix")
-			assertError(t, err, mockListKeysErr)
-		})
-
-		t.Run("ListKeysWithNoFuncSet", func(t *testing.T) {
-			handler := NewMockConfigHandler()
-			keys, err := handler.ListKeys("somePrefix")
-			assertError(t, err, nil)
-			assertEqual(t, []string(nil), keys, "ListKeys")
 		})
 	})
 

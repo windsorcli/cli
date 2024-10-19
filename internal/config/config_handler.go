@@ -34,10 +34,11 @@ type VMConfig struct {
 
 // Context represents the context configuration
 type Context struct {
-	AWS       AWSConfig       `yaml:"aws"`
-	Docker    DockerConfig    `yaml:"docker"`
-	Terraform TerraformConfig `yaml:"terraform"`
-	VM        VMConfig        `yaml:"vm"`
+	Environment map[string]string `yaml:"environment"`
+	AWS         AWSConfig         `yaml:"aws"`
+	Docker      DockerConfig      `yaml:"docker"`
+	Terraform   TerraformConfig   `yaml:"terraform"`
+	VM          VMConfig          `yaml:"vm"`
 }
 
 // Config represents the entire configuration
@@ -48,6 +49,7 @@ type Config struct {
 
 // DefaultLocalConfig returns the default configuration for the "local" context
 var DefaultLocalConfig = Context{
+	Environment: map[string]string{},
 	AWS: AWSConfig{
 		AWSEndpointURL: "http://aws.test:4566",
 		AWSProfile:     "default",
@@ -108,12 +110,6 @@ type ConfigHandler interface {
 
 	// SaveConfig saves the current configuration to the specified path
 	SaveConfig(path string) error
-
-	// GetNestedMap retrieves a nested map for the specified key from the configuration
-	GetNestedMap(key string) (map[string]interface{}, error)
-
-	// ListKeys lists all keys for the specified key from the configuration
-	ListKeys(key string) ([]string, error)
 
 	// SetDefault sets the default context configuration
 	SetDefault(context Context)

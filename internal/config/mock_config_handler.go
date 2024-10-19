@@ -2,16 +2,14 @@ package config
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
-	LoadConfigFunc   func(path string) error
-	GetStringFunc    func(key string) (string, error)
-	GetIntFunc       func(key string) (int, error)
-	GetBoolFunc      func(key string) (bool, error)
-	SetFunc          func(key string, value interface{}) error
-	SaveConfigFunc   func(path string) error
-	GetFunc          func(key string) (interface{}, error)
-	GetNestedMapFunc func(key string) (map[string]interface{}, error)
-	ListKeysFunc     func(key string) ([]string, error)
-	SetDefaultFunc   func(context Context)
+	LoadConfigFunc func(path string) error
+	GetStringFunc  func(key string) (string, error)
+	GetIntFunc     func(key string) (int, error)
+	GetBoolFunc    func(key string) (bool, error)
+	SetFunc        func(key string, value interface{}) error
+	SaveConfigFunc func(path string) error
+	GetFunc        func(key string) (interface{}, error)
+	SetDefaultFunc func(context Context)
 }
 
 // NewMockConfigHandler is a constructor for MockConfigHandler
@@ -82,22 +80,6 @@ func (m *MockConfigHandler) SaveConfig(path string) error {
 		return m.SaveConfigFunc(path)
 	}
 	return nil
-}
-
-// GetNestedMap calls the mock GetNestedMapFunc if set, otherwise returns nil and nil error
-func (m *MockConfigHandler) GetNestedMap(key string) (map[string]interface{}, error) {
-	if m.GetNestedMapFunc != nil {
-		return m.GetNestedMapFunc(key)
-	}
-	return nil, nil
-}
-
-// ListKeys calls the mock ListKeysFunc if set, otherwise returns nil and nil error
-func (m *MockConfigHandler) ListKeys(key string) ([]string, error) {
-	if m.ListKeysFunc != nil {
-		return m.ListKeysFunc(key)
-	}
-	return nil, nil
 }
 
 // SetDefault calls the mock SetDefaultFunc if set, otherwise does nothing
