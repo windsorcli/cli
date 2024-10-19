@@ -8,7 +8,14 @@ type AWSConfig struct {
 
 // DockerConfig represents the Docker configuration
 type DockerConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled    bool       `yaml:"enabled"`
+	Registries []Registry `yaml:"registries"`
+}
+
+type Registry struct {
+	Name   string `yaml:"name"`
+	Remote string `yaml:"remote"`
+	Local  string `yaml:"local"`
 }
 
 // TerraformConfig represents the Terraform configuration
@@ -37,6 +44,46 @@ type Context struct {
 type Config struct {
 	Context  string             `yaml:"context"`
 	Contexts map[string]Context `yaml:"contexts"`
+}
+
+// DefaultLocalConfig returns the default configuration for the "local" context
+var DefaultLocalConfig = Context{
+	AWS: AWSConfig{
+		AWSEndpointURL: "http://aws.test:4566",
+		AWSProfile:     "default",
+	},
+	Docker: DockerConfig{
+		Enabled: true,
+		Registries: []Registry{
+			{
+				Name: "registry.test",
+			},
+			{
+				Name:   "registry-1.docker.test",
+				Remote: "https://registry-1.docker.io",
+				Local:  "https://docker.io",
+			},
+			{
+				Name:   "registry.k8s.test",
+				Remote: "https://registry.k8s.io",
+			},
+			{
+				Name:   "gcr.test",
+				Remote: "https://gcr.io",
+			},
+			{
+				Name:   "ghcr.test",
+				Remote: "https://ghcr.io",
+			},
+			{
+				Name:   "quay.test",
+				Remote: "https://quay.io",
+			},
+		},
+	},
+	Terraform: TerraformConfig{
+		Backend: "local",
+	},
 }
 
 // ConfigHandler defines the interface for handling configuration operations
