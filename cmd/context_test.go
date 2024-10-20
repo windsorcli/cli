@@ -123,33 +123,6 @@ func TestContextSubcommand(t *testing.T) {
 				t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 			}
 		})
-
-		t.Run("SaveConfigError", func(t *testing.T) {
-			// Given a config handler that returns an error on SaveConfig
-			mockHandler := config.NewMockConfigHandler()
-			mockHandler.SetConfigValueFunc = func(key string, value interface{}) error { return nil }
-			mockHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
-			mockShell, err := shell.NewMockShell("cmd")
-			if err != nil {
-				t.Fatalf("NewMockShell() error = %v", err)
-			}
-			setupContainer(mockHandler, mockHandler, mockShell, nil, nil, nil, nil)
-
-			// When the set context command is executed
-			output := captureStderr(func() {
-				rootCmd.SetArgs([]string{"context", "set", "new-context"})
-				err := rootCmd.Execute()
-				if err == nil {
-					t.Fatalf("Expected error, got nil")
-				}
-			})
-
-			// Then the output should indicate the error
-			expectedOutput := "save config error"
-			if !strings.Contains(output, expectedOutput) {
-				t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-			}
-		})
 	})
 
 	t.Run("GetAlias", func(t *testing.T) {
@@ -255,33 +228,6 @@ func TestContextSubcommand(t *testing.T) {
 
 			// Then the output should indicate the error
 			expectedOutput := "set context error"
-			if !strings.Contains(output, expectedOutput) {
-				t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-			}
-		})
-
-		t.Run("SaveConfigError", func(t *testing.T) {
-			// Given a config handler that returns an error on SaveConfig
-			mockHandler := config.NewMockConfigHandler()
-			mockHandler.SetConfigValueFunc = func(key string, value interface{}) error { return nil }
-			mockHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
-			mockShell, err := shell.NewMockShell("cmd")
-			if err != nil {
-				t.Fatalf("NewMockShell() error = %v", err)
-			}
-			setupContainer(mockHandler, mockHandler, mockShell, nil, nil, nil, nil)
-
-			// When the set-context alias command is executed
-			output := captureStderr(func() {
-				rootCmd.SetArgs([]string{"set-context", "new-context"})
-				err := rootCmd.Execute()
-				if err == nil {
-					t.Fatalf("Expected error, got nil")
-				}
-			})
-
-			// Then the output should indicate the error
-			expectedOutput := "save config error"
 			if !strings.Contains(output, expectedOutput) {
 				t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 			}

@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -27,6 +29,19 @@ var initCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
 	RunE: func(cmd *cobra.Command, args []string) error {
 		contextName := args[0]
+
+		// Determine the cliConfig path
+		cliConfigPath := os.Getenv("WINDSOR_CONFIG")
+		if cliConfigPath == "" {
+			homeDir, err := osUserHomeDir()
+			if err != nil {
+				return fmt.Errorf("error retrieving home directory: %w", err)
+			}
+			cliConfigPath = filepath.Join(homeDir, ".config", "windsor", "config.yaml")
+		}
+
+		// Determine the projectConfig path
+		projectConfigPath := getProjectConfigPath()
 
 		// Set the context value
 		if err := cliConfigHandler.SetConfigValue("context", contextName); err != nil {
@@ -69,13 +84,15 @@ var initCmd = &cobra.Command{
 		}
 
 		// Save the cli configuration
-		if err := cliConfigHandler.SaveConfig(""); err != nil {
+		if err := cliConfigHandler.SaveConfig(cliConfigPath); err != nil {
 			return fmt.Errorf("Error saving config file: %w", err)
 		}
 
-		// Save the project configuration
-		if err := projectConfigHandler.SaveConfig(""); err != nil {
-			return fmt.Errorf("Error saving project config file: %w", err)
+		// Save the project configuration only if projectConfigPath is present
+		if projectConfigPath != "" {
+			if err := projectConfigHandler.SaveConfig(projectConfigPath); err != nil {
+				return fmt.Errorf("Error saving project config file: %w", err)
+			}
 		}
 
 		// Write the vendor config files using the DI container

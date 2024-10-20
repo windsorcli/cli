@@ -108,30 +108,6 @@ func TestContext(t *testing.T) {
 				t.Fatalf("expected error %s, got %s", expectedError, err.Error())
 			}
 		})
-
-		t.Run("SaveConfigError", func(t *testing.T) {
-			// Given a mock config handler that returns an error when saving the config
-			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error {
-				return nil
-			}
-			mockConfigHandler.SaveConfigFunc = func(path string) error {
-				return errors.New("error saving config")
-			}
-			mockShell, _ := shell.NewMockShell("unix")
-
-			context := NewContext(mockConfigHandler, mockShell)
-
-			// When calling SetContext
-			err := context.SetContext("new-context")
-
-			// Then an error should be returned
-			assertError(t, err, true)
-			expectedError := "error saving config: error saving config"
-			if err.Error() != expectedError {
-				t.Fatalf("expected error %s, got %s", expectedError, err.Error())
-			}
-		})
 	})
 
 	t.Run("GetConfigRoot", func(t *testing.T) {

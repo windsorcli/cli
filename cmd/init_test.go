@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -57,6 +60,175 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("SaveProjectConfigSuccess", func(t *testing.T) {
+		// Given: a valid project config handler and cli config handler
+		mockProjectHandler := config.NewMockConfigHandler()
+		mockCLIHandler := config.NewMockConfigHandler()
+		saveProjectConfigCalled := false
+		saveCLIConfigCalled := false
+
+		mockProjectHandler.SaveConfigFunc = func(path string) error {
+			saveProjectConfigCalled = true
+			expectedPath := filepath.ToSlash(filepath.Join("/mock/project/root", "windsor.yaml"))
+			if filepath.ToSlash(path) != expectedPath {
+				t.Errorf("Expected SaveConfig to be called with path %q, got %q", expectedPath, filepath.ToSlash(path))
+			}
+			return nil
+		}
+
+		mockCLIHandler.SaveConfigFunc = func(path string) error {
+			saveCLIConfigCalled = true
+			expectedPath := filepath.ToSlash(filepath.Join("/mock/home/dir", ".config", "windsor", "config.yaml"))
+			if filepath.ToSlash(path) != expectedPath {
+				t.Errorf("Expected SaveConfig to be called with path %q, got %q", expectedPath, filepath.ToSlash(path))
+			}
+			return nil
+		}
+
+		// Mock shell to return a valid project root
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return filepath.ToSlash("/mock/project/root"), nil
+		}
+
+		// Mock osUserHomeDir to return a valid home directory
+		originalUserHomeDir := osUserHomeDir
+		osUserHomeDir = func() (string, error) {
+			return filepath.ToSlash("/mock/home/dir"), nil
+		}
+		defer func() { osUserHomeDir = originalUserHomeDir }()
+
+		// Mock osStat to simulate the presence of windsor.yaml
+		originalOsStat := osStat
+		osStat = func(name string) (os.FileInfo, error) {
+			if filepath.ToSlash(name) == filepath.ToSlash(filepath.Join("/mock/project/root", "windsor.yaml")) {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("file not found")
+		}
+		defer func() { osStat = originalOsStat }()
+
+		// Register mocks in the DI container
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockCLIHandler, mockProjectHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		// When: the init command is executed with a valid context
+		output := captureStdout(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := rootCmd.Execute()
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+		})
+
+		// Then: the output should indicate success
+		expectedOutput := "Initialization successful\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+
+		// Verify that SaveConfig was called for both handlers
+		if !saveProjectConfigCalled {
+			t.Fatalf("Expected SaveConfig to be called for project config, but it was not")
+		}
+		if !saveCLIConfigCalled {
+			t.Fatalf("Expected SaveConfig to be called for CLI config, but it was not")
+		}
+	})
+
+	t.Run("SaveProjectConfigError", func(t *testing.T) {
+		// Given: a project config handler that returns an error on SaveConfig
+		mockProjectHandler := config.NewMockConfigHandler()
+		mockCLIHandler := config.NewMockConfigHandler()
+
+		mockProjectHandler.SaveConfigFunc = func(path string) error {
+			return fmt.Errorf("mock save config error")
+		}
+
+		// Mock shell to return a valid project root
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return filepath.ToSlash("/mock/project/root"), nil
+		}
+
+		// Mock osUserHomeDir to return a valid home directory
+		originalUserHomeDir := osUserHomeDir
+		osUserHomeDir = func() (string, error) {
+			return filepath.ToSlash("/mock/home/dir"), nil
+		}
+		defer func() { osUserHomeDir = originalUserHomeDir }()
+
+		// Mock osStat to simulate the presence of windsor.yaml
+		originalOsStat := osStat
+		osStat = func(name string) (os.FileInfo, error) {
+			if filepath.ToSlash(name) == filepath.ToSlash(filepath.Join("/mock/project/root", "windsor.yaml")) {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("file not found")
+		}
+		defer func() { osStat = originalOsStat }()
+
+		// Register mocks in the DI container
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockCLIHandler, mockProjectHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		// When: the init command is executed with a valid context
+		rootCmd.SetArgs([]string{"init", "test-context"})
+		err = rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then: the error should indicate a failure to save the project config file
+		expectedError := "Error saving project config file: mock save config error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("HomeDirError", func(t *testing.T) {
+		// Mock cliConfigHandler
+		mockHandler := config.NewMockConfigHandler()
+		cliConfigHandler = mockHandler
+
+		// Mock os.UserHomeDir to simulate an error
+		originalUserHomeDir := osUserHomeDir
+		osUserHomeDir = func() (string, error) {
+			return "", fmt.Errorf("mocked error retrieving home directory")
+		}
+		defer func() { osUserHomeDir = originalUserHomeDir }()
+
+		// Mock the exit function to prevent the test from exiting
+		exitCalled := false
+		exitFunc = func(code int) {
+			exitCalled = true
+		}
+
+		rootCmd.SetArgs([]string{"init", "test-context"})
+		err := rootCmd.Execute()
+
+		// Check that the error is as expected
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		expectedError := "error retrieving home directory: mocked error retrieving home directory"
+		if err.Error() != expectedError {
+			t.Fatalf("Execute() error = %v, expected '%s'", err, expectedError)
+		}
+
+		// Check that exit was called
+		if !exitCalled {
+			t.Fatalf("Expected exit to be called, but it was not")
+		}
+	})
+
 	t.Run("SetConfigValueError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SetConfigValue
 		mockHandler := config.NewMockConfigHandler()
@@ -106,34 +278,6 @@ func TestInitCmd(t *testing.T) {
 
 		// Then: the output should indicate the error
 		expectedOutput := "Error saving config file: save config error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ProjectConfigSaveError", func(t *testing.T) {
-		// Given: a CLI config handler that succeeds and a project config handler that returns an error on SaveConfig
-		mockCLIHandler := config.NewMockConfigHandler()
-		mockProjectHandler := config.NewMockConfigHandler()
-		mockProjectHandler.SaveConfigFunc = func(path string) error { return errors.New("save project config error") }
-		mockShell, err := shell.NewMockShell("cmd") // Ensure valid shell type
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
-		mockHelper := &helpers.MockHelper{}
-		setupContainer(mockCLIHandler, mockProjectHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
-
-		// When: the init command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then: the output should indicate the error
-		expectedOutput := "Error saving project config file: save project config error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}

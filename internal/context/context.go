@@ -43,9 +43,6 @@ func (c *Context) SetContext(context string) error {
 	if err := c.ConfigHandler.SetConfigValue("context", context); err != nil {
 		return fmt.Errorf("error setting context: %w", err)
 	}
-	if err := c.ConfigHandler.SaveConfig(""); err != nil {
-		return fmt.Errorf("error saving config: %w", err)
-	}
 	return nil
 }
 
