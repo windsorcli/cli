@@ -11,6 +11,7 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 	t.Run("WithPath", func(t *testing.T) {
 		handler, _ := NewYamlConfigHandler("")
 		// Given a valid config path
+		tempDir := t.TempDir()
 		err := handler.LoadConfig(tempDir + "/config.yaml")
 		// Then no error should be returned
 		assertError(t, err, nil)
@@ -19,7 +20,17 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 	t.Run("WithInvalidPath", func(t *testing.T) {
 		handler, _ := NewYamlConfigHandler("")
 		// Given an invalid config path
-		err := handler.LoadConfig(tempDir + "/invalid.yaml")
+		tempDir := t.TempDir()
+		invalidPath := tempDir + "/invalid.yaml"
+
+		// Mock osReadFile to return an error
+		originalOsReadFile := osReadFile
+		osReadFile = func(string) ([]byte, error) {
+			return nil, fmt.Errorf("mocked error reading file")
+		}
+		defer func() { osReadFile = originalOsReadFile }()
+
+		err := handler.LoadConfig(invalidPath)
 		// Then an error should be returned
 		if err == nil {
 			t.Errorf("LoadConfig() expected error, got nil")
@@ -90,11 +101,53 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 			t.Fatalf("LoadConfig() error = %v, expected '%s'", err, expectedError)
 		}
 	})
+
+	t.Run("UnmarshalError", func(t *testing.T) {
+		handler, _ := NewYamlConfigHandler("")
+
+		// Mock yamlUnmarshal to return an error
+		originalYamlUnmarshal := yamlUnmarshal
+		yamlUnmarshal = func(data []byte, v interface{}) error {
+			return fmt.Errorf("mocked error unmarshalling yaml")
+		}
+		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
+
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.yaml")
+
+		// Create a dummy config file
+		osWriteFile(configPath, []byte("dummy: data"), 0644)
+
+		err := handler.LoadConfig(configPath)
+		if err == nil {
+			t.Fatalf("LoadConfig() expected error, got nil")
+		}
+
+		expectedError := "error unmarshalling yaml: mocked error unmarshalling yaml"
+		if err.Error() != expectedError {
+			t.Fatalf("LoadConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
 }
 
 func TestYamlConfigHandler_GetConfigValue(t *testing.T) {
 	t.Run("WithExistingKey", func(t *testing.T) {
+		tempDir := t.TempDir()
 		handler, _ := NewYamlConfigHandler(tempDir + "/config.yaml")
+
+		// Set a value first
+		handler.SetConfigValue("testKey", "testValue")
+
+		// Mock osReadFile to simulate reading a config file with the key "testKey"
+		originalOsReadFile := osReadFile
+		osReadFile = func(filename string) ([]byte, error) {
+			if filename == tempDir+"/config.yaml" {
+				return []byte("testKey: testValue"), nil
+			}
+			return nil, fmt.Errorf("unexpected read operation")
+		}
+		defer func() { osReadFile = originalOsReadFile }()
+
 		// Given an existing key in the config
 		got, err := handler.GetConfigValue("testKey")
 		// Then the value should be retrieved without error
@@ -103,6 +156,7 @@ func TestYamlConfigHandler_GetConfigValue(t *testing.T) {
 	})
 
 	t.Run("WithNonExistentKey", func(t *testing.T) {
+		tempDir := t.TempDir()
 		handler, _ := NewYamlConfigHandler(tempDir + "/config.yaml")
 		// Given a non-existent key in the config
 		_, err := handler.GetConfigValue("nonExistentKey")
@@ -113,6 +167,7 @@ func TestYamlConfigHandler_GetConfigValue(t *testing.T) {
 	})
 
 	t.Run("WithNonExistentKeyAndDefaultValue", func(t *testing.T) {
+		tempDir := t.TempDir()
 		handler, _ := NewYamlConfigHandler(tempDir + "/config.yaml")
 		// Given a non-existent key in the config and a default value
 		got, err := handler.GetConfigValue("nonExistentKey", "defaultValue")
@@ -280,6 +335,13 @@ func TestYamlConfigHandler_GetNestedMap(t *testing.T) {
 
 func TestNewYamlConfigHandler(t *testing.T) {
 	t.Run("ErrorLoadingConfig", func(t *testing.T) {
+		// Create a temporary directory
+		tempDir, err := os.MkdirTemp("", "test")
+		if err != nil {
+			t.Fatalf("failed to create temp dir: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
 		// Given a non-existent config path
 		invalidPath := tempDir + "/nonexistent.yaml"
 

@@ -35,6 +35,18 @@ var osWriteFile = os.WriteFile
 // Override variable for yamlMarshal
 var yamlMarshal = yaml.Marshal
 
+// Override variable for yamlUnmarshal
+var yamlUnmarshal = yaml.Unmarshal
+
+// osUserHomeDir is a variable to allow mocking os.UserHomeDir in tests
+var osUserHomeDir = os.UserHomeDir
+
+// osMkdirAll is a variable to allow mocking os.MkdirAll in tests
+var osMkdirAll = os.MkdirAll
+
+// osStat is a variable to allow mocking os.Stat in tests
+var osStat = os.Stat
+
 // LoadConfig loads the configuration from the specified path
 func (y *YamlConfigHandler) LoadConfig(path string) error {
 	if _, err := osStat(path); os.IsNotExist(err) {
@@ -48,7 +60,7 @@ func (y *YamlConfigHandler) LoadConfig(path string) error {
 	if err != nil {
 		return fmt.Errorf("error reading config file: %w", err)
 	}
-	if err := yaml.Unmarshal(data, &y.config); err != nil {
+	if err := yamlUnmarshal(data, &y.config); err != nil {
 		return fmt.Errorf("error unmarshalling yaml: %w", err)
 	}
 	return nil
