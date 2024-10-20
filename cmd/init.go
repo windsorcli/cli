@@ -36,11 +36,6 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error setting context value: %w", err)
 		}
 
-		// Set the specific context configuration in the cliConfigHandler
-		if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s", contextName), contextConfig); err != nil {
-			return fmt.Errorf("Error setting contexts value: %w", err)
-		}
-
 		// If the context is local or starts with "local-", set the defaults to the default local config
 		if contextName == "local" || len(contextName) > 6 && contextName[:6] == "local-" {
 			cliConfigHandler.SetDefault(config.DefaultLocalConfig)

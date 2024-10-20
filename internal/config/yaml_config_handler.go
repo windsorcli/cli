@@ -10,7 +10,9 @@ import (
 
 // YamlConfigHandler implements the ConfigHandler interface using goccy/go-yaml
 type YamlConfigHandler struct {
-	config map[string]interface{}
+	config               map[string]interface{}
+	path                 string
+	defaultContextConfig Context
 }
 
 // NewYamlConfigHandler is a constructor for YamlConfigHandler that accepts a path
@@ -63,43 +65,17 @@ func (y *YamlConfigHandler) LoadConfig(path string) error {
 	if err := yamlUnmarshal(data, &y.config); err != nil {
 		return fmt.Errorf("error unmarshalling yaml: %w", err)
 	}
-	return nil
-}
-
-// GetConfigValue retrieves the value for the specified key from the configuration
-func (y *YamlConfigHandler) GetConfigValue(key string, defaultValue ...string) (string, error) {
-	if value, exists := y.config[key]; exists {
-		return fmt.Sprintf("%v", value), nil
-	}
-	if len(defaultValue) > 0 {
-		return defaultValue[0], nil
-	}
-	return "", fmt.Errorf("key %s not found in configuration", key)
-}
-
-// SetConfigValue sets the value for the specified key in the configuration
-func (y *YamlConfigHandler) SetConfigValue(key string, value interface{}) error {
-	keys := strings.Split(key, ".")
-	lastKey := keys[len(keys)-1]
-	m := y.config
-
-	// Navigate through the map to the correct nested map
-	for _, k := range keys[:len(keys)-1] {
-		if _, exists := m[k]; !exists {
-			m[k] = make(map[string]interface{})
-		}
-		m = m[k].(map[string]interface{})
-	}
-
-	// Set the value in the nested map
-	m[lastKey] = value
+	y.path = path
 	return nil
 }
 
 // SaveConfig saves the current configuration to the specified path
 func (y *YamlConfigHandler) SaveConfig(path string) error {
 	if path == "" {
-		return fmt.Errorf("path cannot be empty")
+		if y.path == "" {
+			return fmt.Errorf("path cannot be empty")
+		}
+		path = y.path
 	}
 	data, err := yamlMarshal(y.config)
 	if err != nil {
@@ -111,24 +87,72 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 	return nil
 }
 
-// GetNestedMap retrieves a nested map for the specified key from the configuration
-func (y *YamlConfigHandler) GetNestedMap(key string) (map[string]interface{}, error) {
+// GetString retrieves a string value for the specified key from the configuration
+func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) (string, error) {
+	if value, exists := y.config[key]; exists {
+		return fmt.Sprintf("%v", value), nil
+	}
+	if len(defaultValue) > 0 {
+		return defaultValue[0], nil
+	}
+	return "", fmt.Errorf("key %s not found in configuration", key)
+}
+
+// GetInt retrieves an integer value for the specified key from the configuration
+func (y *YamlConfigHandler) GetInt(key string, defaultValue ...int) (int, error) {
+	if value, exists := y.config[key]; exists {
+		if intValue, ok := value.(int); ok {
+			return intValue, nil
+		}
+		return 0, fmt.Errorf("key %s is not an integer", key)
+	}
+	if len(defaultValue) > 0 {
+		return defaultValue[0], nil
+	}
+	return 0, fmt.Errorf("key %s not found in configuration", key)
+}
+
+// GetBool retrieves a boolean value for the specified key from the configuration
+func (y *YamlConfigHandler) GetBool(key string, defaultValue ...bool) (bool, error) {
+	if value, exists := y.config[key]; exists {
+		if boolValue, ok := value.(bool); ok {
+			return boolValue, nil
+		}
+		return false, fmt.Errorf("key %s is not a boolean", key)
+	}
+	if len(defaultValue) > 0 {
+		return defaultValue[0], nil
+	}
+	return false, fmt.Errorf("key %s not found in configuration", key)
+}
+
+// Set sets the value for the specified key in the configuration
+func (y *YamlConfigHandler) Set(key string, value interface{}) error {
 	keys := strings.Split(key, ".")
+	lastKey := keys[len(keys)-1]
 	m := y.config
 
-	// Navigate through the map to the correct nested map
-	for _, k := range keys {
-		if value, exists := m[k]; exists {
-			if nestedMap, ok := value.(map[string]interface{}); ok {
-				m = nestedMap
-			} else {
-				return nil, fmt.Errorf("key %s is not a nested map", key)
-			}
-		} else {
-			return nil, fmt.Errorf("key %s not found in configuration", key)
+	for _, k := range keys[:len(keys)-1] {
+		if _, exists := m[k]; !exists {
+			m[k] = make(map[string]interface{})
 		}
+		m = m[k].(map[string]interface{})
 	}
-	return m, nil
+	m[lastKey] = value
+	return nil
+}
+
+// Get retrieves a value for the specified key from the configuration
+func (y *YamlConfigHandler) Get(key string) (interface{}, error) {
+	if value, exists := y.config[key]; exists {
+		return value, nil
+	}
+	return nil, fmt.Errorf("key %s not found in configuration", key)
+}
+
+// SetDefault sets the default context configuration
+func (y *YamlConfigHandler) SetDefault(context Context) {
+	y.defaultContextConfig = context
 }
 
 // Ensure YamlConfigHandler implements ConfigHandler
