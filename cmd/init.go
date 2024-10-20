@@ -31,9 +31,12 @@ var initCmd = &cobra.Command{
 		// Start with an empty Context
 		contextConfig := config.Context{}
 
-		// Set the context value in the cliConfigHandler
+		// Determine the projectConfig path
+		projectConfigPath := getProjectConfigPath()
+
+		// Set the context value
 		if err := cliConfigHandler.Set("context", contextName); err != nil {
-			return fmt.Errorf("Error setting context value: %w", err)
+			return fmt.Errorf("Error setting config value: %w", err)
 		}
 
 		// If the context is local or starts with "local-", set the defaults to the default local config
@@ -114,6 +117,7 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("error resolving helpers: %w", err)
 		}
 
+		// Write the vendor config files using the DI container
 		for _, instance := range helperInstances {
 			helper := instance.(helpers.Helper)
 			if err := helper.WriteConfig(); err != nil {

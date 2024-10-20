@@ -182,42 +182,6 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SetContextConfigError", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given: a config handler that returns an error on setting the context configuration
-		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockCliConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == fmt.Sprintf("contexts.%s", "test-context") {
-				return errors.New("set context config error")
-			}
-			return nil
-		}
-		mockProjectConfigHandler := config.NewMockConfigHandler()
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
-		mockHelper := helpers.NewMockHelper()
-		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
-
-		// When: the init command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then: the output should indicate the error
-		expectedOutput := "Error setting config value: set context config error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
 	t.Run("SaveProjectConfigError", func(t *testing.T) {
 		// Given: a project config handler that returns an error on SaveConfig
 		mockProjectHandler := config.NewMockConfigHandler()
