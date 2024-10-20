@@ -142,7 +142,7 @@ func (h *ColimaHelper) WriteConfig() error {
 	}
 
 	// Check if the vm driver is colima
-	driver, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", context))
+	driver, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", context), "")
 	if err != nil {
 		return fmt.Errorf("error retrieving vm driver: %w", err)
 	}
