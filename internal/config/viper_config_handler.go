@@ -137,18 +137,5 @@ func (v *ViperConfigHandler) GetNestedMap(key string) (map[string]interface{}, e
 	return viper.GetStringMap(key), nil
 }
 
-// ListKeys lists all keys at the specified key level in the configuration
-func (v *ViperConfigHandler) ListKeys(key string) ([]string, error) {
-	if !viper.IsSet(key) {
-		return nil, fmt.Errorf("key %s not found in configuration", key)
-	}
-	nestedMap := viper.GetStringMap(key)
-	keys := make([]string, 0, len(nestedMap))
-	for k := range nestedMap {
-		keys = append(keys, k)
-	}
-	return keys, nil
-}
-
 // Ensure ViperConfigHandler implements ConfigHandler
 var _ ConfigHandler = (*ViperConfigHandler)(nil)

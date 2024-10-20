@@ -7,7 +7,6 @@ type MockConfigHandler struct {
 	SetConfigValueFunc func(key string, value interface{}) error
 	SaveConfigFunc     func(path string) error
 	GetNestedMapFunc   func(key string) (map[string]interface{}, error)
-	ListKeysFunc       func(key string) ([]string, error)
 }
 
 // NewMockConfigHandler is a constructor for MockConfigHandler
@@ -51,14 +50,6 @@ func (m *MockConfigHandler) SaveConfig(path string) error {
 func (m *MockConfigHandler) GetNestedMap(key string) (map[string]interface{}, error) {
 	if m.GetNestedMapFunc != nil {
 		return m.GetNestedMapFunc(key)
-	}
-	return nil, nil
-}
-
-// ListKeys calls the mock ListKeysFunc if set, otherwise returns nil and nil error
-func (m *MockConfigHandler) ListKeys(key string) ([]string, error) {
-	if m.ListKeysFunc != nil {
-		return m.ListKeysFunc(key)
 	}
 	return nil, nil
 }

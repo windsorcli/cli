@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -298,30 +297,6 @@ func TestViperConfigHandler_GetNestedMap(t *testing.T) {
 		_, err := handler.GetNestedMap("contexts.nonexistent.env")
 		if err == nil {
 			t.Errorf("GetNestedMap() expected error, got nil")
-		}
-	})
-}
-
-func TestViperConfigHandler_ListKeys(t *testing.T) {
-	handler := &ViperConfigHandler{}
-	viper.Set("contexts.blah.env", map[string]interface{}{
-		"some_env":       "value1",
-		"some_other_env": "value2",
-	})
-
-	t.Run("ExistingKey", func(t *testing.T) {
-		got, err := handler.ListKeys("contexts.blah.env")
-		assertError(t, err, nil)
-		want := []string{"some_env", "some_other_env"}
-		sort.Strings(got)
-		sort.Strings(want)
-		assertEqual(t, want, got, "ListKeys")
-	})
-
-	t.Run("NonExistentKey", func(t *testing.T) {
-		_, err := handler.ListKeys("contexts.nonexistent.env")
-		if err == nil {
-			t.Errorf("ListKeys() expected error, got nil")
 		}
 	})
 }

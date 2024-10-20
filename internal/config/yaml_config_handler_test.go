@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 )
 
@@ -27,7 +26,7 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("WithNonExistentPath", func(t *testing.T) {
+	t.Run("CreateEmptyConfigFileIfNotExist", func(t *testing.T) {
 		// Mock osStat to simulate a non-existent file
 		originalOsStat := osStat
 		osStat = func(name string) (os.FileInfo, error) {
@@ -35,16 +34,60 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 		}
 		defer func() { osStat = originalOsStat }()
 
-		handler, _ := NewYamlConfigHandler("")
-		// Given a non-existent config path
-		err := handler.LoadConfig(tempDir + "/nonexistent.yaml")
-		// Then an error should be returned
-		if err == nil {
-			t.Errorf("LoadConfig() expected error, got nil")
+		// Mock osWriteFile to simulate file creation
+		originalOsWriteFile := osWriteFile
+		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			if filename == "test_config.yaml" && string(data) == "" {
+				// Simulate successful file creation
+				return nil
+			}
+			return fmt.Errorf("unexpected write operation")
 		}
-		expectedError := fmt.Sprintf("config file does not exist at path: %s", tempDir+"/nonexistent.yaml")
+		defer func() { osWriteFile = originalOsWriteFile }()
+
+		// Mock osReadFile to simulate reading the created file
+		originalOsReadFile := osReadFile
+		osReadFile = func(filename string) ([]byte, error) {
+			if filename == "test_config.yaml" {
+				// Simulate reading an empty file
+				return []byte{}, nil
+			}
+			return nil, fmt.Errorf("unexpected read operation")
+		}
+		defer func() { osReadFile = originalOsReadFile }()
+
+		// Ensure the file is considered created by the mock
+		handler, _ := NewYamlConfigHandler("")
+		err := handler.LoadConfig("test_config.yaml")
+		if err != nil {
+			t.Fatalf("LoadConfig() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("ErrorCreatingConfigFile", func(t *testing.T) {
+		// Mock osStat to simulate a non-existent file
+		originalOsStat := osStat
+		osStat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		defer func() { osStat = originalOsStat }()
+
+		// Mock osWriteFile to simulate an error during file creation
+		originalOsWriteFile := osWriteFile
+		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("mocked error creating file")
+		}
+		defer func() { osWriteFile = originalOsWriteFile }()
+
+		handler, _ := NewYamlConfigHandler("")
+		err := handler.LoadConfig("test_config.yaml")
+		if err == nil {
+			t.Fatalf("LoadConfig() expected error, got nil")
+		}
+
+		expectedError := "error creating config file: mocked error creating file"
 		if err.Error() != expectedError {
-			t.Errorf("LoadConfig() error = %v, expected '%s'", err, expectedError)
+			t.Fatalf("LoadConfig() error = %v, expected '%s'", err, expectedError)
 		}
 	})
 }
@@ -188,21 +231,21 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 }
 
 func TestYamlConfigHandler_GetNestedMap(t *testing.T) {
-	t.Run("WithExistingKey", func(t *testing.T) {
+	t.Run("WithExistingNestedMap", func(t *testing.T) {
 		handler, _ := NewYamlConfigHandler("")
-		handler.SetConfigValue("contexts.blah.env", map[string]interface{}{
-			"some_env":       "value1",
-			"some_other_env": "value2",
-		})
-		// Given an existing nested map key
-		got, err := handler.GetNestedMap("contexts.blah.env")
-		// Then the nested map should be retrieved without error
-		assertError(t, err, nil)
-		want := map[string]interface{}{
+		// Given a nested map in the configuration
+		nestedMap := map[string]interface{}{
 			"some_env":       "value1",
 			"some_other_env": "value2",
 		}
-		assertEqual(t, want, got, "GetNestedMap")
+		handler.SetConfigValue("contexts.blah.env", nestedMap)
+
+		// When retrieving the nested map
+		got, err := handler.GetNestedMap("contexts.blah.env")
+
+		// Then the nested map should be retrieved without error
+		assertError(t, err, nil)
+		assertEqual(t, nestedMap, got, "GetNestedMap")
 	})
 
 	t.Run("WithNonExistentKey", func(t *testing.T) {
@@ -231,53 +274,6 @@ func TestYamlConfigHandler_GetNestedMap(t *testing.T) {
 		expectedError := "key nonMapKey is not a nested map"
 		if err.Error() != expectedError {
 			t.Errorf("GetNestedMap() error = %v, expected '%s'", err, expectedError)
-		}
-	})
-}
-
-func TestYamlConfigHandler_ListKeys(t *testing.T) {
-	t.Run("WithExistingKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		handler.SetConfigValue("contexts.blah.env", map[string]interface{}{
-			"some_env":       "value1",
-			"some_other_env": "value2",
-		})
-		// Given an existing key with nested keys
-		got, err := handler.ListKeys("contexts.blah.env")
-		// Then the keys should be listed without error
-		assertError(t, err, nil)
-		want := []string{"some_env", "some_other_env"}
-		sort.Strings(got)
-		sort.Strings(want)
-		assertEqual(t, want, got, "ListKeys")
-	})
-
-	t.Run("WithNonExistentKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		handler.SetConfigValue("contexts.blah.env", map[string]interface{}{
-			"some_env":       "value1",
-			"some_other_env": "value2",
-		})
-		// Given a non-existent key
-		_, err := handler.ListKeys("contexts.nonexistent.env")
-		// Then an error should be returned
-		if err == nil {
-			t.Errorf("ListKeys() expected error, got nil")
-		}
-	})
-
-	t.Run("WithNonMapValue", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		handler.SetConfigValue("nonMapKey", "someValue")
-		// Given a key that is not a map
-		_, err := handler.ListKeys("nonMapKey")
-		// Then an error should be returned
-		if err == nil {
-			t.Errorf("ListKeys() expected error, got nil")
-		}
-		expectedError := "key nonMapKey is not a nested map"
-		if err.Error() != expectedError {
-			t.Errorf("ListKeys() error = %v, expected '%s'", err, expectedError)
 		}
 	})
 }

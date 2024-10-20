@@ -16,6 +16,7 @@ import (
 var (
 	exitFunc      = os.Exit
 	osUserHomeDir = os.UserHomeDir
+	osStat        = os.Stat
 	getwd         = os.Getwd
 	container     di.ContainerInterface
 	verbose       bool
@@ -76,9 +77,9 @@ func getProjectConfigPath() string {
 	windsorYaml := filepath.Join(projectRoot, "windsor.yaml")
 	windsorYml := filepath.Join(projectRoot, "windsor.yml")
 
-	if _, err := os.Stat(windsorYaml); err == nil {
+	if _, err := osStat(windsorYaml); err == nil {
 		projectConfigPath = windsorYaml
-	} else if _, err := os.Stat(windsorYml); err == nil {
+	} else if _, err := osStat(windsorYml); err == nil {
 		projectConfigPath = windsorYml
 	}
 	return projectConfigPath

@@ -141,6 +141,16 @@ func (h *ColimaHelper) WriteConfig() error {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
+	// Check if the vm driver is colima
+	driver, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", context))
+	if err != nil {
+		return fmt.Errorf("error retrieving vm driver: %w", err)
+	}
+
+	if driver != "colima" {
+		return nil
+	}
+
 	// Get default values
 	cpu, disk, memory, hostname, arch := getDefaultValues(context)
 	vmType := "qemu"

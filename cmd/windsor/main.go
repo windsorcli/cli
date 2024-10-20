@@ -16,7 +16,7 @@ func main() {
 	container := di.NewContainer()
 
 	// Register CLI Config Handler (to be initialized later)
-	cliConfigHandler, err := config.NewViperConfigHandler("")
+	cliConfigHandler, err := config.NewYamlConfigHandler("")
 	if err != nil {
 		log.Fatalf("failed to create CLI config handler: %v", err)
 	}

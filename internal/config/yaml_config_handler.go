@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -37,7 +38,10 @@ var yamlMarshal = yaml.Marshal
 // LoadConfig loads the configuration from the specified path
 func (y *YamlConfigHandler) LoadConfig(path string) error {
 	if _, err := osStat(path); os.IsNotExist(err) {
-		return fmt.Errorf("config file does not exist at path: %s", path)
+		// Create an empty config file if it does not exist
+		if err := osWriteFile(path, []byte{}, 0644); err != nil {
+			return fmt.Errorf("error creating config file: %w", err)
+		}
 	}
 
 	data, err := osReadFile(path)
@@ -63,7 +67,20 @@ func (y *YamlConfigHandler) GetConfigValue(key string, defaultValue ...string) (
 
 // SetConfigValue sets the value for the specified key in the configuration
 func (y *YamlConfigHandler) SetConfigValue(key string, value interface{}) error {
-	y.config[key] = value
+	keys := strings.Split(key, ".")
+	lastKey := keys[len(keys)-1]
+	m := y.config
+
+	// Navigate through the map to the correct nested map
+	for _, k := range keys[:len(keys)-1] {
+		if _, exists := m[k]; !exists {
+			m[k] = make(map[string]interface{})
+		}
+		m = m[k].(map[string]interface{})
+	}
+
+	// Set the value in the nested map
+	m[lastKey] = value
 	return nil
 }
 
@@ -84,28 +101,22 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 
 // GetNestedMap retrieves a nested map for the specified key from the configuration
 func (y *YamlConfigHandler) GetNestedMap(key string) (map[string]interface{}, error) {
-	if value, exists := y.config[key]; exists {
-		if nestedMap, ok := value.(map[string]interface{}); ok {
-			return nestedMap, nil
-		}
-		return nil, fmt.Errorf("key %s is not a nested map", key)
-	}
-	return nil, fmt.Errorf("key %s not found in configuration", key)
-}
+	keys := strings.Split(key, ".")
+	m := y.config
 
-// ListKeys lists all keys at the specified key level in the configuration
-func (y *YamlConfigHandler) ListKeys(key string) ([]string, error) {
-	if value, exists := y.config[key]; exists {
-		if nestedMap, ok := value.(map[string]interface{}); ok {
-			keys := make([]string, 0, len(nestedMap))
-			for k := range nestedMap {
-				keys = append(keys, k)
+	// Navigate through the map to the correct nested map
+	for _, k := range keys {
+		if value, exists := m[k]; exists {
+			if nestedMap, ok := value.(map[string]interface{}); ok {
+				m = nestedMap
+			} else {
+				return nil, fmt.Errorf("key %s is not a nested map", key)
 			}
-			return keys, nil
+		} else {
+			return nil, fmt.Errorf("key %s not found in configuration", key)
 		}
-		return nil, fmt.Errorf("key %s is not a nested map", key)
 	}
-	return nil, fmt.Errorf("key %s not found in configuration", key)
+	return m, nil
 }
 
 // Ensure YamlConfigHandler implements ConfigHandler
