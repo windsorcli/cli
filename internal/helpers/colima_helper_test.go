@@ -1,6 +1,7 @@
 package helpers
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -113,9 +114,11 @@ func TestColimaHelper(t *testing.T) {
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 			// Mock the userHomeDir function to return a valid directory
+			tempDir := t.TempDir()
+			defer os.RemoveAll(tempDir) // Clean up the temp directory after the test
 			originalUserHomeDir := userHomeDir
 			userHomeDir = func() (string, error) {
-				return "/mock/home", nil
+				return tempDir, nil
 			}
 			defer func() { userHomeDir = originalUserHomeDir }()
 
@@ -132,7 +135,7 @@ func TestColimaHelper(t *testing.T) {
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
 			}
-			expectedDockerSockPath := filepath.Join("/mock/home", ".colima", "windsor-test-context", "docker.sock")
+			expectedDockerSockPath := filepath.Join(tempDir, ".colima", "windsor-test-context", "docker.sock")
 			if envVars["DOCKER_SOCK"] != expectedDockerSockPath {
 				t.Fatalf("expected DOCKER_SOCK to be '%s', got '%s'", expectedDockerSockPath, envVars["DOCKER_SOCK"])
 			}
@@ -407,6 +410,20 @@ func TestColimaHelper(t *testing.T) {
 				t.Fatalf("NewColimaHelper() error = %v", err)
 			}
 
+			// Create a temporary directory
+			tempDir, err := os.MkdirTemp("", "colima_test")
+			if err != nil {
+				t.Fatalf("Failed to create temp dir: %v", err)
+			}
+			defer os.RemoveAll(tempDir) // Clean up the temp directory after the test
+
+			// Mock the userHomeDir function to return the temp directory
+			originalUserHomeDir := userHomeDir
+			userHomeDir = func() (string, error) {
+				return tempDir, nil
+			}
+			defer func() { userHomeDir = originalUserHomeDir }()
+
 			// Test WriteConfig function which uses overrideValue internally
 			err = colimaHelper.WriteConfig()
 			if err != nil {
@@ -505,6 +522,9 @@ func TestColimaHelper(t *testing.T) {
 		})
 
 		t.Run("DefaultValues", func(t *testing.T) {
+			// Create a temporary directory for the test
+			tempDir := t.TempDir()
+
 			// Given a mock context and config handler
 			mockContext := &context.MockContext{
 				GetContextFunc: func() (string, error) {
@@ -521,73 +541,10 @@ func TestColimaHelper(t *testing.T) {
 			diContainer.Register("context", mockContext)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
-			// Mock the userHomeDir function to return a valid directory
+			// Mock the userHomeDir function to return the temporary directory
 			originalUserHomeDir := userHomeDir
 			userHomeDir = func() (string, error) {
-				return "/mock/home", nil
-			}
-			defer func() { userHomeDir = originalUserHomeDir }()
-
-			// Mock the writeFile and rename functions
-			originalWriteFile := writeFile
-			writeFile = func(filename string, data []byte, perm os.FileMode) error {
-				return nil
-			}
-			defer func() { writeFile = originalWriteFile }()
-
-			originalRename := rename
-			rename = func(oldpath, newpath string) error {
-				return nil
-			}
-			defer func() { rename = originalRename }()
-
-			// When creating a new ColimaHelper
-			helper, err := NewColimaHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewColimaHelper() error = %v", err)
-			}
-
-			// And writing the configuration
-			err = helper.WriteConfig()
-
-			// Then it should not return an error
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
-
-		t.Run("OverrideValues", func(t *testing.T) {
-			// Given a mock context and config handler with specific values
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
-			}
-			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
-				switch key {
-				case "contexts.test-context.vm.cpu":
-					return "8", nil
-				case "contexts.test-context.vm.disk":
-					return "200", nil
-				case "contexts.test-context.vm.memory":
-					return "16", nil
-				case "contexts.test-context.vm.arch":
-					return "x86_64", nil
-				default:
-					return "", nil
-				}
-			}
-
-			// And a DI container with the mock context and config handler registered
-			diContainer := di.NewContainer()
-			diContainer.Register("context", mockContext)
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-
-			// Mock the userHomeDir function to return a valid directory
-			originalUserHomeDir := userHomeDir
-			userHomeDir = func() (string, error) {
-				return "/mock/home", nil
+				return tempDir, nil
 			}
 			defer func() { userHomeDir = originalUserHomeDir }()
 
@@ -620,6 +577,9 @@ func TestColimaHelper(t *testing.T) {
 		})
 
 		t.Run("ErrorRetrievingVMDriver", func(t *testing.T) {
+			// Create a temporary directory for the test
+			tempDir := t.TempDir()
+
 			// Given a mock context and config handler
 			mockContext := &context.MockContext{
 				GetContextFunc: func() (string, error) {
@@ -638,6 +598,13 @@ func TestColimaHelper(t *testing.T) {
 			diContainer := di.NewContainer()
 			diContainer.Register("context", mockContext)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
+
+			// Mock the userHomeDir function to return the temporary directory
+			originalUserHomeDir := userHomeDir
+			userHomeDir = func() (string, error) {
+				return tempDir, nil
+			}
+			defer func() { userHomeDir = originalUserHomeDir }()
 
 			// When creating a new ColimaHelper
 			helper, err := NewColimaHelper(diContainer)
@@ -658,6 +625,9 @@ func TestColimaHelper(t *testing.T) {
 		})
 
 		t.Run("ErrorRetrievingContext", func(t *testing.T) {
+			// Create a temporary directory for the test
+			tempDir := t.TempDir()
+
 			// Given a mock context that returns an error
 			mockContext := &context.MockContext{
 				GetContextFunc: func() (string, error) {
@@ -670,6 +640,13 @@ func TestColimaHelper(t *testing.T) {
 			diContainer := di.NewContainer()
 			diContainer.Register("context", mockContext)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
+
+			// Mock the userHomeDir function to return the temporary directory
+			originalUserHomeDir := userHomeDir
+			userHomeDir = func() (string, error) {
+				return tempDir, nil
+			}
+			defer func() { userHomeDir = originalUserHomeDir }()
 
 			// When creating a new ColimaHelper
 			helper, err := NewColimaHelper(diContainer)
@@ -691,6 +668,9 @@ func TestColimaHelper(t *testing.T) {
 		})
 
 		t.Run("ErrorEncodingYAML", func(t *testing.T) {
+			// Create a temporary directory for the test
+			tempDir := t.TempDir()
+
 			// Given a mock context and config handler
 			mockContext := &context.MockContext{
 				GetContextFunc: func() (string, error) {
@@ -710,10 +690,10 @@ func TestColimaHelper(t *testing.T) {
 			diContainer.Register("context", mockContext)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
-			// Mock the userHomeDir function to return a valid directory
+			// Mock the userHomeDir function to return the temporary directory
 			originalUserHomeDir := userHomeDir
 			userHomeDir = func() (string, error) {
-				return "/mock/home", nil
+				return tempDir, nil
 			}
 			defer func() { userHomeDir = originalUserHomeDir }()
 
@@ -751,6 +731,9 @@ func TestColimaHelper(t *testing.T) {
 		})
 
 		t.Run("ErrorWritingFile", func(t *testing.T) {
+			// Create a temporary directory for the test
+			tempDir := t.TempDir()
+
 			// Given a mock context and config handler
 			mockContext := &context.MockContext{
 				GetContextFunc: func() (string, error) {
@@ -770,10 +753,10 @@ func TestColimaHelper(t *testing.T) {
 			diContainer.Register("context", mockContext)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
-			// Mock the userHomeDir function to return a valid directory
+			// Mock the userHomeDir function to return the temporary directory
 			originalUserHomeDir := userHomeDir
 			userHomeDir = func() (string, error) {
-				return "/mock/home", nil
+				return tempDir, nil
 			}
 			defer func() { userHomeDir = originalUserHomeDir }()
 
@@ -888,6 +871,9 @@ func TestColimaHelper(t *testing.T) {
 		})
 
 		t.Run("ErrorClosingEncoder", func(t *testing.T) {
+			// Create a temporary directory for the test
+			tempDir := t.TempDir()
+
 			// Given a mock context and config handler
 			mockContext := &context.MockContext{
 				GetContextFunc: func() (string, error) {
@@ -907,10 +893,10 @@ func TestColimaHelper(t *testing.T) {
 			diContainer.Register("context", mockContext)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 
-			// Mock the userHomeDir function to return a valid directory
+			// Mock the userHomeDir function to return the temporary directory
 			originalUserHomeDir := userHomeDir
 			userHomeDir = func() (string, error) {
-				return "/mock/home", nil
+				return tempDir, nil
 			}
 			defer func() { userHomeDir = originalUserHomeDir }()
 
@@ -1051,6 +1037,231 @@ func TestColimaHelper(t *testing.T) {
 						t.Fatalf("expected error: %v, got: %v", tt.expectErr, err)
 					}
 				})
+			}
+		})
+
+		t.Run("ErrorCreatingParentDirectories", func(t *testing.T) {
+			// Create a temporary directory for the test
+			tempDir := t.TempDir()
+
+			// Given a mock context and config handler
+			mockContext := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				if key == "contexts.test-context.vm.driver" {
+					return "colima", nil
+				}
+				return "", nil
+			}
+
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("context", mockContext)
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+
+			// Mock the userHomeDir function to return the temporary directory
+			originalUserHomeDir := userHomeDir
+			userHomeDir = func() (string, error) {
+				return tempDir, nil
+			}
+			defer func() { userHomeDir = originalUserHomeDir }()
+
+			// Mock the mkdirAll function to return an error for parent directory creation
+			originalMkdirAll := mkdirAll
+			mkdirAll = func(path string, perm os.FileMode) error {
+				if path == filepath.Join(tempDir, ".colima") {
+					return errors.New("mock mkdir error")
+				}
+				return nil
+			}
+			defer func() { mkdirAll = originalMkdirAll }()
+
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And writing the configuration
+			err = helper.WriteConfig()
+
+			// Then it should return an error indicating parent directory creation failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			expectedError := "error creating parent directories for colima directory: mock mkdir error"
+			if err.Error() != expectedError {
+				t.Fatalf("expected error to be '%s', got '%s'", expectedError, err.Error())
+			}
+		})
+
+		t.Run("ErrorCreatingColimaDirectory", func(t *testing.T) {
+			// Create a temporary directory for the test
+			tempDir := t.TempDir()
+
+			// Given a mock context and config handler
+			mockContext := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				if key == "contexts.test-context.vm.driver" {
+					return "colima", nil
+				}
+				return "", nil
+			}
+
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("context", mockContext)
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+
+			// Mock the userHomeDir function to return the temporary directory
+			originalUserHomeDir := userHomeDir
+			userHomeDir = func() (string, error) {
+				return tempDir, nil
+			}
+			defer func() { userHomeDir = originalUserHomeDir }()
+
+			// Mock the mkdirAll function to return an error for colima directory creation
+			originalMkdirAll := mkdirAll
+			mkdirAll = func(path string, perm os.FileMode) error {
+				if path == filepath.Join(tempDir, ".colima", "windsor-test-context") {
+					return errors.New("mock mkdir error")
+				}
+				return nil
+			}
+			defer func() { mkdirAll = originalMkdirAll }()
+
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And writing the configuration
+			err = helper.WriteConfig()
+
+			// Then it should return an error indicating colima directory creation failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			expectedError := "error creating colima directory: mock mkdir error"
+			if err.Error() != expectedError {
+				t.Fatalf("expected error to be '%s', got '%s'", expectedError, err.Error())
+			}
+		})
+
+		t.Run("ErrorRetrievingUserHomeDir", func(t *testing.T) {
+			// Given a mock context and config handler
+			mockContext := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				if key == "contexts.test-context.vm.driver" {
+					return "colima", nil
+				}
+				return "", nil
+			}
+
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("context", mockContext)
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+
+			// Mock the userHomeDir function to return an error
+			originalUserHomeDir := userHomeDir
+			userHomeDir = func() (string, error) {
+				return "", errors.New("mock home dir error")
+			}
+			defer func() { userHomeDir = originalUserHomeDir }()
+
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And writing the configuration
+			err = helper.WriteConfig()
+
+			// Then it should return an error indicating user home directory retrieval failure
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			expectedError := "error retrieving user home directory: mock home dir error"
+			if err.Error() != expectedError {
+				t.Fatalf("expected error to be '%s', got '%s'", expectedError, err.Error())
+			}
+		})
+
+		t.Run("SetVmTypeToVzForAarch64", func(t *testing.T) {
+			// Given a mock context and config handler
+			mockContext := &context.MockContext{
+				GetContextFunc: func() (string, error) {
+					return "test-context", nil
+				},
+			}
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+				if key == "contexts.test-context.vm.driver" {
+					return "colima", nil
+				}
+				return "", nil
+			}
+
+			// And a DI container with the mock context and config handler registered
+			diContainer := di.NewContainer()
+			diContainer.Register("context", mockContext)
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+
+			// Mock the userHomeDir function to return a valid directory
+			tempDir := t.TempDir()
+			defer os.RemoveAll(tempDir) // Clean up the temp directory after the test
+			originalUserHomeDir := userHomeDir
+			userHomeDir = func() (string, error) {
+				return tempDir, nil
+			}
+			defer func() { userHomeDir = originalUserHomeDir }()
+
+			// Mock the getArch function to return "aarch64"
+			originalGetArch := getArch
+			getArch = func() string {
+				return "aarch64"
+			}
+			defer func() { getArch = originalGetArch }()
+
+			// When creating a new ColimaHelper
+			helper, err := NewColimaHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewColimaHelper() error = %v", err)
+			}
+
+			// And writing the configuration
+			err = helper.WriteConfig()
+			if err != nil {
+				t.Fatalf("WriteConfig() error = %v", err)
+			}
+
+			// Verify that the vmType was set to "vz"
+			// This can be done by checking the contents of the written config file
+			configFilePath := filepath.Join(tempDir, ".colima", "windsor-test-context", "colima.yaml")
+			configContent, err := os.ReadFile(configFilePath)
+			if err != nil {
+				t.Fatalf("failed to read config file: %v", err)
+			}
+
+			if !bytes.Contains(configContent, []byte("vmType: vz")) {
+				t.Fatalf("expected vmType to be 'vz', but it was not")
 			}
 		})
 	})

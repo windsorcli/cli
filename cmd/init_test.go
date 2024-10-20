@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -68,16 +69,18 @@ func TestInitCmd(t *testing.T) {
 
 		mockProjectHandler.SaveConfigFunc = func(path string) error {
 			saveProjectConfigCalled = true
-			if path != "/mock/project/root/windsor.yaml" {
-				t.Errorf("Expected SaveConfig to be called with path %q, got %q", "/mock/project/root/windsor.yaml", path)
+			expectedPath := filepath.ToSlash(filepath.Join("/mock/project/root", "windsor.yaml"))
+			if filepath.ToSlash(path) != expectedPath {
+				t.Errorf("Expected SaveConfig to be called with path %q, got %q", expectedPath, filepath.ToSlash(path))
 			}
 			return nil
 		}
 
 		mockCLIHandler.SaveConfigFunc = func(path string) error {
 			saveCLIConfigCalled = true
-			if path != "/mock/home/dir/.config/windsor/config.yaml" {
-				t.Errorf("Expected SaveConfig to be called with path %q, got %q", "/mock/home/dir/.config/windsor/config.yaml", path)
+			expectedPath := filepath.ToSlash(filepath.Join("/mock/home/dir", ".config", "windsor", "config.yaml"))
+			if filepath.ToSlash(path) != expectedPath {
+				t.Errorf("Expected SaveConfig to be called with path %q, got %q", expectedPath, filepath.ToSlash(path))
 			}
 			return nil
 		}
@@ -88,20 +91,20 @@ func TestInitCmd(t *testing.T) {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
 		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project/root", nil
+			return filepath.ToSlash("/mock/project/root"), nil
 		}
 
 		// Mock osUserHomeDir to return a valid home directory
 		originalUserHomeDir := osUserHomeDir
 		osUserHomeDir = func() (string, error) {
-			return "/mock/home/dir", nil
+			return filepath.ToSlash("/mock/home/dir"), nil
 		}
 		defer func() { osUserHomeDir = originalUserHomeDir }()
 
 		// Mock osStat to simulate the presence of windsor.yaml
 		originalOsStat := osStat
 		osStat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/project/root/windsor.yaml" {
+			if filepath.ToSlash(name) == filepath.ToSlash(filepath.Join("/mock/project/root", "windsor.yaml")) {
 				return nil, nil
 			}
 			return nil, fmt.Errorf("file not found")
@@ -151,20 +154,20 @@ func TestInitCmd(t *testing.T) {
 			t.Fatalf("NewMockShell() error = %v", err)
 		}
 		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project/root", nil
+			return filepath.ToSlash("/mock/project/root"), nil
 		}
 
 		// Mock osUserHomeDir to return a valid home directory
 		originalUserHomeDir := osUserHomeDir
 		osUserHomeDir = func() (string, error) {
-			return "/mock/home/dir", nil
+			return filepath.ToSlash("/mock/home/dir"), nil
 		}
 		defer func() { osUserHomeDir = originalUserHomeDir }()
 
 		// Mock osStat to simulate the presence of windsor.yaml
 		originalOsStat := osStat
 		osStat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/project/root/windsor.yaml" {
+			if filepath.ToSlash(name) == filepath.ToSlash(filepath.Join("/mock/project/root", "windsor.yaml")) {
 				return nil, nil
 			}
 			return nil, fmt.Errorf("file not found")
