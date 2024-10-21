@@ -527,6 +527,75 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("GitLivereloadConfiguration", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		calledKeys := make(map[string]bool)
+
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			calledKeys[key] = true
+			return nil
+		}
+
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := helpers.NewMockHelper()
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--git-livereload",
+		})
+		err = rootCmd.Execute()
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		expectedKeys := map[string]bool{
+			"contexts.test-context.git.livereload.enabled": true,
+		}
+		for key := range expectedKeys {
+			if !calledKeys[key] {
+				t.Errorf("Expected key %q to be set", key)
+			}
+		}
+	})
+
+	t.Run("GitLivereloadConfigurationError", func(t *testing.T) {
+		mockHandler := config.NewMockConfigHandler()
+		calledKeys := make(map[string]bool)
+
+		mockHandler.SetFunc = func(key string, value interface{}) error {
+			calledKeys[key] = true
+			if key == "contexts.test-context.git.livereload.enabled" {
+				return fmt.Errorf("mock set error")
+			}
+			return nil
+		}
+
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := helpers.NewMockHelper()
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		rootCmd.SetArgs([]string{
+			"init", "test-context",
+			"--git-livereload",
+		})
+		err = rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		expectedError := "mock set error"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
 	t.Run("TerraformConfiguration", func(t *testing.T) {
 		mockHandler := config.NewMockConfigHandler()
 		calledKeys := make(map[string]bool)

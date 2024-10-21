@@ -20,6 +20,7 @@ var (
 	memory         int
 	arch           string
 	docker         bool
+	gitLivereload  bool
 )
 
 var initCmd = &cobra.Command{
@@ -112,6 +113,13 @@ var initCmd = &cobra.Command{
 			}
 		}
 
+		// Conditionally set Git Livereload configuration
+		if cmd.Flags().Changed("git-livereload") {
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.git.livereload.enabled", contextName), gitLivereload); err != nil {
+				return fmt.Errorf("Error setting Git Livereload enabled: %w", err)
+			}
+		}
+
 		// Save the cli configuration
 		if err := cliConfigHandler.SaveConfig(cliConfigPath); err != nil {
 			return fmt.Errorf("Error saving config file: %w", err)
@@ -151,5 +159,6 @@ func init() {
 	initCmd.Flags().IntVar(&memory, "vm-memory", 0, "Specify the memory size for Colima")
 	initCmd.Flags().StringVar(&arch, "vm-arch", "", "Specify the architecture for Colima")
 	initCmd.Flags().BoolVar(&docker, "docker", false, "Enable Docker")
+	initCmd.Flags().BoolVar(&gitLivereload, "git-livereload", false, "Enable Git Livereload")
 	rootCmd.AddCommand(initCmd)
 }
