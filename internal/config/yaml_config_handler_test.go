@@ -165,62 +165,216 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 }
 
 func TestYamlConfigHandler_Get(t *testing.T) {
-	t.Run("WithExistingKey", func(t *testing.T) {
-		tempDir := t.TempDir()
-		configPath := filepath.Join(tempDir, "config.yaml")
-		handler, _ := NewYamlConfigHandler(configPath)
-
-		// Create a dummy config file with the key "contexts.local.aws.aws_endpoint_url"
-		osWriteFile(configPath, []byte("contexts:\n  local:\n    aws:\n      aws_endpoint_url: http://aws.test:4566"), 0644)
-
-		// Load the config
-		err := handler.LoadConfig(configPath)
-		if err != nil {
-			t.Fatalf("LoadConfig() unexpected error: %v", err)
-		}
-
-		// Given an existing key in the config
-		got, err := handler.Get("contexts.local.aws.aws_endpoint_url")
-		// Then the value should be retrieved without error
-		assertError(t, err, nil)
-		assertEqual(t, "http://aws.test:4566", got, "Get")
-	})
-
-	t.Run("WithNonExistentKey", func(t *testing.T) {
-		tempDir := t.TempDir()
-		handler, _ := NewYamlConfigHandler(tempDir + "/config.yaml")
-		// Given a non-existent key in the config
-		_, err := handler.Get("nonExistentKey")
-		// Then an error should be returned
-		if err == nil {
-			t.Errorf("Get() expected error, got nil")
-		}
-	})
-
-	t.Run("WithNonExistentKeyAndDefaultValue", func(t *testing.T) {
-		tempDir := t.TempDir()
-		handler, _ := NewYamlConfigHandler(tempDir + "/config.yaml")
-		// Given a non-existent key in the config and a default value
-		got, err := handler.GetString("nonExistentKey", "defaultValue")
-		// Then the default value should be returned without error
-		assertError(t, err, nil)
-		assertEqual(t, "defaultValue", got, "Get with default")
-	})
-
-	t.Run("InvalidPath", func(t *testing.T) {
+	t.Run("KeyExistsInConfig", func(t *testing.T) {
+		// Given a handler with a context and key defined in y.config
 		handler, _ := NewYamlConfigHandler("")
 
-		// Attempt to get a value with an empty path
-		_, err := handler.Get("")
+		// Set a value in y.config
+		err := handler.Set("contexts.local.aws.aws_endpoint_url", "http://custom.aws.endpoint")
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
 
-		// Check if the error is as expected
+		// When getting the key
+		value, err := handler.Get("contexts.local.aws.aws_endpoint_url")
+		if err != nil {
+			t.Fatalf("Get() unexpected error: %v", err)
+		}
+
+		// Then the value should be from y.config
+		expectedValue := "http://custom.aws.endpoint"
+		if value != expectedValue {
+			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
+		}
+	})
+
+	t.Run("KeyMissingContextMissingInConfig", func(t *testing.T) {
+		// Given a handler without the context defined in y.config
+		handler, _ := NewYamlConfigHandler("")
+		// Set the default context
+		defaultContext := Context{
+			AWS: &AWSConfig{
+				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
+			},
+		}
+		handler.SetDefault(defaultContext)
+
+		// When getting a key under contexts.local.aws.aws_endpoint_url
+		value, err := handler.Get("contexts.local.aws.aws_endpoint_url")
+		if err != nil {
+			t.Fatalf("Get() unexpected error: %v", err)
+		}
+
+		// Then the value should be from defaultContextConfig
+		expectedValue := "http://default.aws.endpoint"
+		if value != expectedValue {
+			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
+		}
+	})
+
+	t.Run("KeyMissingContextExistsInConfig", func(t *testing.T) {
+		// Given a handler where context exists but key is missing in y.config
+		handler, _ := NewYamlConfigHandler("")
+		// Set the context in y.config without AWSConfig
+		err := handler.Set("contexts.local", &Context{
+			AWS: &AWSConfig{
+				// AWSEndpointURL is not set (nil)
+			},
+		})
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
+		// Set default context with the key
+		defaultContext := Context{
+			AWS: &AWSConfig{
+				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
+			},
+		}
+		handler.SetDefault(defaultContext)
+
+		// When getting the key
+		value, err := handler.Get("contexts.local.aws.aws_endpoint_url")
+		if err != nil {
+			t.Fatalf("Get() unexpected error: %v", err)
+		}
+
+		// Then it should fallback to defaultContextConfig and return the value
+		expectedValue := "http://default.aws.endpoint"
+		if value != expectedValue {
+			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
+		}
+	})
+
+	t.Run("KeyNotUnderContexts", func(t *testing.T) {
+		// Given a handler with key not under 'contexts'
+		handler, _ := NewYamlConfigHandler("")
+		// Set the default context (should not be used)
+		defaultContext := Context{
+			AWS: &AWSConfig{
+				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
+			},
+		}
+		handler.SetDefault(defaultContext)
+
+		// When getting a key not under 'contexts'
+		_, err := handler.Get("some.other.key")
 		if err == nil {
 			t.Fatalf("Get() expected error, got nil")
 		}
 
-		expectedError := "invalid path"
+		// Then default context should not be used, and an error should be returned
+		expectedError := "key some.other.key not found in configuration"
 		if err.Error() != expectedError {
-			t.Errorf("Get() error = %v, expected '%s'", err, expectedError)
+			t.Errorf("Expected error '%v', got '%v'", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ContextExistsButErrorInGetValueByPathFromValue", func(t *testing.T) {
+		// Given a handler where context exists but GetValueByPathFromValue returns an error
+		handler, _ := NewYamlConfigHandler("")
+		// Set the context in y.config as empty context
+		err := handler.Set("contexts.local", &Context{})
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
+		// Set default context with the key
+		defaultContext := Context{
+			AWS: &AWSConfig{
+				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
+			},
+		}
+		handler.SetDefault(defaultContext)
+
+		// When getting a key that is missing in context and getValueByPathFromValue returns an error
+		value, err := handler.Get("contexts.local.aws.aws_endpoint_url")
+		if err != nil {
+			t.Fatalf("Get() unexpected error: %v", err)
+		}
+
+		// Then it should fallback to defaultContextConfig and return the value
+		expectedValue := "http://default.aws.endpoint"
+		if value != expectedValue {
+			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
+		}
+	})
+
+	t.Run("InvalidPath", func(t *testing.T) {
+		// Given a handler
+		handler, _ := NewYamlConfigHandler("")
+
+		// When calling Get with an empty path
+		_, err := handler.Get("")
+
+		// Then an error should be returned
+		expectedErr := "invalid path"
+		if err == nil || err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got %v", expectedErr, err)
+		}
+	})
+
+	t.Run("NilValueFallbackToDefaultContext", func(t *testing.T) {
+		// Given a handler with a context where the key is set to nil in y.config
+		handler, _ := NewYamlConfigHandler("")
+		// Set the context in y.config with AWSConfig having a nil AWSEndpointURL
+		err := handler.Set("contexts.local", &Context{
+			AWS: &AWSConfig{
+				AWSEndpointURL: nil, // Explicitly set to nil
+			},
+		})
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
+		// Set default context with the key
+		defaultContext := Context{
+			AWS: &AWSConfig{
+				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
+			},
+		}
+		handler.SetDefault(defaultContext)
+
+		// When getting the key
+		value, err := handler.Get("contexts.local.aws.aws_endpoint_url")
+		if err != nil {
+			t.Fatalf("Get() unexpected error: %v", err)
+		}
+
+		// Then it should fallback to defaultContextConfig and return the value
+		expectedValue := "http://default.aws.endpoint"
+		if value != expectedValue {
+			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
+		}
+	})
+
+	t.Run("FallbackToDefaultContextConfig", func(t *testing.T) {
+		// Given a handler with a context where the key is not set in y.config
+		handler, _ := NewYamlConfigHandler("")
+		// Set the context in y.config without AWSConfig
+		err := handler.Set("contexts.local", &Context{
+			AWS: &AWSConfig{
+				// AWSEndpointURL is not set (nil)
+			},
+		})
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
+		// Set default context with the key
+		defaultContext := Context{
+			AWS: &AWSConfig{
+				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
+			},
+		}
+		handler.SetDefault(defaultContext)
+
+		// When getting the key
+		value, err := handler.Get("contexts.local.aws.aws_endpoint_url")
+		if err != nil {
+			t.Fatalf("Get() unexpected error: %v", err)
+		}
+
+		// Then it should fallback to defaultContextConfig and return the value
+		expectedValue := "http://default.aws.endpoint"
+		if value != expectedValue {
+			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
 		}
 	})
 }
@@ -368,15 +522,37 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 		handler, _ := NewYamlConfigHandler("")
 
 		// Given a non-existent key in the config
-		_, err := handler.GetString("nonExistentKey")
+		got, err := handler.GetString("nonExistentKey")
 		if err == nil {
 			t.Fatalf("GetString() expected error, got nil")
 		}
 
 		// Then an error should be returned indicating the key was not found
-		expectedError := "field with yaml tag nonExistentKey not found"
+		expectedValue := ""
+		if got != expectedValue {
+			t.Errorf("GetString() = %v, expected %v", got, expectedValue)
+		}
+
+		expectedError := "key nonExistentKey not found in configuration"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("GetString() error = %v, expected to contain '%s'", err, expectedError)
+		}
+	})
+
+	t.Run("GetStringWithDefaultValue", func(t *testing.T) {
+		// Given a handler with no specific key set
+		handler, _ := NewYamlConfigHandler("")
+
+		// When calling GetString with a non-existent key and a default value
+		defaultValue := "defaultString"
+		value, err := handler.GetString("non.existent.key", defaultValue)
+
+		// Then the default value should be returned without error
+		if err != nil {
+			t.Fatalf("GetString() unexpected error: %v", err)
+		}
+		if value != defaultValue {
+			t.Errorf("Expected value '%v', got '%v'", defaultValue, value)
 		}
 	})
 }
@@ -384,18 +560,20 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 func TestYamlConfigHandler_GetInt(t *testing.T) {
 	t.Run("WithExistingIntegerKey", func(t *testing.T) {
 		handler, _ := NewYamlConfigHandler("")
-		handler.Set("contexts.default.vm.cpu", 4)
+		// Set an integer value
+		err := handler.Set("contexts.default.vm.cpu", 4)
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
 
-		// Given an existing key with an integer value
-		got, err := handler.GetInt("contexts.default.vm.cpu")
+		value, err := handler.GetInt("contexts.default.vm.cpu")
 		if err != nil {
 			t.Fatalf("GetInt() unexpected error: %v", err)
 		}
 
-		// Then the integer value should be retrieved without error
 		expectedValue := 4
-		if got != expectedValue {
-			t.Errorf("GetInt() = %v, expected %v", got, expectedValue)
+		if value != expectedValue {
+			t.Errorf("Expected value %v, got %v", expectedValue, value)
 		}
 	})
 
@@ -426,7 +604,7 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 		}
 
 		// Then an error should be returned indicating the key was not found
-		expectedError := "field with yaml tag nonExistentKey not found"
+		expectedError := "key nonExistentKey not found in configuration"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("GetInt() error = %v, expected to contain '%s'", err, expectedError)
 		}
@@ -452,18 +630,20 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 func TestYamlConfigHandler_GetBool(t *testing.T) {
 	t.Run("WithExistingBooleanKey", func(t *testing.T) {
 		handler, _ := NewYamlConfigHandler("")
-		handler.Set("contexts.default.docker.enabled", true)
+		// Set a boolean value
+		err := handler.Set("contexts.default.docker.enabled", true)
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
 
-		// Given an existing key with a boolean value
-		got, err := handler.GetBool("contexts.default.docker.enabled")
+		value, err := handler.GetBool("contexts.default.docker.enabled")
 		if err != nil {
 			t.Fatalf("GetBool() unexpected error: %v", err)
 		}
 
-		// Then the boolean value should be retrieved without error
 		expectedValue := true
-		if got != expectedValue {
-			t.Errorf("GetBool() = %v, expected %v", got, expectedValue)
+		if value != expectedValue {
+			t.Errorf("Expected value %v, got %v", expectedValue, value)
 		}
 	})
 
@@ -494,7 +674,7 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 		}
 
 		// Then an error should be returned indicating the key was not found
-		expectedError := "field with yaml tag nonExistentKey not found"
+		expectedError := "key nonExistentKey not found in configuration"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("GetBool() error = %v, expected to contain '%s'", err, expectedError)
 		}
@@ -520,16 +700,20 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 func TestYamlConfigHandler_Set(t *testing.T) {
 	t.Run("SetSimpleKey", func(t *testing.T) {
 		handler, _ := NewYamlConfigHandler("")
+
 		err := handler.Set("context", "simpleValue")
 		if err != nil {
 			t.Fatalf("Set() unexpected error: %v", err)
 		}
-		got, err := handler.Get("context")
+
+		// Verify the value
+		value, err := handler.Get("context")
 		if err != nil {
 			t.Fatalf("Get() unexpected error: %v", err)
 		}
-		if got != "simpleValue" {
-			t.Errorf("Get() = %v, expected %v", got, "simpleValue")
+
+		if value != "simpleValue" {
+			t.Errorf("Expected 'simpleValue', got '%v'", value)
 		}
 	})
 
@@ -584,18 +768,6 @@ func TestYamlConfigHandler_Set(t *testing.T) {
 		}
 	})
 
-	t.Run("SetWithNonExistentStructField", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		err := handler.Set("nonexistent.field", "value")
-		if err == nil {
-			t.Fatal("Set() expected error when setting non-existent struct field, got nil")
-		}
-		expectedErr := "field nonexistent not found in struct"
-		if !strings.Contains(err.Error(), expectedErr) {
-			t.Fatalf("Set() error = %v, expected to contain '%v'", err, expectedErr)
-		}
-	})
-
 	t.Run("SetWithNilMap", func(t *testing.T) {
 		handler, _ := NewYamlConfigHandler("")
 		// Assuming 'config' has a field 'Contexts' which is a map
@@ -633,15 +805,15 @@ func TestYamlConfigHandler_Set(t *testing.T) {
 
 	t.Run("SetWithUnassignableKeyTypeInMap", func(t *testing.T) {
 		handler, _ := NewYamlConfigHandler("")
-		// Create a context with a map with key type string instead of int
+		// Create a context with a map with key type string
 		handler.config = Config{
-			Contexts: map[string]Context{
+			Contexts: map[string]*Context{
 				"default": {
 					Environment: map[string]string{},
-					AWS:         AWSConfig{},
-					Docker:      DockerConfig{},
-					Terraform:   TerraformConfig{},
-					VM:          VMConfig{},
+					AWS:         &AWSConfig{},
+					Docker:      &DockerConfig{},
+					Terraform:   &TerraformConfig{},
+					VM:          &VMConfig{},
 				},
 			},
 		}
@@ -682,9 +854,9 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 
 func TestSetValueByPath(t *testing.T) {
 	// Helper function to create a reflect.Value from an interface{}
-	toReflectValue := func(i interface{}) reflect.Value {
-		return reflect.ValueOf(i)
-	}
+	// toReflectValue := func(i interface{}) reflect.Value {
+	// 	return reflect.ValueOf(i)
+	// }
 
 	t.Run("EmptyPathKeys", func(t *testing.T) {
 		// Given an empty pathKeys slice
@@ -714,108 +886,6 @@ func TestSetValueByPath(t *testing.T) {
 		expectedErr := "unsupported kind int"
 		if err == nil || err.Error() != expectedErr {
 			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("StructFieldNotFound", func(t *testing.T) {
-		// Given a struct without the specified field
-		type TestStruct struct{}
-		currValue := toReflectValue(&TestStruct{})
-		pathKeys := []string{"nonexistentfield"} // Lowercase to match YAML tag
-		value := "test"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
-
-		// Then an error should be returned
-		expectedErr := "field nonexistentfield not found in struct: field with yaml tag nonexistentfield not found"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("StructCannotSetField", func(t *testing.T) {
-		// Given a struct with an unexported field
-		type TestStruct struct {
-			unexportedField string
-		}
-		currValue := toReflectValue(&TestStruct{})
-		pathKeys := []string{"unexportedfield"} // Use lowercase YAML tag
-		value := "test"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
-
-		// Then an error should be returned
-		expectedErr := "field unexportedfield not found in struct: field with yaml tag unexportedfield not found"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("StructAssignValueError", func(t *testing.T) {
-		// Given a struct field with a non-convertible type
-		type TestStruct struct {
-			Field int
-		}
-		currValue := toReflectValue(&TestStruct{})
-		pathKeys := []string{"field"} // Use lowercase YAML tag
-		value := "stringValue"        // Cannot convert string to int
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
-
-		// Then an error should be returned
-		expectedErr := "cannot assign value of type string to field of type int"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("StructSuccess", func(t *testing.T) {
-		// Given a struct with a settable field
-		type TestStruct struct {
-			Field string
-		}
-		testStruct := &TestStruct{}
-		currValue := toReflectValue(testStruct)
-		pathKeys := []string{"field"} // Use lowercase YAML tag
-		value := "testValue"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
-
-		// Then the field should be set without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		if testStruct.Field != "testValue" {
-			t.Errorf("Expected Field to be 'testValue', got '%s'", testStruct.Field)
-		}
-	})
-
-	t.Run("StructNested", func(t *testing.T) {
-		// Given a nested struct
-		type NestedStruct struct {
-			NestedField string
-		}
-		type TestStruct struct {
-			Nested NestedStruct
-		}
-		testStruct := &TestStruct{}
-		currValue := toReflectValue(testStruct)
-		pathKeys := []string{"nested", "nestedfield"} // Use lowercase YAML tags
-		value := "nestedValue"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
-
-		// Then the nested field should be set without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		if testStruct.Nested.NestedField != "nestedValue" {
-			t.Errorf("Expected NestedField to be 'nestedValue', got '%s'", testStruct.Nested.NestedField)
 		}
 	})
 
@@ -889,38 +959,16 @@ func TestSetValueByPath(t *testing.T) {
 		}
 	})
 
-	t.Run("MapElementTypePointer", func(t *testing.T) {
-		// Given a map with pointer values
-		type TestStruct struct {
-			Field string
-		}
-		testMap := make(map[string]*TestStruct)
-		currValue := reflect.ValueOf(testMap)
-		pathKeys := []string{"key", "field"} // Use lowercase YAML tag
-		value := "testValue"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
-
-		// Then the nested struct should be updated without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		if testMap["key"] == nil || testMap["key"].Field != "testValue" {
-			t.Errorf("Expected map['key'].Field to be 'testValue', got '%v'", testMap["key"])
-		}
-	})
-
 	t.Run("MapExistingValue", func(t *testing.T) {
 		// Given a Config with an existing nested map
 		config := Config{
-			Contexts: map[string]Context{
+			Contexts: map[string]*Context{
 				"level1": {
 					Environment: map[string]string{
 						"level2": "value2",
 					},
-					AWS: AWSConfig{
-						AWSEndpointURL: "http://aws.test:4566",
+					AWS: &AWSConfig{
+						AWSEndpointURL: ptrString("http://aws.test:4566"),
 					},
 				},
 			},
@@ -940,71 +988,6 @@ func TestSetValueByPath(t *testing.T) {
 		gotValue := config.Contexts["level1"].Environment["level2"]
 		if gotValue != "testValue" {
 			t.Errorf("Expected value to be 'testValue', got '%v'", gotValue)
-		}
-	})
-
-	t.Run("PointerInitialization", func(t *testing.T) {
-		// Given a nil pointer to a struct
-		type TestStruct struct {
-			Field string
-		}
-		var testStruct *TestStruct
-		currValue := reflect.ValueOf(&testStruct).Elem()
-		pathKeys := []string{"field"} // Use lowercase YAML tag
-		value := "testValue"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
-
-		// Then the pointer should be initialized and field set without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		if testStruct == nil || testStruct.Field != "testValue" {
-			t.Errorf("Expected Field to be 'testValue', got '%v'", testStruct.Field)
-		}
-	})
-
-	t.Run("CannotSetField", func(t *testing.T) {
-		// Given a struct with an exported field
-		type TestStruct struct {
-			ExportedField string
-		}
-		testStruct := TestStruct{}
-		currValue := reflect.ValueOf(testStruct) // Not addressable
-		pathKeys := []string{"exportedfield"}    // Use lowercase YAML tag
-		value := "newValue"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
-
-		// Then an error should be returned indicating the field cannot be set
-		expectedErr := "cannot set field exportedfield"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("RecursiveStruct", func(t *testing.T) {
-		// Given a struct with nested fields
-		type NestedStruct struct {
-			InnerField string
-		}
-		type TestStruct struct {
-			Nested NestedStruct
-		}
-		testStruct := TestStruct{}
-		currValue := reflect.ValueOf(&testStruct).Elem()   // Make the struct addressable
-		pathKeys := []string{"nested", "nonexistentfield"} // Invalid path to trigger error
-		value := "newValue"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
-
-		// Then an error should be returned indicating the field was not found
-		expectedErr := "field nonexistentfield not found in struct"
-		if err == nil || !strings.Contains(err.Error(), expectedErr) {
-			t.Errorf("Expected error containing '%s', got %v", expectedErr, err)
 		}
 	})
 
@@ -1044,56 +1027,6 @@ func TestSetValueByPath(t *testing.T) {
 		expectedErr := "field nonexistentfield not found in struct"
 		if err == nil || (!strings.Contains(err.Error(), expectedErr) && !strings.Contains(err.Error(), "unsupported kind interface")) {
 			t.Errorf("Expected error containing '%s' or 'unsupported kind interface', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("NilPointerField", func(t *testing.T) {
-		// Given a struct with a nil pointer field
-		type InnerStruct struct {
-			NestedField string
-		}
-		type TestStruct struct {
-			Inner *InnerStruct // Pointer field, initially nil
-		}
-		testStruct := &TestStruct{}
-		currValue := reflect.ValueOf(testStruct)
-		pathKeys := []string{"inner", "nestedfield"} // Path to the nested field
-		value := "newValue"
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
-
-		// Then the nested field should be set without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		if testStruct.Inner == nil {
-			t.Errorf("Expected Inner to be initialized, but it is nil")
-		} else if testStruct.Inner.NestedField != "newValue" {
-			t.Errorf("Expected Inner.NestedField to be 'newValue', got '%v'", testStruct.Inner.NestedField)
-		}
-	})
-
-	t.Run("ValueConversion", func(t *testing.T) {
-		// Given a struct with an int64 field
-		type TestStruct struct {
-			Field int64
-		}
-		testStruct := &TestStruct{}
-		currValue := reflect.ValueOf(testStruct)
-		pathKeys := []string{"field"}
-		value := int32(42) // int32 value, needs conversion to int64
-
-		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
-
-		// Then the field should be set correctly after conversion
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		expectedValue := int64(42)
-		if testStruct.Field != expectedValue {
-			t.Errorf("Expected Field to be %v, got %v", expectedValue, testStruct.Field)
 		}
 	})
 
@@ -1164,43 +1097,6 @@ func TestGetValueByPath(t *testing.T) {
 		}
 	})
 
-	t.Run("StructFieldNotFound", func(t *testing.T) {
-		// Given a struct without the specified field
-		type TestStruct struct{}
-		current := TestStruct{}
-		pathKeys := []string{"nonexistentfield"} // Lowercase to match YAML tag
-
-		// When calling getValueByPath
-		_, err := getValueByPath(current, pathKeys)
-
-		// Then an error should be returned
-		expectedErr := "field with yaml tag nonexistentfield not found"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("StructSuccess", func(t *testing.T) {
-		// Given a struct with the specified field
-		type TestStruct struct {
-			Field string
-		}
-		current := TestStruct{Field: "testValue"}
-		pathKeys := []string{"field"}
-
-		// When calling getValueByPath
-		value, err := getValueByPath(current, pathKeys)
-
-		// Then the value should be retrieved without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		expectedValue := "testValue"
-		if value != expectedValue {
-			t.Errorf("Expected value '%s', got '%v'", expectedValue, value)
-		}
-	})
-
 	t.Run("MapKeyTypeMismatch", func(t *testing.T) {
 		// Given a map with int keys but providing a string key
 		current := map[int]string{1: "one", 2: "two"}
@@ -1211,21 +1107,6 @@ func TestGetValueByPath(t *testing.T) {
 
 		// Then an error should be returned
 		expectedErr := "key type mismatch: expected int, got string"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("MapKeyNotFound", func(t *testing.T) {
-		// Given a map with string keys
-		current := map[string]string{"existingKey": "value"}
-		pathKeys := []string{"nonexistentKey"}
-
-		// When calling getValueByPath
-		_, err := getValueByPath(current, pathKeys)
-
-		// Then an error should be returned
-		expectedErr := "key nonexistentKey not found"
 		if err == nil || err.Error() != expectedErr {
 			t.Errorf("Expected error '%s', got %v", expectedErr, err)
 		}
@@ -1249,52 +1130,127 @@ func TestGetValueByPath(t *testing.T) {
 		}
 	})
 
-	t.Run("NestedStructSuccess", func(t *testing.T) {
-		// Given a nested struct with the specified field
-		type InnerStruct struct {
-			InnerField string
-		}
+	t.Run("CannotSetField", func(t *testing.T) {
+		// Given a struct with an unexported field
 		type TestStruct struct {
-			OuterField InnerStruct
+			unexportedField string `yaml:"unexportedfield"`
 		}
-		current := TestStruct{OuterField: InnerStruct{InnerField: "innerValue"}}
-		pathKeys := []string{"outerfield", "innerfield"} // Use lowercase YAML tags
+		testStruct := &TestStruct{}
+		currValue := reflect.ValueOf(testStruct)
+		pathKeys := []string{"unexportedfield"}
+		value := "testValue"
 
-		// When calling getValueByPath
-		value, err := getValueByPath(current, pathKeys)
+		// When calling setValueByPath
+		err := setValueByPath(currValue, pathKeys, value)
 
-		// Then the value should be retrieved without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		expectedValue := "innerValue"
-		if value != expectedValue {
-			t.Errorf("Expected value '%s', got '%v'", expectedValue, value)
+		// Then an error should be returned
+		expectedErr := "cannot set field"
+		if err == nil || err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got '%v'", expectedErr, err)
 		}
 	})
 
-	t.Run("MixedStructMapSuccess", func(t *testing.T) {
-		// Given a struct containing a map
+	t.Run("RecursiveFailure", func(t *testing.T) {
+		// Given a map with nested maps
+		level3Map := map[string]interface{}{}
+		level2Map := map[string]interface{}{"level3": level3Map}
+		level1Map := map[string]interface{}{"level2": level2Map}
+		testMap := map[string]interface{}{"level1": level1Map}
+		currValue := reflect.ValueOf(testMap)
+		pathKeys := []string{"level1", "level2", "nonexistentfield"}
+		value := "newValue"
+
+		// When calling setValueByPath
+		err := setValueByPath(currValue, pathKeys, value)
+
+		// Then an error should be returned indicating the field does not exist
+		expectedErr := "unsupported kind interface"
+		if err == nil || err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got '%v'", expectedErr, err)
+		}
+	})
+
+	t.Run("AssignValueTypeMismatch", func(t *testing.T) {
+		// Given a struct with a field of a specific type
 		type TestStruct struct {
-			Data map[string]string
+			IntField int `yaml:"intfield"`
 		}
-		current := TestStruct{
-			Data: map[string]string{
-				"key": "value",
-			},
+		testStruct := &TestStruct{}
+		currValue := reflect.ValueOf(testStruct)
+		pathKeys := []string{"intfield"}
+		value := []string{"incompatibleType"} // A slice, which is incompatible with int
+
+		// When calling setValueByPath
+		err := setValueByPath(currValue, pathKeys, value)
+
+		// Then an error should be returned indicating the type mismatch
+		expectedErr := "cannot assign value of type []string to field of type int"
+		if err == nil || err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got '%v'", expectedErr, err)
 		}
-		pathKeys := []string{"data", "key"}
+	})
 
-		// When calling getValueByPath
-		value, err := getValueByPath(current, pathKeys)
+	t.Run("AssignPointerValueTypeMismatch", func(t *testing.T) {
+		// Given a struct with a pointer field of a specific type
+		type TestStruct struct {
+			IntPtrField *int `yaml:"intptrfield"`
+		}
+		testStruct := &TestStruct{}
+		currValue := reflect.ValueOf(testStruct)
+		pathKeys := []string{"intptrfield"}
+		value := []string{"incompatibleType"} // A slice, which is incompatible with *int
 
-		// Then the value should be retrieved without error
+		// When calling setValueByPath
+		err := setValueByPath(currValue, pathKeys, value)
+
+		// Then an error should be returned indicating the type mismatch
+		expectedErr := "cannot assign value of type []string to field of type *int"
+		if err == nil || err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got '%v'", expectedErr, err)
+		}
+	})
+
+	t.Run("AssignNonPointerField", func(t *testing.T) {
+		// Given a struct with a field of a specific type
+		type TestStruct struct {
+			StringField string `yaml:"stringfield"`
+		}
+		testStruct := &TestStruct{}
+		currValue := reflect.ValueOf(testStruct)
+		pathKeys := []string{"stringfield"}
+		value := "testValue" // Directly assignable to string
+
+		// When calling setValueByPath
+		err := setValueByPath(currValue, pathKeys, value)
+
+		// Then the field should be set without error
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
-		expectedValue := "value"
-		if value != expectedValue {
-			t.Errorf("Expected value '%s', got '%v'", expectedValue, value)
+		if testStruct.StringField != "testValue" {
+			t.Errorf("Expected StringField to be 'testValue', got '%v'", testStruct.StringField)
+		}
+	})
+
+	t.Run("AssignConvertibleType", func(t *testing.T) {
+		// Given a struct with a field of a specific type
+		type TestStruct struct {
+			IntField int `yaml:"intfield"`
+		}
+		testStruct := &TestStruct{}
+		currValue := reflect.ValueOf(testStruct)
+		pathKeys := []string{"intfield"}
+		value := 42.0 // A float64, which is convertible to int
+
+		// When calling setValueByPath
+		err := setValueByPath(currValue, pathKeys, value)
+
+		// Then the field should be set without error
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if testStruct.IntField != 42 {
+			t.Errorf("Expected IntField to be 42, got '%v'", testStruct.IntField)
 		}
 	})
 }

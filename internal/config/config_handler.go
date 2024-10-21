@@ -2,13 +2,13 @@ package config
 
 // AWSConfig represents the AWS configuration
 type AWSConfig struct {
-	AWSEndpointURL string `yaml:"aws_endpoint_url"`
-	AWSProfile     string `yaml:"aws_profile"`
+	AWSEndpointURL *string `yaml:"aws_endpoint_url"`
+	AWSProfile     *string `yaml:"aws_profile"`
 }
 
 // DockerConfig represents the Docker configuration
 type DockerConfig struct {
-	Enabled    bool       `yaml:"enabled"`
+	Enabled    *bool      `yaml:"enabled"`
 	Registries []Registry `yaml:"registries"`
 }
 
@@ -20,58 +20,58 @@ type Registry struct {
 
 // TerraformConfig represents the Terraform configuration
 type TerraformConfig struct {
-	Backend string `yaml:"backend"`
+	Backend *string `yaml:"backend"`
 }
 
 // VMConfig represents the VM configuration
 type VMConfig struct {
-	Arch   string `yaml:"arch"`
-	CPU    int    `yaml:"cpu"`
-	Disk   int    `yaml:"disk"`
-	Driver string `yaml:"driver"`
-	Memory int    `yaml:"memory"`
+	Arch   *string `yaml:"arch"`
+	CPU    *int    `yaml:"cpu"`
+	Disk   *int    `yaml:"disk"`
+	Driver *string `yaml:"driver"`
+	Memory *int    `yaml:"memory"`
 }
 
 // Context represents the context configuration
 type Context struct {
 	Environment map[string]string `yaml:"environment"`
-	AWS         AWSConfig         `yaml:"aws"`
-	Docker      DockerConfig      `yaml:"docker"`
-	Terraform   TerraformConfig   `yaml:"terraform"`
-	VM          VMConfig          `yaml:"vm"`
+	AWS         *AWSConfig        `yaml:"aws"`
+	Docker      *DockerConfig     `yaml:"docker"`
+	Terraform   *TerraformConfig  `yaml:"terraform"`
+	VM          *VMConfig         `yaml:"vm"`
 }
 
 // Config represents the entire configuration
 type Config struct {
-	Context  string             `yaml:"context"`
-	Contexts map[string]Context `yaml:"contexts"`
+	Context  *string             `yaml:"context"`
+	Contexts map[string]*Context `yaml:"contexts"`
 }
 
 // DefaultConfig returns the default configuration for the "local" context
 var DefaultConfig = Context{
 	Environment: map[string]string{},
-	AWS: AWSConfig{
-		AWSEndpointURL: "",
-		AWSProfile:     "",
+	AWS: &AWSConfig{
+		AWSEndpointURL: nil,
+		AWSProfile:     nil,
 	},
-	Docker: DockerConfig{
-		Enabled:    false,
+	Docker: &DockerConfig{
+		Enabled:    nil,
 		Registries: []Registry{},
 	},
-	Terraform: TerraformConfig{
-		Backend: "local",
+	Terraform: &TerraformConfig{
+		Backend: nil,
 	},
 }
 
 // DefaultLocalConfig returns the default configuration for the "local" context
 var DefaultLocalConfig = Context{
 	Environment: map[string]string{},
-	AWS: AWSConfig{
-		AWSEndpointURL: "http://aws.test:4566",
-		AWSProfile:     "default",
+	AWS: &AWSConfig{
+		AWSEndpointURL: ptrString("http://aws.test:4566"),
+		AWSProfile:     ptrString("default"),
 	},
-	Docker: DockerConfig{
-		Enabled: true,
+	Docker: &DockerConfig{
+		Enabled: ptrBool(true),
 		Registries: []Registry{
 			{
 				Name: "registry.test",
@@ -99,10 +99,24 @@ var DefaultLocalConfig = Context{
 			},
 		},
 	},
-	Terraform: TerraformConfig{
-		Backend: "local",
+	Terraform: &TerraformConfig{
+		Backend: ptrString("local"),
 	},
 }
+
+// Helper functions to create pointers for basic types
+func ptrString(s string) *string {
+	return &s
+}
+
+func ptrBool(b bool) *bool {
+	return &b
+}
+
+// Disabled until used
+// func ptrInt(i int) *int {
+// 	return &i
+// }
 
 // ConfigHandler defines the interface for handling configuration operations
 type ConfigHandler interface {

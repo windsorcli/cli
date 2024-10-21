@@ -18,7 +18,9 @@ type YamlConfigHandler struct {
 
 // NewYamlConfigHandler is a constructor for YamlConfigHandler that accepts a path
 func NewYamlConfigHandler(path string) (*YamlConfigHandler, error) {
-	handler := &YamlConfigHandler{}
+	handler := &YamlConfigHandler{
+		defaultContextConfig: DefaultConfig, // Initialize with default config
+	}
 	if path != "" {
 		if err := handler.LoadConfig(path); err != nil {
 			return nil, fmt.Errorf("error loading config: %w", err)
@@ -92,6 +94,34 @@ func (y *YamlConfigHandler) SetDefault(context Context) {
 	y.defaultContextConfig = context
 }
 
+// Get retrieves the value at the specified path in the configuration
+func (y *YamlConfigHandler) Get(path string) (interface{}, error) {
+	if path == "" {
+		return nil, fmt.Errorf("invalid path")
+	}
+	pathKeys := strings.Split(path, ".")
+
+	// Try to get the value from y.config
+	value, err := getValueByPath(y.config, pathKeys)
+	if err == nil {
+		if value == nil {
+			// Value is nil, proceed to check defaultContextConfig
+			if len(pathKeys) >= 2 && pathKeys[0] == "contexts" {
+				// Attempt to get the value from defaultContextConfig
+				value, err = getValueByPath(y.defaultContextConfig, pathKeys[2:])
+				if err == nil {
+					return value, nil
+				}
+			}
+		} else {
+			return value, nil
+		}
+	}
+
+	// Return an error if the key is not found
+	return nil, fmt.Errorf("key %s not found in configuration", path)
+}
+
 // GetString retrieves a string value for the specified key from the configuration
 func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) (string, error) {
 	value, err := y.Get(key)
@@ -113,10 +143,11 @@ func (y *YamlConfigHandler) GetInt(key string, defaultValue ...int) (int, error)
 		}
 		return 0, err
 	}
-	if intValue, ok := value.(int); ok {
-		return intValue, nil
+	intValue, ok := value.(int)
+	if !ok {
+		return 0, fmt.Errorf("key %s is not an integer", key)
 	}
-	return 0, fmt.Errorf("key %s is not an integer", key)
+	return intValue, nil
 }
 
 // GetBool retrieves a boolean value for the specified key from the configuration
@@ -136,10 +167,10 @@ func (y *YamlConfigHandler) GetBool(key string, defaultValue ...bool) (bool, err
 
 // Set updates the value at the specified path in the configuration
 func (y *YamlConfigHandler) Set(path string, value interface{}) error {
-	pathKeys := strings.Split(path, ".")
 	if path == "" {
 		return fmt.Errorf("invalid path")
 	}
+	pathKeys := strings.Split(path, ".")
 
 	// Pass a pointer to y.config to make it addressable
 	configValue := reflect.ValueOf(&y.config)
@@ -154,24 +185,83 @@ func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 	return nil
 }
 
-// Get retrieves the value at the specified path in the configuration
-func (y *YamlConfigHandler) Get(path string) (interface{}, error) {
-	if path == "" {
-		return nil, fmt.Errorf("invalid path")
-	}
-	pathKeys := strings.Split(path, ".")
-
-	// Get the value in the configuration by path
-	value, err := getValueByPath(y.config, pathKeys)
-	if err != nil {
-		return nil, err
-	}
-
-	return value, nil
-}
-
 // Ensure YamlConfigHandler implements ConfigHandler
 var _ ConfigHandler = (*YamlConfigHandler)(nil)
+
+// getValueByPath is a helper function to get a value by a path from an interface{}
+func getValueByPath(current interface{}, pathKeys []string) (interface{}, error) {
+	if len(pathKeys) == 0 {
+		return nil, fmt.Errorf("pathKeys cannot be empty")
+	}
+
+	currValue := reflect.ValueOf(current)
+	if !currValue.IsValid() {
+		return nil, fmt.Errorf("current value is invalid")
+	}
+
+	// Traverse the path to get the value
+	for _, key := range pathKeys {
+		// Handle pointers
+		if currValue.Kind() == reflect.Ptr {
+			if currValue.IsNil() {
+				// Return nil to indicate the value is not set
+				return nil, nil
+			}
+			currValue = currValue.Elem()
+		}
+
+		switch currValue.Kind() {
+		case reflect.Struct:
+			fieldValue := getFieldByYamlTag(currValue, key)
+			currValue = fieldValue
+
+		case reflect.Map:
+			mapKey := reflect.ValueOf(key)
+			if !mapKey.Type().AssignableTo(currValue.Type().Key()) {
+				return nil, fmt.Errorf("key type mismatch: expected %s, got %s", currValue.Type().Key(), mapKey.Type())
+			}
+			mapValue := currValue.MapIndex(mapKey)
+			if !mapValue.IsValid() {
+				// Return nil to indicate the key is not found
+				return nil, nil
+			}
+			currValue = mapValue
+
+		default:
+			return nil, fmt.Errorf("unsupported kind %s", currValue.Kind())
+		}
+	}
+
+	// Handle final pointer
+	if currValue.Kind() == reflect.Ptr {
+		if currValue.IsNil() {
+			return nil, nil
+		}
+		currValue = currValue.Elem()
+	}
+
+	// Check if currValue is valid and can interface
+	if currValue.IsValid() && currValue.CanInterface() {
+		return currValue.Interface(), nil
+	}
+
+	// Return an error since we cannot retrieve a valid value
+	return nil, fmt.Errorf("unable to retrieve value at path %s", strings.Join(pathKeys, "."))
+}
+
+// getFieldByYamlTag retrieves a field from a struct by its YAML tag
+func getFieldByYamlTag(v reflect.Value, tag string) reflect.Value {
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		field := t.Field(i)
+		yamlTag := strings.Split(field.Tag.Get("yaml"), ",")[0]
+		if yamlTag == tag {
+			return v.Field(i)
+		}
+	}
+	// Return zero Value if not found
+	return reflect.Value{}
+}
 
 // setValueByPath is a helper function to set a value by a path
 func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{}) error {
@@ -193,9 +283,16 @@ func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{
 	switch currValue.Kind() {
 	case reflect.Struct:
 		// Get the field by YAML tag
-		fieldValue, err := getFieldByYamlTag(currValue, key)
-		if err != nil {
-			return fmt.Errorf("field %s not found in struct: %w", key, err)
+		fieldValue := getFieldByYamlTag(currValue, key)
+
+		// Initialize nil pointer fields
+		if fieldValue.Kind() == reflect.Ptr && fieldValue.IsNil() {
+			fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
+		}
+
+		// If the field is a nil map, initialize it
+		if fieldValue.Kind() == reflect.Map && fieldValue.IsNil() {
+			fieldValue.Set(reflect.MakeMap(fieldValue.Type()))
 		}
 
 		if isLast {
@@ -203,9 +300,6 @@ func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{
 			newFieldValue, err := assignValue(fieldValue, value)
 			if err != nil {
 				return err
-			}
-			if !fieldValue.CanSet() {
-				return fmt.Errorf("cannot set field %s", key)
 			}
 			fieldValue.Set(newFieldValue)
 		} else {
@@ -267,81 +361,48 @@ func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{
 	return nil
 }
 
-// getValueByPath is a helper function to get a value by a path
-func getValueByPath(current interface{}, pathKeys []string) (interface{}, error) {
-	if len(pathKeys) == 0 {
-		return nil, fmt.Errorf("pathKeys cannot be empty")
-	}
-
-	currValue := reflect.ValueOf(current)
-	if !currValue.IsValid() {
-		return nil, fmt.Errorf("current value is invalid")
-	}
-
-	// Traverse the path to get the value
-	for _, key := range pathKeys {
-		switch currValue.Kind() {
-		case reflect.Struct:
-			fieldValue, err := getFieldByYamlTag(currValue, key)
-			if err != nil {
-				return nil, err
-			}
-			currValue = fieldValue
-
-		case reflect.Map:
-			mapKey := reflect.ValueOf(key)
-			if !mapKey.Type().AssignableTo(currValue.Type().Key()) {
-				return nil, fmt.Errorf("key type mismatch: expected %s, got %s", currValue.Type().Key(), mapKey.Type())
-			}
-			mapValue := currValue.MapIndex(mapKey)
-			if !mapValue.IsValid() {
-				return nil, fmt.Errorf("key %s not found", key)
-			}
-			currValue = mapValue
-
-		default:
-			return nil, fmt.Errorf("unsupported kind %s", currValue.Kind())
-		}
-	}
-
-	return currValue.Interface(), nil
-}
-
-// getFieldByYamlTag retrieves a field from a struct by its YAML tag
-func getFieldByYamlTag(s reflect.Value, tag string) (reflect.Value, error) {
-	sType := s.Type()
-	for i := 0; i < sType.NumField(); i++ {
-		field := sType.Field(i)
-		if field.PkgPath != "" {
-			continue
-		}
-		yamlTag := field.Tag.Get("yaml")
-		if yamlTag == "" {
-			yamlTag = strings.ToLower(field.Name)
-		}
-		if yamlTag == tag {
-			fieldValue := s.Field(i)
-			// Initialize zero value if pointer and nil
-			if fieldValue.Kind() == reflect.Ptr && fieldValue.IsNil() {
-				fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
-			}
-			return fieldValue, nil
-		}
-	}
-	return reflect.Value{}, fmt.Errorf("field with yaml tag %s not found", tag)
-}
-
 // assignValue assigns a value to a field, converting types if necessary
-func assignValue(field reflect.Value, value interface{}) (reflect.Value, error) {
-	val := reflect.ValueOf(value)
-	if !val.Type().AssignableTo(field.Type()) {
-		if val.Type().ConvertibleTo(field.Type()) {
-			val = val.Convert(field.Type())
-		} else {
-			return reflect.Value{}, fmt.Errorf("cannot assign value of type %s to field of type %s", val.Type(), field.Type())
-		}
+func assignValue(fieldValue reflect.Value, value interface{}) (reflect.Value, error) {
+	if !fieldValue.CanSet() {
+		return reflect.Value{}, fmt.Errorf("cannot set field")
 	}
-	return val, nil
+
+	fieldType := fieldValue.Type()
+	valueType := reflect.TypeOf(value)
+
+	// Handle pointer fields
+	if fieldType.Kind() == reflect.Ptr {
+		elemType := fieldType.Elem()
+
+		// Create a new value of the element type
+		newValue := reflect.New(elemType)
+
+		// Set the value
+		val := reflect.ValueOf(value)
+
+		// Handle basic types
+		if val.Type().ConvertibleTo(elemType) {
+			val = val.Convert(elemType)
+			newValue.Elem().Set(val)
+			return newValue, nil
+		}
+
+		return reflect.Value{}, fmt.Errorf("cannot assign value of type %s to field of type %s", valueType, fieldType)
+	}
+
+	// Handle non-pointer fields
+	if valueType.AssignableTo(fieldType) {
+		val := reflect.ValueOf(value)
+		return val, nil
+	}
+
+	// Handle convertible types
+	if valueType.ConvertibleTo(fieldType) {
+		val := reflect.ValueOf(value).Convert(fieldType)
+		return val, nil
+	}
+
+	return reflect.Value{}, fmt.Errorf("cannot assign value of type %s to field of type %s", valueType, fieldType)
 }
 
 func makeAddressable(v reflect.Value) reflect.Value {
