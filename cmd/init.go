@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
@@ -28,8 +30,15 @@ var initCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		contextName := args[0]
 
-		// Start with an empty Context
-		contextConfig := config.Context{}
+		// Determine the cliConfig path
+		cliConfigPath := os.Getenv("WINDSOR_CONFIG")
+		if cliConfigPath == "" {
+			homeDir, err := osUserHomeDir()
+			if err != nil {
+				return fmt.Errorf("error retrieving home directory: %w", err)
+			}
+			cliConfigPath = filepath.Join(homeDir, ".config", "windsor", "config.yaml")
+		}
 
 		// Determine the projectConfig path
 		projectConfigPath := getProjectConfigPath()

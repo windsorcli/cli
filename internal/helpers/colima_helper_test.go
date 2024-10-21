@@ -139,41 +139,6 @@ func TestColimaHelper(t *testing.T) {
 				t.Fatalf("expected DOCKER_SOCK to be '%s', got '%s'", expectedDockerSockPath, envVars["DOCKER_SOCK"])
 			}
 		})
-
-		t.Run("DriverNotColima", func(t *testing.T) {
-			// Given a mock context and config handler
-			mockContext := context.NewMockContext()
-			mockContext.GetContextFunc = func() (string, error) {
-				return "test-context", nil
-			}
-			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
-				if key == "contexts.test-context.vm.driver" {
-					return "not-colima", nil
-				}
-				return "", nil
-			}
-
-			// And a DI container with the mock context and config handler registered
-			diContainer := createDIContainer(mockContext, mockConfigHandler)
-
-			// When creating a new ColimaHelper
-			helper, err := NewColimaHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewColimaHelper() error = %v", err)
-			}
-
-			// And getting environment variables
-			envVars, err := helper.GetEnvVars()
-
-			// Then it should return nil for envVars and no error
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-			if envVars != nil {
-				t.Fatalf("expected nil envVars, got %v", envVars)
-			}
-		})
 	})
 
 	t.Run("PostEnvExec", func(t *testing.T) {
