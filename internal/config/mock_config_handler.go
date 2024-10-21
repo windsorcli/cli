@@ -83,10 +83,11 @@ func (m *MockConfigHandler) SaveConfig(path string) error {
 }
 
 // SetDefault calls the mock SetDefaultFunc if set, otherwise does nothing
-func (m *MockConfigHandler) SetDefault(context Context) {
+func (m *MockConfigHandler) SetDefault(context Context) error {
 	if m.SetDefaultFunc != nil {
 		m.SetDefaultFunc(context)
 	}
+	return nil
 }
 
 // Ensure MockConfigHandler implements ConfigHandler

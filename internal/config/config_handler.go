@@ -142,5 +142,5 @@ type ConfigHandler interface {
 	SaveConfig(path string) error
 
 	// SetDefault sets the default context configuration
-	SetDefault(context Context)
+	SetDefault(context Context) error
 }

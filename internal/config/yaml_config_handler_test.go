@@ -218,6 +218,11 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 	t.Run("KeyMissingContextMissingInConfig", func(t *testing.T) {
 		// Given a handler without the context defined in y.config
 		handler, _ := NewYamlConfigHandler("")
+		// Set the context in y.config
+		err := handler.Set("context", "local")
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
 		// Set the default context
 		defaultContext := Context{
 			AWS: &AWSConfig{
@@ -243,7 +248,11 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 		// Given a handler where context exists but key is missing in y.config
 		handler, _ := NewYamlConfigHandler("")
 		// Set the context in y.config without AWSConfig
-		err := handler.Set("contexts.local", &Context{
+		err := handler.Set("context", "local")
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
+		err = handler.Set("contexts.local", &Context{
 			AWS: &AWSConfig{
 				// AWSEndpointURL is not set (nil)
 			},
@@ -275,6 +284,11 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 	t.Run("KeyNotUnderContexts", func(t *testing.T) {
 		// Given a handler with key not under 'contexts'
 		handler, _ := NewYamlConfigHandler("")
+		// Set the context in y.config
+		err := handler.Set("context", "local")
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
 		// Set the default context (should not be used)
 		defaultContext := Context{
 			AWS: &AWSConfig{
@@ -284,7 +298,7 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 		handler.SetDefault(defaultContext)
 
 		// When getting a key not under 'contexts'
-		_, err := handler.Get("some.other.key")
+		_, err = handler.Get("some.other.key")
 		if err == nil {
 			t.Fatalf("Get() expected error, got nil")
 		}
@@ -299,8 +313,13 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 	t.Run("ContextExistsButErrorInGetValueByPathFromValue", func(t *testing.T) {
 		// Given a handler where context exists but GetValueByPathFromValue returns an error
 		handler, _ := NewYamlConfigHandler("")
+		// Set the context in y.config
+		err := handler.Set("context", "local")
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
 		// Set the context in y.config as empty context
-		err := handler.Set("contexts.local", &Context{})
+		err = handler.Set("contexts.local", &Context{})
 		if err != nil {
 			t.Fatalf("Set() unexpected error: %v", err)
 		}
@@ -342,8 +361,13 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 	t.Run("NilValueFallbackToDefaultContext", func(t *testing.T) {
 		// Given a handler with a context where the key is set to nil in y.config
 		handler, _ := NewYamlConfigHandler("")
+		// Set the context in y.config
+		err := handler.Set("context", "local")
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
 		// Set the context in y.config with AWSConfig having a nil AWSEndpointURL
-		err := handler.Set("contexts.local", &Context{
+		err = handler.Set("contexts.local", &Context{
 			AWS: &AWSConfig{
 				AWSEndpointURL: nil, // Explicitly set to nil
 			},
@@ -375,8 +399,13 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 	t.Run("FallbackToDefaultContextConfig", func(t *testing.T) {
 		// Given a handler with a context where the key is not set in y.config
 		handler, _ := NewYamlConfigHandler("")
+		// Set the context in y.config
+		err := handler.Set("context", "local")
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
 		// Set the context in y.config without AWSConfig
-		err := handler.Set("contexts.local", &Context{
+		err = handler.Set("contexts.local", &Context{
 			AWS: &AWSConfig{
 				// AWSEndpointURL is not set (nil)
 			},
@@ -913,6 +942,12 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 			},
 		}
 
+		// Set the context in y.config
+		err := handler.Set("context", "local")
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
+
 		// When setting the default context
 		handler.SetDefault(defaultContext)
 
@@ -921,14 +956,61 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 			t.Errorf("SetDefault() = %v, expected %v", handler.defaultContextConfig.Environment["ENV_VAR"], "value")
 		}
 	})
+
+	t.Run("SetDefaultContextWhenNotDefined", func(t *testing.T) {
+		// Given a YamlConfigHandler with no context defined
+		handler, _ := NewYamlConfigHandler("")
+		defaultContext := Context{
+			Environment: map[string]string{
+				"ENV_VAR": "default_value",
+			},
+		}
+		handler.Set("context", "local")
+
+		// Set the default context
+		handler.SetDefault(defaultContext)
+
+		// Verify that the default context is set
+		value, err := handler.Get("contexts.local.environment.ENV_VAR")
+		if err != nil {
+			t.Fatalf("Get() unexpected error: %v", err)
+		}
+
+		expectedValue := "default_value"
+		if value != expectedValue {
+			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
+		}
+	})
+
+	t.Run("SetDefaultContextWhenAlreadyDefined", func(t *testing.T) {
+		// Given a YamlConfigHandler with a context already defined
+		handler, _ := NewYamlConfigHandler("")
+		handler.Set("context", "local")
+		handler.Set("contexts.local.environment.ENV_VAR", "existing_value")
+
+		defaultContext := Context{
+			Environment: map[string]string{
+				"ENV_VAR": "default_value",
+			},
+		}
+
+		// Set the default context
+		handler.SetDefault(defaultContext)
+
+		// Verify that the existing context value is not overwritten
+		value, err := handler.Get("contexts.local.environment.ENV_VAR")
+		if err != nil {
+			t.Fatalf("Get() unexpected error: %v", err)
+		}
+
+		expectedValue := "existing_value"
+		if value != expectedValue {
+			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
+		}
+	})
 }
 
 func TestSetValueByPath(t *testing.T) {
-	// Helper function to create a reflect.Value from an interface{}
-	// toReflectValue := func(i interface{}) reflect.Value {
-	// 	return reflect.ValueOf(i)
-	// }
-
 	t.Run("EmptyPathKeys", func(t *testing.T) {
 		// Given an empty pathKeys slice
 		var currValue reflect.Value
@@ -1726,5 +1808,38 @@ Email: alice@example.com
 
 		// Compare the actual YAML output with the expected output
 		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("EmptyResult", func(t *testing.T) {
+		type NestedStruct struct {
+			FieldA string `yaml:"field_a"`
+			FieldB int    `yaml:"field_b"`
+		}
+
+		// Define a struct with all fields set to zero values or nil
+		type TestStruct struct {
+			Nested  *NestedStruct     `yaml:"nested"`
+			Numbers []int             `yaml:"numbers"`
+			MapData map[string]string `yaml:"map_data"`
+		}
+
+		// Create an instance of the struct with all fields set to zero values
+		testData := TestStruct{
+			Nested:  nil,
+			Numbers: nil,
+			MapData: map[string]string{},
+		}
+
+		// Call yamlMarshalNonNull
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		// Check that the result is an empty YAML string
+		expectedYAML := ""
+		if string(data) != expectedYAML {
+			t.Errorf("Expected empty YAML string, got: '%s'", string(data))
+		}
 	})
 }

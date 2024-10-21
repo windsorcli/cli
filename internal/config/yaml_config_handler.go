@@ -90,8 +90,19 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 }
 
 // SetDefault sets the default context configuration
-func (y *YamlConfigHandler) SetDefault(context Context) {
+func (y *YamlConfigHandler) SetDefault(context Context) error {
 	y.defaultContextConfig = context
+	currentContext := y.config.Context
+
+	// Check if the context is defined in the config
+	contextKey := fmt.Sprintf("contexts.%s", *currentContext)
+	if _, err := y.Get(contextKey); err != nil {
+		// If the context is not defined, set it to defaultContextConfig
+		if err := y.Set(contextKey, &context); err != nil {
+			return fmt.Errorf("error setting default context config: %w", err)
+		}
+	}
+	return nil
 }
 
 // Get retrieves the value at the specified path in the configuration
@@ -415,7 +426,6 @@ func makeAddressable(v reflect.Value) reflect.Value {
 }
 
 // yamlMarshalNonNull is a custom function to marshal YAML without nil values
-// yamlMarshalNonNull is a custom function to marshal YAML without nil values
 var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
 	// Helper function to recursively process the struct
 	var convert func(reflect.Value) (interface{}, error)
@@ -496,10 +506,6 @@ var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
 				if elemInterface != nil {
 					result[keyStr] = elemInterface
 				}
-			}
-			// Omit empty maps
-			if len(result) == 0 {
-				return nil, nil
 			}
 			return result, nil
 		case reflect.Interface:
