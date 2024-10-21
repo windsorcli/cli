@@ -421,17 +421,15 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("LocalContextSetsDefault", func(t *testing.T) {
-		// Arrange: Create a mock config handler and a flag to check if SetDefault was called
+		// Arrange: Create a mock config handler and set the SetDefaultFunc to check the parameters
 		mockHandler := config.NewMockConfigHandler()
-		called := false
 
-		// Set the SetDefaultFunc to update the flag and check the parameters
-		mockHandler.SetDefaultFunc = func(context config.Context) {
-			called = true
+		mockHandler.SetDefaultFunc = func(context config.Context) error {
 			expectedValue := config.DefaultLocalConfig
 			if !reflect.DeepEqual(context, expectedValue) {
-				t.Errorf("Expected value %v, got %v", expectedValue, context)
+				return fmt.Errorf("Expected value %v, got %v", expectedValue, context)
 			}
+			return nil
 		}
 
 		mockShell, err := shell.NewMockShell("cmd")
@@ -449,11 +447,6 @@ func TestInitCmd(t *testing.T) {
 				t.Fatalf("Execute() error = %v", err)
 			}
 		})
-
-		// Assert: Verify that SetDefault was called
-		if !called {
-			t.Error("Expected SetDefaultFunc to be called")
-		}
 
 		// Assert: Verify the output indicates success
 		expectedOutput := "Initialization successful\n"
@@ -834,6 +827,71 @@ func TestInitCmd(t *testing.T) {
 		err = rootCmd.Execute()
 		if err == nil || err.Error() != "Error setting VM memory: error setting VM memory" {
 			t.Fatalf("Expected error setting VM memory, got %v", err)
+		}
+	})
+
+	t.Run("SetDefaultLocalConfigError", func(t *testing.T) {
+		// Given: a config handler that returns an error on SetDefault for local config
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetDefaultFunc = func(context config.Context) error {
+			expectedValue := config.DefaultLocalConfig
+			if !reflect.DeepEqual(context, expectedValue) {
+				return fmt.Errorf("Expected value %v, got %v", expectedValue, context)
+			}
+			return errors.New("error setting default local config")
+		}
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		// When: the init command is executed with a local context
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "local"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "Error setting default local config: error setting default local config"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("SetDefaultConfigError", func(t *testing.T) {
+		// Given: a config handler that returns an error on SetDefault for default config
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetDefaultFunc = func(context config.Context) error {
+			if reflect.DeepEqual(context, config.DefaultConfig) {
+				return errors.New("error setting default config")
+			}
+			return nil
+		}
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
+
+		// When: the init command is executed with a non-local context
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "Error setting default config: error setting default config"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 }

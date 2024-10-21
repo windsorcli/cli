@@ -29,7 +29,7 @@ func newMockConfigHandlerWithDefaults() *MockConfigHandler {
 		GetBoolFunc:    func(key string) (bool, error) { return false, nil },
 		SetFunc:        func(key string, value interface{}) error { return nil },
 		SaveConfigFunc: func(path string) error { return nil },
-		SetDefaultFunc: func(context Context) {},
+		SetDefaultFunc: func(context Context) error { return nil },
 	}
 }
 
@@ -187,16 +187,18 @@ func TestMockConfigHandler(t *testing.T) {
 			called := false
 
 			// Set the SetDefaultFunc to update the flag and check the parameters
-			mockHandler.SetDefaultFunc = func(context Context) {
+			mockHandler.SetDefaultFunc = func(context Context) error {
 				called = true
 				expectedValue := DefaultLocalConfig
 				if !reflect.DeepEqual(context, expectedValue) {
 					t.Errorf("Expected value %v, got %v", expectedValue, context)
 				}
+				return nil
 			}
 
 			// Act: Call SetDefault
-			mockHandler.SetDefault(DefaultLocalConfig)
+			err := mockHandler.SetDefault(DefaultLocalConfig)
+			assertError(t, err, nil)
 
 			// Assert: Verify that the function was called
 			if !called {

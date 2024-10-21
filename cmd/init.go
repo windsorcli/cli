@@ -50,9 +50,13 @@ var initCmd = &cobra.Command{
 
 		// If the context is local or starts with "local-", set the defaults to the default local config
 		if contextName == "local" || len(contextName) > 6 && contextName[:6] == "local-" {
-			cliConfigHandler.SetDefault(config.DefaultLocalConfig)
+			if err := cliConfigHandler.SetDefault(config.DefaultLocalConfig); err != nil {
+				return fmt.Errorf("Error setting default local config: %w", err)
+			}
 		} else {
-			cliConfigHandler.SetDefault(config.DefaultConfig)
+			if err := cliConfigHandler.SetDefault(config.DefaultConfig); err != nil {
+				return fmt.Errorf("Error setting default config: %w", err)
+			}
 		}
 
 		// Conditionally set AWS configuration

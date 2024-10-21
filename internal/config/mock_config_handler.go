@@ -9,7 +9,7 @@ type MockConfigHandler struct {
 	SetFunc        func(key string, value interface{}) error
 	SaveConfigFunc func(path string) error
 	GetFunc        func(key string) (interface{}, error)
-	SetDefaultFunc func(context Context)
+	SetDefaultFunc func(context Context) error
 }
 
 // NewMockConfigHandler is a constructor for MockConfigHandler
@@ -85,7 +85,7 @@ func (m *MockConfigHandler) SaveConfig(path string) error {
 // SetDefault calls the mock SetDefaultFunc if set, otherwise does nothing
 func (m *MockConfigHandler) SetDefault(context Context) error {
 	if m.SetDefaultFunc != nil {
-		m.SetDefaultFunc(context)
+		return m.SetDefaultFunc(context)
 	}
 	return nil
 }
