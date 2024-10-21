@@ -45,7 +45,7 @@ func NewGitHelper(di *di.DIContainer) (*GitHelper, error) {
 
 // GetEnvVars is a no-op function
 func (h *GitHelper) GetEnvVars() (map[string]string, error) {
-	return nil, nil
+	return map[string]string{}, nil
 }
 
 // PostEnvExec runs any necessary commands after the environment variables have been set.
