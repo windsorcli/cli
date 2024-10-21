@@ -7,7 +7,34 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/goccy/go-yaml"
 )
+
+// compareYAML compares two YAML byte slices by unmarshaling them into interface{} and using DeepEqual.
+func compareYAML(t *testing.T, actualYAML, expectedYAML []byte) {
+	var actualData interface{}
+	var expectedData interface{}
+
+	// Unmarshal actual YAML
+	err := yaml.Unmarshal(actualYAML, &actualData)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal actual YAML data: %v", err)
+	}
+
+	// Unmarshal expected YAML
+	err = yaml.Unmarshal(expectedYAML, &expectedData)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal expected YAML data: %v", err)
+	}
+
+	// Compare the data structures
+	if !reflect.DeepEqual(actualData, expectedData) {
+		actualFormatted, _ := yaml.Marshal(actualData)
+		expectedFormatted, _ := yaml.Marshal(expectedData)
+		t.Errorf("YAML mismatch.\nActual:\n%s\nExpected:\n%s", string(actualFormatted), string(expectedFormatted))
+	}
+}
 
 func TestNewYamlConfigHandler(t *testing.T) {
 	t.Run("ErrorLoadingConfig", func(t *testing.T) {
@@ -413,28 +440,30 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("MarshalError", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		handler.Set("saveKey", "saveValue")
-
-		// Mock yaml.Marshal to return an error
-		originalYamlMarshal := yamlMarshal
-		yamlMarshal = func(v interface{}) ([]byte, error) {
-			return nil, fmt.Errorf("mocked error marshalling yaml")
+	t.Run("MarshallingError", func(t *testing.T) {
+		// Create a mock for yamlMarshalNonNull
+		originalYamlMarshalNonNull := yamlMarshalNonNull
+		defer func() { yamlMarshalNonNull = originalYamlMarshalNonNull }()
+		yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
+			return nil, fmt.Errorf("mock marshalling error")
 		}
-		defer func() { yamlMarshal = originalYamlMarshal }()
 
-		tempDir := t.TempDir()
-		configPath := filepath.Join(tempDir, "save_config.yaml")
+		// Create a YamlConfigHandler with a sample config
+		handler := &YamlConfigHandler{
+			config: Config{}, // Assuming Config is your struct
+			path:   "test.yaml",
+		}
 
-		err := handler.SaveConfig(configPath)
+		// Call SaveConfig and expect an error
+		err := handler.SaveConfig("test.yaml")
 		if err == nil {
-			t.Fatalf("SaveConfig() expected error, got nil")
+			t.Fatalf("Expected error, got nil")
 		}
 
-		expectedError := "error marshalling yaml: mocked error marshalling yaml"
-		if err.Error() != expectedError {
-			t.Fatalf("SaveConfig() error = %v, expected '%s'", err, expectedError)
+		// Check if the error message is as expected
+		expectedErrorMessage := "error marshalling yaml: mock marshalling error"
+		if err.Error() != expectedErrorMessage {
+			t.Errorf("Unexpected error message. Got: %s, Expected: %s", err.Error(), expectedErrorMessage)
 		}
 	})
 
@@ -493,6 +522,48 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		err := handler.SaveConfig("")
 		if err != nil {
 			t.Fatalf("SaveConfig() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("OmitsNullValues", func(t *testing.T) {
+		// Setup a temporary directory for the test
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.yaml")
+
+		// Create a YamlConfigHandler with some initial configuration
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: nil,
+				Contexts: map[string]*Context{
+					"default": {
+						Environment: map[string]string{
+							"name":  "John Doe",
+							"email": "john.doe@example.com",
+						},
+						AWS: &AWSConfig{
+							AWSEndpointURL: nil,
+						},
+					},
+				},
+			},
+		}
+
+		// Call SaveConfig to write the configuration to a file
+		err := handler.SaveConfig(configPath)
+		if err != nil {
+			t.Fatalf("SaveConfig() unexpected error: %v", err)
+		}
+
+		// Read the file to verify its contents
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("Failed to read config file: %v", err)
+		}
+
+		// Check that the YAML data does not contain the "age" field
+		expectedContent := "contexts:\n  default:\n    environment:\n      email: john.doe@example.com\n      name: John Doe\n"
+		if string(data) != expectedContent {
+			t.Errorf("Config file content = %v, expected %v", string(data), expectedContent)
 		}
 	})
 }
@@ -1252,5 +1323,408 @@ func TestGetValueByPath(t *testing.T) {
 		if testStruct.IntField != 42 {
 			t.Errorf("Expected IntField to be 42, got '%v'", testStruct.IntField)
 		}
+	})
+}
+
+func TestYamlMarshalNonNull(t *testing.T) {
+	// Test case for a struct with all non-nil values
+	t.Run("AllNonNilValues", func(t *testing.T) {
+		type NestedStruct struct {
+			FieldA string `yaml:"field_a"`
+			FieldB int    `yaml:"field_b"`
+		}
+
+		type TestStruct struct {
+			Name    string            `yaml:"name"`
+			Age     int               `yaml:"age"`
+			Nested  NestedStruct      `yaml:"nested"`
+			Numbers []int             `yaml:"numbers"`
+			MapData map[string]string `yaml:"map_data"`
+		}
+
+		testData := TestStruct{
+			Name: "Alice",
+			Age:  30,
+			Nested: NestedStruct{
+				FieldA: "ValueA",
+				FieldB: 42,
+			},
+			Numbers: []int{1, 2, 3},
+			MapData: map[string]string{
+				"key1": "value1",
+				"key2": "value2",
+			},
+		}
+
+		expectedYAML := `
+name: Alice
+age: 30
+nested:
+  field_a: ValueA
+  field_b: 42
+numbers:
+  - 1
+  - 2
+  - 3
+map_data:
+  key1: value1
+  key2: value2
+`
+
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	// Test case for a struct with nil pointer fields
+	t.Run("NilPointerFields", func(t *testing.T) {
+		type TestStruct struct {
+			Name    *string `yaml:"name"`
+			Age     *int    `yaml:"age"`
+			Comment *string `yaml:"comment"`
+		}
+
+		age := 25
+		testData := TestStruct{
+			Name:    nil,  // Should be omitted
+			Age:     &age, // Should be included
+			Comment: nil,  // Should be omitted
+		}
+
+		expectedYAML := `age: 25
+`
+
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		if string(data) != expectedYAML {
+			t.Errorf("yamlMarshalNonNull() output = %s, expected %s", string(data), expectedYAML)
+		}
+	})
+
+	// Test case for a struct with zero values
+	t.Run("ZeroValues", func(t *testing.T) {
+		type TestStruct struct {
+			Name    string `yaml:"name"`
+			Age     int    `yaml:"age"`
+			Active  bool   `yaml:"active"`
+			Comment string `yaml:"comment"`
+		}
+
+		testData := TestStruct{
+			Name:    "",    // Empty string, should be included
+			Age:     0,     // Zero value, should be included
+			Active:  false, // Zero value for bool, should be included
+			Comment: "",    // Empty string, should be included
+		}
+
+		expectedYAML := `
+name: ""
+age: 0
+active: false
+comment: ""
+`
+
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	// Test case for a struct with nil slices and maps
+	t.Run("NilSlicesAndMaps", func(t *testing.T) {
+		type TestStruct struct {
+			Numbers []int          `yaml:"numbers"`
+			MapData map[string]int `yaml:"map_data"`
+			Nested  *TestStruct    `yaml:"nested"`
+		}
+
+		testData := TestStruct{
+			Numbers: nil, // Should be omitted
+			MapData: nil, // Should be omitted
+			Nested:  nil, // Should be omitted
+		}
+
+		expectedYAML := `` // Expecting an empty YAML
+
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	// Test case for a struct with empty slices and maps
+	t.Run("EmptySlicesAndMaps", func(t *testing.T) {
+		type TestStruct struct {
+			Numbers []int          `yaml:"numbers"`
+			MapData map[string]int `yaml:"map_data"`
+		}
+
+		testData := TestStruct{
+			Numbers: []int{},          // Should be included as empty slice
+			MapData: map[string]int{}, // Should be included as empty map
+		}
+
+		expectedYAML := ``
+
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	// Test case for unexported fields
+	t.Run("UnexportedFields", func(t *testing.T) {
+		type TestStruct struct {
+			ExportedField   string `yaml:"exported_field"`
+			unexportedField string `yaml:"unexported_field"`
+		}
+
+		testData := TestStruct{
+			ExportedField:   "Visible",
+			unexportedField: "Hidden",
+		}
+
+		expectedYAML := `exported_field: Visible
+`
+
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+		if string(data) != expectedYAML {
+			t.Errorf("yamlMarshalNonNull() output = '%s', expected '%s'", string(data), expectedYAML)
+		}
+	})
+
+	// Test case with fields tagged to be omitted
+	t.Run("OmittedFields", func(t *testing.T) {
+		type TestStruct struct {
+			Name   string `yaml:"name"`
+			Secret string `yaml:"-"` // Should be omitted
+		}
+
+		testData := TestStruct{
+			Name:   "Bob",
+			Secret: "SuperSecret",
+		}
+
+		expectedYAML := `
+name: Bob
+`
+
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	// Test case for nested pointers
+	t.Run("NestedPointers", func(t *testing.T) {
+		type InnerStruct struct {
+			Value *string `yaml:"value"`
+		}
+
+		type OuterStruct struct {
+			Inner *InnerStruct `yaml:"inner"`
+		}
+
+		// Test when Inner is nil
+		testData := OuterStruct{
+			Inner: nil,
+		}
+		expectedYAML := `` // Expecting an empty YAML
+
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		compareYAML(t, data, []byte(expectedYAML))
+
+		// Test when Inner.Value is nil
+		testData.Inner = &InnerStruct{
+			Value: nil,
+		}
+		expectedYAML = ``
+
+		data, err = yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		compareYAML(t, data, []byte(expectedYAML))
+
+		// Test when Inner.Value is non-nil
+		val := "SomeValue"
+		testData.Inner.Value = &val
+		expectedYAML = `
+inner:
+  value: SomeValue
+`
+
+		data, err = yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	// Test case for slices with nil elements
+	t.Run("SliceWithNilElements", func(t *testing.T) {
+		type TestStruct struct {
+			Items []interface{} `yaml:"items"`
+		}
+
+		testData := TestStruct{
+			Items: []interface{}{
+				"Item1",
+				nil, // Should appear as null in YAML
+				"Item3",
+			},
+		}
+
+		expectedYAML := `
+items:
+  - "Item1"
+  - null
+  - "Item3"
+`
+
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	// Test case for maps with nil values
+	t.Run("MapWithNilValues", func(t *testing.T) {
+		type TestStruct struct {
+			Data map[string]interface{} `yaml:"data"`
+		}
+
+		testData := TestStruct{
+			Data: map[string]interface{}{
+				"key1": "value1",
+				"key2": nil, // Should be omitted
+			},
+		}
+
+		expectedYAML := `
+data:
+  key1: "value1"
+`
+
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	// Test case for interface fields
+	t.Run("InterfaceFields", func(t *testing.T) {
+		type TestStruct struct {
+			Info interface{} `yaml:"info"`
+		}
+
+		// When Info is nil
+		testData := TestStruct{
+			Info: nil,
+		}
+		expectedYAML := `` // Expecting an empty YAML
+
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error when Info is nil: %v", err)
+		}
+
+		compareYAML(t, data, []byte(expectedYAML))
+
+		// When Info has a value
+		testData.Info = "Some info"
+		expectedYAML = `
+info: "Some info"
+`
+
+		data, err = yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error when Info has value: %v", err)
+		}
+
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	// Test case for invalid input
+	t.Run("InvalidInput", func(t *testing.T) {
+		var invalidInput func() // nil function
+
+		_, err := yamlMarshalNonNull(invalidInput)
+		if err == nil {
+			t.Errorf("Expected error when marshalling invalid input, got nil")
+		}
+	})
+
+	t.Run("InvalidReflectValue", func(t *testing.T) {
+		// Create a nil interface, which results in a reflect.Invalid kind
+		var invalidInput interface{}
+
+		// Test with nil interface
+		data, err := yamlMarshalNonNull(invalidInput)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+		if len(data) != 0 {
+			t.Errorf("Expected empty output for nil interface, got: '%s'", string(data))
+		}
+	})
+
+	t.Run("NoYAMLTag", func(t *testing.T) {
+		// Define a struct with fields that do not have YAML tags
+		type TestStruct struct {
+			Name  string
+			Age   int
+			Email string
+		}
+
+		// Create an instance of the struct
+		testData := TestStruct{
+			Name:  "Alice",
+			Age:   30,
+			Email: "alice@example.com",
+		}
+
+		// Expected YAML output should use field names as keys
+		expectedYAML := `
+Name: Alice
+Age: 30
+Email: alice@example.com
+`
+
+		// Call yamlMarshalNonNull
+		data, err := yamlMarshalNonNull(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalNonNull() error: %v", err)
+		}
+
+		// Compare the actual YAML output with the expected output
+		compareYAML(t, data, []byte(expectedYAML))
 	})
 }

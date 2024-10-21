@@ -76,8 +76,8 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 		path = y.path
 	}
 
-	// Marshal the config struct into YAML data
-	data, err := yamlMarshal(y.config)
+	// Marshal the config struct into YAML data, omitting null values
+	data, err := yamlMarshalNonNull(y.config)
 	if err != nil {
 		return fmt.Errorf("error marshalling yaml: %w", err)
 	}
@@ -412,4 +412,123 @@ func makeAddressable(v reflect.Value) reflect.Value {
 	addr := reflect.New(v.Type())
 	addr.Elem().Set(v)
 	return addr.Elem()
+}
+
+// yamlMarshalNonNull is a custom function to marshal YAML without nil values
+// yamlMarshalNonNull is a custom function to marshal YAML without nil values
+var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
+	// Helper function to recursively process the struct
+	var convert func(reflect.Value) (interface{}, error)
+	convert = func(val reflect.Value) (interface{}, error) {
+		switch val.Kind() {
+		case reflect.Invalid:
+			return nil, nil
+		case reflect.Ptr:
+			if val.IsNil() {
+				// Omit nil pointer fields
+				return nil, nil
+			}
+			// Dereference pointer and continue processing
+			return convert(val.Elem())
+		case reflect.Struct:
+			result := make(map[string]interface{})
+			typ := val.Type()
+			for i := 0; i < val.NumField(); i++ {
+				fieldValue := val.Field(i)
+				fieldType := typ.Field(i)
+
+				// Skip unexported fields
+				if fieldType.PkgPath != "" {
+					continue
+				}
+
+				yamlTag := strings.Split(fieldType.Tag.Get("yaml"), ",")[0]
+				if yamlTag == "-" {
+					// Omit fields with yaml:"-"
+					continue
+				}
+				if yamlTag == "" {
+					// Use field name if no YAML tag is specified
+					yamlTag = fieldType.Name
+				}
+
+				fieldInterface, err := convert(fieldValue)
+				if err != nil {
+					return nil, err
+				}
+				if fieldInterface != nil {
+					result[yamlTag] = fieldInterface
+				}
+			}
+			// Omit empty structs
+			if len(result) == 0 {
+				return nil, nil
+			}
+			return result, nil
+		case reflect.Slice, reflect.Array:
+			if val.Len() == 0 {
+				// Omit empty slices/arrays
+				return nil, nil
+			}
+			var slice []interface{}
+			for i := 0; i < val.Len(); i++ {
+				elemVal := val.Index(i)
+				elemInterface, err := convert(elemVal)
+				if err != nil {
+					return nil, err
+				}
+				slice = append(slice, elemInterface)
+			}
+			return slice, nil
+		case reflect.Map:
+			if val.Len() == 0 {
+				// Omit empty maps
+				return nil, nil
+			}
+			result := make(map[string]interface{})
+			for _, key := range val.MapKeys() {
+				keyStr := fmt.Sprintf("%v", key.Interface())
+				elemVal := val.MapIndex(key)
+				elemInterface, err := convert(elemVal)
+				if err != nil {
+					return nil, err
+				}
+				if elemInterface != nil {
+					result[keyStr] = elemInterface
+				}
+			}
+			// Omit empty maps
+			if len(result) == 0 {
+				return nil, nil
+			}
+			return result, nil
+		case reflect.Interface:
+			if val.IsNil() {
+				// Omit nil interfaces
+				return nil, nil
+			}
+			return convert(val.Elem())
+		case reflect.String:
+			return val.String(), nil
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			return val.Int(), nil
+		case reflect.Bool:
+			return val.Bool(), nil
+		default:
+			// For other kinds, return an error
+			return val.Interface(), nil
+		}
+	}
+
+	val := reflect.ValueOf(v)
+	processed, err := convert(val)
+	if err != nil {
+		return nil, err
+	}
+	if processed == nil {
+		return []byte{}, nil
+	}
+
+	// Using goccy/go-yaml for marshalling
+	return yaml.Marshal(processed)
 }
