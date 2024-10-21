@@ -51,9 +51,13 @@ func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Get environment variables for the context from the config handler
-	envVars, err := h.ConfigHandler.GetNestedMap(fmt.Sprintf("contexts.%s.environment", context))
+	envVarsInterface, err := h.ConfigHandler.Get(fmt.Sprintf("contexts.%s.environment", context))
 	if err != nil {
-		envVars = make(map[string]interface{})
+		return nil, fmt.Errorf("error retrieving environment variables: %w", err)
+	}
+	envVars, ok := envVarsInterface.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected map[string]interface{} for environment variables, got %T", envVarsInterface)
 	}
 
 	// Convert environment variables to a map of strings

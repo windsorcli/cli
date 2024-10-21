@@ -31,17 +31,23 @@ func NewContext(cliConfigHandler config.ConfigHandler, shell shell.Shell) *Conte
 
 // GetContext retrieves the current context from the configuration
 func (c *Context) GetContext() (string, error) {
-	context, err := c.ConfigHandler.GetConfigValue("context")
+	context, err := c.ConfigHandler.GetString("context")
 	if err != nil {
 		return "", fmt.Errorf("error retrieving context: %w", err)
+	}
+	if context == "" {
+		return "local", nil
 	}
 	return context, nil
 }
 
 // SetContext sets the current context in the configuration and saves it
 func (c *Context) SetContext(context string) error {
-	if err := c.ConfigHandler.SetConfigValue("context", context); err != nil {
+	if err := c.ConfigHandler.Set("context", context); err != nil {
 		return fmt.Errorf("error setting context: %w", err)
+	}
+	if err := c.ConfigHandler.SaveConfig(""); err != nil {
+		return fmt.Errorf("error saving config: %w", err)
 	}
 	return nil
 }
@@ -50,7 +56,7 @@ func (c *Context) SetContext(context string) error {
 func (c *Context) GetConfigRoot() (string, error) {
 	context, err := c.GetContext()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error retrieving context: %w", err)
 	}
 
 	projectRoot, err := c.Shell.GetProjectRoot()

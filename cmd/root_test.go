@@ -32,36 +32,28 @@ func setupContainer(
 	// Create simple mock handlers if not provided
 	if mockCLIConfigHandler == nil {
 		mockCLIConfigHandler := config.NewMockConfigHandler()
-		mockCLIConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error { return nil }
-		mockCLIConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+		mockCLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+		mockCLIConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 	}
 	if mockProjectConfigHandler == nil {
 		mockProjectConfigHandler := config.NewMockConfigHandler()
-		mockProjectConfigHandler.SetConfigValueFunc = func(key string, value interface{}) error { return nil }
-		mockProjectConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+		mockProjectConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+		mockProjectConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 	}
 	if mockShell == nil {
 		mockShell, _ = shell.NewMockShell("unix")
 	}
 	if mockTerraformHelper == nil {
-		mockTerraformHelper = helpers.NewMockHelper(func() (map[string]string, error) {
-			return nil, nil
-		})
+		mockTerraformHelper = helpers.NewMockHelper()
 	}
 	if mockAwsHelper == nil {
-		mockAwsHelper = helpers.NewMockHelper(func() (map[string]string, error) {
-			return nil, nil
-		})
+		mockAwsHelper = helpers.NewMockHelper()
 	}
 	if mockColimaHelper == nil {
-		mockColimaHelper = helpers.NewMockHelper(func() (map[string]string, error) {
-			return nil, nil
-		})
+		mockColimaHelper = helpers.NewMockHelper()
 	}
 	if mockDockerHelper == nil {
-		mockDockerHelper = helpers.NewMockHelper(func() (map[string]string, error) {
-			return nil, nil
-		})
+		mockDockerHelper = helpers.NewMockHelper()
 	}
 
 	container.Register("cliConfigHandler", mockCLIConfigHandler)
@@ -158,11 +150,11 @@ func TestRootCommand(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mockCLIConfigHandler := config.NewMockConfigHandler()
 			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockCLIConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockProjectConfigHandler := config.NewMockConfigHandler()
 			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockProjectConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
@@ -182,7 +174,7 @@ func TestRootCommand(t *testing.T) {
 			cliConfigHandler = nil
 			projectConfigHandler := config.NewMockConfigHandler()
 			projectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			projectConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			projectConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			// When preRunLoadConfig is executed
 			err := preRunLoadConfig(nil, nil)
@@ -201,7 +193,7 @@ func TestRootCommand(t *testing.T) {
 			// Given no project config handler is registered
 			mockCLIConfigHandler := config.NewMockConfigHandler()
 			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockCLIConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 			cliConfigHandler = mockCLIConfigHandler
 			projectConfigHandler = nil
 
@@ -222,11 +214,11 @@ func TestRootCommand(t *testing.T) {
 			// Given CLI config handler returns an error on LoadConfig
 			mockCLIConfigHandler := config.NewMockConfigHandler()
 			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return errors.New("mock load error") }
-			mockCLIConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockCLIConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockProjectConfigHandler := config.NewMockConfigHandler()
 			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockProjectConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
@@ -248,11 +240,11 @@ func TestRootCommand(t *testing.T) {
 			// Given project config handler returns an error on LoadConfig
 			mockCLIConfigHandler := config.NewMockConfigHandler()
 			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockCLIConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockProjectConfigHandler := config.NewMockConfigHandler()
 			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return errors.New("mock load error") }
-			mockProjectConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockProjectConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
@@ -287,11 +279,11 @@ func TestRootCommand(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mockCLIConfigHandler := config.NewMockConfigHandler()
 			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockCLIConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockProjectConfigHandler := config.NewMockConfigHandler()
 			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockProjectConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
@@ -371,11 +363,11 @@ func TestRootCommand(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mockCLIConfigHandler := config.NewMockConfigHandler()
 			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockCLIConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockProjectConfigHandler := config.NewMockConfigHandler()
 			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockProjectConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
@@ -493,11 +485,11 @@ func TestRootCommand(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mockCLIConfigHandler := config.NewMockConfigHandler()
 			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockCLIConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockProjectConfigHandler := config.NewMockConfigHandler()
 			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockProjectConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "", errors.New("mock error") }
@@ -524,11 +516,11 @@ func TestRootCommand(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mockCLIConfigHandler := config.NewMockConfigHandler()
 			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockCLIConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockProjectConfigHandler := config.NewMockConfigHandler()
 			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockProjectConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockShell, _ := shell.NewMockShell("unix")
 			tempDir := t.TempDir()
@@ -556,11 +548,11 @@ func TestRootCommand(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mockCLIConfigHandler := config.NewMockConfigHandler()
 			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockCLIConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockProjectConfigHandler := config.NewMockConfigHandler()
 			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockProjectConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockShell, _ := shell.NewMockShell("unix")
 			tempDir := t.TempDir()
@@ -590,11 +582,11 @@ func TestRootCommand(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mockCLIConfigHandler := config.NewMockConfigHandler()
 			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockCLIConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockProjectConfigHandler := config.NewMockConfigHandler()
 			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetConfigValueFunc = func(key string) (string, error) { return "value", nil }
+			mockProjectConfigHandler.GetStringFunc = func(key string) (string, error) { return "value", nil }
 
 			mockShell, _ := shell.NewMockShell("unix")
 			tempDir := t.TempDir()

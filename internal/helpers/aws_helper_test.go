@@ -42,7 +42,7 @@ func TestAwsHelper(t *testing.T) {
 
 			// Mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
 					return "mock_profile", nil
@@ -103,7 +103,7 @@ func TestAwsHelper(t *testing.T) {
 
 			// Mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
 					return "default", nil
@@ -239,7 +239,7 @@ func TestAwsHelper(t *testing.T) {
 
 			// Mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
 					return "", errors.New("mock error retrieving aws profile")
@@ -311,7 +311,7 @@ func TestAwsHelper(t *testing.T) {
 
 			// Mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
 					return "default", nil
@@ -372,7 +372,7 @@ func TestAwsHelper(t *testing.T) {
 
 			// Mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
 					return "default", nil
@@ -433,7 +433,7 @@ func TestAwsHelper(t *testing.T) {
 
 			// Mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				switch key {
 				case "contexts.remote.aws.aws_profile":
 					return "default", nil

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/spf13/cobra"
+	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/helpers"
 )
 
@@ -15,9 +15,9 @@ var (
 	awsProfile     string
 	awsEndpointURL string
 	vmType         string
-	cpu            string
-	disk           string
-	memory         string
+	cpu            int
+	disk           int
+	memory         int
 	arch           string
 	docker         bool
 )
@@ -44,43 +44,72 @@ var initCmd = &cobra.Command{
 		projectConfigPath := getProjectConfigPath()
 
 		// Set the context value
-		if err := cliConfigHandler.SetConfigValue("context", contextName); err != nil {
+		if err := cliConfigHandler.Set("context", contextName); err != nil {
 			return fmt.Errorf("Error setting config value: %w", err)
 		}
 
-		// Set the backend configuration value using the cliConfigHandler
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", contextName), backend); err != nil {
-			return fmt.Errorf("Error setting backend value: %w", err)
+		// If the context is local or starts with "local-", set the defaults to the default local config
+		if contextName == "local" || len(contextName) > 6 && contextName[:6] == "local-" {
+			if err := cliConfigHandler.SetDefault(config.DefaultLocalConfig); err != nil {
+				return fmt.Errorf("Error setting default local config: %w", err)
+			}
+		} else {
+			if err := cliConfigHandler.SetDefault(config.DefaultConfig); err != nil {
+				return fmt.Errorf("Error setting default config: %w", err)
+			}
 		}
 
-		// Set the Docker configuration values using the DockerHelper
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.docker.enabled", contextName), strconv.FormatBool(docker)); err != nil {
-			return fmt.Errorf("error setting Docker configuration: %w", err)
+		// Conditionally set AWS configuration
+		if cmd.Flags().Changed("aws-endpoint-url") {
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", contextName), awsEndpointURL); err != nil {
+				return fmt.Errorf("Error setting AWS endpoint URL: %w", err)
+			}
+		}
+		if cmd.Flags().Changed("aws-profile") {
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.aws.aws_profile", contextName), awsProfile); err != nil {
+				return fmt.Errorf("Error setting AWS profile: %w", err)
+			}
 		}
 
-		// Set the AWS configuration values using the AwsHelper
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", contextName), awsEndpointURL); err != nil {
-			return fmt.Errorf("error setting aws_endpoint_url: %w", err)
-		}
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_profile", contextName), awsProfile); err != nil {
-			return fmt.Errorf("error setting aws_profile: %w", err)
+		// Conditionally set Docker configuration
+		if cmd.Flags().Changed("docker") {
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.docker.enabled", contextName), docker); err != nil {
+				return fmt.Errorf("Error setting Docker enabled: %w", err)
+			}
 		}
 
-		// Set the Colima configuration values using the cliConfigHandler
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", contextName), vmType); err != nil {
-			return fmt.Errorf("error setting vm driver: %w", err)
+		// Conditionally set Terraform configuration
+		if cmd.Flags().Changed("backend") {
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.terraform.backend", contextName), backend); err != nil {
+				return fmt.Errorf("Error setting Terraform backend: %w", err)
+			}
 		}
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.cpu", contextName), cpu); err != nil {
-			return fmt.Errorf("error setting vm cpu: %w", err)
+
+		// Conditionally set VM configuration
+		if cmd.Flags().Changed("vm-driver") {
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.driver", contextName), vmType); err != nil {
+				return fmt.Errorf("Error setting VM driver: %w", err)
+			}
 		}
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.disk", contextName), disk); err != nil {
-			return fmt.Errorf("error setting vm disk: %w", err)
+		if cmd.Flags().Changed("vm-cpu") {
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.cpu", contextName), cpu); err != nil {
+				return fmt.Errorf("Error setting VM CPU: %w", err)
+			}
 		}
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.memory", contextName), memory); err != nil {
-			return fmt.Errorf("error setting vm memory: %w", err)
+		if cmd.Flags().Changed("vm-disk") {
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.disk", contextName), disk); err != nil {
+				return fmt.Errorf("Error setting VM disk: %w", err)
+			}
 		}
-		if err := cliConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", contextName), arch); err != nil {
-			return fmt.Errorf("error setting vm arch: %w", err)
+		if cmd.Flags().Changed("vm-memory") {
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.memory", contextName), memory); err != nil {
+				return fmt.Errorf("Error setting VM memory: %w", err)
+			}
+		}
+		if cmd.Flags().Changed("vm-arch") {
+			if err := cliConfigHandler.Set(fmt.Sprintf("contexts.%s.vm.arch", contextName), arch); err != nil {
+				return fmt.Errorf("Error setting VM architecture: %w", err)
+			}
 		}
 
 		// Save the cli configuration
@@ -100,7 +129,6 @@ var initCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("error resolving helpers: %w", err)
 		}
-
 		for _, instance := range helperInstances {
 			helper := instance.(helpers.Helper)
 			if err := helper.WriteConfig(); err != nil {
@@ -118,9 +146,9 @@ func init() {
 	initCmd.Flags().StringVar(&awsProfile, "aws-profile", "", "Specify the AWS profile to use")
 	initCmd.Flags().StringVar(&awsEndpointURL, "aws-endpoint-url", "", "Specify the AWS endpoint URL to use")
 	initCmd.Flags().StringVar(&vmType, "vm-driver", "", "Specify the VM driver. Only Colima is supported for now.")
-	initCmd.Flags().StringVar(&cpu, "vm-cpu", "", "Specify the number of CPUs for Colima")
-	initCmd.Flags().StringVar(&disk, "vm-disk", "", "Specify the disk size for Colima")
-	initCmd.Flags().StringVar(&memory, "vm-memory", "", "Specify the memory size for Colima")
+	initCmd.Flags().IntVar(&cpu, "vm-cpu", 0, "Specify the number of CPUs for Colima")
+	initCmd.Flags().IntVar(&disk, "vm-disk", 0, "Specify the disk size for Colima")
+	initCmd.Flags().IntVar(&memory, "vm-memory", 0, "Specify the memory size for Colima")
 	initCmd.Flags().StringVar(&arch, "vm-arch", "", "Specify the architecture for Colima")
 	initCmd.Flags().BoolVar(&docker, "docker", false, "Enable Docker")
 	rootCmd.AddCommand(initCmd)

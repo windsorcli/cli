@@ -26,8 +26,10 @@ func TestBaseHelper(t *testing.T) {
 			diContainer := di.NewContainer()
 
 			// Given a DI container without cliConfigHandler registered
-			diContainer.Register("shell", &shell.MockShell{})
-			diContainer.Register("context", &context.MockContext{})
+			mockShell, _ := shell.NewMockShell("unix")
+			mockContext := context.NewMockContext()
+			diContainer.Register("shell", mockShell)
+			diContainer.Register("context", mockContext)
 
 			// When creating a new BaseHelper
 			_, err := NewBaseHelper(diContainer)
@@ -43,8 +45,10 @@ func TestBaseHelper(t *testing.T) {
 			diContainer := di.NewContainer()
 
 			// Given a DI container with cliConfigHandler registered but without shell registered
-			diContainer.Register("cliConfigHandler", &config.MockConfigHandler{})
-			diContainer.Register("context", &context.MockContext{})
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
 
 			// When creating a new BaseHelper
 			_, err := NewBaseHelper(diContainer)
@@ -60,8 +64,10 @@ func TestBaseHelper(t *testing.T) {
 			diContainer := di.NewContainer()
 
 			// Given a DI container with cliConfigHandler and shell registered but without context registered
-			diContainer.Register("cliConfigHandler", &config.MockConfigHandler{})
-			diContainer.Register("shell", &shell.MockShell{})
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockShell, _ := shell.NewMockShell("unix")
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("shell", mockShell)
 
 			// When creating a new BaseHelper
 			_, err := NewBaseHelper(diContainer)
@@ -78,13 +84,13 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler and shell
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
 				return "", errors.New("key not found")
 			}
-			mockConfigHandler.GetNestedMapFunc = func(key string) (map[string]interface{}, error) {
+			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
 				if key == "contexts.test-context.environment" {
 					return map[string]interface{}{
 						"VAR1": "value1",
@@ -94,18 +100,17 @@ func TestBaseHelper(t *testing.T) {
 				return nil, errors.New("context not found")
 			}
 
-			mockShell := &shell.MockShell{}
+			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) {
 				return "/mock/project/root", nil
 			}
 
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
-				GetConfigRootFunc: func() (string, error) {
-					return "/mock/project/root/contexts/test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return "/mock/project/root/contexts/test-context", nil
 			}
 
 			// Create DI container and register mocks
@@ -146,26 +151,25 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("ErrorRetrievingContext", func(t *testing.T) {
 			// Given a mock config handler that returns an error for context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				return "", errors.New("error retrieving context")
 			}
-			mockContext := &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "", errors.New("error retrieving context")
-				},
-				GetConfigRootFunc: func() (string, error) {
-					return "/mock/project/root/contexts/test-context", nil
-				},
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "", errors.New("error retrieving context")
+			}
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return "/mock/project/root/contexts/test-context", nil
 			}
 
 			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("shell", &shell.MockShell{
-				GetProjectRootFunc: func() (string, error) {
-					return "/mock/project/root", nil
-				},
-			})
+			mockShell, _ := shell.NewMockShell("unix")
+			mockShell.GetProjectRootFunc = func() (string, error) {
+				return "/mock/project/root", nil
+			}
+			diContainer.Register("shell", mockShell)
 			diContainer.Register("context", mockContext)
 
 			// When creating a new BaseHelper
@@ -188,13 +192,13 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("NonStringEnvVar", func(t *testing.T) {
 			// Given a mock config handler with a non-string environment variable
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
 				return "", errors.New("key not found")
 			}
-			mockConfigHandler.GetNestedMapFunc = func(key string) (map[string]interface{}, error) {
+			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
 				if key == "contexts.test-context.environment" {
 					return map[string]interface{}{
 						"VAR1": 123, // Non-string value
@@ -206,19 +210,19 @@ func TestBaseHelper(t *testing.T) {
 			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("shell", &shell.MockShell{
-				GetProjectRootFunc: func() (string, error) {
-					return "/mock/project/root", nil
-				},
-			})
-			diContainer.Register("context", &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
-				GetConfigRootFunc: func() (string, error) {
-					return "/mock/project/root/contexts/test-context", nil
-				},
-			})
+			mockShell, _ := shell.NewMockShell("unix")
+			mockShell.GetProjectRootFunc = func() (string, error) {
+				return "/mock/project/root", nil
+			}
+			diContainer.Register("shell", mockShell)
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return "/mock/project/root/contexts/test-context", nil
+			}
+			diContainer.Register("context", mockContext)
 
 			// When creating a new BaseHelper
 			baseHelper, err := NewBaseHelper(diContainer)
@@ -240,35 +244,35 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("EmptyEnvVars", func(t *testing.T) {
 			// Given a mock config handler with empty environment variables
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
 				return "", errors.New("key not found")
 			}
-			mockConfigHandler.GetNestedMapFunc = func(key string) (map[string]interface{}, error) {
+			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
 				if key == "contexts.test-context.environment" {
 					return map[string]interface{}{}, nil
 				}
-				return map[string]interface{}{}, nil
+				return nil, errors.New("context not found")
 			}
 
 			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("shell", &shell.MockShell{
-				GetProjectRootFunc: func() (string, error) {
-					return "/mock/project/root", nil
-				},
-			})
-			diContainer.Register("context", &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
-				GetConfigRootFunc: func() (string, error) {
-					return "/mock/project/root/contexts/test-context", nil
-				},
-			})
+			mockShell, _ := shell.NewMockShell("unix")
+			mockShell.GetProjectRootFunc = func() (string, error) {
+				return "/mock/project/root", nil
+			}
+			diContainer.Register("shell", mockShell)
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return "/mock/project/root/contexts/test-context", nil
+			}
+			diContainer.Register("context", mockContext)
 
 			// When creating a new BaseHelper
 			baseHelper, err := NewBaseHelper(diContainer)
@@ -297,35 +301,38 @@ func TestBaseHelper(t *testing.T) {
 			}
 		})
 
-		t.Run("GetNestedMapError", func(t *testing.T) {
-			// Given a mock config handler that returns an error for GetNestedMap
+		t.Run("GetError", func(t *testing.T) {
+			// Given a mock config handler that returns an error for Get
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetConfigValueFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
 				return "", errors.New("key not found")
 			}
-			mockConfigHandler.GetNestedMapFunc = func(key string) (map[string]interface{}, error) {
-				return nil, errors.New("error getting nested map")
+			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+				if key == "contexts.test-context.environment" {
+					return nil, errors.New("error getting value")
+				}
+				return nil, errors.New("key not found")
 			}
 
 			// Create DI container and register mocks
 			diContainer := di.NewContainer()
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("shell", &shell.MockShell{
-				GetProjectRootFunc: func() (string, error) {
-					return "/mock/project/root", nil
-				},
-			})
-			diContainer.Register("context", &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
-				GetConfigRootFunc: func() (string, error) {
-					return "/mock/project/root/contexts/test-context", nil
-				},
-			})
+			mockShell, _ := shell.NewMockShell("unix")
+			mockShell.GetProjectRootFunc = func() (string, error) {
+				return "/mock/project/root", nil
+			}
+			diContainer.Register("shell", mockShell)
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return "/mock/project/root/contexts/test-context", nil
+			}
+			diContainer.Register("context", mockContext)
 
 			// When creating a new BaseHelper
 			baseHelper, err := NewBaseHelper(diContainer)
@@ -334,45 +341,47 @@ func TestBaseHelper(t *testing.T) {
 			}
 
 			// And calling GetEnvVars
-			expectedResult := map[string]string{
-				"WINDSOR_CONTEXT":      "test-context",
-				"WINDSOR_PROJECT_ROOT": "/mock/project/root",
-			}
+			expectedError := errors.New("error retrieving environment variables: error getting value")
 
-			result, err := baseHelper.GetEnvVars()
-			assertError(t, err, false)
-
-			// Then the result should match the expected result
-			if len(result) != len(expectedResult) {
-				t.Fatalf("expected map length %d, got %d", len(expectedResult), len(result))
-			}
-
-			for k, v := range expectedResult {
-				if result[k] != v {
-					t.Fatalf("expected key-value pair %s:%s, got %s:%s", k, v, k, result[k])
-				}
+			_, err = baseHelper.GetEnvVars()
+			// Then an error should be returned
+			assertError(t, err, true)
+			if err.Error() != expectedError.Error() {
+				t.Fatalf("expected error %v, got %v", expectedError, err)
 			}
 		})
 
 		t.Run("ProjectRootError", func(t *testing.T) {
 			// Given a mock shell that returns an error for GetProjectRoot
-			mockShell := &shell.MockShell{}
+			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) {
 				return "", errors.New("failed to get project root")
 			}
 
+			// Given a mock config handler that returns a proper interface representing env vars
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+				if key == "contexts.test-context.environment" {
+					return map[string]interface{}{
+						"VAR1": "value1",
+						"VAR2": "value2",
+					}, nil
+				}
+				return nil, errors.New("key not found")
+			}
+
 			// Create DI container and register mocks
 			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", config.NewMockConfigHandler())
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("shell", mockShell)
-			diContainer.Register("context", &context.MockContext{
-				GetContextFunc: func() (string, error) {
-					return "test-context", nil
-				},
-				GetConfigRootFunc: func() (string, error) {
-					return "/mock/project/root/contexts/test-context", nil
-				},
-			})
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return "/mock/project/root/contexts/test-context", nil
+			}
+			diContainer.Register("context", mockContext)
 
 			// When creating a new BaseHelper
 			baseHelper, err := NewBaseHelper(diContainer)
@@ -390,17 +399,57 @@ func TestBaseHelper(t *testing.T) {
 				t.Fatalf("expected error %s, got %s", expectedError, err.Error())
 			}
 		})
+
+		t.Run("InvalidEnvVarsType", func(t *testing.T) {
+			// Given a mock config handler that returns an invalid type for environment variables
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+				return "invalidType", nil // Return a string instead of map[string]interface{}
+			}
+
+			mockShell, _ := shell.NewMockShell("unix")
+			mockShell.GetProjectRootFunc = func() (string, error) {
+				return "/mock/project/root", nil
+			}
+
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("shell", mockShell)
+			diContainer.Register("context", mockContext)
+
+			// When creating a new BaseHelper
+			baseHelper, err := NewBaseHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewBaseHelper() error = %v", err)
+			}
+
+			// And calling GetEnvVars
+			_, err = baseHelper.GetEnvVars()
+			// Then an error should be returned
+			if err == nil {
+				t.Errorf("GetEnvVars() expected error, got nil")
+			}
+			expectedError := "expected map[string]interface{} for environment variables, got string"
+			if err.Error() != expectedError {
+				t.Fatalf("GetEnvVars() error = %v, expected '%s'", err, expectedError)
+			}
+		})
 	})
 
 	t.Run("PostEnvExec", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a BaseHelper instance
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockShell := &shell.MockShell{}
-			mockContext := &context.MockContext{
-				GetContextFunc:    func() (string, error) { return "", nil },
-				GetConfigRootFunc: func() (string, error) { return "", nil },
-			}
+			mockShell, _ := shell.NewMockShell("unix")
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) { return "", nil }
+			mockContext.GetConfigRootFunc = func() (string, error) { return "", nil }
 
 			// Create DI container and register mocks
 			diContainer := di.NewContainer()
@@ -425,9 +474,9 @@ func TestBaseHelper(t *testing.T) {
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler, shell, and context
-			mockConfigHandler := &config.MockConfigHandler{}
-			mockShell := &shell.MockShell{}
-			mockContext := &context.MockContext{}
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockShell, _ := shell.NewMockShell("unix")
+			mockContext := context.NewMockContext()
 
 			// Create DI container and register mocks
 			diContainer := di.NewContainer()
@@ -463,7 +512,7 @@ func TestBaseHelper(t *testing.T) {
 			mockContext.GetConfigRootFunc = func() (string, error) {
 				return "/path/to/config", nil
 			}
-			mockShell := &shell.MockShell{}
+			mockShell, _ := shell.NewMockShell("unix")
 
 			// Create DI container and register mocks
 			diContainer := di.NewContainer()

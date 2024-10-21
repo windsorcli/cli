@@ -50,7 +50,7 @@ func NewTerraformHelper(container *di.DIContainer) (*TerraformHelper, error) {
 // getAlias retrieves the alias for the Terraform command based on the current context
 func (h *TerraformHelper) GetAlias() (map[string]string, error) {
 	// Get the current context
-	context, err := h.ConfigHandler.GetConfigValue("context")
+	context, err := h.ConfigHandler.GetString("context")
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
@@ -173,13 +173,13 @@ func findRelativeTerraformProjectPath() (string, error) {
 // getCurrentBackend retrieves the current backend configuration for Terraform
 func getCurrentBackend(h *TerraformHelper) (string, error) {
 	// Get the current context
-	context, err := h.ConfigHandler.GetConfigValue("context")
+	context, err := h.ConfigHandler.GetString("context")
 	if err != nil {
 		return "local", fmt.Errorf("error retrieving context, defaulting to 'local': %w", err)
 	}
 
 	// Get the configuration for the current context
-	backend, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", context))
+	backend, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.terraform.backend", context))
 	if err != nil {
 		return "local", fmt.Errorf("error retrieving config for context, defaulting to 'local': %w", err)
 	}
