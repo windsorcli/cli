@@ -54,16 +54,15 @@ func (h *KubeHelper) PostEnvExec() error {
 	return nil
 }
 
-// SetConfig sets the configuration value for the given key
-func (h *KubeHelper) SetConfig(key, value string) error {
-	// This is a stub implementation
-	return nil
-}
-
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *KubeHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation
 	return nil, nil
+}
+
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *KubeHelper) WriteConfig() error {
+	return nil
 }
 
 // Ensure KubeHelper implements Helper interface

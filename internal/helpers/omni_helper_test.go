@@ -168,27 +168,6 @@ func TestOmniHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("SetConfig", func(t *testing.T) {
-		t.Run("SetConfigStub", func(t *testing.T) {
-			// Given a OmniHelper instance
-			mockContext := context.NewMockContext()
-			container := di.NewContainer()
-			container.Register("context", mockContext)
-			helper, err := NewOmniHelper(container)
-			if err != nil {
-				t.Fatalf("NewOmniHelper() error = %v", err)
-			}
-
-			// When: SetConfig is called
-			err = helper.SetConfig("some_key", "some_value")
-
-			// Then: it should return no error
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
-	})
-
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context
@@ -211,6 +190,42 @@ func TestOmniHelper(t *testing.T) {
 			// Then: the result should be nil as per the stub implementation
 			if containerConfig != nil {
 				t.Errorf("expected nil, got %v", containerConfig)
+			}
+		})
+	})
+
+	t.Run("WriteConfig", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler and context
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return "/path/to/config", nil
+			}
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+
+			// Create an instance of OmniHelper
+			omniHelper, err := NewOmniHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewOmniHelper() error = %v", err)
+			}
+
+			// When: WriteConfig is called
+			err = omniHelper.WriteConfig()
+			if err != nil {
+				t.Fatalf("WriteConfig() error = %v", err)
+			}
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
 			}
 		})
 	})

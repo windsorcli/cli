@@ -19,11 +19,11 @@ type Helper interface {
 	// PostEnvExec runs any necessary commands after the environment variables have been set.
 	PostEnvExec() error
 
-	// SetConfig sets the configuration value for the given key.
-	SetConfig(key, value string) error
-
 	// GetContainerConfig returns a list of container data for docker-compose.
 	GetContainerConfig() ([]types.ServiceConfig, error)
+
+	// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+	WriteConfig() error
 }
 
 // Define a variable for os.Getwd() for easier testing

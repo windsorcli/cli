@@ -51,9 +51,13 @@ func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Get environment variables for the context from the config handler
-	envVars, err := h.ConfigHandler.GetNestedMap(fmt.Sprintf("contexts.%s.environment", context))
+	envVarsInterface, err := h.ConfigHandler.Get(fmt.Sprintf("contexts.%s.environment", context))
 	if err != nil {
-		envVars = make(map[string]interface{})
+		return nil, fmt.Errorf("error retrieving environment variables: %w", err)
+	}
+	envVars, ok := envVarsInterface.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected map[string]interface{} for environment variables, got %T", envVarsInterface)
 	}
 
 	// Convert environment variables to a map of strings
@@ -84,16 +88,15 @@ func (h *BaseHelper) PostEnvExec() error {
 	return nil
 }
 
-// SetConfig sets the configuration value for the given key
-func (h *BaseHelper) SetConfig(key, value string) error {
-	// This is a stub implementation
-	return nil
-}
-
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *BaseHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation
 	return nil, nil
+}
+
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *BaseHelper) WriteConfig() error {
+	return nil
 }
 
 // Ensure BaseHelper implements Helper interface

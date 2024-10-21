@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/shirou/gopsutil/mem"
@@ -102,7 +101,7 @@ func (h *ColimaHelper) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	driver, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", context), "")
+	driver, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.driver", context))
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving vm driver: %w", err)
 	}
@@ -131,87 +130,24 @@ func (h *ColimaHelper) PostEnvExec() error {
 	return nil
 }
 
-// SetConfig sets the configuration value for the given key
-func (h *ColimaHelper) SetConfig(key, value string) error {
+// Ensure ColimaHelper implements Helper interface
+var _ Helper = (*ColimaHelper)(nil)
+
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *ColimaHelper) WriteConfig() error {
 	context, err := h.Context.GetContext()
 	if err != nil {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	writeColimaConfig := false
-
-	switch key {
-	case "driver":
-		if value == "colima" {
-			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.driver", context), value); err != nil {
-				return fmt.Errorf("error setting colima config: %w", err)
-			}
-			writeColimaConfig = true
-		}
-	case "cpu":
-		if value != "" {
-			cpuValue, err := strconv.Atoi(value)
-			if err != nil {
-				return fmt.Errorf("invalid value for %s: %w", key, err)
-			}
-			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), cpuValue); err != nil {
-				return fmt.Errorf("error setting colima config: %w", err)
-			}
-			writeColimaConfig = true
-		}
-	case "disk":
-		if value != "" {
-			diskValue, err := strconv.Atoi(value)
-			if err != nil {
-				return fmt.Errorf("invalid value for %s: %w", key, err)
-			}
-			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), diskValue); err != nil {
-				return fmt.Errorf("error setting colima config: %w", err)
-			}
-			writeColimaConfig = true
-		}
-	case "memory":
-		if value != "" {
-			memoryValue, err := strconv.Atoi(value)
-			if err != nil {
-				return fmt.Errorf("invalid value for %s: %w", key, err)
-			}
-			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.%s", context, key), memoryValue); err != nil {
-				return fmt.Errorf("error setting colima config: %w", err)
-			}
-			writeColimaConfig = true
-		}
-	case "arch":
-		if value != "" {
-			if value != "aarch64" && value != "x86_64" {
-				return fmt.Errorf("invalid value for arch: %s", value)
-			}
-			if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", context), value); err != nil {
-				return fmt.Errorf("error setting colima config: %w", err)
-			}
-			writeColimaConfig = true
-		}
-	default:
-		return fmt.Errorf("unsupported config key: %s", key)
+	// Check if the vm driver is colima
+	driver, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.driver", context))
+	if err != nil {
+		return fmt.Errorf("error retrieving vm driver: %w", err)
 	}
 
-	if writeColimaConfig {
-		return generateColimaConfig(context, h.ConfigHandler)
-	}
-
-	return nil
-}
-
-// Ensure ColimaHelper implements Helper interface
-var _ Helper = (*ColimaHelper)(nil)
-
-// generateColimaConfig generates the colima.yaml configuration file based on the Windsor context
-func generateColimaConfig(context string, cliConfigHandler config.ConfigHandler) error {
-	colimaConfigDir := filepath.Join(os.Getenv("HOME"), fmt.Sprintf(".colima/windsor-%s", context))
-	colimaConfigPath := filepath.Join(colimaConfigDir, "colima.yaml")
-
-	if err := mkdirAll(colimaConfigDir, os.ModePerm); err != nil {
-		return fmt.Errorf("error creating colima config directory: %w", err)
+	if driver != "colima" {
+		return nil
 	}
 
 	// Get default values
@@ -221,23 +157,18 @@ func generateColimaConfig(context string, cliConfigHandler config.ConfigHandler)
 		vmType = "vz"
 	}
 
-	// Override default values with context-specific values if provided
-	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.cpu", context)); err == nil && val != "" {
-		if cpuVal, err := strconv.Atoi(val); err == nil {
-			cpu = cpuVal
+	// Helper function to override default values with context-specific values if provided
+	overrideValue := func(key string, defaultValue *int) {
+		if val, err := h.ConfigHandler.GetInt(fmt.Sprintf("contexts.%s.vm.%s", context, key)); err == nil && val != 0 {
+			*defaultValue = val
 		}
 	}
-	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.disk", context)); err == nil && val != "" {
-		if diskVal, err := strconv.Atoi(val); err == nil {
-			disk = diskVal
-		}
-	}
-	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.memory", context)); err == nil && val != "" {
-		if memoryVal, err := strconv.Atoi(val); err == nil {
-			memory = memoryVal
-		}
-	}
-	if val, err := cliConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.vm.arch", context)); err == nil && val != "" {
+
+	overrideValue("cpu", &cpu)
+	overrideValue("disk", &disk)
+	overrideValue("memory", &memory)
+
+	if val, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.arch", context)); err == nil && val != "" {
 		arch = val
 	}
 
@@ -276,7 +207,18 @@ func generateColimaConfig(context string, cliConfigHandler config.ConfigHandler)
 	headerComment := "# This file was generated by the Windsor CLI. Do not alter.\n\n"
 
 	// Create a temporary file path next to the target file
-	tempFilePath := colimaConfigPath + ".tmp"
+	homeDir, err := userHomeDir()
+	if err != nil {
+		return fmt.Errorf("error retrieving user home directory: %w", err)
+	}
+	colimaDir := filepath.Join(homeDir, fmt.Sprintf(".colima/windsor-%s", context))
+	if err := mkdirAll(filepath.Dir(colimaDir), 0755); err != nil {
+		return fmt.Errorf("error creating parent directories for colima directory: %w", err)
+	}
+	if err := mkdirAll(colimaDir, 0755); err != nil {
+		return fmt.Errorf("error creating colima directory: %w", err)
+	}
+	tempFilePath := filepath.Join(colimaDir, "colima.yaml.tmp")
 
 	// Encode the YAML content to a byte slice
 	var buf bytes.Buffer
@@ -296,7 +238,8 @@ func generateColimaConfig(context string, cliConfigHandler config.ConfigHandler)
 	defer os.Remove(tempFilePath)
 
 	// Rename the temporary file to the target file
-	if err := rename(tempFilePath, colimaConfigPath); err != nil {
+	finalFilePath := filepath.Join(colimaDir, "colima.yaml")
+	if err := rename(tempFilePath, finalFilePath); err != nil {
 		return fmt.Errorf("error renaming temporary file to colima config file: %w", err)
 	}
 	return nil

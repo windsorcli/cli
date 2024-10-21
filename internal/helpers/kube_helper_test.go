@@ -171,29 +171,6 @@ func TestKubeHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("SetConfig", func(t *testing.T) {
-		t.Run("SetConfigStub", func(t *testing.T) {
-			// Given a KubeHelper instance
-			mockContext := context.NewMockContext()
-
-			// And a DI container with the mock context is created
-			diContainer := di.NewContainer()
-			diContainer.Register("context", mockContext)
-
-			// When creating KubeHelper
-			helper, err := NewKubeHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewKubeHelper() error = %v", err)
-			}
-
-			// And calling SetConfig
-			err = helper.SetConfig("some_key", "some_value")
-
-			// Then it should return no error
-			assertError(t, err, false)
-		})
-	})
-
 	t.Run("GetContainerConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context
@@ -216,6 +193,42 @@ func TestKubeHelper(t *testing.T) {
 			// Then the result should be nil as per the stub implementation
 			if containerConfig != nil {
 				t.Errorf("expected nil, got %v", containerConfig)
+			}
+		})
+	})
+
+	t.Run("WriteConfig", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler and context
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+			mockContext.GetContextFunc = func() (string, error) {
+				return "test-context", nil
+			}
+			mockContext.GetConfigRootFunc = func() (string, error) {
+				return "/path/to/config", nil
+			}
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+
+			// Create an instance of AwsHelper
+			kubeHelper, err := NewKubeHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewKubeHelper() error = %v", err)
+			}
+
+			// When: WriteConfig is called
+			err = kubeHelper.WriteConfig()
+			if err != nil {
+				t.Fatalf("WriteConfig() error = %v", err)
+			}
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
 			}
 		})
 	})

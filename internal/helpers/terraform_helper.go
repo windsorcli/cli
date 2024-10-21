@@ -50,7 +50,7 @@ func NewTerraformHelper(container *di.DIContainer) (*TerraformHelper, error) {
 // getAlias retrieves the alias for the Terraform command based on the current context
 func (h *TerraformHelper) GetAlias() (map[string]string, error) {
 	// Get the current context
-	context, err := h.ConfigHandler.GetConfigValue("context")
+	context, err := h.ConfigHandler.GetString("context")
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
@@ -121,28 +121,15 @@ func (h *TerraformHelper) PostEnvExec() error {
 	return generateBackendOverrideTf(h)
 }
 
-// SetConfig sets the configuration value for the given key
-func (h *TerraformHelper) SetConfig(key, value string) error {
-	if key == "backend" {
-		if value == "" {
-			return nil
-		}
-		context, err := h.Context.GetContext()
-		if err != nil {
-			return fmt.Errorf("error retrieving context: %w", err)
-		}
-		if err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", context), value); err != nil {
-			return fmt.Errorf("error setting backend: %w", err)
-		}
-		return nil
-	}
-	return fmt.Errorf("unsupported config key: %s", key)
-}
-
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *TerraformHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation
 	return nil, nil
+}
+
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *TerraformHelper) WriteConfig() error {
+	return nil
 }
 
 // Ensure TerraformHelper implements Helper interface
@@ -186,13 +173,13 @@ func findRelativeTerraformProjectPath() (string, error) {
 // getCurrentBackend retrieves the current backend configuration for Terraform
 func getCurrentBackend(h *TerraformHelper) (string, error) {
 	// Get the current context
-	context, err := h.ConfigHandler.GetConfigValue("context")
+	context, err := h.ConfigHandler.GetString("context")
 	if err != nil {
 		return "local", fmt.Errorf("error retrieving context, defaulting to 'local': %w", err)
 	}
 
 	// Get the configuration for the current context
-	backend, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.terraform.backend", context))
+	backend, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.terraform.backend", context))
 	if err != nil {
 		return "local", fmt.Errorf("error retrieving config for context, defaulting to 'local': %w", err)
 	}

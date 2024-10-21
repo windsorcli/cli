@@ -62,13 +62,13 @@ func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Retrieve AWS-specific configuration values from the context
-	awsProfile, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_profile", currentContext))
+	awsProfile, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.aws.aws_profile", currentContext))
 	if err != nil {
 		awsProfile = "default"
 	}
 
 	// Retrieve AWS endpoint URL if set
-	awsEndpointURL, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", currentContext))
+	awsEndpointURL, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", currentContext))
 	if err != nil || awsEndpointURL == "" {
 		if isLocal(currentContext) {
 			awsEndpointURL = "http://aws.test:4566"
@@ -78,7 +78,7 @@ func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Retrieve custom S3 hostname if set, otherwise set default for local context
-	s3Hostname, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.aws.s3_hostname", currentContext))
+	s3Hostname, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.aws.s3_hostname", currentContext))
 	if err != nil || s3Hostname == "" {
 		if isLocal(currentContext) {
 			s3Hostname = "http://s3.local.aws.test:4566"
@@ -86,7 +86,7 @@ func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Retrieve MWAA endpoint if set, otherwise set default for local context
-	mwaaEndpoint, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.aws.mwaa_endpoint", currentContext))
+	mwaaEndpoint, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.aws.mwaa_endpoint", currentContext))
 	if err != nil || mwaaEndpoint == "" {
 		if isLocal(currentContext) {
 			mwaaEndpoint = "http://mwaa.local.aws.test:4566"
@@ -110,34 +110,15 @@ func (h *AwsHelper) PostEnvExec() error {
 	return nil
 }
 
-// SetConfig sets new values for aws_endpoint_url and aws_profile
-func (h *AwsHelper) SetConfig(key, value string) error {
-	// Retrieve the current context
-	currentContext, err := h.Context.GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving current context: %w", err)
-	}
-
-	if key == "aws_endpoint_url" && value != "" {
-		if err := h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", currentContext), value); err != nil {
-			return fmt.Errorf("error setting aws_endpoint_url: %w", err)
-		}
-	}
-	if key == "aws_profile" && value != "" {
-		if err := h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.aws.aws_profile", currentContext), value); err != nil {
-			return fmt.Errorf("error setting aws_profile: %w", err)
-		}
-	}
-	if err := h.ConfigHandler.SaveConfig(""); err != nil {
-		return fmt.Errorf("error saving config: %w", err)
-	}
-	return nil
-}
-
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *AwsHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation
 	return nil, nil
+}
+
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *AwsHelper) WriteConfig() error {
+	return nil
 }
 
 // Ensure AwsHelper implements Helper interface

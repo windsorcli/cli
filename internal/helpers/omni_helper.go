@@ -58,16 +58,15 @@ func (h *OmniHelper) PostEnvExec() error {
 	return nil
 }
 
-// SetConfig sets the configuration value for the given key
-func (h *OmniHelper) SetConfig(key, value string) error {
-	// This is a stub implementation
-	return nil
-}
-
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *OmniHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	// Stub implementation
 	return nil, nil
+}
+
+// WriteConfig writes any vendor specific configuration files that are needed for the helper.
+func (h *OmniHelper) WriteConfig() error {
+	return nil
 }
 
 // Ensure OmniHelper implements Helper interface
