@@ -319,67 +319,6 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
-
-	// t.Run("ProjectConfigSaveError", func(t *testing.T) {
-	// 	// Given: a CLI config handler that succeeds and a project config handler that returns an error on SaveConfig
-	// 	mockCLIHandler := config.NewMockConfigHandler()
-	// 	mockProjectHandler := config.NewMockConfigHandler()
-	// 	mockProjectHandler.SaveConfigFunc = func(path string) error { return errors.New("save project config error") }
-	// 	mockShell, err := shell.NewMockShell("cmd")
-	// 	if err != nil {
-	// 		t.Fatalf("NewMockShell() error = %v", err)
-	// 	}
-	// 	mockHelper := &helpers.MockHelper{}
-	// 	setupContainer(mockCLIHandler, mockProjectHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
-
-	// 	// When: the init command is executed
-	// 	output := captureStderr(func() {
-	// 		rootCmd.SetArgs([]string{"init", "test-context"})
-	// 		err := rootCmd.Execute()
-	// 		if err == nil {
-	// 			t.Fatalf("Expected error, got nil")
-	// 		}
-	// 	})
-
-	// 	// Then: the output should indicate the error
-	// 	expectedOutput := "Error saving project config file: save project config error"
-	// 	if !strings.Contains(output, expectedOutput) {
-	// 		t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-	// 	}
-	// })
-
-	// t.Run("SetBackendConfigError", func(t *testing.T) {
-	// 	// Given: a config handler that returns an error on setting backend config value
-	// 	mockHandler := config.NewMockConfigHandler()
-	// 	mockHandler.SetFunc = func(key string, value interface{}) error {
-	// 		if key == "contexts.test-context.terraform.backend" {
-	// 			return errors.New("set backend config error")
-	// 		}
-	// 		return nil
-	// 	}
-	// 	mockShell, err := shell.NewMockShell("cmd")
-	// 	if err != nil {
-	// 		t.Fatalf("NewMockShell() error = %v", err)
-	// 	}
-	// 	mockHelper := &helpers.MockHelper{}
-	// 	setupContainer(mockHandler, mockHandler, mockShell, mockHelper, mockHelper, nil, dockerHelper)
-
-	// 	// When: the init command is executed
-	// 	output := captureStderr(func() {
-	// 		rootCmd.SetArgs([]string{"init", "test-context"})
-	// 		err := rootCmd.Execute()
-	// 		if err == nil {
-	// 			t.Fatalf("Expected error, got nil")
-	// 		}
-	// 	})
-
-	// 	// Then: the output should indicate the error
-	// 	expectedOutput := "Error setting backend value: set backend config error"
-	// 	if !strings.Contains(output, expectedOutput) {
-	// 		t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-	// 	}
-	// })
-
 	t.Run("CLIConfigSaveError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SaveConfig
 		mockHandler := config.NewMockConfigHandler()
