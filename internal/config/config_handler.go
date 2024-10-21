@@ -1,5 +1,7 @@
 package config
 
+import "github.com/windsor-hotel/cli/internal/constants"
+
 // AWSConfig represents the AWS configuration
 type AWSConfig struct {
 	AWSEndpointURL *string `yaml:"aws_endpoint_url"`
@@ -10,6 +12,23 @@ type AWSConfig struct {
 type DockerConfig struct {
 	Enabled    *bool      `yaml:"enabled"`
 	Registries []Registry `yaml:"registries"`
+}
+
+// GitConfig represents the Git configuration
+type GitConfig struct {
+	Livereload *GitLivereloadConfig `yaml:"livereload"`
+}
+
+// GitLivereloadConfig represents the Git livereload configuration
+type GitLivereloadConfig struct {
+	Enabled      *bool   `yaml:"enabled"`
+	RsyncExclude *string `yaml:"rsync_exclude"`
+	RsyncProtect *string `yaml:"rsync_protect"`
+	Username     *string `yaml:"username"`
+	Password     *string `yaml:"password"`
+	WebhookUrl   *string `yaml:"webhook_url"`
+	VerifySsl    *bool   `yaml:"verify_ssl"`
+	Image        *string `yaml:"image"`
 }
 
 type Registry struct {
@@ -37,6 +56,7 @@ type Context struct {
 	Environment map[string]string `yaml:"environment"`
 	AWS         *AWSConfig        `yaml:"aws"`
 	Docker      *DockerConfig     `yaml:"docker"`
+	Git         *GitConfig        `yaml:"git"`
 	Terraform   *TerraformConfig  `yaml:"terraform"`
 	VM          *VMConfig         `yaml:"vm"`
 }
@@ -97,6 +117,18 @@ var DefaultLocalConfig = Context{
 				Name:   "quay.test",
 				Remote: "https://quay.io",
 			},
+		},
+	},
+	Git: &GitConfig{
+		Livereload: &GitLivereloadConfig{
+			Enabled:      ptrBool(true),
+			RsyncExclude: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE),
+			RsyncProtect: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT),
+			Username:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME),
+			Password:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD),
+			WebhookUrl:   ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL),
+			Image:        ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE),
+			VerifySsl:    ptrBool(false),
 		},
 	},
 	Terraform: &TerraformConfig{

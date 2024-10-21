@@ -6,13 +6,11 @@ import (
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/constants"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
-
-// Default Git live reload image
-var DEFAULT_GIT_LIVE_RELOAD_IMAGE = "ghcr.io/windsor-hotel/git-livereload-server:v0.2.1"
 
 // GitHelper is a helper struct that provides various utility functions
 type GitHelper struct {
@@ -55,29 +53,6 @@ func (h *GitHelper) PostEnvExec() error {
 	return nil
 }
 
-// SetConfig sets the configuration value for the given key
-func (h *GitHelper) SetConfig(key, value string) error {
-	if value == "" {
-		return nil
-	}
-
-	context, err := h.Context.GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
-
-	// Handle the git enabled condition
-	if key == "enabled" {
-		isEnabled := value == "true"
-		err = h.ConfigHandler.SetConfigValue(fmt.Sprintf("contexts.%s.git.livereload.enabled", context), isEnabled)
-		if err != nil {
-			return fmt.Errorf("error setting config value for %s: %w", key, err)
-		}
-	}
-
-	return nil
-}
-
 // GetContainerConfig returns a list of container data for docker-compose.
 func (h *GitHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	context, err := h.Context.GetContext()
@@ -85,12 +60,12 @@ func (h *GitHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	enabled, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.git.livereload.enabled", context), "false")
+	enabled, err := h.ConfigHandler.GetBool(fmt.Sprintf("contexts.%s.git.livereload.enabled", context), false)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving git livereload enabled status: %w", err)
 	}
 
-	if enabled != "true" {
+	if !enabled {
 		return nil, nil
 	}
 
@@ -98,37 +73,58 @@ func (h *GitHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	var services []types.ServiceConfig
 
 	// Retrieve environment variables from config with defaults
-	rsyncExclude, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.git.livereload.rsync_exclude", context), ".docker-cache,.terraform,data,.venv")
+	rsyncExclude, err := h.ConfigHandler.GetString(
+		fmt.Sprintf("contexts.%s.git.livereload.rsync_exclude", context),
+		constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving rsync_exclude: %w", err)
 	}
 
-	rsyncProtect, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.git.livereload.rsync_protect", context), "flux-system")
+	rsyncProtect, err := h.ConfigHandler.GetString(
+		fmt.Sprintf("contexts.%s.git.livereload.rsync_protect", context),
+		constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving rsync_protect: %w", err)
 	}
 
-	gitUsername, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.git.livereload.username", context), "local")
+	gitUsername, err := h.ConfigHandler.GetString(
+		fmt.Sprintf("contexts.%s.git.livereload.username", context),
+		constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving git username: %w", err)
 	}
 
-	gitPassword, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.git.livereload.password", context), "local")
+	gitPassword, err := h.ConfigHandler.GetString(
+		fmt.Sprintf("contexts.%s.git.livereload.password", context),
+		constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving git password: %w", err)
 	}
 
-	webhookUrl, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.git.livereload.webhook_url", context), "")
+	webhookUrl, err := h.ConfigHandler.GetString(
+		fmt.Sprintf("contexts.%s.git.livereload.webhook_url", context),
+		constants.DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving webhook url: %w", err)
 	}
 
-	verifySsl, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.git.livereload.verify_ssl", context), "false")
+	verifySsl, err := h.ConfigHandler.GetBool(
+		fmt.Sprintf("contexts.%s.git.livereload.verify_ssl", context),
+		false,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving verify_ssl: %w", err)
 	}
 
-	image, err := h.ConfigHandler.GetConfigValue(fmt.Sprintf("contexts.%s.git.livereload.image", context), DEFAULT_GIT_LIVE_RELOAD_IMAGE)
+	image, err := h.ConfigHandler.GetString(
+		fmt.Sprintf("contexts.%s.git.livereload.image", context),
+		constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving git livereload image: %w", err)
 	}
@@ -139,7 +135,7 @@ func (h *GitHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 		"RSYNC_PROTECT": strPtr(rsyncProtect),
 		"GIT_USERNAME":  strPtr(gitUsername),
 		"GIT_PASSWORD":  strPtr(gitPassword),
-		"VERIFY_SSL":    strPtr(verifySsl),
+		"VERIFY_SSL":    strPtr(fmt.Sprintf("%t", verifySsl)),
 	}
 
 	// Add webhook URL if provided
@@ -176,6 +172,11 @@ func (h *GitHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	})
 
 	return services, nil
+}
+
+// WriteConfig is a no-op function
+func (h *GitHelper) WriteConfig() error {
+	return nil
 }
 
 // Ensure GitHelper implements Helper interface
