@@ -59,7 +59,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, shell, and context
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			switch key {
 			case "contexts.test-context.git.livereload.rsync_exclude":
 				return constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE, nil
@@ -77,7 +77,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 				return "", nil
 			}
 		}
-		mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return true, nil
 			}
@@ -149,10 +149,10 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			return "", fmt.Errorf("mock context error")
 		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 			return false, nil
 		}
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			return "", nil
 		}
 		diContainer := di.NewContainer()
@@ -174,13 +174,13 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 
 	t.Run("ErrorRetrievingEnabledStatus", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return false, fmt.Errorf("mock enabled status error")
 			}
 			return false, nil
 		}
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			return "", nil
 		}
 		mockContext := context.NewMockContext()
@@ -206,13 +206,13 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 
 	t.Run("GitLivereloadNotEnabled", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return false, nil
 			}
 			return false, nil
 		}
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			return "", nil
 		}
 		mockContext := context.NewMockContext()
@@ -241,13 +241,13 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 
 	t.Run("ErrorRetrievingRsyncExclude", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return true, nil
 			}
 			return false, nil
 		}
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.git.livereload.rsync_exclude" {
 				return "", fmt.Errorf("mock error retrieving rsync_exclude")
 			}
@@ -276,13 +276,13 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 
 	t.Run("ErrorRetrievingRsyncProtect", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return true, nil
 			}
 			return false, nil
 		}
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.git.livereload.rsync_protect" {
 				return "", fmt.Errorf("mock error retrieving rsync_protect")
 			}
@@ -311,13 +311,13 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 
 	t.Run("ErrorRetrievingGitUsername", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return true, nil
 			}
 			return false, nil
 		}
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.git.livereload.username" {
 				return "", fmt.Errorf("mock error retrieving git username")
 			}
@@ -346,13 +346,13 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 
 	t.Run("ErrorRetrievingGitPassword", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return true, nil
 			}
 			return false, nil
 		}
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.git.livereload.password" {
 				return "", fmt.Errorf("mock error retrieving git password")
 			}
@@ -381,13 +381,13 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 
 	t.Run("ErrorRetrievingWebhookUrl", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return true, nil
 			}
 			return false, nil
 		}
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.git.livereload.webhook_url" {
 				return "", fmt.Errorf("mock error retrieving webhook url")
 			}
@@ -416,7 +416,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 
 	t.Run("ErrorRetrievingVerifySsl", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return true, nil
 			}
@@ -425,7 +425,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			}
 			return false, nil
 		}
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			return "", nil
 		}
 		mockContext := context.NewMockContext()
@@ -451,13 +451,13 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 
 	t.Run("ErrorRetrievingGitLivereloadImage", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return true, nil
 			}
 			return false, nil
 		}
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.git.livereload.image" {
 				return "", fmt.Errorf("mock error retrieving git livereload image")
 			}
@@ -486,13 +486,13 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 
 	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return true, nil
 			}
 			return false, nil
 		}
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			switch key {
 			case "contexts.test-context.git.livereload.rsync_exclude":
 				return constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE, nil

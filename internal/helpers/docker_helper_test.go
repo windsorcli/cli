@@ -464,7 +464,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected key: %s", key)
 			}
-			mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+			mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 				if key == "contexts.test.docker.enabled" {
 					return true, nil // Docker is enabled
 				}
@@ -574,7 +574,7 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("ErrorWritingDockerComposeFile", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+			mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 				if key == "contexts.test-context.docker.enabled" {
 					return true, nil
 				}
@@ -637,7 +637,7 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("ErrorGettingContainerConfig", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "contexts.test-context.docker.enabled" {
 					return "true", nil
 				}
@@ -755,7 +755,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return nil, fmt.Errorf("key not found: %s", key)
 			}
-			mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+			mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 				if key == "contexts.test-context.docker.enabled" {
 					return true, nil
 				}
@@ -872,7 +872,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected key: %s", key)
 			}
-			mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+			mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 				if key == "contexts.test.docker.enabled" {
 					return true, nil // Docker is enabled
 				}

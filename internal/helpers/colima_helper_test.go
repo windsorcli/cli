@@ -102,7 +102,7 @@ func TestColimaHelper(t *testing.T) {
 				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "contexts.test-context.vm.driver" {
 					return "colima", nil
 				}
@@ -258,7 +258,7 @@ func TestColimaHelper(t *testing.T) {
 				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "contexts.test-context.vm.driver" {
 					return "", errors.New("mock driver error")
 				}
@@ -293,7 +293,7 @@ func TestColimaHelper(t *testing.T) {
 				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "contexts.test-context.vm.driver" {
 					return "not-colima", nil
 				}
@@ -328,7 +328,7 @@ func TestColimaHelper(t *testing.T) {
 				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "contexts.test-context.vm.driver" {
 					return "colima", nil
 				}
@@ -370,7 +370,7 @@ func TestColimaHelper(t *testing.T) {
 				return "test-context", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "contexts.test-context.vm.driver" {
 					return "colima", nil
 				}
@@ -450,7 +450,7 @@ func TestColimaHelper(t *testing.T) {
 		}
 
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetIntFunc = func(key string) (int, error) {
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) (int, error) {
 			switch key {
 			case "contexts.test-context.vm.cpu":
 				return 4, nil
@@ -462,7 +462,7 @@ func TestColimaHelper(t *testing.T) {
 				return 0, nil
 			}
 		}
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.vm.driver" {
 				return "colima", nil
 			}
@@ -541,7 +541,7 @@ func TestColimaHelper(t *testing.T) {
 		}
 
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			return "", nil
 		}
 
@@ -595,7 +595,7 @@ func TestColimaHelper(t *testing.T) {
 			return "test-context", nil
 		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.vm.driver" {
 				return "", errors.New("mock driver error")
 			}
@@ -630,7 +630,7 @@ func TestColimaHelper(t *testing.T) {
 			return "test-context", nil
 		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.vm.driver" {
 				return "colima", nil
 			}
@@ -673,7 +673,7 @@ func TestColimaHelper(t *testing.T) {
 			return "test-context", nil
 		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.vm.driver" {
 				return "colima", nil
 			}
@@ -723,7 +723,7 @@ func TestColimaHelper(t *testing.T) {
 			return "test-context", nil
 		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.vm.driver" {
 				return "colima", nil
 			}
@@ -777,7 +777,7 @@ func TestColimaHelper(t *testing.T) {
 			return "test-context", nil
 		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.vm.driver" {
 				return "colima", nil
 			}
@@ -838,7 +838,7 @@ func TestColimaHelper(t *testing.T) {
 			return "test-context", nil
 		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.vm.driver" {
 				return "colima", nil
 			}
@@ -899,7 +899,7 @@ func TestColimaHelper(t *testing.T) {
 			return "test-context", nil
 		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.vm.driver" {
 				return "colima", nil
 			}
@@ -953,7 +953,7 @@ func TestColimaHelper(t *testing.T) {
 			return "test-context", nil
 		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.vm.driver" {
 				return "colima", nil
 			}
@@ -1014,7 +1014,7 @@ func TestColimaHelper(t *testing.T) {
 			return "test-context", nil
 		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.vm.driver" {
 				return "colima", nil
 			}

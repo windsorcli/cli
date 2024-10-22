@@ -84,7 +84,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler and shell
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
@@ -151,7 +151,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("ErrorRetrievingContext", func(t *testing.T) {
 			// Given a mock config handler that returns an error for context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				return "", errors.New("error retrieving context")
 			}
 			mockContext := context.NewMockContext()
@@ -235,7 +235,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("EmptyEnvVars", func(t *testing.T) {
 			// Given a mock config handler with empty environment variables
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
@@ -295,7 +295,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("GetError", func(t *testing.T) {
 			// Given a mock config handler that returns an error for Get
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
