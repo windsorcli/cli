@@ -55,19 +55,15 @@ func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving environment variables: %w", err)
 	}
-	envVars, ok := envVarsInterface.(map[string]interface{})
+	envVars, ok := envVarsInterface.(map[string]string)
 	if !ok {
-		return nil, fmt.Errorf("expected map[string]interface{} for environment variables, got %T", envVarsInterface)
+		return nil, fmt.Errorf("expected map[string]string for environment variables, got %T", envVarsInterface)
 	}
 
 	// Convert environment variables to a map of strings
 	stringEnvVars := make(map[string]string)
 	for k, v := range envVars {
-		if strVal, ok := v.(string); ok {
-			stringEnvVars[strings.ToUpper(k)] = strVal // Capitalize the key
-		} else {
-			return nil, fmt.Errorf("non-string value found in environment variables for context %s", context)
-		}
+		stringEnvVars[strings.ToUpper(k)] = v // Capitalize the key
 	}
 
 	// Add WINDSOR_CONTEXT to the environment variables

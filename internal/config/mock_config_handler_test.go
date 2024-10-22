@@ -205,5 +205,18 @@ func TestMockConfigHandler(t *testing.T) {
 				t.Error("Expected SetDefaultFunc to be called")
 			}
 		})
+
+		t.Run("SetDefault_NoFuncSet", func(t *testing.T) {
+			mockHandler := NewMockConfigHandler()
+
+			// Ensure SetDefaultFunc is not set
+			mockHandler.SetDefaultFunc = nil
+
+			// Call SetDefault and expect no error
+			err := mockHandler.SetDefault(DefaultLocalConfig)
+			if err != nil {
+				t.Errorf("Expected nil error when no SetDefaultFunc is set, got %v", err)
+			}
+		})
 	})
 }
