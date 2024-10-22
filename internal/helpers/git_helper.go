@@ -165,7 +165,7 @@ func (h *GitHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 		Volumes: []types.ServiceVolumeConfig{
 			{
 				Type:   "bind",
-				Source: projectRoot,
+				Source: "${WINDSOR_PROJECT_ROOT}",
 				Target: fmt.Sprintf("/repos/mount/%s", gitFolderName),
 			},
 		},

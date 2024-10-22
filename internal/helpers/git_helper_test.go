@@ -128,7 +128,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 				Volumes: []types.ServiceVolumeConfig{
 					{
 						Type:   "bind",
-						Source: "/mock/project",
+						Source: "${WINDSOR_PROJECT_ROOT}",
 						Target: "/repos/mount/project",
 					},
 				},
@@ -553,8 +553,8 @@ func TestGitHelper_NoOpFunctions(t *testing.T) {
 
 	t.Run("GetEnvVars", func(t *testing.T) {
 		envVars, err := gitHelper.GetEnvVars()
-		if envVars != nil || err != nil {
-			t.Fatalf("expected nil, nil; got %v, %v", envVars, err)
+		if envVars == nil || err != nil {
+			t.Fatalf("expected non-nil envVars and nil error; got %v, %v", envVars, err)
 		}
 	})
 

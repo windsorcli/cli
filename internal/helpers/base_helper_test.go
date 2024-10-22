@@ -92,7 +92,7 @@ func TestBaseHelper(t *testing.T) {
 			}
 			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
 				if key == "contexts.test-context.environment" {
-					return map[string]interface{}{
+					return map[string]string{
 						"VAR1": "value1",
 						"VAR2": "value2",
 					}, nil
@@ -192,12 +192,6 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("NonStringEnvVar", func(t *testing.T) {
 			// Given a mock config handler with a non-string environment variable
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
-				if key == "context" {
-					return "test-context", nil
-				}
-				return "", errors.New("key not found")
-			}
 			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
 				if key == "contexts.test-context.environment" {
 					return map[string]interface{}{
@@ -219,9 +213,6 @@ func TestBaseHelper(t *testing.T) {
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
-			mockContext.GetConfigRootFunc = func() (string, error) {
-				return "/mock/project/root/contexts/test-context", nil
-			}
 			diContainer.Register("context", mockContext)
 
 			// When creating a new BaseHelper
@@ -231,7 +222,7 @@ func TestBaseHelper(t *testing.T) {
 			}
 
 			// And calling GetEnvVars
-			expectedError := errors.New("non-string value found in environment variables for context test-context")
+			expectedError := errors.New("expected map[string]string for environment variables, got map[string]interface {}")
 
 			_, err = baseHelper.GetEnvVars()
 			// Then an error should be returned
@@ -252,7 +243,7 @@ func TestBaseHelper(t *testing.T) {
 			}
 			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
 				if key == "contexts.test-context.environment" {
-					return map[string]interface{}{}, nil
+					return map[string]string{}, nil
 				}
 				return nil, errors.New("context not found")
 			}
@@ -362,7 +353,7 @@ func TestBaseHelper(t *testing.T) {
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
 				if key == "contexts.test-context.environment" {
-					return map[string]interface{}{
+					return map[string]string{
 						"VAR1": "value1",
 						"VAR2": "value2",
 					}, nil
@@ -378,9 +369,6 @@ func TestBaseHelper(t *testing.T) {
 			mockContext.GetContextFunc = func() (string, error) {
 				return "test-context", nil
 			}
-			mockContext.GetConfigRootFunc = func() (string, error) {
-				return "/mock/project/root/contexts/test-context", nil
-			}
 			diContainer.Register("context", mockContext)
 
 			// When creating a new BaseHelper
@@ -392,52 +380,9 @@ func TestBaseHelper(t *testing.T) {
 			// And calling GetEnvVars
 			_, err = baseHelper.GetEnvVars()
 			// Then an error should be returned
-			assertError(t, err, true)
-
 			expectedError := "error retrieving project root: failed to get project root"
-			if err.Error() != expectedError {
-				t.Fatalf("expected error %s, got %s", expectedError, err.Error())
-			}
-		})
-
-		t.Run("InvalidEnvVarsType", func(t *testing.T) {
-			// Given a mock config handler that returns an invalid type for environment variables
-			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
-				return "invalidType", nil // Return a string instead of map[string]interface{}
-			}
-
-			mockShell, _ := shell.NewMockShell("unix")
-			mockShell.GetProjectRootFunc = func() (string, error) {
-				return "/mock/project/root", nil
-			}
-
-			mockContext := context.NewMockContext()
-			mockContext.GetContextFunc = func() (string, error) {
-				return "test-context", nil
-			}
-
-			// Create DI container and register mocks
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-			diContainer.Register("shell", mockShell)
-			diContainer.Register("context", mockContext)
-
-			// When creating a new BaseHelper
-			baseHelper, err := NewBaseHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewBaseHelper() error = %v", err)
-			}
-
-			// And calling GetEnvVars
-			_, err = baseHelper.GetEnvVars()
-			// Then an error should be returned
-			if err == nil {
-				t.Errorf("GetEnvVars() expected error, got nil")
-			}
-			expectedError := "expected map[string]interface{} for environment variables, got string"
-			if err.Error() != expectedError {
-				t.Fatalf("GetEnvVars() error = %v, expected '%s'", err, expectedError)
+			if err == nil || err.Error() != expectedError {
+				t.Fatalf("expected error %s, got %v", expectedError, err)
 			}
 		})
 	})

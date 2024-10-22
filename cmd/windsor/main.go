@@ -86,12 +86,12 @@ func main() {
 	}
 	container.Register("awsHelper", awsHelper)
 
-	// Create and register the DockerHelper instance
-	dockerHelper, err := helpers.NewDockerHelper(container)
+	// Create and register the GitHelper instance
+	gitHelper, err := helpers.NewGitHelper(container)
 	if err != nil {
-		log.Fatalf("failed to create docker helper: %v", err)
+		log.Fatalf("failed to create git helper: %v", err)
 	}
-	container.Register("dockerHelper", dockerHelper)
+	container.Register("gitHelper", gitHelper)
 
 	// Create and register the ColimaHelper instance
 	colimaHelper, err := helpers.NewColimaHelper(container)
@@ -99,6 +99,14 @@ func main() {
 		log.Fatalf("failed to create colima helper: %v", err)
 	}
 	container.Register("colimaHelper", colimaHelper)
+
+	// Create and register the DockerHelper instance
+	// This should go last!
+	dockerHelper, err := helpers.NewDockerHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create docker helper: %v", err)
+	}
+	container.Register("dockerHelper", dockerHelper)
 
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)
