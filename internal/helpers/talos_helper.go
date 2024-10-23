@@ -10,12 +10,14 @@ import (
 	"github.com/windsor-hotel/cli/internal/constants"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // TalosHelper is a helper struct that provides Talos-specific utility functions
 type TalosHelper struct {
 	ConfigHandler config.ConfigHandler
 	Context       context.ContextInterface
+	Shell         shell.Shell
 }
 
 // NewTalosHelper is a constructor for TalosHelper
@@ -30,10 +32,45 @@ func NewTalosHelper(di *di.DIContainer) (*TalosHelper, error) {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
-	return &TalosHelper{
+	resolvedShell, err := di.Resolve("shell")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving shell: %w", err)
+	}
+
+	helper := &TalosHelper{
 		ConfigHandler: resolvedConfigHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
-	}, nil
+		Shell:         resolvedShell.(shell.Shell),
+	}
+
+	// Retrieve the current context
+	currentContext, err := helper.Context.GetContext()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving current context: %w", err)
+	}
+
+	// Check if the cluster driver is Talos
+	clusterDriver, err := helper.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.cluster.driver", currentContext))
+	if err != nil || clusterDriver == "" {
+		return helper, nil
+	}
+	if clusterDriver == "talos" {
+		// Get the project root path
+		projectRoot, err := helper.Shell.GetProjectRoot()
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving project root: %w", err)
+		}
+
+		// Create the .volumes folder if it doesn't exist
+		volumesPath := filepath.Join(projectRoot, ".volumes")
+		if _, err := stat(volumesPath); os.IsNotExist(err) {
+			if err := mkdir(volumesPath, os.ModePerm); err != nil {
+				return nil, fmt.Errorf("error creating .volumes folder: %w", err)
+			}
+		}
+	}
+
+	return helper, nil
 }
 
 // GetEnvVars retrieves Talos-specific environment variables for the current context
@@ -164,7 +201,7 @@ func (h *TalosHelper) GetComposeConfig() (*types.Config, error) {
 				"PLATFORM": strPtr("container"),
 				"TALOSSKU": strPtr(fmt.Sprintf("%dCPU-%dRAM", workerCPU, workerRAM*1024)),
 			}
-			workerConfig.Volumes = append([]types.ServiceVolumeConfig{
+			workerConfig.Volumes = []types.ServiceVolumeConfig{
 				{Type: "bind", Source: "/run/udev", Target: "/run/udev"},
 				{Type: "volume", Source: "system_state", Target: "/system/state"},
 				{Type: "volume", Source: "var", Target: "/var"},
@@ -173,11 +210,8 @@ func (h *TalosHelper) GetComposeConfig() (*types.Config, error) {
 				{Type: "volume", Source: "usr_libexec_kubernetes", Target: "/usr/libexec/kubernetes"},
 				{Type: "volume", Source: "usr_etc_udev", Target: "/usr/etc/udev"},
 				{Type: "volume", Source: "opt", Target: "/opt"},
-			}, types.ServiceVolumeConfig{
-				Type:   "bind",
-				Source: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".volumes"),
-				Target: "/var/local",
-			})
+				{Type: "bind", Source: "${WINDSOR_PROJECT_ROOT}/.volumes", Target: "/var/local"},
+			}
 			services = append(services, workerConfig)
 		}
 	}

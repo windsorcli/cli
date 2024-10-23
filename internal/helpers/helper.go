@@ -38,6 +38,9 @@ var writeFile = os.WriteFile
 // Override variable for os.Stat
 var stat = os.Stat
 
+// Override variable for os.Mkdir
+var mkdir = os.Mkdir
+
 // Override variable for os.MkdirAll
 var mkdirAll = os.MkdirAll
 
