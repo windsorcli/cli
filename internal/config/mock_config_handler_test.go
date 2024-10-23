@@ -30,6 +30,7 @@ func newMockConfigHandlerWithDefaults() *MockConfigHandler {
 		SetFunc:        func(key string, value interface{}) error { return nil },
 		SaveConfigFunc: func(path string) error { return nil },
 		SetDefaultFunc: func(context Context) error { return nil },
+		GetConfigFunc:  func() (*Context, error) { return nil, nil },
 	}
 }
 
@@ -217,6 +218,43 @@ func TestMockConfigHandler(t *testing.T) {
 			if err != nil {
 				t.Errorf("Expected nil error when no SetDefaultFunc is set, got %v", err)
 			}
+		})
+	})
+
+	t.Run("GetConfig", func(t *testing.T) {
+		t.Run("GetConfigFuncCalled", func(t *testing.T) {
+			// Arrange: Create a mock config handler and a flag to check if the function was called
+			mockHandler := NewMockConfigHandler()
+			called := false
+
+			// Set the GetConfigFunc to update the flag and return a mock context
+			mockContext := &Context{}
+			mockHandler.GetConfigFunc = func() (*Context, error) {
+				called = true
+				return mockContext, nil
+			}
+
+			// Act: Call GetConfig
+			config, err := mockHandler.GetConfig()
+			assertError(t, err, nil)
+			assertEqual(t, mockContext, config, "GetConfig")
+
+			// Assert: Verify that the function was called
+			if !called {
+				t.Error("Expected GetConfigFunc to be called")
+			}
+		})
+
+		t.Run("GetConfig_NoFuncSet", func(t *testing.T) {
+			mockHandler := NewMockConfigHandler()
+
+			// Ensure GetConfigFunc is not set
+			mockHandler.GetConfigFunc = nil
+
+			// Call GetConfig and expect nil values
+			config, err := mockHandler.GetConfig()
+			assertError(t, err, nil)
+			assertEqual(t, (*Context)(nil), config, "GetConfig")
 		})
 	})
 }

@@ -38,4 +38,7 @@ type ConfigHandler interface {
 
 	// SetDefault sets the default context configuration
 	SetDefault(context Context) error
+
+	// GetConfig returns the context config object
+	GetConfig() (*Context, error)
 }
