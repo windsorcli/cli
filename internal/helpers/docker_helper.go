@@ -155,7 +155,12 @@ func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *DockerHelper) WriteConfig() error {
-	var services []types.ServiceConfig
+	var combinedServices []types.ServiceConfig
+	var combinedVolumes map[string]types.VolumeConfig
+	var combinedNetworks map[string]types.NetworkConfig
+
+	combinedVolumes = make(map[string]types.VolumeConfig)
+	combinedNetworks = make(map[string]types.NetworkConfig)
 
 	// Iterate through each helper and collect container configs
 	for _, helper := range h.Helpers {
@@ -168,15 +173,29 @@ func (h *DockerHelper) WriteConfig() error {
 			if containerConfigs == nil {
 				continue
 			}
-			for _, containerConfig := range containerConfigs.Services {
-				services = append(services, containerConfig)
+			if containerConfigs.Services != nil {
+				for _, containerConfig := range containerConfigs.Services {
+					combinedServices = append(combinedServices, containerConfig)
+				}
+			}
+			if containerConfigs.Volumes != nil {
+				for volumeName, volumeConfig := range containerConfigs.Volumes {
+					combinedVolumes[volumeName] = volumeConfig
+				}
+			}
+			if containerConfigs.Networks != nil {
+				for networkName, networkConfig := range containerConfigs.Networks {
+					combinedNetworks[networkName] = networkConfig
+				}
 			}
 		}
 	}
 
 	// Create a Project using compose-go
 	project := &types.Project{
-		Services: services,
+		Services: combinedServices,
+		Volumes:  combinedVolumes,
+		Networks: combinedNetworks,
 	}
 
 	// Serialize the docker-compose config to YAML
