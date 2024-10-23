@@ -35,6 +35,12 @@ func NewAwsHelper(di *di.DIContainer) (*AwsHelper, error) {
 	}, nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *AwsHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // GetEnvVars retrieves AWS-specific environment variables for the current context
 func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 	// Get the configuration root directory
@@ -104,12 +110,6 @@ func (h *AwsHelper) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *AwsHelper) WriteConfig() error {
-	return nil
-}
-
-// Initialize performs any necessary initialization for the helper.
-func (h *AwsHelper) Initialize() error {
-	// Perform any necessary initialization here
 	return nil
 }
 
