@@ -43,33 +43,6 @@ func NewTalosHelper(di *di.DIContainer) (*TalosHelper, error) {
 		Shell:         resolvedShell.(shell.Shell),
 	}
 
-	// Retrieve the current context
-	currentContext, err := helper.Context.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving current context: %w", err)
-	}
-
-	// Check if the cluster driver is Talos
-	clusterDriver, err := helper.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.cluster.driver", currentContext))
-	if err != nil || clusterDriver == "" {
-		return helper, nil
-	}
-	if clusterDriver == "talos" {
-		// Get the project root path
-		projectRoot, err := helper.Shell.GetProjectRoot()
-		if err != nil {
-			return nil, fmt.Errorf("error retrieving project root: %w", err)
-		}
-
-		// Create the .volumes folder if it doesn't exist
-		volumesPath := filepath.Join(projectRoot, ".volumes")
-		if _, err := stat(volumesPath); os.IsNotExist(err) {
-			if err := mkdir(volumesPath, os.ModePerm); err != nil {
-				return nil, fmt.Errorf("error creating .volumes folder: %w", err)
-			}
-		}
-	}
-
 	return helper, nil
 }
 
@@ -235,7 +208,32 @@ func (h *TalosHelper) WriteConfig() error {
 
 // Initialize performs any necessary initialization for the helper.
 func (h *TalosHelper) Initialize() error {
-	// Perform any necessary initialization here
+	// Retrieve the current context
+	currentContext, err := h.Context.GetContext()
+	if err != nil {
+		return fmt.Errorf("error retrieving current context: %w", err)
+	}
+
+	// Check if the cluster driver is Talos
+	clusterDriver, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.cluster.driver", currentContext))
+	if err != nil || clusterDriver == "" {
+		return nil
+	}
+	if clusterDriver == "talos" {
+		// Get the project root path
+		projectRoot, err := h.Shell.GetProjectRoot()
+		if err != nil {
+			return fmt.Errorf("error retrieving project root: %w", err)
+		}
+
+		// Create the .volumes folder if it doesn't exist
+		volumesPath := filepath.Join(projectRoot, ".volumes")
+		if _, err := stat(volumesPath); os.IsNotExist(err) {
+			if err := mkdir(volumesPath, os.ModePerm); err != nil {
+				return fmt.Errorf("error creating .volumes folder: %w", err)
+			}
+		}
+	}
 	return nil
 }
 

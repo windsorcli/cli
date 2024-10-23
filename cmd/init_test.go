@@ -963,4 +963,34 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
+
+	t.Run("HelperInitializeError", func(t *testing.T) {
+		// Given: a helper that returns an error on Initialize
+		mockHandler := config.NewMockConfigHandler()
+		mockShell, err := shell.NewMockShell("cmd")
+		if err != nil {
+			t.Fatalf("NewMockShell() error = %v", err)
+		}
+		mockHelper := &helpers.MockHelper{
+			InitializeFunc: func() error {
+				return errors.New("initialize error")
+			},
+		}
+		setupContainer(mockHandler, mockHandler, mockShell, mockHelper, nil, nil, nil)
+
+		// When: the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "error initializing helper: initialize error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
 }

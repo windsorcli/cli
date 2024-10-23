@@ -132,13 +132,16 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		// Write the vendor config files using the DI container
+		// Initialize and write the vendor config files using the DI container
 		helperInstances, err := container.ResolveAll((*helpers.Helper)(nil))
 		if err != nil {
 			return fmt.Errorf("error resolving helpers: %w", err)
 		}
 		for _, instance := range helperInstances {
 			helper := instance.(helpers.Helper)
+			if err := helper.Initialize(); err != nil {
+				return fmt.Errorf("error initializing helper: %w", err)
+			}
 			if err := helper.WriteConfig(); err != nil {
 				return fmt.Errorf("error writing config for helper: %w", err)
 			}
