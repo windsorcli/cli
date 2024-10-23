@@ -55,6 +55,12 @@ func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
 	return dockerHelper, nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *DockerHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // GetEnvVars retrieves Docker-specific environment variables for the current context
 func (h *DockerHelper) GetEnvVars() (map[string]string, error) {
 	// Get the configuration root directory

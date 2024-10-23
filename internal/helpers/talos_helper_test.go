@@ -15,6 +15,41 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
+func TestTalosHelper_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock config handler, context, and shell
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := &shell.MockShell{}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewTalosHelper() error = %v", err)
+		}
+
+		// When: Initialize is called
+		err = talosHelper.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
 func TestTalosHelper_GetEnvVars(t *testing.T) {
 	// Common setup for tests
 	var (

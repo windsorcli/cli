@@ -43,6 +43,12 @@ func NewGitHelper(di *di.DIContainer) (*GitHelper, error) {
 	}, nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *GitHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // GetEnvVars is a no-op function
 func (h *GitHelper) GetEnvVars() (map[string]string, error) {
 	return map[string]string{}, nil

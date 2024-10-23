@@ -121,6 +121,36 @@ func setupTestEnv(t *testing.T, backend string, tfvarsFiles map[string]string) (
 }
 
 func TestTerraformHelper(t *testing.T) {
+	t.Run("Initialize", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler and context
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+
+			// Create an instance of TerraformHelper
+			terraformHelper, err := NewTerraformHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewTerraformHelper() error = %v", err)
+			}
+
+			// When: Initialize is called
+			err = terraformHelper.Initialize()
+			if err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+		})
+	})
+
 	t.Run("NewTerraformHelper", func(t *testing.T) {
 		t.Run("ErrorResolvingContext", func(t *testing.T) {
 			// Given a DI container without context registered

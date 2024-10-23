@@ -65,5 +65,11 @@ func (h *KubeHelper) WriteConfig() error {
 	return nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *KubeHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // Ensure KubeHelper implements Helper interface
 var _ Helper = (*KubeHelper)(nil)

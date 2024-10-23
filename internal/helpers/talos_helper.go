@@ -233,5 +233,11 @@ func (h *TalosHelper) WriteConfig() error {
 	return nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *TalosHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // Ensure TalosHelper implements Helper interface
 var _ Helper = (*TalosHelper)(nil)

@@ -98,6 +98,36 @@ func encryptFile(t *testing.T, filePath string, dstPath string) error {
 }
 
 func TestSopsHelper(t *testing.T) {
+	t.Run("Initialize", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler and context
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+
+			// Create an instance of SopsHelper
+			sopsHelper, err := NewSopsHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewSopsHelper() error = %v", err)
+			}
+
+			// When: Initialize is called
+			err = sopsHelper.Initialize()
+			if err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+		})
+	})
+
 	t.Run("GetEnvVars", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a test context

@@ -14,6 +14,36 @@ import (
 )
 
 func TestOmniHelper(t *testing.T) {
+	t.Run("Initialize", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler and context
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+
+			// Create an instance of OmniHelper
+			omniHelper, err := NewOmniHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewOmniHelper() error = %v", err)
+			}
+
+			// When: Initialize is called
+			err = omniHelper.Initialize()
+			if err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+		})
+	})
+
 	t.Run("NewOmniHelper", func(t *testing.T) {
 		t.Run("ErrorResolvingContext", func(t *testing.T) {
 			// Create DI container without registering context

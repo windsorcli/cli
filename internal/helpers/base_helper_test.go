@@ -21,6 +21,38 @@ func assertError(t *testing.T, err error, shouldError bool) {
 }
 
 func TestBaseHelper(t *testing.T) {
+	t.Run("Initialize", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler, context, and shell
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+			mockShell, _ := shell.NewMockShell("unix")
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+			diContainer.Register("shell", mockShell)
+
+			// Create an instance of BaseHelper
+			baseHelper, err := NewBaseHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewBaseHelper() error = %v", err)
+			}
+
+			// When: Initialize is called
+			err = baseHelper.Initialize()
+			if err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+		})
+	})
+
 	t.Run("NewBaseHelper", func(t *testing.T) {
 		t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 			diContainer := di.NewContainer()

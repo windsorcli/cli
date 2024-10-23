@@ -69,5 +69,11 @@ func (h *OmniHelper) WriteConfig() error {
 	return nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *OmniHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // Ensure OmniHelper implements Helper interface
 var _ Helper = (*OmniHelper)(nil)

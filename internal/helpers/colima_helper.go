@@ -248,5 +248,11 @@ func (h *ColimaHelper) PostEnvExec() error {
 	return nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *ColimaHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // Ensure ColimaHelper implements Helper interface
 var _ Helper = (*ColimaHelper)(nil)

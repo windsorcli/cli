@@ -14,6 +14,38 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
+func TestGitHelper_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock config handler, context, and shell
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockShell, _ := shell.NewMockShell("unix")
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of GitHelper
+		gitHelper, err := NewGitHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewGitHelper() error = %v", err)
+		}
+
+		// When: Initialize is called
+		err = gitHelper.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
 func TestGitHelper_NewGitHelper(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		// Create DI container without registering cliConfigHandler
