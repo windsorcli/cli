@@ -415,15 +415,15 @@ key2: value2
 		}
 
 		t.Run("Success", func(t *testing.T) {
-			// When calling GetContainerConfig
-			containerConfig, err := sopsHelper.GetContainerConfig()
+			// When calling GetComposeConfig
+			composeConfig, err := sopsHelper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Then the result should be nil as per the stub implementation
-			if containerConfig != nil {
-				t.Errorf("expected nil, got %v", containerConfig)
+			if composeConfig != nil {
+				t.Errorf("expected nil, got %v", composeConfig)
 			}
 		})
 	})

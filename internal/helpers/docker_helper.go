@@ -123,8 +123,8 @@ func generateRegistryService(name, remoteURL, localURL string) types.ServiceConf
 	return service
 }
 
-// GetContainerConfig returns a list of container data for docker-compose.
-func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+// GetComposeConfig returns a list of container data for docker-compose.
+func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 	var services []types.ServiceConfig
 
 	// Retrieve the current context
@@ -150,7 +150,7 @@ func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 		services = append(services, generateRegistryService(registry.Name, registry.Remote, registry.Local))
 	}
 
-	return services, nil
+	return &types.Config{Services: services}, nil
 }
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
@@ -161,11 +161,14 @@ func (h *DockerHelper) WriteConfig() error {
 	for _, helper := range h.Helpers {
 		if helperInstance, ok := helper.(Helper); ok {
 			helperName := fmt.Sprintf("%T", helperInstance)
-			containerConfigs, err := helperInstance.GetContainerConfig()
+			containerConfigs, err := helperInstance.GetComposeConfig()
 			if err != nil {
 				return fmt.Errorf("error getting container config from helper %s: %w", helperName, err)
 			}
-			for _, containerConfig := range containerConfigs {
+			if containerConfigs == nil {
+				continue
+			}
+			for _, containerConfig := range containerConfigs.Services {
 				services = append(services, containerConfig)
 			}
 		}

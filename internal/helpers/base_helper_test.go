@@ -416,7 +416,7 @@ func TestBaseHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("GetContainerConfig", func(t *testing.T) {
+	t.Run("GetComposeConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler, shell, and context
 			mockConfigHandler := config.NewMockConfigHandler()
@@ -435,13 +435,13 @@ func TestBaseHelper(t *testing.T) {
 				t.Fatalf("NewBaseHelper() error = %v", err)
 			}
 
-			// And calling GetContainerConfig
-			containerConfig, err := baseHelper.GetContainerConfig()
+			// And calling GetComposeConfig
+			composeConfig, err := baseHelper.GetComposeConfig()
 			assertError(t, err, false)
 
 			// Then the result should be nil as per the stub implementation
-			if containerConfig != nil {
-				t.Errorf("expected nil, got %v", containerConfig)
+			if composeConfig != nil {
+				t.Errorf("expected nil, got %v", composeConfig)
 			}
 		})
 	})

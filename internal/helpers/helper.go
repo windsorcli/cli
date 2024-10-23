@@ -19,8 +19,8 @@ type Helper interface {
 	// PostEnvExec runs any necessary commands after the environment variables have been set.
 	PostEnvExec() error
 
-	// GetContainerConfig returns a list of container data for docker-compose.
-	GetContainerConfig() ([]types.ServiceConfig, error)
+	// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
+	GetComposeConfig() (*types.Config, error)
 
 	// WriteConfig writes any vendor specific configuration files that are needed for the helper.
 	WriteConfig() error

@@ -59,7 +59,7 @@ func (h *OmniHelper) PostEnvExec() error {
 }
 
 // GetContainerConfig returns a list of container data for docker-compose.
-func (h *OmniHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+func (h *OmniHelper) GetComposeConfig() (*types.Config, error) {
 	// Stub implementation
 	return nil, nil
 }

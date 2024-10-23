@@ -336,10 +336,10 @@ func TestDockerHelper(t *testing.T) {
 				t.Fatalf("NewDockerHelper() error = %v", err)
 			}
 
-			// When: GetContainerConfig is called
-			containerConfig, err := helper.GetContainerConfig()
+			// When: GetComposeConfig is called
+			composeConfig, err := helper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Then: the result should match the expected configuration
@@ -360,14 +360,14 @@ func TestDockerHelper(t *testing.T) {
 			}
 
 			found := false
-			for _, config := range containerConfig {
+			for _, config := range composeConfig.Services {
 				if reflect.DeepEqual(config, expectedConfig) {
 					found = true
 					break
 				}
 			}
 			if !found {
-				t.Errorf("expected configuration:\n%+v\nto be in the list of configurations:\n%+v", expectedConfig, containerConfig)
+				t.Errorf("expected configuration:\n%+v\nto be in the list of configurations:\n%+v", expectedConfig, composeConfig.Services)
 			}
 		})
 
@@ -398,8 +398,8 @@ func TestDockerHelper(t *testing.T) {
 				t.Fatalf("NewDockerHelper() error = %v", err)
 			}
 
-			// When: GetContainerConfig is called
-			_, err = helper.GetContainerConfig()
+			// When: GetComposeConfig is called
+			_, err = helper.GetComposeConfig()
 
 			// Then: it should return an error indicating the failure to retrieve the context
 			expectedError := "error retrieving context: mock error retrieving context"
@@ -442,8 +442,8 @@ func TestDockerHelper(t *testing.T) {
 				t.Fatalf("NewDockerHelper() error = %v", err)
 			}
 
-			// When: GetContainerConfig is called
-			_, err = helper.GetContainerConfig()
+			// When: GetComposeConfig is called
+			_, err = helper.GetComposeConfig()
 
 			// Then: it should return an error indicating the failure to retrieve registries
 			expectedError := "error retrieving registries from configuration: mock error retrieving registries"
@@ -497,7 +497,7 @@ func TestDockerHelper(t *testing.T) {
 			}
 
 			// Call GetContainerConfig and expect an error
-			_, err = dockerHelper.GetContainerConfig()
+			_, err = dockerHelper.GetComposeConfig()
 			expectedError := "error converting registries to expected format"
 			if err == nil || !strings.Contains(err.Error(), expectedError) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
@@ -545,12 +545,14 @@ func TestDockerHelper(t *testing.T) {
 					"service1": "nginx:latest",
 				}, nil
 			}
-			mockHelper.GetContainerConfigFunc = func() ([]types.ServiceConfig, error) {
-				return []types.ServiceConfig{
-					{
-						Name:    "registry1",
-						Image:   "registry:2.8.3",
-						Restart: "always",
+			mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+				return &types.Config{
+					Services: []types.ServiceConfig{
+						{
+							Name:    "registry1",
+							Image:   "registry:2.8.3",
+							Restart: "always",
+						},
 					},
 				}, nil
 			}
@@ -670,7 +672,7 @@ func TestDockerHelper(t *testing.T) {
 					"service1": "nginx:latest",
 				}, nil
 			}
-			mockHelper.GetContainerConfigFunc = func() ([]types.ServiceConfig, error) {
+			mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
 				return nil, expectedError
 			}
 			diContainer.Register("helper", mockHelper)
@@ -830,14 +832,16 @@ func TestDockerHelper(t *testing.T) {
 
 			// Register MockHelper to avoid error resolving helpers
 			mockHelper := NewMockHelper()
-			mockHelper.SetGetContainerConfigFunc(func() ([]types.ServiceConfig, error) {
-				return []types.ServiceConfig{
-					{
-						Name:  "service1",
-						Image: "nginx:latest",
+			mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+				return &types.Config{
+					Services: []types.ServiceConfig{
+						{
+							Name:  "service1",
+							Image: "nginx:latest",
+						},
 					},
 				}, nil
-			})
+			}
 			diContainer.Register("helper", mockHelper)
 
 			// When creating a new DockerHelper
@@ -904,15 +908,15 @@ func TestDockerHelper(t *testing.T) {
 				t.Fatalf("NewDockerHelper() error = %v", err)
 			}
 
-			// Call GetContainerConfig
-			services, err := dockerHelper.GetContainerConfig()
+			// Call GetComposeConfig
+			composeConfig, err := dockerHelper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Verify that no registries are returned
-			if len(services) != 0 {
-				t.Fatalf("Expected no services, got %d", len(services))
+			if len(composeConfig.Services) != 0 {
+				t.Fatalf("Expected no services, got %d", len(composeConfig.Services))
 			}
 		})
 

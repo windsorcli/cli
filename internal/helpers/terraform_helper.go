@@ -121,8 +121,8 @@ func (h *TerraformHelper) PostEnvExec() error {
 	return generateBackendOverrideTf(h)
 }
 
-// GetContainerConfig returns a list of container data for docker-compose.
-func (h *TerraformHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+// GetComposeConfig returns a list of container data for docker-compose.
+func (h *TerraformHelper) GetComposeConfig() (*types.Config, error) {
 	// Stub implementation
 	return nil, nil
 }

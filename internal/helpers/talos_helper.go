@@ -62,8 +62,8 @@ func (h *TalosHelper) PostEnvExec() error {
 	return nil
 }
 
-// GetContainerConfig returns a list of container data for docker-compose.
-func (h *TalosHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+// GetComposeConfig returns a list of container data for docker-compose.
+func (h *TalosHelper) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the current context
 	currentContext, err := h.Context.GetContext()
 	if err != nil {
@@ -140,6 +140,7 @@ func (h *TalosHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	}
 
 	var services []types.ServiceConfig
+	volumes := make(map[string]types.VolumeConfig)
 
 	// Create control plane services
 	if numControlPlanes > 0 {
@@ -181,7 +182,16 @@ func (h *TalosHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 		}
 	}
 
-	return services, nil
+	// Define volumes
+	volumes["system_state"] = types.VolumeConfig{}
+	volumes["var"] = types.VolumeConfig{}
+	volumes["etc_cni"] = types.VolumeConfig{}
+	volumes["etc_kubernetes"] = types.VolumeConfig{}
+	volumes["usr_libexec_kubernetes"] = types.VolumeConfig{}
+	volumes["usr_etc_udev"] = types.VolumeConfig{}
+	volumes["opt"] = types.VolumeConfig{}
+
+	return &types.Config{Services: services, Volumes: volumes}, nil
 }
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.

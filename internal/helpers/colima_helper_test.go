@@ -222,7 +222,7 @@ func TestColimaHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("GetContainerConfig", func(t *testing.T) {
+	t.Run("GetComposeConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context and config handler
 			mockContext := context.NewMockContext()
@@ -238,14 +238,14 @@ func TestColimaHelper(t *testing.T) {
 			}
 
 			// And getting container configuration
-			containerConfig, err := colimaHelper.GetContainerConfig()
+			composeConfig, err := colimaHelper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Then it should return nil as per the stub implementation
-			if containerConfig != nil {
-				t.Errorf("expected nil, got %v", containerConfig)
+			if composeConfig != nil {
+				t.Errorf("expected nil, got %v", composeConfig)
 			}
 		})
 	})

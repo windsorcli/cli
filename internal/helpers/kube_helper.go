@@ -54,8 +54,8 @@ func (h *KubeHelper) PostEnvExec() error {
 	return nil
 }
 
-// GetContainerConfig returns a list of container data for docker-compose.
-func (h *KubeHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
+func (h *KubeHelper) GetComposeConfig() (*types.Config, error) {
 	// Stub implementation
 	return nil, nil
 }

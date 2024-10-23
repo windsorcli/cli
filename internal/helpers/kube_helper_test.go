@@ -184,15 +184,15 @@ func TestKubeHelper(t *testing.T) {
 				t.Fatalf("NewKubeHelper() error = %v", err)
 			}
 
-			// And calling GetContainerConfig
-			containerConfig, err := kubeHelper.GetContainerConfig()
+			// And calling GetComposeConfig
+			composeConfig, err := kubeHelper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Then the result should be nil as per the stub implementation
-			if containerConfig != nil {
-				t.Errorf("expected nil, got %v", containerConfig)
+			if composeConfig != nil {
+				t.Errorf("expected nil, got %v", composeConfig)
 			}
 		})
 	})

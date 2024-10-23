@@ -124,15 +124,6 @@ func (h *ColimaHelper) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
-// PostEnvExec runs any necessary commands after the environment variables have been set.
-func (h *ColimaHelper) PostEnvExec() error {
-	// No post environment execution needed for Colima
-	return nil
-}
-
-// Ensure ColimaHelper implements Helper interface
-var _ Helper = (*ColimaHelper)(nil)
-
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *ColimaHelper) WriteConfig() error {
 	context, err := h.Context.GetContext()
@@ -245,8 +236,17 @@ func (h *ColimaHelper) WriteConfig() error {
 	return nil
 }
 
-// GetContainerConfig returns a list of container data for docker-compose.
-func (h *ColimaHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
+func (h *ColimaHelper) GetComposeConfig() (*types.Config, error) {
 	// Stub implementation
 	return nil, nil
 }
+
+// PostEnvExec runs any necessary commands after the environment variables have been set.
+func (h *ColimaHelper) PostEnvExec() error {
+	// No post environment execution needed for Colima
+	return nil
+}
+
+// Ensure ColimaHelper implements Helper interface
+var _ Helper = (*ColimaHelper)(nil)

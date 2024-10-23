@@ -531,7 +531,7 @@ func TestAwsHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("GetContainerConfig", func(t *testing.T) {
+	t.Run("GetComposeConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
@@ -548,15 +548,15 @@ func TestAwsHelper(t *testing.T) {
 				t.Fatalf("NewAwsHelper() error = %v", err)
 			}
 
-			// When: GetContainerConfig is called
-			containerConfig, err := awsHelper.GetContainerConfig()
+			// When: GetComposeConfig is called
+			composeConfig, err := awsHelper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Then: the result should be nil as per the stub implementation
-			if containerConfig != nil {
-				t.Errorf("expected nil, got %v", containerConfig)
+			if composeConfig != nil {
+				t.Errorf("expected nil, got %v", composeConfig)
 			}
 		})
 	})

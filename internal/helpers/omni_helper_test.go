@@ -181,15 +181,15 @@ func TestOmniHelper(t *testing.T) {
 				t.Fatalf("NewOmniHelper() error = %v", err)
 			}
 
-			// When: GetContainerConfig is called
-			containerConfig, err := omniHelper.GetContainerConfig()
+			// When: GetComposeConfig is called
+			composeConfig, err := omniHelper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Then: the result should be nil as per the stub implementation
-			if containerConfig != nil {
-				t.Errorf("expected nil, got %v", containerConfig)
+			if composeConfig != nil {
+				t.Errorf("expected nil, got %v", composeConfig)
 			}
 		})
 	})

@@ -9,7 +9,7 @@ type MockHelper struct {
 	// PostEnvExecFunc is a function that mocks the PostEnvExec method
 	PostEnvExecFunc func() error
 	// GetContainerConfigFunc is a function that mocks the GetContainerConfig method
-	GetContainerConfigFunc func() ([]types.ServiceConfig, error)
+	GetComposeConfigFunc func() (*types.Config, error)
 	// WriteConfigFunc is a function that mocks the WriteConfig method
 	WriteConfigFunc func() error
 }
@@ -35,10 +35,10 @@ func (m *MockHelper) PostEnvExec() error {
 	return nil
 }
 
-// GetContainerConfig calls the mock GetContainerConfigFunc if it is set, otherwise returns nil
-func (m *MockHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
-	if m.GetContainerConfigFunc != nil {
-		return m.GetContainerConfigFunc()
+// GetComposeConfig calls the mock GetComposeConfigFunc if it is set, otherwise returns nil
+func (m *MockHelper) GetComposeConfig() (*types.Config, error) {
+	if m.GetComposeConfigFunc != nil {
+		return m.GetComposeConfigFunc()
 	}
 	return nil, nil
 }
@@ -56,9 +56,9 @@ func (m *MockHelper) SetPostEnvExecFunc(postEnvExecFunc func() error) {
 	m.PostEnvExecFunc = postEnvExecFunc
 }
 
-// SetGetContainerConfigFunc sets the GetContainerConfigFunc for the mock helper
-func (m *MockHelper) SetGetContainerConfigFunc(getContainerConfigFunc func() ([]types.ServiceConfig, error)) {
-	m.GetContainerConfigFunc = getContainerConfigFunc
+// SetGetComposeConfigFunc sets the GetComposeConfigFunc for the mock helper
+func (m *MockHelper) SetGetComposeConfigFunc(getComposeConfigFunc func() (*types.Config, error)) {
+	m.GetComposeConfigFunc = getComposeConfigFunc
 }
 
 // SetWriteConfigFunc sets the WriteConfigFunc for the mock helper

@@ -293,26 +293,26 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewTalosHelper() error = %v", err)
 		}
 
-		// When: GetContainerConfig is called
-		containerConfig, err := talosHelper.GetContainerConfig()
+		// When: GetComposeConfig is called
+		composeConfig, err := talosHelper.GetComposeConfig()
 		if err != nil {
-			t.Fatalf("GetContainerConfig() error = %v", err)
+			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
 
 		// Then: the result should not be nil
-		if containerConfig == nil {
-			t.Fatalf("expected non-nil containerConfig, got nil")
+		if composeConfig == nil {
+			t.Fatalf("expected non-nil composeConfig, got nil")
 		}
 
 		// And the number of services should be controlPlanes + workers
 		expectedServiceCount := customControlPlanes + customWorkers
-		if len(containerConfig) != expectedServiceCount {
-			t.Errorf("expected %d services, got %d", expectedServiceCount, len(containerConfig))
+		if len(composeConfig.Services) != expectedServiceCount {
+			t.Errorf("expected %d services, got %d", expectedServiceCount, len(composeConfig.Services))
 		}
 
 		// Validate the services
 		for i := 0; i < customControlPlanes; i++ {
-			service := containerConfig[i]
+			service := composeConfig.Services[i]
 			expectedName := fmt.Sprintf("controlplane-%d.test", i+1)
 			if service.Name != expectedName {
 				t.Errorf("expected service name %s, got %s", expectedName, service.Name)
@@ -320,7 +320,7 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 		}
 
 		for i := 0; i < customWorkers; i++ {
-			service := containerConfig[customControlPlanes+i]
+			service := composeConfig.Services[customControlPlanes+i]
 			expectedName := fmt.Sprintf("worker-%d.test", i+1)
 			if service.Name != expectedName {
 				t.Errorf("expected service name %s, got %s", expectedName, service.Name)
@@ -362,10 +362,10 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("failed to create TalosHelper: %v", err)
 		}
 
-		// And calling GetContainerConfig
-		services, err := talosHelper.GetContainerConfig()
+		// And calling GetComposeConfig
+		composeConfig, err := talosHelper.GetComposeConfig()
 		if err != nil {
-			t.Fatalf("GetContainerConfig() error = %v", err)
+			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
 
 		// Define expected values
@@ -378,11 +378,11 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 		expectedWorkerRAMMB := expectedWorkerRAMGB * 1024
 
 		// Validate the services
-		if len(services) != 2 {
-			t.Fatalf("expected 2 services, got %d", len(services))
+		if len(composeConfig.Services) != 2 {
+			t.Fatalf("expected 2 services, got %d", len(composeConfig.Services))
 		}
 
-		controlPlaneService := services[0]
+		controlPlaneService := composeConfig.Services[0]
 		if controlPlaneService.Name != "controlplane-1.test" {
 			t.Errorf("expected controlplane-1.test, got %s", controlPlaneService.Name)
 		}
@@ -393,7 +393,7 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Errorf("expected TALOSSKU=%dCPU-%dRAM, got %s", expectedControlPlaneCPUCores, expectedControlPlaneRAMMB, *controlPlaneService.Environment["TALOSSKU"])
 		}
 
-		workerService := services[1]
+		workerService := composeConfig.Services[1]
 		if workerService.Name != "worker-1.test" {
 			t.Errorf("expected worker-1.test, got %s", workerService.Name)
 		}
@@ -435,15 +435,15 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("failed to create TalosHelper: %v", err)
 		}
 
-		// And calling GetContainerConfig
-		services, err := talosHelper.GetContainerConfig()
+		// And calling GetComposeConfig
+		composeConfig, err := talosHelper.GetComposeConfig()
 		if err != nil {
-			t.Fatalf("GetContainerConfig() error = %v", err)
+			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
 
 		// Then services should be nil
-		if services != nil {
-			t.Errorf("expected services to be nil when cluster driver is not Talos, got: %v", services)
+		if composeConfig != nil {
+			t.Errorf("expected composeConfig to be nil when cluster driver is not Talos, got: %v", composeConfig)
 		}
 	})
 
@@ -461,8 +461,8 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("failed to create TalosHelper: %v", err)
 		}
 
-		// When calling GetContainerConfig
-		_, err = talosHelper.GetContainerConfig()
+		// When calling GetComposeConfig
+		_, err = talosHelper.GetComposeConfig()
 		// Then an error should be returned
 		if err == nil || !strings.Contains(err.Error(), "error retrieving current context") {
 			t.Errorf("expected error retrieving current context, got: %v", err)
@@ -496,8 +496,8 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("failed to create TalosHelper: %v", err)
 		}
 
-		// When calling GetContainerConfig
-		_, err = talosHelper.GetContainerConfig()
+		// When calling GetComposeConfig
+		_, err = talosHelper.GetComposeConfig()
 		// Then an error should be returned
 		if err == nil || !strings.Contains(err.Error(), "error retrieving number of control planes") {
 			t.Errorf("expected error retrieving number of control planes, got: %v", err)
@@ -536,13 +536,13 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("failed to create TalosHelper: %v", err)
 		}
 
-		services, err := talosHelper.GetContainerConfig()
+		composeConfig, err := talosHelper.GetComposeConfig()
 		if err != nil {
-			t.Fatalf("GetContainerConfig() error = %v", err)
+			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
 		// Then: services should be an empty slice
-		if len(services) != 0 {
-			t.Errorf("expected 0 services, got %d", len(services))
+		if len(composeConfig.Services) != 0 {
+			t.Errorf("expected 0 services, got %d", len(composeConfig.Services))
 		}
 	})
 
@@ -590,21 +590,21 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("failed to create TalosHelper: %v", err)
 		}
 
-		// And calling GetContainerConfig
-		services, err := talosHelper.GetContainerConfig()
+		// And calling GetComposeConfig
+		composeConfig, err := talosHelper.GetComposeConfig()
 		if err != nil {
-			t.Fatalf("GetContainerConfig() error = %v", err)
+			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
 
 		// Then the number of services should be controlPlanes + workers
 		expectedServiceCount := customControlPlanes + customWorkers
-		if len(services) != expectedServiceCount {
-			t.Errorf("expected %d services, got %d", expectedServiceCount, len(services))
+		if len(composeConfig.Services) != expectedServiceCount {
+			t.Errorf("expected %d services, got %d", expectedServiceCount, len(composeConfig.Services))
 		}
 
 		// Validate the services
 		for i := 0; i < customControlPlanes; i++ {
-			service := services[i]
+			service := composeConfig.Services[i]
 			expectedName := fmt.Sprintf("controlplane-%d.test", i+1)
 			if service.Name != expectedName {
 				t.Errorf("expected service name %s, got %s", expectedName, service.Name)
@@ -616,7 +616,7 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 		}
 
 		for i := 0; i < customWorkers; i++ {
-			service := services[customControlPlanes+i]
+			service := composeConfig.Services[customControlPlanes+i]
 			expectedName := fmt.Sprintf("worker-%d.test", i+1)
 			if service.Name != expectedName {
 				t.Errorf("expected service name %s, got %s", expectedName, service.Name)
@@ -662,8 +662,8 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewTalosHelper() error = %v", err)
 		}
 
-		// When calling GetContainerConfig
-		_, err = talosHelper.GetContainerConfig()
+		// When calling GetComposeConfig
+		_, err = talosHelper.GetComposeConfig()
 		// Then an error should be returned
 		expectedError := "error retrieving number of workers"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
@@ -703,8 +703,8 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewTalosHelper() error = %v", err)
 		}
 
-		// When calling GetContainerConfig
-		_, err = talosHelper.GetContainerConfig()
+		// When calling GetComposeConfig
+		_, err = talosHelper.GetComposeConfig()
 		// Then an error should be returned
 		expectedError := "error retrieving control plane CPU setting"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
@@ -744,8 +744,8 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewTalosHelper() error = %v", err)
 		}
 
-		// When calling GetContainerConfig
-		_, err = talosHelper.GetContainerConfig()
+		// When calling GetComposeConfig
+		_, err = talosHelper.GetComposeConfig()
 		// Then an error should be returned
 		expectedError := "error retrieving control plane RAM setting"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
@@ -785,8 +785,8 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewTalosHelper() error = %v", err)
 		}
 
-		// When calling GetContainerConfig
-		_, err = talosHelper.GetContainerConfig()
+		// When calling GetComposeConfig
+		_, err = talosHelper.GetComposeConfig()
 		// Then an error should be returned
 		expectedError := "error retrieving worker CPU setting"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
@@ -826,8 +826,8 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewTalosHelper() error = %v", err)
 		}
 
-		// When calling GetContainerConfig
-		_, err = talosHelper.GetContainerConfig()
+		// When calling GetComposeConfig
+		_, err = talosHelper.GetComposeConfig()
 		// Then an error should be returned
 		expectedError := "error retrieving worker RAM setting"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
@@ -857,14 +857,14 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("failed to create TalosHelper: %v", err)
 		}
 
-		// When calling GetContainerConfig
-		services, err := talosHelper.GetContainerConfig()
+		// When calling GetComposeConfig
+		composeConfig, err := talosHelper.GetComposeConfig()
 		// Then no error should be returned, and services should be nil
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if services != nil {
-			t.Errorf("expected services to be nil when cluster driver retrieval fails, got %v", services)
+		if composeConfig != nil {
+			t.Errorf("expected services to be nil when cluster driver retrieval fails, got %v", composeConfig)
 		}
 	})
 
@@ -890,14 +890,14 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("failed to create TalosHelper: %v", err)
 		}
 
-		// When calling GetContainerConfig
-		services, err := talosHelper.GetContainerConfig()
+		// When calling GetComposeConfig
+		composeConfig, err := talosHelper.GetComposeConfig()
 		// Then no error should be returned, and services should be nil
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if services != nil {
-			t.Errorf("expected services to be nil when cluster driver is empty, got %v", services)
+		if composeConfig != nil {
+			t.Errorf("expected services to be nil when cluster driver is empty, got %v", composeConfig)
 		}
 	})
 }

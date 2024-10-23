@@ -1663,7 +1663,7 @@ terraform {
 		})
 	})
 
-	t.Run("GetContainerConfig", func(t *testing.T) {
+	t.Run("GetComposeConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context and mock config handler
 			mockContext := context.NewMockContext()
@@ -1679,15 +1679,15 @@ terraform {
 				t.Fatalf("NewTerraformHelper() error = %v", err)
 			}
 
-			// When: GetContainerConfig is called
-			containerConfig, err := terraformHelper.GetContainerConfig()
+			// When: GetComposeConfig is called
+			composeConfig, err := terraformHelper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Then: the result should be nil as per the stub implementation
-			if containerConfig != nil {
-				t.Errorf("expected nil, got %v", containerConfig)
+			if composeConfig != nil {
+				t.Errorf("expected nil, got %v", composeConfig)
 			}
 		})
 	})

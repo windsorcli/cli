@@ -85,7 +85,7 @@ func (h *BaseHelper) PostEnvExec() error {
 }
 
 // GetContainerConfig returns a list of container data for docker-compose.
-func (h *BaseHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+func (h *BaseHelper) GetComposeConfig() (*types.Config, error) {
 	// Stub implementation
 	return nil, nil
 }

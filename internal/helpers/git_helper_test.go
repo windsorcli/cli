@@ -55,7 +55,7 @@ func TestGitHelper_NewGitHelper(t *testing.T) {
 	})
 }
 
-func TestGitHelper_GetContainerConfig(t *testing.T) {
+func TestGitHelper_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, shell, and context
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -105,41 +105,43 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewGitHelper() error = %v", err)
 		}
 
-		// When: GetContainerConfig is called with git livereload enabled
-		config, err := gitHelper.GetContainerConfig()
+		// When: GetComposeConfig is called with git livereload enabled
+		composeConfig, err := gitHelper.GetComposeConfig()
 		if err != nil {
-			t.Fatalf("GetContainerConfig() error = %v", err)
+			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
 
 		// Then: it should return the expected service configuration without livereload.enabled label
-		expectedConfig := []types.ServiceConfig{
-			{
-				Name:    "git.test",
-				Image:   constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE,
-				Restart: "always",
-				Environment: map[string]*string{
-					"RSYNC_EXCLUDE": strPtr(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE),
-					"RSYNC_PROTECT": strPtr(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT),
-					"GIT_USERNAME":  strPtr(constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME),
-					"GIT_PASSWORD":  strPtr(constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD),
-					"VERIFY_SSL":    strPtr("false"),
-					"WEBHOOK_URL":   strPtr(constants.DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL),
-				},
-				Volumes: []types.ServiceVolumeConfig{
-					{
-						Type:   "bind",
-						Source: "${WINDSOR_PROJECT_ROOT}",
-						Target: "/repos/mount/project",
+		expectedConfig := &types.Config{
+			Services: []types.ServiceConfig{
+				{
+					Name:    "git.test",
+					Image:   constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE,
+					Restart: "always",
+					Environment: map[string]*string{
+						"RSYNC_EXCLUDE": strPtr(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE),
+						"RSYNC_PROTECT": strPtr(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT),
+						"GIT_USERNAME":  strPtr(constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME),
+						"GIT_PASSWORD":  strPtr(constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD),
+						"VERIFY_SSL":    strPtr("false"),
+						"WEBHOOK_URL":   strPtr(constants.DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL),
 					},
-				},
-				Labels: map[string]string{
-					"role":       "git-repository",
-					"managed_by": "windsor",
+					Volumes: []types.ServiceVolumeConfig{
+						{
+							Type:   "bind",
+							Source: "${WINDSOR_PROJECT_ROOT}",
+							Target: "/repos/mount/project",
+						},
+					},
+					Labels: map[string]string{
+						"role":       "git-repository",
+						"managed_by": "windsor",
+					},
 				},
 			},
 		}
-		if !reflect.DeepEqual(config, expectedConfig) {
-			t.Fatalf("expected %v, got %v", expectedConfig, config)
+		if !reflect.DeepEqual(composeConfig, expectedConfig) {
+			t.Fatalf("expected %v, got %v", expectedConfig, composeConfig)
 		}
 	})
 
@@ -166,7 +168,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewGitHelper() error = %v", err)
 		}
 
-		_, err = gitHelper.GetContainerConfig()
+		_, err = gitHelper.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving context") {
 			t.Fatalf("expected error retrieving context, got %v", err)
 		}
@@ -198,7 +200,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewGitHelper() error = %v", err)
 		}
 
-		_, err = gitHelper.GetContainerConfig()
+		_, err = gitHelper.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving git livereload enabled status") {
 			t.Fatalf("expected error retrieving git livereload enabled status, got %v", err)
 		}
@@ -230,12 +232,12 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewGitHelper() error = %v", err)
 		}
 
-		config, err := gitHelper.GetContainerConfig()
+		composeConfig, err := gitHelper.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
-		if config != nil {
-			t.Fatalf("expected nil config, got %v", config)
+		if composeConfig != nil {
+			t.Fatalf("expected nil config, got %v", composeConfig)
 		}
 	})
 
@@ -268,7 +270,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewGitHelper() error = %v", err)
 		}
 
-		_, err = gitHelper.GetContainerConfig()
+		_, err = gitHelper.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving rsync_exclude") {
 			t.Fatalf("expected error retrieving rsync_exclude, got %v", err)
 		}
@@ -303,7 +305,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewGitHelper() error = %v", err)
 		}
 
-		_, err = gitHelper.GetContainerConfig()
+		_, err = gitHelper.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving rsync_protect") {
 			t.Fatalf("expected error retrieving rsync_protect, got %v", err)
 		}
@@ -338,7 +340,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewGitHelper() error = %v", err)
 		}
 
-		_, err = gitHelper.GetContainerConfig()
+		_, err = gitHelper.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving git username") {
 			t.Fatalf("expected error retrieving git username, got %v", err)
 		}
@@ -373,7 +375,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewGitHelper() error = %v", err)
 		}
 
-		_, err = gitHelper.GetContainerConfig()
+		_, err = gitHelper.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving git password") {
 			t.Fatalf("expected error retrieving git password, got %v", err)
 		}
@@ -408,7 +410,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewGitHelper() error = %v", err)
 		}
 
-		_, err = gitHelper.GetContainerConfig()
+		_, err = gitHelper.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving webhook url") {
 			t.Fatalf("expected error retrieving webhook url, got %v", err)
 		}
@@ -443,7 +445,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewGitHelper() error = %v", err)
 		}
 
-		_, err = gitHelper.GetContainerConfig()
+		_, err = gitHelper.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving verify_ssl") {
 			t.Fatalf("expected error retrieving verify_ssl, got %v", err)
 		}
@@ -478,7 +480,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewGitHelper() error = %v", err)
 		}
 
-		_, err = gitHelper.GetContainerConfig()
+		_, err = gitHelper.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving git livereload image") {
 			t.Fatalf("expected error retrieving git livereload image, got %v", err)
 		}
@@ -528,7 +530,7 @@ func TestGitHelper_GetContainerConfig(t *testing.T) {
 			t.Fatalf("NewGitHelper() error = %v", err)
 		}
 
-		_, err = gitHelper.GetContainerConfig()
+		_, err = gitHelper.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving project root") {
 			t.Fatalf("expected error retrieving project root, got %v", err)
 		}

@@ -110,8 +110,8 @@ func (h *AwsHelper) PostEnvExec() error {
 	return nil
 }
 
-// GetContainerConfig returns a list of container data for docker-compose.
-func (h *AwsHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
+func (h *AwsHelper) GetComposeConfig() (*types.Config, error) {
 	// Stub implementation
 	return nil, nil
 }
