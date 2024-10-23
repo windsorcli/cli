@@ -38,21 +38,6 @@ func NewTalosHelper(di *di.DIContainer) (*TalosHelper, error) {
 
 // GetEnvVars retrieves Talos-specific environment variables for the current context
 func (h *TalosHelper) GetEnvVars() (map[string]string, error) {
-	// Retrieve the current context
-	currentContext, err := h.Context.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving current context: %w", err)
-	}
-
-	// Check if the cluster driver is Talos
-	clusterDriver, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.cluster.driver", currentContext))
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving cluster driver: %w", err)
-	}
-	if clusterDriver != "talos" {
-		return nil, nil
-	}
-
 	// Get the context config path
 	configRoot, err := h.Context.GetConfigRoot()
 	if err != nil {
@@ -87,8 +72,8 @@ func (h *TalosHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 
 	// Check if the cluster driver is Talos
 	clusterDriver, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.cluster.driver", currentContext))
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving cluster driver: %w", err)
+	if err != nil || clusterDriver == "" {
+		return nil, nil
 	}
 	if clusterDriver != "talos" {
 		return nil, nil

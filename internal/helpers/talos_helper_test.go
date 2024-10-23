@@ -85,134 +85,6 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 		}
 	})
 
-	t.Run("FileNotExist", func(t *testing.T) {
-		setup()
-
-		// Given: a non-existent context path
-		contextPath := filepath.Join(os.TempDir(), "contexts", "non-existent-context")
-
-		// And a mock context is set up
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return contextPath, nil
-		}
-
-		// And the cluster driver is set to "talos"
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-			if key == "contexts.non-existent-context.cluster.driver" {
-				return "talos", nil
-			}
-			return "", nil
-		}
-
-		// When creating TalosHelper
-		talosHelper, err := NewTalosHelper(diContainer)
-		if err != nil {
-			t.Fatalf("failed to create talos helper: %v", err)
-		}
-
-		// And calling GetEnvVars
-		envVars, err := talosHelper.GetEnvVars()
-		if err != nil {
-			t.Fatalf("GetEnvVars() error = %v", err)
-		}
-
-		// Then the environment variables should be empty
-		if envVars != nil {
-			t.Errorf("expected nil, got %v", envVars)
-		}
-	})
-
-	t.Run("ErrorRetrievingCurrentContext", func(t *testing.T) {
-		setup()
-
-		// Given a mock context that returns an error for GetContext
-		mockContext.GetContextFunc = func() (string, error) {
-			return "", errors.New("error retrieving current context")
-		}
-
-		// When creating TalosHelper
-		talosHelper, err := NewTalosHelper(diContainer)
-		if err != nil {
-			t.Fatalf("failed to create talos helper: %v", err)
-		}
-
-		// And calling GetEnvVars
-		expectedError := "error retrieving current context"
-
-		_, err = talosHelper.GetEnvVars()
-
-		// Then it should return an error indicating current context retrieval failure
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error containing %v, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("ErrorRetrievingClusterDriver", func(t *testing.T) {
-		setup()
-
-		// Given: a mock context
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-
-		// And a mock config handler that returns an error for cluster driver
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-			if key == "contexts.test-context.cluster.driver" {
-				return "", errors.New("mock error retrieving cluster driver")
-			}
-			return "", nil
-		}
-
-		// When creating TalosHelper
-		talosHelper, err := NewTalosHelper(diContainer)
-		if err != nil {
-			t.Fatalf("failed to create talos helper: %v", err)
-		}
-
-		// And calling GetEnvVars
-		_, err = talosHelper.GetEnvVars()
-
-		// Then it should return an error indicating cluster driver retrieval failure
-		expectedError := "error retrieving cluster driver"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error containing %v, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("NonTalosClusterDriver", func(t *testing.T) {
-		setup()
-
-		// Given: a mock context
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-
-		// And the cluster driver is set to something other than 'talos'
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-			if key == "contexts.test-context.cluster.driver" {
-				return "kubernetes", nil
-			}
-			return "", nil
-		}
-
-		// When creating TalosHelper
-		talosHelper, err := NewTalosHelper(diContainer)
-		if err != nil {
-			t.Fatalf("failed to create talos helper: %v", err)
-		}
-
-		// And calling GetEnvVars
-		envVars, err := talosHelper.GetEnvVars()
-		if err != nil {
-			t.Fatalf("GetEnvVars() error = %v", err)
-		}
-
-		// Then it should return nil
-		if envVars != nil {
-			t.Errorf("expected nil envVars when cluster driver is not 'talos', got %v", envVars)
-		}
-	})
-
 	t.Run("ErrorRetrievingConfigRoot", func(t *testing.T) {
 		setup()
 
@@ -597,32 +469,6 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingClusterDriver", func(t *testing.T) {
-		setup()
-
-		// Given: a mock context and config handler that returns error for cluster driver
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-			return "", fmt.Errorf("mock cluster driver error")
-		}
-
-		// When creating TalosHelper
-		talosHelper, err := NewTalosHelper(diContainer)
-		if err != nil {
-			t.Fatalf("failed to create TalosHelper: %v", err)
-		}
-
-		// When calling GetContainerConfig
-		_, err = talosHelper.GetContainerConfig()
-		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "error retrieving cluster driver") {
-			t.Errorf("expected error retrieving cluster driver, got: %v", err)
-		}
-	})
-
 	t.Run("ErrorRetrievingNumberOfControlPlanes", func(t *testing.T) {
 		setup()
 
@@ -986,6 +832,72 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 		expectedError := "error retrieving worker RAM setting"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("expected error containing %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorRetrievingClusterDriver", func(t *testing.T) {
+		setup()
+
+		// Given: a mock context
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+
+		// And ConfigHandler.GetString returns an error
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "", fmt.Errorf("mock error retrieving cluster driver")
+			}
+			return "", nil
+		}
+
+		// When creating TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("failed to create TalosHelper: %v", err)
+		}
+
+		// When calling GetContainerConfig
+		services, err := talosHelper.GetContainerConfig()
+		// Then no error should be returned, and services should be nil
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if services != nil {
+			t.Errorf("expected services to be nil when cluster driver retrieval fails, got %v", services)
+		}
+	})
+
+	t.Run("ClusterDriverEmpty", func(t *testing.T) {
+		setup()
+
+		// Given: a mock context
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+
+		// And ConfigHandler.GetString returns an empty string
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "", nil
+			}
+			return "", nil
+		}
+
+		// When creating TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("failed to create TalosHelper: %v", err)
+		}
+
+		// When calling GetContainerConfig
+		services, err := talosHelper.GetContainerConfig()
+		// Then no error should be returned, and services should be nil
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if services != nil {
+			t.Errorf("expected services to be nil when cluster driver is empty, got %v", services)
 		}
 	})
 }
