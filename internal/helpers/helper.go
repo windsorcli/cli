@@ -68,3 +68,17 @@ var yamlUnmarshal = yaml.Unmarshal
 
 // Mockable function for os.UserHomeDir
 var userHomeDir = os.UserHomeDir
+
+// Helper functions to create pointers for basic types
+func ptrString(s string) *string {
+	return &s
+}
+
+func ptrBool(b bool) *bool {
+	return &b
+}
+
+// Uncomment if needed
+// func ptrInt(i int) *int {
+// 	return &i
+// }
