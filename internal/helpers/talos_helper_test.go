@@ -10,13 +10,11 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/constants"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 )
+
 func TestTalosHelper_GetEnvVars(t *testing.T) {
 	// Common setup for tests
 	var (
@@ -27,6 +25,9 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 
 	setup := func() {
 		mockContext = context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
 		mockConfigHandler = config.NewMockConfigHandler()
 		diContainer = di.NewContainer()
 		diContainer.Register("context", mockContext)
@@ -55,6 +56,14 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 			return contextPath, nil
 		}
 
+		// And the cluster driver is set to "talos"
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "talos", nil
+			}
+			return "", nil
+		}
+
 		// When creating TalosHelper
 		talosHelper, err := NewTalosHelper(diContainer)
 		if err != nil {
@@ -81,11 +90,18 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 
 		// Given: a non-existent context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "non-existent-context")
-		talosConfigPath := ""
 
 		// And a mock context is set up
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return contextPath, nil
+		}
+
+		// And the cluster driver is set to "talos"
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.non-existent-context.cluster.driver" {
+				return "talos", nil
+			}
+			return "", nil
 		}
 
 		// When creating TalosHelper
@@ -100,21 +116,18 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars() error = %v", err)
 		}
 
-		// Then the environment variables should be set correctly with an empty TALOSCONFIG
-		expectedEnvVars := map[string]string{
-			"TALOSCONFIG": talosConfigPath,
-		}
-		if !reflect.DeepEqual(envVars, expectedEnvVars) {
-			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
+		// Then the environment variables should be empty
+		if envVars != nil {
+			t.Errorf("expected nil, got %v", envVars)
 		}
 	})
 
-	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
+	t.Run("ErrorRetrievingCurrentContext", func(t *testing.T) {
 		setup()
 
-		// Given a mock context that returns an error for config root
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "", errors.New("error retrieving config root")
+		// Given a mock context that returns an error for GetContext
+		mockContext.GetContextFunc = func() (string, error) {
+			return "", errors.New("error retrieving current context")
 		}
 
 		// When creating TalosHelper
@@ -124,58 +137,282 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 		}
 
 		// And calling GetEnvVars
-		expectedError := "error retrieving config root"
+		expectedError := "error retrieving current context"
 
 		_, err = talosHelper.GetEnvVars()
 
-		// Then it should return an error indicating config root retrieval failure
+		// Then it should return an error indicating current context retrieval failure
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error containing %v, got %v", expectedError, err)
 		}
 	})
+
+	t.Run("ErrorRetrievingClusterDriver", func(t *testing.T) {
+		setup()
+
+		// Given: a mock context
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+
+		// And a mock config handler that returns an error for cluster driver
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "", errors.New("mock error retrieving cluster driver")
+			}
+			return "", nil
+		}
+
+		// When creating TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("failed to create talos helper: %v", err)
+		}
+
+		// And calling GetEnvVars
+		_, err = talosHelper.GetEnvVars()
+
+		// Then it should return an error indicating cluster driver retrieval failure
+		expectedError := "error retrieving cluster driver"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error containing %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NonTalosClusterDriver", func(t *testing.T) {
+		setup()
+
+		// Given: a mock context
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+
+		// And the cluster driver is set to something other than 'talos'
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "kubernetes", nil
+			}
+			return "", nil
+		}
+
+		// When creating TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("failed to create talos helper: %v", err)
+		}
+
+		// And calling GetEnvVars
+		envVars, err := talosHelper.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars() error = %v", err)
+		}
+
+		// Then it should return nil
+		if envVars != nil {
+			t.Errorf("expected nil envVars when cluster driver is not 'talos', got %v", envVars)
+		}
+	})
+
+	t.Run("ErrorRetrievingConfigRoot", func(t *testing.T) {
+		setup()
+
+		// Given: a mock context
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+
+		// And the cluster driver is 'talos'
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "talos", nil
+			}
+			return "", nil
+		}
+
+		// And mockContext.GetConfigRoot returns an error
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return "", errors.New("mock error retrieving config root")
+		}
+
+		// When creating TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("failed to create talos helper: %v", err)
+		}
+
+		// And calling GetEnvVars
+		_, err = talosHelper.GetEnvVars()
+
+		// Then it should return an error indicating config root retrieval failure
+		expectedError := "error retrieving context config path"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error containing %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("TalosConfigFileDoesNotExist", func(t *testing.T) {
+		setup()
+
+		// Given: a valid context path where talos config file does not exist
+		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
+		talosConfigPath := filepath.Join(contextPath, ".talos", "config")
+
+		// Ensure the talos config file does not exist
+		os.Remove(talosConfigPath)
+
+		// And a mock context is set up
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return contextPath, nil
+		}
+
+		// And the cluster driver is set to "talos"
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "talos", nil
+			}
+			return "", nil
+		}
+
+		// When creating TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("failed to create TalosHelper: %v", err)
+		}
+
+		// And calling GetEnvVars
+		envVars, err := talosHelper.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars() error = %v", err)
+		}
+
+		// Then the TALOSCONFIG path should be empty
+		expectedEnvVars := map[string]string{
+			"TALOSCONFIG": "",
+		}
+		if !reflect.DeepEqual(envVars, expectedEnvVars) {
+			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
+		}
+	})
 }
-	
+
 func TestTalosHelper_PostEnvExec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-			setup()
+		// Common setup for tests
+		var (
+			mockContext       *context.MockContext
+			mockConfigHandler *config.MockConfigHandler
+			diContainer       *di.DIContainer
+		)
 
-			// Given a TalosHelper instance
-			talosHelper, err := NewTalosHelper(diContainer)
-			if err != nil {
-				t.Fatalf("failed to create talos helper: %v", err)
-			}
+		setup := func() {
+			mockContext = context.NewMockContext()
+			mockConfigHandler = config.NewMockConfigHandler()
+			diContainer = di.NewContainer()
+			diContainer.Register("context", mockContext)
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+		}
 
-			// When calling PostEnvExec
-			err = talosHelper.PostEnvExec()
+		setup()
 
-			// Then no error should be returned
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
+		// Given a TalosHelper instance
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("failed to create talos helper: %v", err)
+		}
+
+		// When calling PostEnvExec
+		err = talosHelper.PostEnvExec()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestNewTalosHelper(t *testing.T) {
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		// Given a DI container without registering cliConfigHandler
+		diContainer := di.NewContainer()
+
+		// When attempting to create TalosHelper
+		_, err := NewTalosHelper(diContainer)
+
+		// Then it should return an error indicating config handler resolution failure
+		if err == nil || !strings.Contains(err.Error(), "error resolving config handler") {
+			t.Fatalf("expected error resolving config handler, got %v", err)
+		}
 	})
 
-	t.Run("NewTalosHelper", func(t *testing.T) {
-		t.Run("ErrorResolvingContext", func(t *testing.T) {
-			// Given a DI container without registering context
-			diContainer := di.NewContainer()
+	t.Run("ErrorResolvingContext", func(t *testing.T) {
+		// Given: a DI container with only cliConfigHandler registered
+		mockConfigHandler := config.NewMockConfigHandler()
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		// Note: "context" is not registered in the DI container
 
-			// When attempting to create TalosHelper
-			_, err := NewTalosHelper(diContainer)
+		// When attempting to create TalosHelper
+		_, err := NewTalosHelper(diContainer)
 
-			// Then it should return an error indicating context resolution failure
-			if err == nil || !strings.Contains(err.Error(), "error resolving context") {
-				t.Fatalf("expected error resolving context, got %v", err)
-			}
-		})
+		// Then it should return an error indicating context resolution failure
+		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
+			t.Fatalf("expected error resolving context, got %v", err)
+		}
 	})
+}
 
-	t.Run("GetContainerConfig", func(t *testing.T) {
+func TestTalosHelper_GetContainerConfig(t *testing.T) {
+	// Common setup for tests
+	var (
+		mockContext       *context.MockContext
+		mockConfigHandler *config.MockConfigHandler
+		diContainer       *di.DIContainer
+	)
+
+	setup := func() {
+		mockContext = context.NewMockContext()
+		mockConfigHandler = config.NewMockConfigHandler()
+		diContainer = di.NewContainer()
+		diContainer.Register("context", mockContext)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+	}
+
+	t.Run("Success", func(t *testing.T) {
 		setup()
 
 		// Given a mock context
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
+		}
+
+		// And the cluster driver is set to "talos"
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "talos", nil
+			}
+			return "", nil
+		}
+
+		// And the number of control planes and workers are set
+		customControlPlanes := 1
+		customWorkers := 1
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) (int, error) {
+			switch key {
+			case "contexts.test-context.cluster.controlplanes.count":
+				return customControlPlanes, nil
+			case "contexts.test-context.cluster.workers.count":
+				return customWorkers, nil
+			case "contexts.test-context.cluster.controlplanes.cpu":
+				return 2, nil
+			case "contexts.test-context.cluster.workers.cpu":
+				return 4, nil
+			case "contexts.test-context.cluster.controlplanes.memory":
+				return 2048, nil
+			case "contexts.test-context.cluster.workers.memory":
+				return 4096, nil
+			default:
+				return 0, fmt.Errorf("unexpected key: %s", key)
+			}
 		}
 
 		// When creating TalosHelper
@@ -184,66 +421,59 @@ func TestTalosHelper_PostEnvExec(t *testing.T) {
 			t.Fatalf("NewTalosHelper() error = %v", err)
 		}
 
-		t.Run("Success", func(t *testing.T) {
-			// When: GetContainerConfig is called
-			containerConfig, err := talosHelper.GetContainerConfig()
-			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
-			}
+		// When: GetContainerConfig is called
+		containerConfig, err := talosHelper.GetContainerConfig()
+		if err != nil {
+			t.Fatalf("GetContainerConfig() error = %v", err)
+		}
 
-			// Then: the result should be nil as per the stub implementation
-			if containerConfig != nil {
-				t.Errorf("expected nil, got %v", containerConfig)
+		// Then: the result should not be nil
+		if containerConfig == nil {
+			t.Fatalf("expected non-nil containerConfig, got nil")
+		}
+
+		// And the number of services should be controlPlanes + workers
+		expectedServiceCount := customControlPlanes + customWorkers
+		if len(containerConfig) != expectedServiceCount {
+			t.Errorf("expected %d services, got %d", expectedServiceCount, len(containerConfig))
+		}
+
+		// Validate the services
+		for i := 0; i < customControlPlanes; i++ {
+			service := containerConfig[i]
+			expectedName := fmt.Sprintf("controlplane-%d.test", i+1)
+			if service.Name != expectedName {
+				t.Errorf("expected service name %s, got %s", expectedName, service.Name)
 			}
-		})
+		}
+
+		for i := 0; i < customWorkers; i++ {
+			service := containerConfig[customControlPlanes+i]
+			expectedName := fmt.Sprintf("worker-%d.test", i+1)
+			if service.Name != expectedName {
+				t.Errorf("expected service name %s, got %s", expectedName, service.Name)
+			}
+		}
 	})
 
-	t.Run("WriteConfig", func(t *testing.T) {
-		t.Run("Success", func(t *testing.T) {
-			setup()
-
-			// Given: a mock context
-			mockContext.GetContextFunc = func() (string, error) {
-				return "test-context", nil
-			}
-			mockContext.GetConfigRootFunc = func() (string, error) {
-				return "/path/to/config", nil
-			}
-
-			// When: WriteConfig is called
-			talosHelper, err := NewTalosHelper(diContainer)
-			if err != nil {
-				t.Fatalf("NewTalosHelper() error = %v", err)
-			}
-			err = talosHelper.WriteConfig()
-			if err != nil {
-				t.Fatalf("WriteConfig() error = %v", err)
-			}
-
-			// Then: no error should be returned
-			if err != nil {
-				t.Errorf("Expected no error, got %v", err)
-			}
-		})
-	})
-}
-
-func TestTalosHelper_GetContainerConfig(t *testing.T) {
 	t.Run("SuccessWithDefaultSettings", func(t *testing.T) {
+		setup()
+
 		// Set the necessary environment variable
 		os.Setenv("WINDSOR_PROJECT_ROOT", "/mock/project/root")
 		defer os.Unsetenv("WINDSOR_PROJECT_ROOT")
 
 		// Given: a mock context and config handler with default settings
-		mockContext := context.NewMockContext()
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
 
-		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.cluster.driver" {
 				return "talos", nil
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0], nil
 			}
 			return "", nil
 		}
@@ -251,12 +481,8 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			if len(defaultValue) > 0 {
 				return defaultValue[0], nil
 			}
-			return 0, fmt.Errorf("no default value provided for key: %s", key)
+			return 0, nil
 		}
-
-		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 		// When creating TalosHelper
 		talosHelper, err := NewTalosHelper(diContainer)
@@ -279,87 +505,57 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 		expectedWorkerRAMGB := 4
 		expectedWorkerRAMMB := expectedWorkerRAMGB * 1024
 
-		// Define the expected services
-		expectedServices := []types.ServiceConfig{
-			{
-				Name:    "controlplane-1.test",
-				Image:   constants.DEFAULT_TALOS_IMAGE,
-				Restart: "always",
-				Environment: map[string]*string{
-					"PLATFORM": strPtr("container"),
-					"TALOSSKU": strPtr(fmt.Sprintf("%dCPU-%dRAM", expectedControlPlaneCPUCores, expectedControlPlaneRAMMB)),
-				},
-				ReadOnly:    true,
-				Privileged:  true,
-				SecurityOpt: []string{"seccomp=unconfined"},
-				Tmpfs:       []string{"/run", "/system", "/tmp"},
-				Volumes: []types.ServiceVolumeConfig{
-					{Type: "bind", Source: "/run/udev", Target: "/run/udev"},
-					{Type: "volume", Source: "system_state", Target: "/system/state"},
-					{Type: "volume", Source: "var", Target: "/var"},
-					{Type: "volume", Source: "etc_cni", Target: "/etc/cni"},
-					{Type: "volume", Source: "etc_kubernetes", Target: "/etc/kubernetes"},
-					{Type: "volume", Source: "usr_libexec_kubernetes", Target: "/usr/libexec/kubernetes"},
-					{Type: "volume", Source: "usr_etc_udev", Target: "/usr/etc/udev"},
-					{Type: "volume", Source: "opt", Target: "/opt"},
-				},
-			},
-			{
-				Name:    "worker-1.test",
-				Image:   constants.DEFAULT_TALOS_IMAGE,
-				Restart: "always",
-				Environment: map[string]*string{
-					"PLATFORM": strPtr("container"),
-					"TALOSSKU": strPtr(fmt.Sprintf("%dCPU-%dRAM", expectedWorkerCPUCores, expectedWorkerRAMMB)),
-				},
-				ReadOnly:    true,
-				Privileged:  true,
-				SecurityOpt: []string{"seccomp=unconfined"},
-				Tmpfs:       []string{"/run", "/system", "/tmp"},
-				Volumes: []types.ServiceVolumeConfig{
-					{Type: "bind", Source: "/run/udev", Target: "/run/udev"},
-					{Type: "volume", Source: "system_state", Target: "/system/state"},
-					{Type: "volume", Source: "var", Target: "/var"},
-					{Type: "volume", Source: "etc_cni", Target: "/etc/cni"},
-					{Type: "volume", Source: "etc_kubernetes", Target: "/etc/kubernetes"},
-					{Type: "volume", Source: "usr_libexec_kubernetes", Target: "/usr/libexec/kubernetes"},
-					{Type: "volume", Source: "usr_etc_udev", Target: "/usr/etc/udev"},
-					{Type: "volume", Source: "opt", Target: "/opt"},
-					// Add the additional volume for the worker
-					{Type: "bind", Source: filepath.Join("/mock/project/root", ".volumes"), Target: "/var/local"},
-				},
-			},
+		// Validate the services
+		if len(services) != 2 {
+			t.Fatalf("expected 2 services, got %d", len(services))
 		}
 
-		// Compare using cmp.Diff
-		if diff := cmp.Diff(expectedServices, services,
-			cmpopts.IgnoreUnexported(types.ServiceConfig{}, types.ServiceVolumeConfig{}),
-			cmpopts.SortSlices(func(a, b types.ServiceVolumeConfig) bool {
-				return a.Target < b.Target
-			}),
-		); diff != "" {
-			t.Errorf("services mismatch (-expected +got):\n%s", diff)
+		controlPlaneService := services[0]
+		if controlPlaneService.Name != "controlplane-1.test" {
+			t.Errorf("expected controlplane-1.test, got %s", controlPlaneService.Name)
+		}
+		if *controlPlaneService.Environment["PLATFORM"] != "container" {
+			t.Errorf("expected PLATFORM=container, got %s", *controlPlaneService.Environment["PLATFORM"])
+		}
+		if *controlPlaneService.Environment["TALOSSKU"] != fmt.Sprintf("%dCPU-%dRAM", expectedControlPlaneCPUCores, expectedControlPlaneRAMMB) {
+			t.Errorf("expected TALOSSKU=%dCPU-%dRAM, got %s", expectedControlPlaneCPUCores, expectedControlPlaneRAMMB, *controlPlaneService.Environment["TALOSSKU"])
+		}
+
+		workerService := services[1]
+		if workerService.Name != "worker-1.test" {
+			t.Errorf("expected worker-1.test, got %s", workerService.Name)
+		}
+		if *workerService.Environment["PLATFORM"] != "container" {
+			t.Errorf("expected PLATFORM=container, got %s", *workerService.Environment["PLATFORM"])
+		}
+		if *workerService.Environment["TALOSSKU"] != fmt.Sprintf("%dCPU-%dRAM", expectedWorkerCPUCores, expectedWorkerRAMMB) {
+			t.Errorf("expected TALOSSKU=%dCPU-%dRAM, got %s", expectedWorkerCPUCores, expectedWorkerRAMMB, *workerService.Environment["TALOSSKU"])
+		}
+		if len(workerService.Volumes) != 9 {
+			t.Errorf("expected 9 volumes, got %d", len(workerService.Volumes))
+		}
+		if workerService.Volumes[8].Source != filepath.Join("/mock/project/root", ".volumes") {
+			t.Errorf("expected volume source /mock/project/root/.volumes, got %s", workerService.Volumes[8].Source)
+		}
+		if workerService.Volumes[8].Target != "/var/local" {
+			t.Errorf("expected volume target /var/local, got %s", workerService.Volumes[8].Target)
 		}
 	})
 
 	t.Run("NonTalosClusterDriver", func(t *testing.T) {
+		setup()
+
 		// Given: a mock context and config handler where cluster driver is not Talos
-		mockContext := context.NewMockContext()
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
 
-		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.cluster.driver" {
 				return "kubernetes", nil
 			}
 			return "", fmt.Errorf("unexpected key: %s", key)
 		}
-
-		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 		// When creating TalosHelper
 		talosHelper, err := NewTalosHelper(diContainer)
@@ -380,18 +576,14 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 	})
 
 	t.Run("ErrorRetrievingCurrentContext", func(t *testing.T) {
+		setup()
+
 		// Given: a mock context that returns an error
-		mockContext := context.NewMockContext()
 		mockContext.GetContextFunc = func() (string, error) {
 			return "", fmt.Errorf("mock context error")
 		}
 
-		mockConfigHandler := config.NewMockConfigHandler()
-
-		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-
+		// When creating TalosHelper
 		talosHelper, err := NewTalosHelper(diContainer)
 		if err != nil {
 			t.Fatalf("failed to create TalosHelper: %v", err)
@@ -406,21 +598,18 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 	})
 
 	t.Run("ErrorRetrievingClusterDriver", func(t *testing.T) {
+		setup()
+
 		// Given: a mock context and config handler that returns error for cluster driver
-		mockContext := context.NewMockContext()
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
 
-		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			return "", fmt.Errorf("mock cluster driver error")
 		}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-
+		// When creating TalosHelper
 		talosHelper, err := NewTalosHelper(diContainer)
 		if err != nil {
 			t.Fatalf("failed to create TalosHelper: %v", err)
@@ -435,13 +624,13 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 	})
 
 	t.Run("ErrorRetrievingNumberOfControlPlanes", func(t *testing.T) {
+		setup()
+
 		// Given: a mock context and config handler that returns error for controlplanes.count
-		mockContext := context.NewMockContext()
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
 
-		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.cluster.driver" {
 				return "talos", nil
@@ -455,10 +644,7 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			return 0, fmt.Errorf("mock error retrieving int value for key: %s", key)
 		}
 
-		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-
+		// When creating TalosHelper
 		talosHelper, err := NewTalosHelper(diContainer)
 		if err != nil {
 			t.Fatalf("failed to create TalosHelper: %v", err)
@@ -473,12 +659,12 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 	})
 
 	t.Run("ZeroControlPlanesAndWorkers", func(t *testing.T) {
+		setup()
+
 		// Given: control plane and worker counts are zero
-		mockContext := context.NewMockContext()
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
-		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.test-context.cluster.driver" {
 				return "talos", nil
@@ -492,12 +678,13 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			if key == "contexts.test-context.cluster.workers.count" {
 				return 0, nil
 			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0], nil
+			}
 			return 0, fmt.Errorf("unexpected key: %s", key)
 		}
-		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
 
+		// When creating TalosHelper
 		talosHelper, err := NewTalosHelper(diContainer)
 		if err != nil {
 			t.Fatalf("failed to create TalosHelper: %v", err)
@@ -514,8 +701,9 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 	})
 
 	t.Run("CustomSettings", func(t *testing.T) {
+		setup()
+
 		// Given: custom settings for counts and resources
-		mockContext := context.NewMockContext()
 		mockContext.GetContextFunc = func() (string, error) {
 			return "custom-context", nil
 		}
@@ -525,7 +713,6 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 		customCPUCores := 8
 		customRAM := 16 // GB
 
-		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			if key == "contexts.custom-context.cluster.driver" {
 				return "talos", nil
@@ -550,10 +737,6 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 				return 0, fmt.Errorf("unexpected key: %s", key)
 			}
 		}
-
-		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 		// When creating TalosHelper
 		talosHelper, err := NewTalosHelper(diContainer)
@@ -596,6 +779,257 @@ func TestTalosHelper_GetContainerConfig(t *testing.T) {
 			if sku := *service.Environment["TALOSSKU"]; sku != expectedSKU {
 				t.Errorf("expected TALOSSKU %s, got %s", expectedSKU, sku)
 			}
+		}
+	})
+
+	t.Run("ErrorRetrievingNumberOfWorkers", func(t *testing.T) {
+		setup()
+
+		// Given: a mock context
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+
+		// And the cluster driver is 'talos'
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "talos", nil
+			}
+			return "", nil
+		}
+
+		// And mockConfigHandler.GetInt returns an error when retrieving number of workers
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) (int, error) {
+			if key == "contexts.test-context.cluster.workers.count" {
+				return 0, fmt.Errorf("mock error retrieving number of workers")
+			}
+			// Provide default values for other keys to proceed
+			if len(defaultValue) > 0 {
+				return defaultValue[0], nil
+			}
+			return 0, nil
+		}
+
+		// When creating TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewTalosHelper() error = %v", err)
+		}
+
+		// When calling GetContainerConfig
+		_, err = talosHelper.GetContainerConfig()
+		// Then an error should be returned
+		expectedError := "error retrieving number of workers"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorRetrievingControlPlaneCPU", func(t *testing.T) {
+		setup()
+
+		// Given: a mock context and cluster driver set to "talos"
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "talos", nil
+			}
+			return "", nil
+		}
+
+		// And mockConfigHandler.GetInt returns an error when retrieving control plane CPU
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) (int, error) {
+			if key == "contexts.test-context.cluster.controlplanes.cpu" {
+				return 0, fmt.Errorf("mock error retrieving control plane CPU setting")
+			}
+			// Provide default values for other keys to proceed
+			if len(defaultValue) > 0 {
+				return defaultValue[0], nil
+			}
+			return 0, nil
+		}
+
+		// When creating TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewTalosHelper() error = %v", err)
+		}
+
+		// When calling GetContainerConfig
+		_, err = talosHelper.GetContainerConfig()
+		// Then an error should be returned
+		expectedError := "error retrieving control plane CPU setting"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorRetrievingControlPlaneRAM", func(t *testing.T) {
+		setup()
+
+		// Given: a mock context and cluster driver set to "talos"
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "talos", nil
+			}
+			return "", nil
+		}
+
+		// And mockConfigHandler.GetInt returns an error when retrieving control plane RAM
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) (int, error) {
+			if key == "contexts.test-context.cluster.controlplanes.memory" {
+				return 0, fmt.Errorf("mock error retrieving control plane RAM setting")
+			}
+			// Provide default values for other keys to proceed
+			if len(defaultValue) > 0 {
+				return defaultValue[0], nil
+			}
+			return 0, nil
+		}
+
+		// When creating TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewTalosHelper() error = %v", err)
+		}
+
+		// When calling GetContainerConfig
+		_, err = talosHelper.GetContainerConfig()
+		// Then an error should be returned
+		expectedError := "error retrieving control plane RAM setting"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorRetrievingWorkerCPU", func(t *testing.T) {
+		setup()
+
+		// Given: a mock context and cluster driver set to "talos"
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "talos", nil
+			}
+			return "", nil
+		}
+
+		// And mockConfigHandler.GetInt returns an error when retrieving worker CPU
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) (int, error) {
+			if key == "contexts.test-context.cluster.workers.cpu" {
+				return 0, fmt.Errorf("mock error retrieving worker CPU setting")
+			}
+			// Provide default values for other keys to proceed
+			if len(defaultValue) > 0 {
+				return defaultValue[0], nil
+			}
+			return 0, nil
+		}
+
+		// When creating TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewTalosHelper() error = %v", err)
+		}
+
+		// When calling GetContainerConfig
+		_, err = talosHelper.GetContainerConfig()
+		// Then an error should be returned
+		expectedError := "error retrieving worker CPU setting"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorRetrievingWorkerRAM", func(t *testing.T) {
+		setup()
+
+		// Given: a mock context and cluster driver set to "talos"
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			if key == "contexts.test-context.cluster.driver" {
+				return "talos", nil
+			}
+			return "", nil
+		}
+
+		// And mockConfigHandler.GetInt returns an error when retrieving worker RAM
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) (int, error) {
+			if key == "contexts.test-context.cluster.workers.memory" {
+				return 0, fmt.Errorf("mock error retrieving worker RAM setting")
+			}
+			// Provide default values for other keys to proceed
+			if len(defaultValue) > 0 {
+				return defaultValue[0], nil
+			}
+			return 0, nil
+		}
+
+		// When creating TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewTalosHelper() error = %v", err)
+		}
+
+		// When calling GetContainerConfig
+		_, err = talosHelper.GetContainerConfig()
+		// Then an error should be returned
+		expectedError := "error retrieving worker RAM setting"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, err)
+		}
+	})
+}
+
+func TestTalosHelper_WriteConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Common setup for tests
+		var (
+			mockContext       *context.MockContext
+			mockConfigHandler *config.MockConfigHandler
+			diContainer       *di.DIContainer
+		)
+
+		setup := func() {
+			mockContext = context.NewMockContext()
+			mockConfigHandler = config.NewMockConfigHandler()
+			diContainer = di.NewContainer()
+			diContainer.Register("context", mockContext)
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+		}
+
+		setup()
+
+		// Given: a mock context
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return "/path/to/config", nil
+		}
+
+		// When: WriteConfig is called
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewTalosHelper() error = %v", err)
+		}
+		err = talosHelper.WriteConfig()
+		if err != nil {
+			t.Fatalf("WriteConfig() error = %v", err)
+		}
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 }

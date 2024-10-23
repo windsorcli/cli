@@ -157,24 +157,43 @@ func (h *TalosHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 	var services []types.ServiceConfig
 
 	// Create control plane services
-	for i := 0; i < numControlPlanes; i++ {
-		controlPlaneConfig := commonConfig
-		controlPlaneConfig.Name = fmt.Sprintf("controlplane-%d.test", i+1)
-		controlPlaneConfig.Environment["TALOSSKU"] = strPtr(fmt.Sprintf("%dCPU-%dRAM", controlPlaneCPU, controlPlaneRAM*1024))
-		services = append(services, controlPlaneConfig)
+	if numControlPlanes > 0 {
+		for i := 0; i < numControlPlanes; i++ {
+			controlPlaneConfig := commonConfig
+			controlPlaneConfig.Name = fmt.Sprintf("controlplane-%d.test", i+1)
+			controlPlaneConfig.Environment = map[string]*string{
+				"PLATFORM": strPtr("container"),
+				"TALOSSKU": strPtr(fmt.Sprintf("%dCPU-%dRAM", controlPlaneCPU, controlPlaneRAM*1024)),
+			}
+			services = append(services, controlPlaneConfig)
+		}
 	}
 
 	// Create worker services
-	for i := 0; i < numWorkers; i++ {
-		workerConfig := commonConfig
-		workerConfig.Name = fmt.Sprintf("worker-%d.test", i+1)
-		workerConfig.Environment["TALOSSKU"] = strPtr(fmt.Sprintf("%dCPU-%dRAM", workerCPU, workerRAM*1024))
-		workerConfig.Volumes = append(workerConfig.Volumes, types.ServiceVolumeConfig{
-			Type:   "bind",
-			Source: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".volumes"),
-			Target: "/var/local",
-		})
-		services = append(services, workerConfig)
+	if numWorkers > 0 {
+		for i := 0; i < numWorkers; i++ {
+			workerConfig := commonConfig
+			workerConfig.Name = fmt.Sprintf("worker-%d.test", i+1)
+			workerConfig.Environment = map[string]*string{
+				"PLATFORM": strPtr("container"),
+				"TALOSSKU": strPtr(fmt.Sprintf("%dCPU-%dRAM", workerCPU, workerRAM*1024)),
+			}
+			workerConfig.Volumes = append([]types.ServiceVolumeConfig{
+				{Type: "bind", Source: "/run/udev", Target: "/run/udev"},
+				{Type: "volume", Source: "system_state", Target: "/system/state"},
+				{Type: "volume", Source: "var", Target: "/var"},
+				{Type: "volume", Source: "etc_cni", Target: "/etc/cni"},
+				{Type: "volume", Source: "etc_kubernetes", Target: "/etc/kubernetes"},
+				{Type: "volume", Source: "usr_libexec_kubernetes", Target: "/usr/libexec/kubernetes"},
+				{Type: "volume", Source: "usr_etc_udev", Target: "/usr/etc/udev"},
+				{Type: "volume", Source: "opt", Target: "/opt"},
+			}, types.ServiceVolumeConfig{
+				Type:   "bind",
+				Source: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), ".volumes"),
+				Target: "/var/local",
+			})
+			services = append(services, workerConfig)
+		}
 	}
 
 	return services, nil
