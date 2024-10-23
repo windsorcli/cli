@@ -58,14 +58,20 @@ func (h *SopsHelper) PostEnvExec() error {
 	return nil
 }
 
-// GetContainerConfig returns a list of container data for docker-compose.
-func (h *SopsHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+// GetComposeConfig returns a list of container data for docker-compose.
+func (h *SopsHelper) GetComposeConfig() (*types.Config, error) {
 	// Stub implementation
 	return nil, nil
 }
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *SopsHelper) WriteConfig() error {
+	return nil
+}
+
+// Initialize performs any necessary initialization for the helper.
+func (h *SopsHelper) Initialize() error {
+	// Perform any necessary initialization here
 	return nil
 }
 

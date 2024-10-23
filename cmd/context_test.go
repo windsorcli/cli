@@ -20,7 +20,7 @@ func TestContextSubcommand(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a valid config handler
 			mockHandler := config.NewMockConfigHandler()
-			mockHandler.GetStringFunc = func(key string) (string, error) { return "test-context", nil }
+			mockHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) { return "test-context", nil }
 			mockShell, err := shell.NewMockShell("cmd")
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
@@ -46,7 +46,9 @@ func TestContextSubcommand(t *testing.T) {
 		t.Run("GetContextError", func(t *testing.T) {
 			// Given a config handler that returns an error on GetConfigValue
 			mockHandler := config.NewMockConfigHandler()
-			mockHandler.GetStringFunc = func(key string) (string, error) { return "", errors.New("get context error") }
+			mockHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+				return "", errors.New("get context error")
+			}
 			mockShell, err := shell.NewMockShell("cmd")
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
@@ -156,7 +158,9 @@ func TestContextSubcommand(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a valid config handler
 			mockHandler := config.NewMockConfigHandler()
-			mockHandler.GetStringFunc = func(key string) (string, error) { return "test-context", nil }
+			mockHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+				return "test-context", nil
+			}
 			mockShell, err := shell.NewMockShell("cmd")
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
@@ -182,7 +186,9 @@ func TestContextSubcommand(t *testing.T) {
 		t.Run("GetContextError", func(t *testing.T) {
 			// Given a config handler that returns an error on GetConfigValue
 			mockHandler := config.NewMockConfigHandler()
-			mockHandler.GetStringFunc = func(key string) (string, error) { return "", errors.New("get context error") }
+			mockHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+				return "", errors.New("get context error")
+			}
 			mockShell, err := shell.NewMockShell("cmd")
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)

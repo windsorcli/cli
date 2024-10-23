@@ -43,6 +43,12 @@ func NewGitHelper(di *di.DIContainer) (*GitHelper, error) {
 	}, nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *GitHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // GetEnvVars is a no-op function
 func (h *GitHelper) GetEnvVars() (map[string]string, error) {
 	return map[string]string{}, nil
@@ -53,8 +59,8 @@ func (h *GitHelper) PostEnvExec() error {
 	return nil
 }
 
-// GetContainerConfig returns a list of container data for docker-compose.
-func (h *GitHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
+func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 	context, err := h.Context.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
@@ -171,7 +177,9 @@ func (h *GitHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 		},
 	})
 
-	return services, nil
+	return &types.Config{
+		Services: services,
+	}, nil
 }
 
 // WriteConfig is a no-op function

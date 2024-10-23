@@ -14,6 +14,36 @@ import (
 )
 
 func TestKubeHelper(t *testing.T) {
+	t.Run("Initialize", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler and context
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+
+			// Create an instance of KubeHelper
+			kubeHelper, err := NewKubeHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewKubeHelper() error = %v", err)
+			}
+
+			// When: Initialize is called
+			err = kubeHelper.Initialize()
+			if err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+		})
+	})
+
 	t.Run("NewKubeHelper", func(t *testing.T) {
 		t.Run("ErrorResolvingContext", func(t *testing.T) {
 			// Given a DI container without registering context
@@ -184,15 +214,15 @@ func TestKubeHelper(t *testing.T) {
 				t.Fatalf("NewKubeHelper() error = %v", err)
 			}
 
-			// And calling GetContainerConfig
-			containerConfig, err := kubeHelper.GetContainerConfig()
+			// And calling GetComposeConfig
+			composeConfig, err := kubeHelper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Then the result should be nil as per the stub implementation
-			if containerConfig != nil {
-				t.Errorf("expected nil, got %v", containerConfig)
+			if composeConfig != nil {
+				t.Errorf("expected nil, got %v", composeConfig)
 			}
 		})
 	})

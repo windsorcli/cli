@@ -54,14 +54,20 @@ func (h *KubeHelper) PostEnvExec() error {
 	return nil
 }
 
-// GetContainerConfig returns a list of container data for docker-compose.
-func (h *KubeHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
+func (h *KubeHelper) GetComposeConfig() (*types.Config, error) {
 	// Stub implementation
 	return nil, nil
 }
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *KubeHelper) WriteConfig() error {
+	return nil
+}
+
+// Initialize performs any necessary initialization for the helper.
+func (h *KubeHelper) Initialize() error {
+	// Perform any necessary initialization here
 	return nil
 }
 

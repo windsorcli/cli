@@ -59,13 +59,19 @@ func (h *OmniHelper) PostEnvExec() error {
 }
 
 // GetContainerConfig returns a list of container data for docker-compose.
-func (h *OmniHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+func (h *OmniHelper) GetComposeConfig() (*types.Config, error) {
 	// Stub implementation
 	return nil, nil
 }
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *OmniHelper) WriteConfig() error {
+	return nil
+}
+
+// Initialize performs any necessary initialization for the helper.
+func (h *OmniHelper) Initialize() error {
+	// Perform any necessary initialization here
 	return nil
 }
 

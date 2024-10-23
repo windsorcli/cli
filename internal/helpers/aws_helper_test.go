@@ -14,6 +14,36 @@ import (
 )
 
 func TestAwsHelper(t *testing.T) {
+	t.Run("Initialize", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler and context
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+
+			// Create an instance of AwsHelper
+			awsHelper, err := NewAwsHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewAwsHelper() error = %v", err)
+			}
+
+			// When: Initialize is called
+			err = awsHelper.Initialize()
+			if err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+		})
+	})
+
 	t.Run("GetEnvVars", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given: a valid context path
@@ -42,7 +72,7 @@ func TestAwsHelper(t *testing.T) {
 
 			// Mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
 					return "mock_profile", nil
@@ -103,7 +133,7 @@ func TestAwsHelper(t *testing.T) {
 
 			// Mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
 					return "default", nil
@@ -239,7 +269,7 @@ func TestAwsHelper(t *testing.T) {
 
 			// Mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
 					return "", errors.New("mock error retrieving aws profile")
@@ -311,7 +341,7 @@ func TestAwsHelper(t *testing.T) {
 
 			// Mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
 					return "default", nil
@@ -372,7 +402,7 @@ func TestAwsHelper(t *testing.T) {
 
 			// Mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				switch key {
 				case "contexts.local.aws.aws_profile":
 					return "default", nil
@@ -433,7 +463,7 @@ func TestAwsHelper(t *testing.T) {
 
 			// Mock config handler
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				switch key {
 				case "contexts.remote.aws.aws_profile":
 					return "default", nil
@@ -531,7 +561,7 @@ func TestAwsHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("GetContainerConfig", func(t *testing.T) {
+	t.Run("GetComposeConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
@@ -548,15 +578,15 @@ func TestAwsHelper(t *testing.T) {
 				t.Fatalf("NewAwsHelper() error = %v", err)
 			}
 
-			// When: GetContainerConfig is called
-			containerConfig, err := awsHelper.GetContainerConfig()
+			// When: GetComposeConfig is called
+			composeConfig, err := awsHelper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Then: the result should be nil as per the stub implementation
-			if containerConfig != nil {
-				t.Errorf("expected nil, got %v", containerConfig)
+			if composeConfig != nil {
+				t.Errorf("expected nil, got %v", composeConfig)
 			}
 		})
 	})

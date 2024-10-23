@@ -13,14 +13,17 @@ import (
 // Helper is an interface that defines methods for retrieving environment variables
 // and can be implemented for individual providers.
 type Helper interface {
+	// Initialize performs any necessary initialization for the helper.
+	Initialize() error
+
 	// GetEnvVars retrieves environment variables for the current context.
 	GetEnvVars() (map[string]string, error)
 
 	// PostEnvExec runs any necessary commands after the environment variables have been set.
 	PostEnvExec() error
 
-	// GetContainerConfig returns a list of container data for docker-compose.
-	GetContainerConfig() ([]types.ServiceConfig, error)
+	// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
+	GetComposeConfig() (*types.Config, error)
 
 	// WriteConfig writes any vendor specific configuration files that are needed for the helper.
 	WriteConfig() error
@@ -37,6 +40,9 @@ var writeFile = os.WriteFile
 
 // Override variable for os.Stat
 var stat = os.Stat
+
+// Override variable for os.Mkdir
+var mkdir = os.Mkdir
 
 // Override variable for os.MkdirAll
 var mkdirAll = os.MkdirAll

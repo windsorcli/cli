@@ -9,3 +9,12 @@ const (
 	DEFAULT_GIT_LIVE_RELOAD_PASSWORD      = "local"
 	DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL   = "http://flux-webhook.private.test"
 )
+
+// Default Talos settings
+const (
+	DEFAULT_TALOS_IMAGE             = "ghcr.io/siderolabs/talos:v1.7.6"
+	DEFAULT_TALOS_WORKER_CPU        = 4
+	DEFAULT_TALOS_WORKER_RAM        = 4
+	DEFAULT_TALOS_CONTROL_PLANE_CPU = 2
+	DEFAULT_TALOS_CONTROL_PLANE_RAM = 2
+)

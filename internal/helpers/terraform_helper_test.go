@@ -91,7 +91,7 @@ func setupTestEnv(t *testing.T, backend string, tfvarsFiles map[string]string) (
 
 	// Mock config handler to return a context configuration with the specified backend
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 		switch key {
 		case "context":
 			return "local", nil
@@ -121,6 +121,36 @@ func setupTestEnv(t *testing.T, backend string, tfvarsFiles map[string]string) (
 }
 
 func TestTerraformHelper(t *testing.T) {
+	t.Run("Initialize", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler and context
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+
+			// Create an instance of TerraformHelper
+			terraformHelper, err := NewTerraformHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewTerraformHelper() error = %v", err)
+			}
+
+			// When: Initialize is called
+			err = terraformHelper.Initialize()
+			if err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+		})
+	})
+
 	t.Run("NewTerraformHelper", func(t *testing.T) {
 		t.Run("ErrorResolvingContext", func(t *testing.T) {
 			// Given a DI container without context registered
@@ -390,7 +420,7 @@ func TestTerraformHelper(t *testing.T) {
 
 			// Mock config handler to return a context configuration with the specified backend
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				switch key {
 				case "context":
 					return "local", nil
@@ -686,7 +716,7 @@ func TestTerraformHelper(t *testing.T) {
 
 			// Mock config handler to return a context configuration with the specified backend
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				switch key {
 				case "context":
 					return "local", nil
@@ -767,7 +797,7 @@ func TestTerraformHelper(t *testing.T) {
 				return "/mock/config/root", nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				switch key {
 				case "context":
 					return "local", nil
@@ -817,7 +847,7 @@ terraform {
 			// Given a mock context and config handler
 			mockContext := context.NewMockContext()
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "local", nil
 				}
@@ -854,7 +884,7 @@ terraform {
 			// Given a mock context and config handler
 			mockContext := context.NewMockContext()
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "remote", nil
 				}
@@ -891,7 +921,7 @@ terraform {
 			// Given a mock context and config handler that returns an error for context
 			mockContext := context.NewMockContext()
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "", fmt.Errorf("error retrieving context")
 				}
@@ -955,7 +985,7 @@ terraform {
 				return projectPath, nil
 			}
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				switch key {
 				case "context":
 					return "local", nil
@@ -1215,7 +1245,7 @@ terraform {
 
 			// Mock config handler to return an error when getting the backend configuration
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "local", nil
 				}
@@ -1276,7 +1306,7 @@ terraform {
 
 			// Mock config handler to return an error when getting the context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "", fmt.Errorf("mock error retrieving context")
 				}
@@ -1318,7 +1348,7 @@ terraform {
 
 			// Mock config handler to return a context configuration with the specified backend
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "local", nil
 				}
@@ -1396,7 +1426,7 @@ terraform {
 
 			// Mock config handler to return a context configuration with the specified backend
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "local", nil
 				}
@@ -1476,7 +1506,7 @@ terraform {
 
 			// Mock config handler to return a context configuration with the specified backend
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "local", nil
 				}
@@ -1554,7 +1584,7 @@ terraform {
 
 			// Mock config handler to return a context configuration with the specified backend
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "local", nil
 				}
@@ -1617,7 +1647,7 @@ terraform {
 
 			// Mock config handler to return a context configuration with the specified backend
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "local", nil
 				}
@@ -1663,7 +1693,7 @@ terraform {
 		})
 	})
 
-	t.Run("GetContainerConfig", func(t *testing.T) {
+	t.Run("GetComposeConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock context and mock config handler
 			mockContext := context.NewMockContext()
@@ -1679,15 +1709,15 @@ terraform {
 				t.Fatalf("NewTerraformHelper() error = %v", err)
 			}
 
-			// When: GetContainerConfig is called
-			containerConfig, err := terraformHelper.GetContainerConfig()
+			// When: GetComposeConfig is called
+			composeConfig, err := terraformHelper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Then: the result should be nil as per the stub implementation
-			if containerConfig != nil {
-				t.Errorf("expected nil, got %v", containerConfig)
+			if composeConfig != nil {
+				t.Errorf("expected nil, got %v", composeConfig)
 			}
 		})
 	})

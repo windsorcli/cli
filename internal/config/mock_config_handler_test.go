@@ -24,9 +24,9 @@ func assertEqual(t *testing.T, expected, actual interface{}, name string) {
 func newMockConfigHandlerWithDefaults() *MockConfigHandler {
 	return &MockConfigHandler{
 		LoadConfigFunc: func(path string) error { return nil },
-		GetStringFunc:  func(key string) (string, error) { return "", nil },
-		GetIntFunc:     func(key string) (int, error) { return 0, nil },
-		GetBoolFunc:    func(key string) (bool, error) { return false, nil },
+		GetStringFunc:  func(key string, defaultValue ...string) (string, error) { return "", nil },
+		GetIntFunc:     func(key string, defaultValue ...int) (int, error) { return 0, nil },
+		GetBoolFunc:    func(key string, defaultValue ...bool) (bool, error) { return false, nil },
 		SetFunc:        func(key string, value interface{}) error { return nil },
 		SaveConfigFunc: func(path string) error { return nil },
 		SetDefaultFunc: func(context Context) error { return nil },
@@ -56,7 +56,7 @@ func TestMockConfigHandler(t *testing.T) {
 
 		t.Run("GetStringWithKey", func(t *testing.T) {
 			handler := newMockConfigHandlerWithDefaults()
-			handler.GetStringFunc = func(key string) (string, error) { return "", mockGetErr }
+			handler.GetStringFunc = func(key string, defaultValue ...string) (string, error) { return "", mockGetErr }
 			_, err := handler.GetString("someKey")
 			assertError(t, err, mockGetErr)
 		})
@@ -82,7 +82,7 @@ func TestMockConfigHandler(t *testing.T) {
 
 		t.Run("GetIntWithKey", func(t *testing.T) {
 			handler := newMockConfigHandlerWithDefaults()
-			handler.GetIntFunc = func(key string) (int, error) { return 0, mockGetErr }
+			handler.GetIntFunc = func(key string, defaultValue ...int) (int, error) { return 0, mockGetErr }
 			_, err := handler.GetInt("someKey")
 			assertError(t, err, mockGetErr)
 		})
@@ -108,7 +108,7 @@ func TestMockConfigHandler(t *testing.T) {
 
 		t.Run("GetBoolWithKey", func(t *testing.T) {
 			handler := newMockConfigHandlerWithDefaults()
-			handler.GetBoolFunc = func(key string) (bool, error) { return false, mockGetErr }
+			handler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) { return false, mockGetErr }
 			_, err := handler.GetBool("someKey")
 			assertError(t, err, mockGetErr)
 		})

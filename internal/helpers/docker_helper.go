@@ -55,6 +55,12 @@ func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
 	return dockerHelper, nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *DockerHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // GetEnvVars retrieves Docker-specific environment variables for the current context
 func (h *DockerHelper) GetEnvVars() (map[string]string, error) {
 	// Get the configuration root directory
@@ -123,8 +129,8 @@ func generateRegistryService(name, remoteURL, localURL string) types.ServiceConf
 	return service
 }
 
-// GetContainerConfig returns a list of container data for docker-compose.
-func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
+// GetComposeConfig returns a list of container data for docker-compose.
+func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 	var services []types.ServiceConfig
 
 	// Retrieve the current context
@@ -150,30 +156,52 @@ func (h *DockerHelper) GetContainerConfig() ([]types.ServiceConfig, error) {
 		services = append(services, generateRegistryService(registry.Name, registry.Remote, registry.Local))
 	}
 
-	return services, nil
+	return &types.Config{Services: services}, nil
 }
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *DockerHelper) WriteConfig() error {
-	var services []types.ServiceConfig
+	var combinedServices []types.ServiceConfig
+	var combinedVolumes map[string]types.VolumeConfig
+	var combinedNetworks map[string]types.NetworkConfig
+
+	combinedVolumes = make(map[string]types.VolumeConfig)
+	combinedNetworks = make(map[string]types.NetworkConfig)
 
 	// Iterate through each helper and collect container configs
 	for _, helper := range h.Helpers {
 		if helperInstance, ok := helper.(Helper); ok {
 			helperName := fmt.Sprintf("%T", helperInstance)
-			containerConfigs, err := helperInstance.GetContainerConfig()
+			containerConfigs, err := helperInstance.GetComposeConfig()
 			if err != nil {
 				return fmt.Errorf("error getting container config from helper %s: %w", helperName, err)
 			}
-			for _, containerConfig := range containerConfigs {
-				services = append(services, containerConfig)
+			if containerConfigs == nil {
+				continue
+			}
+			if containerConfigs.Services != nil {
+				for _, containerConfig := range containerConfigs.Services {
+					combinedServices = append(combinedServices, containerConfig)
+				}
+			}
+			if containerConfigs.Volumes != nil {
+				for volumeName, volumeConfig := range containerConfigs.Volumes {
+					combinedVolumes[volumeName] = volumeConfig
+				}
+			}
+			if containerConfigs.Networks != nil {
+				for networkName, networkConfig := range containerConfigs.Networks {
+					combinedNetworks[networkName] = networkConfig
+				}
 			}
 		}
 	}
 
 	// Create a Project using compose-go
 	project := &types.Project{
-		Services: services,
+		Services: combinedServices,
+		Volumes:  combinedVolumes,
+		Networks: combinedNetworks,
 	}
 
 	// Serialize the docker-compose config to YAML

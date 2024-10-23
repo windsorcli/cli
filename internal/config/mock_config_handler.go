@@ -3,9 +3,9 @@ package config
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
 	LoadConfigFunc func(path string) error
-	GetStringFunc  func(key string) (string, error)
-	GetIntFunc     func(key string) (int, error)
-	GetBoolFunc    func(key string) (bool, error)
+	GetStringFunc  func(key string, defaultValue ...string) (string, error)
+	GetIntFunc     func(key string, defaultValue ...int) (int, error)
+	GetBoolFunc    func(key string, defaultValue ...bool) (bool, error)
 	SetFunc        func(key string, value interface{}) error
 	SaveConfigFunc func(path string) error
 	GetFunc        func(key string) (interface{}, error)
@@ -28,7 +28,7 @@ func (m *MockConfigHandler) LoadConfig(path string) error {
 // GetString calls the mock GetStringFunc if set, otherwise returns an empty string and nil error
 func (m *MockConfigHandler) GetString(key string, defaultValue ...string) (string, error) {
 	if m.GetStringFunc != nil {
-		return m.GetStringFunc(key)
+		return m.GetStringFunc(key, defaultValue...)
 	}
 	if len(defaultValue) > 0 {
 		return defaultValue[0], nil
@@ -39,7 +39,7 @@ func (m *MockConfigHandler) GetString(key string, defaultValue ...string) (strin
 // GetInt calls the mock GetIntFunc if set, otherwise returns 0 and nil error
 func (m *MockConfigHandler) GetInt(key string, defaultValue ...int) (int, error) {
 	if m.GetIntFunc != nil {
-		return m.GetIntFunc(key)
+		return m.GetIntFunc(key, defaultValue...)
 	}
 	if len(defaultValue) > 0 {
 		return defaultValue[0], nil
@@ -50,7 +50,7 @@ func (m *MockConfigHandler) GetInt(key string, defaultValue ...int) (int, error)
 // GetBool calls the mock GetBoolFunc if set, otherwise returns false and nil error
 func (m *MockConfigHandler) GetBool(key string, defaultValue ...bool) (bool, error) {
 	if m.GetBoolFunc != nil {
-		return m.GetBoolFunc(key)
+		return m.GetBoolFunc(key, defaultValue...)
 	}
 	if len(defaultValue) > 0 {
 		return defaultValue[0], nil

@@ -19,6 +19,38 @@ import (
 var originalYamlMarshal = yamlMarshal
 
 func TestDockerHelper(t *testing.T) {
+	t.Run("Initialize", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler, context, and helper
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+			mockHelper := NewMockHelper()
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+			diContainer.Register("helper", mockHelper)
+
+			// Create an instance of DockerHelper
+			dockerHelper, err := NewDockerHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewDockerHelper() error = %v", err)
+			}
+
+			// When: Initialize is called
+			err = dockerHelper.Initialize()
+			if err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+		})
+	})
+
 	t.Run("NewDockerHelper", func(t *testing.T) {
 		t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 			// Create DI container without registering cliConfigHandler
@@ -336,10 +368,10 @@ func TestDockerHelper(t *testing.T) {
 				t.Fatalf("NewDockerHelper() error = %v", err)
 			}
 
-			// When: GetContainerConfig is called
-			containerConfig, err := helper.GetContainerConfig()
+			// When: GetComposeConfig is called
+			composeConfig, err := helper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Then: the result should match the expected configuration
@@ -360,14 +392,14 @@ func TestDockerHelper(t *testing.T) {
 			}
 
 			found := false
-			for _, config := range containerConfig {
+			for _, config := range composeConfig.Services {
 				if reflect.DeepEqual(config, expectedConfig) {
 					found = true
 					break
 				}
 			}
 			if !found {
-				t.Errorf("expected configuration:\n%+v\nto be in the list of configurations:\n%+v", expectedConfig, containerConfig)
+				t.Errorf("expected configuration:\n%+v\nto be in the list of configurations:\n%+v", expectedConfig, composeConfig.Services)
 			}
 		})
 
@@ -398,8 +430,8 @@ func TestDockerHelper(t *testing.T) {
 				t.Fatalf("NewDockerHelper() error = %v", err)
 			}
 
-			// When: GetContainerConfig is called
-			_, err = helper.GetContainerConfig()
+			// When: GetComposeConfig is called
+			_, err = helper.GetComposeConfig()
 
 			// Then: it should return an error indicating the failure to retrieve the context
 			expectedError := "error retrieving context: mock error retrieving context"
@@ -442,8 +474,8 @@ func TestDockerHelper(t *testing.T) {
 				t.Fatalf("NewDockerHelper() error = %v", err)
 			}
 
-			// When: GetContainerConfig is called
-			_, err = helper.GetContainerConfig()
+			// When: GetComposeConfig is called
+			_, err = helper.GetComposeConfig()
 
 			// Then: it should return an error indicating the failure to retrieve registries
 			expectedError := "error retrieving registries from configuration: mock error retrieving registries"
@@ -464,7 +496,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected key: %s", key)
 			}
-			mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+			mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 				if key == "contexts.test.docker.enabled" {
 					return true, nil // Docker is enabled
 				}
@@ -497,7 +529,7 @@ func TestDockerHelper(t *testing.T) {
 			}
 
 			// Call GetContainerConfig and expect an error
-			_, err = dockerHelper.GetContainerConfig()
+			_, err = dockerHelper.GetComposeConfig()
 			expectedError := "error converting registries to expected format"
 			if err == nil || !strings.Contains(err.Error(), expectedError) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
@@ -545,12 +577,14 @@ func TestDockerHelper(t *testing.T) {
 					"service1": "nginx:latest",
 				}, nil
 			}
-			mockHelper.GetContainerConfigFunc = func() ([]types.ServiceConfig, error) {
-				return []types.ServiceConfig{
-					{
-						Name:    "registry1",
-						Image:   "registry:2.8.3",
-						Restart: "always",
+			mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+				return &types.Config{
+					Services: []types.ServiceConfig{
+						{
+							Name:    "registry1",
+							Image:   "registry:2.8.3",
+							Restart: "always",
+						},
 					},
 				}, nil
 			}
@@ -574,7 +608,7 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("ErrorWritingDockerComposeFile", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+			mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 				if key == "contexts.test-context.docker.enabled" {
 					return true, nil
 				}
@@ -637,7 +671,7 @@ func TestDockerHelper(t *testing.T) {
 		t.Run("ErrorGettingContainerConfig", func(t *testing.T) {
 			// Given: a mock config handler and context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "contexts.test-context.docker.enabled" {
 					return "true", nil
 				}
@@ -670,7 +704,7 @@ func TestDockerHelper(t *testing.T) {
 					"service1": "nginx:latest",
 				}, nil
 			}
-			mockHelper.GetContainerConfigFunc = func() ([]types.ServiceConfig, error) {
+			mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
 				return nil, expectedError
 			}
 			diContainer.Register("helper", mockHelper)
@@ -755,7 +789,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return nil, fmt.Errorf("key not found: %s", key)
 			}
-			mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+			mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 				if key == "contexts.test-context.docker.enabled" {
 					return true, nil
 				}
@@ -830,14 +864,16 @@ func TestDockerHelper(t *testing.T) {
 
 			// Register MockHelper to avoid error resolving helpers
 			mockHelper := NewMockHelper()
-			mockHelper.SetGetContainerConfigFunc(func() ([]types.ServiceConfig, error) {
-				return []types.ServiceConfig{
-					{
-						Name:  "service1",
-						Image: "nginx:latest",
+			mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+				return &types.Config{
+					Services: []types.ServiceConfig{
+						{
+							Name:  "service1",
+							Image: "nginx:latest",
+						},
 					},
 				}, nil
-			})
+			}
 			diContainer.Register("helper", mockHelper)
 
 			// When creating a new DockerHelper
@@ -872,7 +908,7 @@ func TestDockerHelper(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected key: %s", key)
 			}
-			mockConfigHandler.GetBoolFunc = func(key string) (bool, error) {
+			mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
 				if key == "contexts.test.docker.enabled" {
 					return true, nil // Docker is enabled
 				}
@@ -904,15 +940,15 @@ func TestDockerHelper(t *testing.T) {
 				t.Fatalf("NewDockerHelper() error = %v", err)
 			}
 
-			// Call GetContainerConfig
-			services, err := dockerHelper.GetContainerConfig()
+			// Call GetComposeConfig
+			composeConfig, err := dockerHelper.GetComposeConfig()
 			if err != nil {
-				t.Fatalf("GetContainerConfig() error = %v", err)
+				t.Fatalf("GetComposeConfig() error = %v", err)
 			}
 
 			// Verify that no registries are returned
-			if len(services) != 0 {
-				t.Fatalf("Expected no services, got %d", len(services))
+			if len(composeConfig.Services) != 0 {
+				t.Fatalf("Expected no services, got %d", len(composeConfig.Services))
 			}
 		})
 
@@ -970,5 +1006,60 @@ func TestDockerHelper(t *testing.T) {
 				t.Fatalf("expected error containing %v, got %v", expectedError, err)
 			}
 		})
+	})
+
+	t.Run("VolumesAndNetworks", func(t *testing.T) {
+		// Given: a mock config handler and a mock helper that returns a config with volumes and networks
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+			if key == "contexts.test-context.docker.registries" {
+				return []config.Registry{}, nil
+			}
+			return nil, fmt.Errorf("key not found: %s", key)
+		}
+		mockHelper := NewMockHelper()
+		mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+			return &types.Config{
+				Volumes: map[string]types.VolumeConfig{
+					"volume1": {},
+				},
+				Networks: map[string]types.NetworkConfig{
+					"network1": {},
+				},
+			}, nil
+		}
+
+		// Create a DI container and register the mock config handler and mock helper
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("helper", mockHelper)
+
+		// Attempt to create a new DockerHelper without registering context
+		_, err := NewDockerHelper(diContainer)
+		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
+			t.Fatalf("expected error resolving context, got %v", err)
+		}
+
+		// Register the mock context
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving config root")
+		}
+		diContainer.Register("context", mockContext)
+
+		// Create a new DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: WriteConfig is called
+		err = dockerHelper.WriteConfig()
+		if err == nil || !strings.Contains(err.Error(), "error retrieving config root") {
+			t.Fatalf("expected error retrieving config root, got %v", err)
+		}
 	})
 }

@@ -21,6 +21,38 @@ func assertError(t *testing.T, err error, shouldError bool) {
 }
 
 func TestBaseHelper(t *testing.T) {
+	t.Run("Initialize", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			// Given: a mock config handler, context, and shell
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockContext := context.NewMockContext()
+			mockShell, _ := shell.NewMockShell("unix")
+
+			// Create DI container and register mocks
+			diContainer := di.NewContainer()
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+			diContainer.Register("context", mockContext)
+			diContainer.Register("shell", mockShell)
+
+			// Create an instance of BaseHelper
+			baseHelper, err := NewBaseHelper(diContainer)
+			if err != nil {
+				t.Fatalf("NewBaseHelper() error = %v", err)
+			}
+
+			// When: Initialize is called
+			err = baseHelper.Initialize()
+			if err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+
+			// Then: no error should be returned
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+		})
+	})
+
 	t.Run("NewBaseHelper", func(t *testing.T) {
 		t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 			diContainer := di.NewContainer()
@@ -84,7 +116,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler and shell
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
@@ -151,7 +183,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("ErrorRetrievingContext", func(t *testing.T) {
 			// Given a mock config handler that returns an error for context
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				return "", errors.New("error retrieving context")
 			}
 			mockContext := context.NewMockContext()
@@ -235,7 +267,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("EmptyEnvVars", func(t *testing.T) {
 			// Given a mock config handler with empty environment variables
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
@@ -295,7 +327,7 @@ func TestBaseHelper(t *testing.T) {
 		t.Run("GetError", func(t *testing.T) {
 			// Given a mock config handler that returns an error for Get
 			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string) (string, error) {
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				if key == "context" {
 					return "test-context", nil
 				}
@@ -416,7 +448,7 @@ func TestBaseHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("GetContainerConfig", func(t *testing.T) {
+	t.Run("GetComposeConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given a mock config handler, shell, and context
 			mockConfigHandler := config.NewMockConfigHandler()
@@ -435,13 +467,13 @@ func TestBaseHelper(t *testing.T) {
 				t.Fatalf("NewBaseHelper() error = %v", err)
 			}
 
-			// And calling GetContainerConfig
-			containerConfig, err := baseHelper.GetContainerConfig()
+			// And calling GetComposeConfig
+			composeConfig, err := baseHelper.GetComposeConfig()
 			assertError(t, err, false)
 
 			// Then the result should be nil as per the stub implementation
-			if containerConfig != nil {
-				t.Errorf("expected nil, got %v", containerConfig)
+			if composeConfig != nil {
+				t.Errorf("expected nil, got %v", composeConfig)
 			}
 		})
 	})
