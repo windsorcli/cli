@@ -74,58 +74,48 @@ func (h *TalosHelper) PostEnvExec() error {
 
 // GetComposeConfig returns a list of container data for docker-compose.
 func (h *TalosHelper) GetComposeConfig() (*types.Config, error) {
-	// Retrieve the current context
-	currentContext, err := h.Context.GetContext()
+	// Retrieve the context configuration
+	contextConfig, err := h.ConfigHandler.GetConfig()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving current context: %w", err)
+		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
 	}
 
 	// Check if the cluster driver is Talos
-	clusterDriver, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.cluster.driver", currentContext))
-	if err != nil || clusterDriver == "" {
-		return nil, nil
-	}
-	if clusterDriver != "talos" {
+	if contextConfig.Cluster == nil || contextConfig.Cluster.Driver == nil || *contextConfig.Cluster.Driver != "talos" {
 		return nil, nil
 	}
 
 	// Retrieve the number of control planes and workers from the configuration
-	numControlPlanes, err := h.ConfigHandler.GetInt(fmt.Sprintf("contexts.%s.cluster.controlplanes.count", currentContext), 1)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving number of control planes: %w", err)
+	numControlPlanes := 1
+	if contextConfig.Cluster.ControlPlanes.Count != nil {
+		numControlPlanes = *contextConfig.Cluster.ControlPlanes.Count
 	}
 
-	numWorkers, err := h.ConfigHandler.GetInt(fmt.Sprintf("contexts.%s.cluster.workers.count", currentContext), 1)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving number of workers: %w", err)
+	numWorkers := 1
+	if contextConfig.Cluster.Workers.Count != nil {
+		numWorkers = *contextConfig.Cluster.Workers.Count
 	}
 
 	// Retrieve CPU and RAM settings for control planes from the configuration
-	controlPlaneCPU, err := h.ConfigHandler.GetInt(
-		fmt.Sprintf("contexts.%s.cluster.controlplanes.cpu", currentContext),
-		constants.DEFAULT_TALOS_CONTROL_PLANE_CPU,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving control plane CPU setting: %w", err)
+	controlPlaneCPU := constants.DEFAULT_TALOS_CONTROL_PLANE_CPU
+	if contextConfig.Cluster.ControlPlanes.CPU != nil {
+		controlPlaneCPU = *contextConfig.Cluster.ControlPlanes.CPU
 	}
 
-	controlPlaneRAM, err := h.ConfigHandler.GetInt(
-		fmt.Sprintf("contexts.%s.cluster.controlplanes.memory", currentContext),
-		constants.DEFAULT_TALOS_CONTROL_PLANE_RAM,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving control plane RAM setting: %w", err)
+	controlPlaneRAM := constants.DEFAULT_TALOS_CONTROL_PLANE_RAM
+	if contextConfig.Cluster.ControlPlanes.Memory != nil {
+		controlPlaneRAM = *contextConfig.Cluster.ControlPlanes.Memory
 	}
 
 	// Retrieve CPU and RAM settings for workers from the configuration
-	workerCPU, err := h.ConfigHandler.GetInt(fmt.Sprintf("contexts.%s.cluster.workers.cpu", currentContext), 4)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving worker CPU setting: %w", err)
+	workerCPU := 4
+	if contextConfig.Cluster.Workers.CPU != nil {
+		workerCPU = *contextConfig.Cluster.Workers.CPU
 	}
 
-	workerRAM, err := h.ConfigHandler.GetInt(fmt.Sprintf("contexts.%s.cluster.workers.memory", currentContext), 4)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving worker RAM setting: %w", err)
+	workerRAM := 4
+	if contextConfig.Cluster.Workers.Memory != nil {
+		workerRAM = *contextConfig.Cluster.Workers.Memory
 	}
 
 	// Common configuration for Talos containers
@@ -208,30 +198,28 @@ func (h *TalosHelper) WriteConfig() error {
 
 // Initialize performs any necessary initialization for the helper.
 func (h *TalosHelper) Initialize() error {
-	// Retrieve the current context
-	currentContext, err := h.Context.GetContext()
+	// Retrieve the context configuration
+	contextConfig, err := h.ConfigHandler.GetConfig()
 	if err != nil {
-		return fmt.Errorf("error retrieving current context: %w", err)
+		return fmt.Errorf("error retrieving context configuration: %w", err)
 	}
 
 	// Check if the cluster driver is Talos
-	clusterDriver, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.cluster.driver", currentContext))
-	if err != nil || clusterDriver == "" {
+	if contextConfig.Cluster == nil || contextConfig.Cluster.Driver == nil || *contextConfig.Cluster.Driver != "talos" {
 		return nil
 	}
-	if clusterDriver == "talos" {
-		// Get the project root path
-		projectRoot, err := h.Shell.GetProjectRoot()
-		if err != nil {
-			return fmt.Errorf("error retrieving project root: %w", err)
-		}
 
-		// Create the .volumes folder if it doesn't exist
-		volumesPath := filepath.Join(projectRoot, ".volumes")
-		if _, err := stat(volumesPath); os.IsNotExist(err) {
-			if err := mkdir(volumesPath, os.ModePerm); err != nil {
-				return fmt.Errorf("error creating .volumes folder: %w", err)
-			}
+	// Get the project root path
+	projectRoot, err := h.Shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving project root: %w", err)
+	}
+
+	// Create the .volumes folder if it doesn't exist
+	volumesPath := filepath.Join(projectRoot, ".volumes")
+	if _, err := stat(volumesPath); os.IsNotExist(err) {
+		if err := mkdir(volumesPath, os.ModePerm); err != nil {
+			return fmt.Errorf("error creating .volumes folder: %w", err)
 		}
 	}
 	return nil
