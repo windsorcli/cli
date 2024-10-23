@@ -78,7 +78,6 @@ func ptrBool(b bool) *bool {
 	return &b
 }
 
-// Uncomment if needed
-// func ptrInt(i int) *int {
-// 	return &i
-// }
+func ptrInt(i int) *int {
+	return &i
+}

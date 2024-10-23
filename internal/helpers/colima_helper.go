@@ -101,12 +101,13 @@ func (h *ColimaHelper) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	driver, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.driver", context))
+	config, err := h.ConfigHandler.GetConfig()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving vm driver: %w", err)
+		return nil, fmt.Errorf("error retrieving config: %w", err)
 	}
 
-	if driver != "colima" {
+	driver := config.VM.Driver
+	if driver == nil || *driver != "colima" {
 		return nil, nil
 	}
 
@@ -131,13 +132,14 @@ func (h *ColimaHelper) WriteConfig() error {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	// Check if the vm driver is colima
-	driver, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.driver", context))
+	config, err := h.ConfigHandler.GetConfig()
 	if err != nil {
-		return fmt.Errorf("error retrieving vm driver: %w", err)
+		return fmt.Errorf("error retrieving config: %w", err)
 	}
 
-	if driver != "colima" {
+	// Check if the vm driver is colima
+	driver := config.VM.Driver
+	if driver == nil || *driver != "colima" {
 		return nil
 	}
 
@@ -149,18 +151,18 @@ func (h *ColimaHelper) WriteConfig() error {
 	}
 
 	// Helper function to override default values with context-specific values if provided
-	overrideValue := func(key string, defaultValue *int) {
-		if val, err := h.ConfigHandler.GetInt(fmt.Sprintf("contexts.%s.vm.%s", context, key)); err == nil && val != 0 {
-			*defaultValue = val
+	overrideValue := func(defaultValue *int, configValue *int) {
+		if configValue != nil && *configValue != 0 {
+			*defaultValue = *configValue
 		}
 	}
 
-	overrideValue("cpu", &cpu)
-	overrideValue("disk", &disk)
-	overrideValue("memory", &memory)
+	overrideValue(&cpu, config.VM.CPU)
+	overrideValue(&disk, config.VM.Disk)
+	overrideValue(&memory, config.VM.Memory)
 
-	if val, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.arch", context)); err == nil && val != "" {
-		arch = val
+	if config.VM.Arch != nil && *config.VM.Arch != "" {
+		arch = *config.VM.Arch
 	}
 
 	configData := map[string]interface{}{
