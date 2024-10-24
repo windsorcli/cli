@@ -150,9 +150,8 @@ func (h *ColimaHelper) WriteConfig() error {
 		return fmt.Errorf("error retrieving config: %w", err)
 	}
 
-	// Check if the vm driver is colima
-	driver := config.VM.Driver
-	if driver == nil || *driver != "colima" {
+	// Check if VM is defined and if the vm driver is colima
+	if config.VM == nil || config.VM.Driver == nil || *config.VM.Driver != "colima" {
 		return nil
 	}
 
