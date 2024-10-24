@@ -2,6 +2,7 @@ package constants
 
 // Default git livereload settings
 const (
+	// renovate: datasource=docker depName=ghcr.io/windsor-hotel/git-livereload-server
 	DEFAULT_GIT_LIVE_RELOAD_IMAGE         = "ghcr.io/windsor-hotel/git-livereload-server:v0.2.1"
 	DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE = ".docker-cache,.terraform,data,.venv"
 	DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT = "flux-system"
@@ -12,6 +13,7 @@ const (
 
 // Default Talos settings
 const (
+	// renovate: datasource=docker depName=ghcr.io/siderolabs/talos
 	DEFAULT_TALOS_IMAGE             = "ghcr.io/siderolabs/talos:v1.7.6"
 	DEFAULT_TALOS_WORKER_CPU        = 4
 	DEFAULT_TALOS_WORKER_RAM        = 4
@@ -21,6 +23,8 @@ const (
 
 // Default AWS settings
 const (
-	DEFAULT_AWS_LOCALSTACK_IMAGE     = "localstack/localstack:3.8.1"
+	// renovate: datasource=docker depName=localstack/localstack
+	DEFAULT_AWS_LOCALSTACK_IMAGE = "localstack/localstack:3.8.1"
+	// renovate: datasource=docker depName=localstack/localstack-pro
 	DEFAULT_AWS_LOCALSTACK_PRO_IMAGE = "localstack/localstack-pro:3.8.1"
 )
