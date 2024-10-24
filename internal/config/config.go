@@ -61,6 +61,13 @@ type VMConfig struct {
 	Memory *int    `yaml:"memory"`
 }
 
+// DNSConfig represents the DNS configuration
+type DNSConfig struct {
+	Enabled *bool   `yaml:"enabled"`
+	Name    *string `yaml:"name"`
+	IP      *string `yaml:"ip"`
+}
+
 // ClusterConfig represents the cluster configuration
 type ClusterConfig struct {
 	Driver        *string `yaml:"driver"`
