@@ -877,12 +877,18 @@ func TestTerraformHelper_GetAlias(t *testing.T) {
 	t.Run("LocalContext", func(t *testing.T) {
 		// Given a mock context and config handler
 		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "local", nil
+		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-			if key == "context" {
-				return "local", nil
-			}
-			return "", fmt.Errorf("unexpected key: %s", key)
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				AWS: &config.AWSConfig{
+					Localstack: &config.LocalstackConfig{
+						Enabled: ptrBool(true),
+					},
+				},
+			}, nil
 		}
 
 		// Create DI container and register mocks
@@ -914,12 +920,12 @@ func TestTerraformHelper_GetAlias(t *testing.T) {
 	t.Run("NonLocalContext", func(t *testing.T) {
 		// Given a mock context and config handler
 		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "remote", nil
+		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-			if key == "context" {
-				return "remote", nil
-			}
-			return "", fmt.Errorf("unexpected key: %s", key)
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{}, nil
 		}
 
 		// Create DI container and register mocks
@@ -981,6 +987,53 @@ func TestTerraformHelper_GetAlias(t *testing.T) {
 		// And the alias should be nil
 		if alias != nil {
 			t.Errorf("Expected alias to be nil, got: %v", alias)
+		}
+	})
+
+	t.Run("ErrorRetrievingContextConfig", func(t *testing.T) {
+		// Given a mock context and config handler that returns a real context the first call and an error for GetConfig
+		mockContext := context.NewMockContext()
+		callCount := 0
+		mockContext.GetContextFunc = func() (string, error) {
+			if callCount == 0 {
+				callCount++
+				return "real-context", nil
+			}
+			return "", fmt.Errorf("mock error retrieving context")
+		}
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return nil, fmt.Errorf("mock error retrieving context config")
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// When creating a new TerraformHelper
+		helper, err := NewTerraformHelper(diContainer)
+		if err != nil {
+			t.Fatalf("Failed to create TerraformHelper: %v", err)
+		}
+
+		// And calling GetAlias
+		alias, err := helper.GetAlias()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// And the alias should be nil
+		if alias != nil {
+			t.Errorf("Expected alias to be nil, got: %v", alias)
+		}
+
+		// Check if the error message is as expected
+		expectedErrorMsg := "mock error retrieving context"
+		if !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("Expected error message to contain '%s', got %v", expectedErrorMsg, err)
 		}
 	})
 }

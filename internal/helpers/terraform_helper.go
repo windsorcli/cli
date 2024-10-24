@@ -56,13 +56,23 @@ func (h *TerraformHelper) Initialize() error {
 // getAlias retrieves the alias for the Terraform command based on the current context
 func (h *TerraformHelper) GetAlias() (map[string]string, error) {
 	// Get the current context
-	context, err := h.ConfigHandler.GetString("context")
+	context, err := h.Context.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	// Return the alias based on the context
-	if context == "local" {
+	// Retrieve the context configuration using GetConfig
+	contextConfig, err := h.ConfigHandler.GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context config: %w", err)
+	}
+
+	// Check if Localstack is enabled
+	if context == "local" &&
+		contextConfig.AWS != nil &&
+		contextConfig.AWS.Localstack != nil &&
+		contextConfig.AWS.Localstack.Enabled != nil &&
+		*contextConfig.AWS.Localstack.Enabled {
 		return map[string]string{"terraform": "tflocal"}, nil
 	}
 
