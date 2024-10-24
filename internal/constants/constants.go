@@ -18,3 +18,9 @@ const (
 	DEFAULT_TALOS_CONTROL_PLANE_CPU = 2
 	DEFAULT_TALOS_CONTROL_PLANE_RAM = 2
 )
+
+// Default AWS settings
+const (
+	DEFAULT_AWS_LOCALSTACK_IMAGE     = "localstack/localstack:3.8.1"
+	DEFAULT_AWS_LOCALSTACK_PRO_IMAGE = "localstack/localstack-pro:3.8.1"
+)

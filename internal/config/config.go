@@ -4,10 +4,17 @@ import "github.com/windsor-hotel/cli/internal/constants"
 
 // AWSConfig represents the AWS configuration
 type AWSConfig struct {
-	AWSEndpointURL *string `yaml:"aws_endpoint_url"`
-	AWSProfile     *string `yaml:"aws_profile"`
-	S3Hostname     *string `yaml:"s3_hostname"`
-	MWAAEndpoint   *string `yaml:"mwaa_endpoint"`
+	AWSEndpointURL *string           `yaml:"aws_endpoint_url"`
+	AWSProfile     *string           `yaml:"aws_profile"`
+	S3Hostname     *string           `yaml:"s3_hostname"`
+	MWAAEndpoint   *string           `yaml:"mwaa_endpoint"`
+	Localstack     *LocalstackConfig `yaml:"localstack"`
+}
+
+// LocalstackConfig represents the Localstack configuration
+type LocalstackConfig struct {
+	Enabled  *bool    `yaml:"enabled"`
+	Services []string `yaml:"services"`
 }
 
 // DockerConfig represents the Docker configuration
@@ -93,6 +100,10 @@ var DefaultConfig = Context{
 		AWSProfile:     nil,
 		S3Hostname:     nil,
 		MWAAEndpoint:   nil,
+		Localstack: &LocalstackConfig{
+			Enabled:  nil,
+			Services: nil,
+		},
 	},
 	Docker: &DockerConfig{
 		Enabled:    nil,
@@ -112,6 +123,10 @@ var DefaultLocalConfig = Context{
 		AWSProfile:     ptrString("default"),
 		S3Hostname:     ptrString("http://s3.local.aws.test:4566"),
 		MWAAEndpoint:   ptrString("http://mwaa.local.aws.test:4566"),
+		Localstack: &LocalstackConfig{
+			Enabled:  ptrBool(true),
+			Services: []string{"iam", "sts", "kms", "s3", "dynamodb"},
+		},
 	},
 	Docker: &DockerConfig{
 		Enabled: ptrBool(true),
