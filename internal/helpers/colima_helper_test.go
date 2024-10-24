@@ -265,12 +265,12 @@ func TestColimaHelper_GetEnvVars(t *testing.T) {
 		// And getting environment variables
 		envVars, err := helper.GetEnvVars()
 
-		// Then it should return nil for envVars and no error
+		// Then it should return an empty map for envVars and no error
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if envVars != nil {
-			t.Fatalf("expected nil envVars, got %v", envVars)
+		if len(envVars) != 0 {
+			t.Fatalf("expected empty envVars, got %v", envVars)
 		}
 	})
 

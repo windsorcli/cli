@@ -202,7 +202,10 @@ func (y *YamlConfigHandler) GetConfig() (*Context, error) {
 	if context == nil {
 		return nil, fmt.Errorf("context is not set")
 	}
-	return y.config.Contexts[*context], nil
+	if ctx, ok := y.config.Contexts[*context]; ok {
+		return ctx, nil
+	}
+	return &y.defaultContextConfig, nil
 }
 
 // Ensure YamlConfigHandler implements ConfigHandler

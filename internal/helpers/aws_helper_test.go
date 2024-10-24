@@ -135,6 +135,45 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 		}
 	})
 
+	t.Run("AWSConfigNil", func(t *testing.T) {
+		// Given: a mock config handler that returns a context with a nil AWS config
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				AWS: nil, // Simulate a nil AWS configuration
+			}, nil
+		}
+
+		// Mock context
+		mockContext := context.NewMockContext()
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return "/mock/config/root", nil
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Create an instance of AwsHelper
+		awsHelper, err := NewAwsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewAwsHelper() error = %v", err)
+		}
+
+		// When: GetEnvVars is called
+		envVars, err := awsHelper.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars() error = %v", err)
+		}
+
+		// Then: an empty map should be returned
+		expectedEnvVars := map[string]string{}
+		if !reflect.DeepEqual(envVars, expectedEnvVars) {
+			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
+		}
+	})
+
 	t.Run("FileNotExist", func(t *testing.T) {
 		// Given: a non-existent context path
 		contextPath := filepath.Join(os.TempDir(), "contexts", "non-existent-context")
@@ -198,6 +237,11 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 		// Mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				AWS: &config.AWSConfig{},
+			}, nil
+		}
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()

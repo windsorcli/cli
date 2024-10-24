@@ -43,6 +43,17 @@ func (h *AwsHelper) Initialize() error {
 
 // GetEnvVars retrieves AWS-specific environment variables for the current context
 func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
+	// Retrieve the context configuration using GetConfig
+	contextConfig, err := h.ConfigHandler.GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context config: %w", err)
+	}
+
+	// If AWS is nil, return an empty map
+	if contextConfig.AWS == nil {
+		return map[string]string{}, nil
+	}
+
 	// Get the configuration root directory
 	configRoot, err := h.Context.GetConfigRoot()
 	if err != nil {
@@ -55,33 +66,25 @@ func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 		awsConfigPath = ""
 	}
 
-	// Retrieve the context configuration using GetConfig
-	contextConfig, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context config: %w", err)
-	}
-
 	// Retrieve AWS-specific configuration values from the context
 	awsProfile := ""
-	if contextConfig.AWS != nil && contextConfig.AWS.AWSProfile != nil {
+	awsEndpointURL := ""
+	s3Hostname := ""
+	mwaaEndpoint := ""
+
+	if contextConfig.AWS.AWSProfile != nil {
 		awsProfile = *contextConfig.AWS.AWSProfile
 	}
 
-	// Retrieve AWS endpoint URL if set
-	awsEndpointURL := ""
-	if contextConfig.AWS != nil && contextConfig.AWS.AWSEndpointURL != nil {
+	if contextConfig.AWS.AWSEndpointURL != nil {
 		awsEndpointURL = *contextConfig.AWS.AWSEndpointURL
 	}
 
-	// Retrieve custom S3 hostname if set
-	s3Hostname := ""
-	if contextConfig.AWS != nil && contextConfig.AWS.S3Hostname != nil {
+	if contextConfig.AWS.S3Hostname != nil {
 		s3Hostname = *contextConfig.AWS.S3Hostname
 	}
 
-	// Retrieve MWAA endpoint if set
-	mwaaEndpoint := ""
-	if contextConfig.AWS != nil && contextConfig.AWS.MWAAEndpoint != nil {
+	if contextConfig.AWS.MWAAEndpoint != nil {
 		mwaaEndpoint = *contextConfig.AWS.MWAAEndpoint
 	}
 

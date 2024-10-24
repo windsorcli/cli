@@ -71,9 +71,10 @@ func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 		return nil, fmt.Errorf("error retrieving config: %w", err)
 	}
 
-	enabled := config.Git.Livereload.Enabled
-
-	if enabled == nil || !*enabled {
+	if config.Git == nil ||
+		config.Git.Livereload == nil ||
+		config.Git.Livereload.Enabled == nil ||
+		!*config.Git.Livereload.Enabled {
 		return nil, nil
 	}
 

@@ -844,12 +844,12 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 		// When calling GetConfig
 		config, err := handler.GetConfig()
 
-		// Then the config should be nil and no error should be returned
+		// Then the config should be an empty map and no error should be returned
 		if err != nil {
 			t.Fatalf("GetConfig() unexpected error: %v", err)
 		}
-		if config != nil {
-			t.Errorf("Expected nil config, got %v", config)
+		if config == nil || len(config.Environment) != 0 {
+			t.Errorf("Expected empty config map, got %v", config)
 		}
 	})
 }

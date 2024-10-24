@@ -106,10 +106,8 @@ func (h *ColimaHelper) GetEnvVars() (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving config: %w", err)
 	}
-
-	driver := config.VM.Driver
-	if driver == nil || *driver != "colima" {
-		return nil, nil
+	if config.VM == nil || config.VM.Driver == nil || *config.VM.Driver != "colima" {
+		return map[string]string{}, nil
 	}
 
 	homeDir, err := userHomeDir()
