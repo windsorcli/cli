@@ -11,20 +11,32 @@
     {
       "description": "Update Go modules",
       "matchManagers": ["gomod"],
-      "enabled": true
+      "enabled": true,
+      "automerge": true
     },
     {
       "description": "Update asdf tools",
       "matchFileNames": [".tool-versions"],
-      "enabled": true
+      "enabled": true,
+      "automerge": true
     },
     {
       "description": "Update Taskfile dependencies",
       "matchFileNames": ["Taskfile.yaml"],
-      "enabled": true
+      "enabled": true,
+      "automerge": true
     }
   ],
   "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^internal/constants/constants.go$"],
+      "matchStrings": [
+        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*const\\s+\\S+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "datasourceTemplate": "{{datasource}}",
+      "versioningTemplate": "semver"
+    },
     {
       "customType": "regex",
       "fileMatch": ["^Taskfile.yaml$"],
