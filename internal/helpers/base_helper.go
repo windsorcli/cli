@@ -42,6 +42,12 @@ func NewBaseHelper(di *di.DIContainer) (*BaseHelper, error) {
 	}, nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *BaseHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // GetEnvVars retrieves environment variables for the current context
 func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
 	// Get the current context
@@ -92,12 +98,6 @@ func (h *BaseHelper) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *BaseHelper) WriteConfig() error {
-	return nil
-}
-
-// Initialize performs any necessary initialization for the helper.
-func (h *BaseHelper) Initialize() error {
-	// Perform any necessary initialization here
 	return nil
 }
 

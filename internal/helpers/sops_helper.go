@@ -29,6 +29,12 @@ func NewSopsHelper(di *di.DIContainer) (*SopsHelper, error) {
 	}, nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *SopsHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // GetEnvVars retrieves Kubernetes-specific environment variables for the current context
 func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
 	// Get the configuration root directory
@@ -66,12 +72,6 @@ func (h *SopsHelper) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *SopsHelper) WriteConfig() error {
-	return nil
-}
-
-// Initialize performs any necessary initialization for the helper.
-func (h *SopsHelper) Initialize() error {
-	// Perform any necessary initialization here
 	return nil
 }
 

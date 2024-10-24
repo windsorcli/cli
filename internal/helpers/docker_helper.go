@@ -133,23 +133,14 @@ func generateRegistryService(name, remoteURL, localURL string) types.ServiceConf
 func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 	var services []types.ServiceConfig
 
-	// Retrieve the current context
-	context, err := h.Context.GetContext()
+	// Retrieve the context configuration using GetConfig
+	contextConfig, err := h.ConfigHandler.GetConfig()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving context: %w", err)
+		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
 	}
 
-	// Retrieve the list of registries from the configuration
-	registriesInterface, err := h.ConfigHandler.Get(fmt.Sprintf("contexts.%s.docker.registries", context))
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving registries from configuration: %w", err)
-	}
-
-	// Initialize registries list
-	registries, ok := registriesInterface.([]config.Registry)
-	if !ok {
-		return nil, fmt.Errorf("error converting registries to expected format")
-	}
+	// Retrieve the list of registries from the context configuration
+	registries := contextConfig.Docker.Registries
 
 	// Convert registries to service definitions
 	for _, registry := range registries {

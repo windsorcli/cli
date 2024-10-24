@@ -196,6 +196,18 @@ func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 	return nil
 }
 
+// GetConfig returns the context config object for the current context
+func (y *YamlConfigHandler) GetConfig() (*Context, error) {
+	context := y.config.Context
+	if context == nil {
+		return nil, fmt.Errorf("context is not set")
+	}
+	if ctx, ok := y.config.Contexts[*context]; ok {
+		return ctx, nil
+	}
+	return &y.defaultContextConfig, nil
+}
+
 // Ensure YamlConfigHandler implements ConfigHandler
 var _ ConfigHandler = (*YamlConfigHandler)(nil)
 

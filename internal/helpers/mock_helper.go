@@ -21,6 +21,14 @@ func NewMockHelper() *MockHelper {
 	return &MockHelper{}
 }
 
+// Initialize calls the mock InitializeFunc if it is set, otherwise returns nil
+func (m *MockHelper) Initialize() error {
+	if m.InitializeFunc != nil {
+		return m.InitializeFunc()
+	}
+	return nil
+}
+
 // GetEnvVars calls the mock GetEnvVarsFunc if it is set, otherwise returns nil
 func (m *MockHelper) GetEnvVars() (map[string]string, error) {
 	if m.GetEnvVarsFunc != nil {
@@ -53,12 +61,9 @@ func (m *MockHelper) WriteConfig() error {
 	return nil
 }
 
-// Initialize calls the mock InitializeFunc if it is set, otherwise returns nil
-func (m *MockHelper) Initialize() error {
-	if m.InitializeFunc != nil {
-		return m.InitializeFunc()
-	}
-	return nil
+// SetInitializeFunc sets the InitializeFunc for the mock helper
+func (m *MockHelper) SetInitializeFunc(initializeFunc func() error) {
+	m.InitializeFunc = initializeFunc
 }
 
 // SetPostEnvExecFunc sets the PostEnvExecFunc for the mock helper
@@ -74,11 +79,6 @@ func (m *MockHelper) SetGetComposeConfigFunc(getComposeConfigFunc func() (*types
 // SetWriteConfigFunc sets the WriteConfigFunc for the mock helper
 func (m *MockHelper) SetWriteConfigFunc(writeConfigFunc func() error) {
 	m.WriteConfigFunc = writeConfigFunc
-}
-
-// SetInitializeFunc sets the InitializeFunc for the mock helper
-func (m *MockHelper) SetInitializeFunc(initializeFunc func() error) {
-	m.InitializeFunc = initializeFunc
 }
 
 // Ensure MockHelper implements Helper interface

@@ -797,6 +797,63 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 	})
 }
 
+func TestYamlConfigHandler_GetConfig(t *testing.T) {
+	t.Run("ContextIsSet", func(t *testing.T) {
+		// Given a handler with a context set
+		handler, _ := NewYamlConfigHandler("")
+		handler.config.Context = ptrString("local")
+		handler.config.Contexts = map[string]*Context{
+			"local": {
+				Environment: map[string]string{
+					"ENV_VAR": "value",
+				},
+			},
+		}
+
+		// When calling GetConfig
+		config, err := handler.GetConfig()
+
+		// Then the context config should be returned without error
+		if err != nil {
+			t.Fatalf("GetConfig() unexpected error: %v", err)
+		}
+		if config == nil || config.Environment["ENV_VAR"] != "value" {
+			t.Errorf("Expected context config with ENV_VAR 'value', got %v", config)
+		}
+	})
+
+	t.Run("ContextIsNotSet", func(t *testing.T) {
+		// Given a handler without a context set
+		handler, _ := NewYamlConfigHandler("")
+
+		// When calling GetConfig
+		_, err := handler.GetConfig()
+
+		// Then an error should be returned
+		expectedError := "context is not set"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("Expected error '%s', got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ContextDoesNotExist", func(t *testing.T) {
+		// Given a handler with a context set that does not exist in contexts
+		handler, _ := NewYamlConfigHandler("")
+		handler.config.Context = ptrString("nonexistent")
+
+		// When calling GetConfig
+		config, err := handler.GetConfig()
+
+		// Then the config should be an empty map and no error should be returned
+		if err != nil {
+			t.Fatalf("GetConfig() unexpected error: %v", err)
+		}
+		if config == nil || len(config.Environment) != 0 {
+			t.Errorf("Expected empty config map, got %v", config)
+		}
+	})
+}
+
 func TestYamlConfigHandler_Set(t *testing.T) {
 	t.Run("SetSimpleKey", func(t *testing.T) {
 		handler, _ := NewYamlConfigHandler("")

@@ -29,6 +29,11 @@ type Helper interface {
 	WriteConfig() error
 }
 
+type YAMLEncoder interface {
+	Encode(v interface{}) error
+	Close() error
+}
+
 // Define a variable for os.Getwd() for easier testing
 var getwd = os.Getwd
 
@@ -68,3 +73,16 @@ var yamlUnmarshal = yaml.Unmarshal
 
 // Mockable function for os.UserHomeDir
 var userHomeDir = os.UserHomeDir
+
+// Helper functions to create pointers for basic types
+func ptrString(s string) *string {
+	return &s
+}
+
+func ptrBool(b bool) *bool {
+	return &b
+}
+
+func ptrInt(i int) *int {
+	return &i
+}

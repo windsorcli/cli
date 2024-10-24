@@ -61,17 +61,20 @@ func (h *GitHelper) PostEnvExec() error {
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
-	context, err := h.Context.GetContext()
+	_, err := h.Context.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	enabled, err := h.ConfigHandler.GetBool(fmt.Sprintf("contexts.%s.git.livereload.enabled", context), false)
+	config, err := h.ConfigHandler.GetConfig()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving git livereload enabled status: %w", err)
+		return nil, fmt.Errorf("error retrieving config: %w", err)
 	}
 
-	if !enabled {
+	if config.Git == nil ||
+		config.Git.Livereload == nil ||
+		config.Git.Livereload.Enabled == nil ||
+		!*config.Git.Livereload.Enabled {
 		return nil, nil
 	}
 
@@ -79,74 +82,59 @@ func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 	var services []types.ServiceConfig
 
 	// Retrieve environment variables from config with defaults
-	rsyncExclude, err := h.ConfigHandler.GetString(
-		fmt.Sprintf("contexts.%s.git.livereload.rsync_exclude", context),
-		constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving rsync_exclude: %w", err)
+	rsyncExclude := config.Git.Livereload.RsyncExclude
+	if rsyncExclude == nil || *rsyncExclude == "" {
+		defaultRsyncExclude := constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE
+		rsyncExclude = &defaultRsyncExclude
 	}
 
-	rsyncProtect, err := h.ConfigHandler.GetString(
-		fmt.Sprintf("contexts.%s.git.livereload.rsync_protect", context),
-		constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving rsync_protect: %w", err)
+	rsyncProtect := config.Git.Livereload.RsyncProtect
+	if rsyncProtect == nil || *rsyncProtect == "" {
+		defaultRsyncProtect := constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT
+		rsyncProtect = &defaultRsyncProtect
 	}
 
-	gitUsername, err := h.ConfigHandler.GetString(
-		fmt.Sprintf("contexts.%s.git.livereload.username", context),
-		constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving git username: %w", err)
+	gitUsername := config.Git.Livereload.Username
+	if gitUsername == nil || *gitUsername == "" {
+		defaultGitUsername := constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME
+		gitUsername = &defaultGitUsername
 	}
 
-	gitPassword, err := h.ConfigHandler.GetString(
-		fmt.Sprintf("contexts.%s.git.livereload.password", context),
-		constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving git password: %w", err)
+	gitPassword := config.Git.Livereload.Password
+	if gitPassword == nil || *gitPassword == "" {
+		defaultGitPassword := constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD
+		gitPassword = &defaultGitPassword
 	}
 
-	webhookUrl, err := h.ConfigHandler.GetString(
-		fmt.Sprintf("contexts.%s.git.livereload.webhook_url", context),
-		constants.DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving webhook url: %w", err)
+	webhookUrl := config.Git.Livereload.WebhookUrl
+	if webhookUrl == nil || *webhookUrl == "" {
+		defaultWebhookUrl := constants.DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL
+		webhookUrl = &defaultWebhookUrl
 	}
 
-	verifySsl, err := h.ConfigHandler.GetBool(
-		fmt.Sprintf("contexts.%s.git.livereload.verify_ssl", context),
-		false,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving verify_ssl: %w", err)
+	verifySsl := config.Git.Livereload.VerifySsl
+	if verifySsl == nil {
+		verifySsl = new(bool)
 	}
 
-	image, err := h.ConfigHandler.GetString(
-		fmt.Sprintf("contexts.%s.git.livereload.image", context),
-		constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving git livereload image: %w", err)
+	image := config.Git.Livereload.Image
+	if image == nil || *image == "" {
+		defaultImage := constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE
+		image = &defaultImage
 	}
 
 	// Prepare environment variables map
 	envVars := map[string]*string{
-		"RSYNC_EXCLUDE": strPtr(rsyncExclude),
-		"RSYNC_PROTECT": strPtr(rsyncProtect),
-		"GIT_USERNAME":  strPtr(gitUsername),
-		"GIT_PASSWORD":  strPtr(gitPassword),
-		"VERIFY_SSL":    strPtr(fmt.Sprintf("%t", verifySsl)),
+		"RSYNC_EXCLUDE": rsyncExclude,
+		"RSYNC_PROTECT": rsyncProtect,
+		"GIT_USERNAME":  gitUsername,
+		"GIT_PASSWORD":  gitPassword,
+		"VERIFY_SSL":    strPtr(fmt.Sprintf("%t", *verifySsl)),
 	}
 
 	// Add webhook URL if provided
-	if webhookUrl != "" {
-		envVars["WEBHOOK_URL"] = strPtr(webhookUrl)
+	if webhookUrl != nil && *webhookUrl != "" {
+		envVars["WEBHOOK_URL"] = webhookUrl
 	}
 
 	// Get the project root using the shell
@@ -161,7 +149,7 @@ func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 	// Add the git-livereload service
 	services = append(services, types.ServiceConfig{
 		Name:        "git.test",
-		Image:       image,
+		Image:       *image,
 		Restart:     "always",
 		Environment: envVars,
 		Labels: map[string]string{

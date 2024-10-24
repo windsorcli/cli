@@ -6,6 +6,8 @@ import "github.com/windsor-hotel/cli/internal/constants"
 type AWSConfig struct {
 	AWSEndpointURL *string `yaml:"aws_endpoint_url"`
 	AWSProfile     *string `yaml:"aws_profile"`
+	S3Hostname     *string `yaml:"s3_hostname"`
+	MWAAEndpoint   *string `yaml:"mwaa_endpoint"`
 }
 
 // DockerConfig represents the Docker configuration
@@ -89,6 +91,8 @@ var DefaultConfig = Context{
 	AWS: &AWSConfig{
 		AWSEndpointURL: nil,
 		AWSProfile:     nil,
+		S3Hostname:     nil,
+		MWAAEndpoint:   nil,
 	},
 	Docker: &DockerConfig{
 		Enabled:    nil,
@@ -106,6 +110,8 @@ var DefaultLocalConfig = Context{
 	AWS: &AWSConfig{
 		AWSEndpointURL: ptrString("http://aws.test:4566"),
 		AWSProfile:     ptrString("default"),
+		S3Hostname:     ptrString("http://s3.local.aws.test:4566"),
+		MWAAEndpoint:   ptrString("http://mwaa.local.aws.test:4566"),
 	},
 	Docker: &DockerConfig{
 		Enabled: ptrBool(true),

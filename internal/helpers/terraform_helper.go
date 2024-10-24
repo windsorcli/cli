@@ -47,6 +47,12 @@ func NewTerraformHelper(container *di.DIContainer) (*TerraformHelper, error) {
 	}, nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *TerraformHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // getAlias retrieves the alias for the Terraform command based on the current context
 func (h *TerraformHelper) GetAlias() (map[string]string, error) {
 	// Get the current context
@@ -132,12 +138,6 @@ func (h *TerraformHelper) WriteConfig() error {
 	return nil
 }
 
-// Initialize performs any necessary initialization for the helper.
-func (h *TerraformHelper) Initialize() error {
-	// Perform any necessary initialization here
-	return nil
-}
-
 // Ensure TerraformHelper implements Helper interface
 var _ Helper = (*TerraformHelper)(nil)
 
@@ -174,23 +174,6 @@ func findRelativeTerraformProjectPath() (string, error) {
 
 	// No "terraform" directory found, return an error
 	return "", fmt.Errorf("no 'terraform' directory found in the current path")
-}
-
-// getCurrentBackend retrieves the current backend configuration for Terraform
-func getCurrentBackend(h *TerraformHelper) (string, error) {
-	// Get the current context
-	context, err := h.ConfigHandler.GetString("context")
-	if err != nil {
-		return "local", fmt.Errorf("error retrieving context, defaulting to 'local': %w", err)
-	}
-
-	// Get the configuration for the current context
-	backend, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.terraform.backend", context))
-	if err != nil {
-		return "local", fmt.Errorf("error retrieving config for context, defaulting to 'local': %w", err)
-	}
-
-	return backend, nil
 }
 
 // sanitizeForK8s sanitizes a string to be compatible with Kubernetes naming conventions
@@ -231,23 +214,25 @@ func generateBackendOverrideTf(h *TerraformHelper) error {
 		return nil
 	}
 
-	// Get the current backend
-	backend, err := getCurrentBackend(h)
-	if err != nil {
-		return fmt.Errorf("error getting backend: %w", err)
-	}
-
 	// Get the configuration root directory
 	configRoot, err := h.Context.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
 
+	// Get the current backend
+	context, err := h.ConfigHandler.GetConfig()
+	if err != nil {
+		return fmt.Errorf("error retrieving context: %w", err)
+	}
+
+	backend := context.Terraform.Backend
+
 	// Create the backend_override.tf file
 	backendOverridePath := filepath.Join(currentPath, "backend_override.tf")
 	var backendConfig string
 
-	switch backend {
+	switch *backend {
 	case "local":
 		backendConfig = fmt.Sprintf(`
 terraform {
@@ -273,7 +258,7 @@ terraform {
   }
 }`, projectNameSanitized)
 	default:
-		return fmt.Errorf("unsupported backend: %s", backend)
+		return fmt.Errorf("unsupported backend: %s", *backend)
 	}
 
 	err = writeFile(backendOverridePath, []byte(backendConfig), os.ModePerm)

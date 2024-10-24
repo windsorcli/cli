@@ -27,6 +27,12 @@ func NewKubeHelper(di *di.DIContainer) (*KubeHelper, error) {
 	}, nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *KubeHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // GetEnvVars retrieves Kubernetes-specific environment variables for the current context
 func (h *KubeHelper) GetEnvVars() (map[string]string, error) {
 	// Get the configuration root directory
@@ -62,12 +68,6 @@ func (h *KubeHelper) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *KubeHelper) WriteConfig() error {
-	return nil
-}
-
-// Initialize performs any necessary initialization for the helper.
-func (h *KubeHelper) Initialize() error {
-	// Perform any necessary initialization here
 	return nil
 }
 

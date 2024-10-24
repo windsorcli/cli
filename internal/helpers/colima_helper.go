@@ -21,35 +21,6 @@ var virtualMemory = mem.VirtualMemory
 // Test hook to force memory overflow
 var testForceMemoryOverflow = false
 
-// ColimaHelper is a struct that provides various utility functions for working with Colima
-type ColimaHelper struct {
-	ConfigHandler config.ConfigHandler
-	Context       context.ContextInterface
-}
-
-// NewColimaHelper is a constructor for ColimaHelper
-func NewColimaHelper(di *di.DIContainer) (*ColimaHelper, error) {
-	cliConfigHandler, err := di.Resolve("cliConfigHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
-	}
-
-	resolvedContext, err := di.Resolve("context")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving context: %w", err)
-	}
-
-	return &ColimaHelper{
-		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
-		Context:       resolvedContext.(context.ContextInterface),
-	}, nil
-}
-
-type YAMLEncoder interface {
-	Encode(v interface{}) error
-	Close() error
-}
-
 // getArch retrieves the architecture of the system
 var getArch = func() string {
 	arch := goArch()
@@ -94,6 +65,36 @@ func getDefaultValues(context string) (int, int, int, string, string) {
 	return cpu, disk, memory, hostname, arch
 }
 
+// ColimaHelper is a struct that provides various utility functions for working with Colima
+type ColimaHelper struct {
+	ConfigHandler config.ConfigHandler
+	Context       context.ContextInterface
+}
+
+// NewColimaHelper is a constructor for ColimaHelper
+func NewColimaHelper(di *di.DIContainer) (*ColimaHelper, error) {
+	cliConfigHandler, err := di.Resolve("cliConfigHandler")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
+	}
+
+	resolvedContext, err := di.Resolve("context")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving context: %w", err)
+	}
+
+	return &ColimaHelper{
+		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
+		Context:       resolvedContext.(context.ContextInterface),
+	}, nil
+}
+
+// Initialize performs any necessary initialization for the helper.
+func (h *ColimaHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // GetEnvVars retrieves the environment variables for the Colima command
 func (h *ColimaHelper) GetEnvVars() (map[string]string, error) {
 	context, err := h.Context.GetContext()
@@ -101,13 +102,12 @@ func (h *ColimaHelper) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	driver, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.driver", context))
+	config, err := h.ConfigHandler.GetConfig()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving vm driver: %w", err)
+		return nil, fmt.Errorf("error retrieving config: %w", err)
 	}
-
-	if driver != "colima" {
-		return nil, nil
+	if config.VM == nil || config.VM.Driver == nil || *config.VM.Driver != "colima" {
+		return map[string]string{}, nil
 	}
 
 	homeDir, err := userHomeDir()
@@ -124,6 +124,18 @@ func (h *ColimaHelper) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
+// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
+func (h *ColimaHelper) GetComposeConfig() (*types.Config, error) {
+	// Stub implementation
+	return nil, nil
+}
+
+// PostEnvExec runs any necessary commands after the environment variables have been set.
+func (h *ColimaHelper) PostEnvExec() error {
+	// No post environment execution needed for Colima
+	return nil
+}
+
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *ColimaHelper) WriteConfig() error {
 	context, err := h.Context.GetContext()
@@ -131,13 +143,13 @@ func (h *ColimaHelper) WriteConfig() error {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	// Check if the vm driver is colima
-	driver, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.driver", context))
+	config, err := h.ConfigHandler.GetConfig()
 	if err != nil {
-		return fmt.Errorf("error retrieving vm driver: %w", err)
+		return fmt.Errorf("error retrieving config: %w", err)
 	}
 
-	if driver != "colima" {
+	// Check if VM is defined and if the vm driver is colima
+	if config.VM == nil || config.VM.Driver == nil || *config.VM.Driver != "colima" {
 		return nil
 	}
 
@@ -149,18 +161,18 @@ func (h *ColimaHelper) WriteConfig() error {
 	}
 
 	// Helper function to override default values with context-specific values if provided
-	overrideValue := func(key string, defaultValue *int) {
-		if val, err := h.ConfigHandler.GetInt(fmt.Sprintf("contexts.%s.vm.%s", context, key)); err == nil && val != 0 {
-			*defaultValue = val
+	overrideValue := func(defaultValue *int, configValue *int) {
+		if configValue != nil && *configValue != 0 {
+			*defaultValue = *configValue
 		}
 	}
 
-	overrideValue("cpu", &cpu)
-	overrideValue("disk", &disk)
-	overrideValue("memory", &memory)
+	overrideValue(&cpu, config.VM.CPU)
+	overrideValue(&disk, config.VM.Disk)
+	overrideValue(&memory, config.VM.Memory)
 
-	if val, err := h.ConfigHandler.GetString(fmt.Sprintf("contexts.%s.vm.arch", context)); err == nil && val != "" {
-		arch = val
+	if config.VM.Arch != nil && *config.VM.Arch != "" {
+		arch = *config.VM.Arch
 	}
 
 	configData := map[string]interface{}{
@@ -233,24 +245,6 @@ func (h *ColimaHelper) WriteConfig() error {
 	if err := rename(tempFilePath, finalFilePath); err != nil {
 		return fmt.Errorf("error renaming temporary file to colima config file: %w", err)
 	}
-	return nil
-}
-
-// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
-func (h *ColimaHelper) GetComposeConfig() (*types.Config, error) {
-	// Stub implementation
-	return nil, nil
-}
-
-// PostEnvExec runs any necessary commands after the environment variables have been set.
-func (h *ColimaHelper) PostEnvExec() error {
-	// No post environment execution needed for Colima
-	return nil
-}
-
-// Initialize performs any necessary initialization for the helper.
-func (h *ColimaHelper) Initialize() error {
-	// Perform any necessary initialization here
 	return nil
 }
 
