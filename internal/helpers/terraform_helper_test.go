@@ -404,11 +404,9 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		_, err = helper.GetEnvVars()
 
 		// Then it should return an error
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error getting config root") {
-			t.Errorf("Expected error message to contain 'error getting config root', got %v", err)
+		expectedError := "error getting config root"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
 		}
 	})
 
@@ -1770,6 +1768,22 @@ func TestTerraformHelper_generateBackendOverrideTf(t *testing.T) {
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 
+		// Create a temporary directory to simulate the Terraform project path
+		tempDir := t.TempDir()
+		projectPath := filepath.Join(tempDir, "terraform", "project")
+		err := os.MkdirAll(projectPath, os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create directories: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		// Mock getwd to return the project path
+		originalGetwd := getwd
+		getwd = func() (string, error) {
+			return projectPath, nil
+		}
+		defer func() { getwd = originalGetwd }()
+
 		// When creating a new TerraformHelper
 		helper, err := NewTerraformHelper(diContainer)
 		if err != nil {
@@ -1802,6 +1816,22 @@ func TestTerraformHelper_generateBackendOverrideTf(t *testing.T) {
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
+
+		// Create a temporary directory to simulate the Terraform project path
+		tempDir := t.TempDir()
+		projectPath := filepath.Join(tempDir, "terraform", "project")
+		err := os.MkdirAll(projectPath, os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create directories: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		// Mock getwd to return the project path
+		originalGetwd := getwd
+		getwd = func() (string, error) {
+			return projectPath, nil
+		}
+		defer func() { getwd = originalGetwd }()
 
 		// When creating a new TerraformHelper
 		helper, err := NewTerraformHelper(diContainer)
