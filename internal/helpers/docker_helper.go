@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 
@@ -152,6 +153,17 @@ func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *DockerHelper) WriteConfig() error {
+	// Retrieve the context configuration using GetConfig
+	contextConfig, err := h.ConfigHandler.GetConfig()
+	if err != nil {
+		return fmt.Errorf("error retrieving context configuration: %w", err)
+	}
+
+	// Check if Docker is defined in the windsor config
+	if contextConfig.Docker == nil {
+		return nil
+	}
+
 	var combinedServices []types.ServiceConfig
 	var combinedVolumes map[string]types.VolumeConfig
 	var combinedNetworks map[string]types.NetworkConfig
@@ -188,6 +200,56 @@ func (h *DockerHelper) WriteConfig() error {
 		}
 	}
 
+	// Create a network called "windsor-<context-name>"
+	contextName, err := h.Context.GetContext()
+	if err != nil {
+		return fmt.Errorf("error retrieving context: %w", err)
+	}
+	networkName := fmt.Sprintf("windsor-%s", contextName)
+
+	// Assign the CIDR to the network configuration
+	if contextConfig.Docker.NetworkCIDR != nil {
+		combinedNetworks[networkName] = types.NetworkConfig{
+			Driver: "bridge",
+			Ipam: types.IPAMConfig{
+				Driver: "default",
+				Config: []*types.IPAMPool{
+					{
+						Subnet: *contextConfig.Docker.NetworkCIDR,
+					},
+				},
+			},
+		}
+	} else {
+		combinedNetworks[networkName] = types.NetworkConfig{}
+	}
+
+	// Assign IP addresses to services based on the network CIDR
+	if contextConfig.Docker.NetworkCIDR != nil {
+		ip, ipNet, err := net.ParseCIDR(*contextConfig.Docker.NetworkCIDR)
+		if err != nil {
+			return fmt.Errorf("error parsing network CIDR: %w", err)
+		}
+
+		// Skip the network address
+		ip = incrementIP(ip)
+
+		// Skip the first IP address
+		ip = incrementIP(ip)
+
+		for i := range combinedServices {
+			combinedServices[i].Networks = map[string]*types.ServiceNetworkConfig{
+				networkName: {
+					Ipv4Address: ip.String(),
+				},
+			}
+			ip = incrementIP(ip)
+			if !ipNet.Contains(ip) {
+				return fmt.Errorf("not enough IP addresses in the CIDR range")
+			}
+		}
+	}
+
 	// Create a Project using compose-go
 	project := &types.Project{
 		Services: combinedServices,
@@ -220,6 +282,18 @@ func (h *DockerHelper) WriteConfig() error {
 	}
 
 	return nil
+}
+
+// incrementIP increments an IP address by one
+func incrementIP(ip net.IP) net.IP {
+	ip = ip.To4()
+	for j := len(ip) - 1; j >= 0; j-- {
+		ip[j]++
+		if ip[j] > 0 {
+			break
+		}
+	}
+	return ip
 }
 
 // Ensure DockerHelper implements Helper interface

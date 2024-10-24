@@ -19,8 +19,9 @@ type LocalstackConfig struct {
 
 // DockerConfig represents the Docker configuration
 type DockerConfig struct {
-	Enabled    *bool      `yaml:"enabled"`
-	Registries []Registry `yaml:"registries"`
+	Enabled     *bool      `yaml:"enabled"`
+	Registries  []Registry `yaml:"registries"`
+	NetworkCIDR *string    `yaml:"network_cidr"`
 }
 
 // GitConfig represents the Git configuration
@@ -92,7 +93,7 @@ type Config struct {
 	Contexts map[string]*Context `yaml:"contexts"`
 }
 
-// DefaultConfig returns the default configuration for the "local" context
+// DefaultConfig returns the default configuration
 var DefaultConfig = Context{
 	Environment: map[string]string{},
 	AWS: &AWSConfig{
@@ -106,8 +107,9 @@ var DefaultConfig = Context{
 		},
 	},
 	Docker: &DockerConfig{
-		Enabled:    nil,
-		Registries: []Registry{},
+		Enabled:     nil,
+		Registries:  []Registry{},
+		NetworkCIDR: nil,
 	},
 	Terraform: &TerraformConfig{
 		Backend: nil,
@@ -156,6 +158,7 @@ var DefaultLocalConfig = Context{
 				Remote: "https://quay.io",
 			},
 		},
+		NetworkCIDR: ptrString("10.1.0.0/16"),
 	},
 	Git: &GitConfig{
 		Livereload: &GitLivereloadConfig{

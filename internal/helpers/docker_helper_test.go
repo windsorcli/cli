@@ -325,6 +325,9 @@ func TestDockerHelper_NewDockerHelper(t *testing.T) {
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error retrieving config root")
 		}
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
 		diContainer.Register("context", mockContext)
 
 		// Create a new DockerHelper
@@ -379,7 +382,7 @@ func TestDockerHelper_PostEnvExec(t *testing.T) {
 	})
 }
 
-func TestDockerHelper_GetContainerConfig(t *testing.T) {
+func TestDockerHelper_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, shell, context, and helper
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -993,6 +996,284 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		err = helper.WriteConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving config root: GetConfigRootFunc not implemented") {
 			t.Fatalf("expected error containing 'error retrieving config root: GetConfigRootFunc not implemented', got %v", err)
+		}
+	})
+
+	t.Run("ErrorRetrievingContext", func(t *testing.T) {
+		// Given: a mock config handler and context that returns an error for GetContext
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Registries: []config.Registry{},
+				},
+			}, nil
+		}
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving context")
+		}
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return filepath.Join(os.TempDir(), "contexts", "test-context"), nil
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Register MockHelper
+		mockHelper := NewMockHelper()
+		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{
+				"service1": "nginx:latest",
+			}, nil
+		}
+		diContainer.Register("helper", mockHelper)
+
+		// Create DockerHelper
+		helper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: WriteConfig is called
+		err = helper.WriteConfig()
+
+		// Then: it should return an error indicating the failure to retrieve the context
+		expectedError := "error retrieving context: mock error retrieving context"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorRetrievingContextConfig", func(t *testing.T) {
+		// Given: a mock config handler that returns an error
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return nil, fmt.Errorf("mock error retrieving context configuration")
+		}
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return filepath.Join(os.TempDir(), "contexts", "test-context"), nil
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Register MockHelper
+		mockHelper := NewMockHelper()
+		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{
+				"service1": "nginx:latest",
+			}, nil
+		}
+		diContainer.Register("helper", mockHelper)
+
+		// Create DockerHelper
+		helper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: WriteConfig is called
+		err = helper.WriteConfig()
+
+		// Then: it should return an error indicating the failure to retrieve the context configuration
+		expectedError := "error retrieving context configuration: mock error retrieving context configuration"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("DockerNotDefined", func(t *testing.T) {
+		// Given: a mock config handler with Docker set to nil
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: nil, // Docker is not defined
+			}, nil
+		}
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Register MockHelper
+		mockHelper := NewMockHelper()
+		diContainer.Register("helper", mockHelper)
+
+		// Create DockerHelper
+		helper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: WriteConfig is called
+		err = helper.WriteConfig()
+
+		// Then: it should return nil, indicating no further action is taken
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("AssignIPAddresses_ValidCIDR", func(t *testing.T) {
+		// Given: a mock config handler with a valid NetworkCIDR
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					NetworkCIDR: ptrString("192.168.1.0/24"),
+					Registries: []config.Registry{
+						{Name: "registry1"},
+						{Name: "registry2"},
+					},
+				},
+			}, nil
+		}
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return filepath.Join(os.TempDir(), "contexts", "test-context"), nil
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Register MockHelper
+		mockHelper := NewMockHelper()
+		mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+			return &types.Config{
+				Services: []types.ServiceConfig{
+					{Name: "registry1"},
+					{Name: "registry2"},
+				},
+			}, nil
+		}
+		diContainer.Register("helper", mockHelper)
+
+		// Create DockerHelper
+		helper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: WriteConfig is called
+		err = helper.WriteConfig()
+
+		// Then: it should not return an error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("AssignIPAddresses_InvalidCIDR", func(t *testing.T) {
+		// Given: a mock config handler with an invalid NetworkCIDR
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					NetworkCIDR: ptrString("invalid-cidr"),
+				},
+			}, nil
+		}
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Register MockHelper
+		mockHelper := NewMockHelper()
+		diContainer.Register("helper", mockHelper)
+
+		// Create DockerHelper
+		helper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: WriteConfig is called
+		err = helper.WriteConfig()
+
+		// Then: it should return an error indicating the failure to parse the CIDR
+		expectedError := "error parsing network CIDR"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error containing %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("AssignIPAddresses_InsufficientIPs", func(t *testing.T) {
+		// Given: a mock config handler with a small NetworkCIDR
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					NetworkCIDR: ptrString("192.168.1.0/31"), // Insufficient IPs for two services
+					Registries: []config.Registry{
+						{Name: "registry1"},
+						{Name: "registry2"},
+					},
+				},
+			}, nil
+		}
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return filepath.Join(os.TempDir(), "contexts", "test-context"), nil
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Register MockHelper
+		mockHelper := NewMockHelper()
+		mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+			return &types.Config{
+				Services: []types.ServiceConfig{
+					{Name: "registry1"},
+					{Name: "registry2"},
+				},
+			}, nil
+		}
+		diContainer.Register("helper", mockHelper)
+
+		// Create DockerHelper
+		helper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: WriteConfig is called
+		err = helper.WriteConfig()
+
+		// Then: it should return an error indicating not enough IP addresses
+		expectedError := "not enough IP addresses in the CIDR range"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error containing %v, got %v", expectedError, err)
 		}
 	})
 }
