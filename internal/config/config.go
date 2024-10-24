@@ -125,7 +125,7 @@ var DefaultLocalConfig = Context{
 		MWAAEndpoint:   ptrString("http://mwaa.local.aws.test:4566"),
 		Localstack: &LocalstackConfig{
 			Enabled:  ptrBool(true),
-			Services: []string{"iam", "kms", "s3", "dynamodb"},
+			Services: []string{"iam", "sts", "kms", "s3", "dynamodb"},
 		},
 	},
 	Docker: &DockerConfig{
