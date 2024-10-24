@@ -101,5 +101,11 @@ func (h *BaseHelper) WriteConfig() error {
 	return nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *BaseHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // Ensure BaseHelper implements Helper interface
 var _ Helper = (*BaseHelper)(nil)

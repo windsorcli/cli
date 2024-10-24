@@ -286,6 +286,61 @@ func TestDockerHelper_NewDockerHelper(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("VolumesAndNetworks", func(t *testing.T) {
+		// Given: a mock config handler and a mock helper that returns a config with volumes and networks
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+			if key == "contexts.test-context.docker.registries" {
+				return []config.Registry{}, nil
+			}
+			return nil, fmt.Errorf("key not found: %s", key)
+		}
+		mockHelper := NewMockHelper()
+		mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+			return &types.Config{
+				Volumes: map[string]types.VolumeConfig{
+					"volume1": {},
+				},
+				Networks: map[string]types.NetworkConfig{
+					"network1": {},
+				},
+			}, nil
+		}
+
+		// Create a DI container and register the mock config handler and mock helper
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("helper", mockHelper)
+
+		// Attempt to create a new DockerHelper without registering context
+		_, err := NewDockerHelper(diContainer)
+		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
+			t.Fatalf("expected error resolving context, got %v", err)
+		}
+
+		// Register the mock context
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving config root")
+		}
+		diContainer.Register("context", mockContext)
+
+		// Create a new DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: WriteConfig is called
+		err = dockerHelper.WriteConfig()
+		if err == nil || !strings.Contains(err.Error(), "error retrieving config root") {
+			t.Fatalf("expected error retrieving config root, got %v", err)
+		}
+	})
 }
 
 func TestDockerHelper_PostEnvExec(t *testing.T) {

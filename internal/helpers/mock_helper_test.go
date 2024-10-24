@@ -361,4 +361,27 @@ func TestMockHelper_SetInitializeFunc(t *testing.T) {
 			t.Fatalf("expected error %v, got %v", expectedError, err)
 		}
 	})
+
+	t.Run("SetInitializeFunc", func(t *testing.T) {
+		// Given: a mock helper
+		mockHelper := NewMockHelper()
+
+		// Define a mock InitializeFunc
+		expectedError := errors.New("mock initialize error")
+		mockInitializeFunc := func() error {
+			return expectedError
+		}
+
+		// When: SetInitializeFunc is called
+		mockHelper.SetInitializeFunc(mockInitializeFunc)
+
+		// Then: the InitializeFunc should be set and return the expected error
+		err := mockHelper.Initialize()
+		if err == nil {
+			t.Fatalf("expected error %v, got nil", expectedError)
+		}
+		if err.Error() != expectedError.Error() {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
+		}
+	})
 }

@@ -81,5 +81,10 @@ func (m *MockHelper) SetWriteConfigFunc(writeConfigFunc func() error) {
 	m.WriteConfigFunc = writeConfigFunc
 }
 
+// SetInitializeFunc sets the InitializeFunc for the mock helper
+func (m *MockHelper) SetInitializeFunc(initializeFunc func() error) {
+	m.InitializeFunc = initializeFunc
+}
+
 // Ensure MockHelper implements Helper interface
 var _ Helper = (*MockHelper)(nil)

@@ -75,6 +75,12 @@ func (h *SopsHelper) WriteConfig() error {
 	return nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *SopsHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // Ensure SopsHelper implements Helper interface
 var _ Helper = (*SopsHelper)(nil)
 
