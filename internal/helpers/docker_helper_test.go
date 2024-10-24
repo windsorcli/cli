@@ -290,11 +290,12 @@ func TestDockerHelper_NewDockerHelper(t *testing.T) {
 	t.Run("VolumesAndNetworks", func(t *testing.T) {
 		// Given: a mock config handler and a mock helper that returns a config with volumes and networks
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
-			if key == "contexts.test-context.docker.registries" {
-				return []config.Registry{}, nil
-			}
-			return nil, fmt.Errorf("key not found: %s", key)
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Registries: []config.Registry{},
+				},
+			}, nil
 		}
 		mockHelper := NewMockHelper()
 		mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
@@ -321,9 +322,6 @@ func TestDockerHelper_NewDockerHelper(t *testing.T) {
 
 		// Register the mock context
 		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error retrieving config root")
 		}

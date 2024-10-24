@@ -116,11 +116,5 @@ func (h *AwsHelper) WriteConfig() error {
 	return nil
 }
 
-// Initialize performs any necessary initialization for the helper.
-func (h *AwsHelper) Initialize() error {
-	// Perform any necessary initialization here
-	return nil
-}
-
 // Ensure AwsHelper implements Helper interface
 var _ Helper = (*AwsHelper)(nil)
