@@ -6,6 +6,7 @@ toolchain go1.23.2
 
 require (
 	github.com/compose-spec/compose-go v1.20.2
+	github.com/compose-spec/compose-go/v2 v2.4.0
 	github.com/getsops/sops/v3 v3.9.1
 	github.com/goccy/go-yaml v1.12.0
 	github.com/shirou/gopsutil v3.21.11+incompatible
