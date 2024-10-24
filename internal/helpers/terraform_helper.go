@@ -47,6 +47,12 @@ func NewTerraformHelper(container *di.DIContainer) (*TerraformHelper, error) {
 	}, nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *TerraformHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // getAlias retrieves the alias for the Terraform command based on the current context
 func (h *TerraformHelper) GetAlias() (map[string]string, error) {
 	// Get the current context
@@ -129,12 +135,6 @@ func (h *TerraformHelper) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *TerraformHelper) WriteConfig() error {
-	return nil
-}
-
-// Initialize performs any necessary initialization for the helper.
-func (h *TerraformHelper) Initialize() error {
-	// Perform any necessary initialization here
 	return nil
 }
 

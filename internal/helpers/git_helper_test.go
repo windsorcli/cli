@@ -451,41 +451,6 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	// t.Run("ErrorRetrievingGitLivereloadImage", func(t *testing.T) {
-	// 	mockConfigHandler := config.NewMockConfigHandler()
-	// 	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) {
-	// 		if key == "contexts.test-context.git.livereload.enabled" {
-	// 			return true, nil
-	// 		}
-	// 		return false, nil
-	// 	}
-	// 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-	// 		if key == "contexts.test-context.git.livereload.image" {
-	// 			return "", fmt.Errorf("mock error retrieving git livereload image")
-	// 		}
-	// 		return "", nil
-	// 	}
-	// 	mockContext := context.NewMockContext()
-	// 	mockContext.GetContextFunc = func() (string, error) {
-	// 		return "test-context", nil
-	// 	}
-	// 	diContainer := di.NewContainer()
-	// 	diContainer.Register("cliConfigHandler", mockConfigHandler)
-	// 	mockShell, _ := shell.NewMockShell("unix")
-	// 	diContainer.Register("shell", mockShell)
-	// 	diContainer.Register("context", mockContext)
-
-	// 	gitHelper, err := NewGitHelper(diContainer)
-	// 	if err != nil {
-	// 		t.Fatalf("NewGitHelper() error = %v", err)
-	// 	}
-
-	// 	_, err = gitHelper.GetComposeConfig()
-	// 	if err == nil || !strings.Contains(err.Error(), "error retrieving git livereload image") {
-	// 		t.Fatalf("expected error retrieving git livereload image, got %v", err)
-	// 	}
-	// })
-
 	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {

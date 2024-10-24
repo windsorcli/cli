@@ -16,6 +16,68 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
+func TestNewTalosHelper(t *testing.T) {
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		// Given a DI container without registering cliConfigHandler
+		diContainer := di.NewContainer()
+
+		// When attempting to create TalosHelper
+		_, err := NewTalosHelper(diContainer)
+
+		// Then it should return an error indicating config handler resolution failure
+		if err == nil || !strings.Contains(err.Error(), "error resolving config handler") {
+			t.Fatalf("expected error resolving config handler, got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingContext", func(t *testing.T) {
+		// Given: a DI container with only cliConfigHandler registered
+		mockConfigHandler := config.NewMockConfigHandler()
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		// Note: "context" is not registered in the DI container
+
+		// When attempting to create TalosHelper
+		_, err := NewTalosHelper(diContainer)
+
+		// Then it should return an error indicating context resolution failure
+		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
+			t.Fatalf("expected error resolving context, got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingShell", func(t *testing.T) {
+		// Common setup for tests
+		var (
+			mockContext       *context.MockContext
+			mockConfigHandler *config.MockConfigHandler
+			diContainer       *di.DIContainer
+		)
+
+		setup := func() {
+			mockContext = context.NewMockContext()
+			mockConfigHandler = config.NewMockConfigHandler()
+			diContainer = di.NewContainer()
+			diContainer.Register("context", mockContext)
+			diContainer.Register("cliConfigHandler", mockConfigHandler)
+		}
+
+		setup()
+
+		// Given: a DI container without the "shell" dependency registered
+		// Note: "shell" is not registered here to simulate the error
+
+		// When creating TalosHelper
+		_, err := NewTalosHelper(diContainer)
+
+		// Then: an error should be returned indicating the failure to resolve the shell
+		expectedError := "error resolving shell"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error containing %q, got %v", expectedError, err)
+		}
+	})
+}
+
 func TestTalosHelper_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Common setup for tests
@@ -524,68 +586,6 @@ func TestTalosHelper_PostEnvExec(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-}
-
-func TestNewTalosHelper(t *testing.T) {
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Given a DI container without registering cliConfigHandler
-		diContainer := di.NewContainer()
-
-		// When attempting to create TalosHelper
-		_, err := NewTalosHelper(diContainer)
-
-		// Then it should return an error indicating config handler resolution failure
-		if err == nil || !strings.Contains(err.Error(), "error resolving config handler") {
-			t.Fatalf("expected error resolving config handler, got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Given: a DI container with only cliConfigHandler registered
-		mockConfigHandler := config.NewMockConfigHandler()
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		// Note: "context" is not registered in the DI container
-
-		// When attempting to create TalosHelper
-		_, err := NewTalosHelper(diContainer)
-
-		// Then it should return an error indicating context resolution failure
-		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
-			t.Fatalf("expected error resolving context, got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Common setup for tests
-		var (
-			mockContext       *context.MockContext
-			mockConfigHandler *config.MockConfigHandler
-			diContainer       *di.DIContainer
-		)
-
-		setup := func() {
-			mockContext = context.NewMockContext()
-			mockConfigHandler = config.NewMockConfigHandler()
-			diContainer = di.NewContainer()
-			diContainer.Register("context", mockContext)
-			diContainer.Register("cliConfigHandler", mockConfigHandler)
-		}
-
-		setup()
-
-		// Given: a DI container without the "shell" dependency registered
-		// Note: "shell" is not registered here to simulate the error
-
-		// When creating TalosHelper
-		_, err := NewTalosHelper(diContainer)
-
-		// Then: an error should be returned indicating the failure to resolve the shell
-		expectedError := "error resolving shell"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error containing %q, got %v", expectedError, err)
 		}
 	})
 }

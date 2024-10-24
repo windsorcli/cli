@@ -46,6 +46,35 @@ func NewTalosHelper(di *di.DIContainer) (*TalosHelper, error) {
 	return helper, nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *TalosHelper) Initialize() error {
+	// Retrieve the context configuration
+	contextConfig, err := h.ConfigHandler.GetConfig()
+	if err != nil {
+		return fmt.Errorf("error retrieving context configuration: %w", err)
+	}
+
+	// Check if the cluster driver is Talos
+	if contextConfig.Cluster == nil || contextConfig.Cluster.Driver == nil || *contextConfig.Cluster.Driver != "talos" {
+		return nil
+	}
+
+	// Get the project root path
+	projectRoot, err := h.Shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving project root: %w", err)
+	}
+
+	// Create the .volumes folder if it doesn't exist
+	volumesPath := filepath.Join(projectRoot, ".volumes")
+	if _, err := stat(volumesPath); os.IsNotExist(err) {
+		if err := mkdir(volumesPath, os.ModePerm); err != nil {
+			return fmt.Errorf("error creating .volumes folder: %w", err)
+		}
+	}
+	return nil
+}
+
 // GetEnvVars retrieves Talos-specific environment variables for the current context
 func (h *TalosHelper) GetEnvVars() (map[string]string, error) {
 	// Get the context config path
@@ -193,35 +222,6 @@ func (h *TalosHelper) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *TalosHelper) WriteConfig() error {
-	return nil
-}
-
-// Initialize performs any necessary initialization for the helper.
-func (h *TalosHelper) Initialize() error {
-	// Retrieve the context configuration
-	contextConfig, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return fmt.Errorf("error retrieving context configuration: %w", err)
-	}
-
-	// Check if the cluster driver is Talos
-	if contextConfig.Cluster == nil || contextConfig.Cluster.Driver == nil || *contextConfig.Cluster.Driver != "talos" {
-		return nil
-	}
-
-	// Get the project root path
-	projectRoot, err := h.Shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
-	}
-
-	// Create the .volumes folder if it doesn't exist
-	volumesPath := filepath.Join(projectRoot, ".volumes")
-	if _, err := stat(volumesPath); os.IsNotExist(err) {
-		if err := mkdir(volumesPath, os.ModePerm); err != nil {
-			return fmt.Errorf("error creating .volumes folder: %w", err)
-		}
-	}
 	return nil
 }
 

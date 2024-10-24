@@ -32,6 +32,12 @@ func NewOmniHelper(di *di.DIContainer) (*OmniHelper, error) {
 	}, nil
 }
 
+// Initialize performs any necessary initialization for the helper.
+func (h *OmniHelper) Initialize() error {
+	// Perform any necessary initialization here
+	return nil
+}
+
 // GetEnvVars retrieves Omnirnetes-specific environment variables for the current context
 func (h *OmniHelper) GetEnvVars() (map[string]string, error) {
 	// Get the configuration root directory
@@ -66,12 +72,6 @@ func (h *OmniHelper) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *OmniHelper) WriteConfig() error {
-	return nil
-}
-
-// Initialize performs any necessary initialization for the helper.
-func (h *OmniHelper) Initialize() error {
-	// Perform any necessary initialization here
 	return nil
 }
 

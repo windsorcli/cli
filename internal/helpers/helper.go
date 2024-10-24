@@ -29,6 +29,11 @@ type Helper interface {
 	WriteConfig() error
 }
 
+type YAMLEncoder interface {
+	Encode(v interface{}) error
+	Close() error
+}
+
 // Define a variable for os.Getwd() for easier testing
 var getwd = os.Getwd
 
