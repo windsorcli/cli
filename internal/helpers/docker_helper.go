@@ -2,8 +2,10 @@ package helpers
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/config"
@@ -147,6 +149,34 @@ func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 		services = append(services, generateRegistryService(registry.Name, registry.Remote, registry.Local))
 	}
 
+	// Sort services by name in alphabetical order
+	sort.Slice(services, func(i, j int) bool {
+		return services[i].Name < services[j].Name
+	})
+
+	// Assign IP addresses to services based on the network CIDR
+	if contextConfig.Docker.NetworkCIDR != nil {
+		ip, ipNet, err := net.ParseCIDR(*contextConfig.Docker.NetworkCIDR)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing network CIDR: %w", err)
+		}
+
+		// Skip the network address
+		ip = incrementIP(ip)
+
+		for i := range services {
+			services[i].Networks = map[string]*types.ServiceNetworkConfig{
+				"default": {
+					Ipv4Address: ip.String(),
+				},
+			}
+			ip = incrementIP(ip)
+			if !ipNet.Contains(ip) {
+				return nil, fmt.Errorf("not enough IP addresses in the CIDR range")
+			}
+		}
+	}
+
 	return &types.Config{Services: services}, nil
 }
 
@@ -188,6 +218,14 @@ func (h *DockerHelper) WriteConfig() error {
 		}
 	}
 
+	// Create a network called "windsor-<context-name>"
+	contextName, err := h.Context.GetContext()
+	if err != nil {
+		return fmt.Errorf("error retrieving context: %w", err)
+	}
+	networkName := fmt.Sprintf("windsor-%s", contextName)
+	combinedNetworks[networkName] = types.NetworkConfig{}
+
 	// Create a Project using compose-go
 	project := &types.Project{
 		Services: combinedServices,
@@ -220,6 +258,18 @@ func (h *DockerHelper) WriteConfig() error {
 	}
 
 	return nil
+}
+
+// incrementIP increments an IP address by one
+func incrementIP(ip net.IP) net.IP {
+	ip = ip.To4()
+	for j := len(ip) - 1; j >= 0; j-- {
+		ip[j]++
+		if ip[j] > 0 {
+			break
+		}
+	}
+	return ip
 }
 
 // Ensure DockerHelper implements Helper interface
