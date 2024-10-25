@@ -885,7 +885,7 @@ func TestTerraformHelper_GetAlias(t *testing.T) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
-						Enabled: ptrBool(true),
+						Create: ptrBool(true),
 					},
 				},
 			}, nil

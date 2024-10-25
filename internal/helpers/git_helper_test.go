@@ -101,7 +101,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 						Password:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD),
 						WebhookUrl:   ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL),
 						Image:        ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE),
-						Enabled:      ptrBool(true),
+						Create:       ptrBool(true),
 						VerifySsl:    ptrBool(false),
 					},
 				},
@@ -224,7 +224,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return &config.Context{
 				Git: &config.GitConfig{
 					Livereload: &config.GitLivereloadConfig{
-						Enabled: ptrBool(false),
+						Create: ptrBool(false),
 					},
 				},
 			}, nil
@@ -259,7 +259,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return &config.Context{
 				Git: &config.GitConfig{
 					Livereload: &config.GitLivereloadConfig{
-						Enabled:      ptrBool(true),
+						Create:       ptrBool(true),
 						RsyncExclude: nil,
 					},
 				},
@@ -292,7 +292,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return &config.Context{
 				Git: &config.GitConfig{
 					Livereload: &config.GitLivereloadConfig{
-						Enabled:      ptrBool(true),
+						Create:       ptrBool(true),
 						RsyncProtect: nil,
 					},
 				},
@@ -325,7 +325,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return &config.Context{
 				Git: &config.GitConfig{
 					Livereload: &config.GitLivereloadConfig{
-						Enabled:  ptrBool(true),
+						Create:   ptrBool(true),
 						Username: nil,
 					},
 				},
@@ -358,7 +358,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return &config.Context{
 				Git: &config.GitConfig{
 					Livereload: &config.GitLivereloadConfig{
-						Enabled:  ptrBool(true),
+						Create:   ptrBool(true),
 						Password: nil,
 					},
 				},
@@ -391,7 +391,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return &config.Context{
 				Git: &config.GitConfig{
 					Livereload: &config.GitLivereloadConfig{
-						Enabled:    ptrBool(true),
+						Create:     ptrBool(true),
 						WebhookUrl: nil,
 					},
 				},
@@ -424,7 +424,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return &config.Context{
 				Git: &config.GitConfig{
 					Livereload: &config.GitLivereloadConfig{
-						Enabled:   ptrBool(true),
+						Create:    ptrBool(true),
 						VerifySsl: nil,
 					},
 				},
@@ -457,7 +457,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return &config.Context{
 				Git: &config.GitConfig{
 					Livereload: &config.GitLivereloadConfig{
-						Enabled: ptrBool(true),
+						Create: ptrBool(true),
 					},
 				},
 			}, nil

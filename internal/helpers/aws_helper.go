@@ -116,8 +116,8 @@ func (h *AwsHelper) GetComposeConfig() (*types.Config, error) {
 
 	if contextConfig.AWS == nil ||
 		contextConfig.AWS.Localstack == nil ||
-		contextConfig.AWS.Localstack.Enabled == nil ||
-		!*contextConfig.AWS.Localstack.Enabled {
+		contextConfig.AWS.Localstack.Create == nil ||
+		!*contextConfig.AWS.Localstack.Create {
 		return nil, nil
 	}
 

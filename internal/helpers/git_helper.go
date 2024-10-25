@@ -73,8 +73,8 @@ func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 
 	if config.Git == nil ||
 		config.Git.Livereload == nil ||
-		config.Git.Livereload.Enabled == nil ||
-		!*config.Git.Livereload.Enabled {
+		config.Git.Livereload.Create == nil ||
+		!*config.Git.Livereload.Create {
 		return nil, nil
 	}
 

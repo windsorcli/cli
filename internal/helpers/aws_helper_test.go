@@ -447,7 +447,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
-						Enabled:  ptrBool(true),
+						Create:   ptrBool(true),
 						Services: []string{"s3", "dynamodb"},
 					},
 				},
@@ -493,7 +493,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
-						Enabled:  ptrBool(true),
+						Create:   ptrBool(true),
 						Services: []string{"s3", "dynamodb"},
 					},
 				},
@@ -545,7 +545,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
-						Enabled:  ptrBool(true),
+						Create:   ptrBool(true),
 						Services: []string{"s3"},
 					},
 				},
