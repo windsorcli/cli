@@ -63,9 +63,9 @@ type VMConfig struct {
 
 // DNSConfig represents the DNS configuration
 type DNSConfig struct {
-	Enabled *bool   `yaml:"enabled"`
-	Name    *string `yaml:"name"`
-	IP      *string `yaml:"ip"`
+	Create *bool   `yaml:"enabled"`
+	Name   *string `yaml:"name"`
+	IP     *string `yaml:"ip"`
 }
 
 // ClusterConfig represents the cluster configuration
@@ -92,6 +92,7 @@ type Context struct {
 	Terraform   *TerraformConfig  `yaml:"terraform"`
 	VM          *VMConfig         `yaml:"vm"`
 	Cluster     *ClusterConfig    `yaml:"cluster"`
+	DNS         *DNSConfig        `yaml:"dns"`
 }
 
 // Config represents the entire configuration
@@ -122,6 +123,11 @@ var DefaultConfig = Context{
 		Backend: nil,
 	},
 	Cluster: nil,
+	DNS: &DNSConfig{
+		Create: nil,
+		Name:   nil,
+		IP:     nil,
+	},
 }
 
 // DefaultLocalConfig returns the default configuration for the "local" context
@@ -202,5 +208,10 @@ var DefaultLocalConfig = Context{
 			CPU:    ptrInt(4),
 			Memory: ptrInt(4),
 		},
+	},
+	DNS: &DNSConfig{
+		Create: ptrBool(true),
+		Name:   ptrString("test"),
+		IP:     nil,
 	},
 }

@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/config"
@@ -16,7 +17,7 @@ import (
 type DockerHelper struct {
 	ConfigHandler config.ConfigHandler
 	Context       context.ContextInterface
-	Helpers       []Helper
+	DIContainer   *di.DIContainer
 }
 
 const registryImage = "registry:2.8.3"
@@ -33,27 +34,11 @@ func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
-	helpers, err := di.ResolveAll((*Helper)(nil))
-	if err != nil {
-		return nil, fmt.Errorf("error resolving helpers: %w", err)
-	}
-
-	// Register DockerHelper as a Helper
-	dockerHelper := &DockerHelper{
+	return &DockerHelper{
 		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
-	}
-	helperInstances := make([]Helper, len(helpers)+1) // Increase the slice size by 1
-	for i, helper := range helpers {
-		helperInstances[i] = helper.(Helper)
-	}
-
-	// Add DockerHelper to the list of helpers
-	helperInstances[len(helpers)] = dockerHelper
-
-	dockerHelper.Helpers = helperInstances
-
-	return dockerHelper, nil
+		DIContainer:   di,
+	}, nil
 }
 
 // Initialize performs any necessary initialization for the helper.
@@ -153,108 +138,10 @@ func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any vendor specific configuration files that are needed for the helper.
 func (h *DockerHelper) WriteConfig() error {
-	// Retrieve the context configuration using GetConfig
-	contextConfig, err := h.ConfigHandler.GetConfig()
+	// Retrieve the full compose configuration
+	project, err := h.GetFullComposeConfig()
 	if err != nil {
-		return fmt.Errorf("error retrieving context configuration: %w", err)
-	}
-
-	// Check if Docker is defined in the windsor config
-	if contextConfig.Docker == nil {
-		return nil
-	}
-
-	var combinedServices []types.ServiceConfig
-	var combinedVolumes map[string]types.VolumeConfig
-	var combinedNetworks map[string]types.NetworkConfig
-
-	combinedVolumes = make(map[string]types.VolumeConfig)
-	combinedNetworks = make(map[string]types.NetworkConfig)
-
-	// Iterate through each helper and collect container configs
-	for _, helper := range h.Helpers {
-		if helperInstance, ok := helper.(Helper); ok {
-			helperName := fmt.Sprintf("%T", helperInstance)
-			containerConfigs, err := helperInstance.GetComposeConfig()
-			if err != nil {
-				return fmt.Errorf("error getting container config from helper %s: %w", helperName, err)
-			}
-			if containerConfigs == nil {
-				continue
-			}
-			if containerConfigs.Services != nil {
-				for _, containerConfig := range containerConfigs.Services {
-					combinedServices = append(combinedServices, containerConfig)
-				}
-			}
-			if containerConfigs.Volumes != nil {
-				for volumeName, volumeConfig := range containerConfigs.Volumes {
-					combinedVolumes[volumeName] = volumeConfig
-				}
-			}
-			if containerConfigs.Networks != nil {
-				for networkName, networkConfig := range containerConfigs.Networks {
-					combinedNetworks[networkName] = networkConfig
-				}
-			}
-		}
-	}
-
-	// Create a network called "windsor-<context-name>"
-	contextName, err := h.Context.GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
-	networkName := fmt.Sprintf("windsor-%s", contextName)
-
-	// Assign the CIDR to the network configuration
-	if contextConfig.Docker.NetworkCIDR != nil {
-		combinedNetworks[networkName] = types.NetworkConfig{
-			Driver: "bridge",
-			Ipam: types.IPAMConfig{
-				Driver: "default",
-				Config: []*types.IPAMPool{
-					{
-						Subnet: *contextConfig.Docker.NetworkCIDR,
-					},
-				},
-			},
-		}
-	} else {
-		combinedNetworks[networkName] = types.NetworkConfig{}
-	}
-
-	// Assign IP addresses to services based on the network CIDR
-	if contextConfig.Docker.NetworkCIDR != nil {
-		ip, ipNet, err := net.ParseCIDR(*contextConfig.Docker.NetworkCIDR)
-		if err != nil {
-			return fmt.Errorf("error parsing network CIDR: %w", err)
-		}
-
-		// Skip the network address
-		ip = incrementIP(ip)
-
-		// Skip the first IP address
-		ip = incrementIP(ip)
-
-		for i := range combinedServices {
-			combinedServices[i].Networks = map[string]*types.ServiceNetworkConfig{
-				networkName: {
-					Ipv4Address: ip.String(),
-				},
-			}
-			ip = incrementIP(ip)
-			if !ipNet.Contains(ip) {
-				return fmt.Errorf("not enough IP addresses in the CIDR range")
-			}
-		}
-	}
-
-	// Create a Project using compose-go
-	project := &types.Project{
-		Services: combinedServices,
-		Volumes:  combinedVolumes,
-		Networks: combinedNetworks,
+		return fmt.Errorf("error getting full compose config: %w", err)
 	}
 
 	// Serialize the docker-compose config to YAML
@@ -282,6 +169,126 @@ func (h *DockerHelper) WriteConfig() error {
 	}
 
 	return nil
+}
+
+// GetFullComposeConfig retrieves the full compose configuration for the DockerHelper.
+func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
+	// Retrieve the context configuration using GetConfig
+	contextConfig, err := h.ConfigHandler.GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
+	}
+
+	// Check if Docker is defined in the windsor config
+	if contextConfig.Docker == nil {
+		return nil, nil
+	}
+
+	var combinedServices []types.ServiceConfig
+	var combinedVolumes map[string]types.VolumeConfig
+	var combinedNetworks map[string]types.NetworkConfig
+
+	combinedVolumes = make(map[string]types.VolumeConfig)
+	combinedNetworks = make(map[string]types.NetworkConfig)
+
+	// Initialize helpers on-the-fly
+	helpers, err := h.DIContainer.ResolveAll((*Helper)(nil))
+	if err != nil {
+		return nil, fmt.Errorf("error resolving helpers: %w", err)
+	}
+
+	// Iterate through each helper and collect container configs
+	for _, helper := range helpers {
+		if helperInstance, ok := helper.(Helper); ok {
+			helperName := fmt.Sprintf("%T", helperInstance)
+			containerConfigs, err := helperInstance.GetComposeConfig()
+			if err != nil {
+				return nil, fmt.Errorf("error getting container config from helper %s: %w", helperName, err)
+			}
+			if containerConfigs == nil {
+				continue
+			}
+			if containerConfigs.Services != nil {
+				for _, containerConfig := range containerConfigs.Services {
+					combinedServices = append(combinedServices, containerConfig)
+				}
+			}
+			if containerConfigs.Volumes != nil {
+				for volumeName, volumeConfig := range containerConfigs.Volumes {
+					combinedVolumes[volumeName] = volumeConfig
+				}
+			}
+			if containerConfigs.Networks != nil {
+				for networkName, networkConfig := range containerConfigs.Networks {
+					combinedNetworks[networkName] = networkConfig
+				}
+			}
+		}
+	}
+
+	// Create a network called "windsor-<context-name>"
+	contextName, err := h.Context.GetContext()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context: %w", err)
+	}
+	networkName := fmt.Sprintf("windsor-%s", contextName)
+
+	// Assign the CIDR to the network configuration
+	if contextConfig.Docker.NetworkCIDR != nil {
+		combinedNetworks[networkName] = types.NetworkConfig{
+			Driver: "bridge",
+			Ipam: types.IPAMConfig{
+				Driver: "default",
+				Config: []*types.IPAMPool{
+					{
+						Subnet: *contextConfig.Docker.NetworkCIDR,
+					},
+				},
+			},
+		}
+	} else {
+		combinedNetworks[networkName] = types.NetworkConfig{}
+	}
+
+	// Assign IP addresses to services based on the network CIDR
+	if contextConfig.Docker.NetworkCIDR != nil {
+		ip, ipNet, err := net.ParseCIDR(*contextConfig.Docker.NetworkCIDR)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing network CIDR: %w", err)
+		}
+
+		// Skip the network address
+		ip = incrementIP(ip)
+
+		// Skip the first IP address
+		ip = incrementIP(ip)
+
+		// Alphabetize the names of the services
+		sort.Slice(combinedServices, func(i, j int) bool {
+			return combinedServices[i].Name < combinedServices[j].Name
+		})
+
+		for i := range combinedServices {
+			combinedServices[i].Networks = map[string]*types.ServiceNetworkConfig{
+				networkName: {
+					Ipv4Address: ip.String(),
+				},
+			}
+			ip = incrementIP(ip)
+			if !ipNet.Contains(ip) {
+				return nil, fmt.Errorf("not enough IP addresses in the CIDR range")
+			}
+		}
+	}
+
+	// Create a Project using compose-go
+	project := &types.Project{
+		Services: combinedServices,
+		Volumes:  combinedVolumes,
+		Networks: combinedNetworks,
+	}
+
+	return project, nil
 }
 
 // incrementIP increments an IP address by one
