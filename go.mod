@@ -22,7 +22,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.5.2 // indirect
 	cloud.google.com/go/iam v1.2.2 // indirect
 	cloud.google.com/go/kms v1.20.1 // indirect
-	cloud.google.com/go/longrunning v0.6.1 // indirect
+	cloud.google.com/go/longrunning v0.6.2 // indirect
 	cloud.google.com/go/monitoring v1.21.2 // indirect
 	cloud.google.com/go/storage v1.45.0 // indirect
 	filippo.io/age v1.2.0 // indirect
