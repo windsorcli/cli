@@ -28,3 +28,8 @@ const (
 	// renovate: datasource=docker depName=localstack/localstack-pro
 	DEFAULT_AWS_LOCALSTACK_PRO_IMAGE = "localstack/localstack-pro:3.8.1"
 )
+
+// Default DNS settings
+const (
+	DEFAULT_DNS_IMAGE = "coredns/coredns:1.11.3"
+)

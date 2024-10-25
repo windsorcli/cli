@@ -75,24 +75,6 @@ func TestDockerHelper_NewDockerHelper(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingHelpers", func(t *testing.T) {
-		// Create DI container and register only cliConfigHandler and context
-		diContainer := di.NewContainer()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-
-		// Attempt to create DockerHelper without registering any helpers
-		_, err := NewDockerHelper(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving helpers") {
-			t.Fatalf("expected error resolving helpers, got %v", err)
-		}
-	})
-
 	t.Run("GetEnvVars", func(t *testing.T) {
 		t.Run("ValidConfigRootWithYaml", func(t *testing.T) {
 			// Given: a valid context path with compose.yaml
@@ -976,9 +958,6 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 			t.Fatalf("NewDockerHelper() error = %v", err)
 		}
 
-		// Add mockHelper to DockerHelper's Helpers
-		helper.Helpers = append(helper.Helpers, mockHelper)
-
 		// Mock file operations
 		originalWriteFile := writeFile
 		writeFile = func(filename string, data []byte, perm os.FileMode) error {
@@ -1103,6 +1082,9 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("GetConfigRootFunc not implemented")
+		}
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
@@ -1122,9 +1104,10 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		// When: WriteConfig is called
 		err = helper.WriteConfig()
 
-		// Then: it should return nil, indicating no further action is taken
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
+		// Then: it should return an error indicating the failure to retrieve the config root
+		expectedError := "error retrieving config root: GetConfigRootFunc not implemented"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
 		}
 	})
 
@@ -1272,6 +1255,107 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 
 		// Then: it should return an error indicating not enough IP addresses
 		expectedError := "not enough IP addresses in the CIDR range"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error containing %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorNotEnoughIPAddresses", func(t *testing.T) {
+		// Given: a mock config handler and context with a CIDR that has insufficient IPs
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					NetworkCIDR: ptrString("192.168.1.0/31"), // Insufficient IPs for two services
+					Registries: []config.Registry{
+						{Name: "registry1"},
+						{Name: "registry2"},
+					},
+				},
+			}, nil
+		}
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return filepath.Join(os.TempDir(), "contexts", "test-context"), nil
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Register MockHelper
+		mockHelper := NewMockHelper()
+		mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+			return &types.Config{
+				Services: []types.ServiceConfig{
+					{Name: "registry1"},
+					{Name: "registry2"},
+				},
+			}, nil
+		}
+		diContainer.Register("helper", mockHelper)
+
+		// Create DockerHelper
+		helper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: WriteConfig is called
+		err = helper.WriteConfig()
+
+		// Then: it should return an error indicating not enough IP addresses
+		expectedError := "not enough IP addresses in the CIDR range"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error containing %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorResolvingHelpers", func(t *testing.T) {
+		// Given: a mock config handler and context
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Registries: []config.Registry{},
+				},
+			}, nil
+		}
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockContext.GetConfigRootFunc = func() (string, error) {
+			return filepath.Join(os.TempDir(), "contexts", "test-context"), nil
+		}
+
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Create mock DI container and set the ResolveAllError to simulate an error
+		mockDIContainer := di.NewMockContainer()
+		mockDIContainer.SetResolveAllError(errors.New("no instances found for the given type"))
+
+		// Create DockerHelper
+		helper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// Inject the mock DI container into the DockerHelper
+		helper.DIContainer = mockDIContainer.DIContainer
+
+		// When: WriteConfig is called
+		err = helper.WriteConfig()
+
+		// Then: it should return an error indicating the failure to resolve helpers
+		expectedError := "error resolving helpers: no instances found for the given type"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error containing %v, got %v", expectedError, err)
 		}

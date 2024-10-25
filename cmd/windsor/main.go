@@ -100,6 +100,13 @@ func main() {
 	}
 	container.Register("colimaHelper", colimaHelper)
 
+	// Create and register the DNSHelper instance
+	dnsHelper, err := helpers.NewDNSHelper(container)
+	if err != nil {
+		log.Fatalf("failed to create dns helper: %v", err)
+	}
+	container.Register("dnsHelper", dnsHelper)
+
 	// Create and register the DockerHelper instance
 	// This should go last!
 	dockerHelper, err := helpers.NewDockerHelper(container)
