@@ -71,8 +71,8 @@ func (h *TerraformHelper) GetAlias() (map[string]string, error) {
 	if context == "local" &&
 		contextConfig.AWS != nil &&
 		contextConfig.AWS.Localstack != nil &&
-		contextConfig.AWS.Localstack.Enabled != nil &&
-		*contextConfig.AWS.Localstack.Enabled {
+		contextConfig.AWS.Localstack.Create != nil &&
+		*contextConfig.AWS.Localstack.Create {
 		return map[string]string{"terraform": "tflocal"}, nil
 	}
 

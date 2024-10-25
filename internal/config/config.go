@@ -13,7 +13,7 @@ type AWSConfig struct {
 
 // LocalstackConfig represents the Localstack configuration
 type LocalstackConfig struct {
-	Enabled  *bool    `yaml:"enabled"`
+	Create   *bool    `yaml:"create"`
 	Services []string `yaml:"services"`
 }
 
@@ -31,7 +31,7 @@ type GitConfig struct {
 
 // GitLivereloadConfig represents the Git livereload configuration
 type GitLivereloadConfig struct {
-	Enabled      *bool   `yaml:"enabled"`
+	Create       *bool   `yaml:"create"`
 	RsyncExclude *string `yaml:"rsync_exclude"`
 	RsyncProtect *string `yaml:"rsync_protect"`
 	Username     *string `yaml:"username"`
@@ -63,7 +63,7 @@ type VMConfig struct {
 
 // DNSConfig represents the DNS configuration
 type DNSConfig struct {
-	Create *bool   `yaml:"enabled"`
+	Create *bool   `yaml:"create"`
 	Name   *string `yaml:"name"`
 	IP     *string `yaml:"ip"`
 }
@@ -110,7 +110,7 @@ var DefaultConfig = Context{
 		S3Hostname:     nil,
 		MWAAEndpoint:   nil,
 		Localstack: &LocalstackConfig{
-			Enabled:  nil,
+			Create:   nil,
 			Services: nil,
 		},
 	},
@@ -139,7 +139,7 @@ var DefaultLocalConfig = Context{
 		S3Hostname:     ptrString("http://s3.local.aws.test:4566"),
 		MWAAEndpoint:   ptrString("http://mwaa.local.aws.test:4566"),
 		Localstack: &LocalstackConfig{
-			Enabled:  ptrBool(true),
+			Create:   ptrBool(true),
 			Services: []string{"iam", "sts", "kms", "s3", "dynamodb"},
 		},
 	},
@@ -175,7 +175,7 @@ var DefaultLocalConfig = Context{
 	},
 	Git: &GitConfig{
 		Livereload: &GitLivereloadConfig{
-			Enabled:      ptrBool(true),
+			Create:       ptrBool(true),
 			RsyncExclude: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE),
 			RsyncProtect: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT),
 			Username:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME),
