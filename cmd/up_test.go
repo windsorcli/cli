@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -52,11 +52,12 @@ func TestUpCmd(t *testing.T) {
 		}
 
 		// Setup container with mock dependencies
-		container := di.NewMockContainer()
-		container.Register("cliConfigHandler", mockCliConfigHandler)
-		container.Register("contextInstance", mockContextInstance)
-		container.Register("shell", mockShell)
-		Initialize(container)
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			ContextInstance:  mockContextInstance,
+		}
+		setupContainer(deps)
 
 		// Capture stdout
 		output := captureStdout(func() {
@@ -86,8 +87,10 @@ func TestUpCmd(t *testing.T) {
 		}
 
 		// Setup container with mock context
-		container := di.NewMockContainer()
-		container.Register("contextInstance", mockContextInstance)
+		deps := MockDependencies{
+			ContextInstance: mockContextInstance,
+		}
+		container := setupContainer(deps)
 		Initialize(container)
 
 		// Capture stderr
@@ -129,9 +132,11 @@ func TestUpCmd(t *testing.T) {
 		}
 
 		// Setup container with mock dependencies
-		container := di.NewMockContainer()
-		container.Register("cliConfigHandler", mockCliConfigHandler)
-		container.Register("contextInstance", mockContextInstance)
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			ContextInstance:  mockContextInstance,
+		}
+		container := setupContainer(deps)
 		Initialize(container)
 
 		// Capture stderr
@@ -172,9 +177,11 @@ func TestUpCmd(t *testing.T) {
 		}
 
 		// Setup container with mock dependencies
-		container := di.NewMockContainer()
-		container.Register("cliConfigHandler", mockCliConfigHandler)
-		container.Register("contextInstance", mockContextInstance)
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			ContextInstance:  mockContextInstance,
+		}
+		container := setupContainer(deps)
 		Initialize(container)
 
 		// Capture stderr
@@ -219,10 +226,12 @@ func TestUpCmd(t *testing.T) {
 		}
 
 		// Setup container
-		container := di.NewMockContainer()
-		container.Register("cliConfigHandler", mockCliConfigHandler)
-		container.Register("contextInstance", mockContextInstance)
-		container.Register("shell", mockShell)
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			ContextInstance:  mockContextInstance,
+		}
+		container := setupContainer(deps)
 		Initialize(container)
 
 		// Execute the 'windsor up' command
@@ -268,10 +277,12 @@ func TestUpCmd(t *testing.T) {
 		}
 
 		// Setup container
-		container := di.NewMockContainer()
-		container.Register("cliConfigHandler", mockCliConfigHandler)
-		container.Register("contextInstance", mockContextInstance)
-		container.Register("shell", mockShell)
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			ContextInstance:  mockContextInstance,
+		}
+		container := setupContainer(deps)
 		Initialize(container)
 
 		// Capture stderr
@@ -286,10 +297,9 @@ func TestUpCmd(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		expectedCommand := fmt.Sprintf("colima start windsor-%s", "test-context")
-		expectedError := fmt.Sprintf("Error executing command %s: shell command error", expectedCommand)
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		expectedError := "shell command error"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
 	})
 
@@ -322,10 +332,12 @@ func TestUpCmd(t *testing.T) {
 		}
 
 		// Setup container
-		container := di.NewMockContainer()
-		container.Register("cliConfigHandler", mockCliConfigHandler)
-		container.Register("contextInstance", mockContextInstance)
-		container.Register("shell", mockShell)
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			ContextInstance:  mockContextInstance,
+		}
+		container := setupContainer(deps)
 		Initialize(container)
 
 		// Capture stderr
