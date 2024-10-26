@@ -234,6 +234,44 @@ func TestExecCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("SetEnvError", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a helper that returns environment variables
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockProjectConfigHandler := config.NewMockConfigHandler()
+		mockShell, _ := shell.NewMockShell("unix")
+		mockHelper := helpers.NewMockHelper()
+		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{
+				"VAR1": "value1",
+			}, nil
+		}
+		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
+
+		// Mock os.Setenv to return an error
+		setenvError := func(key, value string) error {
+			return errors.New("set env error")
+		}
+		originalSetenv := osSetenv
+		defer func() { osSetenv = originalSetenv }()
+		osSetenv = setenvError
+
+		// Execute the command
+		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then the error should indicate the set environment variable error
+		expectedError := "Error setting environment variable VAR1: set env error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error to be %q, got %q", expectedError, err.Error())
+		}
+	})
+
 	t.Run("CommandExecutionError", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)

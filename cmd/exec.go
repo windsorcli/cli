@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/helpers"
@@ -41,7 +40,9 @@ var execCmd = &cobra.Command{
 
 		// Set environment variables for the command
 		for k, v := range envVars {
-			os.Setenv(k, v)
+			if err := osSetenv(k, v); err != nil {
+				return fmt.Errorf("Error setting environment variable %s: %w", k, err)
+			}
 		}
 
 		// Execute the command using the existing shell instance
