@@ -32,7 +32,7 @@ func (m *mockYAMLEncoder) Close() error {
 
 func createDIContainer(mockContext *context.MockContext, mockConfigHandler *config.MockConfigHandler) *di.DIContainer {
 	diContainer := di.NewContainer()
-	diContainer.Register("context", mockContext)
+	diContainer.Register("contextInstance", mockContext)
 	diContainer.Register("cliConfigHandler", mockConfigHandler)
 	diContainer.Register("shell", shell.NewMockShell("unix"))
 	return diContainer
@@ -47,8 +47,7 @@ func TestColimaHelper_Initialize(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-		diContainer.Register("shell", shell.NewMockShell("unix"))
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of ColimaHelper
 		colimaHelper, err := NewColimaHelper(diContainer)
@@ -469,7 +468,7 @@ func TestColimaHelper_WriteConfig(t *testing.T) {
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", shell.NewMockShell("unix"))
 
@@ -927,7 +926,7 @@ func TestColimaHelper_WriteConfig(t *testing.T) {
 
 		// And a DI container with the mock context and config handler registered
 		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", shell.NewMockShell("unix"))
 

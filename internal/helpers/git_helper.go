@@ -31,7 +31,7 @@ func NewGitHelper(di *di.DIContainer) (*GitHelper, error) {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}
 
-	resolvedContext, err := di.Resolve("context")
+	resolvedContext, err := di.Resolve("contextInstance")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}

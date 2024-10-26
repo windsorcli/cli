@@ -105,7 +105,7 @@ func (h *DNSHelper) WriteConfig() error {
 	}
 
 	// Retrieve the configuration directory for the current context
-	resolvedContext, err := h.DIContainer.Resolve("context")
+	resolvedContext, err := h.DIContainer.Resolve("contextInstance")
 	if err != nil {
 		return fmt.Errorf("error resolving context: %w", err)
 	}

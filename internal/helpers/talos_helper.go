@@ -27,7 +27,7 @@ func NewTalosHelper(di *di.DIContainer) (*TalosHelper, error) {
 		return nil, fmt.Errorf("error resolving config handler: %w", err)
 	}
 
-	resolvedContext, err := di.Resolve("context")
+	resolvedContext, err := di.Resolve("contextInstance")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}

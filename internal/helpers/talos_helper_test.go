@@ -58,7 +58,7 @@ func TestNewTalosHelper(t *testing.T) {
 			mockContext = context.NewMockContext()
 			mockConfigHandler = config.NewMockConfigHandler()
 			diContainer = di.NewContainer()
-			diContainer.Register("context", mockContext)
+			diContainer.Register("contextInstance", mockContext)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 		}
 
@@ -111,7 +111,7 @@ func TestTalosHelper_Initialize(t *testing.T) {
 				return tempDir, nil
 			}
 			diContainer = di.NewContainer()
-			diContainer.Register("context", mockContext)
+			diContainer.Register("contextInstance", mockContext)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("shell", mockShell)
 		}
@@ -172,7 +172,7 @@ func TestTalosHelper_Initialize(t *testing.T) {
 
 		// Setup DI container with mock components
 		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 
@@ -215,7 +215,7 @@ func TestTalosHelper_Initialize(t *testing.T) {
 
 		// Setup DI container with mock components
 		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 
@@ -274,7 +274,7 @@ func TestTalosHelper_Initialize(t *testing.T) {
 
 		// Setup DI container with mock components
 		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 
@@ -308,7 +308,7 @@ func TestTalosHelper_Initialize(t *testing.T) {
 		// And a DI container with the mock config handler, context, and shell registered
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// When creating a new TalosHelper
@@ -344,7 +344,7 @@ func TestTalosHelper_Initialize(t *testing.T) {
 		// And a DI container with the mock config handler, context, and shell registered
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// When creating a new TalosHelper
@@ -388,7 +388,7 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 			return tempDir, nil
 		}
 		diContainer = di.NewContainer()
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 	}
@@ -511,7 +511,7 @@ func TestTalosHelper_GetEnvVars(t *testing.T) {
 
 		// Create a DI container and register the mock context
 		diContainer := di.NewContainer()
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
@@ -567,7 +567,7 @@ func TestTalosHelper_PostEnvExec(t *testing.T) {
 				return tempDir, nil
 			}
 			diContainer = di.NewContainer()
-			diContainer.Register("context", mockContext)
+			diContainer.Register("contextInstance", mockContext)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("shell", mockShell)
 		}
@@ -612,7 +612,7 @@ func TestTalosHelper_GetComposeConfig(t *testing.T) {
 			return tempDir, nil
 		}
 		diContainer = di.NewContainer()
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 	}
@@ -1187,7 +1187,7 @@ func TestTalosHelper_WriteConfig(t *testing.T) {
 			mockConfigHandler = config.NewMockConfigHandler()
 			mockShell = &shell.MockShell{}
 			diContainer = di.NewContainer()
-			diContainer.Register("context", mockContext)
+			diContainer.Register("contextInstance", mockContext)
 			diContainer.Register("cliConfigHandler", mockConfigHandler)
 			diContainer.Register("shell", mockShell)
 		}
