@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -89,7 +90,33 @@ func mockCommand(name string, arg ...string) *exec.Cmd {
 	return exec.Command("false")
 }
 
-func TestGetProjectRoot(t *testing.T) {
+// Updated helper function to mock exec.Command for successful execution using PowerShell
+func mockExecCommandSuccess(command string, args ...string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		// Use PowerShell to execute the echo command
+		fullCommand := fmt.Sprintf("Write-Output 'mock output for: %s %s'", command, strings.Join(args, " "))
+		cmdArgs := []string{"-Command", fullCommand}
+		return exec.Command("powershell.exe", cmdArgs...)
+	} else {
+		// Use 'echo' on Unix-like systems
+		fullArgs := append([]string{"mock output for:", command}, args...)
+		return exec.Command("echo", fullArgs...)
+	}
+}
+
+// Updated helper function to mock exec.Command for failed execution using PowerShell
+func mockExecCommandError(command string, args ...string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		// Use PowerShell to simulate a failing command
+		cmdArgs := []string{"-Command", "exit 1"}
+		return exec.Command("powershell.exe", cmdArgs...)
+	} else {
+		// Use 'false' command on Unix-like systems
+		return exec.Command("false")
+	}
+}
+
+func TestShell_GetProjectRoot(t *testing.T) {
 	t.Run("GitRepo", func(t *testing.T) {
 		// Given a temporary directory with a git repository
 		rootDir := createTempDir(t, "project-root")
@@ -200,6 +227,120 @@ func TestGetProjectRoot(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
+		}
+	})
+}
+
+func TestShell_Exec(t *testing.T) {
+	shell := NewDefaultShell()
+
+	t.Run("SuccessfulCommand", func(t *testing.T) {
+		// Override execCommand to simulate successful execution using PowerShell
+		originalExecCommand := execCommand
+		execCommand = mockExecCommandSuccess
+		defer func() { execCommand = originalExecCommand }()
+
+		// When executing a command
+		output, err := shell.Exec("somecommand", "arg1")
+
+		// Then there should be no error and output should match
+		assertNoError(t, err)
+		expectedOutput := "mock output for: somecommand arg1"
+
+		// Account for line endings
+		if runtime.GOOS == "windows" {
+			expectedOutput += "\r\n" // PowerShell adds \r\n
+		} else {
+			expectedOutput += "\n" // echo adds \n
+		}
+
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("CommandWithError", func(t *testing.T) {
+		// Override execCommand to simulate command failure using PowerShell
+		originalExecCommand := execCommand
+		execCommand = mockExecCommandError
+		defer func() { execCommand = originalExecCommand }()
+
+		// When executing a command that fails
+		output, err := shell.Exec("somecommand", "arg1")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected an error, but got nil")
+		}
+
+		// Output should be empty
+		if output != "" {
+			t.Errorf("Expected empty output, got %q", output)
+		}
+	})
+
+	t.Run("CommandWithStdErr", func(t *testing.T) {
+		// Override execCommand to simulate a command that writes to stderr
+		originalExecCommand := execCommand
+		execCommand = func(command string, args ...string) *exec.Cmd {
+			cmd := exec.Command(command, args...)
+			// Simulate a command that writes to stderr
+			cmd.Stderr = bytes.NewBufferString("mock stderr output")
+			return cmd
+		}
+		defer func() { execCommand = originalExecCommand }()
+
+		// When executing a command that produces stderr output
+		output, err := shell.Exec("somecommand", "arg1")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected an error, but got nil")
+		}
+
+		// And output should be empty
+		if output != "" {
+			t.Errorf("Expected empty output, got %q", output)
+		}
+	})
+
+	t.Run("CommandWithArguments", func(t *testing.T) {
+		// Override execCommand to simulate command execution with arguments
+		originalExecCommand := execCommand
+		execCommand = func(command string, args ...string) *exec.Cmd {
+			// Verify that the command and arguments are as expected
+			if command != "somecommand" || len(args) != 2 || args[0] != "arg1" || args[1] != "arg2" {
+				t.Fatalf("Unexpected command or arguments: %s %v", command, args)
+			}
+
+			if runtime.GOOS == "windows" {
+				// Use PowerShell to output a mock message
+				fullCommand := fmt.Sprintf("Write-Output 'mock output with args'")
+				cmdArgs := []string{"-Command", fullCommand}
+				return exec.Command("powershell.exe", cmdArgs...)
+			} else {
+				// Use 'echo' on Unix-like systems
+				return exec.Command("echo", "mock output with args")
+			}
+		}
+		defer func() { execCommand = originalExecCommand }()
+
+		// When executing a command with arguments
+		output, err := shell.Exec("somecommand", "arg1", "arg2")
+
+		// Then there should be no error and output should match
+		assertNoError(t, err)
+		expectedOutput := "mock output with args"
+
+		// Account for line endings
+		if runtime.GOOS == "windows" {
+			expectedOutput += "\r\n" // PowerShell adds \r\n
+		} else {
+			expectedOutput += "\n" // echo adds \n
+		}
+
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
 		}
 	})
 }

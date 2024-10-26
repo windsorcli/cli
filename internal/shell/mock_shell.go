@@ -11,6 +11,7 @@ type MockShell struct {
 	ShellType          string
 	PrintEnvVarsFn     func(envVars map[string]string)
 	GetProjectRootFunc func() (string, error)
+	ExecFn             func(command string, args ...string) (string, error)
 }
 
 // NewMockShell creates a new instance of MockShell based on the provided shell type.
@@ -44,3 +45,15 @@ func (m *MockShell) GetProjectRoot() (string, error) {
 	}
 	return "", errors.New("GetProjectRootFunc not implemented")
 }
+
+// Exec executes a command
+func (m *MockShell) Exec(command string, args ...string) (string, error) {
+	if m.ExecFn != nil {
+		output, err := m.ExecFn(command, args...)
+		return string(output), err
+	}
+	return "", errors.New("ExecFn not implemented")
+}
+
+// Ensure MockShell implements the Shell interface
+var _ Shell = (*MockShell)(nil)
