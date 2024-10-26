@@ -72,7 +72,7 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 	t.Run("CustomPrintEnvVars", func(t *testing.T) {
 		// Given a mock shell with custom PrintEnvVars implementation
 		mockShell, _ := NewMockShell("cmd")
-		mockShell.PrintEnvVarsFn = func(envVars map[string]string) {
+		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			for key, value := range envVars {
 				fmt.Printf("%s=%s\n", key, value)
 			}
@@ -131,7 +131,7 @@ func TestMockShell_Exec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom ExecFn implementation
 		mockShell, _ := NewMockShell("cmd")
-		mockShell.ExecFn = func(command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
 			// Simulate command execution and return a mocked output
 			return "mocked output", nil
 		}
@@ -148,7 +148,7 @@ func TestMockShell_Exec(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		// Given a mock shell whose ExecFn returns an error
 		mockShell, _ := NewMockShell("cmd")
-		mockShell.ExecFn = func(command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
 			// Simulate command failure
 			return "", errors.New("mocked error")
 		}

@@ -9,9 +9,9 @@ import (
 // MockShell is a struct that simulates a shell environment for testing purposes.
 type MockShell struct {
 	ShellType          string
-	PrintEnvVarsFn     func(envVars map[string]string)
+	PrintEnvVarsFunc   func(envVars map[string]string)
 	GetProjectRootFunc func() (string, error)
-	ExecFn             func(command string, args ...string) (string, error)
+	ExecFunc           func(command string, args ...string) (string, error)
 }
 
 // NewMockShell creates a new instance of MockShell based on the provided shell type.
@@ -48,8 +48,8 @@ func (m *MockShell) GetProjectRoot() (string, error) {
 
 // Exec executes a command
 func (m *MockShell) Exec(command string, args ...string) (string, error) {
-	if m.ExecFn != nil {
-		output, err := m.ExecFn(command, args...)
+	if m.ExecFunc != nil {
+		output, err := m.ExecFunc(command, args...)
 		return string(output), err
 	}
 	return "", errors.New("ExecFn not implemented")

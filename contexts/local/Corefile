@@ -1,0 +1,19 @@
+
+test:53 {
+    hosts {
+        10.1.0.2 aws.test
+        10.1.0.3 controlplane-1.test
+        10.1.0.4 dns.test
+        10.1.0.5 gcr.test
+        10.1.0.6 ghcr.test
+        10.1.0.7 git.test
+        10.1.0.8 quay.test
+        10.1.0.9 registry-1.docker.test
+        10.1.0.10 registry.k8s.test
+        10.1.0.11 registry.test
+        10.1.0.12 worker-1.test
+        fallthrough
+    }
+
+    forward . /etc/resolv.conf
+}
