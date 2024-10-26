@@ -27,7 +27,11 @@ func TestContextSubcommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
 			}
-			setupContainer(mockHandler, mockHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// When the get context command is executed
 			output := captureStdout(func() {
@@ -55,7 +59,11 @@ func TestContextSubcommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
 			}
-			setupContainer(mockHandler, mockHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// When the get context command is executed
 			output := captureStderr(func() {
@@ -84,7 +92,11 @@ func TestContextSubcommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
 			}
-			setupContainer(mockHandler, mockHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// When the set context command is executed with a valid context
 			output := captureStdout(func() {
@@ -110,7 +122,11 @@ func TestContextSubcommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
 			}
-			setupContainer(mockHandler, mockHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// When the set context command is executed
 			output := captureStderr(func() {
@@ -137,7 +153,11 @@ func TestContextSubcommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
 			}
-			setupContainer(mockHandler, mockHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// When the set context command is executed
 			output := captureStderr(func() {
@@ -167,7 +187,11 @@ func TestContextSubcommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
 			}
-			setupContainer(mockHandler, mockHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// When the get-context alias command is executed
 			output := captureStdout(func() {
@@ -195,7 +219,11 @@ func TestContextSubcommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
 			}
-			setupContainer(mockHandler, mockHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// When the get-context alias command is executed
 			output := captureStderr(func() {
@@ -224,7 +252,11 @@ func TestContextSubcommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
 			}
-			setupContainer(mockHandler, mockHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// When the set-context alias command is executed with a valid context
 			output := captureStdout(func() {
@@ -250,7 +282,11 @@ func TestContextSubcommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
 			}
-			setupContainer(mockHandler, mockHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// When the set-context alias command is executed
 			output := captureStderr(func() {
@@ -277,7 +313,11 @@ func TestContextSubcommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewMockShell() error = %v", err)
 			}
-			setupContainer(mockHandler, mockHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// When the set-context alias command is executed
 			output := captureStderr(func() {

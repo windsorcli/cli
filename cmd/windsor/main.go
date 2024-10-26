@@ -26,13 +26,6 @@ func main() {
 	shellInstance := shell.NewDefaultShell()
 	container.Register("shell", shellInstance)
 
-	// Register the Project Config Handler (to be initialized later)
-	projectConfigHandler, err := config.NewYamlConfigHandler("")
-	if err != nil {
-		log.Fatalf("failed to create project config handler: %v", err)
-	}
-	container.Register("projectConfigHandler", projectConfigHandler)
-
 	// Create and register the Context instance
 	contextInstance := context.NewContext(cliConfigHandler, shellInstance)
 	container.Register("context", contextInstance)
