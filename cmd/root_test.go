@@ -137,9 +137,9 @@ func captureStderr(f func()) string {
 var exitCode int
 var exitMessage string
 
-func mockExit(code int) {
+func mockExit(code int, message string) {
 	exitCode = code
-	exitMessage = captureStderr(func() {})
+	exitMessage = message
 	panic(fmt.Sprintf("exit code: %d", code))
 }
 

@@ -14,7 +14,9 @@ import (
 
 func TestEnvCmd(t *testing.T) {
 	originalExitFunc := exitFunc
-	exitFunc = mockExit
+	exitFunc = func(code int) {
+		mockExit(code, "")
+	}
 	t.Cleanup(func() {
 		exitFunc = originalExitFunc
 	})

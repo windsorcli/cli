@@ -1,6 +1,8 @@
 package shell
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +25,8 @@ type Shell interface {
 	PrintEnvVars(envVars map[string]string)
 	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
+	// Exec executes a command with optional privilege elevation
+	Exec(command string, args ...string) (string, error)
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -89,4 +93,26 @@ func (d *DefaultShell) GetProjectRoot() (string, error) {
 		currentDir = parentDir
 		depth++
 	}
+}
+
+// Exec executes a command and returns its output as a string
+func (d *DefaultShell) Exec(command string, args ...string) (string, error) {
+	// **Modified to use execCommand**
+	cmd := execCommand(command, args...)
+
+	// Use buffers to capture output
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	// Run the command
+	err := cmd.Run()
+	output := stdoutBuf.String()
+	stderrOutput := stderrBuf.String()
+
+	if err != nil {
+		return output, fmt.Errorf("command execution failed: %s, %w", stderrOutput, err)
+	}
+
+	return output, nil
 }

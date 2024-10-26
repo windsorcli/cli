@@ -20,6 +20,7 @@ var (
 	getwd         = os.Getwd
 	container     di.ContainerInterface
 	verbose       bool
+	osSetenv      = os.Setenv
 )
 
 // ConfigHandler instances
