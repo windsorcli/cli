@@ -17,88 +17,46 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
+// Struct to hold optional mock handlers and helpers
+type MockDependencies struct {
+	CLIConfigHandler config.ConfigHandler
+	Shell            shell.Shell
+	TerraformHelper  helpers.Helper
+	AwsHelper        helpers.Helper
+	ColimaHelper     helpers.Helper
+	DockerHelper     helpers.Helper
+}
+
 // Helper function to create a new container and register mock handlers
-func setupContainer(
-	mockCLIConfigHandler config.ConfigHandler,
-	mockProjectConfigHandler config.ConfigHandler,
-	mockShell *shell.MockShell,
-	mockTerraformHelper helpers.Helper,
-	mockAwsHelper helpers.Helper,
-	mockColimaHelper helpers.Helper,
-	mockDockerHelper helpers.Helper,
-) di.ContainerInterface {
+func setupContainer(deps MockDependencies) di.ContainerInterface {
 	container := di.NewContainer()
 
-	// Create simple mock handlers if not provided
-	if mockCLIConfigHandler == nil {
-		mockCLIConfigHandler := config.NewMockConfigHandler()
-		mockCLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
-		mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-			return "value", nil
-		}
+	if deps.CLIConfigHandler == nil {
+		deps.CLIConfigHandler = config.NewMockConfigHandler()
 	}
-	if mockProjectConfigHandler == nil {
-		mockProjectConfigHandler := config.NewMockConfigHandler()
-		mockProjectConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
-		mockProjectConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-			return "value", nil
-		}
+	if deps.Shell == nil {
+		deps.Shell, _ = shell.NewMockShell("unix")
 	}
-	if mockShell == nil {
-		mockShell, _ = shell.NewMockShell("unix")
+	if deps.TerraformHelper == nil {
+		deps.TerraformHelper = helpers.NewMockHelper()
 	}
-	if mockTerraformHelper == nil {
-		mockTerraformHelper = helpers.NewMockHelper()
+	if deps.AwsHelper == nil {
+		deps.AwsHelper = helpers.NewMockHelper()
 	}
-	if mockAwsHelper == nil {
-		mockAwsHelper = helpers.NewMockHelper()
+	if deps.ColimaHelper == nil {
+		deps.ColimaHelper = helpers.NewMockHelper()
 	}
-	if mockColimaHelper == nil {
-		mockColimaHelper = helpers.NewMockHelper()
-	}
-	if mockDockerHelper == nil {
-		mockDockerHelper = helpers.NewMockHelper()
+	if deps.DockerHelper == nil {
+		deps.DockerHelper = helpers.NewMockHelper()
 	}
 
-	container.Register("cliConfigHandler", mockCLIConfigHandler)
-	container.Register("projectConfigHandler", mockProjectConfigHandler)
-	container.Register("shell", mockShell)
-	container.Register("terraformHelper", mockTerraformHelper)
-	container.Register("awsHelper", mockAwsHelper)
-	container.Register("colimaHelper", mockColimaHelper)
-	container.Register("dockerHelper", mockDockerHelper)
+	container.Register("cliConfigHandler", deps.CLIConfigHandler)
+	container.Register("shell", deps.Shell)
+	container.Register("terraformHelper", deps.TerraformHelper)
+	container.Register("awsHelper", deps.AwsHelper)
+	container.Register("colimaHelper", deps.ColimaHelper)
+	container.Register("dockerHelper", deps.DockerHelper)
 	Initialize(container)
-
-	// Ensure handlers are set correctly
-	instance, err := container.Resolve("cliConfigHandler")
-	if err != nil {
-		panic("Error resolving cliConfigHandler: " + err.Error())
-	}
-	cliConfigHandler, _ = instance.(config.ConfigHandler)
-
-	instance, err = container.Resolve("projectConfigHandler")
-	if err != nil {
-		panic("Error resolving projectConfigHandler: " + err.Error())
-	}
-	projectConfigHandler, _ = instance.(config.ConfigHandler)
-
-	instance, err = container.Resolve("shell")
-	if err != nil {
-		panic("Error resolving shell: " + err.Error())
-	}
-	shellInstance, _ = instance.(shell.Shell)
-
-	instance, err = container.Resolve("terraformHelper")
-	if err != nil {
-		panic("Error resolving terraformHelper: " + err.Error())
-	}
-	terraformHelper, _ = instance.(helpers.Helper)
-
-	instance, err = container.Resolve("awsHelper")
-	if err != nil {
-		panic("Error resolving awsHelper: " + err.Error())
-	}
-	awsHelper, _ = instance.(helpers.Helper)
 
 	return container
 }
@@ -158,15 +116,13 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockProjectConfigHandler := config.NewMockConfigHandler()
-			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
-
 			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockCLIConfigHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// When preRunLoadConfig is executed
 			err := preRunLoadConfig(nil, nil)
@@ -180,11 +136,6 @@ func TestRootCommand(t *testing.T) {
 		t.Run("NoCLIConfigHandler", func(t *testing.T) {
 			// Given no CLI config handler is registered
 			cliConfigHandler = nil
-			projectConfigHandler := config.NewMockConfigHandler()
-			projectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			projectConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
 
 			// When preRunLoadConfig is executed
 			err := preRunLoadConfig(nil, nil)
@@ -199,29 +150,6 @@ func TestRootCommand(t *testing.T) {
 			}
 		})
 
-		t.Run("NoProjectConfigHandler", func(t *testing.T) {
-			// Given no project config handler is registered
-			mockCLIConfigHandler := config.NewMockConfigHandler()
-			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
-			cliConfigHandler = mockCLIConfigHandler
-			projectConfigHandler = nil
-
-			// When preRunLoadConfig is executed
-			err := preRunLoadConfig(nil, nil)
-
-			// Then an error should be returned
-			if err == nil {
-				t.Fatalf("preRunLoadConfig() expected error, got nil")
-			}
-			expectedError := "projectConfigHandler is not initialized"
-			if err.Error() != expectedError {
-				t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
-			}
-		})
-
 		t.Run("CLIConfigLoadError", func(t *testing.T) {
 			// Given CLI config handler returns an error on LoadConfig
 			mockCLIConfigHandler := config.NewMockConfigHandler()
@@ -230,15 +158,13 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockProjectConfigHandler := config.NewMockConfigHandler()
-			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
-
 			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockCLIConfigHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// When preRunLoadConfig is executed
 			err := preRunLoadConfig(nil, nil)
@@ -248,46 +174,6 @@ func TestRootCommand(t *testing.T) {
 				t.Fatalf("preRunLoadConfig() expected error, got nil")
 			}
 			expectedError := "error loading CLI config: mock load error"
-			if err.Error() != expectedError {
-				t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
-			}
-		})
-		t.Run("ProjectConfigLoadError", func(t *testing.T) {
-			// Given project config handler returns an error on LoadConfig
-			mockCLIConfigHandler := config.NewMockConfigHandler()
-			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
-
-			mockProjectConfigHandler := config.NewMockConfigHandler()
-			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return errors.New("mock load error") }
-			mockProjectConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
-
-			mockShell, _ := shell.NewMockShell("unix")
-			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil, nil, nil, nil)
-
-			// Ensure the project config path is set
-			tempDir := t.TempDir()
-			windsorYamlPath := filepath.Join(tempDir, "windsor.yaml")
-			file, err := os.Create(windsorYamlPath)
-			if err != nil {
-				t.Fatalf("Failed to create windsor.yaml: %v", err)
-			}
-			file.Close()
-			mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
-
-			// When preRunLoadConfig is executed
-			err = preRunLoadConfig(nil, nil)
-
-			// Then an error should be returned
-			if err == nil {
-				t.Fatalf("preRunLoadConfig() expected error, got nil")
-			}
-			expectedError := "error loading project config: mock load error"
 			if err.Error() != expectedError {
 				t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
 			}
@@ -303,15 +189,13 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockProjectConfigHandler := config.NewMockConfigHandler()
-			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
-
 			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockCLIConfigHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// Mock exitFunc to capture the exit code
 			var exitCode int
@@ -347,7 +231,6 @@ func TestRootCommand(t *testing.T) {
 		t.Run("NoConfigHandlers", func(t *testing.T) {
 			// Given no config handlers are registered
 			cliConfigHandler = nil
-			projectConfigHandler = nil
 
 			// Mock exitFunc to capture the exit code
 			var exitCode int
@@ -391,15 +274,14 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockProjectConfigHandler := config.NewMockConfigHandler()
-			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
-
 			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil, nil, nil, nil)
+
+			deps := MockDependencies{
+				CLIConfigHandler: mockCLIConfigHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// Mock exitFunc to capture the exit code
 			var exitCode int
@@ -517,15 +399,13 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockProjectConfigHandler := config.NewMockConfigHandler()
-			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
-
 			mockShell, _ := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "", errors.New("mock error") }
-			setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockCLIConfigHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// Capture the output to os.Stderr
 			stderr := captureStderr(func() {
@@ -552,16 +432,14 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockProjectConfigHandler := config.NewMockConfigHandler()
-			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
-
 			mockShell, _ := shell.NewMockShell("unix")
 			tempDir := t.TempDir()
 			mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
-			setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil, nil, nil, nil)
+			deps := MockDependencies{
+				CLIConfigHandler: mockCLIConfigHandler,
+				Shell:            mockShell,
+			}
+			setupContainer(deps)
 
 			// Create a temporary windsor.yaml file in the project root
 			windsorYamlPath := filepath.Join(tempDir, "windsor.yaml")
@@ -588,54 +466,14 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockProjectConfigHandler := config.NewMockConfigHandler()
-			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
-
 			mockShell, _ := shell.NewMockShell("unix")
 			tempDir := t.TempDir()
 			mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
-			setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil, nil, nil, nil)
-
-			// Create a temporary windsor.yml file in the project root
-			windsorYmlPath := filepath.Join(tempDir, "windsor.yml")
-			file, err := os.Create(windsorYmlPath)
-			if err != nil {
-				t.Fatalf("Failed to create windsor.yml: %v", err)
+			deps := MockDependencies{
+				CLIConfigHandler: mockCLIConfigHandler,
+				Shell:            mockShell,
 			}
-			file.Close()
-
-			// When getProjectConfigPath is called
-			projectConfigPath := getProjectConfigPath()
-
-			// Then projectConfigPath should be set to windsor.yml
-			if projectConfigPath != windsorYmlPath {
-				t.Errorf("expected projectConfigPath to be %s, got %s", windsorYmlPath, projectConfigPath)
-			}
-		})
-	})
-
-	t.Run("GetProjectConfigPath", func(t *testing.T) {
-		t.Run("WindsorYml", func(t *testing.T) {
-			// Given valid config handlers and shell instance
-			mockCLIConfigHandler := config.NewMockConfigHandler()
-			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
-
-			mockProjectConfigHandler := config.NewMockConfigHandler()
-			mockProjectConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockProjectConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
-				return "value", nil
-			}
-
-			mockShell, _ := shell.NewMockShell("unix")
-			tempDir := t.TempDir()
-			mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
-			setupContainer(mockCLIConfigHandler, mockProjectConfigHandler, mockShell, nil, nil, nil, nil)
+			setupContainer(deps)
 
 			// Create a temporary windsor.yml file in the project root
 			windsorYmlPath := filepath.Join(tempDir, "windsor.yml")

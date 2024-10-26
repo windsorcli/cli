@@ -25,7 +25,6 @@ var (
 
 // ConfigHandler instances
 var cliConfigHandler config.ConfigHandler
-var projectConfigHandler config.ConfigHandler
 
 // shell instance
 var shellInstance shell.Shell
@@ -93,23 +92,10 @@ func preRunLoadConfig(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cliConfigHandler is not initialized")
 	}
 
-	// Check if projectConfigHandler is initialized
-	if projectConfigHandler == nil {
-		return fmt.Errorf("projectConfigHandler is not initialized")
-	}
-
 	// Load CLI configuration
 	cliConfigPath := getCLIConfigPath()
 	if err := cliConfigHandler.LoadConfig(cliConfigPath); err != nil {
 		return fmt.Errorf("error loading CLI config: %w", err)
-	}
-
-	// Load project configuration
-	projectConfigPath := getProjectConfigPath()
-	if projectConfigPath != "" {
-		if err := projectConfigHandler.LoadConfig(projectConfigPath); err != nil {
-			return fmt.Errorf("error loading project config: %w", err)
-		}
 	}
 
 	return nil
@@ -173,7 +159,6 @@ func Initialize(cont di.ContainerInterface) {
 	}
 
 	resolveAndAssign("cliConfigHandler", &cliConfigHandler)
-	resolveAndAssign("projectConfigHandler", &projectConfigHandler)
 	resolveAndAssign("shell", &shellInstance)
 	resolveAndAssign("terraformHelper", &terraformHelper)
 	resolveAndAssign("awsHelper", &awsHelper)

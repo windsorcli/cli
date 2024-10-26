@@ -27,7 +27,6 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a valid config handler, shell, and helper
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -42,7 +41,12 @@ func TestEnvCmd(t *testing.T) {
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return nil
 		})
-		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			TerraformHelper:  mockHelper,
+		}
+		setupContainer(deps)
 
 		// When the env command is executed
 		output := captureStdout(func() {
@@ -66,7 +70,6 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a container that returns an error when resolving helpers
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -78,7 +81,6 @@ func TestEnvCmd(t *testing.T) {
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
 		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
-		mockContainer.Register("projectConfigHandler", mockProjectConfigHandler)
 		mockContainer.Register("shell", mockShell)
 		mockContainer.Register("terraformHelper", mockHelper)
 		mockContainer.Register("awsHelper", mockHelper)
@@ -108,7 +110,6 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a container that returns an error when resolving helpers
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -120,7 +121,6 @@ func TestEnvCmd(t *testing.T) {
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
 		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
-		mockContainer.Register("projectConfigHandler", mockProjectConfigHandler)
 		mockContainer.Register("shell", mockShell)
 		mockContainer.Register("terraformHelper", mockHelper)
 		mockContainer.Register("awsHelper", mockHelper)
@@ -151,11 +151,9 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a container that returns an error when resolving the shell
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveError("shell", errors.New("resolve shell error")) // Simulate error
 		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
-		mockContainer.Register("projectConfigHandler", mockProjectConfigHandler)
 		Initialize(mockContainer)
 
 		// When the env command is executed with verbose flag
@@ -188,7 +186,6 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a helper that returns an error when getting environment variables
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -200,7 +197,15 @@ func TestEnvCmd(t *testing.T) {
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return nil
 		})
-		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			TerraformHelper:  mockHelper,
+			AwsHelper:        mockHelper,
+			ColimaHelper:     mockHelper,
+			DockerHelper:     mockHelper,
+		}
+		setupContainer(deps)
 
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
@@ -224,7 +229,6 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a helper that returns an error when getting environment variables
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -236,7 +240,15 @@ func TestEnvCmd(t *testing.T) {
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return nil
 		})
-		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			TerraformHelper:  mockHelper,
+			AwsHelper:        mockHelper,
+			ColimaHelper:     mockHelper,
+			DockerHelper:     mockHelper,
+		}
+		setupContainer(deps)
 
 		// Capture the output
 		var buf bytes.Buffer
@@ -262,7 +274,6 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a helper that returns an error when executing PostEnvExec
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -277,7 +288,15 @@ func TestEnvCmd(t *testing.T) {
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return errors.New("post env exec error")
 		})
-		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			TerraformHelper:  mockHelper,
+			AwsHelper:        mockHelper,
+			ColimaHelper:     mockHelper,
+			DockerHelper:     mockHelper,
+		}
+		setupContainer(deps)
 
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
@@ -301,7 +320,6 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a helper that returns an error when executing PostEnvExec
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockProjectConfigHandler := config.NewMockConfigHandler()
 		mockShell, err := shell.NewMockShell("cmd")
 		if err != nil {
 			t.Fatalf("NewMockShell() error = %v", err)
@@ -316,7 +334,15 @@ func TestEnvCmd(t *testing.T) {
 		mockHelper.SetPostEnvExecFunc(func() error {
 			return errors.New("post env exec error")
 		})
-		setupContainer(mockCliConfigHandler, mockProjectConfigHandler, mockShell, mockHelper, nil, nil, nil)
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			TerraformHelper:  mockHelper,
+			AwsHelper:        mockHelper,
+			ColimaHelper:     mockHelper,
+			DockerHelper:     mockHelper,
+		}
+		setupContainer(deps)
 
 		// Capture the output
 		var buf bytes.Buffer

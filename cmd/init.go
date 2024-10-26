@@ -41,9 +41,6 @@ var initCmd = &cobra.Command{
 			cliConfigPath = filepath.Join(homeDir, ".config", "windsor", "config.yaml")
 		}
 
-		// Determine the projectConfig path
-		projectConfigPath := getProjectConfigPath()
-
 		// Set the context value
 		if err := cliConfigHandler.Set("context", contextName); err != nil {
 			return fmt.Errorf("Error setting config value: %w", err)
@@ -123,13 +120,6 @@ var initCmd = &cobra.Command{
 		// Save the cli configuration
 		if err := cliConfigHandler.SaveConfig(cliConfigPath); err != nil {
 			return fmt.Errorf("Error saving config file: %w", err)
-		}
-
-		// Save the project configuration only if projectConfigPath is present
-		if projectConfigPath != "" {
-			if err := projectConfigHandler.SaveConfig(projectConfigPath); err != nil {
-				return fmt.Errorf("Error saving project config file: %w", err)
-			}
 		}
 
 		// Initialize and write the vendor config files using the DI container
