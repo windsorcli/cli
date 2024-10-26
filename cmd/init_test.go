@@ -434,7 +434,6 @@ func TestInitCmd(t *testing.T) {
 			}
 		}
 	})
-
 	t.Run("VMConfiguration", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		calledKeys := make(map[string]bool)
@@ -590,7 +589,6 @@ func TestInitCmd(t *testing.T) {
 			t.Fatalf("Expected error setting VM driver, got %v", err)
 		}
 	})
-
 	t.Run("ErrorSettingVMConfigurationCPU", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
