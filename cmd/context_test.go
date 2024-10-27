@@ -5,8 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/mocks"
 )
 
 func TestContext_Get(t *testing.T) {
@@ -20,14 +19,9 @@ func TestContext_Get(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a valid config handler
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) { return "test-context", nil }
-		mockShell := shell.NewMockShell("cmd")
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			Shell:            mockShell,
-		}
-		setupContainer(deps)
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) { return "test-context", nil }
+		Initialize(mocks.Container)
 
 		// When the get context command is executed
 		output := captureStdout(func() {
@@ -47,16 +41,11 @@ func TestContext_Get(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		// Given a config handler that returns an error on GetConfigValue
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			return "", errors.New("get context error")
 		}
-		mockShell := shell.NewMockShell("cmd")
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			Shell:            mockShell,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		// When the get context command is executed
 		output := captureStderr(func() {
@@ -86,16 +75,10 @@ func TestContext_Set(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a valid config handler
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error { return nil }
-		mockHandler.SaveConfigFunc = func(path string) error { return nil }
-		mockShell := shell.NewMockShell("cmd")
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			Shell:            mockShell,
-		}
-		setupContainer(deps)
-
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return nil }
+		Initialize(mocks.Container)
 		// When the set context command is executed with a valid context
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"context", "set", "new-context"})
@@ -114,15 +97,9 @@ func TestContext_Set(t *testing.T) {
 
 	t.Run("SetContextError", func(t *testing.T) {
 		// Given a config handler that returns an error on SetConfigValue
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error { return errors.New("set context error") }
-		mockShell := shell.NewMockShell("cmd")
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			Shell:            mockShell,
-		}
-		setupContainer(deps)
-
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return errors.New("set context error") }
+		Initialize(mocks.Container)
 		// When the set context command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"context", "set", "new-context"})
@@ -141,15 +118,10 @@ func TestContext_Set(t *testing.T) {
 
 	t.Run("SaveConfigError", func(t *testing.T) {
 		// Given a config handler that returns an error on SaveConfig
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error { return nil }
-		mockHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
-		mockShell := shell.NewMockShell("cmd")
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			Shell:            mockShell,
-		}
-		setupContainer(deps)
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
+		Initialize(mocks.Container)
 
 		// When the set context command is executed
 		output := captureStderr(func() {
@@ -179,17 +151,11 @@ func TestContext_GetAlias(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a valid config handler
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			return "test-context", nil
 		}
-		mockShell := shell.NewMockShell("cmd")
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			Shell:            mockShell,
-		}
-		setupContainer(deps)
-
+		Initialize(mocks.Container)
 		// When the get-context alias command is executed
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"get-context"})
@@ -208,16 +174,11 @@ func TestContext_GetAlias(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		// Given a config handler that returns an error on GetConfigValue
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 			return "", errors.New("get context error")
 		}
-		mockShell := shell.NewMockShell("cmd")
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			Shell:            mockShell,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		// When the get-context alias command is executed
 		output := captureStderr(func() {
@@ -247,15 +208,10 @@ func TestContext_SetAlias(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a valid config handler
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error { return nil }
-		mockHandler.SaveConfigFunc = func(path string) error { return nil }
-		mockShell := shell.NewMockShell("cmd")
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			Shell:            mockShell,
-		}
-		setupContainer(deps)
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return nil }
+		Initialize(mocks.Container)
 
 		// When the set-context alias command is executed with a valid context
 		output := captureStdout(func() {
@@ -275,14 +231,9 @@ func TestContext_SetAlias(t *testing.T) {
 
 	t.Run("SetContextError", func(t *testing.T) {
 		// Given a config handler that returns an error on SetConfigValue
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error { return errors.New("set context error") }
-		mockShell := shell.NewMockShell("cmd")
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			Shell:            mockShell,
-		}
-		setupContainer(deps)
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return errors.New("set context error") }
+		Initialize(mocks.Container)
 
 		// When the set-context alias command is executed
 		output := captureStderr(func() {
@@ -302,15 +253,10 @@ func TestContext_SetAlias(t *testing.T) {
 
 	t.Run("SaveConfigError", func(t *testing.T) {
 		// Given a config handler that returns an error on SaveConfig
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error { return nil }
-		mockHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
-		mockShell := shell.NewMockShell("cmd")
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			Shell:            mockShell,
-		}
-		setupContainer(deps)
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
+		Initialize(mocks.Container)
 
 		// When the set-context alias command is executed
 		output := captureStderr(func() {
