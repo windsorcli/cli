@@ -171,6 +171,11 @@ func (h *DockerHelper) WriteConfig() error {
 	return nil
 }
 
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *DockerHelper) Up() error {
+	return nil
+}
+
 // GetFullComposeConfig retrieves the full compose configuration for the DockerHelper.
 func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	// Retrieve the context configuration using GetConfig

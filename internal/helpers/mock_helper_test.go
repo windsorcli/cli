@@ -385,3 +385,61 @@ func TestMockHelper_SetInitializeFunc(t *testing.T) {
 		}
 	})
 }
+
+func TestMockHelper_Up(t *testing.T) {
+	t.Run("UpFuncSet", func(t *testing.T) {
+		// Given: a mock helper with a set UpFunc
+		expectedError := errors.New("mock up error")
+		mockHelper := NewMockHelper()
+		mockHelper.UpFunc = func() error {
+			return expectedError
+		}
+
+		// When: Up is called
+		err := mockHelper.Up()
+
+		// Then: the UpFunc should be set and return the expected error
+		if err == nil {
+			t.Fatalf("expected error %v, got nil", expectedError)
+		}
+		if err.Error() != expectedError.Error() {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("UpFuncNotSet", func(t *testing.T) {
+		// Given: a mock helper without a set UpFunc
+		mockHelper := NewMockHelper()
+
+		// When: Up is called
+		err := mockHelper.Up()
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestMockHelper_SetUpFunc(t *testing.T) {
+	t.Run("SetUpFunc", func(t *testing.T) {
+		// Given: a mock helper and a mock UpFunc
+		expectedError := errors.New("mock up error")
+		mockHelper := NewMockHelper()
+		mockUpFunc := func() error {
+			return expectedError
+		}
+
+		// When: SetUpFunc is called
+		mockHelper.SetUpFunc(mockUpFunc)
+
+		// Then: the UpFunc should be set and return the expected error
+		err := mockHelper.Up()
+		if err == nil {
+			t.Fatalf("expected error %v, got nil", expectedError)
+		}
+		if err.Error() != expectedError.Error() {
+			t.Fatalf("expected error %v, got %v", expectedError, err)
+		}
+	})
+}

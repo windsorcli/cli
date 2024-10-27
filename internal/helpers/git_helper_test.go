@@ -192,32 +192,6 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	// t.Run("ErrorRetrievingEnabledStatus", func(t *testing.T) {
-	// 	mockConfigHandler := config.NewMockConfigHandler()
-	// 	mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-	// 		return nil, fmt.Errorf("mock enabled status error")
-	// 	}
-	// 	mockContext := context.NewMockContext()
-	// 	mockContext.GetContextFunc = func() (string, error) {
-	// 		return "test-context", nil
-	// 	}
-	// 	diContainer := di.NewContainer()
-	// 	diContainer.Register("cliConfigHandler", mockConfigHandler)
-	// 	mockShell, _ := shell.NewMockShell("unix")
-	// 	diContainer.Register("shell", mockShell)
-	// 	diContainer.Register("context", mockContext)
-
-	// 	gitHelper, err := NewGitHelper(diContainer)
-	// 	if err != nil {
-	// 		t.Fatalf("NewGitHelper() error = %v", err)
-	// 	}
-
-	// 	_, err = gitHelper.GetComposeConfig()
-	// 	if err == nil || !strings.Contains(err.Error(), "error retrieving git livereload enabled status") {
-	// 		t.Fatalf("expected error retrieving git livereload enabled status, got %v", err)
-	// 	}
-	// })
-
 	t.Run("GitLivereloadNotEnabled", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
@@ -521,6 +495,31 @@ func TestGitHelper_NoOpFunctions(t *testing.T) {
 		err := gitHelper.WriteConfig()
 		if err != nil {
 			t.Fatalf("expected nil; got %v", err)
+		}
+	})
+}
+
+func TestGitHelper_Up(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockShell, _ := shell.NewMockShell("unix")
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of GitHelper
+		gitHelper, err := NewGitHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewGitHelper() error = %v", err)
+		}
+
+		// When: Up is called
+		err = gitHelper.Up()
+		if err != nil {
+			t.Fatalf("Up() error = %v", err)
 		}
 	})
 }

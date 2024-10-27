@@ -71,5 +71,10 @@ func (h *KubeHelper) WriteConfig() error {
 	return nil
 }
 
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *KubeHelper) Up() error {
+	return nil
+}
+
 // Ensure KubeHelper implements Helper interface
 var _ Helper = (*KubeHelper)(nil)

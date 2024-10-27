@@ -248,5 +248,10 @@ func (h *ColimaHelper) WriteConfig() error {
 	return nil
 }
 
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *ColimaHelper) Up() error {
+	return nil
+}
+
 // Ensure ColimaHelper implements Helper interface
 var _ Helper = (*ColimaHelper)(nil)

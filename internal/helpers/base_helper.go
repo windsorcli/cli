@@ -101,5 +101,10 @@ func (h *BaseHelper) WriteConfig() error {
 	return nil
 }
 
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *BaseHelper) Up() error {
+	return nil
+}
+
 // Ensure BaseHelper implements Helper interface
 var _ Helper = (*BaseHelper)(nil)

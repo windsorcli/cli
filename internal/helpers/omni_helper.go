@@ -75,5 +75,10 @@ func (h *OmniHelper) WriteConfig() error {
 	return nil
 }
 
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *OmniHelper) Up() error {
+	return nil
+}
+
 // Ensure OmniHelper implements Helper interface
 var _ Helper = (*OmniHelper)(nil)

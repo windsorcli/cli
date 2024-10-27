@@ -1224,6 +1224,31 @@ func TestTalosHelper_WriteConfig(t *testing.T) {
 	})
 }
 
+func TestTalosHelper_Up(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockShell, _ := shell.NewMockShell("unix")
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewTalosHelper() error = %v", err)
+		}
+
+		// When: Up is called
+		err = talosHelper.Up()
+		if err != nil {
+			t.Fatalf("Up() error = %v", err)
+		}
+	})
+}
+
 // Custom comparison function for ServiceConfig slices
 func compareServiceConfigs(actual, expected []types.ServiceConfig) bool {
 	if len(actual) != len(expected) {

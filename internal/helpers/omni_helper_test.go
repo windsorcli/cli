@@ -258,3 +258,26 @@ func TestOmniHelper_WriteConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestOmniHelper_Up(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Create an instance of OmniHelper
+		omniHelper, err := NewOmniHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewOmniHelper() error = %v", err)
+		}
+
+		// When: Up is called
+		err = omniHelper.Up()
+		if err != nil {
+			t.Fatalf("Up() error = %v", err)
+		}
+	})
+}

@@ -12,6 +12,8 @@ type MockHelper struct {
 	GetComposeConfigFunc func() (*types.Config, error)
 	// WriteConfigFunc is a function that mocks the WriteConfig method
 	WriteConfigFunc func() error
+	// UpFunc is a function that mocks the Up method
+	UpFunc func() error
 	// InitializeFunc is a function that mocks the Initialize method
 	InitializeFunc func() error
 }
@@ -61,6 +63,14 @@ func (m *MockHelper) WriteConfig() error {
 	return nil
 }
 
+// Up calls the mock UpFunc if it is set, otherwise returns nil
+func (m *MockHelper) Up() error {
+	if m.UpFunc != nil {
+		return m.UpFunc()
+	}
+	return nil
+}
+
 // SetInitializeFunc sets the InitializeFunc for the mock helper
 func (m *MockHelper) SetInitializeFunc(initializeFunc func() error) {
 	m.InitializeFunc = initializeFunc
@@ -79,6 +89,11 @@ func (m *MockHelper) SetGetComposeConfigFunc(getComposeConfigFunc func() (*types
 // SetWriteConfigFunc sets the WriteConfigFunc for the mock helper
 func (m *MockHelper) SetWriteConfigFunc(writeConfigFunc func() error) {
 	m.WriteConfigFunc = writeConfigFunc
+}
+
+// SetUpFunc sets the UpFunc for the mock helper
+func (m *MockHelper) SetUpFunc(upFunc func() error) {
+	m.UpFunc = upFunc
 }
 
 // Ensure MockHelper implements Helper interface

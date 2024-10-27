@@ -175,6 +175,11 @@ func (h *GitHelper) WriteConfig() error {
 	return nil
 }
 
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *GitHelper) Up() error {
+	return nil
+}
+
 // Ensure GitHelper implements Helper interface
 var _ Helper = (*GitHelper)(nil)
 

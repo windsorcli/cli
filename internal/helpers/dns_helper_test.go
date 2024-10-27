@@ -949,3 +949,26 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestDNSHelper_Up(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Create an instance of DNSHelper
+		dnsHelper, err := NewDNSHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDNSHelper() error = %v", err)
+		}
+
+		// When: Up is called
+		err = dnsHelper.Up()
+		if err != nil {
+			t.Fatalf("Up() error = %v", err)
+		}
+	})
+}

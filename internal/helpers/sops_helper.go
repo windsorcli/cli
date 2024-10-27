@@ -75,6 +75,11 @@ func (h *SopsHelper) WriteConfig() error {
 	return nil
 }
 
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *SopsHelper) Up() error {
+	return nil
+}
+
 // Ensure SopsHelper implements Helper interface
 var _ Helper = (*SopsHelper)(nil)
 
