@@ -48,6 +48,10 @@ var contextInstance context.ContextInterface
 // execCommand instance
 var execCommand = exec.Command
 
+func ptrBool(b bool) *bool {
+	return &b
+}
+
 // getCLIConfigPath returns the path to the CLI configuration file
 func getCLIConfigPath() string {
 	cliConfigPath := os.Getenv("WINDSORCONFIG")

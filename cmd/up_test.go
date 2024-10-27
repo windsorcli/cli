@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -286,6 +285,114 @@ func TestUpCmd(t *testing.T) {
 		// Verify no error as verbose is false
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorExecutingColimaStart", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a context, config handler, and shell with colima start error
+		mockContextInstance := context.NewMockContext()
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockShell, _ := shell.NewMockShell("unix")
+
+		// Mock functions
+		mockContextInstance.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		driver := "colima"
+		mockCliConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				VM: &config.VMConfig{
+					Driver: &driver,
+				},
+			}, nil
+		}
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "colima" && len(args) == 2 && args[0] == "start" && args[1] == "windsor-test-context" {
+				return "", fmt.Errorf("colima start error")
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// Setup container with mock dependencies
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			ContextInstance:  mockContextInstance,
+		}
+		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
+		Initialize(container)
+
+		// Execute the 'windsor up' command
+		rootCmd.SetArgs([]string{"up"})
+		err := rootCmd.Execute()
+
+		// Verify the error
+		expectedError := "Error executing command colima [start windsor-test-context]: colima start error\n"
+		if err == nil || err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("DockerDaemonNotRunning", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a context, config handler, and shell with Docker daemon not running
+		mockContextInstance := context.NewMockContext()
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockShell, _ := shell.NewMockShell("unix")
+
+		// Mock functions
+		mockContextInstance.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		driver := "colima"
+		mockCliConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				VM: &config.VMConfig{
+					Driver: &driver,
+				},
+				Docker: &config.DockerConfig{
+					Enabled: ptrBool(true),
+				},
+			}, nil
+		}
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "docker" && len(args) == 1 && args[0] == "info" {
+				return "", fmt.Errorf("Docker daemon is not running")
+			}
+			if command == "colima" && len(args) == 2 && args[0] == "start" && args[1] == "windsor-test-context" {
+				return "colima started", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// Setup container with mock dependencies
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			ContextInstance:  mockContextInstance,
+		}
+		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
+		Initialize(container)
+
+		// Execute the 'windsor up' command
+		rootCmd.SetArgs([]string{"up"})
+		err := rootCmd.Execute()
+
+		// Verify the error
+		expectedError := "Docker daemon is not running: Docker daemon is not running"
+		if err == nil || err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %v", expectedError, err)
 		}
 	})
 
@@ -577,16 +684,16 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
-	// Test case for error in getColimaInfo during printWelcomeStatus
-	t.Run("PrintWelcomeStatus_ErrorFetchingColimaInfo", func(t *testing.T) {
+	t.Run("DockerComposeRetryLogic", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given the happy path up to printWelcomeStatus, but getColimaInfo returns an error
+		// Given a context, config handler, and shell with docker-compose up error
 		mockContextInstance := context.NewMockContext()
 		mockCliConfigHandler := config.NewMockConfigHandler()
 		mockShell, _ := shell.NewMockShell("unix")
 
+		// Mock functions
 		mockContextInstance.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
@@ -596,39 +703,34 @@ func TestUpCmd(t *testing.T) {
 				VM: &config.VMConfig{
 					Driver: &driver,
 				},
+				Docker: &config.DockerConfig{
+					Enabled: ptrBool(true),
+				},
 			}, nil
 		}
-
-		// Mock environment variables
-		mockHelper := helpers.NewMockHelper()
-		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{"TEST_VAR": "test_value"}, nil
-		}
-		// Mock shell commands
+		callCount := 0
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
-			if command == "colima" && args[0] == "start" {
+			if command == "colima" && len(args) == 2 && args[0] == "start" && args[1] == "windsor-test-context" {
 				return "colima started", nil
-			} else if command == "docker" && args[0] == "info" {
+			}
+			if command == "docker" && len(args) == 1 && args[0] == "info" {
 				return "Docker daemon info", nil
+			}
+			if command == "docker-compose" && len(args) == 2 && args[0] == "up" && args[1] == "-d" {
+				callCount++
+				if callCount < 3 {
+					return "", fmt.Errorf("docker-compose up error")
+				}
+				return "docker-compose up successful", nil
 			}
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
-		// Mock exec.Command to return an error when running colima ls
-		originalExecCommand := execCommand
-		execCommand = func(name string, arg ...string) *exec.Cmd {
-			return exec.Command("invalid_command") // This will cause an error
-		}
-		t.Cleanup(func() {
-			execCommand = originalExecCommand
-		})
-
-		// Setup container
+		// Setup container with mock dependencies
 		deps := MockDependencies{
 			CLIConfigHandler: mockCliConfigHandler,
 			Shell:            mockShell,
 			ContextInstance:  mockContextInstance,
-			ColimaHelper:     mockHelper,
 		}
 		container := setupContainer(deps)
 		t.Cleanup(func() {
@@ -646,9 +748,22 @@ func TestUpCmd(t *testing.T) {
 			}
 		})
 
-		// Verify output contains error message about fetching Colima info
-		if !strings.Contains(output, "Error fetching Colima info") {
-			t.Errorf("Expected output to contain 'Error fetching Colima info', got %q", output)
+		// Verify that it retried the expected number of times
+		if callCount != 3 {
+			t.Errorf("Expected docker-compose up to be called 3 times, was called %d times", callCount)
+		}
+
+		// Verify output contains retry messages
+		expectedRetryMessage := "Retrying docker-compose up..."
+		retryCount := strings.Count(output, expectedRetryMessage)
+		if retryCount != 2 { // it retries 2 times after the initial failure
+			t.Errorf("Expected 2 retries, got %d", retryCount)
+		}
+
+		// Verify output contains partial success message
+		expectedSuccessMessage := "Welcome to the Windsor Environment!"
+		if !strings.Contains(output, expectedSuccessMessage) {
+			t.Errorf("Expected output to contain partial success message '%s', got %q", expectedSuccessMessage, output)
 		}
 	})
 }

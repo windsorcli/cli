@@ -147,10 +147,10 @@ func printWelcomeStatus(contextName string) {
 }
 
 func getColimaInfo(contextName string) (string, error) {
-	cmd := exec.Command("colima", "ls", "--profile", fmt.Sprintf("windsor-%s", contextName), "--json")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
+	command := "colima"
+	args := []string{"ls", "--profile", fmt.Sprintf("windsor-%s", contextName), "--json"}
+	out, err := shellInstance.Exec(false, "Fetching Colima info", command, args...)
+	if err != nil {
 		return "", err
 	}
 
@@ -164,7 +164,7 @@ func getColimaInfo(contextName string) (string, error) {
 		Runtime string `json:"runtime"`
 		Status  string `json:"status"`
 	}
-	if err := json.Unmarshal(out.Bytes(), &colimaData); err != nil {
+	if err := json.Unmarshal([]byte(out), &colimaData); err != nil {
 		return "", err
 	}
 
