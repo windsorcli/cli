@@ -26,7 +26,7 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Setup mock components
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "hello\n", nil
 		}
@@ -248,7 +248,7 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a shell that returns an error when executing the command
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "", errors.New("command execution error")
 		}
@@ -278,7 +278,7 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a shell that returns an error when executing the command
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			if runtime.GOOS == "windows" {
 				return "", errors.New("mock stderr output")
