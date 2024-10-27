@@ -131,12 +131,12 @@ func TestMockShell_Exec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom ExecFn implementation
 		mockShell, _ := NewMockShell("cmd")
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			// Simulate command execution and return a mocked output
 			return "mocked output", nil
 		}
 		// When calling Exec
-		output, err := mockShell.Exec("somecommand", "arg1", "arg2")
+		output, err := mockShell.Exec(false, "Executing command", "somecommand", "arg1", "arg2")
 		// Then no error should be returned and output should be as expected
 		assertError(t, err, false)
 		expectedOutput := "mocked output"
@@ -148,12 +148,12 @@ func TestMockShell_Exec(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		// Given a mock shell whose ExecFn returns an error
 		mockShell, _ := NewMockShell("cmd")
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			// Simulate command failure
 			return "", errors.New("mocked error")
 		}
 		// When calling Exec
-		output, err := mockShell.Exec("somecommand", "arg1", "arg2")
+		output, err := mockShell.Exec(false, "Executing command", "somecommand", "arg1", "arg2")
 		// Then an error should be returned
 		assertError(t, err, true)
 		// And output should be empty
@@ -166,12 +166,11 @@ func TestMockShell_Exec(t *testing.T) {
 			t.Errorf("Exec() error = %v, want %v", err.Error(), expectedError)
 		}
 	})
-
 	t.Run("NotImplemented", func(t *testing.T) {
 		// Given a mock shell with no ExecFn implementation
 		mockShell, _ := NewMockShell("cmd")
 		// When calling Exec
-		output, err := mockShell.Exec("somecommand", "arg1", "arg2")
+		output, err := mockShell.Exec(false, "Executing command", "somecommand", "arg1", "arg2")
 		// Then an error should be returned indicating ExecFn is not implemented
 		assertError(t, err, true)
 		// And output should be empty
@@ -179,7 +178,7 @@ func TestMockShell_Exec(t *testing.T) {
 			t.Errorf("Exec() output = %v, want %v", output, "")
 		}
 		// Error message should match
-		expectedError := "ExecFn not implemented"
+		expectedError := "ExecFunc not implemented"
 		if err.Error() != expectedError {
 			t.Errorf("Exec() error = %v, want %v", err.Error(), expectedError)
 		}

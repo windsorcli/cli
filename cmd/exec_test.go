@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -26,7 +27,7 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock components
 		mockShell, _ := shell.NewMockShell("unix")
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "hello\n", nil
 		}
 
@@ -143,6 +144,7 @@ func TestExecCmd(t *testing.T) {
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error"))
 		mockContainer.Register("shell", mockShell)
 		Initialize(mockContainer)
+		container = mockContainer
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -157,7 +159,7 @@ func TestExecCmd(t *testing.T) {
 
 		// Then there should be no output
 		if buf.Len() != 0 {
-			t.Errorf("Expected no output, got %q", buf.String())
+			t.Fatalf("Expected no output, got %s", buf.String())
 		}
 	})
 
@@ -279,7 +281,7 @@ func TestExecCmd(t *testing.T) {
 
 		// Given a shell that returns an error when executing the command
 		mockShell, _ := shell.NewMockShell("unix")
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "", errors.New("command execution error")
 		}
 		mockDockerHelper := helpers.NewMockHelper()
@@ -314,7 +316,10 @@ func TestExecCmd(t *testing.T) {
 
 		// Given a shell that returns an error when executing the command
 		mockShell, _ := shell.NewMockShell("unix")
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if runtime.GOOS == "windows" {
+				return "", errors.New("mock stderr output")
+			}
 			return "", errors.New("command execution error")
 		}
 		mockDockerHelper := helpers.NewMockHelper()
@@ -338,7 +343,10 @@ func TestExecCmd(t *testing.T) {
 
 		// Then check that the output contains the error message without usage info
 		output := buf.String()
-		expectedOutput := "Error: command execution failed: command execution error\n"
+		expectedOutput := "Error: command execution failed: mock stderr output\n"
+		if runtime.GOOS != "windows" {
+			expectedOutput = "Error: command execution failed: command execution error\n"
+		}
 		if output != expectedOutput {
 			t.Errorf("Expected output %q, got %q", expectedOutput, output)
 		}
