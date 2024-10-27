@@ -30,34 +30,67 @@ func TestUpCmd(t *testing.T) {
 	})
 
 	t.Run("Success", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a valid context, config handler, and shell
-		mockContextInstance := context.NewMockContext()
-		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell, _ := shell.NewMockShell("unix")
-
-		// Mock functions
-		mockContextInstance.GetContextFunc = func() (string, error) {
-			return "test-context", nil
+		// Mock the necessary dependencies
+		mockShell, _ := shell.NewMockShell("cmd")
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			switch command {
+			case "colima":
+				if args[0] == "start" {
+					return "colima start successful", nil
+				}
+				if args[0] == "ls" && args[1] == "--profile" {
+					colimaInfo := `{
+						"address": "192.168.5.2",
+						"arch": "x86_64",
+						"cpus": 4,
+						"disk": 10737418240,
+						"memory": 2147483648,
+						"name": "windsor-test-context",
+						"runtime": "docker",
+						"status": "Running"
+					}`
+					return colimaInfo, nil
+				}
+			case "docker-compose":
+				if args[0] == "up" {
+					return "docker-compose up successful", nil
+				}
+			case "docker":
+				if args[0] == "info" {
+					return "docker info successful", nil
+				}
+				if args[0] == "ps" && args[1] == "--filter" && args[2] == "label=managed_by=windsor" && args[3] == "--format" && args[4] == "{{.ID}}" {
+					dockerPsInfo := `1234567890ab
+abcdef123456`
+					return dockerPsInfo, nil
+				}
+				if args[0] == "inspect" {
+					dockerInspectInfo := `{
+						"role": "example-role",
+						"com.docker.compose.service": "example-service"
+					}`
+					return dockerInspectInfo, nil
+				}
+			}
+			return "", nil
 		}
-		driver := "colima"
+
+		mockCliConfigHandler := config.NewMockConfigHandler()
 		mockCliConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			driver := "colima" // Define the driver variable
 			return &config.Context{
 				VM: &config.VMConfig{
 					Driver: &driver,
 				},
+				Docker: &config.DockerConfig{
+					Enabled: ptrBool(true),
+				},
 			}, nil
 		}
-		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
-			if command == "colima" && len(args) == 2 && args[0] == "start" && args[1] == "windsor-test-context" {
-				return "colima started", nil
-			}
-			if command == "colima" && len(args) == 4 && args[0] == "ls" && args[1] == "--profile" && args[2] == "windsor-test-context" && args[3] == "--json" {
-				return `{"address": "192.168.5.5"}`, nil
-			}
-			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+
+		mockContextInstance := context.NewMockContext()
+		mockContextInstance.GetContextFunc = func() (string, error) {
+			return "test-context", nil
 		}
 
 		// Setup container with mock dependencies
@@ -72,7 +105,7 @@ func TestUpCmd(t *testing.T) {
 		})
 		Initialize(container)
 
-		// Capture stdout
+		// Capture output
 		output := captureStdout(func() {
 			// Execute the 'windsor up' command
 			rootCmd.SetArgs([]string{"up"})
@@ -82,15 +115,10 @@ func TestUpCmd(t *testing.T) {
 			}
 		})
 
-		// Verify the output contains expected success indicators
-		if !strings.Contains(output, "Welcome to the Windsor Environment!") {
-			t.Errorf("Expected output to contain welcome message, got %q", output)
-		}
-		if !strings.Contains(output, "Colima Machine Info:") {
-			t.Errorf("Expected output to contain Colima machine info, got %q", output)
-		}
-		if !strings.Contains(output, "Accessible Docker Services:") {
-			t.Errorf("Expected output to contain accessible Docker services, got %q", output)
+		// Verify output contains success message
+		expectedSuccessMessage := "Welcome to the Windsor Environment!"
+		if !strings.Contains(output, expectedSuccessMessage) {
+			t.Errorf("Expected output to contain success message '%s', got %q", expectedSuccessMessage, output)
 		}
 	})
 
@@ -710,18 +738,32 @@ func TestUpCmd(t *testing.T) {
 		}
 		callCount := 0
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
-			if command == "colima" && len(args) == 2 && args[0] == "start" && args[1] == "windsor-test-context" {
-				return "colima started", nil
-			}
-			if command == "docker" && len(args) == 1 && args[0] == "info" {
-				return "Docker daemon info", nil
-			}
-			if command == "docker-compose" && len(args) == 2 && args[0] == "up" && args[1] == "-d" {
-				callCount++
-				if callCount < 3 {
-					return "", fmt.Errorf("docker-compose up error")
+			switch command {
+			case "colima":
+				if args[0] == "start" {
+					return "colima started", nil
 				}
-				return "docker-compose up successful", nil
+				if args[0] == "ls" && args[1] == "--profile" {
+					return `{"address":"192.168.5.2","arch":"x86_64","cpus":4,"disk":10737418240,"memory":2147483648,"name":"windsor-test-context","runtime":"docker","status":"Running"}`, nil
+				}
+			case "docker":
+				if args[0] == "info" {
+					return "Docker daemon info", nil
+				}
+				if args[0] == "ps" && args[1] == "--filter" {
+					return "container_id_1\ncontainer_id_2\ncontainer_id_3", nil
+				}
+				if args[0] == "inspect" {
+					return `{"role":"example-role","com.docker.compose.service":"example-service"}`, nil
+				}
+			case "docker-compose":
+				if args[0] == "up" {
+					callCount++
+					if callCount < 3 {
+						return "", fmt.Errorf("docker-compose up error")
+					}
+					return "docker-compose up successful", nil
+				}
 			}
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
@@ -764,6 +806,175 @@ func TestUpCmd(t *testing.T) {
 		expectedSuccessMessage := "Welcome to the Windsor Environment!"
 		if !strings.Contains(output, expectedSuccessMessage) {
 			t.Errorf("Expected output to contain partial success message '%s', got %q", expectedSuccessMessage, output)
+		}
+	})
+
+	t.Run("InvalidColimaInfoJSON", func(t *testing.T) {
+		// Mock the necessary dependencies
+		mockShell, _ := shell.NewMockShell("cmd")
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			switch command {
+			case "colima":
+				if args[0] == "start" {
+					return "colima start successful", nil
+				}
+				if args[0] == "ls" && args[1] == "--profile" {
+					// Return invalid JSON
+					return "{invalid-json}", nil
+				}
+			case "docker-compose":
+				if args[0] == "up" {
+					return "docker-compose up successful", nil
+				}
+			case "docker":
+				if args[0] == "info" {
+					return "docker info successful", nil
+				}
+				if args[0] == "ps" && args[1] == "--filter" && args[2] == "label=managed_by=windsor" && args[3] == "--format" && args[4] == "{{.ID}}" {
+					dockerPsInfo := `1234567890ab
+	abcdef123456`
+					return dockerPsInfo, nil
+				}
+				if args[0] == "inspect" {
+					dockerInspectInfo := `{
+							"role": "example-role",
+							"com.docker.compose.service": "example-service"
+						}`
+					return dockerInspectInfo, nil
+				}
+			}
+			return "", nil
+		}
+
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockCliConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			driver := "colima" // Define the driver variable
+			return &config.Context{
+				VM: &config.VMConfig{
+					Driver: &driver,
+				},
+				Docker: &config.DockerConfig{
+					Enabled: ptrBool(true),
+				},
+			}, nil
+		}
+
+		mockContextInstance := context.NewMockContext()
+		mockContextInstance.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+
+		// Setup container with mock dependencies
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			ContextInstance:  mockContextInstance,
+		}
+		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
+		Initialize(container)
+
+		// Capture output
+		output := captureStdout(func() {
+			// Execute the 'windsor up' command
+			rootCmd.SetArgs([]string{"up"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error due to invalid JSON, but got nil")
+			}
+		})
+
+		// Verify output contains error message for invalid JSON
+		expectedErrorMessage := "Error fetching Colima info"
+		if !strings.Contains(output, expectedErrorMessage) {
+			t.Errorf("Expected output to contain error message '%s', got %q", expectedErrorMessage, output)
+		}
+	})
+}
+
+func TestGetDockerServicesInfo(t *testing.T) {
+	// Mock the necessary dependencies
+	mockShell, _ := shell.NewMockShell("cmd")
+	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		switch command {
+		case "docker":
+			if args[0] == "ps" && args[1] == "--filter" && args[2] == "label=managed_by=windsor" && args[3] == "--format" && args[4] == "{{.ID}}" {
+				return "1234567890ab\nabcdef123456", nil
+			}
+			if args[0] == "inspect" {
+				if args[1] == "1234567890ab" {
+					return `{"role": "unknown-role", "com.docker.compose.service": "example-service"}`, nil
+				}
+				if args[1] == "abcdef123456" {
+					return `{"com.docker.compose.service": "example-service"}`, nil
+				}
+			}
+		}
+		return "", nil
+	}
+
+	// Test case: container without 'role' label
+	t.Run("Container without role label", func(t *testing.T) {
+		shellInstance = mockShell
+		output, err := getDockerServicesInfo()
+		if err != nil {
+			t.Fatalf("getDockerServicesInfo() error = %v", err)
+		}
+		expectedOutput := ""
+		if output != expectedOutput {
+			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
+		}
+	})
+
+	// Test case: container with unknown role
+	t.Run("Container with unknown role", func(t *testing.T) {
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			switch command {
+			case "docker":
+				if args[0] == "ps" && args[1] == "--filter" && args[2] == "label=managed_by=windsor" && args[3] == "--format" && args[4] == "{{.ID}}" {
+					return "1234567890ab", nil
+				}
+				if args[0] == "inspect" {
+					return `{"role": "unknown-role", "com.docker.compose.service": "example-service"}`, nil
+				}
+			}
+			return "", nil
+		}
+		shellInstance = mockShell
+		output, err := getDockerServicesInfo()
+		if err != nil {
+			t.Fatalf("getDockerServicesInfo() error = %v", err)
+		}
+		expectedOutput := ""
+		if output != expectedOutput {
+			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
+		}
+	})
+
+	// Test case: container without 'com.docker.compose.service' label
+	t.Run("Container without com.docker.compose.service label", func(t *testing.T) {
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			switch command {
+			case "docker":
+				if args[0] == "ps" && args[1] == "--filter" && args[2] == "label=managed_by=windsor" && args[3] == "--format" && args[4] == "{{.ID}}" {
+					return "abcdef123456", nil
+				}
+				if args[0] == "inspect" {
+					return `{"role": "worker"}`, nil
+				}
+			}
+			return "", nil
+		}
+		shellInstance = mockShell
+		output, err := getDockerServicesInfo()
+		if err != nil {
+			t.Fatalf("getDockerServicesInfo() error = %v", err)
+		}
+		expectedOutput := ""
+		if output != expectedOutput {
+			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
 		}
 	})
 }

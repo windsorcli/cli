@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -101,7 +99,9 @@ var upCmd = &cobra.Command{
 		}
 
 		// Print welcome status page
-		printWelcomeStatus(contextName)
+		if err := printWelcomeStatus(contextName); err != nil {
+			return err
+		}
 
 		return nil
 	},
@@ -115,7 +115,7 @@ func checkDockerDaemon() error {
 	return err
 }
 
-func printWelcomeStatus(contextName string) {
+func printWelcomeStatus(contextName string) error {
 	// Define ANSI color codes
 	const (
 		Reset  = "\033[0m"
@@ -132,6 +132,7 @@ func printWelcomeStatus(contextName string) {
 	colimaInfo, err := getColimaInfo(contextName)
 	if err != nil {
 		fmt.Println(Yellow + "Error fetching Colima info: " + err.Error() + Reset)
+		return err
 	} else {
 		fmt.Println(colimaInfo)
 	}
@@ -141,9 +142,12 @@ func printWelcomeStatus(contextName string) {
 	dockerInfo, err := getDockerServicesInfo()
 	if err != nil {
 		fmt.Println(Yellow + "Error fetching Docker service info: " + err.Error() + Reset)
+		return err
 	} else {
 		fmt.Println(dockerInfo)
 	}
+
+	return nil
 }
 
 func getColimaInfo(contextName string) (string, error) {
@@ -197,14 +201,14 @@ func getDockerServicesInfo() (string, error) {
 	}
 
 	// Get the list of container IDs managed by Windsor
-	cmd := exec.Command("docker", "ps", "--filter", "label=managed_by=windsor", "--format", "{{.ID}}")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
+	command := "docker"
+	args := []string{"ps", "--filter", "label=managed_by=windsor", "--format", "{{.ID}}"}
+	out, err := shellInstance.Exec(false, "Fetching container IDs", command, args...)
+	if err != nil {
 		return "", err
 	}
 
-	containerIDs := strings.Split(strings.TrimSpace(out.String()), "\n")
+	containerIDs := strings.Split(strings.TrimSpace(out), "\n")
 
 	for _, containerID := range containerIDs {
 		if containerID == "" {
@@ -212,15 +216,15 @@ func getDockerServicesInfo() (string, error) {
 		}
 
 		// Get the labels of the container
-		inspectCmd := exec.Command("docker", "inspect", containerID, "--format", "{{json .Config.Labels}}")
-		var inspectOut bytes.Buffer
-		inspectCmd.Stdout = &inspectOut
-		if err := inspectCmd.Run(); err != nil {
+		inspectCommand := "docker"
+		inspectArgs := []string{"inspect", containerID, "--format", "{{json .Config.Labels}}"}
+		inspectOut, err := shellInstance.Exec(false, "Inspecting container", inspectCommand, inspectArgs...)
+		if err != nil {
 			return "", err
 		}
 
 		var labels map[string]string
-		if err := json.Unmarshal(inspectOut.Bytes(), &labels); err != nil {
+		if err := json.Unmarshal([]byte(inspectOut), &labels); err != nil {
 			return "", err
 		}
 
