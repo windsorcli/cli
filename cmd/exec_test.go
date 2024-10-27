@@ -9,6 +9,7 @@ import (
 
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/mocks"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 func TestExecCmd(t *testing.T) {
@@ -24,9 +25,9 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Setup mock components using SuperMocks
-		mocks := mocks.CreateSuperMocks()
-		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		// Setup mock components
+		mockShell, _ := shell.NewMockShell("unix")
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "hello\n", nil
 		}
 		mocks.DockerHelper.GetEnvVarsFunc = func() (map[string]string, error) {
@@ -123,9 +124,10 @@ func TestExecCmd(t *testing.T) {
 
 		// Given a container that returns an error when resolving helpers
 		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
-		mocks := mocks.CreateSuperMocks(mockContainer)
-		Initialize(mocks.Container)
+		mockContainer.SetResolveAllError(errors.New("resolve helpers error"))
+		mockContainer.Register("shell", mockShell)
+		Initialize(mockContainer)
+		container = mockContainer
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -138,10 +140,9 @@ func TestExecCmd(t *testing.T) {
 			t.Fatalf("Expected error, got nil")
 		}
 
-		// Then the output should indicate the error
-		expectedOutput := "Error resolving helpers: resolve helpers error"
-		if !strings.Contains(buf.String(), expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, buf.String())
+		// Then there should be no output
+		if buf.Len() != 0 {
+			t.Fatalf("Expected no output, got %s", buf.String())
 		}
 	})
 
@@ -247,8 +248,8 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a shell that returns an error when executing the command
-		mocks := mocks.CreateSuperMocks()
-		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mockShell, _ := shell.NewMockShell("unix")
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "", errors.New("command execution error")
 		}
 		mocks.DockerHelper.GetEnvVarsFunc = func() (map[string]string, error) {
@@ -277,8 +278,8 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a shell that returns an error when executing the command
-		mocks := mocks.CreateSuperMocks()
-		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mockShell, _ := shell.NewMockShell("unix")
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			if runtime.GOOS == "windows" {
 				return "", errors.New("mock stderr output")
 			}

@@ -146,7 +146,7 @@ func TestMockShell_GetProjectRoot(t *testing.T) {
 func TestMockShell_Exec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom ExecFn implementation
-		mockShell := NewMockShell("cmd")
+		mockShell, _ := NewMockShell("cmd")
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			// Simulate command execution and return a mocked output
 			return "mocked output", nil
@@ -165,7 +165,7 @@ func TestMockShell_Exec(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		// Given a mock shell whose ExecFn returns an error
-		mockShell := NewMockShell("cmd")
+		mockShell, _ := NewMockShell("cmd")
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			// Simulate command failure
 			return "", fmt.Errorf("execution error")
@@ -191,6 +191,11 @@ func TestMockShell_Exec(t *testing.T) {
 		}
 		if output != "" {
 			t.Errorf("Exec() output = %v, want %v", output, "")
+		}
+		// Error message should match
+		expectedError := "ExecFunc not implemented"
+		if err.Error() != expectedError {
+			t.Errorf("Exec() error = %v, want %v", err.Error(), expectedError)
 		}
 	})
 }
