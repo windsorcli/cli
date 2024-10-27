@@ -14,6 +14,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/mocks"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -110,19 +111,13 @@ func TestRootCommand(t *testing.T) {
 	t.Run("PreRunLoadConfig", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given valid config handlers and shell instance
-			mockCLIConfigHandler := config.NewMockConfigHandler()
-			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			mocks := mocks.CreateSuperMocks()
+			mocks.CLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				return "value", nil
 			}
-
-			mockShell := shell.NewMockShell("unix")
-			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			deps := MockDependencies{
-				CLIConfigHandler: mockCLIConfigHandler,
-				Shell:            mockShell,
-			}
-			setupContainer(deps)
+			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
+			Initialize(mocks.Container)
 
 			// When preRunLoadConfig is executed
 			err := preRunLoadConfig(nil, nil)
@@ -152,19 +147,13 @@ func TestRootCommand(t *testing.T) {
 
 		t.Run("CLIConfigLoadError", func(t *testing.T) {
 			// Given CLI config handler returns an error on LoadConfig
-			mockCLIConfigHandler := config.NewMockConfigHandler()
-			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return errors.New("mock load error") }
-			mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			mocks := mocks.CreateSuperMocks()
+			mocks.CLIConfigHandler.LoadConfigFunc = func(path string) error { return errors.New("mock load error") }
+			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				return "value", nil
 			}
-
-			mockShell := shell.NewMockShell("unix")
-			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			deps := MockDependencies{
-				CLIConfigHandler: mockCLIConfigHandler,
-				Shell:            mockShell,
-			}
-			setupContainer(deps)
+			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
+			Initialize(mocks.Container)
 
 			// When preRunLoadConfig is executed
 			err := preRunLoadConfig(nil, nil)
@@ -183,19 +172,13 @@ func TestRootCommand(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		t.Run("ValidConfigHandlers", func(t *testing.T) {
 			// Given valid config handlers and shell instance
-			mockCLIConfigHandler := config.NewMockConfigHandler()
-			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			mocks := mocks.CreateSuperMocks()
+			mocks.CLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				return "value", nil
 			}
-
-			mockShell := shell.NewMockShell("unix")
-			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			deps := MockDependencies{
-				CLIConfigHandler: mockCLIConfigHandler,
-				Shell:            mockShell,
-			}
-			setupContainer(deps)
+			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
+			Initialize(mocks.Container)
 
 			// Mock exitFunc to capture the exit code
 			var exitCode int
@@ -268,20 +251,17 @@ func TestRootCommand(t *testing.T) {
 	t.Run("Initialize", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given valid config handlers and shell instance
-			mockCLIConfigHandler := config.NewMockConfigHandler()
-			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			mocks := mocks.CreateSuperMocks()
+			mocks.CLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				return "value", nil
 			}
+			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
 
-			mockShell := shell.NewMockShell("unix")
-			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-
-			deps := MockDependencies{
-				CLIConfigHandler: mockCLIConfigHandler,
-				Shell:            mockShell,
-			}
-			setupContainer(deps)
+			setupContainer(MockDependencies{
+				CLIConfigHandler: mocks.CLIConfigHandler,
+				Shell:            mocks.Shell,
+			})
 
 			// Mock exitFunc to capture the exit code
 			var exitCode int
@@ -370,42 +350,35 @@ func TestRootCommand(t *testing.T) {
 		})
 	})
 	t.Run("GetProjectConfigPath", func(t *testing.T) {
+		// Save the original functions
+		originalGetwd := getwd
+		originalExitFunc := exitFunc
+
+		// Restore the original functions after the test
+		t.Cleanup(func() {
+			getwd = originalGetwd
+			exitFunc = originalExitFunc
+		})
+
+		// Mock getwd to return an error
+		getwd = func() (string, error) {
+			return "", errors.New("mock error")
+		}
+
+		// Mock exitFunc to capture the exit code
+		var exitCode int
+		exitFunc = func(code int) {
+			exitCode = code
+		}
+
 		t.Run("GetwdError", func(t *testing.T) {
-			// Save the original functions
-			originalGetwd := getwd
-			originalExitFunc := exitFunc
-
-			// Restore the original functions after the test
-			t.Cleanup(func() {
-				getwd = originalGetwd
-				exitFunc = originalExitFunc
-			})
-
-			// Mock getwd to return an error
-			getwd = func() (string, error) {
-				return "", errors.New("mock error")
-			}
-
-			// Mock exitFunc to capture the exit code
-			var exitCode int
-			exitFunc = func(code int) {
-				exitCode = code
-			}
-
 			// Given valid config handlers and shell instance
-			mockCLIConfigHandler := config.NewMockConfigHandler()
-			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			mocks := mocks.CreateSuperMocks()
+			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				return "value", nil
 			}
-
-			mockShell := shell.NewMockShell("unix")
-			mockShell.GetProjectRootFunc = func() (string, error) { return "", errors.New("mock error") }
-			deps := MockDependencies{
-				CLIConfigHandler: mockCLIConfigHandler,
-				Shell:            mockShell,
-			}
-			setupContainer(deps)
+			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "", errors.New("mock error") }
+			Initialize(mocks.Container)
 
 			// Capture the output to os.Stderr
 			stderr := captureStderr(func() {
@@ -426,20 +399,15 @@ func TestRootCommand(t *testing.T) {
 
 		t.Run("WindsorYaml", func(t *testing.T) {
 			// Given valid config handlers and shell instance
-			mockCLIConfigHandler := config.NewMockConfigHandler()
-			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			mocks := mocks.CreateSuperMocks()
+			mocks.CLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				return "value", nil
 			}
 
-			mockShell := shell.NewMockShell("unix")
 			tempDir := t.TempDir()
-			mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
-			deps := MockDependencies{
-				CLIConfigHandler: mockCLIConfigHandler,
-				Shell:            mockShell,
-			}
-			setupContainer(deps)
+			mocks.Shell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
+			Initialize(mocks.Container)
 
 			// Create a temporary windsor.yaml file in the project root
 			windsorYamlPath := filepath.Join(tempDir, "windsor.yaml")
@@ -460,20 +428,15 @@ func TestRootCommand(t *testing.T) {
 
 		t.Run("WindsorYml", func(t *testing.T) {
 			// Given valid config handlers and shell instance
-			mockCLIConfigHandler := config.NewMockConfigHandler()
-			mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
+			mocks := mocks.CreateSuperMocks()
+			mocks.CLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) {
 				return "value", nil
 			}
 
-			mockShell := shell.NewMockShell("unix")
 			tempDir := t.TempDir()
-			mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
-			deps := MockDependencies{
-				CLIConfigHandler: mockCLIConfigHandler,
-				Shell:            mockShell,
-			}
-			setupContainer(deps)
+			mocks.Shell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
+			Initialize(mocks.Container)
 
 			// Create a temporary windsor.yml file in the project root
 			windsorYmlPath := filepath.Join(tempDir, "windsor.yml")

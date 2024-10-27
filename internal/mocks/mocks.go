@@ -12,21 +12,27 @@ import (
 type SuperMocks struct {
 	CLIConfigHandler *config.MockConfigHandler
 	Shell            *shell.MockShell
-	AwsHelper        *helpers.AwsHelper
-	ColimaHelper     *helpers.ColimaHelper
-	DockerHelper     *helpers.DockerHelper
-	DnsHelper        *helpers.DNSHelper
-	GitHelper        *helpers.GitHelper
-	KubeHelper       *helpers.KubeHelper
-	OmniHelper       *helpers.OmniHelper
-	TalosHelper      *helpers.TalosHelper
-	TerraformHelper  *helpers.TerraformHelper
+	AwsHelper        *helpers.MockHelper
+	ColimaHelper     *helpers.MockHelper
+	DockerHelper     *helpers.MockHelper
+	DnsHelper        *helpers.MockHelper
+	GitHelper        *helpers.MockHelper
+	KubeHelper       *helpers.MockHelper
+	OmniHelper       *helpers.MockHelper
+	TalosHelper      *helpers.MockHelper
+	TerraformHelper  *helpers.MockHelper
 	Container        di.ContainerInterface
 }
 
 // CreateSuperMocks initializes all necessary mocks and returns them in a SuperMocks struct.
-func CreateSuperMocks() SuperMocks {
-	container := di.NewContainer()
+// It can take an optional mockContainer, in which case it will use this one instead of creating a new DI container.
+func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
+	var container di.ContainerInterface
+	if len(mockContainer) > 0 {
+		container = mockContainer[0]
+	} else {
+		container = di.NewContainer()
+	}
 
 	// Create mock instances
 	mockCLIConfigHandler := config.NewMockConfigHandler()
@@ -41,15 +47,15 @@ func CreateSuperMocks() SuperMocks {
 	mockCLIConfigHandler.GetConfigFunc = func() (*config.Context, error) { return nil, nil }
 
 	mockShell := shell.NewMockShell("cmd")
-	mockAwsHelper, _ := helpers.NewAwsHelper(container)
-	mockColimaHelper, _ := helpers.NewColimaHelper(container)
-	mockDockerHelper, _ := helpers.NewDockerHelper(container)
-	mockDnsHelper, _ := helpers.NewDNSHelper(container)
-	mockGitHelper, _ := helpers.NewGitHelper(container)
-	mockKubeHelper, _ := helpers.NewKubeHelper(container)
-	mockOmniHelper, _ := helpers.NewOmniHelper(container)
-	mockTalosHelper, _ := helpers.NewTalosHelper(container)
-	mockTerraformHelper, _ := helpers.NewTerraformHelper(container)
+	mockAwsHelper := helpers.NewMockHelper()
+	mockColimaHelper := helpers.NewMockHelper()
+	mockDockerHelper := helpers.NewMockHelper()
+	mockDnsHelper := helpers.NewMockHelper()
+	mockGitHelper := helpers.NewMockHelper()
+	mockKubeHelper := helpers.NewMockHelper()
+	mockOmniHelper := helpers.NewMockHelper()
+	mockTalosHelper := helpers.NewMockHelper()
+	mockTerraformHelper := helpers.NewMockHelper()
 
 	// Create and setup the dependency injection container
 	container.Register("cliConfigHandler", mockCLIConfigHandler)

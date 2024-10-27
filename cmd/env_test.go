@@ -6,10 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/helpers"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/mocks"
 )
 
 func TestEnvCmd(t *testing.T) {
@@ -26,24 +24,14 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a valid config handler, shell, and helper
-		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell("cmd")
-		mockHelper := helpers.NewMockHelper()
-		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+		mocks := mocks.CreateSuperMocks()
+		mocks.TerraformHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{
 				"VAR1": "value1",
 				"VAR2": "value2",
 			}, nil
 		}
-		mockHelper.SetPostEnvExecFunc(func() error {
-			return nil
-		})
-		deps := MockDependencies{
-			CLIConfigHandler: mockCliConfigHandler,
-			Shell:            mockShell,
-			TerraformHelper:  mockHelper,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		// When the env command is executed
 		output := captureStdout(func() {
@@ -66,21 +54,10 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a container that returns an error when resolving helpers
-		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell("cmd")
-		mockHelper := helpers.NewMockHelper()
-		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, nil
-		}
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
-		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
-		mockContainer.Register("shell", mockShell)
-		mockContainer.Register("terraformHelper", mockHelper)
-		mockContainer.Register("awsHelper", mockHelper)
-		mockContainer.Register("colimaHelper", mockHelper)
-		mockContainer.Register("dockerHelper", mockHelper)
-		Initialize(mockContainer)
+		mocks := mocks.CreateSuperMocks(mockContainer)
+		Initialize(mocks.Container)
 
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
@@ -103,21 +80,10 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a container that returns an error when resolving helpers
-		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell("cmd")
-		mockHelper := helpers.NewMockHelper()
-		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, nil
-		}
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
-		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
-		mockContainer.Register("shell", mockShell)
-		mockContainer.Register("terraformHelper", mockHelper)
-		mockContainer.Register("awsHelper", mockHelper)
-		mockContainer.Register("colimaHelper", mockHelper)
-		mockContainer.Register("dockerHelper", mockHelper)
-		Initialize(mockContainer)
+		mocks := mocks.CreateSuperMocks(mockContainer)
+		Initialize(mocks.Container)
 
 		// Capture the output
 		var buf bytes.Buffer
@@ -139,13 +105,11 @@ func TestEnvCmd(t *testing.T) {
 	t.Run("ResolveShellError", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
-
 		// Given a container that returns an error when resolving the shell
-		mockCliConfigHandler := config.NewMockConfigHandler()
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveError("shell", errors.New("resolve shell error")) // Simulate error
-		mockContainer.Register("cliConfigHandler", mockCliConfigHandler)
-		Initialize(mockContainer)
+		mocks := mocks.CreateSuperMocks(mockContainer)
+		Initialize(mocks.Container)
 
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
@@ -176,24 +140,14 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a helper that returns an error when getting environment variables
-		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell("cmd")
-		mockHelper := helpers.NewMockHelper()
-		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+		mocks := mocks.CreateSuperMocks()
+		mocks.TerraformHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, errors.New("get env vars error")
 		}
-		mockHelper.SetPostEnvExecFunc(func() error {
+		mocks.TerraformHelper.SetPostEnvExecFunc(func() error {
 			return nil
 		})
-		deps := MockDependencies{
-			CLIConfigHandler: mockCliConfigHandler,
-			Shell:            mockShell,
-			TerraformHelper:  mockHelper,
-			AwsHelper:        mockHelper,
-			ColimaHelper:     mockHelper,
-			DockerHelper:     mockHelper,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
@@ -216,24 +170,14 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a helper that returns an error when getting environment variables
-		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell("cmd")
-		mockHelper := helpers.NewMockHelper()
-		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+		mocks := mocks.CreateSuperMocks()
+		mocks.TerraformHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, errors.New("get env vars error")
 		}
-		mockHelper.SetPostEnvExecFunc(func() error {
+		mocks.TerraformHelper.SetPostEnvExecFunc(func() error {
 			return nil
 		})
-		deps := MockDependencies{
-			CLIConfigHandler: mockCliConfigHandler,
-			Shell:            mockShell,
-			TerraformHelper:  mockHelper,
-			AwsHelper:        mockHelper,
-			ColimaHelper:     mockHelper,
-			DockerHelper:     mockHelper,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		// Capture the output
 		var buf bytes.Buffer
@@ -258,27 +202,17 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a helper that returns an error when executing PostEnvExec
-		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell("cmd")
-		mockHelper := helpers.NewMockHelper()
-		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+		mocks := mocks.CreateSuperMocks()
+		mocks.TerraformHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{
 				"VAR1": "value1",
 				"VAR2": "value2",
 			}, nil
 		}
-		mockHelper.SetPostEnvExecFunc(func() error {
+		mocks.TerraformHelper.SetPostEnvExecFunc(func() error {
 			return errors.New("post env exec error")
 		})
-		deps := MockDependencies{
-			CLIConfigHandler: mockCliConfigHandler,
-			Shell:            mockShell,
-			TerraformHelper:  mockHelper,
-			AwsHelper:        mockHelper,
-			ColimaHelper:     mockHelper,
-			DockerHelper:     mockHelper,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
@@ -301,27 +235,17 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a helper that returns an error when executing PostEnvExec
-		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell("cmd")
-		mockHelper := helpers.NewMockHelper()
-		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+		mocks := mocks.CreateSuperMocks()
+		mocks.TerraformHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{
 				"VAR1": "value1",
 				"VAR2": "value2",
 			}, nil
 		}
-		mockHelper.SetPostEnvExecFunc(func() error {
+		mocks.TerraformHelper.SetPostEnvExecFunc(func() error {
 			return errors.New("post env exec error")
 		})
-		deps := MockDependencies{
-			CLIConfigHandler: mockCliConfigHandler,
-			Shell:            mockShell,
-			TerraformHelper:  mockHelper,
-			AwsHelper:        mockHelper,
-			ColimaHelper:     mockHelper,
-			DockerHelper:     mockHelper,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		// Capture the output
 		var buf bytes.Buffer
