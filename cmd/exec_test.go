@@ -26,7 +26,7 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Setup mock components
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "hello\n", nil
 		}
@@ -75,7 +75,7 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Setup
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockDockerHelper := helpers.NewMockHelper()
 		deps := MockDependencies{
 			Shell:        mockShell,
@@ -106,7 +106,7 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a container that returns an error when resolving helpers
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error"))
@@ -138,7 +138,7 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a container that returns an error when resolving helpers
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error"))
@@ -168,7 +168,7 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a helper that returns an error when getting environment variables
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockDockerHelper := helpers.NewMockHelper()
 		mockDockerHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, errors.New("get env vars error")
@@ -204,7 +204,7 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a helper that returns an error when getting environment variables
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockDockerHelper := helpers.NewMockHelper()
 		mockDockerHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, errors.New("get env vars error")
@@ -240,7 +240,7 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a helper that returns environment variables
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockDockerHelper := helpers.NewMockHelper()
 		mockDockerHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{
@@ -280,7 +280,7 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a shell that returns an error when executing the command
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "", errors.New("command execution error")
 		}
@@ -315,7 +315,7 @@ func TestExecCmd(t *testing.T) {
 		defer recoverPanic(t)
 
 		// Given a shell that returns an error when executing the command
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			if runtime.GOOS == "windows" {
 				return "", errors.New("mock stderr output")

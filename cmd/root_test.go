@@ -35,7 +35,7 @@ func setupContainer(deps MockDependencies) di.ContainerInterface {
 		deps.CLIConfigHandler = config.NewMockConfigHandler()
 	}
 	if deps.Shell == nil {
-		deps.Shell, _ = shell.NewMockShell("unix")
+		deps.Shell = shell.NewMockShell("unix")
 	}
 	if deps.TerraformHelper == nil {
 		deps.TerraformHelper = helpers.NewMockHelper()
@@ -116,7 +116,7 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockShell, _ := shell.NewMockShell("unix")
+			mockShell := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
 			deps := MockDependencies{
 				CLIConfigHandler: mockCLIConfigHandler,
@@ -158,7 +158,7 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockShell, _ := shell.NewMockShell("unix")
+			mockShell := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
 			deps := MockDependencies{
 				CLIConfigHandler: mockCLIConfigHandler,
@@ -189,7 +189,7 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockShell, _ := shell.NewMockShell("unix")
+			mockShell := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
 			deps := MockDependencies{
 				CLIConfigHandler: mockCLIConfigHandler,
@@ -274,7 +274,7 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockShell, _ := shell.NewMockShell("unix")
+			mockShell := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
 
 			deps := MockDependencies{
@@ -399,7 +399,7 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockShell, _ := shell.NewMockShell("unix")
+			mockShell := shell.NewMockShell("unix")
 			mockShell.GetProjectRootFunc = func() (string, error) { return "", errors.New("mock error") }
 			deps := MockDependencies{
 				CLIConfigHandler: mockCLIConfigHandler,
@@ -432,7 +432,7 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockShell, _ := shell.NewMockShell("unix")
+			mockShell := shell.NewMockShell("unix")
 			tempDir := t.TempDir()
 			mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
 			deps := MockDependencies{
@@ -466,7 +466,7 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 
-			mockShell, _ := shell.NewMockShell("unix")
+			mockShell := shell.NewMockShell("unix")
 			tempDir := t.TempDir()
 			mockShell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
 			deps := MockDependencies{

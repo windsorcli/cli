@@ -36,10 +36,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a valid config handler
 		mockHandler := config.NewMockConfigHandler()
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
+		mockShell := shell.NewMockShell("cmd")
 		deps := MockDependencies{
 			CLIConfigHandler: mockHandler,
 			Shell:            mockShell,
@@ -65,10 +62,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("AllFlagsSet", func(t *testing.T) {
 		// Given: a valid config handler
 		mockHandler := config.NewMockConfigHandler()
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
+		mockShell := shell.NewMockShell("cmd")
 		mockHelper := &helpers.MockHelper{}
 		deps := MockDependencies{
 			CLIConfigHandler: mockHandler,

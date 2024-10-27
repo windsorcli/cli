@@ -27,10 +27,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a valid config handler, shell, and helper
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
+		mockShell := shell.NewMockShell("cmd")
 		mockHelper := helpers.NewMockHelper()
 		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{
@@ -70,10 +67,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a container that returns an error when resolving helpers
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
+		mockShell := shell.NewMockShell("cmd")
 		mockHelper := helpers.NewMockHelper()
 		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, nil
@@ -110,10 +104,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a container that returns an error when resolving helpers
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
+		mockShell := shell.NewMockShell("cmd")
 		mockHelper := helpers.NewMockHelper()
 		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, nil
@@ -135,7 +126,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
-		err = rootCmd.Execute()
+		err := rootCmd.Execute()
 		// Then the error should be nil and no output should be produced
 		if err != nil {
 			t.Fatalf("Expected error nil, got %v", err)
@@ -186,10 +177,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a helper that returns an error when getting environment variables
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
+		mockShell := shell.NewMockShell("cmd")
 		mockHelper := helpers.NewMockHelper()
 		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, errors.New("get env vars error")
@@ -229,10 +217,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a helper that returns an error when getting environment variables
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
+		mockShell := shell.NewMockShell("cmd")
 		mockHelper := helpers.NewMockHelper()
 		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, errors.New("get env vars error")
@@ -257,7 +242,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
-		err = rootCmd.Execute()
+		err := rootCmd.Execute()
 
 		// Then the error should be nil and no output should be produced
 		if err != nil {
@@ -274,10 +259,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a helper that returns an error when executing PostEnvExec
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
+		mockShell := shell.NewMockShell("cmd")
 		mockHelper := helpers.NewMockHelper()
 		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{
@@ -320,10 +302,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a helper that returns an error when executing PostEnvExec
 		mockCliConfigHandler := config.NewMockConfigHandler()
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
+		mockShell := shell.NewMockShell("cmd")
 		mockHelper := helpers.NewMockHelper()
 		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{
@@ -351,7 +330,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
-		err = rootCmd.Execute()
+		err := rootCmd.Execute()
 
 		// Then the error should be nil and no output should be produced
 		if err != nil {
