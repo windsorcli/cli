@@ -9,6 +9,7 @@ import (
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -308,6 +309,115 @@ func TestUpCmd(t *testing.T) {
 		expectedOutput := "VM configuration is not set, skipping VM start\n"
 		if output != expectedOutput {
 			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("CollectEnvVarsError", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a context and config handler with VM set
+		mockContextInstance := context.NewMockContext()
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockShell, _ := shell.NewMockShell("unix")
+
+		// Mock functions
+		mockContextInstance.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		driver := "colima"
+		mockCliConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				VM: &config.VMConfig{
+					Driver: &driver,
+				},
+			}, nil
+		}
+		// Mock the helper to produce an error
+		mockHelper := helpers.NewMockHelper()
+		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+			return nil, fmt.Errorf("mock error collecting env vars")
+		}
+
+		// Setup container
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			ContextInstance:  mockContextInstance,
+			ColimaHelper:     mockHelper,
+		}
+		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
+		Initialize(container)
+
+		// Execute the 'windsor up' command with --verbose flag
+		rootCmd.SetArgs([]string{"up", "--verbose"})
+		err := rootCmd.Execute()
+
+		// Verify the error
+		if err == nil || !strings.Contains(err.Error(), "mock error collecting env vars") {
+			t.Fatalf("Expected error containing 'mock error collecting env vars', got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingEnvVars", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a context and config handler with VM set
+		mockContextInstance := context.NewMockContext()
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		mockShell, _ := shell.NewMockShell("unix")
+
+		// Mock functions
+		mockContextInstance.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		driver := "colima"
+		mockCliConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				VM: &config.VMConfig{
+					Driver: &driver,
+				},
+			}, nil
+		}
+		// Mock the helper to return environment variables
+		mockHelper := helpers.NewMockHelper()
+		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{"TEST_VAR": "test_value"}, nil
+		}
+
+		// Mock osSetenv to produce an error
+		originalOsSetenv := osSetenv
+		osSetenv = func(key, value string) error {
+			return fmt.Errorf("mock error setting env var %s", key)
+		}
+		t.Cleanup(func() {
+			osSetenv = originalOsSetenv
+		})
+
+		// Setup container
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			Shell:            mockShell,
+			ContextInstance:  mockContextInstance,
+			ColimaHelper:     mockHelper,
+		}
+		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
+		Initialize(container)
+
+		// Execute the 'windsor up' command with --verbose flag
+		rootCmd.SetArgs([]string{"up", "--verbose"})
+		err := rootCmd.Execute()
+
+		// Verify the error
+		if err == nil || !strings.Contains(err.Error(), "mock error setting env var TEST_VAR") {
+			t.Fatalf("Expected error containing 'mock error setting env var TEST_VAR', got %v", err)
 		}
 	})
 
