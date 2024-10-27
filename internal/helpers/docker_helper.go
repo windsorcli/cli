@@ -95,7 +95,13 @@ func (h *DockerHelper) PostEnvExec() error {
 
 // generateRegistryService creates a ServiceConfig for a Docker registry service
 // with the specified name, remote URL, and local URL.
-func generateRegistryService(name, remoteURL, localURL string) types.ServiceConfig {
+func (h *DockerHelper) generateRegistryService(name, remoteURL, localURL string) (types.ServiceConfig, error) {
+	// Retrieve the context name
+	contextName, err := h.Context.GetContext()
+	if err != nil {
+		return types.ServiceConfig{}, fmt.Errorf("error retrieving context: %w", err)
+	}
+
 	// Initialize the ServiceConfig with the provided name, a predefined image,
 	// a restart policy, and labels indicating the role and manager.
 	service := types.ServiceConfig{
@@ -105,6 +111,7 @@ func generateRegistryService(name, remoteURL, localURL string) types.ServiceConf
 		Labels: map[string]string{
 			"role":       "registry",
 			"managed_by": "windsor",
+			"context":    contextName,
 		},
 	}
 
@@ -127,7 +134,7 @@ func generateRegistryService(name, remoteURL, localURL string) types.ServiceConf
 	}
 
 	// Return the configured ServiceConfig.
-	return service
+	return service, nil
 }
 
 // GetComposeConfig returns a list of container data for docker-compose.
@@ -145,7 +152,11 @@ func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 
 	// Convert registries to service definitions
 	for _, registry := range registries {
-		services = append(services, generateRegistryService(registry.Name, registry.Remote, registry.Local))
+		service, err := h.generateRegistryService(registry.Name, registry.Remote, registry.Local)
+		if err != nil {
+			return nil, err
+		}
+		services = append(services, service)
 	}
 
 	return &types.Config{Services: services}, nil

@@ -454,6 +454,7 @@ func TestDockerHelper_GetComposeConfig(t *testing.T) {
 			Labels: map[string]string{
 				"managed_by": "windsor",
 				"role":       "registry",
+				"context":    "test-context",
 			},
 			Environment: map[string]*string{
 				"REGISTRY_PROXY_LOCALURL":  &localURL,

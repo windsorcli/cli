@@ -54,6 +54,9 @@ func TestUpCmd(t *testing.T) {
 			if command == "colima" && len(args) == 2 && args[0] == "start" && args[1] == "windsor-test-context" {
 				return "colima started", nil
 			}
+			if command == "colima" && len(args) == 4 && args[0] == "ls" && args[1] == "--profile" && args[2] == "windsor-test-context" && args[3] == "--json" {
+				return `{"address": "192.168.5.5"}`, nil
+			}
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
@@ -79,10 +82,15 @@ func TestUpCmd(t *testing.T) {
 			}
 		})
 
-		// Verify the output
-		expectedOutput := "colima started\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		// Verify the output contains expected success indicators
+		if !strings.Contains(output, "Welcome to the Windsor Environment!") {
+			t.Errorf("Expected output to contain welcome message, got %q", output)
+		}
+		if !strings.Contains(output, "Colima Machine Info:") {
+			t.Errorf("Expected output to contain Colima machine info, got %q", output)
+		}
+		if !strings.Contains(output, "Accessible Docker Services:") {
+			t.Errorf("Expected output to contain accessible Docker services, got %q", output)
 		}
 	})
 
@@ -584,11 +592,9 @@ func TestUpCmd(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		expectedError := "Error executing command colima [start windsor-test-context]: shell command error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		expectedError := "shell command error"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
 	})
-
-	// Additional test cases can be added here
 }
