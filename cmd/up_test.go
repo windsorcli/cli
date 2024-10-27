@@ -62,7 +62,11 @@ func TestUpCmd(t *testing.T) {
 			Shell:            mockShell,
 			ContextInstance:  mockContextInstance,
 		}
-		setupContainer(deps)
+		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
+		Initialize(container)
 
 		// Capture stdout
 		output := captureStdout(func() {
@@ -341,6 +345,9 @@ func TestUpCmd(t *testing.T) {
 			ContextInstance:  mockContextInstance,
 		}
 		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
 		Initialize(container)
 
 		// Execute the 'windsor up' command
@@ -392,6 +399,9 @@ func TestUpCmd(t *testing.T) {
 			ContextInstance:  mockContextInstance,
 		}
 		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
 		Initialize(container)
 
 		// Capture stderr
@@ -447,6 +457,9 @@ func TestUpCmd(t *testing.T) {
 			ContextInstance:  mockContextInstance,
 		}
 		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
 		Initialize(container)
 
 		// Capture stderr

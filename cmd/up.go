@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/helpers"
 )
 
 var upCmd = &cobra.Command{
@@ -35,24 +34,10 @@ var upCmd = &cobra.Command{
 			return nil
 		}
 
-		// Collect environment variables from all helpers
-		helperInstances, err := container.ResolveAll((*helpers.Helper)(nil))
+		// Collect environment variables
+		envVars, err := collectEnvVars()
 		if err != nil {
-			return fmt.Errorf("Error resolving helpers: %w", err)
-		}
-
-		envVars := make(map[string]string)
-		for _, instance := range helperInstances {
-			helper := instance.(helpers.Helper)
-			helperEnvVars, err := helper.GetEnvVars()
-			if err != nil {
-				return fmt.Errorf("Error getting environment variables: %w", err)
-			}
-			for k, v := range helperEnvVars {
-				if v != "" {
-					envVars[k] = v
-				}
-			}
+			return err
 		}
 
 		// Set environment variables for the command
