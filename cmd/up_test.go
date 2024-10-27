@@ -22,6 +22,12 @@ func TestUpCmd(t *testing.T) {
 		exitFunc = originalExitFunc
 	})
 
+	// Save and restore the original container
+	originalContainer := container
+	t.Cleanup(func() {
+		container = originalContainer
+	})
+
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
@@ -44,11 +50,10 @@ func TestUpCmd(t *testing.T) {
 			}, nil
 		}
 		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
-			expectedCommand := fmt.Sprintf("colima start windsor-%s", "test-context")
-			if command == expectedCommand {
+			if command == "colima" && len(args) == 2 && args[0] == "start" && args[1] == "windsor-test-context" {
 				return "colima started", nil
 			}
-			return "", fmt.Errorf("unexpected command: %s", command)
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
 		}
 
 		// Setup container with mock dependencies
@@ -91,6 +96,9 @@ func TestUpCmd(t *testing.T) {
 			ContextInstance: mockContextInstance,
 		}
 		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
 		Initialize(container)
 
 		// Capture stderr
@@ -137,6 +145,9 @@ func TestUpCmd(t *testing.T) {
 			ContextInstance:  mockContextInstance,
 		}
 		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
 		Initialize(container)
 
 		// Capture stderr
@@ -182,6 +193,9 @@ func TestUpCmd(t *testing.T) {
 			ContextInstance:  mockContextInstance,
 		}
 		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
 		Initialize(container)
 
 		// Capture stderr
@@ -195,6 +209,101 @@ func TestUpCmd(t *testing.T) {
 		// Verify no error as verbose is false
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("VMNotSet", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a context and config handler with VM not set
+		mockContextInstance := context.NewMockContext()
+		mockCliConfigHandler := config.NewMockConfigHandler()
+
+		// Mock functions
+		mockContextInstance.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockCliConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				VM: nil,
+			}, nil
+		}
+
+		// Setup container
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			ContextInstance:  mockContextInstance,
+		}
+		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
+		Initialize(container)
+
+		// Capture stdout
+		output := captureStdout(func() {
+			// Execute the 'windsor up' command
+			rootCmd.SetArgs([]string{"up"})
+			err := rootCmd.Execute()
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+		})
+
+		// Verify the output
+		expectedOutput := ""
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("VMNotSetVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Ensure verbose mode is true
+		verbose = true
+
+		// Given a context and config handler with VM not set
+		mockContextInstance := context.NewMockContext()
+		mockCliConfigHandler := config.NewMockConfigHandler()
+
+		// Mock functions
+		mockContextInstance.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockCliConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				VM: nil,
+			}, nil
+		}
+
+		// Setup container
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+			ContextInstance:  mockContextInstance,
+		}
+		container := setupContainer(deps)
+		t.Cleanup(func() {
+			container = originalContainer
+		})
+		Initialize(container)
+
+		// Capture stdout
+		output := captureStdout(func() {
+			// Execute the 'windsor up' command
+			rootCmd.SetArgs([]string{"up"})
+			err := rootCmd.Execute()
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+		})
+
+		// Verify the output
+		expectedOutput := "VM configuration is not set, skipping VM start\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -348,9 +457,13 @@ func TestUpCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"up"})
 		err := rootCmd.Execute()
 
-		// Verify no error as verbose is false
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+		// Verify error
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		expectedError := "Error executing command colima [start windsor-test-context]: shell command error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 

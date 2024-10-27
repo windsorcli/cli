@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsor-hotel/cli/internal/helpers"
 )
 
 var upCmd = &cobra.Command{
@@ -26,16 +27,51 @@ var upCmd = &cobra.Command{
 			return nil
 		}
 
+		// Ensure VM is set before continuing
+		if contextConfig.VM == nil {
+			if verbose {
+				fmt.Println("VM configuration is not set, skipping VM start")
+			}
+			return nil
+		}
+
+		// Collect environment variables from all helpers
+		helperInstances, err := container.ResolveAll((*helpers.Helper)(nil))
+		if err != nil {
+			return fmt.Errorf("Error resolving helpers: %w", err)
+		}
+
+		envVars := make(map[string]string)
+		for _, instance := range helperInstances {
+			helper := instance.(helpers.Helper)
+			helperEnvVars, err := helper.GetEnvVars()
+			if err != nil {
+				return fmt.Errorf("Error getting environment variables: %w", err)
+			}
+			for k, v := range helperEnvVars {
+				if v != "" {
+					envVars[k] = v
+				}
+			}
+		}
+
+		// Set environment variables for the command
+		for k, v := range envVars {
+			if err := osSetenv(k, v); err != nil {
+				return fmt.Errorf("Error setting environment variable %s: %w", k, err)
+			}
+		}
+
 		// Check the VM.Driver value and start the virtual machine if necessary
 		if *contextConfig.VM.Driver == "colima" {
-			command := fmt.Sprintf("colima start windsor-%s", contextName)
-			output, err := shellInstance.Exec(command)
+			command := "colima"
+			args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
+			output, err := shellInstance.Exec(command, args...)
 			if err != nil {
-				if verbose {
-					return fmt.Errorf("Error executing command %s: %w", command, err)
-				}
-				return nil
+				return fmt.Errorf("Error executing command %s %v: %w", command, args, err)
 			}
+
+			// Print the command output
 			fmt.Println(output)
 		}
 
