@@ -251,9 +251,9 @@ func getDockerServicesInfo() (string, error) {
 	for _, role := range roles {
 		services := roleToServices[role]
 		if len(services) > 0 {
-			serviceInfo.WriteString(fmt.Sprintf("%s:\n", strings.Title(role)))
+			serviceInfo.WriteString(fmt.Sprintf("%s:\n", strings.ToTitle(role)))
 			for _, service := range services {
-				serviceInfo.WriteString(fmt.Sprintf("  - http://%s\n", service))
+				serviceInfo.WriteString(fmt.Sprintf("  - %s\n", service))
 			}
 			serviceInfo.WriteString("\n")
 		}
