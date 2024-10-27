@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -43,6 +44,9 @@ var dockerHelper helpers.Helper
 
 // context instance
 var contextInstance context.ContextInterface
+
+// execCommand instance
+var execCommand = exec.Command
 
 // getCLIConfigPath returns the path to the CLI configuration file
 func getCLIConfigPath() string {

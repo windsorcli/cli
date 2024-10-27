@@ -58,11 +58,11 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("Error writing colima config: %w", err)
 			}
 
-			colimaCommand := "colima"
-			colimaArgs := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
-			output, err := shellInstance.Exec(verbose, "Executing colima start command", colimaCommand, colimaArgs...)
+			command := "colima"
+			args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
+			output, err := shellInstance.Exec(verbose, "Executing colima start command", command, args...)
 			if err != nil {
-				return fmt.Errorf("Error executing command %s %v: %w\n%s", colimaCommand, colimaArgs, err, output)
+				return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 			}
 		}
 
@@ -78,9 +78,9 @@ var upCmd = &cobra.Command{
 			var lastErr error
 			var lastOutput string
 			for i := 0; i < retries; i++ {
-				dockerComposeCommand := "docker-compose"
-				dockerComposeArgs := []string{"up", "-d"}
-				output, err := shellInstance.Exec(verbose, "Executing docker-compose up command", dockerComposeCommand, dockerComposeArgs...)
+				command := "docker-compose"
+				args := []string{"up", "-d"}
+				output, err := shellInstance.Exec(verbose, "Executing docker-compose up command", command, args...)
 				if err == nil {
 					lastErr = nil
 					break
@@ -124,7 +124,7 @@ func printWelcomeStatus(contextName string) {
 		Cyan   = "\033[36m"
 	)
 
-	fmt.Println(Green + "Welcome to the Windsor Environment!" + " 🎀 " + Reset)
+	fmt.Println(Green + "Welcome to the Windsor Environment! 📐" + Reset)
 	fmt.Println(strings.Repeat("=", 40))
 
 	// Fetch and print Colima machine info
@@ -185,6 +185,18 @@ func getColimaInfo(contextName string) (string, error) {
 }
 
 func getDockerServicesInfo() (string, error) {
+	// Define the roles in the desired order
+	roles := []string{"localstack", "worker", "controlplane", "git-repository", "registry"}
+
+	// Map to hold role -> list of service URLs
+	roleToServices := make(map[string][]string)
+
+	// Initialize the map with empty slices for each role
+	for _, role := range roles {
+		roleToServices[role] = []string{}
+	}
+
+	// Get the list of container IDs managed by Windsor
 	cmd := exec.Command("docker", "ps", "--filter", "label=managed_by=windsor", "--format", "{{.ID}}")
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -193,23 +205,57 @@ func getDockerServicesInfo() (string, error) {
 	}
 
 	containerIDs := strings.Split(strings.TrimSpace(out.String()), "\n")
-	var serviceInfo strings.Builder
 
 	for _, containerID := range containerIDs {
 		if containerID == "" {
 			continue
 		}
 
-		inspectCmd := exec.Command("docker", "inspect", containerID, "--format", "{{ index .Config.Labels \"com.docker.compose.service\" }}")
+		// Get the labels of the container
+		inspectCmd := exec.Command("docker", "inspect", containerID, "--format", "{{json .Config.Labels}}")
 		var inspectOut bytes.Buffer
 		inspectCmd.Stdout = &inspectOut
 		if err := inspectCmd.Run(); err != nil {
 			return "", err
 		}
 
-		serviceName := strings.TrimSpace(inspectOut.String())
-		if serviceName != "" {
-			serviceInfo.WriteString(fmt.Sprintf("- http://%s\n", serviceName))
+		var labels map[string]string
+		if err := json.Unmarshal(inspectOut.Bytes(), &labels); err != nil {
+			return "", err
+		}
+
+		// Get the 'role' label
+		role, roleExists := labels["role"]
+		if !roleExists {
+			// Skip containers without a 'role' label
+			continue
+		}
+
+		serviceName, serviceExists := labels["com.docker.compose.service"]
+		if !serviceExists {
+			// Skip containers without 'com.docker.compose.service' label
+			continue
+		}
+
+		// Add the service to the appropriate role
+		if _, roleValid := roleToServices[role]; roleValid {
+			roleToServices[role] = append(roleToServices[role], serviceName)
+		} else {
+			// If role is not in the predefined roles, skip it
+			continue
+		}
+	}
+
+	// Build the output string
+	var serviceInfo strings.Builder
+	for _, role := range roles {
+		services := roleToServices[role]
+		if len(services) > 0 {
+			serviceInfo.WriteString(fmt.Sprintf("%s:\n", strings.Title(role)))
+			for _, service := range services {
+				serviceInfo.WriteString(fmt.Sprintf("  - http://%s\n", service))
+			}
+			serviceInfo.WriteString("\n")
 		}
 	}
 

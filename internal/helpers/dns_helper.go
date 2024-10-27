@@ -40,6 +40,16 @@ func (h *DNSHelper) PostEnvExec() error {
 
 // GetComposeConfig returns the compose configuration
 func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
+	// Retrieve the context name
+	contextInstance, err := h.DIContainer.Resolve("contextInstance")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving context: %w", err)
+	}
+	contextName, err := contextInstance.(context.ContextInterface).GetContext()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context name: %w", err)
+	}
+
 	// Retrieve the context configuration
 	cliConfigHandler, err := h.DIContainer.Resolve("cliConfigHandler")
 	if err != nil {
@@ -71,6 +81,11 @@ func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
 		},
 		Environment: map[string]*string{
 			"COREDNS_CONFIG": strPtr("/etc/coredns/Corefile"),
+		},
+		Labels: map[string]string{
+			"managed_by": "windsor",
+			"context":    contextName,
+			"role":       "dns",
 		},
 	}
 

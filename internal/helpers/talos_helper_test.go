@@ -836,6 +836,28 @@ func TestTalosHelper_GetComposeConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorRetrievingContextName", func(t *testing.T) {
+		setup()
+
+		// Given: a mock context that returns an error when retrieving the context name
+		mockContext.GetContextFunc = func() (string, error) {
+			return "", fmt.Errorf("error retrieving context name")
+		}
+
+		// When creating TalosHelper
+		talosHelper, err := NewTalosHelper(diContainer)
+		if err != nil {
+			t.Fatalf("failed to create TalosHelper: %v", err)
+		}
+
+		// When calling GetComposeConfig
+		_, err = talosHelper.GetComposeConfig()
+		// Then an error should be returned
+		if err == nil || !strings.Contains(err.Error(), "error retrieving context name") {
+			t.Errorf("expected error retrieving context name, got: %v", err)
+		}
+	})
+
 	t.Run("ErrorRetrievingNumberOfControlPlanes", func(t *testing.T) {
 		setup()
 

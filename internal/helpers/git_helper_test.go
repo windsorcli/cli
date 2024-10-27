@@ -157,6 +157,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 					Labels: map[string]string{
 						"role":       "git-repository",
 						"managed_by": "windsor",
+						"context":    "test-context",
 					},
 				},
 			},

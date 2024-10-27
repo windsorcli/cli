@@ -61,7 +61,7 @@ func (h *GitHelper) PostEnvExec() error {
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
-	_, err := h.Context.GetContext()
+	contextName, err := h.Context.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
@@ -155,6 +155,7 @@ func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 		Labels: map[string]string{
 			"role":       "git-repository",
 			"managed_by": "windsor",
+			"context":    contextName,
 		},
 		Volumes: []types.ServiceVolumeConfig{
 			{
