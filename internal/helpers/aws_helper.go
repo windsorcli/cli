@@ -51,8 +51,8 @@ func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving context config: %w", err)
 	}
 
-	// If AWS is nil, return an empty map
-	if contextConfig.AWS == nil {
+	// If contextConfig or AWS is nil, return an empty map
+	if contextConfig == nil || contextConfig.AWS == nil {
 		return map[string]string{}, nil
 	}
 
@@ -64,39 +64,27 @@ func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 
 	// Construct the path to the AWS config file
 	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
-	if _, err := os.Stat(awsConfigPath); os.IsNotExist(err) {
+	if _, err := stat(awsConfigPath); os.IsNotExist(err) {
 		awsConfigPath = ""
 	}
 
-	// Retrieve AWS-specific configuration values from the context
-	awsProfile := ""
-	awsEndpointURL := ""
-	s3Hostname := ""
-	mwaaEndpoint := ""
-
-	if contextConfig.AWS.AWSProfile != nil {
-		awsProfile = *contextConfig.AWS.AWSProfile
-	}
-
-	if contextConfig.AWS.AWSEndpointURL != nil {
-		awsEndpointURL = *contextConfig.AWS.AWSEndpointURL
-	}
-
-	if contextConfig.AWS.S3Hostname != nil {
-		s3Hostname = *contextConfig.AWS.S3Hostname
-	}
-
-	if contextConfig.AWS.MWAAEndpoint != nil {
-		mwaaEndpoint = *contextConfig.AWS.MWAAEndpoint
-	}
-
 	// Set the environment variables
-	envVars := map[string]string{
-		"AWS_CONFIG_FILE":  awsConfigPath,
-		"AWS_PROFILE":      awsProfile,
-		"AWS_ENDPOINT_URL": awsEndpointURL,
-		"S3_HOSTNAME":      s3Hostname,
-		"MWAA_ENDPOINT":    mwaaEndpoint,
+	envVars := map[string]string{}
+
+	if awsConfigPath != "" {
+		envVars["AWS_CONFIG_FILE"] = awsConfigPath
+	}
+	if contextConfig.AWS.AWSProfile != nil {
+		envVars["AWS_PROFILE"] = *contextConfig.AWS.AWSProfile
+	}
+	if contextConfig.AWS.AWSEndpointURL != nil {
+		envVars["AWS_ENDPOINT_URL"] = *contextConfig.AWS.AWSEndpointURL
+	}
+	if contextConfig.AWS.S3Hostname != nil {
+		envVars["S3_HOSTNAME"] = *contextConfig.AWS.S3Hostname
+	}
+	if contextConfig.AWS.MWAAEndpoint != nil {
+		envVars["MWAA_ENDPOINT"] = *contextConfig.AWS.MWAAEndpoint
 	}
 
 	return envVars, nil
