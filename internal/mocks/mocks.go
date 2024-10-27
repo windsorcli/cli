@@ -12,15 +12,15 @@ import (
 type SuperMocks struct {
 	CLIConfigHandler *config.MockConfigHandler
 	Shell            *shell.MockShell
-	AwsHelper        *helpers.AwsHelper
-	ColimaHelper     *helpers.ColimaHelper
-	DockerHelper     *helpers.DockerHelper
-	DnsHelper        *helpers.DNSHelper
-	GitHelper        *helpers.GitHelper
-	KubeHelper       *helpers.KubeHelper
-	OmniHelper       *helpers.OmniHelper
-	TalosHelper      *helpers.TalosHelper
-	TerraformHelper  *helpers.TerraformHelper
+	AwsHelper        *helpers.MockHelper
+	ColimaHelper     *helpers.MockHelper
+	DockerHelper     *helpers.MockHelper
+	DnsHelper        *helpers.MockHelper
+	GitHelper        *helpers.MockHelper
+	KubeHelper       *helpers.MockHelper
+	OmniHelper       *helpers.MockHelper
+	TalosHelper      *helpers.MockHelper
+	TerraformHelper  *helpers.MockHelper
 	Container        di.ContainerInterface
 }
 
