@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -114,6 +115,51 @@ func mockExecCommandError(command string, args ...string) *exec.Cmd {
 		// Use 'false' command on Unix-like systems
 		return exec.Command("false")
 	}
+}
+
+// captureStdoutAndStderr captures output sent to os.Stdout and os.Stderr during the execution of f()
+func captureStdoutAndStderr(t *testing.T, f func()) (string, string) {
+	// Save the original os.Stdout and os.Stderr
+	originalStdout := os.Stdout
+	originalStderr := os.Stderr
+
+	// Create pipes for os.Stdout and os.Stderr
+	rOut, wOut, _ := os.Pipe()
+	rErr, wErr, _ := os.Pipe()
+	os.Stdout = wOut
+	os.Stderr = wErr
+
+	// Channel to signal completion
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f()
+		wOut.Close()
+		wErr.Close()
+	}()
+
+	// Read from the pipes
+	var stdoutBuf, stderrBuf bytes.Buffer
+	var wg sync.WaitGroup
+	wg.Add(2)
+	readFromPipe := func(pipe *os.File, buf *bytes.Buffer, pipeName string) {
+		defer wg.Done()
+		if _, err := buf.ReadFrom(pipe); err != nil {
+			t.Errorf("Failed to read from %s pipe: %v", pipeName, err)
+		}
+	}
+	go readFromPipe(rOut, &stdoutBuf, "stdout")
+	go readFromPipe(rErr, &stderrBuf, "stderr")
+
+	// Wait for reading to complete
+	wg.Wait()
+	<-done
+
+	// Restore os.Stdout and os.Stderr
+	os.Stdout = originalStdout
+	os.Stderr = originalStderr
+
+	return stdoutBuf.String(), stderrBuf.String()
 }
 
 func TestShell_GetProjectRoot(t *testing.T) {
@@ -233,45 +279,44 @@ func TestShell_GetProjectRoot(t *testing.T) {
 
 func TestShell_Exec(t *testing.T) {
 	shell := NewDefaultShell()
-
-	t.Run("SuccessfulCommand", func(t *testing.T) {
-		// Override execCommand to simulate successful execution using PowerShell
+	t.Run("CommandSuccess", func(t *testing.T) {
+		// Override execCommand to simulate successful command execution
 		originalExecCommand := execCommand
 		execCommand = mockExecCommandSuccess
-		defer func() { execCommand = originalExecCommand }()
+		defer func() {
+			execCommand = originalExecCommand
+		}()
 
-		// When executing a command
-		output, err := shell.Exec("somecommand", "arg1")
-
-		// Then there should be no error and output should match
+		// When executing a command that succeeds
+		result, err := shell.Exec(false, "Executing echo command", "echo", "hello")
+		// Then no error should be returned
 		assertNoError(t, err)
-		expectedOutput := "mock output for: somecommand arg1"
-
-		// Account for line endings
-		if runtime.GOOS == "windows" {
-			expectedOutput += "\r\n" // PowerShell adds \r\n
-		} else {
-			expectedOutput += "\n" // echo adds \n
-		}
-
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		// And the result should be as expected
+		expectedOutput := "mock output for: echo hello\n"
+		// Normalize the result to handle different line endings
+		normalizedResult := strings.ReplaceAll(result, "\r\n", "\n")
+		if normalizedResult != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, result)
 		}
 	})
 
 	t.Run("CommandWithError", func(t *testing.T) {
-		// Override execCommand to simulate command failure using PowerShell
+		// Override execCommand to simulate command failure
 		originalExecCommand := execCommand
 		execCommand = mockExecCommandError
-		defer func() { execCommand = originalExecCommand }()
+		defer func() {
+			execCommand = originalExecCommand
+		}()
 
-		// When executing a command that fails
-		output, err := shell.Exec("somecommand", "arg1")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected an error, but got nil")
-		}
+		// Capture stdout
+		output := captureStdout(t, func() {
+			// When executing a command that fails
+			_, err := shell.Exec(false, "Executing failing command", "somecommand", "arg1")
+			// Then an error should be returned
+			if err == nil {
+				t.Fatal("Expected an error, but got nil")
+			}
+		})
 
 		// Output should be empty
 		if output != "" {
@@ -279,68 +324,60 @@ func TestShell_Exec(t *testing.T) {
 		}
 	})
 
-	t.Run("CommandWithStdErr", func(t *testing.T) {
-		// Override execCommand to simulate a command that writes to stderr
+	t.Run("VerboseCommandSuccess", func(t *testing.T) {
+		// Override execCommand to simulate successful command execution
 		originalExecCommand := execCommand
-		execCommand = func(command string, args ...string) *exec.Cmd {
-			cmd := exec.Command(command, args...)
-			// Simulate a command that writes to stderr
-			cmd.Stderr = bytes.NewBufferString("mock stderr output")
-			return cmd
-		}
-		defer func() { execCommand = originalExecCommand }()
+		execCommand = mockExecCommandSuccess
+		defer func() {
+			execCommand = originalExecCommand
+		}()
 
-		// When executing a command that produces stderr output
-		output, err := shell.Exec("somecommand", "arg1")
+		// Capture stdout
+		output := captureStdout(t, func() {
+			// When executing a command that succeeds with verbose output
+			result, err := shell.Exec(true, "Executing echo command", "echo", "hello")
+			// Then no error should be returned
+			assertNoError(t, err)
+			// And the result should be as expected
+			expectedOutput := "mock output for: echo hello\n"
+			// Normalize the result to handle different line endings
+			normalizedResult := strings.ReplaceAll(result, "\r\n", "\n")
+			if normalizedResult != expectedOutput {
+				t.Errorf("Expected output %q, got %q", expectedOutput, result)
+			}
+		})
 
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected an error, but got nil")
-		}
-
-		// And output should be empty
-		if output != "" {
-			t.Errorf("Expected empty output, got %q", output)
+		// Output should match the expected verbose output
+		expectedVerboseOutput := "mock output for: echo hello\n"
+		normalizedOutput := strings.ReplaceAll(output, "\r\n", "\n")
+		if normalizedOutput != expectedVerboseOutput {
+			t.Errorf("Expected verbose output %q, got %q", expectedVerboseOutput, output)
 		}
 	})
 
-	t.Run("CommandWithArguments", func(t *testing.T) {
-		// Override execCommand to simulate command execution with arguments
-		originalExecCommand := execCommand
-		execCommand = func(command string, args ...string) *exec.Cmd {
-			// Verify that the command and arguments are as expected
-			if command != "somecommand" || len(args) != 2 || args[0] != "arg1" || args[1] != "arg2" {
-				t.Fatalf("Unexpected command or arguments: %s %v", command, args)
-			}
-
-			if runtime.GOOS == "windows" {
-				// Use PowerShell to output a mock message
-				fullCommand := fmt.Sprintf("Write-Output 'mock output with args'")
-				cmdArgs := []string{"-Command", fullCommand}
-				return exec.Command("powershell.exe", cmdArgs...)
-			} else {
-				// Use 'echo' on Unix-like systems
-				return exec.Command("echo", "mock output with args")
-			}
+	t.Run("FailedToStartCommand", func(t *testing.T) {
+		// Override cmdStart to simulate command start failure
+		originalCmdStart := cmdStart
+		cmdStart = func(cmd *exec.Cmd) error {
+			return errors.New("mock start failure")
 		}
-		defer func() { execCommand = originalExecCommand }()
+		defer func() {
+			cmdStart = originalCmdStart
+		}()
 
-		// When executing a command with arguments
-		output, err := shell.Exec("somecommand", "arg1", "arg2")
+		// Capture stdout
+		output := captureStdout(t, func() {
+			// When executing a command that fails to start
+			_, err := shell.Exec(false, "Executing failing start command", "somecommand", "arg1")
+			// Then an error should be returned
+			if err == nil {
+				t.Fatal("Expected an error, but got nil")
+			}
+		})
 
-		// Then there should be no error and output should match
-		assertNoError(t, err)
-		expectedOutput := "mock output with args"
-
-		// Account for line endings
-		if runtime.GOOS == "windows" {
-			expectedOutput += "\r\n" // PowerShell adds \r\n
-		} else {
-			expectedOutput += "\n" // echo adds \n
-		}
-
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		// Output should be empty
+		if output != "" {
+			t.Errorf("Expected empty output, got %q", output)
 		}
 	})
 }

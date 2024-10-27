@@ -5,6 +5,7 @@ go 1.22.7
 toolchain go1.23.2
 
 require (
+	github.com/briandowns/spinner v1.23.1
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/getsops/sops/v3 v3.9.1
 	github.com/goccy/go-yaml v1.12.0
