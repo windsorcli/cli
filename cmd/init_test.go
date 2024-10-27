@@ -9,8 +9,7 @@ import (
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/helpers"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/mocks"
 )
 
 func TestInitCmd(t *testing.T) {
@@ -35,16 +34,8 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given: a valid config handler
-		mockHandler := config.NewMockConfigHandler()
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			Shell:            mockShell,
-		}
-		setupContainer(deps)
+		mocks := mocks.CreateSuperMocks()
+		Initialize(mocks.Container)
 
 		// When: the init command is executed with a valid context
 		output := captureStdout(func() {
@@ -64,23 +55,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("AllFlagsSet", func(t *testing.T) {
 		// Given: a valid config handler
-		mockHandler := config.NewMockConfigHandler()
-		mockShell, err := shell.NewMockShell("cmd")
-		if err != nil {
-			t.Fatalf("NewMockShell() error = %v", err)
-		}
-		mockHelper := &helpers.MockHelper{}
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			Shell:            mockShell,
-			TerraformHelper:  mockHelper,
-			AwsHelper:        mockHelper,
-			DockerHelper:     dockerHelper,
-		}
-		setupContainer(deps)
+		mocks := mocks.CreateSuperMocks()
+		Initialize(mocks.Container)
 
 		// Mock the Get function to ensure it is called with the desired object
-		mockHandler.GetFunc = func(key string) (interface{}, error) {
+		mocks.CLIConfigHandler.GetFunc = func(key string) (interface{}, error) {
 			if key != "test-context" {
 				t.Errorf("Expected key %q, got %q", "test-context", key)
 			}
@@ -134,8 +113,8 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("HomeDirError", func(t *testing.T) {
 		// Mock cliConfigHandler
-		mockHandler := config.NewMockConfigHandler()
-		cliConfigHandler = mockHandler
+		mocks := mocks.CreateSuperMocks()
+		Initialize(mocks.Container)
 
 		// Mock os.UserHomeDir to simulate an error
 		originalUserHomeDir := osUserHomeDir
@@ -170,12 +149,9 @@ func TestInitCmd(t *testing.T) {
 	})
 	t.Run("SetConfigValueError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SetConfigValue
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error { return errors.New("set config value error") }
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return errors.New("set config value error") }
+		Initialize(mocks.Container)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -195,12 +171,9 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SaveConfigError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SaveConfig
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
+		Initialize(mocks.Container)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -219,17 +192,13 @@ func TestInitCmd(t *testing.T) {
 	})
 	t.Run("CLIConfigSaveError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SaveConfig
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SaveConfigFunc = func(path string) error { return errors.New("save cli config error") }
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save cli config error") }
+		Initialize(mocks.Container)
 
 		// Replace the global contextInstance with the mock
 		originalContextInstance := contextInstance
 		defer func() { contextInstance = originalContextInstance }()
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -249,15 +218,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("WriteConfigError", func(t *testing.T) {
 		// Given: a helper that returns an error on WriteConfig
-		mockHelper := &helpers.MockHelper{
-			WriteConfigFunc: func() error {
-				return errors.New("write config error")
-			},
+		mocks := mocks.CreateSuperMocks()
+		mocks.TerraformHelper.WriteConfigFunc = func() error {
+			return errors.New("write config error")
 		}
-		deps := MockDependencies{
-			TerraformHelper: mockHelper,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -282,8 +247,8 @@ func TestInitCmd(t *testing.T) {
 		// Given a container that returns an error when resolving helpers
 		mockContainer := di.NewMockContainer()
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error"))
-		container = mockContainer
-		Initialize(mockContainer)
+		mocks := mocks.CreateSuperMocks(mockContainer)
+		Initialize(mocks.Container)
 
 		// When the init command is executed
 		output := captureStderr(func() {
@@ -303,20 +268,15 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("LocalContextSetsDefault", func(t *testing.T) {
 		// Arrange: Create a mock config handler and set the SetDefaultFunc to check the parameters
-		mockHandler := config.NewMockConfigHandler()
-
-		mockHandler.SetDefaultFunc = func(context config.Context) error {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetDefaultFunc = func(context config.Context) error {
 			expectedValue := config.DefaultLocalConfig
 			if !reflect.DeepEqual(context, expectedValue) {
 				return fmt.Errorf("Expected value %v, got %v", expectedValue, context)
 			}
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		// Act: Call the init command with a local context
 		output := captureStdout(func() {
@@ -335,18 +295,13 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("AWSConfiguration", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
+		mocks := mocks.CreateSuperMocks()
 		calledKeys := make(map[string]bool)
-
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -370,18 +325,13 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("DockerConfiguration", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
+		mocks := mocks.CreateSuperMocks()
 		calledKeys := make(map[string]bool)
-
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -403,18 +353,13 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("GitLivereloadConfiguration", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
+		mocks := mocks.CreateSuperMocks()
 		calledKeys := make(map[string]bool)
-
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -436,21 +381,16 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("GitLivereloadConfigurationError", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
+		mocks := mocks.CreateSuperMocks()
 		calledKeys := make(map[string]bool)
-
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return fmt.Errorf("mock set error")
 			}
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -468,18 +408,13 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("TerraformConfiguration", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
+		mocks := mocks.CreateSuperMocks()
 		calledKeys := make(map[string]bool)
-
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -499,19 +434,15 @@ func TestInitCmd(t *testing.T) {
 			}
 		}
 	})
-	t.Run("VMConfiguration", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
-		calledKeys := make(map[string]bool)
 
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+	t.Run("VMConfiguration", func(t *testing.T) {
+		mocks := mocks.CreateSuperMocks()
+		calledKeys := make(map[string]bool)
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -541,18 +472,14 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingAWSEndpointURL", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.aws.aws_endpoint_url" {
 				return errors.New("error setting AWS endpoint URL")
 			}
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -565,18 +492,14 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingAWSProfile", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.aws.aws_profile" {
 				return errors.New("error setting AWS profile")
 			}
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -589,18 +512,14 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingDockerConfiguration", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.docker.enabled" {
 				return errors.New("error setting Docker enabled")
 			}
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -613,18 +532,14 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingTerraformConfiguration", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.terraform.backend" {
 				return errors.New("error setting Terraform backend")
 			}
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -637,18 +552,14 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingVMConfigurationArch", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.arch" {
 				return errors.New("error setting VM architecture")
 			}
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -661,18 +572,14 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingVMConfigurationDriver", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.driver" {
 				return errors.New("error setting VM driver")
 			}
 			return nil
 		}
-
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -683,18 +590,16 @@ func TestInitCmd(t *testing.T) {
 			t.Fatalf("Expected error setting VM driver, got %v", err)
 		}
 	})
+
 	t.Run("ErrorSettingVMConfigurationCPU", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.cpu" {
 				return errors.New("error setting VM CPU")
 			}
 			return nil
 		}
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -707,17 +612,14 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingVMConfigurationDisk", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.disk" {
 				return errors.New("error setting VM disk")
 			}
 			return nil
 		}
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -730,17 +632,14 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingVMConfigurationMemory", func(t *testing.T) {
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetFunc = func(key string, value interface{}) error {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.memory" {
 				return errors.New("error setting VM memory")
 			}
 			return nil
 		}
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -754,18 +653,15 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SetDefaultLocalConfigError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SetDefault for local config
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetDefaultFunc = func(context config.Context) error {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetDefaultFunc = func(context config.Context) error {
 			expectedValue := config.DefaultLocalConfig
 			if !reflect.DeepEqual(context, expectedValue) {
 				return fmt.Errorf("Expected value %v, got %v", expectedValue, context)
 			}
 			return errors.New("error setting default local config")
 		}
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		// When: the init command is executed with a local context
 		output := captureStderr(func() {
@@ -785,17 +681,14 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("SetDefaultConfigError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SetDefault for default config
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.SetDefaultFunc = func(context config.Context) error {
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.SetDefaultFunc = func(context config.Context) error {
 			if reflect.DeepEqual(context, config.DefaultConfig) {
 				return errors.New("error setting default config")
 			}
 			return nil
 		}
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		// When: the init command is executed with a non-local context
 		output := captureStderr(func() {
@@ -815,17 +708,11 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("HelperInitializeError", func(t *testing.T) {
 		// Given: a helper that returns an error on Initialize
-		mockHandler := config.NewMockConfigHandler()
-		mockHelper := &helpers.MockHelper{
-			InitializeFunc: func() error {
-				return errors.New("initialize error")
-			},
+		mocks := mocks.CreateSuperMocks()
+		mocks.TerraformHelper.InitializeFunc = func() error {
+			return errors.New("initialize error")
 		}
-		deps := MockDependencies{
-			CLIConfigHandler: mockHandler,
-			TerraformHelper:  mockHelper,
-		}
-		setupContainer(deps)
+		Initialize(mocks.Container)
 
 		// When: the init command is executed
 		output := captureStderr(func() {

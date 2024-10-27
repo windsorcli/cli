@@ -1230,7 +1230,7 @@ func TestTalosHelper_Up(t *testing.T) {
 		diContainer := di.NewContainer()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 		diContainer.Register("shell", mockShell)

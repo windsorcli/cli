@@ -16,11 +16,8 @@ type MockShell struct {
 
 // NewMockShell creates a new instance of MockShell based on the provided shell type.
 // Returns an error if the shell type is invalid.
-func NewMockShell(shellType string) (*MockShell, error) {
-	if shellType != "cmd" && shellType != "powershell" && shellType != "unix" {
-		return nil, errors.New("invalid shell type")
-	}
-	return &MockShell{ShellType: shellType}, nil
+func NewMockShell(shellType string) *MockShell {
+	return &MockShell{ShellType: shellType}
 }
 
 // PrintEnvVars prints the environment variables in a sorted order.

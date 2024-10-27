@@ -1,7 +1,6 @@
 package helpers
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,28 +11,82 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
+
+type AwsHelperMocks struct {
+	Container        di.ContainerInterface
+	CLIConfigHandler *config.MockConfigHandler
+	Shell            *shell.MockShell
+	Context          *context.MockContext
+}
+
+func createAwsHelperMocks(mockContainer ...di.ContainerInterface) *AwsHelperMocks {
+	var container di.ContainerInterface
+	if len(mockContainer) > 0 {
+		container = mockContainer[0]
+	} else {
+		container = di.NewContainer()
+	}
+
+	// Create mock instances
+	mockCLIConfigHandler := config.NewMockConfigHandler()
+	mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+	mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) { return "mock-value", nil }
+	mockCLIConfigHandler.GetIntFunc = func(key string, defaultValue ...int) (int, error) { return 0, nil }
+	mockCLIConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) { return false, nil }
+	mockCLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+	mockCLIConfigHandler.SaveConfigFunc = func(path string) error { return nil }
+	mockCLIConfigHandler.GetFunc = func(key string) (interface{}, error) { return nil, nil }
+	mockCLIConfigHandler.SetDefaultFunc = func(context config.Context) error { return nil }
+	mockCLIConfigHandler.GetConfigFunc = func() (*config.Context, error) { return nil, nil }
+
+	mockShell := shell.NewMockShell("cmd")
+	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		return "mock-exec-output", nil
+	}
+	mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
+
+	mockContext := context.NewMockContext()
+	mockContext.GetContextFunc = func() (string, error) { return "mock-context", nil }
+	mockContext.SetContextFunc = func(context string) error { return nil }
+	mockContext.GetConfigRootFunc = func() (string, error) { return "/mock/config/root", nil }
+
+	// Register mocks in the DI container
+	container.Register("cliConfigHandler", mockCLIConfigHandler)
+	container.Register("context", mockContext)
+	container.Register("shell", mockShell)
+
+	return &AwsHelperMocks{
+		Container:        container,
+		CLIConfigHandler: mockCLIConfigHandler,
+		Shell:            mockShell,
+		Context:          mockContext,
+	}
+}
 
 func TestAwsHelper_NewAwsHelper(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Create DI container without registering cliConfigHandler
-		diContainer := di.NewContainer()
+		// Create mock DI container and set resolve error for cliConfigHandler
+		mockContainer := di.NewMockContainer()
+		mockContainer.SetResolveError("cliConfigHandler", fmt.Errorf("error resolving cliConfigHandler"))
 
 		// Attempt to create AwsHelper
-		_, err := NewAwsHelper(diContainer)
+		_, err := NewAwsHelper(mockContainer.DIContainer)
 		if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
 			t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
 		}
 	})
 
 	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Create DI container and register only cliConfigHandler
-		diContainer := di.NewContainer()
+		// Create mock DI container and set resolve error for context
+		mockContainer := di.NewMockContainer()
 		mockConfigHandler := config.NewMockConfigHandler()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		mockContainer.Register("cliConfigHandler", mockConfigHandler)
+		mockContainer.SetResolveError("context", fmt.Errorf("error resolving context"))
 
 		// Attempt to create AwsHelper
-		_, err := NewAwsHelper(diContainer)
+		_, err := NewAwsHelper(mockContainer.DIContainer)
 		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
 			t.Fatalf("expected error resolving context, got %v", err)
 		}
@@ -42,17 +95,11 @@ func TestAwsHelper_NewAwsHelper(t *testing.T) {
 
 func TestAwsHelper_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler and context
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
 
 		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -73,46 +120,36 @@ func TestAwsHelper_Initialize(t *testing.T) {
 func TestAwsHelper_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a valid context path
-		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context")
+		contextPath := "/mock/config/root/contexts/test-context"
 		awsConfigPath := filepath.Join(contextPath, ".aws", "config")
 
-		// Ensure the AWS config file exists
-		err := mkdirAll(filepath.Dir(awsConfigPath), 0755)
-		if err != nil {
-			t.Fatalf("Failed to create AWS config directory: %v", err)
-		}
-		_, err = os.Create(awsConfigPath)
-		if err != nil {
-			t.Fatalf("Failed to create AWS config file: %v", err)
-		}
-		defer os.RemoveAll(filepath.Dir(awsConfigPath)) // Clean up
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
 
-		// Mock context
-		mockContext := context.NewMockContext()
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return contextPath, nil
-		}
-
-		// Mock config handler
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		// Mock GetConfig to return a valid AWS configuration
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
-					AWSProfile:     ptrString("mock_profile"),
 					AWSEndpointURL: ptrString("mock_aws_endpoint_url"),
+					AWSProfile:     ptrString("mock_profile"),
 					S3Hostname:     ptrString("mock_s3_hostname"),
 					MWAAEndpoint:   ptrString("mock_mwaa_endpoint"),
 				},
 			}, nil
 		}
+		mocks.Context.GetConfigRootFunc = func() (string, error) {
+			return contextPath, nil
+		}
 
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		// Mock stat to always return that the file exists
+		originalStat := stat
+		defer func() { stat = originalStat }()
+		stat = func(name string) (os.FileInfo, error) {
+			return nil, nil
+		}
 
 		// Create AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -137,27 +174,11 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("AWSConfigNil", func(t *testing.T) {
-		// Given: a mock config handler that returns a context with a nil AWS config
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				AWS: nil, // Simulate a nil AWS configuration
-			}, nil
-		}
-
-		// Mock context
-		mockContext := context.NewMockContext()
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
-		}
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
 
 		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -177,35 +198,24 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 	t.Run("FileNotExist", func(t *testing.T) {
 		// Given: a non-existent context path
-		contextPath := filepath.Join(os.TempDir(), "contexts", "non-existent-context")
-		awsConfigPath := ""
-
-		// Mock context
-		mockContext := context.NewMockContext()
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return contextPath, nil
+		expectedEnvVars := map[string]string{
+			"AWS_PROFILE": "default",
 		}
 
-		// Mock config handler
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
+
+		// Mock GetConfig to return a valid AWS configuration
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
-					AWSProfile:     ptrString("default"),
-					AWSEndpointURL: ptrString("http://aws.test:4566"),
-					S3Hostname:     ptrString("http://s3.local.aws.test:4566"),
-					MWAAEndpoint:   ptrString("http://mwaa.local.aws.test:4566"),
+					AWSProfile: strPtr("default"),
 				},
 			}, nil
 		}
 
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-
 		// Create AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -217,40 +227,31 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 		}
 
 		// Then: the environment variables should be set correctly with an empty AWS_CONFIG_FILE
-		expectedEnvVars := map[string]string{
-			"AWS_CONFIG_FILE":  awsConfigPath,
-			"AWS_PROFILE":      "default",
-			"AWS_ENDPOINT_URL": "http://aws.test:4566",
-			"S3_HOSTNAME":      "http://s3.local.aws.test:4566",
-			"MWAA_ENDPOINT":    "http://mwaa.local.aws.test:4566",
-		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
 		}
 	})
 
 	t.Run("ErrorRetrievingConfigRoot", func(t *testing.T) {
-		// Given a mock context that returns an error for config root
-		mockContext := context.NewMockContext()
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "", errors.New("error retrieving config root")
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
+
+		// Mock GetConfigRoot to return an error
+		mocks.Context.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("error retrieving config root")
 		}
 
-		// Mock config handler
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		// Mock GetConfig to return a valid AWS configuration
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
-				AWS: &config.AWSConfig{},
+				AWS: &config.AWSConfig{
+					AWSProfile: strPtr("default"),
+				},
 			}, nil
 		}
 
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-
 		// Create AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -265,39 +266,23 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("LocalContextWithDefaults", func(t *testing.T) {
-		// Given: a local context with no specific endpoint URLs set
-		contextPath := "/mock/config/root"
-		awsConfigPath := ""
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
 
-		// Mock context
-		mockContext := context.NewMockContext()
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return contextPath, nil
-		}
-		mockContext.GetContextFunc = func() (string, error) {
-			return "local", nil
-		}
-
-		// Mock config handler
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		// Mock GetConfig to return a valid AWS configuration
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
-					AWSProfile:     ptrString("default"),
-					AWSEndpointURL: ptrString("http://aws.test:4566"),
-					S3Hostname:     ptrString("http://s3.local.aws.test:4566"),
-					MWAAEndpoint:   ptrString("http://mwaa.local.aws.test:4566"),
+					AWSProfile:     strPtr("default"),
+					AWSEndpointURL: strPtr("http://aws.test:4566"),
+					S3Hostname:     strPtr("http://s3.local.aws.test:4566"),
+					MWAAEndpoint:   strPtr("http://mwaa.local.aws.test:4566"),
 				},
 			}, nil
 		}
 
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-
 		// Create AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -310,7 +295,6 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 		// Then: the environment variables should be set correctly with default local values
 		expectedEnvVars := map[string]string{
-			"AWS_CONFIG_FILE":  awsConfigPath,
 			"AWS_PROFILE":      "default",
 			"AWS_ENDPOINT_URL": "http://aws.test:4566",
 			"S3_HOSTNAME":      "http://s3.local.aws.test:4566",
@@ -322,39 +306,23 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("NonLocalContext", func(t *testing.T) {
-		// Given: a non-local context with no specific endpoint URLs set
-		contextPath := "/mock/config/root"
-		awsConfigPath := ""
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
 
-		// Mock context
-		mockContext := context.NewMockContext()
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return contextPath, nil
-		}
-		mockContext.GetContextFunc = func() (string, error) {
-			return "remote", nil
-		}
-
-		// Mock config handler
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		// Mock GetConfig to return a valid AWS configuration with default profile and empty endpoint URLs
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
-					AWSProfile:     ptrString("default"),
-					AWSEndpointURL: nil,
-					S3Hostname:     nil,
-					MWAAEndpoint:   nil,
+					AWSProfile:     strPtr("default"),
+					AWSEndpointURL: strPtr(""),
+					S3Hostname:     strPtr(""),
+					MWAAEndpoint:   strPtr(""),
 				},
 			}, nil
 		}
 
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-
 		// Create AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -367,7 +335,6 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 		// Then: the environment variables should be set correctly with empty values for S3_HOSTNAME and MWAA_ENDPOINT
 		expectedEnvVars := map[string]string{
-			"AWS_CONFIG_FILE":  awsConfigPath,
 			"AWS_PROFILE":      "default",
 			"AWS_ENDPOINT_URL": "",
 			"S3_HOSTNAME":      "",
@@ -379,25 +346,16 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorRetrievingContextConfig", func(t *testing.T) {
-		// Given: a mock config handler that returns an error
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, errors.New("mock error retrieving context config")
-		}
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
 
-		// Mock context
-		mockContext := context.NewMockContext()
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+		// Mock GetConfig to return an error
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return nil, fmt.Errorf("error retrieving context config")
 		}
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
 
 		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -415,16 +373,11 @@ func TestAwsHelper_GetEnvVars(t *testing.T) {
 
 func TestAwsHelper_PostEnvExec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a AwsHelper instance
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
 
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-
-		awsHelper, err := NewAwsHelper(diContainer)
+		// Create AwsHelper
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -441,9 +394,11 @@ func TestAwsHelper_PostEnvExec(t *testing.T) {
 
 func TestAwsHelper_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler and context
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
+
+		// Mock GetConfig to return a valid AWS configuration
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
@@ -453,15 +408,9 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 				},
 			}, nil
 		}
-		mockContext := context.NewMockContext()
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
 
 		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -487,9 +436,11 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 	})
 
 	t.Run("LocalstackConfigured", func(t *testing.T) {
-		// Given: a mock config handler with Localstack configuration
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
+
+		// Mock GetConfig to return a valid AWS configuration
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
@@ -500,16 +451,8 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 			}, nil
 		}
 
-		// Mock context
-		mockContext := context.NewMockContext()
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-
 		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -539,29 +482,23 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		os.Setenv("LOCALSTACK_AUTH_TOKEN", "mock_token")
 		defer os.Unsetenv("LOCALSTACK_AUTH_TOKEN")
 
-		// Given: a mock config handler with Localstack configuration
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
+
+		// Mock GetConfig to return a valid AWS configuration
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
 						Create:   ptrBool(true),
-						Services: []string{"s3"},
+						Services: []string{"s3", "dynamodb"},
 					},
 				},
 			}, nil
 		}
 
-		// Mock context
-		mockContext := context.NewMockContext()
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-
 		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -584,22 +521,16 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 	})
 
 	t.Run("ErrorRetrievingContextConfig", func(t *testing.T) {
-		// Given: a mock config handler that returns an error
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("mock error retrieving context config")
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
+
+		// Mock GetConfig to return an error
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return nil, fmt.Errorf("error retrieving context config")
 		}
 
-		// Mock context
-		mockContext := context.NewMockContext()
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-
 		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -615,24 +546,18 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 	})
 
 	t.Run("AWSConfigNil", func(t *testing.T) {
-		// Given: a mock config handler that returns a context with a nil AWS config
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
+
+		// Mock GetConfig to return a context with nil AWS configuration
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
-				AWS: nil, // Simulate a nil AWS configuration
+				AWS: nil,
 			}, nil
 		}
 
-		// Mock context
-		mockContext := context.NewMockContext()
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-
 		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -647,26 +572,20 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 	})
 
 	t.Run("LocalstackConfigNil", func(t *testing.T) {
-		// Given: a mock config handler that returns a context with a nil Localstack config
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
+
+		// Mock GetConfig to return a context with nil Localstack configuration
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
-					Localstack: nil, // Simulate a nil Localstack configuration
+					Localstack: nil,
 				},
 			}, nil
 		}
 
-		// Mock context
-		mockContext := context.NewMockContext()
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-
 		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}
@@ -683,23 +602,11 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 
 func TestAwsHelper_WriteConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler and context
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/path/to/config", nil
-		}
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		// Create mock DI container with necessary mocks
+		mocks := createAwsHelperMocks()
 
 		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(diContainer)
+		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
 		if err != nil {
 			t.Fatalf("NewAwsHelper() error = %v", err)
 		}

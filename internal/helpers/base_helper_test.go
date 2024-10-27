@@ -25,7 +25,7 @@ func TestBaseHelper_Initialize(t *testing.T) {
 		// Given: a mock config handler, context, and shell
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
@@ -57,7 +57,7 @@ func TestBaseHelper_NewBaseHelper(t *testing.T) {
 		diContainer := di.NewContainer()
 
 		// Given a DI container without cliConfigHandler registered
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockContext := context.NewMockContext()
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("context", mockContext)
@@ -96,7 +96,7 @@ func TestBaseHelper_NewBaseHelper(t *testing.T) {
 
 		// Given a DI container with cliConfigHandler and shell registered but without context registered
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 
@@ -131,7 +131,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 			return nil, errors.New("context not found")
 		}
 
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
@@ -196,7 +196,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
@@ -235,7 +235,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
@@ -282,7 +282,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
@@ -342,7 +342,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
@@ -375,7 +375,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 
 	t.Run("ProjectRootError", func(t *testing.T) {
 		// Given a mock shell that returns an error for GetProjectRoot
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", errors.New("failed to get project root")
 		}
@@ -422,7 +422,7 @@ func TestBaseHelper_PostEnvExec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a BaseHelper instance
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockContext := context.NewMockContext()
 		mockContext.GetContextFunc = func() (string, error) { return "", nil }
 		mockContext.GetConfigRootFunc = func() (string, error) { return "", nil }
@@ -451,7 +451,7 @@ func TestBaseHelper_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock config handler, shell, and context
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		mockContext := context.NewMockContext()
 
 		// Create DI container and register mocks
@@ -488,7 +488,7 @@ func TestBaseHelper_WriteConfig(t *testing.T) {
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return "/path/to/config", nil
 		}
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
@@ -521,7 +521,7 @@ func TestBaseHelper_Up(t *testing.T) {
 		diContainer := di.NewContainer()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
-		mockShell, _ := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 		diContainer.Register("shell", mockShell)
