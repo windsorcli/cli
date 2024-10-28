@@ -172,7 +172,7 @@ func (h *DockerHelper) WriteConfig() error {
 }
 
 // Up executes necessary commands to instantiate the tool or environment.
-func (h *DockerHelper) Up() error {
+func (h *DockerHelper) Up(verbose ...bool) error {
 	return nil
 }
 

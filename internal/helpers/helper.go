@@ -29,7 +29,7 @@ type Helper interface {
 	WriteConfig() error
 
 	// Up executes necessary commands to instantiate the tool or environment.
-	Up() error
+	Up(verbose ...bool) error
 }
 
 type YAMLEncoder interface {

@@ -72,7 +72,7 @@ func (h *KubeHelper) WriteConfig() error {
 }
 
 // Up executes necessary commands to instantiate the tool or environment.
-func (h *KubeHelper) Up() error {
+func (h *KubeHelper) Up(verbose ...bool) error {
 	return nil
 }
 

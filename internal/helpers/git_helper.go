@@ -176,7 +176,7 @@ func (h *GitHelper) WriteConfig() error {
 }
 
 // Up executes necessary commands to instantiate the tool or environment.
-func (h *GitHelper) Up() error {
+func (h *GitHelper) Up(verbose ...bool) error {
 	return nil
 }
 

@@ -102,7 +102,7 @@ func (h *BaseHelper) WriteConfig() error {
 }
 
 // Up executes necessary commands to instantiate the tool or environment.
-func (h *BaseHelper) Up() error {
+func (h *BaseHelper) Up(verbose ...bool) error {
 	return nil
 }
 

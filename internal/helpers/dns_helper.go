@@ -171,7 +171,7 @@ func (h *DNSHelper) WriteConfig() error {
 }
 
 // Up executes necessary commands to instantiate the tool or environment.
-func (h *DNSHelper) Up() error {
+func (h *DNSHelper) Up(verbose ...bool) error {
 	return nil
 }
 

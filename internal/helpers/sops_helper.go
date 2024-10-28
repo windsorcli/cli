@@ -76,7 +76,7 @@ func (h *SopsHelper) WriteConfig() error {
 }
 
 // Up executes necessary commands to instantiate the tool or environment.
-func (h *SopsHelper) Up() error {
+func (h *SopsHelper) Up(verbose ...bool) error {
 	return nil
 }
 

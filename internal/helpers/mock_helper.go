@@ -64,7 +64,7 @@ func (m *MockHelper) WriteConfig() error {
 }
 
 // Up calls the mock UpFunc if it is set, otherwise returns nil
-func (m *MockHelper) Up() error {
+func (m *MockHelper) Up(verbose ...bool) error {
 	if m.UpFunc != nil {
 		return m.UpFunc()
 	}

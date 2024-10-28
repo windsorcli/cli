@@ -76,7 +76,7 @@ func (h *OmniHelper) WriteConfig() error {
 }
 
 // Up executes necessary commands to instantiate the tool or environment.
-func (h *OmniHelper) Up() error {
+func (h *OmniHelper) Up(verbose ...bool) error {
 	return nil
 }
 
