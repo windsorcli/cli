@@ -106,7 +106,7 @@ func TestSopsHelper_Initialize(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of SopsHelper
 		sopsHelper, err := NewSopsHelper(diContainer)
@@ -149,7 +149,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// And a DI container with the mock context is created
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 
 		// When creating SopsHelper
 		sopsHelper, err := NewSopsHelper(container)
@@ -184,7 +184,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// And a DI container with the mock context is created
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 
 		// When creating SopsHelper
 		sopsHelper, err := NewSopsHelper(container)
@@ -212,7 +212,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// And a DI container with the mock context is created
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 
 		// When creating SopsHelper
 		sopsHelper, err := NewSopsHelper(container)
@@ -246,7 +246,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// And a DI container with the mock context is created
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 
 		// When creating SopsHelper
 		sopsHelper, err := NewSopsHelper(container)
@@ -292,7 +292,7 @@ func TestSopsHelper_GetEnvVars(t *testing.T) {
 
 		// And a DI container with the mock context is created
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 
 		// When creating SopsHelper
 		sopsHelper, err := NewSopsHelper(container)
@@ -321,7 +321,7 @@ func TestSopsHelper_PostEnvExec(t *testing.T) {
 
 		// And a DI container with the mock context is created
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 
 		// When creating SopsHelper
 		sopsHelper, err := NewSopsHelper(container)
@@ -345,7 +345,7 @@ func TestSopsHelper_PostEnvExec(t *testing.T) {
 
 		// And a DI container with the mock context is created
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 
 		// When creating SopsHelper
 		sopsHelper, err := NewSopsHelper(container)
@@ -436,7 +436,7 @@ func TestSopsHelper_GetContainerConfig(t *testing.T) {
 		// Given a mock context
 		mockContext := context.NewMockContext()
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 
 		// When creating SopsHelper
 		sopsHelper, err := NewSopsHelper(container)
@@ -472,7 +472,7 @@ func TestSopsHelper_WriteConfig(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of SopsHelper
 		sopsHelper, err := NewSopsHelper(diContainer)
@@ -500,7 +500,7 @@ func TestSopsHelper_Up(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of SopsHelper
 		sopsHelper, err := NewSopsHelper(diContainer)
@@ -523,7 +523,7 @@ func TestSopsHelper_Info(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of SopsHelper
 		sopsHelper, err := NewSopsHelper(diContainer)

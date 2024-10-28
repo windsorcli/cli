@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
+	"github.com/windsor-hotel/cli/internal/config"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -19,6 +19,15 @@ func TestVersionCommand(t *testing.T) {
 	})
 
 	t.Run("VersionOutput", func(t *testing.T) {
+		// Mock the cliConfigHandler
+		mockCliConfigHandler := config.NewMockConfigHandler()
+
+		// Setup container with mock dependencies
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
+		}
+		setupContainer(deps)
+
 		// When: the version command is executed
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"version"})
@@ -36,17 +45,14 @@ func TestVersionCommand(t *testing.T) {
 	})
 
 	t.Run("VersionCommandError", func(t *testing.T) {
-		// Given: a version command with an error
-		cmd := &cobra.Command{
-			Use:   "version",
-			Short: "Display the current version",
-			Long:  "Display the current version of the application",
-			Run: func(cmd *cobra.Command, args []string) {
-				exitFunc(1)
-			},
+		// Setup container with mock dependencies
+		mockCliConfigHandler := config.NewMockConfigHandler()
+		deps := MockDependencies{
+			CLIConfigHandler: mockCliConfigHandler,
 		}
+		setupContainer(deps)
 
-		// When: the version command is executed
+		// When: the version command is executed with an error
 		defer func() {
 			if r := recover(); r != nil {
 				// Then: the output should indicate the error
@@ -59,6 +65,8 @@ func TestVersionCommand(t *testing.T) {
 			}
 		}()
 
-		cmd.Execute()
+		rootCmd.SetArgs([]string{"version"})
+		exitFunc(1)
+		rootCmd.Execute()
 	})
 }

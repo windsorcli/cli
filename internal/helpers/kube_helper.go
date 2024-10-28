@@ -17,7 +17,7 @@ type KubeHelper struct {
 
 // NewKubeHelper is a constructor for KubeHelper
 func NewKubeHelper(di *di.DIContainer) (*KubeHelper, error) {
-	resolvedContext, err := di.Resolve("context")
+	resolvedContext, err := di.Resolve("contextInstance")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}

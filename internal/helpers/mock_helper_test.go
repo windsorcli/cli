@@ -34,7 +34,7 @@ func TestMockHelper_Initialize(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of MockHelper
 		mockHelper := NewMockHelper()
@@ -283,7 +283,7 @@ func TestMockHelper_WriteConfig(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of MockHelper

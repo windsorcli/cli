@@ -59,14 +59,18 @@ func TestEnvCmd(t *testing.T) {
 		mocks := mocks.CreateSuperMocks(mockContainer)
 		Initialize(mocks.Container)
 
+		// Capture stderr
+		var buf bytes.Buffer
+		rootCmd.SetErr(&buf)
+
 		// When the env command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		output := buf.String()
 
 		// Then the output should indicate the error
 		expectedOutput := "Error resolving helpers: resolve helpers error"
@@ -85,9 +89,8 @@ func TestEnvCmd(t *testing.T) {
 		mocks := mocks.CreateSuperMocks(mockContainer)
 		Initialize(mocks.Container)
 
-		// Capture the output
+		// Capture stderr
 		var buf bytes.Buffer
-		rootCmd.SetOut(&buf)
 		rootCmd.SetErr(&buf)
 
 		// When the env command is executed without verbose flag
@@ -97,6 +100,8 @@ func TestEnvCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected error nil, got %v", err)
 		}
+
+		// Then there should be no output
 		if buf.Len() != 0 {
 			t.Fatalf("Expected no output, got %s", buf.String())
 		}

@@ -27,7 +27,7 @@ func NewTalosHelper(di *di.DIContainer) (*TalosHelper, error) {
 		return nil, fmt.Errorf("error resolving config handler: %w", err)
 	}
 
-	resolvedContext, err := di.Resolve("context")
+	resolvedContext, err := di.Resolve("contextInstance")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
@@ -103,6 +103,12 @@ func (h *TalosHelper) PostEnvExec() error {
 
 // GetComposeConfig returns a list of container data for docker-compose.
 func (h *TalosHelper) GetComposeConfig() (*types.Config, error) {
+	// Retrieve context name
+	contextName, err := h.Context.GetContext()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context name: %w", err)
+	}
+
 	// Retrieve the context configuration
 	contextConfig, err := h.ConfigHandler.GetConfig()
 	if err != nil {
@@ -166,6 +172,10 @@ func (h *TalosHelper) GetComposeConfig() (*types.Config, error) {
 			{Type: "volume", Source: "usr_etc_udev", Target: "/usr/etc/udev"},
 			{Type: "volume", Source: "opt", Target: "/opt"},
 		},
+		Labels: map[string]string{
+			"managed_by": "windsor",
+			"context":    contextName,
+		},
 	}
 
 	var services []types.ServiceConfig
@@ -179,6 +189,11 @@ func (h *TalosHelper) GetComposeConfig() (*types.Config, error) {
 			controlPlaneConfig.Environment = map[string]*string{
 				"PLATFORM": strPtr("container"),
 				"TALOSSKU": strPtr(fmt.Sprintf("%dCPU-%dRAM", controlPlaneCPU, controlPlaneRAM*1024)),
+			}
+			controlPlaneConfig.Labels = map[string]string{
+				"managed_by": "windsor",
+				"context":    contextName,
+				"role":       "controlplane",
 			}
 			services = append(services, controlPlaneConfig)
 		}
@@ -203,6 +218,11 @@ func (h *TalosHelper) GetComposeConfig() (*types.Config, error) {
 				{Type: "volume", Source: "usr_etc_udev", Target: "/usr/etc/udev"},
 				{Type: "volume", Source: "opt", Target: "/opt"},
 				{Type: "bind", Source: "${WINDSOR_PROJECT_ROOT}/.volumes", Target: "/var/local"},
+			}
+			workerConfig.Labels = map[string]string{
+				"managed_by": "windsor",
+				"context":    contextName,
+				"role":       "worker",
 			}
 			services = append(services, workerConfig)
 		}

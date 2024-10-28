@@ -17,7 +17,7 @@ type OmniHelper struct {
 
 // NewOmniHelper is a constructor for OmniHelper
 func NewOmniHelper(di *di.DIContainer) (*OmniHelper, error) {
-	resolvedContext, err := di.Resolve("context")
+	resolvedContext, err := di.Resolve("contextInstance")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}

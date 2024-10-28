@@ -22,7 +22,7 @@ func TestOmniHelper_Initialize(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of OmniHelper
 		omniHelper, err := NewOmniHelper(diContainer)
@@ -62,7 +62,7 @@ func TestOmniHelper_NewOmniHelper(t *testing.T) {
 		diContainer := di.NewContainer()
 		mockConfigHandler := config.NewMockConfigHandler()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", "not a context interface")
+		diContainer.Register("contextInstance", "not a context interface")
 
 		// Attempt to create OmniHelper
 		_, err := NewOmniHelper(diContainer)
@@ -96,7 +96,7 @@ func TestOmniHelper_GetEnvVars(t *testing.T) {
 
 		// Create OmniHelper
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 		omniHelper, err := NewOmniHelper(container)
 		if err != nil {
 			t.Fatalf("NewOmniHelper() error = %v", err)
@@ -130,7 +130,7 @@ func TestOmniHelper_GetEnvVars(t *testing.T) {
 
 		// Create OmniHelper
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 		omniHelper, err := NewOmniHelper(container)
 		if err != nil {
 			t.Fatalf("NewOmniHelper() error = %v", err)
@@ -160,7 +160,7 @@ func TestOmniHelper_GetEnvVars(t *testing.T) {
 
 		// Create OmniHelper
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 		omniHelper, err := NewOmniHelper(container)
 		if err != nil {
 			t.Fatalf("NewOmniHelper() error = %v", err)
@@ -181,7 +181,7 @@ func TestOmniHelper_PostEnvExec(t *testing.T) {
 		// Given a OmniHelper instance
 		mockContext := context.NewMockContext()
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 		omniHelper, err := NewOmniHelper(container)
 		if err != nil {
 			t.Fatalf("NewOmniHelper() error = %v", err)
@@ -202,7 +202,7 @@ func TestOmniHelper_GetContainerConfig(t *testing.T) {
 		// Given a mock context
 		mockContext := context.NewMockContext()
 		container := di.NewContainer()
-		container.Register("context", mockContext)
+		container.Register("contextInstance", mockContext)
 
 		// Create OmniHelper
 		omniHelper, err := NewOmniHelper(container)
@@ -238,7 +238,7 @@ func TestOmniHelper_WriteConfig(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of OmniHelper
 		omniHelper, err := NewOmniHelper(diContainer)
@@ -266,7 +266,7 @@ func TestOmniHelper_Up(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of OmniHelper
 		omniHelper, err := NewOmniHelper(diContainer)
@@ -289,7 +289,7 @@ func TestOmniHelper_Info(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of OmniHelper
 		omniHelper, err := NewOmniHelper(diContainer)

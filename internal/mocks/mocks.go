@@ -11,6 +11,7 @@ import (
 // SuperMocks holds all the mock instances needed for testing commands.
 type SuperMocks struct {
 	CLIConfigHandler *config.MockConfigHandler
+	ContextInstance  *context.MockContext
 	Shell            *shell.MockShell
 	AwsHelper        *helpers.MockHelper
 	ColimaHelper     *helpers.MockHelper
@@ -46,6 +47,9 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	mockCLIConfigHandler.SetDefaultFunc = func(context config.Context) error { return nil }
 	mockCLIConfigHandler.GetConfigFunc = func() (*config.Context, error) { return nil, nil }
 
+	mockContext := context.NewMockContext()
+	mockContext.GetContextFunc = func() (string, error) { return "mock-context", nil }
+
 	mockShell := shell.NewMockShell("cmd")
 	mockAwsHelper := helpers.NewMockHelper()
 	mockColimaHelper := helpers.NewMockHelper()
@@ -59,7 +63,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 
 	// Create and setup the dependency injection container
 	container.Register("cliConfigHandler", mockCLIConfigHandler)
-	container.Register("context", context.NewMockContext())
+	container.Register("contextInstance", mockContext)
 	container.Register("shell", mockShell)
 	container.Register("awsHelper", mockAwsHelper)
 	container.Register("colimaHelper", mockColimaHelper)
@@ -73,6 +77,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 
 	return SuperMocks{
 		CLIConfigHandler: mockCLIConfigHandler,
+		ContextInstance:  mockContext,
 		Shell:            mockShell,
 		AwsHelper:        mockAwsHelper,
 		ColimaHelper:     mockColimaHelper,

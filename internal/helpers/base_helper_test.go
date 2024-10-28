@@ -30,7 +30,7 @@ func TestBaseHelper_Initialize(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of BaseHelper
@@ -60,7 +60,7 @@ func TestBaseHelper_NewBaseHelper(t *testing.T) {
 		mockShell := shell.NewMockShell("unix")
 		mockContext := context.NewMockContext()
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// When creating a new BaseHelper
 		_, err := NewBaseHelper(diContainer)
@@ -79,7 +79,7 @@ func TestBaseHelper_NewBaseHelper(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// When creating a new BaseHelper
 		_, err := NewBaseHelper(diContainer)
@@ -148,7 +148,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// When creating a new BaseHelper
 		baseHelper, err := NewBaseHelper(diContainer)
@@ -201,7 +201,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 			return "/mock/project/root", nil
 		}
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// When creating a new BaseHelper
 		baseHelper, err := NewBaseHelper(diContainer)
@@ -244,7 +244,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// When creating a new BaseHelper
 		baseHelper, err := NewBaseHelper(diContainer)
@@ -294,7 +294,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return "/mock/project/root/contexts/test-context", nil
 		}
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// When creating a new BaseHelper
 		baseHelper, err := NewBaseHelper(diContainer)
@@ -354,7 +354,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return "/mock/project/root/contexts/test-context", nil
 		}
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// When creating a new BaseHelper
 		baseHelper, err := NewBaseHelper(diContainer)
@@ -400,7 +400,7 @@ func TestBaseHelper_GetEnvVars(t *testing.T) {
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// When creating a new BaseHelper
 		baseHelper, err := NewBaseHelper(diContainer)
@@ -431,7 +431,7 @@ func TestBaseHelper_PostEnvExec(t *testing.T) {
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// When creating a new BaseHelper
 		baseHelper, err := NewBaseHelper(diContainer)
@@ -458,7 +458,7 @@ func TestBaseHelper_GetComposeConfig(t *testing.T) {
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// When creating a new BaseHelper
 		baseHelper, err := NewBaseHelper(diContainer)
@@ -493,7 +493,7 @@ func TestBaseHelper_WriteConfig(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of BaseHelper
@@ -523,7 +523,7 @@ func TestBaseHelper_Up(t *testing.T) {
 		mockContext := context.NewMockContext()
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of BaseHelper
@@ -548,7 +548,7 @@ func TestBaseHelper_Info(t *testing.T) {
 		mockContext := context.NewMockContext()
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of BaseHelper

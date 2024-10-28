@@ -28,7 +28,7 @@ func main() {
 
 	// Create and register the Context instance
 	contextInstance := context.NewContext(cliConfigHandler, shellInstance)
-	container.Register("context", contextInstance)
+	container.Register("contextInstance", contextInstance)
 
 	// Create and register the BaseHelper instance
 	baseHelper, err := helpers.NewBaseHelper(container)

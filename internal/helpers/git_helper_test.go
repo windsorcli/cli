@@ -24,7 +24,7 @@ func TestGitHelper_Initialize(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of GitHelper
@@ -118,7 +118,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create GitHelper
 		gitHelper, err := NewGitHelper(diContainer)
@@ -157,6 +157,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 					Labels: map[string]string{
 						"role":       "git-repository",
 						"managed_by": "windsor",
+						"context":    "test-context",
 					},
 				},
 			},
@@ -179,7 +180,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		gitHelper, err := NewGitHelper(diContainer)
 		if err != nil {
@@ -211,7 +212,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		gitHelper, err := NewGitHelper(diContainer)
 		if err != nil {
@@ -247,7 +248,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		gitHelper, err := NewGitHelper(diContainer)
 		if err != nil {
@@ -280,7 +281,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		gitHelper, err := NewGitHelper(diContainer)
 		if err != nil {
@@ -313,7 +314,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		gitHelper, err := NewGitHelper(diContainer)
 		if err != nil {
@@ -346,7 +347,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		gitHelper, err := NewGitHelper(diContainer)
 		if err != nil {
@@ -379,7 +380,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		gitHelper, err := NewGitHelper(diContainer)
 		if err != nil {
@@ -412,7 +413,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		gitHelper, err := NewGitHelper(diContainer)
 		if err != nil {
@@ -447,7 +448,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		gitHelper, err := NewGitHelper(diContainer)
 		if err != nil {
@@ -469,7 +470,7 @@ func TestGitHelper_NoOpFunctions(t *testing.T) {
 	mockContext := context.NewMockContext()
 	diContainer.Register("cliConfigHandler", mockConfigHandler)
 	diContainer.Register("shell", mockShell)
-	diContainer.Register("context", mockContext)
+	diContainer.Register("contextInstance", mockContext)
 
 	// Create GitHelper
 	gitHelper, err := NewGitHelper(diContainer)
@@ -507,7 +508,7 @@ func TestGitHelper_Up(t *testing.T) {
 		mockContext := context.NewMockContext()
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of GitHelper
@@ -532,7 +533,7 @@ func TestGitHelper_Info(t *testing.T) {
 		mockContext := context.NewMockContext()
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of GitHelper

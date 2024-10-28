@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -42,7 +43,19 @@ var colimaHelper helpers.Helper
 var dockerHelper helpers.Helper
 
 // context instance
-var contextInstance *context.Context
+var contextInstance context.ContextInterface
+
+// execCommand instance
+var execCommand = exec.Command
+
+func ptrBool(b bool) *bool {
+	return &b
+}
+
+// Helper functions to create pointers for basic types
+func ptrString(s string) *string {
+	return &s
+}
 
 // getCLIConfigPath returns the path to the CLI configuration file
 func getCLIConfigPath() string {
@@ -155,6 +168,13 @@ func Initialize(cont di.ContainerInterface) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type helpers.Helper\n", key)
 				exitFunc(1)
 			}
+		case *context.ContextInterface:
+			if resolved, ok := instance.(context.ContextInterface); ok {
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type context.ContextInterface\n", key)
+				exitFunc(1)
+			}
 		}
 	}
 
@@ -164,7 +184,5 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("awsHelper", &awsHelper)
 	resolveAndAssign("colimaHelper", &colimaHelper)
 	resolveAndAssign("dockerHelper", &dockerHelper)
-
-	// Initialize contextInstance
-	contextInstance = context.NewContext(cliConfigHandler, shellInstance)
+	resolveAndAssign("contextInstance", &contextInstance)
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/mocks"
@@ -26,6 +27,7 @@ type MockDependencies struct {
 	AwsHelper        helpers.Helper
 	ColimaHelper     helpers.Helper
 	DockerHelper     helpers.Helper
+	ContextInstance  context.ContextInterface
 }
 
 // Helper function to create a new container and register mock handlers
@@ -50,6 +52,9 @@ func setupContainer(deps MockDependencies) di.ContainerInterface {
 	if deps.DockerHelper == nil {
 		deps.DockerHelper = helpers.NewMockHelper()
 	}
+	if deps.ContextInstance == nil {
+		deps.ContextInstance = context.NewMockContext()
+	}
 
 	container.Register("cliConfigHandler", deps.CLIConfigHandler)
 	container.Register("shell", deps.Shell)
@@ -57,6 +62,7 @@ func setupContainer(deps MockDependencies) di.ContainerInterface {
 	container.Register("awsHelper", deps.AwsHelper)
 	container.Register("colimaHelper", deps.ColimaHelper)
 	container.Register("dockerHelper", deps.DockerHelper)
+	container.Register("contextInstance", deps.ContextInstance)
 	Initialize(container)
 
 	return container

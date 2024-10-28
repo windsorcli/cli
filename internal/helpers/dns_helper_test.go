@@ -119,7 +119,10 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
-		mockDIContainer.Register("context", mockContext)
+		mockContext.GetContextFunc = func() (string, error) {
+			return "mock-context", nil
+		}
+		mockDIContainer.Register("contextInstance", mockContext)
 
 		// Create a mock cliConfigHandler
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -171,6 +174,133 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorResolvingContext", func(t *testing.T) {
+		// Create a mock DI container that does not register contextInstance
+		mockDIContainer := di.NewMockContainer()
+
+		// Create a mock cliConfigHandler
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Enabled: ptrBool(true),
+				},
+				DNS: &config.DNSConfig{
+					Create: ptrBool(true),
+				},
+			}, nil
+		}
+		mockDIContainer.Register("cliConfigHandler", mockConfigHandler)
+
+		// Given: a DNSHelper with the mock DI container
+		helper, err := NewDNSHelper(mockDIContainer.DIContainer)
+		if err != nil {
+			t.Fatalf("NewDNSHelper() error = %v", err)
+		}
+
+		// When: GetComposeConfig is called
+		_, err = helper.GetComposeConfig()
+
+		// Then: an error should be returned
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error resolving context") {
+			t.Errorf("Expected error message to contain 'error resolving context', got %v", err)
+		}
+	})
+
+	t.Run("ErrorRetrievingContextName", func(t *testing.T) {
+		// Create a mock context instance that returns an error when GetContext is called
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "", fmt.Errorf("error retrieving context name")
+		}
+
+		// Create a mock DI container
+		mockDIContainer := di.NewContainer()
+		mockDIContainer.Register("contextInstance", mockContext)
+
+		// Given: a DNSHelper with the mock DI container
+		helper := &DNSHelper{
+			DIContainer: mockDIContainer,
+		}
+
+		// When: GetComposeConfig is called
+		_, err := helper.GetComposeConfig()
+
+		// Then: an error should be returned
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		if err.Error() != "error retrieving context name: error retrieving context name" {
+			t.Errorf("Expected error message 'error retrieving context name: error retrieving context name', got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingCliConfigHandler", func(t *testing.T) {
+		// Create a mock context instance
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "mock-context", nil
+		}
+
+		// Create a mock DI container that does not have cliConfigHandler registered
+		mockDIContainer := di.NewMockContainer()
+		mockDIContainer.Register("contextInstance", mockContext)
+
+		// Given: a DNSHelper with the mock DI container
+		helper := &DNSHelper{
+			DIContainer: mockDIContainer.DIContainer,
+		}
+
+		// When: GetComposeConfig is called
+		_, err := helper.GetComposeConfig()
+
+		// Then: an error should be returned
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
+			t.Errorf("Expected error message to contain 'error resolving cliConfigHandler', got %v", err)
+		}
+	})
+
+	t.Run("ErrorRetrievingContextConfig", func(t *testing.T) {
+		// Create a mock context instance
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "mock-context", nil
+		}
+
+		// Create a mock config handler that returns an error when GetConfig is called
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return nil, fmt.Errorf("error retrieving context configuration")
+		}
+
+		// Create a mock DI container
+		mockDIContainer := di.NewContainer()
+		mockDIContainer.Register("contextInstance", mockContext)
+		mockDIContainer.Register("cliConfigHandler", mockConfigHandler)
+
+		// Given: a DNSHelper with the mock DI container
+		helper := &DNSHelper{
+			DIContainer: mockDIContainer,
+		}
+
+		// When: GetComposeConfig is called
+		_, err := helper.GetComposeConfig()
+
+		// Then: an error should be returned
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		if err.Error() != "error retrieving context configuration: error retrieving context configuration" {
+			t.Errorf("Expected error message 'error retrieving context configuration: error retrieving context configuration', got %v", err)
+		}
+	})
+
 	t.Run("DNSDisabled", func(t *testing.T) {
 		// Create a mock config handler that returns DNS disabled
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -185,10 +315,17 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		// Create a mock shell
 		mockShell := shell.NewMockShell("unix")
 
-		// Given: a DNSHelper with the mock config handler
+		// Create a mock context instance
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "mock-context", nil
+		}
+
+		// Given: a DNSHelper with the mock config handler and context instance
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
+		diContainer.Register("contextInstance", mockContext)
 		helper, err := NewDNSHelper(diContainer)
 		if err != nil {
 			t.Fatalf("NewDNSHelper() error = %v", err)
@@ -220,10 +357,17 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		// Create a mock shell
 		mockShell := shell.NewMockShell("unix")
 
-		// Given: a DNSHelper with the mock config handler
+		// Create a mock context instance
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "mock-context", nil
+		}
+
+		// Given: a DNSHelper with the mock config handler and context instance
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
+		diContainer.Register("contextInstance", mockContext)
 		helper, err := NewDNSHelper(diContainer)
 		if err != nil {
 			t.Fatalf("NewDNSHelper() error = %v", err)
@@ -266,63 +410,29 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingContextConfig", func(t *testing.T) {
-		// Create a mock config handler that returns an error
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("mock error retrieving context configuration")
-		}
+	// t.Run("ErrorResolvingCliConfigHandler", func(t *testing.T) {
+	// 	// Create a mock DI container that fails to resolve cliConfigHandler
+	// 	mockDIContainer := di.NewMockContainer()
+	// 	mockDIContainer.SetResolveError("cliConfigHandler", fmt.Errorf("mock error resolving cliConfigHandler"))
 
-		// Create a mock shell
-		mockShell := shell.NewMockShell("unix")
+	// 	// Create a mock shell
+	// 	mockShell := shell.NewMockShell("unix")
+	// 	mockDIContainer.Register("shell", mockShell)
 
-		// Given: a DNSHelper with the mock config handler
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("shell", mockShell)
-		helper, err := NewDNSHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewDNSHelper() error = %v", err)
-		}
+	// 	// Given: a DNSHelper with the mock DI container
+	// 	helper, err := NewDNSHelper(mockDIContainer.DIContainer)
+	// 	if err == nil {
+	// 		t.Fatalf("Expected error, got nil")
+	// 	}
 
-		// When: GetComposeConfig is called
-		cfg, err := helper.GetComposeConfig()
-
-		// Then: an error should be returned, and cfg should be nil
-		if err == nil || !strings.Contains(err.Error(), "error retrieving context configuration") {
-			t.Fatalf("expected error retrieving context configuration, got %v", err)
-		}
-		if cfg != nil {
-			t.Errorf("Expected cfg to be nil when context config retrieval fails, got %v", cfg)
-		}
-	})
-
-	t.Run("ErrorResolvingCliConfigHandler", func(t *testing.T) {
-		// Create a mock DI container that fails to resolve cliConfigHandler
-		mockDIContainer := di.NewMockContainer()
-		mockDIContainer.SetResolveError("cliConfigHandler", fmt.Errorf("mock error resolving cliConfigHandler"))
-
-		// Create a mock shell
-		mockShell := shell.NewMockShell("unix")
-		mockDIContainer.Register("shell", mockShell)
-
-		// Given: a DNSHelper with the mock DI container
-		helper, err := NewDNSHelper(mockDIContainer.DIContainer)
-		if err != nil {
-			t.Fatalf("NewDNSHelper() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		cfg, err := helper.GetComposeConfig()
-
-		// Then: an error should be returned, and cfg should be nil
-		if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
-			t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
-		}
-		if cfg != nil {
-			t.Errorf("Expected cfg to be nil when cliConfigHandler resolution fails, got %v", cfg)
-		}
-	})
+	// 	// Then: an error should be returned, and helper should be nil
+	// 	if !strings.Contains(err.Error(), "mock error resolving cliConfigHandler") {
+	// 		t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
+	// 	}
+	// 	if helper != nil {
+	// 		t.Errorf("Expected helper to be nil when cliConfigHandler resolution fails, got %v", helper)
+	// 	}
+	// })
 }
 
 func TestDNSHelper_WriteConfig(t *testing.T) {
@@ -349,7 +459,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		helper, err := NewDNSHelper(diContainer)
@@ -383,7 +493,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		// Create a real DockerHelper
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		dockerHelper, err := NewDockerHelper(diContainer)
@@ -470,7 +580,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
-		mockDIContainer.Register("context", mockContext)
+		mockDIContainer.Register("contextInstance", mockContext)
 		mockDIContainer.Register("shell", mockShell)
 
 		// Create a mock cliConfigHandler
@@ -510,7 +620,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("dockerHelper", mockDockerHelper)
 		diContainer.Register("shell", mockShell)
 
@@ -542,7 +652,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("dockerHelper", mockDockerHelper)
 		diContainer.Register("shell", mockShell)
 
@@ -584,7 +694,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create a real DockerHelper
@@ -619,7 +729,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 	t.Run("ErrorResolvingContext", func(t *testing.T) {
 		// Create a mock DI container that fails to resolve context
 		mockDIContainer := di.NewMockContainer()
-		mockDIContainer.SetResolveError("context", fmt.Errorf("mock error resolving context"))
+		mockDIContainer.SetResolveError("contextInstance", fmt.Errorf("mock error resolving context"))
 
 		// Create a mock cliConfigHandler
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -661,7 +771,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
-		mockDIContainer.Register("context", mockContext)
+		mockDIContainer.Register("contextInstance", mockContext)
 
 		// Create a mock DockerHelper
 		mockDockerHelper := NewMockHelper()
@@ -693,7 +803,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
-		mockDIContainer.Register("context", mockContext)
+		mockDIContainer.Register("contextInstance", mockContext)
 
 		// Create a mock cliConfigHandler
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -736,7 +846,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
-		mockDIContainer.Register("context", mockContext)
+		mockDIContainer.Register("contextInstance", mockContext)
 		mockDIContainer.Register("shell", mockShell)
 
 		// Create a mock cliConfigHandler
@@ -797,7 +907,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create the DockerHelper instance
@@ -863,7 +973,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create the DockerHelper instance
@@ -917,7 +1027,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Register a real DockerHelper instance
@@ -973,7 +1083,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Register a real DockerHelper instance
@@ -1006,7 +1116,7 @@ func TestDNSHelper_Up(t *testing.T) {
 		mockContext := context.NewMockContext()
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of DNSHelper
@@ -1031,7 +1141,7 @@ func TestDNSHelper_Info(t *testing.T) {
 		mockContext := context.NewMockContext()
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of DNSHelper
