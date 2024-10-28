@@ -13,6 +13,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // Mockable function for mem.VirtualMemory
@@ -69,6 +70,7 @@ func getDefaultValues(context string) (int, int, int, string, string) {
 type ColimaHelper struct {
 	ConfigHandler config.ConfigHandler
 	Context       context.ContextInterface
+	Shell         shell.Shell
 }
 
 // NewColimaHelper is a constructor for ColimaHelper
@@ -83,9 +85,15 @@ func NewColimaHelper(di *di.DIContainer) (*ColimaHelper, error) {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
+	resolvedShell, err := di.Resolve("shell")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving shell: %w", err)
+	}
+
 	return &ColimaHelper{
 		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
+		Shell:         resolvedShell.(shell.Shell),
 	}, nil
 }
 
@@ -250,6 +258,33 @@ func (h *ColimaHelper) WriteConfig() error {
 
 // Up executes necessary commands to instantiate the tool or environment.
 func (h *ColimaHelper) Up() error {
+	contextConfig, err := h.ConfigHandler.GetConfig()
+	if err != nil {
+		return fmt.Errorf("error retrieving config: %w", err)
+	}
+
+	contextName, err := h.Context.GetContext()
+	if err != nil {
+		return fmt.Errorf("error retrieving context: %w", err)
+	}
+
+	// Check if contextConfig, contextConfig.VM, and contextConfig.VM.Driver are defined
+	if contextConfig != nil && contextConfig.VM != nil && contextConfig.VM.Driver != nil {
+		// Check the VM.Driver value and start the virtual machine if necessary
+		if *contextConfig.VM.Driver == "colima" {
+			if err := h.WriteConfig(); err != nil {
+				return fmt.Errorf("Error writing colima config: %w", err)
+			}
+
+			command := "colima"
+			args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
+			output, err := h.Shell.Exec(false, "Executing colima start command", command, args...)
+			if err != nil {
+				return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
+			}
+		}
+	}
+
 	return nil
 }
 
