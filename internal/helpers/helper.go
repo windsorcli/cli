@@ -30,6 +30,9 @@ type Helper interface {
 
 	// Up executes necessary commands to instantiate the tool or environment.
 	Up(verbose ...bool) error
+
+	// Info returns information about the helper.
+	Info() (interface{}, error)
 }
 
 type YAMLEncoder interface {

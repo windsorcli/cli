@@ -76,5 +76,10 @@ func (h *KubeHelper) Up(verbose ...bool) error {
 	return nil
 }
 
+// Info returns information about the helper.
+func (h *KubeHelper) Info() (interface{}, error) {
+	return nil, nil
+}
+
 // Ensure KubeHelper implements Helper interface
 var _ Helper = (*KubeHelper)(nil)

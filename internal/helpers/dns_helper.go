@@ -175,5 +175,10 @@ func (h *DNSHelper) Up(verbose ...bool) error {
 	return nil
 }
 
+// Info returns information about the helper.
+func (h *DNSHelper) Info() (interface{}, error) {
+	return nil, nil
+}
+
 // Ensure DockerHelper implements Helper interface
 var _ Helper = (*DNSHelper)(nil)

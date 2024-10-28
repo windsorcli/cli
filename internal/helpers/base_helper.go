@@ -106,5 +106,10 @@ func (h *BaseHelper) Up(verbose ...bool) error {
 	return nil
 }
 
+// Info returns information about the helper.
+func (h *BaseHelper) Info() (interface{}, error) {
+	return nil, nil
+}
+
 // Ensure BaseHelper implements Helper interface
 var _ Helper = (*BaseHelper)(nil)

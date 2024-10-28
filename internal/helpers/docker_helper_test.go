@@ -1712,3 +1712,36 @@ func TestDockerHelper_Up(t *testing.T) {
 		}
 	})
 }
+
+func TestDockerHelper_Info(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockShell := shell.NewMockShell("unix")
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		info, err := dockerHelper.Info()
+		if err != nil {
+			t.Fatalf("Info() error = %v", err)
+		}
+
+		// Then: no error should be returned and info should be nil
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if info != nil {
+			t.Errorf("Expected info to be nil, got %v", info)
+		}
+	})
+}

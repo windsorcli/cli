@@ -16,6 +16,8 @@ type MockHelper struct {
 	UpFunc func() error
 	// InitializeFunc is a function that mocks the Initialize method
 	InitializeFunc func() error
+	// InfoFunc is a function that mocks the Info method
+	InfoFunc func() (interface{}, error)
 }
 
 // NewMockHelper is a constructor for MockHelper
@@ -71,6 +73,14 @@ func (m *MockHelper) Up(verbose ...bool) error {
 	return nil
 }
 
+// Info returns information about the helper.
+func (m *MockHelper) Info() (interface{}, error) {
+	if m.InfoFunc != nil {
+		return m.InfoFunc()
+	}
+	return nil, nil
+}
+
 // SetInitializeFunc sets the InitializeFunc for the mock helper
 func (m *MockHelper) SetInitializeFunc(initializeFunc func() error) {
 	m.InitializeFunc = initializeFunc
@@ -94,6 +104,11 @@ func (m *MockHelper) SetWriteConfigFunc(writeConfigFunc func() error) {
 // SetUpFunc sets the UpFunc for the mock helper
 func (m *MockHelper) SetUpFunc(upFunc func() error) {
 	m.UpFunc = upFunc
+}
+
+// SetInfoFunc sets the InfoFunc for the mock helper
+func (m *MockHelper) SetInfoFunc(infoFunc func() (interface{}, error)) {
+	m.InfoFunc = infoFunc
 }
 
 // Ensure MockHelper implements Helper interface

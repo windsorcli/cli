@@ -515,3 +515,34 @@ func TestSopsHelper_Up(t *testing.T) {
 		}
 	})
 }
+
+func TestSopsHelper_Info(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+
+		// Create an instance of SopsHelper
+		sopsHelper, err := NewSopsHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewSopsHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		info, err := sopsHelper.Info()
+		if err != nil {
+			t.Fatalf("Info() error = %v", err)
+		}
+
+		// Then: no error should be returned and info should be nil
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if info != nil {
+			t.Errorf("Expected info to be nil, got %v", info)
+		}
+	})
+}

@@ -162,5 +162,10 @@ func (h *AwsHelper) Up(verbose ...bool) error {
 	return nil
 }
 
+// Info returns information about the helper.
+func (h *AwsHelper) Info() (interface{}, error) {
+	return nil, nil
+}
+
 // Ensure AwsHelper implements Helper interface
 var _ Helper = (*AwsHelper)(nil)

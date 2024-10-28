@@ -1357,3 +1357,45 @@ func TestColimaHelper_Up(t *testing.T) {
 		}
 	})
 }
+
+func TestColimaHelper_Info(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell("unix")
+		mockShell.ExecFunc = func(sudo bool, description string, command string, args ...string) (string, error) {
+			if command == "colima" && args[0] == "ls" {
+				return `{"address": "192.168.5.2", "arch": "x86_64", "cpus": 4, "disk": 64424509440, "memory": 8589934592, "name": "windsor-test-context", "runtime": "docker", "status": "Running"}`, nil
+			}
+			return "", errors.New("ExecFunc not implemented")
+		}
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of ColimaHelper
+		colimaHelper, err := NewColimaHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewColimaHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		info, err := colimaHelper.Info()
+		if err != nil {
+			t.Fatalf("Info() error = %v", err)
+		}
+
+		// Then: no error should be returned and info should not be nil
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if info == nil {
+			t.Errorf("Expected info to be non-nil, got %v", info)
+		}
+	})
+}

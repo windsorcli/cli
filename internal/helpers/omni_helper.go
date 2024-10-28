@@ -80,5 +80,10 @@ func (h *OmniHelper) Up(verbose ...bool) error {
 	return nil
 }
 
+// Info returns information about the helper.
+func (h *OmniHelper) Info() (interface{}, error) {
+	return nil, nil
+}
+
 // Ensure OmniHelper implements Helper interface
 var _ Helper = (*OmniHelper)(nil)

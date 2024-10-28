@@ -307,7 +307,8 @@ func (h *ColimaHelper) Up(verbose ...bool) error {
 				if err != nil {
 					return fmt.Errorf("Error retrieving Colima info: %w", err)
 				}
-				if info.Address != "" {
+				colimaInfo := info.(*ColimaInfo)
+				if colimaInfo.Address != "" {
 					break
 				}
 				time.Sleep(2 * time.Second)
@@ -319,7 +320,7 @@ func (h *ColimaHelper) Up(verbose ...bool) error {
 }
 
 // Info returns the information about the Colima VM
-func (h *ColimaHelper) Info() (*ColimaInfo, error) {
+func (h *ColimaHelper) Info() (interface{}, error) {
 	contextName, err := h.Context.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)

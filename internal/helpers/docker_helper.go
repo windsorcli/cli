@@ -231,6 +231,11 @@ func (h *DockerHelper) Up(verbose ...bool) error {
 	return nil
 }
 
+// Info returns information about the helper.
+func (h *DockerHelper) Info() (interface{}, error) {
+	return nil, nil
+}
+
 // GetFullComposeConfig retrieves the full compose configuration for the DockerHelper.
 func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	// Retrieve the context configuration using GetConfig
@@ -351,6 +356,9 @@ func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	return project, nil
 }
 
+// Ensure DockerHelper implements Helper interface
+var _ Helper = (*DockerHelper)(nil)
+
 // incrementIP increments an IP address by one
 func incrementIP(ip net.IP) net.IP {
 	ip = ip.To4()
@@ -362,9 +370,6 @@ func incrementIP(ip net.IP) net.IP {
 	}
 	return ip
 }
-
-// Ensure DockerHelper implements Helper interface
-var _ Helper = (*DockerHelper)(nil)
 
 // checkDockerDaemon checks if the Docker daemon is running
 func (h *DockerHelper) checkDockerDaemon() error {
