@@ -57,3 +57,6 @@ func (m *MockContainer) ResolveAll(targetType interface{}) ([]interface{}, error
 
 	return m.DIContainer.ResolveAll(targetType)
 }
+
+// Ensure MockContainer implements ContainerInterface interface
+var _ ContainerInterface = (*MockContainer)(nil)

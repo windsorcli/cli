@@ -11,62 +11,9 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/mocks"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
-
-// Struct to hold optional mock handlers and helpers
-type MockDependencies struct {
-	CLIConfigHandler config.ConfigHandler
-	Shell            shell.Shell
-	TerraformHelper  helpers.Helper
-	AwsHelper        helpers.Helper
-	ColimaHelper     helpers.Helper
-	DockerHelper     helpers.Helper
-	ContextInstance  context.ContextInterface
-}
-
-// Helper function to create a new container and register mock handlers
-func setupContainer(deps MockDependencies) di.ContainerInterface {
-	container := di.NewContainer()
-
-	if deps.CLIConfigHandler == nil {
-		deps.CLIConfigHandler = config.NewMockConfigHandler()
-	}
-	if deps.Shell == nil {
-		deps.Shell = shell.NewMockShell("unix")
-	}
-	if deps.TerraformHelper == nil {
-		deps.TerraformHelper = helpers.NewMockHelper()
-	}
-	if deps.AwsHelper == nil {
-		deps.AwsHelper = helpers.NewMockHelper()
-	}
-	if deps.ColimaHelper == nil {
-		deps.ColimaHelper = helpers.NewMockHelper()
-	}
-	if deps.DockerHelper == nil {
-		deps.DockerHelper = helpers.NewMockHelper()
-	}
-	if deps.ContextInstance == nil {
-		deps.ContextInstance = context.NewMockContext()
-	}
-
-	container.Register("cliConfigHandler", deps.CLIConfigHandler)
-	container.Register("shell", deps.Shell)
-	container.Register("terraformHelper", deps.TerraformHelper)
-	container.Register("awsHelper", deps.AwsHelper)
-	container.Register("colimaHelper", deps.ColimaHelper)
-	container.Register("dockerHelper", deps.DockerHelper)
-	container.Register("contextInstance", deps.ContextInstance)
-	Initialize(container)
-
-	return container
-}
 
 // Helper function to capture stdout output
 func captureStdout(f func()) string {
@@ -263,11 +210,6 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-
-			setupContainer(MockDependencies{
-				CLIConfigHandler: mocks.CLIConfigHandler,
-				Shell:            mocks.Shell,
-			})
 
 			// Mock exitFunc to capture the exit code
 			var exitCode int

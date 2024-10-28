@@ -11,6 +11,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/network"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -44,6 +45,9 @@ var dockerHelper helpers.Helper
 
 // context instance
 var contextInstance context.ContextInterface
+
+// networkManager instance
+var networkManager network.NetworkManager
 
 // execCommand instance
 var execCommand = exec.Command
@@ -175,6 +179,13 @@ func Initialize(cont di.ContainerInterface) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type context.ContextInterface\n", key)
 				exitFunc(1)
 			}
+		case *network.NetworkManager:
+			if resolved, ok := instance.(network.NetworkManager); ok {
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type network.NetworkManager\n", key)
+				exitFunc(1)
+			}
 		}
 	}
 
@@ -185,4 +196,5 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("colimaHelper", &colimaHelper)
 	resolveAndAssign("dockerHelper", &dockerHelper)
 	resolveAndAssign("contextInstance", &contextInstance)
+	resolveAndAssign("networkManager", &networkManager)
 }

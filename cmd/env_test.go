@@ -55,7 +55,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a container that returns an error when resolving helpers
 		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
+		mockContainer.SetResolveAllError(errors.New("resolve helpers error"))
 		mocks := mocks.CreateSuperMocks(mockContainer)
 		Initialize(mocks.Container)
 

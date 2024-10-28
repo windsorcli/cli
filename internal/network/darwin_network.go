@@ -4,88 +4,35 @@
 package network
 
 import (
-	"encoding/json"
 	"fmt"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // Configure sets up the local development network
-func (n *networkManager) Configure() error {
-	configHandler, err := n.diContainer.Resolve("cliConfigHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving config handler: %w", err)
-	}
-	config, err := configHandler.(config.ConfigHandler).GetConfig()
-	if err != nil {
-		return fmt.Errorf("error retrieving config: %w", err)
-	}
-
-	// Check if Docker and NetworkCIDR is defined
-	if config.Docker == nil || config.Docker.NetworkCIDR == nil {
-		return nil
-	}
-
-	// Only proceed with Colima if VM.Driver is "colima"
-	if config.VM == nil || config.VM.Driver == nil || *config.VM.Driver != "colima" {
-		return nil
-	}
-
-	// Check Colima status
-	contextHandler, err := n.diContainer.Resolve("contextInstance")
-	if err != nil {
-		return fmt.Errorf("error resolving context handler: %w", err)
-	}
-	contextName, err := contextHandler.(context.ContextInterface).GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
-	colimaProfile := fmt.Sprintf("windsor-%s", contextName)
-
+func (n *networkManager) Configure(networkConfig *NetworkConfig) (*NetworkConfig, error) {
+	// Get the shell from the DI container
 	shellInstance, err := n.diContainer.Resolve("shell")
 	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
+		return networkConfig, fmt.Errorf("failed to resolve shell instance: %w", err)
 	}
-	output, err := shellInstance.(shell.Shell).Exec(false, "Checking Colima status", "colima", "list", "--json", "--profile", colimaProfile)
-	if err != nil {
-		return fmt.Errorf("failed to check Colima status: %w", err)
-	}
-
-	var colimaStatus struct {
-		Name    string `json:"name"`
-		Status  string `json:"status"`
-		Address string `json:"address"`
-	}
-	if err := json.Unmarshal([]byte(output), &colimaStatus); err != nil {
-		return fmt.Errorf("failed to parse Colima status: %w", err)
-	}
-
-	var colimaVMIP string
-	if colimaStatus.Name == colimaProfile && colimaStatus.Status == "Running" && colimaStatus.Address != "" {
-		colimaVMIP = colimaStatus.Address
-	}
-
-	if colimaVMIP == "" {
-		return fmt.Errorf("Colima VM IP not found or Colima is not running")
-	}
+	shell := shellInstance.(shell.Shell)
 
 	// Add route on the host to VM guest
-	output, err = shellInstance.(shell.Shell).Exec(
-		false,
-		"",
+	output, err := shell.Exec(
+		true,
+		"Adding route on the host to VM guest",
 		"sudo",
 		"route",
 		"-nv",
 		"add",
 		"-net",
-		*config.Docker.NetworkCIDR,
-		colimaVMIP,
+		networkConfig.HostRouteCIDR,
+		networkConfig.GuestIP,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to add route: %w", err)
+		return networkConfig, fmt.Errorf("failed to add route: %w, output: %s", err, output)
 	}
 
-	return nil
+	return networkConfig, nil
 }

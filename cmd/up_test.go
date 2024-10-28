@@ -8,6 +8,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/mocks"
+	"github.com/windsor-hotel/cli/internal/network"
 )
 
 func TestUpCmd(t *testing.T) {
@@ -59,6 +60,9 @@ func TestUpCmd(t *testing.T) {
 				Runtime: "docker",
 				Status:  "Running",
 			}, nil
+		}
+		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			return "", nil
 		}
 		Initialize(mocks.Container)
 
@@ -297,6 +301,52 @@ func TestUpCmd(t *testing.T) {
 
 		// Then the output should indicate the error
 		expectedOutput := "Error retrieving Docker info: mock error retrieving Docker info"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorConfiguringNetwork", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a config handler that returns a valid context config with Docker enabled
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Enabled: ptrBool(true),
+				},
+			}, nil
+		}
+
+		// And a DockerHelper that returns valid Docker info
+		mocks.DockerHelper.InfoFunc = func() (interface{}, error) {
+			return &helpers.DockerInfo{
+				Services: map[string][]string{
+					"web": {"service1"},
+					"db":  {"service2"},
+				},
+			}, nil
+		}
+
+		// And a networkManager that returns an error when configuring the network
+		mocks.NetworkManager.ConfigureFunc = func(networkConfig *network.NetworkConfig) (*network.NetworkConfig, error) {
+			return nil, fmt.Errorf("mock error configuring network")
+		}
+		Initialize(mocks.Container)
+
+		// When the up command is executed with verbose flag
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"up", "--verbose"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then the output should indicate the error
+		expectedOutput := "Error configuring network: mock error configuring network"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}

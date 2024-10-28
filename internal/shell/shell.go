@@ -149,3 +149,6 @@ func (d *DefaultShell) Exec(verbose bool, message string, command string, args .
 
 	return stdoutBuf.String(), nil
 }
+
+// Ensure AwsHelper implements Helper interface
+var _ Shell = (*DefaultShell)(nil)

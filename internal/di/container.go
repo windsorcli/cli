@@ -74,3 +74,6 @@ func (c *DIContainer) ResolveAll(targetType interface{}) ([]interface{}, error) 
 
 	return results, nil
 }
+
+// Ensure DIContainer implements ContainerInterface interface
+var _ ContainerInterface = (*DIContainer)(nil)

@@ -5,30 +5,29 @@ import (
 )
 
 type NetworkConfig struct {
-	HostRouteCIDR          string // CIDR for the host route
-	HostRouteIP            string // IP address for the host route
-	ColimaNetworkInterface string // Interface name for Colima
-	DockerBridgeInterface  string // Interface name for Docker bridge
-	ColimaHostIP           string // IP address of the Colima host
-	ClusterIPv4CIDR        string // CIDR for the cluster network
-	DNSDomain              string // Domain name for DNS configuration
-	DNSIP                  string // IP address for custom DNS
+	HostRouteCIDR     string // CIDR block for the host route
+	GuestIP           string // IP address assigned to the guest VM
+	GuestInInterface  string // Interface name from the host to the guest VM
+	GuestOutInterface string // Interface name for the cluster bridge network
+	DestinationCIDR   string // CIDR block for the cluster network
+	DNSDomain         string // Domain name used for DNS configuration
+	DNSIP             string // IP address for the custom DNS server
 }
 
 // NetworkManager handles configuring the local development network
 type NetworkManager interface {
 	// Configure sets up the local development network
-	Configure() error
+	Configure(*NetworkConfig) (*NetworkConfig, error)
 }
 
 // networkManager is a concrete implementation of NetworkManager
 type networkManager struct {
-	diContainer *di.DIContainer
+	diContainer di.ContainerInterface
 }
 
 // NewNetworkManager creates a new NetworkManager
-func NewNetworkManager(di *di.DIContainer) (NetworkManager, error) {
+func NewNetworkManager(container di.ContainerInterface) (NetworkManager, error) {
 	return &networkManager{
-		diContainer: di,
+		diContainer: container,
 	}, nil
 }
