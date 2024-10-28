@@ -303,7 +303,7 @@ func (h *DockerHelper) Info() (interface{}, error) {
 	}
 
 	// Build the DockerInfo struct
-	dockerInfo := DockerInfo{
+	dockerInfo := &DockerInfo{
 		Services: roleToServices,
 	}
 

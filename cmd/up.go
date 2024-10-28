@@ -1,12 +1,11 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"strings"
-	"time"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"github.com/windsor-hotel/cli/internal/helpers"
 )
 
 var upCmd = &cobra.Command{
@@ -14,12 +13,6 @@ var upCmd = &cobra.Command{
 	Short: "Set up the Windsor environment",
 	Long:  "Set up the Windsor environment by executing necessary shell commands.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get the context
-		contextName, err := contextInstance.GetContext()
-		if err != nil {
-			return fmt.Errorf("Error getting context: %w", err)
-		}
-
 		// Get the context configuration
 		contextConfig, err := cliConfigHandler.GetConfig()
 		if err != nil {
@@ -29,241 +22,74 @@ var upCmd = &cobra.Command{
 			return nil
 		}
 
-		// Ensure VM is set before continuing
-		if contextConfig.VM == nil {
-			if verbose {
-				fmt.Println("VM configuration is not set, skipping VM start")
-			}
+		// Handle when there is no contextConfig configured
+		if contextConfig == nil {
 			return nil
 		}
 
-		// Collect environment variables
-		envVars, err := collectEnvVars()
-		if err != nil {
-			return err
-		}
-
-		// Set environment variables for the command
-		for k, v := range envVars {
-			if err := osSetenv(k, v); err != nil {
-				return fmt.Errorf("Error setting environment variable %s: %w", k, err)
+		// Check if the VM driver is "colima"
+		var colimaInfo *helpers.ColimaInfo
+		if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima" {
+			// Run the "Up" command of the ColimaHelper
+			if err := colimaHelper.Up(verbose); err != nil {
+				return fmt.Errorf("Error running ColimaHelper Up command: %w", err)
 			}
-		}
-
-		// Check the VM.Driver value and start the virtual machine if necessary
-		if *contextConfig.VM.Driver == "colima" {
-			if err := colimaHelper.WriteConfig(); err != nil {
-				return fmt.Errorf("Error writing colima config: %w", err)
-			}
-
-			command := "colima"
-			args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
-			output, err := shellInstance.Exec(verbose, "Executing colima start command", command, args...)
+			// Get and hold on to colima's info
+			info, err := colimaHelper.Info()
 			if err != nil {
-				return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
+				return fmt.Errorf("Error retrieving Colima info: %w", err)
 			}
+			colimaInfo = info.(*helpers.ColimaInfo)
 		}
 
-		// Check if Docker is enabled and run "docker-compose up" in daemon mode if necessary
+		// Check if Docker is enabled
+		var dockerInfo *helpers.DockerInfo
 		if contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
-			// Ensure Docker daemon is running
-			if err := checkDockerDaemon(); err != nil {
-				return fmt.Errorf("Docker daemon is not running: %w", err)
+			// Run the "Up" command of the DockerHelper
+			if err := dockerHelper.Up(verbose); err != nil {
+				return fmt.Errorf("Error running DockerHelper Up command: %w", err)
 			}
-
-			// Retry logic for docker-compose up
-			retries := 3
-			var lastErr error
-			var lastOutput string
-			for i := 0; i < retries; i++ {
-				command := "docker-compose"
-				args := []string{"up", "-d"}
-				output, err := shellInstance.Exec(verbose, "Executing docker-compose up command", command, args...)
-				if err == nil {
-					lastErr = nil
-					break
-				}
-
-				lastErr = err
-				lastOutput = output
-
-				if i < retries-1 {
-					fmt.Println("Retrying docker-compose up...")
-					time.Sleep(2 * time.Second)
-				}
+			// Get and hold on to Docker's info
+			info, err := dockerHelper.Info()
+			if err != nil {
+				return fmt.Errorf("Error retrieving Docker info: %w", err)
 			}
-
-			if lastErr != nil {
-				return fmt.Errorf("Error executing command %s %v: %w\n%s", "docker-compose", []string{"up", "-d"}, lastErr, lastOutput)
-			}
+			// Type assertion to *helpers.DockerInfo
+			dockerInfo = info.(*helpers.DockerInfo)
 		}
 
 		// Print welcome status page
-		if err := printWelcomeStatus(contextName); err != nil {
-			return err
+		fmt.Println(color.CyanString("Welcome to the Windsor Environment 📐"))
+		fmt.Println(color.CyanString("-------------------------------------"))
+
+		// Print Colima info if available
+		if colimaInfo != nil {
+			fmt.Println(color.GreenString("Colima VM Info:"))
+			fmt.Printf("  Address: %s\n", colimaInfo.Address)
+			fmt.Printf("  Arch: %s\n", colimaInfo.Arch)
+			fmt.Printf("  CPUs: %d\n", colimaInfo.CPUs)
+			fmt.Printf("  Disk: %.2f GB\n", colimaInfo.Disk)
+			fmt.Printf("  Memory: %.2f GB\n", colimaInfo.Memory)
+			fmt.Printf("  Name: %s\n", colimaInfo.Name)
+			fmt.Printf("  Runtime: %s\n", colimaInfo.Runtime)
+			fmt.Printf("  Status: %s\n", colimaInfo.Status)
+			fmt.Println(color.CyanString("---------------------------------------"))
+		}
+
+		// Print Docker info if available
+		if dockerInfo != nil {
+			fmt.Println(color.GreenString("Docker Info:"))
+			for role, services := range dockerInfo.Services {
+				fmt.Println(color.YellowString("  %s:", role))
+				for _, service := range services {
+					fmt.Printf("    %s\n", service)
+				}
+			}
+			fmt.Println(color.CyanString("---------------------------------------"))
 		}
 
 		return nil
 	},
-}
-
-// checkDockerDaemon checks if the Docker daemon is running
-func checkDockerDaemon() error {
-	command := "docker"
-	args := []string{"info"}
-	_, err := shellInstance.Exec(verbose, "Checking Docker daemon", command, args...)
-	return err
-}
-
-func printWelcomeStatus(contextName string) error {
-	// Define ANSI color codes
-	const (
-		Reset  = "\033[0m"
-		Green  = "\033[32m"
-		Yellow = "\033[33m"
-		Cyan   = "\033[36m"
-	)
-
-	fmt.Println(Green + "Welcome to the Windsor Environment! 📐" + Reset)
-	fmt.Println(strings.Repeat("=", 40))
-
-	// Fetch and print Colima machine info
-	fmt.Println(Cyan + "Colima Machine Info:" + Reset)
-	colimaInfo, err := getColimaInfo(contextName)
-	if err != nil {
-		fmt.Println(Yellow + "Error fetching Colima info: " + err.Error() + Reset)
-		return err
-	} else {
-		fmt.Println(colimaInfo)
-	}
-
-	// Fetch and print Docker service info
-	fmt.Println(Cyan + "\nAccessible Docker Services:" + Reset)
-	dockerInfo, err := getDockerServicesInfo()
-	if err != nil {
-		fmt.Println(Yellow + "Error fetching Docker service info: " + err.Error() + Reset)
-		return err
-	} else {
-		fmt.Println(dockerInfo)
-	}
-
-	return nil
-}
-
-func getColimaInfo(contextName string) (string, error) {
-	command := "colima"
-	args := []string{"ls", "--profile", fmt.Sprintf("windsor-%s", contextName), "--json"}
-	out, err := shellInstance.Exec(false, "Fetching Colima info", command, args...)
-	if err != nil {
-		return "", err
-	}
-
-	var colimaData struct {
-		Address string `json:"address"`
-		Arch    string `json:"arch"`
-		CPUs    int    `json:"cpus"`
-		Disk    int64  `json:"disk"`
-		Memory  int64  `json:"memory"`
-		Name    string `json:"name"`
-		Runtime string `json:"runtime"`
-		Status  string `json:"status"`
-	}
-	if err := json.Unmarshal([]byte(out), &colimaData); err != nil {
-		return "", err
-	}
-
-	// Format the Colima info for display
-	colimaInfo := fmt.Sprintf(
-		"Name: %s\nIP Address: %s\nArchitecture: %s\nCPUs: %d\nMemory: %.2f GB\nDisk: %.2f GB\nRuntime: %s\nStatus: %s",
-		colimaData.Name,
-		colimaData.Address,
-		colimaData.Arch,
-		colimaData.CPUs,
-		float64(colimaData.Memory)/(1024*1024*1024),
-		float64(colimaData.Disk)/(1024*1024*1024),
-		colimaData.Runtime,
-		colimaData.Status,
-	)
-
-	return colimaInfo, nil
-}
-
-func getDockerServicesInfo() (string, error) {
-	// Define the roles in the desired order
-	roles := []string{"localstack", "worker", "controlplane", "git-repository", "registry"}
-
-	// Map to hold role -> list of service URLs
-	roleToServices := make(map[string][]string)
-
-	// Initialize the map with empty slices for each role
-	for _, role := range roles {
-		roleToServices[role] = []string{}
-	}
-
-	// Get the list of container IDs managed by Windsor
-	command := "docker"
-	args := []string{"ps", "--filter", "label=managed_by=windsor", "--format", "{{.ID}}"}
-	out, err := shellInstance.Exec(false, "Fetching container IDs", command, args...)
-	if err != nil {
-		return "", err
-	}
-
-	containerIDs := strings.Split(strings.TrimSpace(out), "\n")
-
-	for _, containerID := range containerIDs {
-		if containerID == "" {
-			continue
-		}
-
-		// Get the labels of the container
-		inspectCommand := "docker"
-		inspectArgs := []string{"inspect", containerID, "--format", "{{json .Config.Labels}}"}
-		inspectOut, err := shellInstance.Exec(false, "Inspecting container", inspectCommand, inspectArgs...)
-		if err != nil {
-			return "", err
-		}
-
-		var labels map[string]string
-		if err := json.Unmarshal([]byte(inspectOut), &labels); err != nil {
-			return "", err
-		}
-
-		// Get the 'role' label
-		role, roleExists := labels["role"]
-		if !roleExists {
-			// Skip containers without a 'role' label
-			continue
-		}
-
-		serviceName, serviceExists := labels["com.docker.compose.service"]
-		if !serviceExists {
-			// Skip containers without 'com.docker.compose.service' label
-			continue
-		}
-
-		// Add the service to the appropriate role
-		if _, roleValid := roleToServices[role]; roleValid {
-			roleToServices[role] = append(roleToServices[role], serviceName)
-		} else {
-			// If role is not in the predefined roles, skip it
-			continue
-		}
-	}
-
-	// Build the output string
-	var serviceInfo strings.Builder
-	for _, role := range roles {
-		services := roleToServices[role]
-		if len(services) > 0 {
-			serviceInfo.WriteString(fmt.Sprintf("%s:\n", strings.ToTitle(role)))
-			for _, service := range services {
-				serviceInfo.WriteString(fmt.Sprintf("  - %s\n", service))
-			}
-			serviceInfo.WriteString("\n")
-		}
-	}
-
-	return serviceInfo.String(), nil
 }
 
 func init() {

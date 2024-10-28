@@ -266,7 +266,7 @@ func TestOmniHelper_Up(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of OmniHelper
 		omniHelper, err := NewOmniHelper(diContainer)
@@ -289,7 +289,7 @@ func TestOmniHelper_Info(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of OmniHelper
 		omniHelper, err := NewOmniHelper(diContainer)

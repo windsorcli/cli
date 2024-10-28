@@ -52,6 +52,11 @@ func ptrBool(b bool) *bool {
 	return &b
 }
 
+// Helper functions to create pointers for basic types
+func ptrString(s string) *string {
+	return &s
+}
+
 // getCLIConfigPath returns the path to the CLI configuration file
 func getCLIConfigPath() string {
 	cliConfigPath := os.Getenv("WINDSORCONFIG")

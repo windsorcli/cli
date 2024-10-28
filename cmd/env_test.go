@@ -59,6 +59,10 @@ func TestEnvCmd(t *testing.T) {
 		mocks := mocks.CreateSuperMocks(mockContainer)
 		Initialize(mocks.Container)
 
+		// Capture stderr
+		var buf bytes.Buffer
+		rootCmd.SetErr(&buf)
+
 		// When the env command is executed with verbose flag
 		rootCmd.SetArgs([]string{"env", "--verbose"})
 		err := rootCmd.Execute()
@@ -84,11 +88,6 @@ func TestEnvCmd(t *testing.T) {
 		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
 		mocks := mocks.CreateSuperMocks(mockContainer)
 		Initialize(mocks.Container)
-
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(errors.New("resolve helpers error"))
-		mockContainer.Register("shell", mockShell)
-		container = mockContainer // Ensure the mock container is used
 
 		// Capture stderr
 		var buf bytes.Buffer

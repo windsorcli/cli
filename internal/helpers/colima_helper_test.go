@@ -48,6 +48,7 @@ func TestColimaHelper_Initialize(t *testing.T) {
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("shell", shell.NewMockShell("unix"))
 
 		// Create an instance of ColimaHelper
 		colimaHelper, err := NewColimaHelper(diContainer)
@@ -103,7 +104,7 @@ func TestColimaHelper_NewColimaHelper(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// When attempting to create ColimaHelper
 		_, err := NewColimaHelper(diContainer)
@@ -1120,7 +1121,7 @@ func TestColimaHelper_Up(t *testing.T) {
 			}, nil
 		}
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		mockShell := shell.NewMockShell("unix")
 		mockShell.ExecFunc = func(_ bool, _ string, _ string, args ...string) (string, error) {
 			if args[0] == "start" {
@@ -1155,7 +1156,7 @@ func TestColimaHelper_Up(t *testing.T) {
 		}
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", shell.NewMockShell("unix"))
 
 		// Create an instance of ColimaHelper
@@ -1180,7 +1181,7 @@ func TestColimaHelper_Up(t *testing.T) {
 			return "", errors.New("mock error")
 		}
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", shell.NewMockShell("unix"))
 
 		// Create an instance of ColimaHelper
@@ -1213,7 +1214,7 @@ func TestColimaHelper_Up(t *testing.T) {
 			return "test-context", nil
 		}
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", shell.NewMockShell("unix"))
 
 		// Create an instance of ColimaHelper
@@ -1246,7 +1247,7 @@ func TestColimaHelper_Up(t *testing.T) {
 			return "test-context", nil
 		}
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", shell.NewMockShell("unix"))
 
 		// Mock os.WriteFile to return an error
@@ -1290,7 +1291,7 @@ func TestColimaHelper_Up(t *testing.T) {
 			return "", errors.New("mock error")
 		}
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of ColimaHelper
@@ -1330,7 +1331,7 @@ func TestColimaHelper_Up(t *testing.T) {
 			return "", nil
 		}
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of ColimaHelper
@@ -1375,7 +1376,7 @@ func TestColimaHelper_Up(t *testing.T) {
 			return "", nil
 		}
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of ColimaHelper
@@ -1414,7 +1415,7 @@ func TestColimaHelper_Info(t *testing.T) {
 			return "", errors.New("ExecFunc not implemented")
 		}
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of ColimaHelper
@@ -1448,7 +1449,7 @@ func TestColimaHelper_Info(t *testing.T) {
 		}
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of ColimaHelper
@@ -1483,7 +1484,7 @@ func TestColimaHelper_Info(t *testing.T) {
 			return "", errors.New("command execution error")
 		}
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of ColimaHelper
@@ -1521,7 +1522,7 @@ func TestColimaHelper_Info(t *testing.T) {
 			return "", errors.New("ExecFunc not implemented")
 		}
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Mock jsonUnmarshal to return an error

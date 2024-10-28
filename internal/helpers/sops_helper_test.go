@@ -500,7 +500,7 @@ func TestSopsHelper_Up(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of SopsHelper
 		sopsHelper, err := NewSopsHelper(diContainer)
@@ -523,7 +523,7 @@ func TestSopsHelper_Info(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of SopsHelper
 		sopsHelper, err := NewSopsHelper(diContainer)

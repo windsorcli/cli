@@ -1909,7 +1909,7 @@ func TestTerraformHelper_Up(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -1932,7 +1932,7 @@ func TestTerraformHelper_Info(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
+		diContainer.Register("contextInstance", mockContext)
 
 		// Create an instance of TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
