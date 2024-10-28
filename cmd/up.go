@@ -73,7 +73,7 @@ var upCmd = &cobra.Command{
 			fmt.Printf("  Name: %s\n", colimaInfo.Name)
 			fmt.Printf("  Runtime: %s\n", colimaInfo.Runtime)
 			fmt.Printf("  Status: %s\n", colimaInfo.Status)
-			fmt.Println(color.CyanString("---------------------------------------"))
+			fmt.Println(color.CyanString("-------------------------------------"))
 		}
 
 		// Print Docker info if available
@@ -85,7 +85,7 @@ var upCmd = &cobra.Command{
 					fmt.Printf("    %s\n", service)
 				}
 			}
-			fmt.Println(color.CyanString("---------------------------------------"))
+			fmt.Println(color.CyanString("-------------------------------------"))
 		}
 
 		return nil

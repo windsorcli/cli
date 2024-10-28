@@ -257,28 +257,4 @@ func TestContext_SetAlias(t *testing.T) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
-
-	// t.Run("SaveConfigError", func(t *testing.T) {
-	// 	// Given a config handler that returns an error on SaveConfig
-	// 	mocks := mocks.CreateSuperMocks()
-	// 	mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
-	// 	mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
-	// 	mocks.ContextInstance.SetContextFunc = func(contextName string) error { return nil }
-	// 	Initialize(mocks.Container)
-
-	// 	// When the set-context alias command is executed
-	// 	output := captureStderr(func() {
-	// 		rootCmd.SetArgs([]string{"set-context", "new-context"})
-	// 		err := rootCmd.Execute()
-	// 		if err == nil {
-	// 			t.Fatalf("Expected error, got nil")
-	// 		}
-	// 	})
-
-	// 	// Then the output should indicate the error
-	// 	expectedOutput := "save config error"
-	// 	if !strings.Contains(output, expectedOutput) {
-	// 		t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-	// 	}
-	// })
 }
