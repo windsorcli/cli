@@ -1,6 +1,7 @@
 package helpers
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -76,6 +77,9 @@ var yamlMarshal = yaml.Marshal
 
 // Override variable for yaml.Unmarshal
 var yamlUnmarshal = yaml.Unmarshal
+
+// Override variable for json.Unmarshal
+var jsonUnmarshal = json.Unmarshal
 
 // Mockable function for os.UserHomeDir
 var userHomeDir = os.UserHomeDir

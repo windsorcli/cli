@@ -1307,6 +1307,46 @@ func TestColimaHelper_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("FailUnmarshalColimaInfo", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			driver := "colima"
+			return &config.Context{
+				VM: &config.VMConfig{
+					Driver: &driver,
+				},
+			}, nil
+		}
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell("unix")
+		mockShell.ExecFunc = func(sudo bool, description string, command string, args ...string) (string, error) {
+			if args[0] == "ls" {
+				return `invalid json`, nil
+			}
+			return "", nil
+		}
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of ColimaHelper
+		colimaHelper, err := NewColimaHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewColimaHelper() error = %v", err)
+		}
+
+		// When: Up is called
+		err = colimaHelper.Up()
+		if err == nil || !strings.Contains(err.Error(), "Error retrieving Colima info") {
+			t.Fatalf("expected error retrieving Colima info, got %v", err)
+		}
+	})
+
 	t.Run("SecondRunHitsSleep", func(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
@@ -1396,6 +1436,118 @@ func TestColimaHelper_Info(t *testing.T) {
 		}
 		if info == nil {
 			t.Errorf("Expected info to be non-nil, got %v", info)
+		}
+	})
+
+	t.Run("ErrorRetrievingContext", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "", errors.New("context retrieval error")
+		}
+		mockShell := shell.NewMockShell("unix")
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of ColimaHelper
+		colimaHelper, err := NewColimaHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewColimaHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		_, err = colimaHelper.Info()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then: error should be returned
+		expectedError := "error retrieving context: context retrieval error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorExecutingCommand", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell("unix")
+		mockShell.ExecFunc = func(sudo bool, description string, command string, args ...string) (string, error) {
+			return "", errors.New("command execution error")
+		}
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of ColimaHelper
+		colimaHelper, err := NewColimaHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewColimaHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		_, err = colimaHelper.Info()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then: error should be returned
+		expectedError := "command execution error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("FailUnmarshalColimaInfo", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell("unix")
+		mockShell.ExecFunc = func(sudo bool, description string, command string, args ...string) (string, error) {
+			if command == "colima" && args[0] == "ls" {
+				return `{"address": "192.168.5.2", "arch": "x86_64", "cpus": 4, "disk": 64424509440, "memory": 8589934592, "name": "windsor-test-context", "runtime": "docker", "status": "Running"}`, nil
+			}
+			return "", errors.New("ExecFunc not implemented")
+		}
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Mock jsonUnmarshal to return an error
+		originalJsonUnmarshal := jsonUnmarshal
+		defer func() { jsonUnmarshal = originalJsonUnmarshal }()
+		jsonUnmarshal = func(data []byte, v interface{}) error {
+			return errors.New("json unmarshal error")
+		}
+
+		// Create an instance of ColimaHelper
+		colimaHelper, err := NewColimaHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewColimaHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		_, err = colimaHelper.Info()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then: error should be returned
+		expectedError := "json unmarshal error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
 	})
 }

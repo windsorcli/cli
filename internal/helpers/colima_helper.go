@@ -2,7 +2,6 @@ package helpers
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -343,7 +342,7 @@ func (h *ColimaHelper) Info() (interface{}, error) {
 		Runtime string `json:"runtime"`
 		Status  string `json:"status"`
 	}
-	if err := json.Unmarshal([]byte(out), &colimaData); err != nil {
+	if err := jsonUnmarshal([]byte(out), &colimaData); err != nil {
 		return nil, err
 	}
 
