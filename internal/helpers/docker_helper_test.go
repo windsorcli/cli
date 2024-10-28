@@ -1712,3 +1712,320 @@ func TestDockerHelper_Up(t *testing.T) {
 		}
 	})
 }
+
+func TestDockerHelper_Info(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell("unix")
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Mock the shell.Exec function to return container IDs and labels
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "docker" && args[0] == "ps" {
+				return "container1\ncontainer2", nil
+			}
+			if command == "docker" && args[0] == "inspect" {
+				if args[1] == "container1" {
+					return `{"role": "web", "com.docker.compose.service": "service1"}`, nil
+				}
+				if args[1] == "container2" {
+					return `{"role": "db", "com.docker.compose.service": "service2"}`, nil
+				}
+			}
+			return "", nil
+		}
+
+		// Create an instance of DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		info, err := dockerHelper.Info()
+		if err != nil {
+			t.Fatalf("Info() error = %v", err)
+		}
+
+		// Then: no error should be returned and info should contain the expected data
+		expectedInfo := DockerInfo{
+			Services: map[string][]string{
+				"web": {"service1"},
+				"db":  {"service2"},
+			},
+		}
+		if !reflect.DeepEqual(info, expectedInfo) {
+			t.Errorf("Expected info to be %v, got %v", expectedInfo, info)
+		}
+	})
+
+	t.Run("NoContext", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "", fmt.Errorf("error resolving context: no instance registered with name context")
+		}
+		mockShell := shell.NewMockShell("unix")
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		_, err = dockerHelper.Info()
+		if err == nil || !strings.Contains(err.Error(), "error resolving context: no instance registered with name context") {
+			t.Fatalf("Expected error resolving context, got %v", err)
+		}
+	})
+
+	t.Run("NoContainers", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell("unix")
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Mock the shell.Exec function to return no container IDs
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "docker" && args[0] == "ps" {
+				return "", nil
+			}
+			return "", nil
+		}
+
+		// Create an instance of DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		info, err := dockerHelper.Info()
+		if err != nil {
+			t.Fatalf("Info() error = %v", err)
+		}
+
+		// Then: no error should be returned and info should be empty
+		expectedInfo := DockerInfo{
+			Services: map[string][]string{},
+		}
+		if !reflect.DeepEqual(info, expectedInfo) {
+			t.Errorf("Expected info to be %v, got %v", expectedInfo, info)
+		}
+	})
+
+	t.Run("ErrorFetchingContainerIDs", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell("unix")
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Mock the shell.Exec function to return an error when fetching container IDs
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "docker" && args[0] == "ps" {
+				return "", fmt.Errorf("mock error fetching container IDs")
+			}
+			return "", nil
+		}
+
+		// Create an instance of DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		_, err = dockerHelper.Info()
+		if err == nil || !strings.Contains(err.Error(), "mock error fetching container IDs") {
+			t.Fatalf("Expected error fetching container IDs, got %v", err)
+		}
+	})
+
+	t.Run("ErrorInspectingContainer", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell("unix")
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Mock the shell.Exec function to return an error when inspecting a container
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "docker" && args[0] == "ps" {
+				return "container1", nil
+			}
+			if command == "docker" && args[0] == "inspect" {
+				return "", fmt.Errorf("mock error inspecting container")
+			}
+			return "", nil
+		}
+
+		// Create an instance of DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		_, err = dockerHelper.Info()
+		if err == nil || !strings.Contains(err.Error(), "mock error inspecting container") {
+			t.Fatalf("Expected error inspecting container, got %v", err)
+		}
+	})
+
+	t.Run("ErrorUnmarshallingLabels", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell("unix")
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "docker" && args[0] == "ps" {
+				return "container1", nil
+			}
+			if command == "docker" && args[0] == "inspect" {
+				return "invalid json", nil
+			}
+			return "", nil
+		}
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		_, err = dockerHelper.Info()
+		if err == nil || !strings.Contains(err.Error(), "invalid character") {
+			t.Fatalf("Expected error unmarshalling labels, got %v", err)
+		}
+	})
+
+	t.Run("NoRoleLabel", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell("unix")
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "docker" && args[0] == "ps" {
+				return "container1", nil
+			}
+			if command == "docker" && args[0] == "inspect" {
+				return `{"com.docker.compose.service": "test-service"}`, nil
+			}
+			return "", nil
+		}
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		info, err := dockerHelper.Info()
+		if err != nil {
+			t.Fatalf("Info() error = %v", err)
+		}
+
+		// Then: it should not include the container in the result
+		dockerInfo, ok := info.(DockerInfo)
+		if !ok {
+			t.Fatalf("Expected DockerInfo, got %T", info)
+		}
+		if len(dockerInfo.Services) != 0 {
+			t.Fatalf("Expected no services, got %v", dockerInfo.Services)
+		}
+	})
+
+	t.Run("NoServiceLabel", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell("unix")
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "docker" && args[0] == "ps" {
+				return "container1", nil
+			}
+			if command == "docker" && args[0] == "inspect" {
+				return `{"role": "test-role"}`, nil
+			}
+			return "", nil
+		}
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		info, err := dockerHelper.Info()
+		if err != nil {
+			t.Fatalf("Info() error = %v", err)
+		}
+
+		// Then: it should not include the container in the result
+		dockerInfo, ok := info.(DockerInfo)
+		if !ok {
+			t.Fatalf("Expected DockerInfo, got %T", info)
+		}
+		if len(dockerInfo.Services) != 0 {
+			t.Fatalf("Expected no services, got %v", dockerInfo.Services)
+		}
+	})
+}

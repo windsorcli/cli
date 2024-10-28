@@ -180,6 +180,11 @@ func (h *GitHelper) Up(verbose ...bool) error {
 	return nil
 }
 
+// Info returns information about the helper.
+func (h *GitHelper) Info() (interface{}, error) {
+	return nil, nil
+}
+
 // Ensure GitHelper implements Helper interface
 var _ Helper = (*GitHelper)(nil)
 

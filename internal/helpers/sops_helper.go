@@ -80,6 +80,11 @@ func (h *SopsHelper) Up(verbose ...bool) error {
 	return nil
 }
 
+// Info returns information about the helper.
+func (h *SopsHelper) Info() (interface{}, error) {
+	return nil, nil
+}
+
 // Ensure SopsHelper implements Helper interface
 var _ Helper = (*SopsHelper)(nil)
 

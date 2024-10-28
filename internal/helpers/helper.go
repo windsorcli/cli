@@ -1,6 +1,7 @@
 package helpers
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -30,6 +31,9 @@ type Helper interface {
 
 	// Up executes necessary commands to instantiate the tool or environment.
 	Up(verbose ...bool) error
+
+	// Info returns information about the helper.
+	Info() (interface{}, error)
 }
 
 type YAMLEncoder interface {
@@ -73,6 +77,9 @@ var yamlMarshal = yaml.Marshal
 
 // Override variable for yaml.Unmarshal
 var yamlUnmarshal = yaml.Unmarshal
+
+// Override variable for json.Unmarshal
+var jsonUnmarshal = json.Unmarshal
 
 // Mockable function for os.UserHomeDir
 var userHomeDir = os.UserHomeDir

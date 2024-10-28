@@ -230,5 +230,10 @@ func (h *TalosHelper) Up(verbose ...bool) error {
 	return nil
 }
 
+// Info returns information about the helper.
+func (h *TalosHelper) Info() (interface{}, error) {
+	return nil, nil
+}
+
 // Ensure TalosHelper implements Helper interface
 var _ Helper = (*TalosHelper)(nil)

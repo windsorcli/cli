@@ -1,11 +1,13 @@
 package helpers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/compose-spec/compose-go/types"
@@ -14,6 +16,10 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
+
+type DockerInfo struct {
+	Services map[string][]string `json:"services"`
+}
 
 // DockerHelper is a helper struct that provides Docker-specific utility functions
 type DockerHelper struct {
@@ -231,6 +237,68 @@ func (h *DockerHelper) Up(verbose ...bool) error {
 	return nil
 }
 
+// Info returns information about the helper.
+func (h *DockerHelper) Info() (interface{}, error) {
+	// Map to hold role -> list of service URLs
+	roleToServices := make(map[string][]string)
+
+	// Get the list of container IDs managed by Windsor and matching the current context
+	contextName, err := h.Context.GetContext()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context: %w", err)
+	}
+	command := "docker"
+	args := []string{"ps", "--filter", "label=managed_by=windsor", "--filter", fmt.Sprintf("label=context=%s", contextName), "--format", "{{.ID}}"}
+	out, err := h.Shell.Exec(false, "Fetching container IDs", command, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	containerIDs := strings.Split(strings.TrimSpace(out), "\n")
+
+	for _, containerID := range containerIDs {
+		if containerID == "" {
+			continue
+		}
+
+		// Get the labels of the container
+		inspectCommand := "docker"
+		inspectArgs := []string{"inspect", containerID, "--format", "{{json .Config.Labels}}"}
+		inspectOut, err := h.Shell.Exec(false, "Inspecting container", inspectCommand, inspectArgs...)
+		if err != nil {
+			return nil, err
+		}
+
+		var labels map[string]string
+		if err := json.Unmarshal([]byte(inspectOut), &labels); err != nil {
+			return nil, err
+		}
+
+		// Get the 'role' label
+		role, roleExists := labels["role"]
+		if !roleExists {
+			// Skip containers without a 'role' label
+			continue
+		}
+
+		serviceName, serviceExists := labels["com.docker.compose.service"]
+		if !serviceExists {
+			// Skip containers without 'com.docker.compose.service' label
+			continue
+		}
+
+		// Add the service to the appropriate role
+		roleToServices[role] = append(roleToServices[role], serviceName)
+	}
+
+	// Build the DockerInfo struct
+	dockerInfo := DockerInfo{
+		Services: roleToServices,
+	}
+
+	return dockerInfo, nil
+}
+
 // GetFullComposeConfig retrieves the full compose configuration for the DockerHelper.
 func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	// Retrieve the context configuration using GetConfig
@@ -351,6 +419,9 @@ func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	return project, nil
 }
 
+// Ensure DockerHelper implements Helper interface
+var _ Helper = (*DockerHelper)(nil)
+
 // incrementIP increments an IP address by one
 func incrementIP(ip net.IP) net.IP {
 	ip = ip.To4()
@@ -362,9 +433,6 @@ func incrementIP(ip net.IP) net.IP {
 	}
 	return ip
 }
-
-// Ensure DockerHelper implements Helper interface
-var _ Helper = (*DockerHelper)(nil)
 
 // checkDockerDaemon checks if the Docker daemon is running
 func (h *DockerHelper) checkDockerDaemon() error {

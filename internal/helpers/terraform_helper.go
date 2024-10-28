@@ -155,6 +155,11 @@ func (h *TerraformHelper) Up(verbose ...bool) error {
 	return nil
 }
 
+// Info returns information about the helper.
+func (h *TerraformHelper) Info() (interface{}, error) {
+	return nil, nil
+}
+
 // Ensure TerraformHelper implements Helper interface
 var _ Helper = (*TerraformHelper)(nil)
 
