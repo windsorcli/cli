@@ -5,7 +5,9 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/network"
 )
 
 var upCmd = &cobra.Command{
@@ -56,6 +58,15 @@ var upCmd = &cobra.Command{
 			}
 			// Type assertion to *helpers.DockerInfo
 			dockerInfo = info.(*helpers.DockerInfo)
+		}
+
+		// Configure the network
+		networkManager, err := network.NewNetworkManager(container.(*di.DIContainer))
+		if err != nil {
+			return fmt.Errorf("Error creating network manager: %w", err)
+		}
+		if err := networkManager.Configure(); err != nil {
+			return fmt.Errorf("Error configuring network: %w", err)
 		}
 
 		// Print welcome status page
