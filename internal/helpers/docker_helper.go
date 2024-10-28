@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // DockerHelper is a helper struct that provides Docker-specific utility functions
@@ -18,6 +20,7 @@ type DockerHelper struct {
 	ConfigHandler config.ConfigHandler
 	Context       context.ContextInterface
 	DIContainer   *di.DIContainer
+	Shell         shell.Shell
 }
 
 const registryImage = "registry:2.8.3"
@@ -34,10 +37,16 @@ func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
+	resolvedShell, err := di.Resolve("shell")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving shell: %w", err)
+	}
+
 	return &DockerHelper{
 		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
 		DIContainer:   di,
+		Shell:         resolvedShell.(shell.Shell),
 	}, nil
 }
 
@@ -166,6 +175,57 @@ func (h *DockerHelper) WriteConfig() error {
 	err = writeFile(composeFilePath, yamlData, 0644)
 	if err != nil {
 		return fmt.Errorf("error writing docker-compose file: %w", err)
+	}
+
+	return nil
+}
+
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *DockerHelper) Up(verbose ...bool) error {
+	// Set verbose to false if not defined
+	verboseFlag := false
+	if len(verbose) > 0 {
+		verboseFlag = verbose[0]
+	}
+
+	// Retrieve the context configuration using GetConfig
+	contextConfig, err := h.ConfigHandler.GetConfig()
+	if err != nil {
+		return fmt.Errorf("error retrieving context configuration: %w", err)
+	}
+
+	// Check if Docker is enabled and run "docker-compose up" in daemon mode if necessary
+	if contextConfig != nil && contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
+		// Ensure Docker daemon is running
+		if err := h.checkDockerDaemon(); err != nil {
+			return fmt.Errorf("Docker daemon is not running: %w", err)
+		}
+
+		// Retry logic for docker-compose up
+		retries := 3
+		var lastErr error
+		var lastOutput string
+		for i := 0; i < retries; i++ {
+			command := "docker-compose"
+			args := []string{"up", "-d"}
+			output, err := h.Shell.Exec(verboseFlag, "Executing docker-compose up command", command, args...)
+			if err == nil {
+				lastErr = nil
+				break
+			}
+
+			lastErr = err
+			lastOutput = output
+
+			if i < retries-1 {
+				fmt.Println("Retrying docker-compose up...")
+				time.Sleep(2 * time.Second)
+			}
+		}
+
+		if lastErr != nil {
+			return fmt.Errorf("Error executing command %s %v: %w\n%s", "docker-compose", []string{"up", "-d"}, lastErr, lastOutput)
+		}
 	}
 
 	return nil
@@ -305,3 +365,11 @@ func incrementIP(ip net.IP) net.IP {
 
 // Ensure DockerHelper implements Helper interface
 var _ Helper = (*DockerHelper)(nil)
+
+// checkDockerDaemon checks if the Docker daemon is running
+func (h *DockerHelper) checkDockerDaemon() error {
+	command := "docker"
+	args := []string{"info"}
+	_, err := h.Shell.Exec(false, "Checking Docker daemon", command, args...)
+	return err
+}

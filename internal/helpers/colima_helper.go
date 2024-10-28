@@ -2,17 +2,20 @@ package helpers
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // Mockable function for mem.VirtualMemory
@@ -65,10 +68,23 @@ func getDefaultValues(context string) (int, int, int, string, string) {
 	return cpu, disk, memory, hostname, arch
 }
 
+// ColimaInfo is a struct that contains the information about the Colima VM
+type ColimaInfo struct {
+	Address string  `json:"address"`
+	Arch    string  `json:"arch"`
+	CPUs    int     `json:"cpus"`
+	Disk    float64 `json:"disk"`
+	Memory  float64 `json:"memory"`
+	Name    string  `json:"name"`
+	Runtime string  `json:"runtime"`
+	Status  string  `json:"status"`
+}
+
 // ColimaHelper is a struct that provides various utility functions for working with Colima
 type ColimaHelper struct {
 	ConfigHandler config.ConfigHandler
 	Context       context.ContextInterface
+	Shell         shell.Shell
 }
 
 // NewColimaHelper is a constructor for ColimaHelper
@@ -83,9 +99,15 @@ func NewColimaHelper(di *di.DIContainer) (*ColimaHelper, error) {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
+	resolvedShell, err := di.Resolve("shell")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving shell: %w", err)
+	}
+
 	return &ColimaHelper{
 		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
+		Shell:         resolvedShell.(shell.Shell),
 	}, nil
 }
 
@@ -246,6 +268,96 @@ func (h *ColimaHelper) WriteConfig() error {
 		return fmt.Errorf("error renaming temporary file to colima config file: %w", err)
 	}
 	return nil
+}
+
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *ColimaHelper) Up(verbose ...bool) error {
+	if len(verbose) == 0 {
+		verbose = append(verbose, false)
+	}
+
+	contextConfig, err := h.ConfigHandler.GetConfig()
+	if err != nil {
+		return fmt.Errorf("error retrieving config: %w", err)
+	}
+
+	contextName, err := h.Context.GetContext()
+	if err != nil {
+		return fmt.Errorf("error retrieving context: %w", err)
+	}
+
+	// Check if contextConfig, contextConfig.VM, and contextConfig.VM.Driver are defined
+	if contextConfig != nil && contextConfig.VM != nil && contextConfig.VM.Driver != nil {
+		// Check the VM.Driver value and start the virtual machine if necessary
+		if *contextConfig.VM.Driver == "colima" {
+			if err := h.WriteConfig(); err != nil {
+				return fmt.Errorf("Error writing colima config: %w", err)
+			}
+
+			command := "colima"
+			args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
+			output, err := h.Shell.Exec(verbose[0], "Executing colima start command", command, args...)
+			if err != nil {
+				return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
+			}
+
+			// Wait until the Colima VM has an assigned IP address, try three times
+			for i := 0; i < 3; i++ {
+				info, err := h.Info()
+				if err != nil {
+					return fmt.Errorf("Error retrieving Colima info: %w", err)
+				}
+				if info.Address != "" {
+					break
+				}
+				time.Sleep(2 * time.Second)
+			}
+		}
+	}
+
+	return nil
+}
+
+// Info returns the information about the Colima VM
+func (h *ColimaHelper) Info() (*ColimaInfo, error) {
+	contextName, err := h.Context.GetContext()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context: %w", err)
+	}
+
+	command := "colima"
+	args := []string{"ls", "--profile", fmt.Sprintf("windsor-%s", contextName), "--json"}
+	out, err := h.Shell.Exec(false, "Fetching Colima info", command, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	var colimaData struct {
+		Address string `json:"address"`
+		Arch    string `json:"arch"`
+		CPUs    int    `json:"cpus"`
+		Disk    int64  `json:"disk"`
+		Memory  int64  `json:"memory"`
+		Name    string `json:"name"`
+		Runtime string `json:"runtime"`
+		Status  string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(out), &colimaData); err != nil {
+		return nil, err
+	}
+
+	colimaInfo := &ColimaInfo{
+		Address: colimaData.Address,
+		Arch:    colimaData.Arch,
+		CPUs:    colimaData.CPUs,
+		Disk:    float64(colimaData.Disk) / (1024 * 1024 * 1024),
+		Memory:  float64(colimaData.Memory) / (1024 * 1024 * 1024),
+		Name:    colimaData.Name,
+		Runtime: colimaData.Runtime,
+		Status:  colimaData.Status,
+	}
+
+	return colimaInfo, nil
 }
 
 // Ensure ColimaHelper implements Helper interface

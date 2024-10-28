@@ -225,5 +225,10 @@ func (h *TalosHelper) WriteConfig() error {
 	return nil
 }
 
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *TalosHelper) Up(verbose ...bool) error {
+	return nil
+}
+
 // Ensure TalosHelper implements Helper interface
 var _ Helper = (*TalosHelper)(nil)

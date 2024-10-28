@@ -170,5 +170,10 @@ func (h *DNSHelper) WriteConfig() error {
 	return nil
 }
 
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *DNSHelper) Up(verbose ...bool) error {
+	return nil
+}
+
 // Ensure DockerHelper implements Helper interface
 var _ Helper = (*DNSHelper)(nil)

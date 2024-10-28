@@ -27,6 +27,9 @@ type Helper interface {
 
 	// WriteConfig writes any vendor specific configuration files that are needed for the helper.
 	WriteConfig() error
+
+	// Up executes necessary commands to instantiate the tool or environment.
+	Up(verbose ...bool) error
 }
 
 type YAMLEncoder interface {

@@ -514,3 +514,28 @@ func TestBaseHelper_WriteConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseHelper_Up(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockShell := shell.NewMockShell("unix")
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("context", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of BaseHelper
+		baseHelper, err := NewBaseHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewBaseHelper() error = %v", err)
+		}
+
+		// When: Up is called
+		err = baseHelper.Up()
+		if err != nil {
+			t.Fatalf("Up() error = %v", err)
+		}
+	})
+}

@@ -157,5 +157,10 @@ func (h *AwsHelper) WriteConfig() error {
 	return nil
 }
 
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *AwsHelper) Up(verbose ...bool) error {
+	return nil
+}
+
 // Ensure AwsHelper implements Helper interface
 var _ Helper = (*AwsHelper)(nil)

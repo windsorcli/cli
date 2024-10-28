@@ -148,6 +148,13 @@ func (h *TerraformHelper) WriteConfig() error {
 	return nil
 }
 
+// Up executes necessary commands to instantiate the tool or environment.
+func (h *TerraformHelper) Up(verbose ...bool) error {
+	// Basic implementation of the Up function
+	fmt.Println("Executing Terraform Up command...")
+	return nil
+}
+
 // Ensure TerraformHelper implements Helper interface
 var _ Helper = (*TerraformHelper)(nil)
 
