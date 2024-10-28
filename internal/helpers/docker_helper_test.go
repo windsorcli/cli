@@ -92,79 +92,96 @@ func TestDockerHelper_NewDockerHelper(t *testing.T) {
 		}
 	})
 }
+
 func TestDockerHelper_GetEnvVars(t *testing.T) {
-	t.Run("ValidConfigRootWithYaml", func(t *testing.T) {
-		// Given: a valid context path with compose.yaml
-		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context-yaml")
-		composeFilePath := filepath.Join(contextPath, "compose.yaml")
-
-		// Create the directory and compose.yaml file
-		err := os.MkdirAll(contextPath, os.ModePerm)
-		if err != nil {
-			t.Fatalf("Failed to create directories: %v", err)
-		}
-		_, err = os.Create(composeFilePath)
-		if err != nil {
-			t.Fatalf("Failed to create compose.yaml file: %v", err)
-		}
-		defer os.RemoveAll(filepath.Join(os.TempDir(), "contexts", "test-context-yaml"))
-
-			// Create DI container and register mocks
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", config.NewMockConfigHandler())
-			diContainer.Register("contextInstance", mockContext)
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", config.NewMockConfigHandler())
-		diContainer.Register("contextInstance", mockContext)
-
-		// Register MockHelper
-		mockHelper := NewMockHelper()
-		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{"COMPOSE_FILE": composeFilePath}, nil
-		}
-		diContainer.Register("helper", mockHelper)
-
-		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
-		diContainer.Register("shell", mockShell)
-
-		// Create DockerHelper
-		dockerHelper, err := NewDockerHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewDockerHelper() error = %v", err)
+	t.Run("Success", func(t *testing.T) {
+		tests := []struct {
+			name            string
+			contextPath     string
+			composeFile     string
+			expectedEnvVars map[string]string
+			expectError     bool
+		}{
+			{
+				name:        "ValidConfigRootWithYaml",
+				contextPath: filepath.Join(os.TempDir(), "contexts", "test-context-yaml"),
+				composeFile: "compose.yaml",
+				expectedEnvVars: map[string]string{
+					"COMPOSE_FILE": filepath.Join(os.TempDir(), "contexts", "test-context-yaml", "compose.yaml"),
+				},
+				expectError: false,
+			},
+			{
+				name:        "ValidConfigRootWithYml",
+				contextPath: filepath.Join(os.TempDir(), "contexts", "test-context-yml"),
+				composeFile: "compose.yml",
+				expectedEnvVars: map[string]string{
+					"COMPOSE_FILE": filepath.Join(os.TempDir(), "contexts", "test-context-yml", "compose.yml"),
+				},
+				expectError: false,
+			},
 		}
 
-		// When: GetEnvVars is called
-		envVars, err := dockerHelper.GetEnvVars()
-		if err != nil {
-			t.Fatalf("GetEnvVars() error = %v", err)
-		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				// Create the directory and compose file
+				err := os.MkdirAll(tt.contextPath, os.ModePerm)
+				if err != nil {
+					t.Fatalf("Failed to create directories: %v", err)
+				}
+				_, err = os.Create(filepath.Join(tt.contextPath, tt.composeFile))
+				if err != nil {
+					t.Fatalf("Failed to create %s file: %v", tt.composeFile, err)
+				}
+				defer os.RemoveAll(tt.contextPath)
 
-		// Then: the environment variables should be set correctly
-		expectedEnvVars := map[string]string{
-			"COMPOSE_FILE": composeFilePath,
-		}
-		if !reflect.DeepEqual(envVars, expectedEnvVars) {
-			t.Errorf("expected %v, got %v", expectedEnvVars, envVars)
+				// Mock context
+				mockContext := context.NewMockContext()
+				mockContext.GetConfigRootFunc = func() (string, error) {
+					return tt.contextPath, nil
+				}
+
+				// Create DI container and register mocks
+				diContainer := di.NewContainer()
+				diContainer.Register("cliConfigHandler", config.NewMockConfigHandler())
+				diContainer.Register("contextInstance", mockContext)
+
+				// Register MockHelper
+				mockHelper := NewMockHelper()
+				mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+					return map[string]string{"COMPOSE_FILE": filepath.Join(tt.contextPath, tt.composeFile)}, nil
+				}
+				diContainer.Register("helper", mockHelper)
+
+				// Register MockShell
+				mockShell := shell.NewMockShell("unix")
+				diContainer.Register("shell", mockShell)
+
+				// Create DockerHelper
+				dockerHelper, err := NewDockerHelper(diContainer)
+				if err != nil {
+					t.Fatalf("NewDockerHelper() error = %v", err)
+				}
+
+				// When: GetEnvVars is called
+				envVars, err := dockerHelper.GetEnvVars()
+				if (err != nil) != tt.expectError {
+					t.Fatalf("GetEnvVars() error = %v, expectError %v", err, tt.expectError)
+				}
+
+				// Then: the environment variables should be set correctly
+				if !reflect.DeepEqual(envVars, tt.expectedEnvVars) {
+					t.Errorf("expected %v, got %v", tt.expectedEnvVars, envVars)
+				}
+			})
 		}
 	})
 
-	t.Run("ValidConfigRootWithYml", func(t *testing.T) {
-		// Given: a valid context path with compose.yml
-		contextPath := filepath.Join(os.TempDir(), "contexts", "test-context-yml")
-		composeFilePath := filepath.Join(contextPath, "compose.yml")
-
-			// Create DI container and register mocks
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", config.NewMockConfigHandler())
-			diContainer.Register("contextInstance", mockContext)
-
-		// Mock context
+	t.Run("ErrorRetrievingConfigRoot", func(t *testing.T) {
+		// Given: a mock context that returns an error when GetConfigRoot is called
 		mockContext := context.NewMockContext()
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return contextPath, nil
+			return "", fmt.Errorf("mock error retrieving config root")
 		}
 
 		// Create DI container and register mocks
@@ -174,9 +191,6 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 
 		// Register MockHelper
 		mockHelper := NewMockHelper()
-		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{"COMPOSE_FILE": composeFilePath}, nil
-		}
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
@@ -190,15 +204,11 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		}
 
 		// When: GetEnvVars is called
-		envVars, err := dockerHelper.GetEnvVars()
-		if err != nil {
-			t.Fatalf("GetEnvVars() error = %v", err)
+		_, err = dockerHelper.GetEnvVars()
+		if err == nil || !strings.Contains(err.Error(), "mock error retrieving config root") {
+			t.Fatalf("expected error retrieving config root, got %v", err)
 		}
-
-			// Create DI container and register mocks
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", config.NewMockConfigHandler())
-			diContainer.Register("contextInstance", mockContext)
+	})
 
 	t.Run("FileNotExist", func(t *testing.T) {
 		// Given: a non-existent context path
@@ -220,7 +230,7 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		mockHelper := NewMockHelper()
 		mockHelper.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{
-				"service1": "nginx:latest",
+				"COMPOSE_FILE": composeFilePath,
 			}, nil
 		}
 		diContainer.Register("helper", mockHelper)
@@ -229,10 +239,11 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		mockShell := shell.NewMockShell("unix")
 		diContainer.Register("shell", mockShell)
 
-			// Create DI container and register mocks
-			diContainer := di.NewContainer()
-			diContainer.Register("cliConfigHandler", config.NewMockConfigHandler())
-			diContainer.Register("contextInstance", mockContext)
+		// Create DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
 
 		// When: GetEnvVars is called
 		envVars, err := dockerHelper.GetEnvVars()

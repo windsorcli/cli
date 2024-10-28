@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -75,9 +74,9 @@ func (h *DockerHelper) GetEnvVars() (map[string]string, error) {
 	yamlPath := filepath.Join(configRoot, "compose.yaml")
 	ymlPath := filepath.Join(configRoot, "compose.yml")
 
-	if _, err := os.Stat(yamlPath); err == nil {
+	if _, err := stat(yamlPath); err == nil {
 		composeFilePath = yamlPath
-	} else if _, err := os.Stat(ymlPath); err == nil {
+	} else if _, err := stat(ymlPath); err == nil {
 		composeFilePath = ymlPath
 	}
 
