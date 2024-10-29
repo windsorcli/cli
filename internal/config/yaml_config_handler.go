@@ -45,12 +45,15 @@ var yamlUnmarshal = yaml.Unmarshal
 // osStat is a variable to allow mocking os.Stat in tests
 var osStat = os.Stat
 
+// osMkdirAll is a variable to allow mocking os.MkdirAll in tests
+var osMkdirAll = os.MkdirAll
+
 // LoadConfig loads the configuration from the specified path
 func (y *YamlConfigHandler) LoadConfig(path string) error {
 	if _, err := osStat(path); os.IsNotExist(err) {
 		// Ensure the directory structure exists
 		dir := filepath.Dir(path)
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := osMkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("error creating directories: %w", err)
 		}
 
