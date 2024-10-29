@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -47,6 +48,12 @@ var osStat = os.Stat
 // LoadConfig loads the configuration from the specified path
 func (y *YamlConfigHandler) LoadConfig(path string) error {
 	if _, err := osStat(path); os.IsNotExist(err) {
+		// Ensure the directory structure exists
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("error creating directories: %w", err)
+		}
+
 		// Create an empty config file if it does not exist
 		if err := osWriteFile(path, []byte{}, 0644); err != nil {
 			return fmt.Errorf("error creating config file: %w", err)
