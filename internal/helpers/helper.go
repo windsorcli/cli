@@ -64,6 +64,11 @@ var newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
 	return yaml.NewEncoder(w, opts...)
 }
 
+// goOS is a wrapper function around runtime.GOOS
+var goOS = func() string {
+	return runtime.GOOS
+}
+
 // goArch is a wrapper function around runtime.GOARCH
 var goArch = func() string {
 	return runtime.GOARCH

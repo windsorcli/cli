@@ -118,6 +118,10 @@ func (h *ColimaHelper) Initialize() error {
 
 // GetEnvVars retrieves the environment variables for the Colima command
 func (h *ColimaHelper) GetEnvVars() (map[string]string, error) {
+	if goOS() == "windows" {
+		return map[string]string{}, nil
+	}
+
 	context, err := h.Context.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
@@ -139,7 +143,7 @@ func (h *ColimaHelper) GetEnvVars() (map[string]string, error) {
 	dockerSockPath := filepath.Join(homeDir, ".colima", fmt.Sprintf("windsor-%s", context), "docker.sock")
 
 	envVars := map[string]string{
-		"DOCKER_SOCK": dockerSockPath,
+		"DOCKER_HOST": "unix://" + dockerSockPath,
 	}
 
 	return envVars, nil

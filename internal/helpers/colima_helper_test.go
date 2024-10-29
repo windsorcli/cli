@@ -226,6 +226,39 @@ func TestColimaHelper_GetComposeConfig(t *testing.T) {
 }
 
 func TestColimaHelper_GetEnvVars(t *testing.T) {
+	t.Run("Windows", func(t *testing.T) {
+		// Mock runtime.GOOS to return "windows"
+		originalGOOS := goOS
+		goOS = func() string {
+			return "windows"
+		}
+		defer func() { goOS = originalGOOS }()
+
+		// Given a mock context and config handler
+		mockContext := context.NewMockContext()
+		mockConfigHandler := config.NewMockConfigHandler()
+
+		// And a DI container with the mock context and config handler registered
+		diContainer := createDIContainer(mockContext, mockConfigHandler)
+
+		// When creating a new ColimaHelper
+		helper, err := NewColimaHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewColimaHelper() error = %v", err)
+		}
+
+		// And getting environment variables
+		envVars, err := helper.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars() error = %v", err)
+		}
+
+		// Then it should return an empty map
+		if len(envVars) != 0 {
+			t.Fatalf("expected empty map, got %v", envVars)
+		}
+	})
+
 	t.Run("ErrorRetrievingConfig", func(t *testing.T) {
 		// Given a mock context and config handler
 		mockContext := context.NewMockContext()
@@ -378,8 +411,9 @@ func TestColimaHelper_GetEnvVars(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 		expectedDockerSockPath := filepath.Join(tempDir, ".colima", "windsor-test-context", "docker.sock")
-		if envVars["DOCKER_SOCK"] != expectedDockerSockPath {
-			t.Fatalf("expected DOCKER_SOCK to be '%s', got '%s'", expectedDockerSockPath, envVars["DOCKER_SOCK"])
+		expectedDockerHost := "unix://" + expectedDockerSockPath
+		if envVars["DOCKER_HOST"] != expectedDockerHost {
+			t.Fatalf("expected DOCKER_HOST to be '%s', got '%s'", expectedDockerHost, envVars["DOCKER_HOST"])
 		}
 	})
 
