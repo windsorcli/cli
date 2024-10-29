@@ -5,13 +5,10 @@ import (
 )
 
 type NetworkConfig struct {
-	HostRouteCIDR     string // CIDR block for the host route
-	GuestIP           string // IP address assigned to the guest VM
-	GuestInInterface  string // Interface name from the host to the guest VM
-	GuestOutInterface string // Interface name for the cluster bridge network
-	DestinationCIDR   string // CIDR block for the cluster network
-	DNSDomain         string // Domain name used for DNS configuration
-	DNSIP             string // IP address for the custom DNS server
+	NetworkCIDR string // CIDR block for the network
+	GuestIP     string // IP address assigned to the guest VM
+	DNSDomain   string // Domain name used for DNS configuration
+	DNSIP       string // IP address for the custom DNS server
 }
 
 // NetworkManager handles configuring the local development network

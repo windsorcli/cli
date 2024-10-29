@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -62,11 +63,8 @@ var upCmd = &cobra.Command{
 		// Create and populate NetworkConfig if Docker NetworkCIDR is defined and both Docker and Colima are configured
 		if contextConfig.Docker != nil && contextConfig.Docker.NetworkCIDR != nil && dockerInfo != nil && colimaInfo != nil {
 			networkConfig := &network.NetworkConfig{
-				HostRouteCIDR:     *contextConfig.Docker.NetworkCIDR,
-				GuestIP:           colimaInfo.Address,
-				GuestInInterface:  "col0",
-				GuestOutInterface: "br-*",
-				DestinationCIDR:   *contextConfig.Docker.NetworkCIDR,
+				NetworkCIDR: *contextConfig.Docker.NetworkCIDR,
+				GuestIP:     colimaInfo.Address,
 			}
 
 			// Get DNS IP and Domain from configuration if available
@@ -110,13 +108,34 @@ var upCmd = &cobra.Command{
 			fmt.Println(color.CyanString("-------------------------------------"))
 		}
 
-		// Print Docker info if available
+		// Print Docker roles if available
 		if dockerInfo != nil {
-			fmt.Println(color.GreenString("Docker Info:"))
-			for role, services := range dockerInfo.Services {
+			fmt.Println(color.GreenString("Docker Roles:"))
+
+			// Group services by role
+			roles := make(map[string][]string)
+			for serviceName, details := range dockerInfo.Services {
+				if role, ok := details["role"]; ok {
+					roles[role] = append(roles[role], serviceName)
+				}
+			}
+
+			// Determine the maximum length of service names for alignment
+			maxServiceNameLength := 0
+			for _, services := range roles {
+				for _, service := range services {
+					if len(service) > maxServiceNameLength {
+						maxServiceNameLength = len(service)
+					}
+				}
+			}
+
+			// Print the grouped roles and their services with improved alignment and colors
+			for role, services := range roles {
 				fmt.Println(color.YellowString("  %s:", role))
 				for _, service := range services {
-					fmt.Printf("    %s\n", service)
+					ip := dockerInfo.Services[service]["ip"]
+					fmt.Printf("    %s%s %s\n", color.YellowString("- %s:", service), strings.Repeat(" ", maxServiceNameLength-len(service)), color.CyanString(ip))
 				}
 			}
 			fmt.Println(color.CyanString("-------------------------------------"))

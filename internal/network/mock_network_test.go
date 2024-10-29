@@ -9,8 +9,8 @@ func TestMockNetworkManager_Configure(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create a mock NetworkConfig
 		networkConfig := &NetworkConfig{
-			HostRouteCIDR: "192.168.1.0/24",
-			GuestIP:       "192.168.1.2",
+			NetworkCIDR: "192.168.1.0/24",
+			GuestIP:     "192.168.1.2",
 		}
 
 		// Create a MockNetworkManager and set the ConfigureFunc
@@ -26,7 +26,7 @@ func TestMockNetworkManager_Configure(t *testing.T) {
 		}
 
 		// Validate the returned config
-		if config.HostRouteCIDR != networkConfig.HostRouteCIDR || config.GuestIP != networkConfig.GuestIP {
+		if config.NetworkCIDR != networkConfig.NetworkCIDR || config.GuestIP != networkConfig.GuestIP {
 			t.Fatalf("expected config to be %v, got %v", networkConfig, config)
 		}
 	})
@@ -34,8 +34,8 @@ func TestMockNetworkManager_Configure(t *testing.T) {
 	t.Run("ConfigureFuncError", func(t *testing.T) {
 		// Create a mock NetworkConfig
 		networkConfig := &NetworkConfig{
-			HostRouteCIDR: "192.168.1.0/24",
-			GuestIP:       "192.168.1.2",
+			NetworkCIDR: "192.168.1.0/24",
+			GuestIP:     "192.168.1.2",
 		}
 
 		// Create a MockNetworkManager and set the ConfigureFunc to return an error
@@ -58,8 +58,8 @@ func TestMockNetworkManager_Configure(t *testing.T) {
 	t.Run("NilConfigureFunc", func(t *testing.T) {
 		// Create a mock NetworkConfig
 		networkConfig := &NetworkConfig{
-			HostRouteCIDR: "192.168.1.0/24",
-			GuestIP:       "192.168.1.2",
+			NetworkCIDR: "192.168.1.0/24",
+			GuestIP:     "192.168.1.2",
 		}
 
 		// Create a MockNetworkManager without setting the ConfigureFunc
@@ -72,7 +72,7 @@ func TestMockNetworkManager_Configure(t *testing.T) {
 		}
 
 		// Validate the returned config
-		if config.HostRouteCIDR != networkConfig.HostRouteCIDR || config.GuestIP != networkConfig.GuestIP {
+		if config.NetworkCIDR != networkConfig.NetworkCIDR || config.GuestIP != networkConfig.GuestIP {
 			t.Fatalf("expected config to be %v, got %v", networkConfig, config)
 		}
 	})

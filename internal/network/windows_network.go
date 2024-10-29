@@ -24,7 +24,7 @@ func (n *networkManager) Configure(networkConfig *NetworkConfig) (*NetworkConfig
 		"Adding route on the host to VM guest",
 		"powershell",
 		"-Command",
-		fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", networkConfig.HostRouteCIDR, networkConfig.GuestIP),
+		fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", networkConfig.NetworkCIDR, networkConfig.GuestIP),
 	)
 	if err != nil {
 		return networkConfig, fmt.Errorf("failed to add route: %w, output: %s", err, output)

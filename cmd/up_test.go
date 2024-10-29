@@ -324,7 +324,8 @@ func TestUpCmd(t *testing.T) {
 			return &helpers.DockerInfo{
 				Services: map[string]map[string]string{
 					"dns.test": {
-						"ip": "192.168.5.3",
+						"role": "dns",
+						"ip":   "192.168.5.3",
 					},
 				},
 			}, nil
@@ -344,9 +345,9 @@ func TestUpCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate the DNS IP from the Docker info
-		expectedOutput := "Docker Info:\n  dns.test:\n    192.168.5.3"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		expectedSubstring := "192.168.5.3"
+		if !strings.Contains(output, expectedSubstring) {
+			t.Errorf("Expected output to contain %q, got %q", expectedSubstring, output)
 		}
 	})
 

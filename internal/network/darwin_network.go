@@ -27,7 +27,7 @@ func (n *networkManager) Configure(networkConfig *NetworkConfig) (*NetworkConfig
 		"-nv",
 		"add",
 		"-net",
-		networkConfig.HostRouteCIDR,
+		networkConfig.NetworkCIDR,
 		networkConfig.GuestIP,
 	)
 	if err != nil {

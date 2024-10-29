@@ -19,8 +19,8 @@ func TestWindowsNetworkManager_Configure(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create a mock NetworkConfig
 		networkConfig := &NetworkConfig{
-			HostRouteCIDR: "192.168.1.0/24",
-			GuestIP:       "192.168.1.2",
+			NetworkCIDR: "192.168.1.0/24",
+			GuestIP:     "192.168.1.2",
 		}
 
 		// Create a mock shell
@@ -59,8 +59,8 @@ func TestWindowsNetworkManager_Configure(t *testing.T) {
 
 		// Create a mock NetworkConfig
 		networkConfig := &NetworkConfig{
-			HostRouteCIDR: "192.168.1.0/24",
-			GuestIP:       "192.168.1.2",
+			NetworkCIDR: "192.168.1.0/24",
+			GuestIP:     "192.168.1.2",
 		}
 
 		// Call the Configure method and expect an error due to unresolved shell
@@ -89,8 +89,8 @@ func TestWindowsNetworkManager_Configure(t *testing.T) {
 
 		// Create a mock NetworkConfig
 		networkConfig := &NetworkConfig{
-			HostRouteCIDR: "192.168.1.0/24",
-			GuestIP:       "192.168.1.2",
+			NetworkCIDR: "192.168.1.0/24",
+			GuestIP:     "192.168.1.2",
 		}
 
 		// Call the Configure method and expect an error due to failed route addition
