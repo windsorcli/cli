@@ -1,7 +1,8 @@
 package cmd
 
 import (
-	"fmt"
+	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -19,30 +20,24 @@ func TestUpCmd(t *testing.T) {
 	t.Cleanup(func() {
 		exitFunc = originalExitFunc
 	})
+
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a valid config handler, shell, and helpers
+		// Given a valid config handler, shell, and helper
 		mocks := mocks.CreateSuperMocks()
 		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
-				Docker: &config.DockerConfig{
-					Enabled: ptrBool(true),
-				},
 				VM: &config.VMConfig{
-					Driver: ptrString("colima"),
+					Driver: func(s string) *string { return &s }("colima"),
 				},
-			}, nil
-		}
-		mocks.DockerHelper.UpFunc = func() error {
-			return nil
-		}
-		mocks.DockerHelper.InfoFunc = func() (interface{}, error) {
-			return &helpers.DockerInfo{
-				Services: map[string][]string{
-					"web": {"service1"},
-					"db":  {"service2"},
+				Docker: &config.DockerConfig{
+					Enabled:     func(b bool) *bool { return &b }(true),
+					NetworkCIDR: func(s string) *string { return &s }("192.168.5.0/24"),
+				},
+				DNS: &config.DNSConfig{
+					Name: func(s string) *string { return &s }("test.local"),
 				},
 			}, nil
 		}
@@ -61,8 +56,18 @@ func TestUpCmd(t *testing.T) {
 				Status:  "Running",
 			}, nil
 		}
-		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
-			return "", nil
+		mocks.DockerHelper.UpFunc = func() error {
+			return nil
+		}
+		mocks.DockerHelper.InfoFunc = func() (interface{}, error) {
+			return &helpers.DockerInfo{
+				Services: map[string]map[string]string{
+					"dns.test": {"ip": "192.168.5.1"},
+				},
+			}, nil
+		}
+		mocks.NetworkManager.ConfigureFunc = func(config *network.NetworkConfig) (*network.NetworkConfig, error) {
+			return config, nil
 		}
 		Initialize(mocks.Container)
 
@@ -76,70 +81,39 @@ func TestUpCmd(t *testing.T) {
 		})
 
 		// Then the output should contain the welcome message
-		expectedOutput := "Welcome to the Windsor Environment"
+		expectedOutput := "Welcome to the Windsor Environment 📐"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
-	t.Run("ErrorGettingContextConfig", func(t *testing.T) {
+	t.Run("ErrorGettingConfig", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
-		// Given a config handler that returns an error
+
+		// Given no context configuration
 		mocks := mocks.CreateSuperMocks()
 		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("mock error getting context config")
+			return nil, errors.New("error getting config")
 		}
 		Initialize(mocks.Container)
 
-		// When the up command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"up", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
+		// When the up command is executed
+		rootCmd.SetArgs([]string{"up"})
+		err := rootCmd.Execute()
 
-		// Then the output should indicate the error
-		expectedOutput := "Error getting context configuration: mock error getting context config"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// Then the error should be as expected
+		expectedError := "Error getting context configuration: error getting config"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %v", expectedError, err)
 		}
 	})
 
-	t.Run("ErrorGettingContextConfigNonVerbose", func(t *testing.T) {
+	t.Run("NoConfig", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a config handler that returns an error
-		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("mock error getting context config")
-		}
-		Initialize(mocks.Container)
-
-		// When the up command is executed without verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"up"})
-			err := rootCmd.Execute()
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
-
-		// Then the output should be empty
-		expectedOutput := ""
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("NoContextConfig", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a config handler that returns nil context config
+		// Given no context configuration
 		mocks := mocks.CreateSuperMocks()
 		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return nil, nil
@@ -147,7 +121,221 @@ func TestUpCmd(t *testing.T) {
 		Initialize(mocks.Container)
 
 		// When the up command is executed
-		output := captureStderr(func() {
+		rootCmd.SetArgs([]string{"up"})
+		err := rootCmd.Execute()
+
+		// Then there should be no error
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ColimaUpError", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a ColimaHelper that returns an error on Up
+		mocks := mocks.CreateSuperMocks()
+		mocks.ColimaHelper.UpFunc = func() error {
+			return errors.New("colima up error")
+		}
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				VM: &config.VMConfig{
+					Driver: func(s string) *string { return &s }("colima"),
+				},
+			}, nil
+		}
+		Initialize(mocks.Container)
+
+		// Capture stderr
+		var buf bytes.Buffer
+		rootCmd.SetErr(&buf)
+
+		// When the up command is executed
+		rootCmd.SetArgs([]string{"up"})
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		output := buf.String()
+
+		// Then the output should indicate the error
+		expectedOutput := "Error running ColimaHelper Up command: colima up error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ColimaInfoError", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a ColimaHelper that returns an error on Info
+		mocks := mocks.CreateSuperMocks()
+		mocks.ColimaHelper.UpFunc = func() error {
+			return nil
+		}
+		mocks.ColimaHelper.InfoFunc = func() (interface{}, error) {
+			return nil, errors.New("colima info error")
+		}
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				VM: &config.VMConfig{
+					Driver: func(s string) *string { return &s }("colima"),
+				},
+			}, nil
+		}
+		Initialize(mocks.Container)
+
+		// Capture stderr
+		var buf bytes.Buffer
+		rootCmd.SetErr(&buf)
+
+		// When the up command is executed
+		rootCmd.SetArgs([]string{"up"})
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		output := buf.String()
+
+		// Then the output should indicate the error
+		expectedOutput := "Error getting ColimaHelper info: colima info error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("DockerUpError", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a DockerHelper that returns an error on Up
+		mocks := mocks.CreateSuperMocks()
+		mocks.DockerHelper.UpFunc = func() error {
+			return errors.New("docker up error")
+		}
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Enabled: func(b bool) *bool { return &b }(true),
+				},
+			}, nil
+		}
+		Initialize(mocks.Container)
+
+		// Capture stderr
+		var buf bytes.Buffer
+		rootCmd.SetErr(&buf)
+
+		// When the up command is executed
+		rootCmd.SetArgs([]string{"up"})
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		output := buf.String()
+
+		// Then the output should indicate the error
+		expectedOutput := "Error running DockerHelper Up command: docker up error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("DockerInfoError", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a DockerHelper that returns an error on Info
+		mocks := mocks.CreateSuperMocks()
+		mocks.DockerHelper.UpFunc = func() error {
+			return nil
+		}
+		mocks.DockerHelper.InfoFunc = func() (interface{}, error) {
+			return nil, errors.New("docker info error")
+		}
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Enabled: func(b bool) *bool { return &b }(true),
+				},
+			}, nil
+		}
+		Initialize(mocks.Container)
+
+		// Capture stderr
+		var buf bytes.Buffer
+		rootCmd.SetErr(&buf)
+
+		// When the up command is executed
+		rootCmd.SetArgs([]string{"up"})
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		output := buf.String()
+
+		// Then the output should indicate the error
+		expectedOutput := "Error getting DockerHelper info: docker info error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("DNSIPIsDefined", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a valid config handler, shell, and helper with DNS IP defined
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				VM: &config.VMConfig{
+					Driver: ptrString("colima"),
+				},
+				Docker: &config.DockerConfig{
+					Enabled:     ptrBool(true),
+					NetworkCIDR: ptrString("192.168.5.0/24"),
+				},
+				DNS: &config.DNSConfig{
+					Name: ptrString("example.com"),
+					IP:   ptrString("192.168.5.3"),
+				},
+			}, nil
+		}
+		mocks.ColimaHelper.UpFunc = func() error {
+			return nil
+		}
+		mocks.ColimaHelper.InfoFunc = func() (interface{}, error) {
+			return &helpers.ColimaInfo{
+				Address: "192.168.5.2",
+			}, nil
+		}
+		mocks.DockerHelper.UpFunc = func() error {
+			return nil
+		}
+		mocks.DockerHelper.InfoFunc = func() (interface{}, error) {
+			return &helpers.DockerInfo{
+				Services: map[string]map[string]string{
+					"dns.test": {
+						"ip": "192.168.5.3",
+					},
+				},
+			}, nil
+		}
+		mocks.NetworkManager.ConfigureFunc = func(config *network.NetworkConfig) (*network.NetworkConfig, error) {
+			return config, nil
+		}
+		Initialize(mocks.Container)
+
+		// Capture stdout
+		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"up"})
 			err := rootCmd.Execute()
 			if err != nil {
@@ -155,198 +343,132 @@ func TestUpCmd(t *testing.T) {
 			}
 		})
 
-		// Then the output should be empty
-		expectedOutput := ""
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		// Then the output should indicate the DNS IP from the Docker info
+		expectedOutput := "Docker Info:\n  dns.test:\n    192.168.5.3"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
-	t.Run("ErrorRunningColimaHelperUp", func(t *testing.T) {
+	t.Run("DNSNotDefined", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a config handler that returns a valid context config
+		// Given a valid config handler, shell, and helper with DNS not defined
 		mocks := mocks.CreateSuperMocks()
 		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{
 				VM: &config.VMConfig{
-					Driver: ptrString("colima"),
+					Driver: func(s string) *string { return &s }("colima"),
 				},
+				Docker: &config.DockerConfig{
+					Enabled:     func(b bool) *bool { return &b }(true),
+					NetworkCIDR: func(s string) *string { return &s }("192.168.5.0/24"),
+				},
+				DNS: nil,
 			}, nil
 		}
-
-		// And a ColimaHelper that returns an error when running Up
 		mocks.ColimaHelper.UpFunc = func() error {
-			return fmt.Errorf("mock error running ColimaHelper Up")
+			return nil
 		}
-		Initialize(mocks.Container)
-
-		// When the up command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"up", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error running ColimaHelper Up command: mock error running ColimaHelper Up"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorGettingColimaInfo", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a config handler that returns a valid context config
-		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				VM: &config.VMConfig{
-					Driver: ptrString("colima"),
-				},
-			}, nil
-		}
-
-		// And a ColimaHelper that returns an error when getting Info
 		mocks.ColimaHelper.InfoFunc = func() (interface{}, error) {
-			return nil, fmt.Errorf("mock error retrieving Colima info")
-		}
-		Initialize(mocks.Container)
-
-		// When the up command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"up", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error retrieving Colima info: mock error retrieving Colima info"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorRunningDockerHelperUp", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a config handler that returns a valid context config with Docker enabled
-		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Enabled: ptrBool(true),
-				},
+			return &helpers.ColimaInfo{
+				Address: "192.168.5.2",
 			}, nil
 		}
-
-		// And a DockerHelper that returns an error when running Up
 		mocks.DockerHelper.UpFunc = func() error {
-			return fmt.Errorf("mock error running DockerHelper Up")
+			return nil
 		}
-		Initialize(mocks.Container)
-
-		// When the up command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"up", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error running DockerHelper Up command: mock error running DockerHelper Up"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorGettingDockerInfo", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a config handler that returns a valid context config with Docker enabled
-		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Enabled: ptrBool(true),
-				},
-			}, nil
-		}
-
-		// And a DockerHelper that returns an error when retrieving Docker info
-		mocks.DockerHelper.InfoFunc = func() (interface{}, error) {
-			return nil, fmt.Errorf("mock error retrieving Docker info")
-		}
-		Initialize(mocks.Container)
-
-		// When the up command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"up", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error retrieving Docker info: mock error retrieving Docker info"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorConfiguringNetwork", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a config handler that returns a valid context config with Docker enabled
-		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Enabled: ptrBool(true),
-				},
-			}, nil
-		}
-
-		// And a DockerHelper that returns valid Docker info
 		mocks.DockerHelper.InfoFunc = func() (interface{}, error) {
 			return &helpers.DockerInfo{
-				Services: map[string][]string{
-					"web": {"service1"},
-					"db":  {"service2"},
+				Services: map[string]map[string]string{
+					"dns.test": {
+						"ip": "192.168.5.3",
+					},
 				},
 			}, nil
 		}
-
-		// And a networkManager that returns an error when configuring the network
-		mocks.NetworkManager.ConfigureFunc = func(networkConfig *network.NetworkConfig) (*network.NetworkConfig, error) {
-			return nil, fmt.Errorf("mock error configuring network")
+		mocks.NetworkManager.ConfigureFunc = func(config *network.NetworkConfig) (*network.NetworkConfig, error) {
+			return config, nil
 		}
 		Initialize(mocks.Container)
 
-		// When the up command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"up", "--verbose"})
+		// Capture stdout
+		output := captureStdout(func() {
+			rootCmd.SetArgs([]string{"up"})
 			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
 			}
 		})
 
+		// Then the output should indicate the DNS is not defined
+		expectedOutput := "Welcome to the Windsor Environment 📐"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("NetworkConfigureError", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a NetworkManager that returns an error on Configure
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				VM: &config.VMConfig{
+					Driver: func(s string) *string { return &s }("colima"),
+				},
+				Docker: &config.DockerConfig{
+					Enabled:     func(b bool) *bool { return &b }(true),
+					NetworkCIDR: func(s string) *string { return &s }("192.168.5.0/24"),
+				},
+				DNS: &config.DNSConfig{
+					Name: func(s string) *string { return &s }("test.local"),
+				},
+			}, nil
+		}
+		mocks.ColimaHelper.UpFunc = func() error {
+			return nil
+		}
+		mocks.ColimaHelper.InfoFunc = func() (interface{}, error) {
+			return &helpers.ColimaInfo{
+				Address: "192.168.5.2",
+			}, nil
+		}
+		mocks.DockerHelper.UpFunc = func() error {
+			return nil
+		}
+		mocks.DockerHelper.InfoFunc = func() (interface{}, error) {
+			return &helpers.DockerInfo{
+				Services: map[string]map[string]string{
+					"dns.test": {
+						"ip": "192.168.5.3",
+					},
+				},
+			}, nil
+		}
+		mocks.NetworkManager.ConfigureFunc = func(config *network.NetworkConfig) (*network.NetworkConfig, error) {
+			return nil, errors.New("network configure error")
+		}
+		Initialize(mocks.Container)
+
+		// Capture stderr
+		var buf bytes.Buffer
+		rootCmd.SetErr(&buf)
+
+		// When the up command is executed
+		rootCmd.SetArgs([]string{"up"})
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		output := buf.String()
+
 		// Then the output should indicate the error
-		expectedOutput := "Error configuring network: mock error configuring network"
+		expectedOutput := "Error configuring network: network configure error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}

@@ -8,6 +8,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/network"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -107,6 +108,13 @@ func main() {
 		log.Fatalf("failed to create docker helper: %v", err)
 	}
 	container.Register("dockerHelper", dockerHelper)
+
+	// Create and register the NetworkManager instance
+	networkManager, err := network.NewNetworkManager(container)
+	if err != nil {
+		log.Fatalf("failed to create network manager: %v", err)
+	}
+	container.Register("networkManager", networkManager)
 
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)

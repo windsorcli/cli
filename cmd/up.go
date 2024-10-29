@@ -17,10 +17,7 @@ var upCmd = &cobra.Command{
 		// Get the context configuration
 		contextConfig, err := cliConfigHandler.GetConfig()
 		if err != nil {
-			if verbose {
-				return fmt.Errorf("Error getting context configuration: %w", err)
-			}
-			return nil
+			return fmt.Errorf("Error getting context configuration: %w", err)
 		}
 
 		// Handle when there is no contextConfig configured
@@ -35,12 +32,14 @@ var upCmd = &cobra.Command{
 			if err := colimaHelper.Up(verbose); err != nil {
 				return fmt.Errorf("Error running ColimaHelper Up command: %w", err)
 			}
-			// Get and hold on to colima's info
+			// Get and hold on to colima's info only if available
 			info, err := colimaHelper.Info()
 			if err != nil {
-				return fmt.Errorf("Error retrieving Colima info: %w", err)
+				return fmt.Errorf("Error getting ColimaHelper info: %w", err)
 			}
-			colimaInfo = info.(*helpers.ColimaInfo)
+			if info != nil {
+				colimaInfo = info.(*helpers.ColimaInfo)
+			}
 		}
 
 		// Check if Docker is enabled
@@ -53,15 +52,44 @@ var upCmd = &cobra.Command{
 			// Get and hold on to Docker's info
 			info, err := dockerHelper.Info()
 			if err != nil {
-				return fmt.Errorf("Error retrieving Docker info: %w", err)
+				return fmt.Errorf("Error getting DockerHelper info: %w", err)
 			}
-			// Type assertion to *helpers.DockerInfo
-			dockerInfo = info.(*helpers.DockerInfo)
+			if info != nil {
+				dockerInfo = info.(*helpers.DockerInfo)
+			}
 		}
 
-		// Configure the network
-		if _, err := networkManager.Configure(&network.NetworkConfig{}); err != nil {
-			return fmt.Errorf("Error configuring network: %w", err)
+		// Create and populate NetworkConfig if Docker NetworkCIDR is defined and both Docker and Colima are configured
+		if contextConfig.Docker != nil && contextConfig.Docker.NetworkCIDR != nil && dockerInfo != nil && colimaInfo != nil {
+			networkConfig := &network.NetworkConfig{
+				HostRouteCIDR:     *contextConfig.Docker.NetworkCIDR,
+				GuestIP:           colimaInfo.Address,
+				GuestInInterface:  "col0",
+				GuestOutInterface: "br-*",
+				DestinationCIDR:   *contextConfig.Docker.NetworkCIDR,
+			}
+
+			// Get DNS IP and Domain from configuration if available
+			if contextConfig.DNS != nil {
+				if contextConfig.DNS.IP != nil {
+					networkConfig.DNSIP = *contextConfig.DNS.IP
+				} else if dockerInfo != nil {
+					// Fall back to getting DNS IP from the container called "dns.test"
+					if service, ok := dockerInfo.Services["dns.test"]; ok {
+						if ip, ok := service["ip"]; ok {
+							networkConfig.DNSIP = ip
+						}
+					}
+				}
+				if contextConfig.DNS.Name != nil {
+					networkConfig.DNSDomain = *contextConfig.DNS.Name
+				}
+			}
+
+			// Configure the network
+			if _, err := networkManager.Configure(networkConfig); err != nil {
+				return fmt.Errorf("Error configuring network: %w", err)
+			}
 		}
 
 		// Print welcome status page

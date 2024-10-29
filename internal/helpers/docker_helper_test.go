@@ -1788,10 +1788,20 @@ func TestDockerHelper_Info(t *testing.T) {
 			}
 			if command == "docker" && args[0] == "inspect" {
 				if args[1] == "container1" {
-					return `{"role": "web", "com.docker.compose.service": "service1"}`, nil
+					if args[2] == "--format" && args[3] == "{{json .Config.Labels}}" {
+						return `{"role": "web", "com.docker.compose.service": "service1"}`, nil
+					}
+					if args[2] == "--format" && args[3] == "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" {
+						return "10.0.0.1", nil
+					}
 				}
 				if args[1] == "container2" {
-					return `{"role": "db", "com.docker.compose.service": "service2"}`, nil
+					if args[2] == "--format" && args[3] == "{{json .Config.Labels}}" {
+						return `{"role": "db", "com.docker.compose.service": "service2"}`, nil
+					}
+					if args[2] == "--format" && args[3] == "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" {
+						return "10.0.0.2", nil
+					}
 				}
 			}
 			return "", nil
@@ -1811,9 +1821,9 @@ func TestDockerHelper_Info(t *testing.T) {
 
 		// Then: no error should be returned and info should contain the expected data
 		expectedInfo := &DockerInfo{
-			Services: map[string][]string{
-				"web": {"service1"},
-				"db":  {"service2"},
+			Services: map[string]map[string]string{
+				"service1": {"ip": "10.0.0.1", "role": "web"},
+				"service2": {"ip": "10.0.0.2", "role": "db"},
 			},
 		}
 		if !reflect.DeepEqual(info, expectedInfo) {
@@ -1882,7 +1892,7 @@ func TestDockerHelper_Info(t *testing.T) {
 
 		// Then: no error should be returned and info should be empty
 		expectedInfo := &DockerInfo{
-			Services: map[string][]string{},
+			Services: map[string]map[string]string{},
 		}
 		if !reflect.DeepEqual(info, expectedInfo) {
 			t.Errorf("Expected info to be %v, got %v", expectedInfo, info)
@@ -2080,6 +2090,46 @@ func TestDockerHelper_Info(t *testing.T) {
 		}
 		if len(dockerInfo.Services) != 0 {
 			t.Fatalf("Expected no services, got %v", dockerInfo.Services)
+		}
+	})
+
+	t.Run("ErrorFetchingContainerIP", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell("unix")
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "docker" && args[0] == "ps" {
+				return "container1", nil
+			}
+			if command == "docker" && args[0] == "inspect" {
+				if args[2] == "--format" && args[3] == "{{json .Config.Labels}}" {
+					return `{"role": "test-role", "com.docker.compose.service": "test-service"}`, nil
+				}
+				if args[2] == "--format" && args[3] == "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" {
+					return "", errors.New("mock error fetching container IP address")
+				}
+			}
+			return "", nil
+		}
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		_, err = dockerHelper.Info()
+		if err == nil || !strings.Contains(err.Error(), "mock error fetching container IP address") {
+			t.Fatalf("expected error fetching container IP address, got %v", err)
 		}
 	})
 }

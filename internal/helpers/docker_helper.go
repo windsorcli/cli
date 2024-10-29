@@ -17,7 +17,7 @@ import (
 )
 
 type DockerInfo struct {
-	Services map[string][]string `json:"services"`
+	Services map[string]map[string]string `json:"services"`
 }
 
 // DockerHelper is a helper struct that provides Docker-specific utility functions
@@ -249,8 +249,8 @@ func (h *DockerHelper) Up(verbose ...bool) error {
 
 // Info returns information about the helper.
 func (h *DockerHelper) Info() (interface{}, error) {
-	// Map to hold role -> list of service URLs
-	roleToServices := make(map[string][]string)
+	// Map to hold service name -> service details
+	services := make(map[string]map[string]string)
 
 	// Get the list of container IDs managed by Windsor and matching the current context
 	contextName, err := h.Context.GetContext()
@@ -297,13 +297,23 @@ func (h *DockerHelper) Info() (interface{}, error) {
 			continue
 		}
 
-		// Add the service to the appropriate role
-		roleToServices[role] = append(roleToServices[role], serviceName)
+		// Get the IP address of the container
+		inspectArgs = []string{"inspect", containerID, "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"}
+		ipOut, err := h.Shell.Exec(false, "Fetching container IP address", inspectCommand, inspectArgs...)
+		if err != nil {
+			return nil, err
+		}
+
+		// Add the service details to the map
+		services[serviceName] = map[string]string{
+			"ip":   strings.TrimSpace(ipOut),
+			"role": role,
+		}
 	}
 
 	// Build the DockerInfo struct
 	dockerInfo := &DockerInfo{
-		Services: roleToServices,
+		Services: services,
 	}
 
 	return dockerInfo, nil

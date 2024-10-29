@@ -52,13 +52,14 @@ var networkManager network.NetworkManager
 // execCommand instance
 var execCommand = exec.Command
 
-func ptrBool(b bool) *bool {
-	return &b
-}
-
-// Helper functions to create pointers for basic types
+// ptrString is a helper function to return a pointer to a string
 func ptrString(s string) *string {
 	return &s
+}
+
+// ptrBool is a helper function to return a pointer to a boolean
+func ptrBool(b bool) *bool {
+	return &b
 }
 
 // getCLIConfigPath returns the path to the CLI configuration file

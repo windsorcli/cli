@@ -20,8 +20,8 @@ func (n *networkManager) Configure(networkConfig *NetworkConfig) (*NetworkConfig
 
 	// Add route on the host to VM guest
 	output, err := shell.Exec(
-		true,
-		"Adding route on the host to VM guest",
+		false,
+		"",
 		"sudo",
 		"route",
 		"-nv",
