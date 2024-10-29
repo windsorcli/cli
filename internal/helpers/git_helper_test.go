@@ -19,7 +19,7 @@ func TestGitHelper_Initialize(t *testing.T) {
 		// Given: a mock config handler, context, and shell
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
@@ -75,7 +75,7 @@ func TestGitHelper_NewGitHelper(t *testing.T) {
 		// Create DI container and register cliConfigHandler and shell
 		diContainer := di.NewContainer()
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 
@@ -107,7 +107,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 				},
 			}, nil
 		}
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project", nil
 		}
@@ -178,7 +178,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		}
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextInstance", mockContext)
 
@@ -210,7 +210,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		}
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextInstance", mockContext)
 
@@ -246,7 +246,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		}
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextInstance", mockContext)
 
@@ -279,7 +279,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		}
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextInstance", mockContext)
 
@@ -312,7 +312,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		}
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextInstance", mockContext)
 
@@ -345,7 +345,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		}
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextInstance", mockContext)
 
@@ -378,7 +378,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		}
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextInstance", mockContext)
 
@@ -411,7 +411,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		}
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextInstance", mockContext)
 
@@ -437,7 +437,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 				},
 			}, nil
 		}
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error retrieving project root")
 		}
@@ -466,7 +466,7 @@ func TestGitHelper_NoOpFunctions(t *testing.T) {
 	// Create a mock DI container and register necessary components
 	diContainer := di.NewContainer()
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockShell := shell.NewMockShell("unix")
+	mockShell := shell.NewMockShell()
 	mockContext := context.NewMockContext()
 	diContainer.Register("cliConfigHandler", mockConfigHandler)
 	diContainer.Register("shell", mockShell)
@@ -506,7 +506,7 @@ func TestGitHelper_Up(t *testing.T) {
 		diContainer := di.NewContainer()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
@@ -531,7 +531,7 @@ func TestGitHelper_Info(t *testing.T) {
 		diContainer := di.NewContainer()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)

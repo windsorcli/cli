@@ -50,7 +50,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	mockContext := context.NewMockContext()
 	mockContext.GetContextFunc = func() (string, error) { return "mock-context", nil }
 
-	mockShell := shell.NewMockShell("cmd")
+	mockShell := shell.NewMockShell()
 	mockAwsHelper := helpers.NewMockHelper()
 	mockColimaHelper := helpers.NewMockHelper()
 	mockDockerHelper := helpers.NewMockHelper()

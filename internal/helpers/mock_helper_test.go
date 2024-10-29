@@ -278,7 +278,7 @@ func TestMockHelper_WriteConfig(t *testing.T) {
 		mockContext.GetConfigRootFunc = func() (string, error) {
 			return "/path/to/config", nil
 		}
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
@@ -450,7 +450,7 @@ func TestMockHelper_Info(t *testing.T) {
 		diContainer := di.NewContainer()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("context", mockContext)
 		diContainer.Register("shell", mockShell)

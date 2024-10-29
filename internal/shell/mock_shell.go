@@ -8,7 +8,6 @@ import (
 
 // MockShell is a struct that simulates a shell environment for testing purposes.
 type MockShell struct {
-	ShellType          string
 	PrintEnvVarsFunc   func(envVars map[string]string)
 	GetProjectRootFunc func() (string, error)
 	ExecFunc           func(verbose bool, message string, command string, args ...string) (string, error)
@@ -16,8 +15,8 @@ type MockShell struct {
 
 // NewMockShell creates a new instance of MockShell based on the provided shell type.
 // Returns an error if the shell type is invalid.
-func NewMockShell(shellType string) *MockShell {
-	return &MockShell{ShellType: shellType}
+func NewMockShell() *MockShell {
+	return &MockShell{}
 }
 
 // PrintEnvVars prints the environment variables in a sorted order.

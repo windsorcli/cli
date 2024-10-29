@@ -38,7 +38,7 @@ func setupContainer(deps MockDependencies) di.ContainerInterface {
 		deps.CLIConfigHandler = config.NewMockConfigHandler()
 	}
 	if deps.Shell == nil {
-		deps.Shell = shell.NewMockShell("unix")
+		deps.Shell = shell.NewMockShell()
 	}
 	if deps.TerraformHelper == nil {
 		deps.TerraformHelper = helpers.NewMockHelper()
