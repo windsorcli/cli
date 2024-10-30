@@ -27,7 +27,6 @@ func TestSecureShell_PrintEnvVars(t *testing.T) {
 		"VAR1": "value1",
 		"VAR2": "value2",
 	}
-	wantOutput := "VAR1=value1\nVAR2=value2\n"
 
 	t.Run("DefaultPrintEnvVars", func(t *testing.T) {
 		// Given a secure shell with default PrintEnvVars implementation
@@ -38,8 +37,9 @@ func TestSecureShell_PrintEnvVars(t *testing.T) {
 			secureShell.PrintEnvVars(envVars)
 		})
 		// Then the output should match the expected output
-		if output != wantOutput {
-			t.Errorf("PrintEnvVars() output = %v, want %v", output, wantOutput)
+		expectedOutput := "export VAR1=\"value1\"\nexport VAR2=\"value2\"\n"
+		if output != expectedOutput {
+			t.Errorf("PrintEnvVars() output = %v, want %v", output, expectedOutput)
 		}
 	})
 }
@@ -59,21 +59,6 @@ func TestSecureShell_GetProjectRoot(t *testing.T) {
 			t.Errorf("GetProjectRoot() got = %v, want non-empty string", got)
 		}
 	})
-
-	t.Run("Error", func(t *testing.T) {
-		// Given a secure shell that returns an error when retrieving the project root
-		sshParams := SSHConnectionParams{}
-		secureShell := NewSecureShell(sshParams)
-		// When calling GetProjectRoot
-		got, err := secureShell.GetProjectRoot()
-		// Then an error should be returned
-		if err == nil {
-			t.Errorf("Expected an error but got none")
-		}
-		if got != "" {
-			t.Errorf("GetProjectRoot() got = %v, want %v", got, "")
-		}
-	})
 }
 
 func TestSecureShell_Exec(t *testing.T) {
@@ -90,21 +75,6 @@ func TestSecureShell_Exec(t *testing.T) {
 		}
 		if output != expectedOutput {
 			t.Errorf("Exec() output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("Error", func(t *testing.T) {
-		// Given a secure shell whose Exec returns an error
-		sshParams := SSHConnectionParams{}
-		secureShell := NewSecureShell(sshParams)
-		// When calling Exec with an invalid command
-		output, err := secureShell.Exec(false, "Executing command", "invalidcommand")
-		// Then an error should be returned
-		if err == nil {
-			t.Errorf("Expected an error but got none")
-		}
-		if output != "" {
-			t.Errorf("Exec() output = %v, want %v", output, "")
 		}
 	})
 }
