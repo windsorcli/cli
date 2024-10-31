@@ -2,6 +2,7 @@ package shell
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -93,15 +94,16 @@ func (s *SecureShell) Exec(verbose bool, message string, command string, args ..
 	fullCommand := fmt.Sprintf("%s %s", command, strings.Join(args, " "))
 
 	if verbose {
-		// Set session output to stdout
-		session.SetStdout(os.Stdout)
-		session.SetStderr(os.Stderr)
+		// Capture output in addition to setting session output to stdout
+		var outputBuf strings.Builder
+		session.SetStdout(io.MultiWriter(os.Stdout, &outputBuf))
+		session.SetStderr(io.MultiWriter(os.Stderr, &outputBuf))
 
 		// Run the command
 		if err := session.Run(fullCommand); err != nil {
 			return "", fmt.Errorf("failed to run command: %v", err)
 		}
-		return "", nil
+		return outputBuf.String(), nil
 	} else {
 		// Run the command and capture output
 		output, err := session.CombinedOutput(fullCommand)
