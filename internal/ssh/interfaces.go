@@ -28,7 +28,8 @@ type HostKeyCallback interface {
 // Client interface abstracts the SSH client
 type Client interface {
 	Dial(network, addr string, config *ClientConfig) (ClientConn, error)
-	Connect(host, user, identityFile, port string) (ClientConn, error)
+	Connect() (ClientConn, error)
+	SetClientConfig(config *ClientConfig)
 }
 
 // ClientConn interface abstracts the SSH client connection

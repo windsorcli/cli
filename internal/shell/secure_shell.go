@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -15,14 +14,11 @@ import (
 // SecureShell implements the Shell interface using SSH.
 type SecureShell struct {
 	client       ssh.Client
-	clientConn   ssh.ClientConn
-	projectRoot  string
-	mu           sync.Mutex
 	defaultShell Shell
 }
 
-// NewSecureShell creates a new instance of SecureShell and connects to the remote host.
-func NewSecureShell(container di.ContainerInterface, host, user, identityFile, port string) (*SecureShell, error) {
+// NewSecureShell creates a new instance of SecureShell.
+func NewSecureShell(container di.ContainerInterface) (*SecureShell, error) {
 	// Resolve the SSH client from the container
 	clientInstance, err := container.Resolve("sshClient")
 	if err != nil {
@@ -31,11 +27,6 @@ func NewSecureShell(container di.ContainerInterface, host, user, identityFile, p
 	client, ok := clientInstance.(ssh.Client)
 	if !ok {
 		return nil, fmt.Errorf("resolved SSH client does not implement Client interface")
-	}
-
-	clientConn, err := client.Connect(host, user, identityFile, port)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to remote host: %w", err)
 	}
 
 	// Resolve the default shell from the container
@@ -50,7 +41,6 @@ func NewSecureShell(container di.ContainerInterface, host, user, identityFile, p
 
 	return &SecureShell{
 		client:       client,
-		clientConn:   clientConn,
 		defaultShell: defaultShell,
 	}, nil
 }
@@ -67,7 +57,13 @@ func (s *SecureShell) GetProjectRoot() (string, error) {
 
 // Exec executes a command on the remote host via SSH and returns its output as a string.
 func (s *SecureShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
-	session, err := s.clientConn.NewSession()
+	clientConn, err := s.client.Connect()
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to SSH client: %w", err)
+	}
+	defer clientConn.Close()
+
+	session, err := clientConn.NewSession()
 	if err != nil {
 		return "", fmt.Errorf("failed to create SSH session: %w", err)
 	}

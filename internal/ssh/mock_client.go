@@ -8,8 +8,9 @@ import (
 
 // MockClient is the mock implementation of the Client interface
 type MockClient struct {
-	DialFunc    func(network, addr string, config *ClientConfig) (ClientConn, error)
-	ConnectFunc func(host, user, identityFile, port string) (ClientConn, error)
+	DialFunc            func(network, addr string, config *ClientConfig) (ClientConn, error)
+	ConnectFunc         func() (ClientConn, error)
+	SetClientConfigFunc func(config *ClientConfig)
 }
 
 func (m *MockClient) Dial(network, addr string, config *ClientConfig) (ClientConn, error) {
@@ -19,11 +20,17 @@ func (m *MockClient) Dial(network, addr string, config *ClientConfig) (ClientCon
 	return &MockClientConn{}, nil
 }
 
-func (m *MockClient) Connect(host, user, identityFile, port string) (ClientConn, error) {
+func (m *MockClient) Connect() (ClientConn, error) {
 	if m.ConnectFunc != nil {
-		return m.ConnectFunc(host, user, identityFile, port)
+		return m.ConnectFunc()
 	}
 	return &MockClientConn{}, nil
+}
+
+func (m *MockClient) SetClientConfig(config *ClientConfig) {
+	if m.SetClientConfigFunc != nil {
+		m.SetClientConfigFunc(config)
+	}
 }
 
 // MockClientConn is the mock implementation of the ClientConn interface

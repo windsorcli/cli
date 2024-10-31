@@ -13,6 +13,7 @@ import (
 // SSHClient is the real implementation of the Client interface
 type SSHClient struct {
 	sshConfigPath string
+	clientConfig  *ClientConfig
 }
 
 // NewSSHClient creates a new SSHClient with the default SSH config path
@@ -49,13 +50,17 @@ func (c *SSHClient) Dial(network, addr string, config *ClientConfig) (ClientConn
 	return &RealClientConn{client: client}, nil
 }
 
-// Connect connects to the SSH server using the provided host, user, and identity file
-func (c *SSHClient) Connect(host, user, identityFile, port string) (ClientConn, error) {
-	config, err := c.NewClientConfig(host, user, identityFile, port)
-	if err != nil {
-		return nil, err
+// Connect connects to the SSH server using the provided client configuration
+func (c *SSHClient) Connect() (ClientConn, error) {
+	if c.clientConfig == nil {
+		return nil, fmt.Errorf("client configuration is not set")
 	}
-	return c.Dial("tcp", "", config)
+	return c.Dial("tcp", "", c.clientConfig)
+}
+
+// SetClientConfig sets the client configuration for the SSH client
+func (c *SSHClient) SetClientConfig(config *ClientConfig) {
+	c.clientConfig = config
 }
 
 // NewClientConfig creates a ClientConfig using the provided host, user, identity file, and port

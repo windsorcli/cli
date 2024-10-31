@@ -9,6 +9,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/ssh"
 )
 
 func main() {
@@ -107,6 +108,10 @@ func main() {
 		log.Fatalf("failed to create docker helper: %v", err)
 	}
 	container.Register("dockerHelper", dockerHelper)
+
+	// Register SSH Client instance
+	sshClient := ssh.NewSSHClient()
+	container.Register("sshClient", sshClient)
 
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)
