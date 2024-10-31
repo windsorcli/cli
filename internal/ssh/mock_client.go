@@ -8,12 +8,20 @@ import (
 
 // MockClient is the mock implementation of the Client interface
 type MockClient struct {
-	DialFunc func(network, addr string, config *ClientConfig) (ClientConn, error)
+	DialFunc    func(network, addr string, config *ClientConfig) (ClientConn, error)
+	ConnectFunc func(host, user, identityFile, port string) (ClientConn, error)
 }
 
 func (m *MockClient) Dial(network, addr string, config *ClientConfig) (ClientConn, error) {
 	if m.DialFunc != nil {
 		return m.DialFunc(network, addr, config)
+	}
+	return &MockClientConn{}, nil
+}
+
+func (m *MockClient) Connect(host, user, identityFile, port string) (ClientConn, error) {
+	if m.ConnectFunc != nil {
+		return m.ConnectFunc(host, user, identityFile, port)
 	}
 	return &MockClientConn{}, nil
 }
@@ -104,6 +112,30 @@ func (m *MockHostKeyCallback) Callback() gossh.HostKeyCallback {
 	return nil
 }
 
+// MockPublicKeyAuthMethod is the mock implementation of the PublicKeyAuthMethod interface
+type MockPublicKeyAuthMethod struct {
+	SignerFunc func() gossh.Signer
+}
+
+func (m *MockPublicKeyAuthMethod) Method() gossh.AuthMethod {
+	if m.SignerFunc != nil {
+		return gossh.PublicKeys(m.SignerFunc())
+	}
+	return nil
+}
+
+// MockInsecureIgnoreHostKeyCallback is the mock implementation of the InsecureIgnoreHostKeyCallback interface
+type MockInsecureIgnoreHostKeyCallback struct {
+	CallbackFunc func() gossh.HostKeyCallback
+}
+
+func (m *MockInsecureIgnoreHostKeyCallback) Callback() gossh.HostKeyCallback {
+	if m.CallbackFunc != nil {
+		return m.CallbackFunc()
+	}
+	return gossh.InsecureIgnoreHostKey()
+}
+
 // Ensure MockClient implements the Client interface
 var _ Client = (*MockClient)(nil)
 
@@ -118,3 +150,9 @@ var _ AuthMethod = (*MockAuthMethod)(nil)
 
 // Ensure MockHostKeyCallback implements the HostKeyCallback interface
 var _ HostKeyCallback = (*MockHostKeyCallback)(nil)
+
+// Ensure MockPublicKeyAuthMethod implements the PublicKeyAuthMethod interface
+var _ AuthMethod = (*MockPublicKeyAuthMethod)(nil)
+
+// Ensure MockInsecureIgnoreHostKeyCallback implements the InsecureIgnoreHostKeyCallback interface
+var _ HostKeyCallback = (*MockInsecureIgnoreHostKeyCallback)(nil)

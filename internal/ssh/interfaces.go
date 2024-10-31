@@ -11,6 +11,8 @@ type ClientConfig struct {
 	User            string
 	Auth            []AuthMethod
 	HostKeyCallback HostKeyCallback
+	HostName        string
+	Port            string
 }
 
 // AuthMethod abstracts the SSH authentication method
@@ -26,6 +28,7 @@ type HostKeyCallback interface {
 // Client interface abstracts the SSH client
 type Client interface {
 	Dial(network, addr string, config *ClientConfig) (ClientConn, error)
+	Connect(host, user, identityFile, port string) (ClientConn, error)
 }
 
 // ClientConn interface abstracts the SSH client connection

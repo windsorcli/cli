@@ -1,117 +1,111 @@
 package shell
 
 import (
+	"bytes"
 	"fmt"
-	"io"
-	"os"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/windsor-hotel/cli/internal/di"
-	sshWrapper "github.com/windsor-hotel/cli/internal/ssh"
+	"github.com/windsor-hotel/cli/internal/ssh"
 )
 
-// SSHConnectionParams defines basic SSH connection parameters
-type SSHConnectionParams struct {
-	Host         string
-	Port         int
-	Username     string
-	IdentityFile string
-}
-
-// SecureShell implements the Shell interface for SSH
+// SecureShell implements the Shell interface using SSH.
 type SecureShell struct {
-	DefaultShell
-	sshParams      SSHConnectionParams
-	client         sshWrapper.Client
-	authMethod     sshWrapper.AuthMethod
-	hostKeyChecker sshWrapper.HostKeyCallback
+	client       ssh.Client
+	clientConn   ssh.ClientConn
+	projectRoot  string
+	mu           sync.Mutex
+	defaultShell Shell
 }
 
-// NewSecureShell creates a new instance of SecureShell using the DI container
-func NewSecureShell(di *di.DIContainer) (*SecureShell, error) {
-	// Resolve SSH connection parameters
-	sshParamsInterface, err := di.Resolve("sshParams")
+// NewSecureShell creates a new instance of SecureShell and connects to the remote host.
+func NewSecureShell(container di.ContainerInterface, host, user, identityFile, port string) (*SecureShell, error) {
+	// Resolve the SSH client from the container
+	clientInstance, err := container.Resolve("sshClient")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving sshParams: %w", err)
+		return nil, fmt.Errorf("failed to resolve SSH client: %w", err)
 	}
-	sshParams := sshParamsInterface.(SSHConnectionParams)
+	client, ok := clientInstance.(ssh.Client)
+	if !ok {
+		return nil, fmt.Errorf("resolved SSH client does not implement Client interface")
+	}
 
-	// Resolve SSH client
-	sshClientInterface, err := di.Resolve("sshClient")
+	clientConn, err := client.Connect(host, user, identityFile, port)
 	if err != nil {
-		return nil, fmt.Errorf("error resolving sshClient: %w", err)
+		return nil, fmt.Errorf("failed to connect to remote host: %w", err)
 	}
-	sshClient := sshClientInterface.(sshWrapper.Client)
 
-	// Resolve authentication method
-	authMethodInterface, err := di.Resolve("sshAuthMethod")
+	// Resolve the default shell from the container
+	defaultShellInstance, err := container.Resolve("defaultShell")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving sshAuthMethod: %w", err)
+		return nil, fmt.Errorf("failed to resolve default shell: %w", err)
 	}
-	authMethod := authMethodInterface.(sshWrapper.AuthMethod)
-
-	// Resolve host key callback
-	hostKeyCallbackInterface, err := di.Resolve("sshHostKeyCallback")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving sshHostKeyCallback: %w", err)
+	defaultShell, ok := defaultShellInstance.(Shell)
+	if !ok {
+		return nil, fmt.Errorf("resolved default shell does not implement Shell interface")
 	}
-	hostKeyCallback := hostKeyCallbackInterface.(sshWrapper.HostKeyCallback)
 
 	return &SecureShell{
-		DefaultShell:   *NewDefaultShell(),
-		sshParams:      sshParams,
-		client:         sshClient,
-		authMethod:     authMethod,
-		hostKeyChecker: hostKeyCallback,
+		client:       client,
+		clientConn:   clientConn,
+		defaultShell: defaultShell,
 	}, nil
 }
 
-// Exec executes a command over SSH and returns its output as a string
+// PrintEnvVars prints the provided environment variables.
+func (s *SecureShell) PrintEnvVars(envVars map[string]string) {
+	s.defaultShell.PrintEnvVars(envVars)
+}
+
+// GetProjectRoot retrieves the project root directory on the remote host.
+func (s *SecureShell) GetProjectRoot() (string, error) {
+	return s.defaultShell.GetProjectRoot()
+}
+
+// Exec executes a command on the remote host via SSH and returns its output as a string.
 func (s *SecureShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
-	// Create the SSH client configuration using the injected authentication method and host key callback
-	config := &sshWrapper.ClientConfig{
-		User:            s.sshParams.Username,
-		Auth:            []sshWrapper.AuthMethod{s.authMethod},
-		HostKeyCallback: s.hostKeyChecker,
-	}
-
-	// Connect to the SSH server using the injected client
-	address := fmt.Sprintf("%s:%d", s.sshParams.Host, s.sshParams.Port)
-	clientConn, err := s.client.Dial("tcp", address, config)
+	session, err := s.clientConn.NewSession()
 	if err != nil {
-		return "", fmt.Errorf("failed to dial: %v", err)
-	}
-	defer clientConn.Close()
-
-	// Create a session
-	session, err := clientConn.NewSession()
-	if err != nil {
-		return "", fmt.Errorf("failed to create session: %v", err)
+		return "", fmt.Errorf("failed to create SSH session: %w", err)
 	}
 	defer session.Close()
 
-	// Build the full command
-	fullCommand := fmt.Sprintf("%s %s", command, strings.Join(args, " "))
+	// Concatenate command and arguments
+	fullCommand := command
+	if len(args) > 0 {
+		fullCommand += " " + strings.Join(args, " ")
+	}
+
+	var stdoutBuf, stderrBuf bytes.Buffer
+	session.SetStdout(&stdoutBuf)
+	session.SetStderr(&stderrBuf)
+
+	// Initialize spinner
+	spr := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
+	spr.Suffix = " " + message
+	spr.Start()
+
+	err = session.Run(fullCommand)
+
+	spr.Stop()
+
+	if err != nil {
+		// Print stderr on error
+		fmt.Print(stderrBuf.String())
+		return "", fmt.Errorf("command execution failed: %w", err)
+	}
+
+	output := stdoutBuf.String()
 
 	if verbose {
-		// Capture output in addition to setting session output to stdout
-		var outputBuf strings.Builder
-		session.SetStdout(io.MultiWriter(os.Stdout, &outputBuf))
-		session.SetStderr(io.MultiWriter(os.Stderr, &outputBuf))
-
-		// Run the command
-		if err := session.Run(fullCommand); err != nil {
-			return "", fmt.Errorf("failed to run command: %v", err)
-		}
-		return outputBuf.String(), nil
-	} else {
-		// Run the command and capture output
-		output, err := session.CombinedOutput(fullCommand)
-		if err != nil {
-			return "", fmt.Errorf("failed to run command: %v", err)
-		}
-		return string(output), nil
+		// Print stdout if verbose
+		fmt.Print(output)
 	}
+
+	return output, nil
 }
 
 // Ensure SecureShell implements the Shell interface
