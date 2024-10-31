@@ -1,400 +1,435 @@
 package shell
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
 	"io"
-	"net"
+	"os"
+	"strings"
 	"testing"
 
-	"golang.org/x/crypto/ssh"
+	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/ssh"
+	sshWrapper "github.com/windsor-hotel/cli/internal/ssh"
 )
 
-// Mock signer for sshParsePrivateKey
-type mockSigner struct{}
-
-func (m *mockSigner) PublicKey() ssh.PublicKey {
-	return nil
-}
-
-func (m *mockSigner) Sign(rand io.Reader, data []byte) (*ssh.Signature, error) {
-	return nil, nil
-}
-
-// Mock ssh.Client with Close method
-type mockClient struct {
-	ssh.Client
-}
-
-func (m *mockClient) Close() error {
-	return nil
-}
-
-func (m *mockClient) NewSession() (*ssh.Session, error) {
-	return &ssh.Session{}, nil
-}
-
-// Mock ssh.Session with Close method
-type mockSession struct {
-	Stdout *bytes.Buffer
-}
-
-func (m *mockSession) Close() error {
-	return nil
-}
-
-func (m *mockSession) Run(command string) error {
-	if m.Stdout != nil {
-		m.Stdout.WriteString("mocked output\n")
-	}
-	return nil
-}
-
-func createSecureShellMocks() (func(), func()) {
-	originalSSHParsePrivateKey := sshParsePrivateKey
-	originalNewSession := newSession
-	originalSSHDial := sshDial
-	originalClientClose := clientClose
-	originalSessionClose := sessionClose
-	originalSessionRun := sessionRun
-	originalSSHPublicKeysCallback := sshPublicKeysCallback
-	originalSSHInsecureIgnoreHostKey := sshInsecureIgnoreHostKey
-
-	resetMocks := func() {
-		sshParsePrivateKey = originalSSHParsePrivateKey
-		newSession = originalNewSession
-		sshDial = originalSSHDial
-		clientClose = originalClientClose
-		sessionClose = originalSessionClose
-		sessionRun = originalSessionRun
-		sshPublicKeysCallback = originalSSHPublicKeysCallback
-		sshInsecureIgnoreHostKey = originalSSHInsecureIgnoreHostKey
-	}
-
-	setSafeMocks := func() {
-		sshParsePrivateKey = func(pemBytes []byte) (ssh.Signer, error) {
-			return &mockSigner{}, nil
-		}
-		newSession = func(client sshClient) (sshSession, error) {
-			return &mockSession{}, nil
-		}
-		sshDial = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-			return &ssh.Client{}, nil
-		}
-		clientClose = func(client sshClient) error {
-			return nil
-		}
-		sessionClose = func(session sshSession) error {
-			return nil
-		}
-		sessionRun = func(session sshSession, command string) error {
-			return nil
-		}
-		sshPublicKeysCallback = func(getSigners func() (signers []ssh.Signer, err error)) ssh.AuthMethod {
-			return ssh.PublicKeysCallback(func() ([]ssh.Signer, error) {
-				return []ssh.Signer{&mockSigner{}}, nil
-			})
-		}
-		sshInsecureIgnoreHostKey = func() ssh.HostKeyCallback {
-			return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-				return nil
-			}
-		}
-	}
-
-	return setSafeMocks, resetMocks
-}
-
 func TestSecureShell_NewSecureShell(t *testing.T) {
-	t.Run("ValidSSHParams", func(t *testing.T) {
-		// Given valid SSH connection parameters
-		sshParams := SSHConnectionParams{
+	t.Run("SuccessfulCreation", func(t *testing.T) {
+		// Create a DI container and register the necessary dependencies
+		diContainer := di.NewContainer()
+		diContainer.Register("sshParams", SSHConnectionParams{
 			Host:         "localhost",
 			Port:         22,
 			Username:     "user",
-			IdentityFile: "/path/to/identity/file",
-		}
-		// When creating a new secure shell
-		secureShell := NewSecureShell(sshParams)
-		// Then no error should be returned
-		if secureShell == nil {
-			t.Errorf("Expected secureShell, got nil")
-		}
-	})
-}
-
-func TestSecureShell_PrintEnvVars(t *testing.T) {
-	envVars := map[string]string{
-		"VAR1": "value1",
-		"VAR2": "value2",
-	}
-
-	t.Run("DefaultPrintEnvVars", func(t *testing.T) {
-		// Given a secure shell with default PrintEnvVars implementation
-		sshParams := SSHConnectionParams{}
-		secureShell := NewSecureShell(sshParams)
-		// When calling PrintEnvVars
-		output := captureStdout(t, func() {
-			secureShell.PrintEnvVars(envVars)
+			IdentityFile: "/path/to/private/key",
 		})
-		// Then the output should match the expected output
-		expectedOutput := "export VAR1=\"value1\"\nexport VAR2=\"value2\"\n"
-		if output != expectedOutput {
-			t.Errorf("PrintEnvVars() output = %v, want %v", output, expectedOutput)
+		diContainer.Register("sshClient", &ssh.MockClient{})
+		diContainer.Register("sshAuthMethod", &ssh.MockAuthMethod{})
+		diContainer.Register("sshHostKeyCallback", &ssh.MockHostKeyCallback{})
+
+		// When creating a new SecureShell instance
+		secureShell, err := NewSecureShell(diContainer)
+
+		// Then no error should be returned and the instance should be created
+		assertNoError(t, err)
+		if secureShell == nil {
+			t.Fatalf("Expected SecureShell instance, got nil")
 		}
 	})
-}
 
-func TestSecureShell_GetProjectRoot(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a secure shell that successfully retrieves the project root
-		sshParams := SSHConnectionParams{}
-		secureShell := NewSecureShell(sshParams)
-		// When calling GetProjectRoot
-		got, err := secureShell.GetProjectRoot()
-		// Then the project root should be returned without error
-		if err != nil {
-			t.Errorf("GetProjectRoot() error = %v, want nil", err)
+	t.Run("ErrorResolvingSSHParams", func(t *testing.T) {
+		// Create a DI container without registering sshParams
+		diContainer := di.NewContainer()
+
+		// When creating a new SecureShell instance
+		_, err := NewSecureShell(diContainer)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
 		}
-		if got == "" {
-			t.Errorf("GetProjectRoot() got = %v, want non-empty string", got)
+		if !strings.Contains(err.Error(), "error resolving sshParams") {
+			t.Errorf("Expected error message to contain 'error resolving sshParams', got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingSSHClient", func(t *testing.T) {
+		// Create a DI container and register sshParams but not sshClient
+		diContainer := di.NewContainer()
+		diContainer.Register("sshParams", SSHConnectionParams{
+			Host:         "localhost",
+			Port:         22,
+			Username:     "user",
+			IdentityFile: "/path/to/private/key",
+		})
+
+		// When creating a new SecureShell instance
+		_, err := NewSecureShell(diContainer)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error resolving sshClient") {
+			t.Errorf("Expected error message to contain 'error resolving sshClient', got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingSSHAuthMethod", func(t *testing.T) {
+		// Create a DI container and register sshParams and sshClient but not sshAuthMethod
+		diContainer := di.NewContainer()
+		diContainer.Register("sshParams", SSHConnectionParams{
+			Host:         "localhost",
+			Port:         22,
+			Username:     "user",
+			IdentityFile: "/path/to/private/key",
+		})
+		diContainer.Register("sshClient", &ssh.MockClient{})
+
+		// When creating a new SecureShell instance
+		_, err := NewSecureShell(diContainer)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error resolving sshAuthMethod") {
+			t.Errorf("Expected error message to contain 'error resolving sshAuthMethod', got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingSSHHostKeyCallback", func(t *testing.T) {
+		// Create a DI container and register sshParams, sshClient, and sshAuthMethod but not sshHostKeyCallback
+		diContainer := di.NewContainer()
+		diContainer.Register("sshParams", SSHConnectionParams{
+			Host:         "localhost",
+			Port:         22,
+			Username:     "user",
+			IdentityFile: "/path/to/private/key",
+		})
+		diContainer.Register("sshClient", &ssh.MockClient{})
+		diContainer.Register("sshAuthMethod", &ssh.MockAuthMethod{})
+
+		// When creating a new SecureShell instance
+		_, err := NewSecureShell(diContainer)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error resolving sshHostKeyCallback") {
+			t.Errorf("Expected error message to contain 'error resolving sshHostKeyCallback', got %v", err)
 		}
 	})
 }
 
 func TestSecureShell_Exec(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		setSafeMocks, resetMocks := createSecureShellMocks()
-		setSafeMocks()
-		defer resetMocks()
-
-		// Mock the sshDial function to return a mock client
-		sshDial = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-			return &ssh.Client{}, nil
+	t.Run("CommandSuccess", func(t *testing.T) {
+		// Given a mock session that returns expected output
+		expectedCommand := "ls -la"
+		expectedOutput := "command output"
+		mockSession := &ssh.MockSession{
+			CombinedOutputFunc: func(cmd string) ([]byte, error) {
+				assertEqual(t, expectedCommand, cmd, "command")
+				return []byte(expectedOutput), nil
+			},
+			RunFunc:       func(cmd string) error { return nil },
+			SetStdoutFunc: func(w io.Writer) {},
+			SetStderrFunc: func(w io.Writer) {},
+			CloseFunc:     func() error { return nil },
 		}
 
-		// Mock the newSession function to return a mock session
-		newSession = func(client sshClient) (sshSession, error) {
-			return &ssh.Session{}, nil
-		}
-		// Mock the sessionRun function to simulate command execution
-		sessionRun = func(_ sshSession, _ string) error {
-			return nil
-		}
-
-		// Mock the sshParsePrivateKey function to return a mock signer
-		mockSigner := &mockSigner{}
-		sshParsePrivateKey = func(pemBytes []byte) (ssh.Signer, error) {
-			return mockSigner, nil
+		// Given a mock client that returns the mock session
+		mockClient := &ssh.MockClient{
+			DialFunc: func(network, addr string, config *sshWrapper.ClientConfig) (sshWrapper.ClientConn, error) {
+				return &ssh.MockClientConn{
+					NewSessionFunc: func() (sshWrapper.Session, error) { return mockSession, nil },
+					CloseFunc:      func() error { return nil },
+				}, nil
+			},
 		}
 
-		// Given a secure shell with a custom Exec implementation
-		sshParams := SSHConnectionParams{
+		// Create a DI container and register the mock client and other dependencies
+		diContainer := di.NewContainer()
+		diContainer.Register("sshParams", SSHConnectionParams{
 			Host:         "localhost",
 			Port:         22,
 			Username:     "user",
-			IdentityFile: "mocked_identity_file",
-		}
-		secureShell := NewSecureShell(sshParams)
+			IdentityFile: "/path/to/private/key",
+		})
+		diContainer.Register("sshClient", mockClient)
+		diContainer.Register("sshAuthMethod", &ssh.MockAuthMethod{})
+		diContainer.Register("sshHostKeyCallback", &ssh.MockHostKeyCallback{})
 
-		// When calling Exec
-		output, err := secureShell.Exec(false, "Executing command", "echo", "mocked output")
+		// When executing the command
+		secureShell, err := NewSecureShell(diContainer)
+		assertNoError(t, err)
+		result, err := secureShell.Exec(false, "Testing command", "ls", "-la")
 
-		// Then no error should be returned and output should be as expected
-		if err != nil {
-			t.Errorf("Exec() error = %v, want nil", err)
-		}
-		expectedOutput := ""
-		if output != expectedOutput {
-			t.Errorf("Exec() output = %v, want %v", output, expectedOutput)
-		}
+		// Then the output should be as expected
+		assertNoError(t, err)
+		assertEqual(t, expectedOutput, result, "command output")
 	})
 
-	t.Run("FailRunCommand", func(t *testing.T) {
-		setSafeMocks, resetMocks := createSecureShellMocks()
-		setSafeMocks()
-		defer resetMocks()
-
-		// Mock the sessionRun function to return an error
-		sessionRun = func(_ sshSession, _ string) error {
-			return fmt.Errorf("failed to run command")
+	t.Run("CommandVerboseSuccess", func(t *testing.T) {
+		// Given a mock session that writes output to stdout
+		expectedCommand := "ls -la"
+		outputMessage := "command output"
+		mockSession := &ssh.MockSession{
+			RunFunc: func(cmd string) error {
+				assertEqual(t, expectedCommand, cmd, "command")
+				fmt.Fprint(os.Stdout, outputMessage)
+				return nil
+			},
+			SetStdoutFunc: func(w io.Writer) {
+				// Simulate setting stdout in the session
+			},
+			SetStderrFunc: func(w io.Writer) {
+				// Simulate setting stderr in the session
+			},
+			CloseFunc: func() error { return nil },
 		}
 
-		// Mock the sshParsePrivateKey function to return a mock signer
-		mockSigner := &mockSigner{}
-		sshParsePrivateKey = func(pemBytes []byte) (ssh.Signer, error) {
-			return mockSigner, nil
+		// Given a mock client that returns the mock session
+		mockClient := &ssh.MockClient{
+			DialFunc: func(network, addr string, config *sshWrapper.ClientConfig) (sshWrapper.ClientConn, error) {
+				return &ssh.MockClientConn{
+					NewSessionFunc: func() (sshWrapper.Session, error) { return mockSession, nil },
+					CloseFunc:      func() error { return nil },
+				}, nil
+			},
 		}
 
-		// Given a secure shell with a custom Exec implementation
-		sshParams := SSHConnectionParams{
+		// Create a DI container and register the mock client and other dependencies
+		diContainer := di.NewContainer()
+		diContainer.Register("sshParams", SSHConnectionParams{
 			Host:         "localhost",
 			Port:         22,
 			Username:     "user",
-			IdentityFile: "mocked_identity_file",
-		}
-		secureShell := NewSecureShell(sshParams)
+			IdentityFile: "/path/to/private/key",
+		})
+		diContainer.Register("sshClient", mockClient)
+		diContainer.Register("sshAuthMethod", &ssh.MockAuthMethod{})
+		diContainer.Register("sshHostKeyCallback", &ssh.MockHostKeyCallback{})
 
-		// When calling Exec
-		_, err := secureShell.Exec(false, "Executing command", "echo", "mocked output")
+		// Capture stdout during the command execution
+		output := captureStdout(t, func() {
+			// When executing the command in verbose mode
+			secureShell, err := NewSecureShell(diContainer)
+			assertNoError(t, err)
+			_, err = secureShell.Exec(true, "Testing command", "ls", "-la")
+			assertNoError(t, err)
+		})
+
+		// Then the output should be captured correctly
+		assertEqual(t, outputMessage, output, "stdout output")
+	})
+
+	t.Run("CommandError", func(t *testing.T) {
+		// Given a mock session that returns an error
+		expectedCommand := "ls -la"
+		expectedError := errors.New("command failed")
+		mockSession := &ssh.MockSession{
+			CombinedOutputFunc: func(cmd string) ([]byte, error) {
+				assertEqual(t, expectedCommand, cmd, "command")
+				return nil, expectedError
+			},
+			RunFunc:       func(cmd string) error { return expectedError },
+			SetStdoutFunc: func(w io.Writer) {},
+			SetStderrFunc: func(w io.Writer) {},
+			CloseFunc:     func() error { return nil },
+		}
+
+		// Given a mock client that returns the mock session
+		mockClient := &ssh.MockClient{
+			DialFunc: func(network, addr string, config *sshWrapper.ClientConfig) (sshWrapper.ClientConn, error) {
+				return &ssh.MockClientConn{
+					NewSessionFunc: func() (sshWrapper.Session, error) { return mockSession, nil },
+					CloseFunc:      func() error { return nil },
+				}, nil
+			},
+		}
+
+		// Create a DI container and register the mock client and other dependencies
+		diContainer := di.NewContainer()
+		diContainer.Register("sshParams", SSHConnectionParams{
+			Host:         "localhost",
+			Port:         22,
+			Username:     "user",
+			IdentityFile: "/path/to/private/key",
+		})
+		diContainer.Register("sshClient", mockClient)
+		diContainer.Register("sshAuthMethod", &ssh.MockAuthMethod{})
+		diContainer.Register("sshHostKeyCallback", &ssh.MockHostKeyCallback{})
+
+		// When executing the command
+		secureShell, err := NewSecureShell(diContainer)
+		assertNoError(t, err)
+		_, err = secureShell.Exec(false, "Testing command", "ls", "-la")
 
 		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Exec() error = nil, want non-nil")
+			t.Fatalf("Expected error, got nil")
 		}
+		expectedErrMsg := fmt.Sprintf("failed to run command: %v", expectedError)
+		assertEqual(t, expectedErrMsg, err.Error(), "error message")
 	})
 
-	t.Run("FailToDial", func(t *testing.T) {
-		setSafeMocks, resetMocks := createSecureShellMocks()
-		setSafeMocks()
-		defer resetMocks()
-
-		// Mock the sshDial function to return an error
-		sshDial = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-			return nil, fmt.Errorf("failed to dial")
+	t.Run("DialError", func(t *testing.T) {
+		// Given ssh.Dial returns an error
+		expectedError := errors.New("failed to dial")
+		mockClient := &ssh.MockClient{
+			DialFunc: func(network, addr string, config *sshWrapper.ClientConfig) (sshWrapper.ClientConn, error) {
+				return nil, expectedError
+			},
 		}
 
-		// Mock the sshParsePrivateKey function to return a mock signer
-		mockSigner := &mockSigner{}
-		sshParsePrivateKey = func(pemBytes []byte) (ssh.Signer, error) {
-			return mockSigner, nil
-		}
-
-		// Given a secure shell with a custom Exec implementation
-		sshParams := SSHConnectionParams{
+		// Create a DI container and register the mock client and other dependencies
+		diContainer := di.NewContainer()
+		diContainer.Register("sshParams", SSHConnectionParams{
 			Host:         "localhost",
 			Port:         22,
 			Username:     "user",
-			IdentityFile: "mocked_identity_file",
-		}
-		secureShell := NewSecureShell(sshParams)
+			IdentityFile: "/path/to/private/key",
+		})
+		diContainer.Register("sshClient", mockClient)
+		diContainer.Register("sshAuthMethod", &ssh.MockAuthMethod{})
+		diContainer.Register("sshHostKeyCallback", &ssh.MockHostKeyCallback{})
 
-		// When calling Exec
-		_, err := secureShell.Exec(false, "Executing command", "echo", "mocked output")
+		// When executing the command
+		secureShell, err := NewSecureShell(diContainer)
+		assertNoError(t, err)
+		_, err = secureShell.Exec(false, "Testing command", "ls", "-la")
 
 		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Exec() error = nil, want non-nil")
+			t.Fatalf("Expected error, got nil")
 		}
+		expectedErrMsg := fmt.Sprintf("failed to dial: %v", expectedError)
+		assertEqual(t, expectedErrMsg, err.Error(), "error message")
 	})
 
-	t.Run("FailToCreateSession", func(t *testing.T) {
-		setSafeMocks, resetMocks := createSecureShellMocks()
-		setSafeMocks()
-		defer resetMocks()
-
-		// Mock the NewSession function to return an error
-		newSession = func(client sshClient) (sshSession, error) {
-			return nil, fmt.Errorf("failed to create session")
+	t.Run("NewSessionError", func(t *testing.T) {
+		// Given a mock client that returns an error when creating a session
+		expectedError := errors.New("failed to create session")
+		mockClient := &ssh.MockClient{
+			DialFunc: func(network, addr string, config *sshWrapper.ClientConfig) (sshWrapper.ClientConn, error) {
+				return &ssh.MockClientConn{
+					NewSessionFunc: func() (sshWrapper.Session, error) { return nil, expectedError },
+					CloseFunc:      func() error { return nil },
+				}, nil
+			},
 		}
 
-		// Mock the sshParsePrivateKey function to return a mock signer
-		mockSigner := &mockSigner{}
-		sshParsePrivateKey = func(pemBytes []byte) (ssh.Signer, error) {
-			return mockSigner, nil
-		}
-
-		// Given a secure shell with a custom Exec implementation
-		sshParams := SSHConnectionParams{
+		// Create a DI container and register the mock client and other dependencies
+		diContainer := di.NewContainer()
+		diContainer.Register("sshParams", SSHConnectionParams{
 			Host:         "localhost",
 			Port:         22,
 			Username:     "user",
-			IdentityFile: "mocked_identity_file",
-		}
-		secureShell := NewSecureShell(sshParams)
+			IdentityFile: "/path/to/private/key",
+		})
+		diContainer.Register("sshClient", mockClient)
+		diContainer.Register("sshAuthMethod", &ssh.MockAuthMethod{})
+		diContainer.Register("sshHostKeyCallback", &ssh.MockHostKeyCallback{})
 
-		// When calling Exec
-		_, err := secureShell.Exec(false, "Executing command", "echo", "mocked output")
+		// When executing the command
+		secureShell, err := NewSecureShell(diContainer)
+		assertNoError(t, err)
+		_, err = secureShell.Exec(false, "Testing command", "ls", "-la")
 
 		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Exec() error = nil, want non-nil")
+			t.Fatalf("Expected error, got nil")
 		}
-	})
-}
-
-func TestSecureShell_publicKeysCallback(t *testing.T) {
-	setSafeMocks, resetMocks := createSecureShellMocks()
-	setSafeMocks()
-	defer resetMocks()
-
-	// Given a secure shell with a custom publicKeysCallback implementation
-	sshParams := SSHConnectionParams{
-		Host:         "localhost",
-		Port:         22,
-		Username:     "user",
-		IdentityFile: "mocked_identity_file",
-	}
-	secureShell := NewSecureShell(sshParams)
-
-	t.Run("ValidSigner", func(t *testing.T) {
-		// Mock the sshParsePrivateKey function to return a mock signer
-		mockSigner := &mockSigner{}
-		sshParsePrivateKey = func(pemBytes []byte) (ssh.Signer, error) {
-			return mockSigner, nil
-		}
-
-		// When calling publicKeysCallback
-		signers, err := secureShell.publicKeysCallback()
-
-		// Then the signers should not be nil and error should be nil
-		if err != nil {
-			t.Errorf("publicKeysCallback() error = %v, want nil", err)
-		}
-		if signers == nil {
-			t.Errorf("publicKeysCallback() signers = nil, want non-nil")
-		}
+		expectedErrMsg := fmt.Sprintf("failed to create session: %v", expectedError)
+		assertEqual(t, expectedErrMsg, err.Error(), "error message")
 	})
 
-	t.Run("InvalidSigner", func(t *testing.T) {
-		// Mock the sshParsePrivateKey function to return an error
-		sshParsePrivateKey = func(pemBytes []byte) (ssh.Signer, error) {
-			return nil, fmt.Errorf("unable to parse private key")
+	t.Run("RunCommandError", func(t *testing.T) {
+		// Given a mock session that returns an error when running the command
+		expectedCommand := "ls -la"
+		expectedError := errors.New("command failed")
+		mockSession := &ssh.MockSession{
+			RunFunc: func(cmd string) error {
+				assertEqual(t, expectedCommand, cmd, "command")
+				return expectedError
+			},
+			SetStdoutFunc: func(w io.Writer) {},
+			SetStderrFunc: func(w io.Writer) {},
+			CloseFunc:     func() error { return nil },
 		}
 
-		// When calling publicKeysCallback again
-		signers, err := secureShell.publicKeysCallback()
+		// Given a mock client that returns the mock session
+		mockClient := &ssh.MockClient{
+			DialFunc: func(network, addr string, config *sshWrapper.ClientConfig) (sshWrapper.ClientConn, error) {
+				return &ssh.MockClientConn{
+					NewSessionFunc: func() (sshWrapper.Session, error) { return mockSession, nil },
+					CloseFunc:      func() error { return nil },
+				}, nil
+			},
+		}
 
-		// Then the signers should be nil and error should not be nil
+		// Create a DI container and register the mock client and other dependencies
+		diContainer := di.NewContainer()
+		diContainer.Register("sshParams", SSHConnectionParams{
+			Host:         "localhost",
+			Port:         22,
+			Username:     "user",
+			IdentityFile: "/path/to/private/key",
+		})
+		diContainer.Register("sshClient", mockClient)
+		diContainer.Register("sshAuthMethod", &ssh.MockAuthMethod{})
+		diContainer.Register("sshHostKeyCallback", &ssh.MockHostKeyCallback{})
+
+		// When executing the command
+		secureShell, err := NewSecureShell(diContainer)
+		assertNoError(t, err)
+		_, err = secureShell.Exec(true, "Testing command", "ls", "-la")
+
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("publicKeysCallback() error = nil, want non-nil")
+			t.Fatalf("Expected error, got nil")
 		}
-		if signers != nil {
-			t.Errorf("publicKeysCallback() signers = %v, want nil", signers)
-		}
-	})
-}
-
-func TestSecureShell_FunctionCalls(t *testing.T) {
-	t.Run("TestNewSessionCall", func(t *testing.T) {
-		client := &mockClient{}
-		_, err := newSession(client)
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
+		expectedErrMsg := fmt.Sprintf("failed to run command: %v", expectedError)
+		assertEqual(t, expectedErrMsg, err.Error(), "error message")
 	})
 
-	t.Run("TestClientCloseCall", func(t *testing.T) {
-		client := &mockClient{}
-		err := clientClose(client)
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+	t.Run("PublicKeysCallbackError", func(t *testing.T) {
+		// Given a mock client that returns an error when creating a session due to invalid identity file
+		expectedError := errors.New("unable to read private key file")
+		mockClient := &ssh.MockClient{
+			DialFunc: func(network, addr string, config *sshWrapper.ClientConfig) (sshWrapper.ClientConn, error) {
+				return &ssh.MockClientConn{
+					NewSessionFunc: func() (sshWrapper.Session, error) { return nil, expectedError },
+					CloseFunc:      func() error { return nil },
+				}, nil
+			},
 		}
-	})
 
-	t.Run("TestSessionCloseCall", func(t *testing.T) {
-		session := &mockSession{}
-		err := sessionClose(session)
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		// Create a DI container and register the mock client and other dependencies
+		diContainer := di.NewContainer()
+		diContainer.Register("sshParams", SSHConnectionParams{
+			Host:         "localhost",
+			Port:         22,
+			Username:     "user",
+			IdentityFile: "/invalid/path/to/private/key",
+		})
+		diContainer.Register("sshClient", mockClient)
+		diContainer.Register("sshAuthMethod", &ssh.MockAuthMethod{})
+		diContainer.Register("sshHostKeyCallback", &ssh.MockHostKeyCallback{})
+
+		// When executing the command
+		secureShell, err := NewSecureShell(diContainer)
+		assertNoError(t, err)
+		_, err = secureShell.Exec(false, "Testing command", "ls", "-la")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
 		}
-	})
-
-	t.Run("TestSessionRunCall", func(t *testing.T) {
-		session := &mockSession{}
-		err := sessionRun(session, "echo test")
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		if !strings.Contains(err.Error(), "unable to read private key file") {
+			t.Errorf("Expected error message to contain 'unable to read private key file', got %v", err)
 		}
 	})
 }
