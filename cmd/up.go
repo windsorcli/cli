@@ -13,6 +13,12 @@ var upCmd = &cobra.Command{
 	Short: "Set up the Windsor environment",
 	Long:  "Set up the Windsor environment by executing necessary shell commands.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Get the context name
+		contextName, err := contextInstance.GetContext()
+		if err != nil {
+			return fmt.Errorf("Error getting context: %w", err)
+		}
+
 		// Get the context configuration
 		contextConfig, err := cliConfigHandler.GetConfig()
 		if err != nil {
@@ -56,6 +62,40 @@ var upCmd = &cobra.Command{
 			}
 			// Type assertion to *helpers.DockerInfo
 			dockerInfo = info.(*helpers.DockerInfo)
+		}
+
+		// Configure route tables on the VM only if the VM driver is "colima"
+		if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima" {
+			// Execute "colima ssh-config --profile windsor-<context-name>"
+			sshConfigOutput, err := shellInstance.Exec(
+				verbose,
+				"",
+				"colima",
+				"ssh-config",
+				"--profile",
+				fmt.Sprintf("windsor-%s", contextName),
+			)
+			if err != nil {
+				return fmt.Errorf("Error executing Colima SSH config command: %w", err)
+			}
+
+			// Pass the contents to the sshClient
+			if err := sshClient.SetClientConfigFile(sshConfigOutput, fmt.Sprintf("colima-windsor-%s", contextName)); err != nil {
+				return fmt.Errorf("Error setting SSH client config: %w", err)
+			}
+
+			// Execute a command to get quick info about the guest machine
+			output, err := secureShellInstance.Exec(
+				verbose,
+				"",
+				"uname",
+				"-a",
+			)
+			if err != nil {
+				return fmt.Errorf("Error executing command to get guest machine info: %w", err)
+			}
+			// Print the output
+			fmt.Println("Guest Machine Info:", output)
 		}
 
 		// Print welcome status page

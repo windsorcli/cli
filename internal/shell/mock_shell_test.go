@@ -3,6 +3,8 @@ package shell
 import (
 	"fmt"
 	"testing"
+
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // Helper function for error assertion
@@ -15,43 +17,26 @@ func assertError(t *testing.T, err error, shouldError bool) {
 }
 
 func TestMockShell_NewMockShell(t *testing.T) {
-	t.Run("ValidShellTypeCmd", func(t *testing.T) {
-		// Given a valid shell type "cmd"
-		// When creating a new mock shell
-		mockShell := NewMockShell("cmd")
+	t.Run("CreateMockShellWithoutContainer", func(t *testing.T) {
+		// When creating a new mock shell without a container
+		mockShell := NewMockShell()
 		// Then no error should be returned
 		if mockShell == nil {
 			t.Errorf("Expected mockShell, got nil")
 		}
 	})
 
-	t.Run("ValidShellTypePowershell", func(t *testing.T) {
-		// Given a valid shell type "powershell"
-		// When creating a new mock shell
-		mockShell := NewMockShell("powershell")
-		// Then no error should be returned
+	t.Run("CreateMockShellWithContainer", func(t *testing.T) {
+		// Given a mock DI container
+		mockContainer := &di.MockContainer{}
+		// When creating a new mock shell with the container
+		mockShell := NewMockShell(mockContainer)
+		// Then no error should be returned and the container should be set
 		if mockShell == nil {
 			t.Errorf("Expected mockShell, got nil")
 		}
-	})
-
-	t.Run("ValidShellTypeUnix", func(t *testing.T) {
-		// Given a valid shell type "unix"
-		// When creating a new mock shell
-		mockShell := NewMockShell("unix")
-		// Then no error should be returned
-		if mockShell == nil {
-			t.Errorf("Expected mockShell, got nil")
-		}
-	})
-
-	t.Run("InvalidShellType", func(t *testing.T) {
-		// Given an invalid shell type
-		// When creating a new mock shell
-		mockShell := NewMockShell("invalid")
-		// Then no error should be returned
-		if mockShell == nil {
-			t.Errorf("Expected mockShell, got nil")
+		if mockShell.container != mockContainer {
+			t.Errorf("Expected container to be set, got %v", mockShell.container)
 		}
 	})
 }
@@ -65,7 +50,7 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 
 	t.Run("DefaultPrintEnvVars", func(t *testing.T) {
 		// Given a mock shell with default PrintEnvVars implementation
-		mockShell := NewMockShell("cmd")
+		mockShell := NewMockShell()
 		// When calling PrintEnvVars
 		output := captureStdout(t, func() {
 			mockShell.PrintEnvVars(envVars)
@@ -78,7 +63,7 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 
 	t.Run("CustomPrintEnvVars", func(t *testing.T) {
 		// Given a mock shell with custom PrintEnvVars implementation
-		mockShell := NewMockShell("cmd")
+		mockShell := NewMockShell()
 		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			for key, value := range envVars {
 				fmt.Printf("%s=%s\n", key, value)
@@ -98,7 +83,7 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 func TestMockShell_GetProjectRoot(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell that successfully retrieves the project root
-		mockShell := NewMockShell("cmd")
+		mockShell := NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
@@ -113,7 +98,7 @@ func TestMockShell_GetProjectRoot(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		// Given a mock shell that returns an error when retrieving the project root
-		mockShell := NewMockShell("cmd")
+		mockShell := NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error retrieving project root")
 		}
@@ -130,7 +115,7 @@ func TestMockShell_GetProjectRoot(t *testing.T) {
 
 	t.Run("NotImplemented", func(t *testing.T) {
 		// Given a mock shell with no GetProjectRoot implementation
-		mockShell := NewMockShell("cmd")
+		mockShell := NewMockShell()
 		// When calling GetProjectRoot
 		got, err := mockShell.GetProjectRoot()
 		// Then an error should be returned
@@ -146,7 +131,7 @@ func TestMockShell_GetProjectRoot(t *testing.T) {
 func TestMockShell_Exec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom ExecFn implementation
-		mockShell := NewMockShell("cmd")
+		mockShell := NewMockShell()
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			// Simulate command execution and return a mocked output
 			return "mocked output", nil
@@ -165,7 +150,7 @@ func TestMockShell_Exec(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		// Given a mock shell whose ExecFn returns an error
-		mockShell := NewMockShell("cmd")
+		mockShell := NewMockShell()
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			// Simulate command failure
 			return "", fmt.Errorf("execution error")
@@ -182,7 +167,7 @@ func TestMockShell_Exec(t *testing.T) {
 	})
 	t.Run("NotImplemented", func(t *testing.T) {
 		// Given a mock shell with no ExecFn implementation
-		mockShell := NewMockShell("cmd")
+		mockShell := NewMockShell()
 		// When calling Exec
 		output, err := mockShell.Exec(false, "Executing command", "somecommand", "arg1", "arg2")
 		// Then an error should be returned indicating ExecFn is not implemented

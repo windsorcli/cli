@@ -6,6 +6,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/ssh"
 )
 
 // SuperMocks holds all the mock instances needed for testing commands.
@@ -22,6 +23,8 @@ type SuperMocks struct {
 	OmniHelper       *helpers.MockHelper
 	TalosHelper      *helpers.MockHelper
 	TerraformHelper  *helpers.MockHelper
+	SSHClient        *ssh.MockClient
+	SecureShell      *shell.MockShell
 	Container        di.ContainerInterface
 }
 
@@ -50,7 +53,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	mockContext := context.NewMockContext()
 	mockContext.GetContextFunc = func() (string, error) { return "mock-context", nil }
 
-	mockShell := shell.NewMockShell("cmd")
+	mockShell := shell.NewMockShell()
 	mockAwsHelper := helpers.NewMockHelper()
 	mockColimaHelper := helpers.NewMockHelper()
 	mockDockerHelper := helpers.NewMockHelper()
@@ -60,6 +63,8 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	mockOmniHelper := helpers.NewMockHelper()
 	mockTalosHelper := helpers.NewMockHelper()
 	mockTerraformHelper := helpers.NewMockHelper()
+	mockSecureShell := shell.NewMockShell(container)
+	mockSSHClient := &ssh.MockClient{}
 
 	// Create and setup the dependency injection container
 	container.Register("cliConfigHandler", mockCLIConfigHandler)
@@ -74,6 +79,8 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	container.Register("omniHelper", mockOmniHelper)
 	container.Register("talosHelper", mockTalosHelper)
 	container.Register("terraformHelper", mockTerraformHelper)
+	container.Register("sshClient", mockSSHClient)
+	container.Register("secureShell", mockSecureShell)
 
 	return SuperMocks{
 		CLIConfigHandler: mockCLIConfigHandler,
@@ -88,6 +95,8 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 		OmniHelper:       mockOmniHelper,
 		TalosHelper:      mockTalosHelper,
 		TerraformHelper:  mockTerraformHelper,
+		SSHClient:        mockSSHClient,
+		SecureShell:      mockSecureShell,
 		Container:        container,
 	}
 }

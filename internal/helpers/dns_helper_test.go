@@ -41,7 +41,7 @@ func TestDNSHelper_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, shell, and helper
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
@@ -64,7 +64,7 @@ func TestDNSHelper_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, shell, and helper
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
@@ -90,7 +90,7 @@ func TestDNSHelper_PostEnvExec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, shell, and helper
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
@@ -139,7 +139,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 			}, nil
 		}
 		// Create a mock shell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		mockDIContainer.Register("shell", mockShell)
 		mockDIContainer.Register("cliConfigHandler", mockConfigHandler)
 
@@ -313,7 +313,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		}
 
 		// Create a mock shell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 
 		// Create a mock context instance
 		mockContext := context.NewMockContext()
@@ -355,7 +355,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		}
 
 		// Create a mock shell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 
 		// Create a mock context instance
 		mockContext := context.NewMockContext()
@@ -416,7 +416,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 	// 	mockDIContainer.SetResolveError("cliConfigHandler", fmt.Errorf("mock error resolving cliConfigHandler"))
 
 	// 	// Create a mock shell
-	// 	mockShell := shell.NewMockShell("unix")
+	// 	mockShell := shell.NewMockShell()
 	// 	mockDIContainer.Register("shell", mockShell)
 
 	// 	// Given: a DNSHelper with the mock DI container
@@ -440,7 +440,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 	mockContext := context.NewMockContext()
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockDockerHelper := NewMockHelper()
-	mockShell := shell.NewMockShell("unix")
+	mockShell := shell.NewMockShell()
 
 	t.Run("DockerDisabled", func(t *testing.T) {
 		// Create a mock config handler that returns Docker disabled
@@ -1023,7 +1023,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		}
 
 		// Create a mock shell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
@@ -1079,7 +1079,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		}
 
 		// Create a mock shell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
@@ -1114,7 +1114,7 @@ func TestDNSHelper_Up(t *testing.T) {
 		diContainer := di.NewContainer()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
@@ -1139,7 +1139,7 @@ func TestDNSHelper_Info(t *testing.T) {
 		diContainer := di.NewContainer()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)

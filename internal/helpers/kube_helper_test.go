@@ -292,7 +292,7 @@ func TestKubeHelper_Info(t *testing.T) {
 		diContainer := di.NewContainer()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)

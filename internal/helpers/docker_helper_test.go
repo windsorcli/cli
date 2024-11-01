@@ -31,7 +31,7 @@ func TestDockerHelper_Initialize(t *testing.T) {
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("helper", mockHelper)
-		diContainer.Register("shell", shell.NewMockShell("unix"))
+		diContainer.Register("shell", shell.NewMockShell())
 
 		// Create an instance of DockerHelper
 		dockerHelper, err := NewDockerHelper(diContainer)
@@ -154,7 +154,7 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 				diContainer.Register("helper", mockHelper)
 
 				// Register MockShell
-				mockShell := shell.NewMockShell("unix")
+				mockShell := shell.NewMockShell()
 				diContainer.Register("shell", mockShell)
 
 				// Create DockerHelper
@@ -194,7 +194,7 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -236,7 +236,7 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -282,7 +282,7 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -344,7 +344,7 @@ func TestDockerHelper_GetEnvVars(t *testing.T) {
 		diContainer.Register("contextInstance", mockContext)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create a new DockerHelper
@@ -385,7 +385,7 @@ func TestDockerHelper_PostEnvExec(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		dockerHelper, err := NewDockerHelper(diContainer)
@@ -441,7 +441,7 @@ func TestDockerHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		helper, err := NewDockerHelper(diContainer)
@@ -511,7 +511,7 @@ func TestDockerHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -565,7 +565,7 @@ func TestDockerHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -636,7 +636,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -687,7 +687,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -750,7 +750,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -801,7 +801,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -853,7 +853,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -917,7 +917,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// When creating a new DockerHelper
@@ -975,7 +975,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create a new DockerHelper
@@ -1028,7 +1028,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -1087,7 +1087,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("mockHelper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -1149,7 +1149,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -1197,7 +1197,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -1242,7 +1242,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -1301,7 +1301,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -1344,7 +1344,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -1403,7 +1403,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -1462,7 +1462,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("helper", mockHelper)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create DockerHelper
@@ -1505,7 +1505,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		diContainer.Register("contextInstance", mockContext)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create mock DI container and set the ResolveAllError to simulate an error
@@ -1550,7 +1550,7 @@ func TestDockerHelper_Up(t *testing.T) {
 		diContainer.Register("contextInstance", mockContext)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "Mocked output", nil
 		}
@@ -1594,7 +1594,7 @@ func TestDockerHelper_Up(t *testing.T) {
 		diContainer.Register("contextInstance", mockContext)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			if verbose {
 				return "Verbose output", nil
@@ -1636,7 +1636,7 @@ func TestDockerHelper_Up(t *testing.T) {
 		diContainer.Register("contextInstance", mockContext)
 
 		// Register MockShell
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of DockerHelper
@@ -1668,7 +1668,7 @@ func TestDockerHelper_Up(t *testing.T) {
 		diContainer.Register("contextInstance", mockContext)
 
 		// Register MockShell with a failing docker info command
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			if command == "docker" && args[0] == "info" {
 				return "", fmt.Errorf("Docker daemon is not running")
@@ -1706,7 +1706,7 @@ func TestDockerHelper_Up(t *testing.T) {
 		diContainer.Register("contextInstance", mockContext)
 
 		// Register MockShell with a failing docker-compose up command
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			if command == "docker-compose" && args[0] == "up" {
 				return "Mocked output", fmt.Errorf("mock error executing docker-compose up")
@@ -1744,7 +1744,7 @@ func TestDockerHelper_Up(t *testing.T) {
 		diContainer.Register("contextInstance", mockContext)
 
 		// Register MockShell with a successful docker-compose up command
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			if command == "docker-compose" && args[0] == "up" {
 				return "Mocked output", nil
@@ -1776,7 +1776,7 @@ func TestDockerHelper_Info(t *testing.T) {
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
@@ -1829,7 +1829,7 @@ func TestDockerHelper_Info(t *testing.T) {
 		mockContext.GetContextFunc = func() (string, error) {
 			return "", fmt.Errorf("error resolving context: no instance registered with name context")
 		}
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
@@ -1855,7 +1855,7 @@ func TestDockerHelper_Info(t *testing.T) {
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
@@ -1897,7 +1897,7 @@ func TestDockerHelper_Info(t *testing.T) {
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
@@ -1931,7 +1931,7 @@ func TestDockerHelper_Info(t *testing.T) {
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextInstance", mockContext)
 		diContainer.Register("shell", mockShell)
@@ -1968,7 +1968,7 @@ func TestDockerHelper_Info(t *testing.T) {
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			if command == "docker" && args[0] == "ps" {
 				return "container1", nil
@@ -2003,7 +2003,7 @@ func TestDockerHelper_Info(t *testing.T) {
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			if command == "docker" && args[0] == "ps" {
 				return "container1", nil
@@ -2047,7 +2047,7 @@ func TestDockerHelper_Info(t *testing.T) {
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
-		mockShell := shell.NewMockShell("unix")
+		mockShell := shell.NewMockShell()
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			if command == "docker" && args[0] == "ps" {
 				return "container1", nil

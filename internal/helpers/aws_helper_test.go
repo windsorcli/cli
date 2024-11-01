@@ -41,7 +41,7 @@ func createAwsHelperMocks(mockContainer ...di.ContainerInterface) *AwsHelperMock
 	mockCLIConfigHandler.SetDefaultFunc = func(context config.Context) error { return nil }
 	mockCLIConfigHandler.GetConfigFunc = func() (*config.Context, error) { return nil, nil }
 
-	mockShell := shell.NewMockShell("cmd")
+	mockShell := shell.NewMockShell()
 	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 		return "mock-exec-output", nil
 	}
