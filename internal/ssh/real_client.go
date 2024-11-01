@@ -4,24 +4,18 @@ package ssh
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 
 	gossh "golang.org/x/crypto/ssh"
 )
 
 // SSHClient is the real implementation of the Client interface
 type SSHClient struct {
-	sshConfigPath string
-	clientConfig  *ClientConfig
+	BaseClient
 }
 
 // NewSSHClient creates a new SSHClient with the default SSH config path
 func NewSSHClient() *SSHClient {
-	sshConfigPath := filepath.Join(os.Getenv("HOME"), ".ssh", "config")
-	return &SSHClient{
-		sshConfigPath: sshConfigPath,
-	}
+	return &SSHClient{}
 }
 
 // Dial connects to the SSH server and returns a client connection
@@ -56,55 +50,6 @@ func (c *SSHClient) Connect() (ClientConn, error) {
 		return nil, fmt.Errorf("client configuration is not set")
 	}
 	return c.Dial("tcp", "", c.clientConfig)
-}
-
-// SetClientConfig sets the client configuration for the SSH client
-func (c *SSHClient) SetClientConfig(config *ClientConfig) {
-	c.clientConfig = config
-}
-
-// NewClientConfig creates a ClientConfig using the provided host, user, identity file, and port
-func (c *SSHClient) NewClientConfig(host, user, identityFile, port string) (*ClientConfig, error) {
-	// Set default values if necessary
-	if user == "" {
-		user = os.Getenv("USER")
-	}
-	if identityFile == "" {
-		identityFile = filepath.Join(os.Getenv("HOME"), ".ssh", "id_rsa")
-	}
-	if port == "" {
-		port = "22"
-	}
-
-	// Read the private key file
-	key, err := os.ReadFile(identityFile)
-	if err != nil {
-		return nil, fmt.Errorf("unable to read identity file: %w", err)
-	}
-
-	// Parse the private key
-	signer, err := gossh.ParsePrivateKey(key)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse private key: %w", err)
-	}
-
-	// Create AuthMethod
-	authMethod := &PublicKeyAuthMethod{signer: signer}
-
-	// Create HostKeyCallback
-	hostKeyCallback := &InsecureIgnoreHostKeyCallback{}
-	// In production, replace the above with a proper host key callback
-
-	// Create ClientConfig
-	clientConfig := &ClientConfig{
-		User:            user,
-		Auth:            []AuthMethod{authMethod},
-		HostKeyCallback: hostKeyCallback,
-		HostName:        host,
-		Port:            port,
-	}
-
-	return clientConfig, nil
 }
 
 // RealClientConn wraps *gossh.Client and implements the ClientConn interface

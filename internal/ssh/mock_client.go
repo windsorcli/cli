@@ -8,9 +8,10 @@ import (
 
 // MockClient is the mock implementation of the Client interface
 type MockClient struct {
-	DialFunc            func(network, addr string, config *ClientConfig) (ClientConn, error)
-	ConnectFunc         func() (ClientConn, error)
-	SetClientConfigFunc func(config *ClientConfig)
+	DialFunc                func(network, addr string, config *ClientConfig) (ClientConn, error)
+	ConnectFunc             func() (ClientConn, error)
+	SetClientConfigFunc     func(config *ClientConfig)
+	SetClientConfigFileFunc func(configStr, hostname string) error
 }
 
 func (m *MockClient) Dial(network, addr string, config *ClientConfig) (ClientConn, error) {
@@ -31,6 +32,18 @@ func (m *MockClient) SetClientConfig(config *ClientConfig) {
 	if m.SetClientConfigFunc != nil {
 		m.SetClientConfigFunc(config)
 	}
+}
+
+func (m *MockClient) SetClientConfigFile(configStr, hostname string) error {
+	if m.SetClientConfigFileFunc != nil {
+		return m.SetClientConfigFileFunc(configStr, hostname)
+	}
+	return nil
+}
+
+// NewMockSSHClient creates a new MockClient with default function implementations
+func NewMockSSHClient() *MockClient {
+	return &MockClient{}
 }
 
 // MockClientConn is the mock implementation of the ClientConn interface
@@ -158,8 +171,8 @@ var _ AuthMethod = (*MockAuthMethod)(nil)
 // Ensure MockHostKeyCallback implements the HostKeyCallback interface
 var _ HostKeyCallback = (*MockHostKeyCallback)(nil)
 
-// Ensure MockPublicKeyAuthMethod implements the PublicKeyAuthMethod interface
+// Ensure MockPublicKeyAuthMethod implements the AuthMethod interface
 var _ AuthMethod = (*MockPublicKeyAuthMethod)(nil)
 
-// Ensure MockInsecureIgnoreHostKeyCallback implements the InsecureIgnoreHostKeyCallback interface
+// Ensure MockInsecureIgnoreHostKeyCallback implements the HostKeyCallback interface
 var _ HostKeyCallback = (*MockInsecureIgnoreHostKeyCallback)(nil)
