@@ -29,6 +29,7 @@ func (c *SSHClient) Dial(network, addr string, config *ClientConfig) (ClientConn
 		User: config.User,
 		Auth: authMethods,
 		// Insecurely ignore host key checking as these are ephemeral local VMs
+		// #nosec G106
 		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
 	}
 
@@ -112,11 +113,4 @@ type PublicKeyAuthMethod struct {
 
 func (p *PublicKeyAuthMethod) Method() gossh.AuthMethod {
 	return gossh.PublicKeys(p.signer)
-}
-
-// InsecureIgnoreHostKeyCallback implements HostKeyCallback and ignores host key checking
-type InsecureIgnoreHostKeyCallback struct{}
-
-func (h *InsecureIgnoreHostKeyCallback) Callback() gossh.HostKeyCallback {
-	return gossh.InsecureIgnoreHostKey()
 }

@@ -144,18 +144,6 @@ func (m *MockPublicKeyAuthMethod) Method() gossh.AuthMethod {
 	return nil
 }
 
-// MockInsecureIgnoreHostKeyCallback is the mock implementation of the InsecureIgnoreHostKeyCallback interface
-type MockInsecureIgnoreHostKeyCallback struct {
-	CallbackFunc func() gossh.HostKeyCallback
-}
-
-func (m *MockInsecureIgnoreHostKeyCallback) Callback() gossh.HostKeyCallback {
-	if m.CallbackFunc != nil {
-		return m.CallbackFunc()
-	}
-	return gossh.InsecureIgnoreHostKey()
-}
-
 // Ensure MockClient implements the Client interface
 var _ Client = (*MockClient)(nil)
 
@@ -168,11 +156,5 @@ var _ Session = (*MockSession)(nil)
 // Ensure MockAuthMethod implements the AuthMethod interface
 var _ AuthMethod = (*MockAuthMethod)(nil)
 
-// Ensure MockHostKeyCallback implements the HostKeyCallback interface
-var _ HostKeyCallback = (*MockHostKeyCallback)(nil)
-
 // Ensure MockPublicKeyAuthMethod implements the AuthMethod interface
 var _ AuthMethod = (*MockPublicKeyAuthMethod)(nil)
-
-// Ensure MockInsecureIgnoreHostKeyCallback implements the HostKeyCallback interface
-var _ HostKeyCallback = (*MockInsecureIgnoreHostKeyCallback)(nil)
