@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/mocks"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -19,14 +19,9 @@ func TestVersionCommand(t *testing.T) {
 	})
 
 	t.Run("VersionOutput", func(t *testing.T) {
-		// Mock the cliConfigHandler
-		mockCliConfigHandler := config.NewMockConfigHandler()
-
 		// Setup container with mock dependencies
-		deps := MockDependencies{
-			CLIConfigHandler: mockCliConfigHandler,
-		}
-		setupContainer(deps)
+		mocks := mocks.CreateSuperMocks()
+		Initialize(mocks.Container)
 
 		// When: the version command is executed
 		output := captureStdout(func() {
@@ -46,11 +41,8 @@ func TestVersionCommand(t *testing.T) {
 
 	t.Run("VersionCommandError", func(t *testing.T) {
 		// Setup container with mock dependencies
-		mockCliConfigHandler := config.NewMockConfigHandler()
-		deps := MockDependencies{
-			CLIConfigHandler: mockCliConfigHandler,
-		}
-		setupContainer(deps)
+		mocks := mocks.CreateSuperMocks()
+		Initialize(mocks.Container)
 
 		// When: the version command is executed with an error
 		defer func() {

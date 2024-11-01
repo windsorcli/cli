@@ -12,6 +12,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/ssh"
 )
 
 var (
@@ -30,6 +31,9 @@ var cliConfigHandler config.ConfigHandler
 // shell instance
 var shellInstance shell.Shell
 
+// secureShell instance
+var secureShellInstance shell.Shell
+
 // terraformHelper instance
 var terraformHelper helpers.Helper
 
@@ -44,6 +48,9 @@ var dockerHelper helpers.Helper
 
 // context instance
 var contextInstance context.ContextInterface
+
+// sshClient instance
+var sshClient ssh.Client
 
 // execCommand instance
 var execCommand = exec.Command
@@ -175,14 +182,23 @@ func Initialize(cont di.ContainerInterface) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type context.ContextInterface\n", key)
 				exitFunc(1)
 			}
+		case *ssh.Client:
+			if resolved, ok := instance.(ssh.Client); ok {
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type ssh.Client\n", key)
+				exitFunc(1)
+			}
 		}
 	}
 
 	resolveAndAssign("cliConfigHandler", &cliConfigHandler)
 	resolveAndAssign("shell", &shellInstance)
+	resolveAndAssign("secureShell", &secureShellInstance)
 	resolveAndAssign("terraformHelper", &terraformHelper)
 	resolveAndAssign("awsHelper", &awsHelper)
 	resolveAndAssign("colimaHelper", &colimaHelper)
 	resolveAndAssign("dockerHelper", &dockerHelper)
 	resolveAndAssign("contextInstance", &contextInstance)
+	resolveAndAssign("sshClient", &sshClient)
 }

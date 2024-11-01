@@ -111,6 +111,7 @@ func parseSSHConfig(configContent, hostname string) (*ClientConfig, error) {
 			}
 			key := fields[0]
 			value := strings.Join(fields[1:], " ")
+			value = strings.Trim(value, "\"") // Remove quotes if present
 			switch key {
 			case "IdentityFile":
 				signer, err := loadSigner(value)

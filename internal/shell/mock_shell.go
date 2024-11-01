@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // MockShell is a struct that simulates a shell environment for testing purposes.
@@ -11,12 +13,18 @@ type MockShell struct {
 	PrintEnvVarsFunc   func(envVars map[string]string)
 	GetProjectRootFunc func() (string, error)
 	ExecFunc           func(verbose bool, message string, command string, args ...string) (string, error)
+	container          di.ContainerInterface
 }
 
-// NewMockShell creates a new instance of MockShell based on the provided shell type.
-// Returns an error if the shell type is invalid.
-func NewMockShell() *MockShell {
-	return &MockShell{}
+// NewMockShell creates a new instance of MockShell. If a di container is provided, it sets the container on MockShell.
+func NewMockShell(container ...di.ContainerInterface) *MockShell {
+	var diContainer di.ContainerInterface
+	if len(container) > 0 {
+		diContainer = container[0]
+	}
+	return &MockShell{
+		container: diContainer,
+	}
 }
 
 // PrintEnvVars prints the environment variables in a sorted order.

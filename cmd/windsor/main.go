@@ -27,6 +27,13 @@ func main() {
 	shellInstance := shell.NewDefaultShell()
 	container.Register("shell", shellInstance)
 
+	// Register SecureShell instance
+	secureShellInstance, err := shell.NewSecureShell(container)
+	if err != nil {
+		log.Fatalf("failed to create secure shell: %v", err)
+	}
+	container.Register("secureShell", secureShellInstance)
+
 	// Create and register the Context instance
 	contextInstance := context.NewContext(cliConfigHandler, shellInstance)
 	container.Register("contextInstance", contextInstance)

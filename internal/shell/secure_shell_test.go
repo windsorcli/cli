@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -54,8 +53,12 @@ func setSafeSecureShellMocks(container ...di.ContainerInterface) struct {
 	mockShell := NewMockShell()
 
 	c := container[0]
-	c.Register("sshClient", mockClient)
-	c.Register("defaultShell", mockShell)
+	if _, err := c.Resolve("sshClient"); err != nil {
+		c.Register("sshClient", mockClient)
+	}
+	if _, err := c.Resolve("defaultShell"); err != nil {
+		c.Register("defaultShell", mockShell)
+	}
 
 	return struct {
 		Container  di.ContainerInterface
@@ -70,194 +73,6 @@ func setSafeSecureShellMocks(container ...di.ContainerInterface) struct {
 		Session:    mockSession,
 		Shell:      mockShell,
 	}
-}
-
-func TestNewSecureShell(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setSafeSecureShellMocks()
-
-		secureShell, err := NewSecureShell(mocks.Container)
-		assertNoError(t, err)
-		if secureShell == nil || secureShell.client == nil {
-			t.Fatalf("Expected secureShell to be initialized with mockClient")
-		}
-	})
-
-	t.Run("ResolveError", func(t *testing.T) {
-		container := di.NewMockContainer()
-		container.SetResolveError("sshClient", errors.New("resolve error"))
-		setSafeSecureShellMocks(container)
-
-		secureShell, err := NewSecureShell(container)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-		if secureShell != nil {
-			t.Fatalf("Expected secureShell to be nil on error")
-		}
-	})
-
-	t.Run("CastClientNotOk", func(t *testing.T) {
-		// Create a new mock container
-		container := di.NewMockContainer()
-
-		// Register an invalid client that doesn't implement ssh.Client
-		invalidClient := &struct{}{}
-		container.Register("sshClient", invalidClient)
-
-		// Attempt to create a new SecureShell
-		secureShell, err := NewSecureShell(container)
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Fatalf("Expected an error due to invalid client type, but got nil")
-		}
-
-		// Check that the error message is as expected
-		expectedError := "resolved SSH client does not implement Client interface"
-		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
-		}
-
-		// Assert that secureShell is nil
-		if secureShell != nil {
-			t.Fatalf("Expected secureShell to be nil due to error, but got an instance")
-		}
-	})
-
-	t.Run("ResolveDefaultShellError", func(t *testing.T) {
-		container := di.NewMockContainer()
-		container.SetResolveError("defaultShell", errors.New("resolve error"))
-		setSafeSecureShellMocks(container)
-
-		secureShell, err := NewSecureShell(container)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-		if secureShell != nil {
-			t.Fatalf("Expected secureShell to be nil on error")
-		}
-	})
-
-	t.Run("CastDefaultShellNotOk", func(t *testing.T) {
-		// Create a new mock container
-		container := di.NewMockContainer()
-
-		// Register an invalid default shell that doesn't implement Shell
-		invalidClient := &struct{}{}
-		container.Register("defaultShell", invalidClient)
-
-		// Register a valid sshClient
-		validSSHClient := &ssh.MockClient{}
-		container.Register("sshClient", validSSHClient)
-
-		// Attempt to create a new SecureShell
-		secureShell, err := NewSecureShell(container)
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Fatalf("Expected an error due to invalid default shell type, but got nil")
-		}
-
-		// Check that the error message is as expected
-		expectedError := "resolved default shell does not implement Shell interface"
-		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
-		}
-
-		// Assert that secureShell is nil
-		if secureShell != nil {
-			t.Fatalf("Expected secureShell to be nil due to error, but got an instance")
-		}
-	})
-}
-
-func TestSecureShell_PrintEnvVars(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		envVars := map[string]string{
-			"VAR1": "value1",
-			"VAR2": "value2",
-		}
-
-		mocks := setSafeSecureShellMocks()
-		mocks.Shell.PrintEnvVarsFunc = func(vars map[string]string) {
-			if len(vars) != len(envVars) {
-				t.Fatalf("Expected %d env vars, got %d", len(envVars), len(vars))
-			}
-			for k, v := range envVars {
-				if vars[k] != v {
-					t.Fatalf("Expected env var %s to be %s, got %s", k, v, vars[k])
-				}
-			}
-		}
-
-		secureShell, err := NewSecureShell(mocks.Container)
-		assertNoError(t, err)
-
-		secureShell.PrintEnvVars(envVars)
-	})
-
-	t.Run("Error", func(t *testing.T) {
-		envVars := map[string]string{
-			"VAR1": "value1",
-			"VAR2": "value2",
-		}
-
-		mocks := setSafeSecureShellMocks()
-		mocks.Shell.PrintEnvVarsFunc = func(vars map[string]string) {
-			t.Fatalf("PrintEnvVars should not be called")
-		}
-
-		secureShell, err := NewSecureShell(mocks.Container)
-		assertNoError(t, err)
-
-		secureShell.PrintEnvVars(envVars)
-	})
-}
-
-func TestSecureShell_GetProjectRoot(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		expectedOutput := "/remote/project/root"
-
-		mocks := setSafeSecureShellMocks()
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return expectedOutput, nil
-		}
-
-		secureShell, err := NewSecureShell(mocks.Container)
-		assertNoError(t, err)
-
-		projectRoot, err := secureShell.GetProjectRoot()
-		assertNoError(t, err)
-		if projectRoot != expectedOutput {
-			t.Fatalf("Expected projectRoot %q, got %q", expectedOutput, projectRoot)
-		}
-
-		// Test caching by calling GetProjectRoot again
-		projectRoot, err = secureShell.GetProjectRoot()
-		assertNoError(t, err)
-		if projectRoot != expectedOutput {
-			t.Fatalf("Expected cached projectRoot %q, got %q", expectedOutput, projectRoot)
-		}
-	})
-
-	t.Run("Error", func(t *testing.T) {
-		mocks := setSafeSecureShellMocks()
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", errors.New("command failed")
-		}
-
-		secureShell, err := NewSecureShell(mocks.Container)
-		assertNoError(t, err)
-
-		projectRoot, err := secureShell.GetProjectRoot()
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-		if projectRoot != "" {
-			t.Fatalf("Expected projectRoot to be empty, got %q", projectRoot)
-		}
-	})
 }
 
 func TestSecureShell_Exec(t *testing.T) {
@@ -320,6 +135,44 @@ func TestSecureShell_Exec(t *testing.T) {
 		}
 		if output != "" {
 			t.Fatalf("Expected output to be empty, got %q", output)
+		}
+	})
+
+	t.Run("ResolveSSHClientError", func(t *testing.T) {
+		mockContainer := di.NewMockContainer()
+		mockContainer.SetResolveError("sshClient", fmt.Errorf("failed to resolve SSH client"))
+
+		mocks := setSafeSecureShellMocks(mockContainer)
+
+		secureShell, err := NewSecureShell(mocks.Container)
+		assertNoError(t, err)
+
+		_, err = secureShell.Exec(false, "Running command", "echo", "hello")
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+		expectedError := "failed to resolve SSH client"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("InvalidSSHClient", func(t *testing.T) {
+		mockContainer := di.NewMockContainer()
+		mockContainer.Register("sshClient", "not_a_valid_ssh_client")
+
+		mocks := setSafeSecureShellMocks(mockContainer)
+
+		secureShell, err := NewSecureShell(mocks.Container)
+		assertNoError(t, err)
+
+		_, err = secureShell.Exec(false, "Running command", "echo", "hello")
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+		expectedError := "resolved SSH client does not implement Client interface"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
 	})
 

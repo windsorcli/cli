@@ -1,4 +1,3 @@
-// internal/ssh/real_client.go
 package ssh
 
 import (
@@ -27,9 +26,10 @@ func (c *SSHClient) Dial(network, addr string, config *ClientConfig) (ClientConn
 	}
 
 	gosshConfig := &gossh.ClientConfig{
-		User:            config.User,
-		Auth:            authMethods,
-		HostKeyCallback: config.HostKeyCallback.Callback(),
+		User: config.User,
+		Auth: authMethods,
+		// Insecurely ignore host key checking as these are ephemeral local VMs
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
 	}
 
 	// Construct the address using HostName and Port from config

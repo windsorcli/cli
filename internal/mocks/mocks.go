@@ -24,6 +24,7 @@ type SuperMocks struct {
 	TalosHelper      *helpers.MockHelper
 	TerraformHelper  *helpers.MockHelper
 	SSHClient        *ssh.MockClient
+	SecureShell      *shell.MockShell
 	Container        di.ContainerInterface
 }
 
@@ -62,6 +63,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	mockOmniHelper := helpers.NewMockHelper()
 	mockTalosHelper := helpers.NewMockHelper()
 	mockTerraformHelper := helpers.NewMockHelper()
+	mockSecureShell := shell.NewMockShell(container)
 	mockSSHClient := &ssh.MockClient{}
 
 	// Create and setup the dependency injection container
@@ -78,6 +80,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	container.Register("talosHelper", mockTalosHelper)
 	container.Register("terraformHelper", mockTerraformHelper)
 	container.Register("sshClient", mockSSHClient)
+	container.Register("secureShell", mockSecureShell)
 
 	return SuperMocks{
 		CLIConfigHandler: mockCLIConfigHandler,
@@ -93,6 +96,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 		TalosHelper:      mockTalosHelper,
 		TerraformHelper:  mockTerraformHelper,
 		SSHClient:        mockSSHClient,
+		SecureShell:      mockSecureShell,
 		Container:        container,
 	}
 }

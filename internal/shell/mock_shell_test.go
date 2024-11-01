@@ -3,6 +3,8 @@ package shell
 import (
 	"fmt"
 	"testing"
+
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // Helper function for error assertion
@@ -15,9 +17,8 @@ func assertError(t *testing.T, err error, shouldError bool) {
 }
 
 func TestMockShell_NewMockShell(t *testing.T) {
-	t.Run("ValidShellTypeCmd", func(t *testing.T) {
-		// Given a valid shell type "cmd"
-		// When creating a new mock shell
+	t.Run("CreateMockShellWithoutContainer", func(t *testing.T) {
+		// When creating a new mock shell without a container
 		mockShell := NewMockShell()
 		// Then no error should be returned
 		if mockShell == nil {
@@ -25,33 +26,17 @@ func TestMockShell_NewMockShell(t *testing.T) {
 		}
 	})
 
-	t.Run("ValidShellTypePowershell", func(t *testing.T) {
-		// Given a valid shell type "powershell"
-		// When creating a new mock shell
-		mockShell := NewMockShell()
-		// Then no error should be returned
+	t.Run("CreateMockShellWithContainer", func(t *testing.T) {
+		// Given a mock DI container
+		mockContainer := &di.MockContainer{}
+		// When creating a new mock shell with the container
+		mockShell := NewMockShell(mockContainer)
+		// Then no error should be returned and the container should be set
 		if mockShell == nil {
 			t.Errorf("Expected mockShell, got nil")
 		}
-	})
-
-	t.Run("ValidShellTypeUnix", func(t *testing.T) {
-		// Given a valid shell type "unix"
-		// When creating a new mock shell
-		mockShell := NewMockShell()
-		// Then no error should be returned
-		if mockShell == nil {
-			t.Errorf("Expected mockShell, got nil")
-		}
-	})
-
-	t.Run("InvalidShellType", func(t *testing.T) {
-		// Given an invalid shell type
-		// When creating a new mock shell
-		mockShell := NewMockShell()
-		// Then no error should be returned
-		if mockShell == nil {
-			t.Errorf("Expected mockShell, got nil")
+		if mockShell.container != mockContainer {
+			t.Errorf("Expected container to be set, got %v", mockShell.container)
 		}
 	})
 }
