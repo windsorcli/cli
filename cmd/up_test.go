@@ -39,9 +39,9 @@ func TestUpCmd(t *testing.T) {
 		}
 		mocks.DockerHelper.InfoFunc = func() (interface{}, error) {
 			return &helpers.DockerInfo{
-				Services: map[string][]string{
-					"web": {"service1"},
-					"db":  {"service2"},
+				Services: map[string]helpers.ServiceInfo{
+					"web": {Role: "web", IP: "192.168.1.2"},
+					"db":  {Role: "db", IP: "192.168.1.2"},
 				},
 			}, nil
 		}

@@ -1786,13 +1786,16 @@ func TestDockerHelper_Info(t *testing.T) {
 			if command == "docker" && args[0] == "ps" {
 				return "container1\ncontainer2", nil
 			}
-			if command == "docker" && args[0] == "inspect" {
+			if command == "docker" && args[0] == "inspect" && args[2] == "--format" && args[3] == "{{json .Config.Labels}}" {
 				if args[1] == "container1" {
 					return `{"role": "web", "com.docker.compose.service": "service1"}`, nil
 				}
 				if args[1] == "container2" {
 					return `{"role": "db", "com.docker.compose.service": "service2"}`, nil
 				}
+			}
+			if command == "docker" && args[0] == "inspect" && args[2] == "--format" && args[3] == "{{json .NetworkSettings.Networks}}" {
+				return `{"bridge": {"IPAddress": "192.168.1.2"}}`, nil
 			}
 			return "", nil
 		}
@@ -1811,9 +1814,9 @@ func TestDockerHelper_Info(t *testing.T) {
 
 		// Then: no error should be returned and info should contain the expected data
 		expectedInfo := &DockerInfo{
-			Services: map[string][]string{
-				"web": {"service1"},
-				"db":  {"service2"},
+			Services: map[string]ServiceInfo{
+				"service1": {Role: "web", IP: "192.168.1.2"},
+				"service2": {Role: "db", IP: "192.168.1.2"},
 			},
 		}
 		if !reflect.DeepEqual(info, expectedInfo) {
@@ -1882,7 +1885,7 @@ func TestDockerHelper_Info(t *testing.T) {
 
 		// Then: no error should be returned and info should be empty
 		expectedInfo := &DockerInfo{
-			Services: map[string][]string{},
+			Services: map[string]ServiceInfo{},
 		}
 		if !reflect.DeepEqual(info, expectedInfo) {
 			t.Errorf("Expected info to be %v, got %v", expectedInfo, info)
@@ -2011,6 +2014,9 @@ func TestDockerHelper_Info(t *testing.T) {
 			if command == "docker" && args[0] == "inspect" {
 				return `{"com.docker.compose.service": "test-service"}`, nil
 			}
+			if command == "docker" && args[2] == "--format" {
+				return `{"bridge": {"IPAddress": "192.168.1.2"}}`, nil
+			}
 			return "", nil
 		}
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
@@ -2055,6 +2061,9 @@ func TestDockerHelper_Info(t *testing.T) {
 			if command == "docker" && args[0] == "inspect" {
 				return `{"role": "test-role"}`, nil
 			}
+			if command == "docker" && args[2] == "--format" {
+				return `{"bridge": {"IPAddress": "192.168.1.2"}}`, nil
+			}
 			return "", nil
 		}
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
@@ -2080,6 +2089,85 @@ func TestDockerHelper_Info(t *testing.T) {
 		}
 		if len(dockerInfo.Services) != 0 {
 			t.Fatalf("Expected no services, got %v", dockerInfo.Services)
+		}
+	})
+
+	t.Run("ErrorInspectingNetwork", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell()
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "docker" && args[0] == "ps" {
+				return "container1", nil
+			}
+			if command == "docker" && args[0] == "inspect" && args[2] == "--format" && args[3] == "{{json .Config.Labels}}" {
+				return `{"role": "test-role", "com.docker.compose.service": "test-service"}`, nil
+			}
+			if command == "docker" && args[0] == "inspect" && args[2] == "--format" && args[3] == "{{json .NetworkSettings.Networks}}" {
+				return `{"bridge": {"IPAddress": "192.168.1.2"}}`, fmt.Errorf("mock error inspecting network")
+			}
+			return "", nil
+		}
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		_, err = dockerHelper.Info()
+		if err == nil || !strings.Contains(err.Error(), "mock error inspecting network") {
+			t.Fatalf("Expected error inspecting network, got %v", err)
+		}
+
+		// Ensure the test does not exit prematurely
+		t.Log("Test completed successfully")
+	})
+
+	t.Run("ErrorUnmarshallingNetwork", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockContext.GetContextFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		mockShell := shell.NewMockShell()
+		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "docker" && args[0] == "ps" {
+				return "container1", nil
+			}
+			if command == "docker" && args[0] == "inspect" && args[2] == "--format" && args[3] == "{{json .Config.Labels}}" {
+				return `{"role": "test-role", "com.docker.compose.service": "test-service"}`, nil
+			}
+			if command == "docker" && args[0] == "inspect" && args[2] == "--format" && args[3] == "{{json .NetworkSettings.Networks}}" {
+				return `{"bridge": {"IPAddress": "192.168.1.2"`, nil
+			}
+			return "", nil
+		}
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of DockerHelper
+		dockerHelper, err := NewDockerHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewDockerHelper() error = %v", err)
+		}
+
+		// When: Info is called
+		_, err = dockerHelper.Info()
+		if err == nil || !strings.Contains(err.Error(), "unexpected end of JSON input") {
+			t.Fatalf("Expected error unmarshalling network, got %v", err)
 		}
 	})
 }

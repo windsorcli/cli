@@ -350,12 +350,10 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 			return &config.Context{
 				DNS: &config.DNSConfig{
 					Create: ptrBool(true),
+					Name:   ptrString("test"),
 				},
 			}, nil
 		}
-
-		// Create a mock shell
-		mockShell := shell.NewMockShell()
 
 		// Create a mock context instance
 		mockContext := context.NewMockContext()
@@ -366,7 +364,6 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		// Given: a DNSHelper with the mock config handler and context instance
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextInstance", mockContext)
 		helper, err := NewDNSHelper(diContainer)
 		if err != nil {
@@ -396,7 +393,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 			t.Errorf("Expected image '%s', got '%s'", constants.DEFAULT_DNS_IMAGE, service.Image)
 		}
 
-		// Additional assertions to verify Volumes, Environment, etc.
+		// Additional assertions to verify Volumes, Labels, etc.
 		if len(service.Volumes) != 1 {
 			t.Errorf("Expected 1 volume, got %d", len(service.Volumes))
 		}
@@ -405,34 +402,16 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 			t.Errorf("Unexpected volume configuration")
 		}
 
-		if val, ok := service.Environment["COREDNS_CONFIG"]; !ok || *val != "/etc/coredns/Corefile" {
-			t.Errorf("Expected environment variable COREDNS_CONFIG to be '/etc/coredns/Corefile'")
+		if val, ok := service.Labels["managed_by"]; !ok || val != "windsor" {
+			t.Errorf("Expected label 'managed_by' to be 'windsor'")
+		}
+		if val, ok := service.Labels["context"]; !ok || val != "mock-context" {
+			t.Errorf("Expected label 'context' to be 'mock-context'")
+		}
+		if val, ok := service.Labels["role"]; !ok || val != "dns" {
+			t.Errorf("Expected label 'role' to be 'dns'")
 		}
 	})
-
-	// t.Run("ErrorResolvingCliConfigHandler", func(t *testing.T) {
-	// 	// Create a mock DI container that fails to resolve cliConfigHandler
-	// 	mockDIContainer := di.NewMockContainer()
-	// 	mockDIContainer.SetResolveError("cliConfigHandler", fmt.Errorf("mock error resolving cliConfigHandler"))
-
-	// 	// Create a mock shell
-	// 	mockShell := shell.NewMockShell()
-	// 	mockDIContainer.Register("shell", mockShell)
-
-	// 	// Given: a DNSHelper with the mock DI container
-	// 	helper, err := NewDNSHelper(mockDIContainer.DIContainer)
-	// 	if err == nil {
-	// 		t.Fatalf("Expected error, got nil")
-	// 	}
-
-	// 	// Then: an error should be returned, and helper should be nil
-	// 	if !strings.Contains(err.Error(), "mock error resolving cliConfigHandler") {
-	// 		t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
-	// 	}
-	// 	if helper != nil {
-	// 		t.Errorf("Expected helper to be nil when cliConfigHandler resolution fails, got %v", helper)
-	// 	}
-	// })
 }
 
 func TestDNSHelper_WriteConfig(t *testing.T) {
@@ -561,7 +540,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 %s        fallthrough
     }
 
-    forward . /etc/resolv.conf
+    forward . 1.1.1.1 8.8.8.8
 }
 `, "test", expectedHostEntries)
 
