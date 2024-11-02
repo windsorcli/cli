@@ -9,7 +9,7 @@ require (
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/fatih/color v1.18.0
 	github.com/getsops/sops/v3 v3.9.1
-	github.com/goccy/go-yaml v1.13.1
+	github.com/goccy/go-yaml v1.13.3
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/spf13/cobra v1.8.1
 	golang.org/x/crypto v0.28.0
