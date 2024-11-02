@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"net"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -64,8 +66,14 @@ var upCmd = &cobra.Command{
 			dockerInfo = info.(*helpers.DockerInfo)
 		}
 
-		// Configure route tables on the VM only if the VM driver is "colima"
-		if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima" {
+		// Configure route tables on the VM only if the VM driver is "colima" and Docker network CIDR is defined
+		if contextConfig.VM != nil &&
+			contextConfig.VM.Driver != nil &&
+			*contextConfig.VM.Driver == "colima" &&
+			contextConfig.Docker != nil &&
+			contextConfig.Docker.Enabled != nil &&
+			*contextConfig.Docker.Enabled &&
+			contextConfig.Docker.NetworkCIDR != nil {
 			// Execute "colima ssh-config --profile windsor-<context-name>"
 			sshConfigOutput, err := shellInstance.Exec(
 				verbose,
@@ -84,18 +92,108 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("Error setting SSH client config: %w", err)
 			}
 
-			// Execute a command to get quick info about the guest machine
+			// Execute a command to get a list of network interfaces
 			output, err := secureShellInstance.Exec(
 				verbose,
 				"",
-				"uname",
-				"-a",
+				"ls",
+				"/sys/class/net",
 			)
 			if err != nil {
-				return fmt.Errorf("Error executing command to get guest machine info: %w", err)
+				return fmt.Errorf("Error executing command to list network interfaces: %w", err)
 			}
-			// Print the output
-			fmt.Println("Guest Machine Info:", output)
+
+			// Find the name of the interface that starts with "br-"
+			var dockerBridgeInterface string
+			interfaces := strings.Split(output, "\n")
+			for _, iface := range interfaces {
+				if strings.HasPrefix(iface, "br-") {
+					dockerBridgeInterface = iface
+					break
+				}
+			}
+			if dockerBridgeInterface == "" {
+				return fmt.Errorf("Error: No interface starting with 'br-' found")
+			}
+
+			// Get Colima host IP from colimaInfo
+			colimaHostIP := colimaInfo.Address
+
+			// Determine the network interface associated with the Colima host IP
+			var colimaInterfaceIP string
+			colimaIP := net.ParseIP(colimaHostIP)
+			if colimaIP == nil {
+				return fmt.Errorf("Error parsing Colima host IP: %s", colimaHostIP)
+			}
+			netInterfaces, err := netInterfaces()
+			if err != nil {
+				return fmt.Errorf("Error getting network interfaces: %w", err)
+			}
+			for _, iface := range netInterfaces {
+				addrs, err := iface.Addrs()
+				if err != nil {
+					return fmt.Errorf("Error getting addresses for interface %s: %w", iface.Name, err)
+				}
+				for _, addr := range addrs {
+					ipNet, ok := addr.(*net.IPNet)
+					if !ok {
+						continue
+					}
+					if ipNet.Contains(colimaIP) {
+						colimaInterfaceIP = ipNet.IP.String()
+						break
+					}
+				}
+				if colimaInterfaceIP != "" {
+					break
+				}
+			}
+
+			// Get cluster IPv4 CIDR from contextConfig
+			clusterIPv4CIDR := *contextConfig.Docker.NetworkCIDR
+
+			// Check if the iptables rule already exists
+			_, err = secureShellInstance.Exec(
+				verbose,
+				"Checking for existing iptables rule...",
+				"sudo", "iptables", "-t", "filter", "-C", "FORWARD",
+				"-i", "col0", "-o", dockerBridgeInterface,
+				"-s", colimaInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
+			)
+			if err != nil {
+				// Check if the error is due to the rule not existing
+				if strings.Contains(err.Error(), "Bad rule") {
+					// Rule does not exist, proceed to add it
+					if _, err := secureShellInstance.Exec(
+						verbose,
+						"Setting IP tables on Colima VM...",
+						"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
+						"-i", "col0", "-o", dockerBridgeInterface,
+						"-s", colimaInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
+					); err != nil {
+						return fmt.Errorf("Error setting iptables rule: %w", err)
+					}
+				} else {
+					// An unexpected error occurred
+					return fmt.Errorf("Error checking iptables rule: %w", err)
+				}
+			}
+
+			// Add route on the host to VM guest
+			output, err = shellInstance.Exec(
+				false,
+				"",
+				"sudo",
+				"route",
+				"-nv",
+				"add",
+				"-net",
+				clusterIPv4CIDR,
+				colimaHostIP,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to add route: %w, output: %s", err, output)
+			}
 		}
 
 		// Print welcome status page
