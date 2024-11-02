@@ -76,11 +76,9 @@ func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
 		Name:    fmt.Sprintf("dns.%s", name),
 		Image:   constants.DEFAULT_DNS_IMAGE,
 		Restart: "always",
+		Command: []string{"-conf", "/etc/coredns/Corefile"},
 		Volumes: []types.ServiceVolumeConfig{
 			{Type: "bind", Source: "./Corefile", Target: "/etc/coredns/Corefile"},
-		},
-		Environment: map[string]*string{
-			"COREDNS_CONFIG": strPtr("/etc/coredns/Corefile"),
 		},
 		Labels: map[string]string{
 			"managed_by": "windsor",
@@ -166,7 +164,7 @@ func (h *DNSHelper) WriteConfig() error {
 %s        fallthrough
     }
 
-    forward . /etc/resolv.conf
+    forward . 1.1.1.1 8.8.8.8
 }
 `, name, hostEntries)
 

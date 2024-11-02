@@ -1,7 +1,6 @@
 package helpers
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -17,7 +16,12 @@ import (
 )
 
 type DockerInfo struct {
-	Services map[string][]string `json:"services"`
+	Services map[string]ServiceInfo `json:"services"`
+}
+
+type ServiceInfo struct {
+	Role string `json:"role"`
+	IP   string `json:"ip"`
 }
 
 // DockerHelper is a helper struct that provides Docker-specific utility functions
@@ -249,8 +253,8 @@ func (h *DockerHelper) Up(verbose ...bool) error {
 
 // Info returns information about the helper.
 func (h *DockerHelper) Info() (interface{}, error) {
-	// Map to hold role -> list of service URLs
-	roleToServices := make(map[string][]string)
+	// Map to hold service name -> ServiceInfo
+	serviceInfoMap := make(map[string]ServiceInfo)
 
 	// Get the list of container IDs managed by Windsor and matching the current context
 	contextName, err := h.Context.GetContext()
@@ -280,7 +284,7 @@ func (h *DockerHelper) Info() (interface{}, error) {
 		}
 
 		var labels map[string]string
-		if err := json.Unmarshal([]byte(inspectOut), &labels); err != nil {
+		if err := jsonUnmarshal([]byte(inspectOut), &labels); err != nil {
 			return nil, err
 		}
 
@@ -297,13 +301,37 @@ func (h *DockerHelper) Info() (interface{}, error) {
 			continue
 		}
 
-		// Add the service to the appropriate role
-		roleToServices[role] = append(roleToServices[role], serviceName)
+		// Get the IP address of the container
+		networkInspectCommand := "docker"
+		networkInspectArgs := []string{"inspect", containerID, "--format", "{{json .NetworkSettings.Networks}}"}
+		networkInspectOut, err := h.Shell.Exec(false, "Inspecting container network settings", networkInspectCommand, networkInspectArgs...)
+		if err != nil {
+			return nil, err
+		}
+
+		var networks map[string]struct {
+			IPAddress string `json:"IPAddress"`
+		}
+		if err := jsonUnmarshal([]byte(networkInspectOut), &networks); err != nil {
+			return nil, err
+		}
+
+		var ipAddress string
+		for _, network := range networks {
+			ipAddress = network.IPAddress
+			break
+		}
+
+		// Add the service info to the map
+		serviceInfoMap[serviceName] = ServiceInfo{
+			Role: role,
+			IP:   ipAddress,
+		}
 	}
 
 	// Build the DockerInfo struct
 	dockerInfo := &DockerInfo{
-		Services: roleToServices,
+		Services: serviceInfoMap,
 	}
 
 	return dockerInfo, nil

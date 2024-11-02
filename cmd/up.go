@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"net"
+	"os"
 	"strings"
 
 	"github.com/fatih/color"
@@ -194,6 +195,69 @@ var upCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("failed to add route: %w, output: %s", err, output)
 			}
+
+			// Update DNS settings for the private TLD (MacOS)
+			if contextConfig.DNS != nil && contextConfig.DNS.Name != nil {
+				tld := *contextConfig.DNS.Name
+
+				// Get the IP address of the container called "dns.test"
+				var dnsIP string
+				if contextConfig.DNS.IP != nil {
+					dnsIP = *contextConfig.DNS.IP
+				} else if dockerInfo != nil {
+					if serviceInfo, exists := dockerInfo.Services["dns.test"]; exists {
+						dnsIP = serviceInfo.IP
+					}
+				}
+
+				if dnsIP == "" {
+					return fmt.Errorf("Error: No IP address found for dns.test")
+				}
+
+				// Ensure the /etc/resolver directory exists
+				resolverDir := "/etc/resolver"
+				if _, err := os.Stat(resolverDir); os.IsNotExist(err) {
+					if _, err := shellInstance.Exec(
+						false,
+						"",
+						"sudo",
+						"mkdir",
+						"-p",
+						resolverDir,
+					); err != nil {
+						return fmt.Errorf("Error creating resolver directory: %w", err)
+					}
+				}
+
+				// Write the DNS server to a temporary file
+				tempResolverFile := fmt.Sprintf("/tmp/%s", tld)
+				content := fmt.Sprintf("nameserver %s\n", dnsIP)
+				// #nosec G306 - /etc/resolver files require 0644 permissions
+				if err := os.WriteFile(tempResolverFile, []byte(content), 0644); err != nil {
+					return fmt.Errorf("Error writing to temporary resolver file: %w", err)
+				}
+
+				// Move the temporary file to the /etc/resolver/<tld> file
+				resolverFile := fmt.Sprintf("%s/%s", resolverDir, tld)
+				if _, err := shellInstance.Exec(
+					false,
+					"",
+					"sudo",
+					"mv",
+					tempResolverFile,
+					resolverFile,
+				); err != nil {
+					return fmt.Errorf("Error moving resolver file: %w", err)
+				}
+
+				// Flush the DNS cache
+				if _, err := shellInstance.Exec(false, "", "sudo", "dscacheutil", "-flushcache"); err != nil {
+					return fmt.Errorf("Error flushing DNS cache: %w", err)
+				}
+				if _, err := shellInstance.Exec(false, "", "sudo", "killall", "-HUP", "mDNSResponder"); err != nil {
+					return fmt.Errorf("Error restarting mDNSResponder: %w", err)
+				}
+			}
 		}
 
 		// Print welcome status page
@@ -217,11 +281,10 @@ var upCmd = &cobra.Command{
 		// Print Docker info if available
 		if dockerInfo != nil {
 			fmt.Println(color.GreenString("Docker Info:"))
-			for role, services := range dockerInfo.Services {
-				fmt.Println(color.YellowString("  %s:", role))
-				for _, service := range services {
-					fmt.Printf("    %s\n", service)
-				}
+			for serviceName, serviceInfo := range dockerInfo.Services {
+				fmt.Println(color.YellowString("  %s:", serviceName))
+				fmt.Printf("    Role: %s\n", serviceInfo.Role)
+				fmt.Printf("    IP: %s\n", serviceInfo.IP)
 			}
 			fmt.Println(color.CyanString("-------------------------------------"))
 		}
