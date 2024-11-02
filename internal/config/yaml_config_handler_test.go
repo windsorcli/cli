@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,6 +65,41 @@ func TestNewYamlConfigHandler(t *testing.T) {
 		}
 		if handler != nil {
 			t.Errorf("expected handler to be nil, got %v", handler)
+		}
+	})
+}
+
+func TestYamlConfigHandler_LoadConfigUsingMocks(t *testing.T) {
+
+	// Mock functions
+	var (
+		mockOsStat      = osStat
+		mockOsMkdirAll  = osMkdirAll
+		mockOsWriteFile = osWriteFile
+	)
+
+	// Restore original functions after tests
+	defer func() {
+		osStat = mockOsStat
+		osMkdirAll = mockOsMkdirAll
+		osWriteFile = mockOsWriteFile
+	}()
+
+	t.Run("ErrorCreatingDirectories", func(t *testing.T) {
+		osStat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			return errors.New("mock error creating directories")
+		}
+
+		handler := &YamlConfigHandler{}
+		err := handler.LoadConfig("some/path/config.yaml")
+
+		// Check if the error message matches the expected error
+		expectedError := "error creating directories: mock error creating directories"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("expected error '%v', got '%v'", expectedError, err)
 		}
 	})
 }
