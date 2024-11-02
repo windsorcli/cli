@@ -125,13 +125,18 @@ func (d *DefaultShell) Exec(verbose bool, message string, command string, args .
 		return "", fmt.Errorf("failed to start command: %w", err)
 	}
 
-	// Initialize spinner
-	s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
-	s.Suffix = " " + message
-	s.Start()
+	var s *spinner.Spinner
+	if message != "" {
+		// Initialize spinner only if a message is provided
+		s = spinner.New(spinner.CharSets[14], 100*time.Millisecond)
+		s.Suffix = " " + message
+		s.Start()
+	}
 
 	err := cmd.Wait()
-	s.Stop()
+	if s != nil {
+		s.Stop()
+	}
 
 	if err != nil {
 		// Print stderr on error

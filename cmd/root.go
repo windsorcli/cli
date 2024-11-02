@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,6 +55,9 @@ var sshClient ssh.Client
 
 // execCommand instance
 var execCommand = exec.Command
+
+// NetworkInterfaceIP is the IP address of the network interface
+var netInterfaces = net.Interfaces
 
 func ptrBool(b bool) *bool {
 	return &b
