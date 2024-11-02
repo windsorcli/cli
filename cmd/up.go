@@ -232,6 +232,7 @@ var upCmd = &cobra.Command{
 				// Write the DNS server to a temporary file
 				tempResolverFile := fmt.Sprintf("/tmp/%s", tld)
 				content := fmt.Sprintf("nameserver %s\n", dnsIP)
+				// #nosec G306 - /etc/resolver files require 0644 permissions
 				if err := os.WriteFile(tempResolverFile, []byte(content), 0644); err != nil {
 					return fmt.Errorf("Error writing to temporary resolver file: %w", err)
 				}
