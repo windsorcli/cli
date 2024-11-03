@@ -67,15 +67,12 @@ func (s *SecureShell) Exec(verbose bool, message string, command string, args ..
 	spr.Stop()
 
 	if err != nil {
-		// Print stderr on error
-		fmt.Print(stderrBuf.String())
 		return "", fmt.Errorf("command execution failed: %w, stderr: %s", err, stderrBuf.String())
 	}
 
 	output := stdoutBuf.String()
 
 	if verbose {
-		// Print stdout if verbose
 		fmt.Print(output)
 	}
 

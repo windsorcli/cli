@@ -10,6 +10,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
+	"github.com/windsor-hotel/cli/internal/vm"
 )
 
 func main() {
@@ -94,13 +95,6 @@ func main() {
 	}
 	container.Register("gitHelper", gitHelper)
 
-	// Create and register the ColimaHelper instance
-	colimaHelper, err := helpers.NewColimaHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create colima helper: %v", err)
-	}
-	container.Register("colimaHelper", colimaHelper)
-
 	// Create and register the DNSHelper instance
 	dnsHelper, err := helpers.NewDNSHelper(container)
 	if err != nil {
@@ -119,6 +113,10 @@ func main() {
 	// Register SSH Client instance
 	sshClient := ssh.NewSSHClient()
 	container.Register("sshClient", sshClient)
+
+	// Create and register the ColimaVM instance using the mock as reference
+	colimaVM := vm.NewColimaVM(container)
+	container.Register("colimaVM", colimaVM)
 
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)

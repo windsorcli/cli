@@ -9,6 +9,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/vm"
 )
 
 var upCmd = &cobra.Command{
@@ -36,19 +37,19 @@ var upCmd = &cobra.Command{
 			return nil
 		}
 
-		// Check if the VM driver is "colima"
-		var colimaInfo *helpers.ColimaInfo
+		// Check if the VM is configured and the driver is Colima
+		var vmInfo *vm.VMInfo
 		if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima" {
-			// Run the "Up" command of the ColimaHelper
-			if err := colimaHelper.Up(verbose); err != nil {
-				return fmt.Errorf("Error running ColimaHelper Up command: %w", err)
+			// Use the Colima VM instance
+			if err := colimaVM.Up(verbose); err != nil {
+				return fmt.Errorf("Error running Colima VM Up command: %w", err)
 			}
-			// Get and hold on to colima's info
-			info, err := colimaHelper.Info()
+			// Get and hold on to VM's info
+			info, err := colimaVM.Info()
 			if err != nil {
-				return fmt.Errorf("Error retrieving Colima info: %w", err)
+				return fmt.Errorf("Error retrieving Colima VM info: %w", err)
 			}
-			colimaInfo = info.(*helpers.ColimaInfo)
+			vmInfo = info.(*vm.VMInfo)
 		}
 
 		// Check if Docker is enabled
@@ -67,7 +68,7 @@ var upCmd = &cobra.Command{
 			dockerInfo = info.(*helpers.DockerInfo)
 		}
 
-		// Configure route tables on the VM only if the VM driver is "colima" and Docker network CIDR is defined
+		// Configure route tables on the VM only if Docker network CIDR is defined
 		if contextConfig.VM != nil &&
 			contextConfig.VM.Driver != nil &&
 			*contextConfig.VM.Driver == "colima" &&
@@ -75,7 +76,7 @@ var upCmd = &cobra.Command{
 			contextConfig.Docker.Enabled != nil &&
 			*contextConfig.Docker.Enabled &&
 			contextConfig.Docker.NetworkCIDR != nil {
-			// Execute "colima ssh-config --profile windsor-<context-name>"
+			// Execute VM-specific SSH config command
 			sshConfigOutput, err := shellInstance.Exec(
 				verbose,
 				"",
@@ -85,7 +86,7 @@ var upCmd = &cobra.Command{
 				fmt.Sprintf("windsor-%s", contextName),
 			)
 			if err != nil {
-				return fmt.Errorf("Error executing Colima SSH config command: %w", err)
+				return fmt.Errorf("Error executing VM SSH config command: %w", err)
 			}
 
 			// Pass the contents to the sshClient
@@ -117,14 +118,14 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("Error: No interface starting with 'br-' found")
 			}
 
-			// Get Colima host IP from colimaInfo
-			colimaHostIP := colimaInfo.Address
+			// Get VM host IP from vmInfo
+			vmHostIP := vmInfo.Address
 
-			// Determine the network interface associated with the Colima host IP
-			var colimaInterfaceIP string
-			colimaIP := net.ParseIP(colimaHostIP)
-			if colimaIP == nil {
-				return fmt.Errorf("Error parsing Colima host IP: %s", colimaHostIP)
+			// Determine the network interface associated with the VM host IP
+			var vmInterfaceIP string
+			vmIP := net.ParseIP(vmHostIP)
+			if vmIP == nil {
+				return fmt.Errorf("Error parsing VM host IP: %s", vmHostIP)
 			}
 			netInterfaces, err := netInterfaces()
 			if err != nil {
@@ -140,12 +141,12 @@ var upCmd = &cobra.Command{
 					if !ok {
 						continue
 					}
-					if ipNet.Contains(colimaIP) {
-						colimaInterfaceIP = ipNet.IP.String()
+					if ipNet.Contains(vmIP) {
+						vmInterfaceIP = ipNet.IP.String()
 						break
 					}
 				}
-				if colimaInterfaceIP != "" {
+				if vmInterfaceIP != "" {
 					break
 				}
 			}
@@ -159,7 +160,7 @@ var upCmd = &cobra.Command{
 				"Checking for existing iptables rule...",
 				"sudo", "iptables", "-t", "filter", "-C", "FORWARD",
 				"-i", "col0", "-o", dockerBridgeInterface,
-				"-s", colimaInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
+				"-s", vmInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
 			)
 			if err != nil {
 				// Check if the error is due to the rule not existing
@@ -167,10 +168,10 @@ var upCmd = &cobra.Command{
 					// Rule does not exist, proceed to add it
 					if _, err := secureShellInstance.Exec(
 						verbose,
-						"Setting IP tables on Colima VM...",
+						"Setting IP tables on VM...",
 						"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
 						"-i", "col0", "-o", dockerBridgeInterface,
-						"-s", colimaInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
+						"-s", vmInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
 					); err != nil {
 						return fmt.Errorf("Error setting iptables rule: %w", err)
 					}
@@ -190,7 +191,7 @@ var upCmd = &cobra.Command{
 				"add",
 				"-net",
 				clusterIPv4CIDR,
-				colimaHostIP,
+				vmHostIP,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to add route: %w, output: %s", err, output)
@@ -264,17 +265,17 @@ var upCmd = &cobra.Command{
 		fmt.Println(color.CyanString("Welcome to the Windsor Environment 📐"))
 		fmt.Println(color.CyanString("-------------------------------------"))
 
-		// Print Colima info if available
-		if colimaInfo != nil {
-			fmt.Println(color.GreenString("Colima VM Info:"))
-			fmt.Printf("  Address: %s\n", colimaInfo.Address)
-			fmt.Printf("  Arch: %s\n", colimaInfo.Arch)
-			fmt.Printf("  CPUs: %d\n", colimaInfo.CPUs)
-			fmt.Printf("  Disk: %.2f GB\n", colimaInfo.Disk)
-			fmt.Printf("  Memory: %.2f GB\n", colimaInfo.Memory)
-			fmt.Printf("  Name: %s\n", colimaInfo.Name)
-			fmt.Printf("  Runtime: %s\n", colimaInfo.Runtime)
-			fmt.Printf("  Status: %s\n", colimaInfo.Status)
+		// Print VM info if available
+		if vmInfo != nil {
+			fmt.Println(color.GreenString("VM Info:"))
+			fmt.Printf("  Address: %s\n", vmInfo.Address)
+			fmt.Printf("  Arch: %s\n", vmInfo.Arch)
+			fmt.Printf("  CPUs: %d\n", vmInfo.CPUs)
+			fmt.Printf("  Disk: %.2f GB\n", vmInfo.Disk)
+			fmt.Printf("  Memory: %.2f GB\n", vmInfo.Memory)
+			fmt.Printf("  Name: %s\n", vmInfo.Name)
+			fmt.Printf("  Runtime: %s\n", vmInfo.Runtime)
+			fmt.Printf("  Status: %s\n", vmInfo.Status)
 			fmt.Println(color.CyanString("-------------------------------------"))
 		}
 

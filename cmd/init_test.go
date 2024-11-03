@@ -16,14 +16,12 @@ func TestInitCmd(t *testing.T) {
 	originalArgs := rootCmd.Args
 	originalExitFunc := exitFunc
 	originalTerraformHelper := terraformHelper
-	originalColimaHelper := colimaHelper
 	originalContextInstance := contextInstance
 
 	t.Cleanup(func() {
 		rootCmd.Args = originalArgs
 		exitFunc = originalExitFunc
 		terraformHelper = originalTerraformHelper
-		colimaHelper = originalColimaHelper
 		contextInstance = originalContextInstance
 	})
 
