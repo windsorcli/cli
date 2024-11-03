@@ -36,8 +36,8 @@ func main() {
 	container.Register("secureShell", secureShellInstance)
 
 	// Create and register the Context instance
-	contextInstance := context.NewContext(cliConfigHandler, shellInstance)
-	container.Register("contextInstance", contextInstance)
+	contextHandler := context.NewContext(cliConfigHandler, shellInstance)
+	container.Register("contextHandler", contextHandler)
 
 	// Create and register the BaseHelper instance
 	baseHelper, err := helpers.NewBaseHelper(container)

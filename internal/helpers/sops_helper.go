@@ -19,7 +19,7 @@ type SopsHelper struct {
 
 // NewSopsHelper is a constructor for SopsHelper
 func NewSopsHelper(di *di.DIContainer) (*SopsHelper, error) {
-	resolvedContext, err := di.Resolve("contextInstance")
+	resolvedContext, err := di.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}

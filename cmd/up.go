@@ -18,7 +18,7 @@ var upCmd = &cobra.Command{
 	Long:  "Set up the Windsor environment by executing necessary shell commands.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get the context name
-		contextName, err := contextInstance.GetContext()
+		contextName, err := contextHandler.GetContext()
 		if err != nil {
 			return fmt.Errorf("Error getting context: %w", err)
 		}

@@ -50,7 +50,7 @@ func setupSafeColimaVmMocks(optionalContainer ...di.ContainerInterface) *MockCom
 	mockConfigHandler := config.NewMockConfigHandler()
 
 	// Register mock instances in the container
-	container.Register("contextInstance", mockContext)
+	container.Register("contextHandler", mockContext)
 	container.Register("shell", mockShell)
 	container.Register("cliConfigHandler", mockConfigHandler)
 
@@ -263,7 +263,7 @@ func TestColimaVM_Info(t *testing.T) {
 	t.Run("ErrorResolvingContext", func(t *testing.T) {
 		// Create a mock container
 		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveError("contextInstance", fmt.Errorf("mock resolve error"))
+		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
 
 		// Setup mock components with the mock container
 		mocks := setupSafeColimaVmMocks(mockContainer)
@@ -579,7 +579,7 @@ func TestColimaVM_executeColimaCommand(t *testing.T) {
 	t.Run("ErrorResolvingContext", func(t *testing.T) {
 		// Setup mock components with a mock container
 		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveError("contextInstance", fmt.Errorf("mock resolve error"))
+		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
 		mocks := setupSafeColimaVmMocks(mockContainer)
 		colimaVM := NewColimaVM(mocks.Container)
 
@@ -767,7 +767,7 @@ func TestColimaVM_startColimaVM(t *testing.T) {
 		colimaVM := NewColimaVM(mocks.Container)
 
 		// Set the mock container to return an error when resolving context
-		mockContainer.SetResolveError("contextInstance", fmt.Errorf("mock resolve error"))
+		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
 
 		// When calling startColimaVM
 		err := colimaVM.startColimaVM(false)
@@ -895,7 +895,7 @@ func TestColimaVM_writeConfig(t *testing.T) {
 		mockContainer := di.NewMockContainer()
 
 		// Simulate an error during context resolution
-		mockContainer.SetResolveError("contextInstance", fmt.Errorf("mock context resolution error"))
+		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock context resolution error"))
 
 		// And a ColimaVM with mock components
 		mocks := setupSafeColimaVmMocks(mockContainer)

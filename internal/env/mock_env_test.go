@@ -3,10 +3,38 @@ package env
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/di"
 )
+
+func captureStdout(t *testing.T, f func()) string {
+	// Save the current stdout
+	old := os.Stdout
+	// Create a pipe to capture stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Failed to create pipe: %v", err)
+	}
+	// Set stdout to the write end of the pipe
+	os.Stdout = w
+
+	// Run the function
+	f()
+
+	// Close the write end of the pipe and restore stdout
+	w.Close()
+	os.Stdout = old
+
+	// Read the captured output
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("Failed to read from pipe: %v", err)
+	}
+
+	return buf.String()
+}
 
 func TestMockEnv_NewMockEnv(t *testing.T) {
 	t.Run("CreateMockEnvWithoutContainer", func(t *testing.T) {
@@ -58,8 +86,11 @@ func TestMockEnv_Print(t *testing.T) {
 		mockEnv := NewMockEnv(nil)
 		var buf bytes.Buffer
 		mockEnv.PrintFunc = func(envVars map[string]string) {
-			for key, value := range envVars {
-				fmt.Fprintf(&buf, "%s=%s\n", key, value)
+			keys := []string{"VAR1", "VAR2"}
+			for _, key := range keys {
+				if value, exists := envVars[key]; exists {
+					fmt.Fprintf(&buf, "%s=%s\n", key, value)
+				}
 			}
 		}
 		// When calling Print

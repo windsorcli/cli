@@ -71,7 +71,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 
 	// Create and setup the dependency injection container
 	container.Register("cliConfigHandler", mockCLIConfigHandler)
-	container.Register("contextInstance", mockContext)
+	container.Register("contextHandler", mockContext)
 	container.Register("shell", mockShell)
 	container.Register("awsHelper", mockAwsHelper)
 	container.Register("dnsHelper", mockDnsHelper)

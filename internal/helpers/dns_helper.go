@@ -41,11 +41,11 @@ func (h *DNSHelper) PostEnvExec() error {
 // GetComposeConfig returns the compose configuration
 func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name
-	contextInstance, err := h.DIContainer.Resolve("contextInstance")
+	contextHandler, err := h.DIContainer.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
-	contextName, err := contextInstance.(context.ContextInterface).GetContext()
+	contextName, err := contextHandler.(context.ContextInterface).GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context name: %w", err)
 	}
@@ -118,7 +118,7 @@ func (h *DNSHelper) WriteConfig() error {
 	}
 
 	// Retrieve the configuration directory for the current context
-	resolvedContext, err := h.DIContainer.Resolve("contextInstance")
+	resolvedContext, err := h.DIContainer.Resolve("contextHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving context: %w", err)
 	}

@@ -23,7 +23,7 @@ func TestKubeHelper_Initialize(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of KubeHelper
 		kubeHelper, err := NewKubeHelper(diContainer)
@@ -86,7 +86,7 @@ func TestKubeHelper_GetEnvVars(t *testing.T) {
 
 		// And a DI container with the mock context is created
 		diContainer := di.NewContainer()
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating KubeHelper
 		kubeHelper, err := NewKubeHelper(diContainer)
@@ -123,7 +123,7 @@ func TestKubeHelper_GetEnvVars(t *testing.T) {
 
 		// And a DI container with the mock context is created
 		diContainer := di.NewContainer()
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating KubeHelper
 		kubeHelper, err := NewKubeHelper(diContainer)
@@ -156,7 +156,7 @@ func TestKubeHelper_GetEnvVars(t *testing.T) {
 
 		// And a DI container with the mock context is created
 		diContainer := di.NewContainer()
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating KubeHelper
 		kubeHelper, err := NewKubeHelper(diContainer)
@@ -185,7 +185,7 @@ func TestKubeHelper_PostEnvExec(t *testing.T) {
 
 		// And a DI container with the mock context is created
 		diContainer := di.NewContainer()
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating KubeHelper
 		kubeHelper, err := NewKubeHelper(diContainer)
@@ -206,7 +206,7 @@ func TestKubeHelper_GetContainerConfig(t *testing.T) {
 		// Given a mock context
 		mockContext := context.NewMockContext()
 		container := di.NewContainer()
-		container.Register("contextInstance", mockContext)
+		container.Register("contextHandler", mockContext)
 
 		// When creating KubeHelper
 		kubeHelper, err := NewKubeHelper(container)
@@ -242,7 +242,7 @@ func TestKubeHelper_WriteConfig(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of AwsHelper
 		kubeHelper, err := NewKubeHelper(diContainer)
@@ -270,7 +270,7 @@ func TestKubeHelper_Up(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of KubeHelper
 		kubeHelper, err := NewKubeHelper(diContainer)
@@ -294,7 +294,7 @@ func TestKubeHelper_Info(t *testing.T) {
 		mockContext := context.NewMockContext()
 		mockShell := shell.NewMockShell()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 		diContainer.Register("shell", mockShell)
 
 		// Create an instance of KubeHelper

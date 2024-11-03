@@ -31,7 +31,7 @@ func NewTerraformHelper(container *di.DIContainer) (*TerraformHelper, error) {
 		return nil, fmt.Errorf("resolved cliConfigHandler is not of type ConfigHandler")
 	}
 
-	resolvedContext, err := container.Resolve("contextInstance")
+	resolvedContext, err := container.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}

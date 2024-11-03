@@ -54,7 +54,7 @@ func createAwsHelperMocks(mockContainer ...di.ContainerInterface) *AwsHelperMock
 
 	// Register mocks in the DI container
 	container.Register("cliConfigHandler", mockCLIConfigHandler)
-	container.Register("contextInstance", mockContext)
+	container.Register("contextHandler", mockContext)
 	container.Register("shell", mockShell)
 
 	return &AwsHelperMocks{

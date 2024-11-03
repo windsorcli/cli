@@ -16,13 +16,13 @@ func TestInitCmd(t *testing.T) {
 	originalArgs := rootCmd.Args
 	originalExitFunc := exitFunc
 	originalTerraformHelper := terraformHelper
-	originalContextInstance := contextInstance
+	originalContextInstance := contextHandler
 
 	t.Cleanup(func() {
 		rootCmd.Args = originalArgs
 		exitFunc = originalExitFunc
 		terraformHelper = originalTerraformHelper
-		contextInstance = originalContextInstance
+		contextHandler = originalContextInstance
 	})
 
 	// Mock the exit function to prevent the test from exiting
@@ -194,9 +194,9 @@ func TestInitCmd(t *testing.T) {
 		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save cli config error") }
 		Initialize(mocks.Container)
 
-		// Replace the global contextInstance with the mock
-		originalContextInstance := contextInstance
-		defer func() { contextInstance = originalContextInstance }()
+		// Replace the global contextHandler with the mock
+		originalContextInstance := contextHandler
+		defer func() { contextHandler = originalContextInstance }()
 
 		// When: the init command is executed
 		output := captureStderr(func() {

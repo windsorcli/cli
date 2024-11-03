@@ -28,8 +28,8 @@ func TestContext_Get(t *testing.T) {
 			rootCmd.SetArgs([]string{"context", "get"})
 			err := rootCmd.Execute()
 			if err != nil {
-				if strings.Contains(err.Error(), "no instance registered with name contextInstance") {
-					t.Fatalf("Error resolving contextInstance: %v", err)
+				if strings.Contains(err.Error(), "no instance registered with name contextHandler") {
+					t.Fatalf("Error resolving contextHandler: %v", err)
 				} else {
 					t.Fatalf("Execute() error = %v", err)
 				}

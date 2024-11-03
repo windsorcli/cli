@@ -110,7 +110,7 @@ func setupTestEnv(t *testing.T, backend string, tfvarsFiles map[string]string) (
 	// Set up DI container
 	diContainer := di.NewContainer()
 	diContainer.Register("cliConfigHandler", mockConfigHandler)
-	diContainer.Register("contextInstance", mockContext)
+	diContainer.Register("contextHandler", mockContext)
 
 	terraformHelper, err := NewTerraformHelper(diContainer)
 	if err != nil {
@@ -129,7 +129,7 @@ func TestTerraformHelper_Initialize(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -186,7 +186,7 @@ func TestTerraformHelper_NewTerraformHelper(t *testing.T) {
 
 		// And a valid context
 		mockContext := context.NewMockContext()
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating a new TerraformHelper
 		_, err := NewTerraformHelper(diContainer)
@@ -204,7 +204,7 @@ func TestTerraformHelper_NewTerraformHelper(t *testing.T) {
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 
 		// And an incorrect type for context
-		diContainer.Register("contextInstance", "not a context interface")
+		diContainer.Register("contextHandler", "not a context interface")
 
 		// When creating a new TerraformHelper
 		_, err := NewTerraformHelper(diContainer)
@@ -273,7 +273,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		}
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 		helper, err := NewTerraformHelper(diContainer)
 		if err != nil {
 			t.Fatalf("Failed to create TerraformHelper: %v", err)
@@ -335,7 +335,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		}
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 		helper, err := NewTerraformHelper(diContainer)
 		if err != nil {
 			t.Fatalf("Failed to create TerraformHelper: %v", err)
@@ -394,7 +394,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		}
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 		helper, err := NewTerraformHelper(diContainer)
 		if err != nil {
 			t.Fatalf("Failed to create TerraformHelper: %v", err)
@@ -454,7 +454,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating a new TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -517,7 +517,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating a new TerraformHelper
 		helper, err := NewTerraformHelper(diContainer)
@@ -578,7 +578,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating a new TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -626,7 +626,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating a new TerraformHelper
 		helper, err := NewTerraformHelper(diContainer)
@@ -675,7 +675,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating a new TerraformHelper
 		helper, err := NewTerraformHelper(diContainer)
@@ -771,7 +771,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -839,7 +839,7 @@ func TestTerraformHelper_GetEnvVars(t *testing.T) {
 		}
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 		terraformHelper, err = NewTerraformHelper(diContainer)
 		if err != nil {
 			t.Fatalf("Failed to create TerraformHelper: %v", err)
@@ -894,7 +894,7 @@ func TestTerraformHelper_GetAlias(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating a new TerraformHelper
 		helper, err := NewTerraformHelper(diContainer)
@@ -931,7 +931,7 @@ func TestTerraformHelper_GetAlias(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating a new TerraformHelper
 		helper, err := NewTerraformHelper(diContainer)
@@ -968,7 +968,7 @@ func TestTerraformHelper_GetAlias(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating a new TerraformHelper
 		helper, err := NewTerraformHelper(diContainer)
@@ -1009,7 +1009,7 @@ func TestTerraformHelper_GetAlias(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// When creating a new TerraformHelper
 		helper, err := NewTerraformHelper(diContainer)
@@ -1080,7 +1080,7 @@ func TestTerraformHelper_PostEnvExec(t *testing.T) {
 		// Set up DI container
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -1132,7 +1132,7 @@ terraform {
 		// Set up DI container
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -1178,7 +1178,7 @@ terraform {
 		// Set up DI container
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -1229,7 +1229,7 @@ terraform {
 		// Set up DI container
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -1285,7 +1285,7 @@ terraform {
 		// Set up DI container
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -1341,7 +1341,7 @@ terraform {
 		// Set up DI container
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -1384,7 +1384,7 @@ terraform {
 		// Set up DI container
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 		terraformHelper, err := NewTerraformHelper(diContainer)
 		if err != nil {
 			t.Fatalf("Failed to create TerraformHelper: %v", err)
@@ -1461,7 +1461,7 @@ terraform {
 		// Set up DI container
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		terraformHelper, err = NewTerraformHelper(diContainer)
 		if err != nil {
@@ -1539,7 +1539,7 @@ terraform {
 		// Set up DI container
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		terraformHelper, err = NewTerraformHelper(diContainer)
 		if err != nil {
@@ -1615,7 +1615,7 @@ terraform {
 		// Set up DI container
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		terraformHelper, err := NewTerraformHelper(diContainer)
 		if err != nil {
@@ -1677,7 +1677,7 @@ terraform {
 		// Set up DI container
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		terraformHelper, err := NewTerraformHelper(diContainer)
 		if err != nil {
@@ -1711,7 +1711,7 @@ func TestTerraformHelper_GetComposeConfig(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 
 		container := di.NewContainer()
-		container.Register("contextInstance", mockContext)
+		container.Register("contextHandler", mockContext)
 		container.Register("cliConfigHandler", mockConfigHandler)
 
 		// Create TerraformHelper
@@ -1748,7 +1748,7 @@ func TestTerraformHelper_WriteConfig(t *testing.T) {
 		// Create DI container and register mocks
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -1819,7 +1819,7 @@ func TestTerraformHelper_generateBackendOverrideTf(t *testing.T) {
 		// And a DI container with the mock context and config handler registered
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create a temporary directory to simulate the Terraform project path
 		tempDir := t.TempDir()
@@ -1868,7 +1868,7 @@ func TestTerraformHelper_generateBackendOverrideTf(t *testing.T) {
 		// And a DI container with the mock context and config handler registered
 		diContainer := di.NewContainer()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create a temporary directory to simulate the Terraform project path
 		tempDir := t.TempDir()
@@ -1909,7 +1909,7 @@ func TestTerraformHelper_Up(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)
@@ -1932,7 +1932,7 @@ func TestTerraformHelper_Info(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("contextHandler", mockContext)
 
 		// Create an instance of TerraformHelper
 		terraformHelper, err := NewTerraformHelper(diContainer)

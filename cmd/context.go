@@ -12,7 +12,7 @@ var getContextCmd = &cobra.Command{
 	Short: "Get the current context",
 	Long:  "Retrieve and display the current context from the configuration",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		context, err := contextInstance.GetContext()
+		context, err := contextHandler.GetContext()
 		if err != nil {
 			return fmt.Errorf("Error getting context: %w", err)
 		}
@@ -29,7 +29,7 @@ var setContextCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
 	RunE: func(cmd *cobra.Command, args []string) error {
 		contextName := args[0]
-		if err := contextInstance.SetContext(contextName); err != nil {
+		if err := contextHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("Error setting context: %w", err)
 		}
 		fmt.Println("Context set to:", contextName)

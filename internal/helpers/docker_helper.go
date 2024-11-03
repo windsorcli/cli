@@ -41,7 +41,7 @@ func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
 		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
-	resolvedContext, err := di.Resolve("contextInstance")
+	resolvedContext, err := di.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}

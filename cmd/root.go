@@ -46,7 +46,7 @@ var awsHelper helpers.Helper
 var dockerHelper helpers.Helper
 
 // context instance
-var contextInstance context.ContextInterface
+var contextHandler context.ContextInterface
 
 // sshClient instance
 var sshClient ssh.Client
@@ -214,7 +214,7 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("terraformHelper", &terraformHelper)
 	resolveAndAssign("awsHelper", &awsHelper)
 	resolveAndAssign("dockerHelper", &dockerHelper)
-	resolveAndAssign("contextInstance", &contextInstance)
+	resolveAndAssign("contextHandler", &contextHandler)
 	resolveAndAssign("sshClient", &sshClient)
 	resolveAndAssign("colimaVM", &colimaVM)
 }
