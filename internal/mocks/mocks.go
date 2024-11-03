@@ -7,6 +7,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
+	"github.com/windsor-hotel/cli/internal/vm" // Added import for mock_vm.go
 )
 
 // SuperMocks holds all the mock instances needed for testing commands.
@@ -26,6 +27,7 @@ type SuperMocks struct {
 	SSHClient        *ssh.MockClient
 	SecureShell      *shell.MockShell
 	Container        di.ContainerInterface
+	ColimaVM         *vm.MockVM
 }
 
 // CreateSuperMocks initializes all necessary mocks and returns them in a SuperMocks struct.
@@ -65,13 +67,13 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	mockTerraformHelper := helpers.NewMockHelper()
 	mockSecureShell := shell.NewMockShell(container)
 	mockSSHClient := &ssh.MockClient{}
+	colimaVM := vm.NewMockVM()
 
 	// Create and setup the dependency injection container
 	container.Register("cliConfigHandler", mockCLIConfigHandler)
 	container.Register("contextInstance", mockContext)
 	container.Register("shell", mockShell)
 	container.Register("awsHelper", mockAwsHelper)
-	container.Register("colimaHelper", mockColimaHelper)
 	container.Register("dnsHelper", mockDnsHelper)
 	container.Register("dockerHelper", mockDockerHelper)
 	container.Register("gitHelper", mockGitHelper)
@@ -81,6 +83,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	container.Register("terraformHelper", mockTerraformHelper)
 	container.Register("sshClient", mockSSHClient)
 	container.Register("secureShell", mockSecureShell)
+	container.Register("colimaVM", colimaVM)
 
 	return SuperMocks{
 		CLIConfigHandler: mockCLIConfigHandler,
@@ -98,5 +101,6 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 		SSHClient:        mockSSHClient,
 		SecureShell:      mockSecureShell,
 		Container:        container,
+		ColimaVM:         colimaVM,
 	}
 }

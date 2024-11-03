@@ -14,6 +14,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
+	"github.com/windsor-hotel/cli/internal/vm"
 )
 
 var (
@@ -41,9 +42,6 @@ var terraformHelper helpers.Helper
 // awsHelper instance
 var awsHelper helpers.Helper
 
-// colimaHelper instance
-var colimaHelper helpers.Helper
-
 // dockerHelper instance
 var dockerHelper helpers.Helper
 
@@ -59,6 +57,9 @@ var execCommand = exec.Command
 // NetworkInterfaceIP is the IP address of the network interface
 var netInterfaces = net.Interfaces
 
+// colimaVM instance
+var colimaVM vm.VMInterface
+
 func ptrBool(b bool) *bool {
 	return &b
 }
@@ -66,6 +67,10 @@ func ptrBool(b bool) *bool {
 // Helper functions to create pointers for basic types
 func ptrString(s string) *string {
 	return &s
+}
+
+func ptrInt(i int) *int {
+	return &i
 }
 
 // getCLIConfigPath returns the path to the CLI configuration file
@@ -193,6 +198,13 @@ func Initialize(cont di.ContainerInterface) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type ssh.Client\n", key)
 				exitFunc(1)
 			}
+		case *vm.VMInterface: // Added case for vm.VMInterface
+			if resolved, ok := instance.(vm.VMInterface); ok {
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type vm.VMInterface\n", key)
+				exitFunc(1)
+			}
 		}
 	}
 
@@ -201,8 +213,8 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("secureShell", &secureShellInstance)
 	resolveAndAssign("terraformHelper", &terraformHelper)
 	resolveAndAssign("awsHelper", &awsHelper)
-	resolveAndAssign("colimaHelper", &colimaHelper)
 	resolveAndAssign("dockerHelper", &dockerHelper)
 	resolveAndAssign("contextInstance", &contextInstance)
 	resolveAndAssign("sshClient", &sshClient)
+	resolveAndAssign("colimaVM", &colimaVM)
 }

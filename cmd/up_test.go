@@ -9,6 +9,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/mocks"
+	"github.com/windsor-hotel/cli/internal/vm"
 )
 
 func TestUpCmd(t *testing.T) {
@@ -31,6 +32,9 @@ func TestUpCmd(t *testing.T) {
 				},
 				VM: &config.VMConfig{
 					Driver: ptrString("colima"),
+					CPU:    ptrInt(2),
+					Memory: ptrInt(4),
+					Disk:   ptrInt(10),
 				},
 			}, nil
 		}
@@ -45,17 +49,17 @@ func TestUpCmd(t *testing.T) {
 				},
 			}, nil
 		}
-		mocks.ColimaHelper.UpFunc = func() error {
+		mocks.ColimaVM.UpFunc = func(verbose ...bool) error {
 			return nil
 		}
-		mocks.ColimaHelper.InfoFunc = func() (interface{}, error) {
-			return &helpers.ColimaInfo{
+		mocks.ColimaVM.InfoFunc = func() (interface{}, error) {
+			return &vm.VMInfo{
 				Address: "192.168.5.2",
 				Arch:    "x86_64",
-				CPUs:    4,
-				Disk:    20.0,
-				Memory:  8.0,
-				Name:    "colima",
+				CPUs:    2,
+				Disk:    10.0,
+				Memory:  4.0,
+				Name:    "mock-vm",
 				Runtime: "docker",
 				Status:  "Running",
 			}, nil
@@ -70,9 +74,6 @@ func TestUpCmd(t *testing.T) {
 			return "Executed: " + command, nil
 		}
 		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
-			if command == "colima" && args[0] == "ssh-config" {
-				return "mock-ssh-config-output", nil
-			}
 			if command == "sudo" && args[0] == "route" {
 				return "mock-route-output", nil
 			}
@@ -214,78 +215,6 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRunningColimaHelperUp", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a config handler that returns a valid context config
-		mocks := successConfig()
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				VM: &config.VMConfig{
-					Driver: ptrString("colima"),
-				},
-			}, nil
-		}
-
-		// And a ColimaHelper that returns an error when running Up
-		mocks.ColimaHelper.UpFunc = func() error {
-			return fmt.Errorf("mock error running ColimaHelper Up")
-		}
-		Initialize(mocks.Container)
-
-		// When the up command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"up", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error running ColimaHelper Up command: mock error running ColimaHelper Up"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorGettingColimaInfo", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a config handler that returns a valid context config
-		mocks := successConfig()
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				VM: &config.VMConfig{
-					Driver: ptrString("colima"),
-				},
-			}, nil
-		}
-
-		// And a ColimaHelper that returns an error when getting Info
-		mocks.ColimaHelper.InfoFunc = func() (interface{}, error) {
-			return nil, fmt.Errorf("mock error retrieving Colima info")
-		}
-		Initialize(mocks.Container)
-
-		// When the up command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"up", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error retrieving Colima info: mock error retrieving Colima info"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
 	t.Run("ErrorRunningDockerHelperUp", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
@@ -353,36 +282,6 @@ func TestUpCmd(t *testing.T) {
 
 		// Then the output should indicate the error
 		expectedOutput := "Error retrieving Docker info: mock error retrieving Docker info"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorGettingSSHConfig", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a valid config handler, shell, and helpers
-		mocks := successConfig()
-		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
-			if command == "colima" && args[0] == "ssh-config" {
-				return "", fmt.Errorf("mock error executing Colima SSH config command")
-			}
-			return "Executed: " + command, nil
-		}
-		Initialize(mocks.Container)
-
-		// When the up command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"up", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error executing Colima SSH config command: mock error executing Colima SSH config command"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
@@ -475,42 +374,6 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorParsingColimaHostIP", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a valid config handler, shell, and helpers
-		mocks := successConfig()
-		mocks.ColimaHelper.InfoFunc = func() (interface{}, error) {
-			return &helpers.ColimaInfo{
-				Address: "invalid-ip", // Invalid IP address
-				Arch:    "x86_64",
-				CPUs:    4,
-				Disk:    20.0,
-				Memory:  8.0,
-				Name:    "colima",
-				Runtime: "docker",
-				Status:  "Running",
-			}, nil
-		}
-		Initialize(mocks.Container)
-
-		// When the up command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"up", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error parsing Colima host IP: invalid-ip"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
 	t.Run("ErrorGettingNetworkInterfaceIP", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
@@ -569,9 +432,6 @@ func TestUpCmd(t *testing.T) {
 			return "Executed: " + command, nil
 		}
 		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
-			if command == "colima" && args[0] == "ssh-config" {
-				return "mock-ssh-config-output", nil
-			}
 			if command == "sudo" && args[0] == "route" {
 				return "mock-route-output", nil
 			}

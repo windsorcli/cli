@@ -1083,7 +1083,9 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 		}
 
 		// Create DI container and register mocks
-		diContainer := createDIContainer(mockContext, mockConfigHandler)
+		diContainer := di.NewContainer()
+		diContainer.Register("contextInstance", mockContext)
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("mockHelper", mockHelper)
 
 		// Register MockShell

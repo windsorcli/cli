@@ -2,10 +2,8 @@ package helpers
 
 import (
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/goccy/go-yaml"
@@ -36,11 +34,6 @@ type Helper interface {
 	Info() (interface{}, error)
 }
 
-type YAMLEncoder interface {
-	Encode(v interface{}) error
-	Close() error
-}
-
 // Define a variable for os.Getwd() for easier testing
 var getwd = os.Getwd
 
@@ -58,16 +51,6 @@ var mkdir = os.Mkdir
 
 // Override variable for os.MkdirAll
 var mkdirAll = os.MkdirAll
-
-// Override variable for yaml.NewEncoder
-var newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
-	return yaml.NewEncoder(w, opts...)
-}
-
-// goArch is a wrapper function around runtime.GOARCH
-var goArch = func() string {
-	return runtime.GOARCH
-}
 
 // Wrapper function for os.Rename
 var rename = os.Rename
