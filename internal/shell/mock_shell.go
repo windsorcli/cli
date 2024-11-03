@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 
@@ -47,7 +46,7 @@ func (m *MockShell) GetProjectRoot() (string, error) {
 	if m.GetProjectRootFunc != nil {
 		return m.GetProjectRootFunc()
 	}
-	return "", errors.New("GetProjectRootFunc not implemented")
+	return "", fmt.Errorf("GetProjectRootFunc not implemented")
 }
 
 // Exec executes a command with optional privilege elevation
@@ -55,7 +54,7 @@ func (m *MockShell) Exec(verbose bool, message string, command string, args ...s
 	if m.ExecFunc != nil {
 		return m.ExecFunc(verbose, message, command, args...)
 	}
-	return "", errors.New("ExecFunc not implemented")
+	return "", fmt.Errorf("ExecFunc not implemented")
 }
 
 // Ensure MockShell implements the Shell interface
