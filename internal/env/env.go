@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/goccy/go-yaml"
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
@@ -36,6 +37,9 @@ var glob = filepath.Glob
 
 // Wrapper function for os.WriteFile
 var writeFile = os.WriteFile
+
+// Wrapper function for yaml.Unmarshal
+var yamlUnmarshal = yaml.Unmarshal
 
 // stringPtr returns a pointer to a string value
 func stringPtr(s string) *string {

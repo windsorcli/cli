@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/getsops/sops/v3/decrypt"
-	"github.com/goccy/go-yaml"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
@@ -105,7 +104,7 @@ func decryptFile(filePath string) ([]byte, error) {
 func yamlToEnvVars(yamlData []byte) (map[string]string, error) {
 	// Parse the decrypted YAML content into a map
 	var sopsSecrets map[string]interface{}
-	if err := yaml.Unmarshal(yamlData, &sopsSecrets); err != nil {
+	if err := yamlUnmarshal(yamlData, &sopsSecrets); err != nil {
 		return nil, err
 	}
 

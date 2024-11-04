@@ -124,30 +124,305 @@ func TestSopsEnv_Print(t *testing.T) {
 	})
 
 	t.Run("ErrorCastingContextHandler", func(t *testing.T) {
-		// Test error when casting contextHandler to context.ContextInterface
+		// Given a mock container with an invalid type for contextHandler
+		mockContainer := di.NewMockContainer()
+		setupSopsEnvMocks(mockContainer)
+		mockContainer.Register("contextHandler", "invalidType")
+
+		// When creating SopsEnv
+		sopsEnv := NewSopsEnv(mockContainer)
+
+		// Capture stdout output
+		output := captureStdout(t, func() {
+			// And calling Print
+			envVars := map[string]string{}
+			err := sopsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
+		})
+
+		// Then it should print an error message indicating contextHandler casting failure
+		expectedError := "failed to cast contextHandler to context.ContextInterface"
+		if !strings.Contains(output, expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		}
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Test error when resolving shell
+		// Given a mock container with a resolve error for shell
+		mockContainer := di.NewMockContainer()
+		setupSopsEnvMocks(mockContainer)
+		mockContainer.SetResolveError("shell", fmt.Errorf("mock error resolving shell"))
+
+		// When creating SopsEnv
+		sopsEnv := NewSopsEnv(mockContainer)
+
+		// Capture stdout output
+		output := captureStdout(t, func() {
+			// And calling Print
+			envVars := map[string]string{}
+			err := sopsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
+		})
+
+		// Then it should print an error message indicating shell resolution failure
+		expectedError := "error resolving shell: mock error resolving shell"
+		if !strings.Contains(output, expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		}
 	})
 
 	t.Run("ErrorCastingShell", func(t *testing.T) {
-		// Test error when casting shell to shell.Shell
+		// Given a mock container with an invalid shell type
+		mockContainer := di.NewMockContainer()
+		setupSopsEnvMocks(mockContainer)
+		mockContainer.Register("shell", "invalidType")
+
+		// When creating SopsEnv
+		sopsEnv := NewSopsEnv(mockContainer)
+
+		// Capture stdout output
+		output := captureStdout(t, func() {
+			// And calling Print
+			envVars := map[string]string{}
+			err := sopsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
+		})
+
+		// Then it should print an error message indicating shell casting failure
+		expectedError := "failed to cast shell to shell.Shell"
+		if !strings.Contains(output, expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		}
 	})
 
 	t.Run("ErrorRetrievingConfigRoot", func(t *testing.T) {
-		// Test error when retrieving configuration root directory
+		// Given a mock container with a context handler that returns an error for GetConfigRoot
+		mockContainer := di.NewMockContainer()
+		mocks := setupSopsEnvMocks(mockContainer)
+		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving config root")
+		}
+
+		// When creating SopsEnv
+		sopsEnv := NewSopsEnv(mockContainer)
+
+		// Capture stdout output
+		output := captureStdout(t, func() {
+			// And calling Print
+			envVars := map[string]string{}
+			err := sopsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
+		})
+
+		// Then it should print an error message indicating config root retrieval failure
+		expectedError := "error retrieving configuration root directory: mock error retrieving config root"
+		if !strings.Contains(output, expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		}
 	})
 
 	t.Run("SopsFileDoesNotExist", func(t *testing.T) {
-		// Test scenario where SOPS encrypted secrets file does not exist
+		// Given a mock container with a valid context handler
+		mockContainer := di.NewMockContainer()
+		mocks := setupSopsEnvMocks(mockContainer)
+		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+			return "/mock/config/root", nil
+		}
+
+		// And a mocked stat function simulating the file does not exist
+		originalStat := stat
+		defer func() { stat = originalStat }()
+		stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// When creating SopsEnv
+		sopsEnv := NewSopsEnv(mockContainer)
+
+		// Capture stdout output
+		output := captureStdout(t, func() {
+			// And calling Print
+			envVars := map[string]string{}
+			err := sopsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
+		})
+
+		// Then it should print an error message indicating the SOPS file does not exist
+		expectedError := "SOPS encrypted secrets file does not exist"
+		if !strings.Contains(output, expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		}
 	})
 
 	t.Run("ErrorDecryptingSopsFile", func(t *testing.T) {
-		// Test error when decrypting SOPS file
+		// Given a mock container with a valid context handler
+		mockContainer := di.NewMockContainer()
+		mocks := setupSopsEnvMocks(mockContainer)
+		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+			return "/mock/config/root", nil
+		}
+
+		// And a mocked stat function simulating the file exists
+		originalStat := stat
+		defer func() { stat = originalStat }()
+		stat = func(name string) (os.FileInfo, error) {
+			return nil, nil
+		}
+
+		// And a mocked decryptFileFunc function returning an error
+		originalDecryptFile := decryptFileFunc
+		defer func() { decryptFileFunc = originalDecryptFile }()
+		decryptFileFunc = func(filePath string, format string) ([]byte, error) {
+			return nil, fmt.Errorf("failed to decrypt file: mock error decrypting file")
+		}
+
+		// When creating SopsEnv
+		sopsEnv := NewSopsEnv(mockContainer)
+
+		// Capture stdout output
+		output := captureStdout(t, func() {
+			// And calling Print
+			envVars := map[string]string{}
+			err := sopsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
+		})
+
+		// Then it should print an error message indicating the decryption failure
+		expectedError := "mock error decrypting file"
+		if !strings.Contains(output, expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		}
 	})
 
 	t.Run("ErrorConvertingYamlToEnvVars", func(t *testing.T) {
-		// Test error when converting YAML to environment variables
+		// Given a mock container with a valid context handler
+		mockContainer := di.NewMockContainer()
+		mocks := setupSopsEnvMocks(mockContainer)
+		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+			return "/mock/config/root", nil
+		}
+
+		// And a mocked stat function simulating the file exists
+		originalStat := stat
+		defer func() { stat = originalStat }()
+		stat = func(name string) (os.FileInfo, error) {
+			return nil, nil
+		}
+
+		// And a mocked decryptFileFunc function returning valid data
+		originalDecryptFile := decryptFileFunc
+		defer func() { decryptFileFunc = originalDecryptFile }()
+		decryptFileFunc = func(filePath string, format string) ([]byte, error) {
+			return []byte("valid: yaml"), nil
+		}
+
+		// And a mocked yamlUnmarshal function returning an error
+		originalYamlUnmarshal := yamlUnmarshal
+		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
+		yamlUnmarshal = func(data []byte, v interface{}) error {
+			return fmt.Errorf("mock error converting YAML to env vars")
+		}
+
+		// When creating SopsEnv
+		sopsEnv := NewSopsEnv(mockContainer)
+
+		// Capture stdout output
+		output := captureStdout(t, func() {
+			// And calling Print
+			envVars := map[string]string{}
+			err := sopsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
+		})
+
+		// Then it should print an error message indicating the conversion failure
+		expectedError := "mock error converting YAML to env vars"
+		if !strings.Contains(output, expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		}
+	})
+}
+
+func TestSopsEnv_decryptFile(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mocked decryptFileFunc returning valid data
+		originalDecryptFileFunc := decryptFileFunc
+		defer func() { decryptFileFunc = originalDecryptFileFunc }()
+		decryptFileFunc = func(filePath string, format string) ([]byte, error) {
+			return []byte("decrypted content"), nil
+		}
+
+		// And a mocked stat function simulating the file exists
+		originalStat := stat
+		defer func() { stat = originalStat }()
+		stat = func(name string) (os.FileInfo, error) {
+			return nil, nil
+		}
+
+		// When decryptFile is called
+		result, err := decryptFile("/mock/path/to/file")
+
+		// Then it should return the decrypted content without error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		expectedContent := "decrypted content"
+		if string(result) != expectedContent {
+			t.Errorf("expected %q, got %q", expectedContent, string(result))
+		}
+	})
+
+	t.Run("FileDoesNotExist", func(t *testing.T) {
+		// Given a mocked stat function simulating the file does not exist
+		originalStat := stat
+		defer func() { stat = originalStat }()
+		stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// When decryptFile is called
+		_, err := decryptFile("/mock/path/to/nonexistent/file")
+
+		// Then it should return an error indicating the file does not exist
+		if err == nil || !strings.Contains(err.Error(), "file does not exist") {
+			t.Fatalf("expected file does not exist error, got %v", err)
+		}
+	})
+
+	t.Run("DecryptError", func(t *testing.T) {
+		// Given a mocked decryptFileFunc returning an error
+		originalDecryptFileFunc := decryptFileFunc
+		defer func() { decryptFileFunc = originalDecryptFileFunc }()
+		decryptFileFunc = func(filePath string, format string) ([]byte, error) {
+			return nil, fmt.Errorf("mock decryption error")
+		}
+
+		// And a mocked stat function simulating the file exists
+		originalStat := stat
+		defer func() { stat = originalStat }()
+		stat = func(name string) (os.FileInfo, error) {
+			return nil, nil
+		}
+
+		// When decryptFile is called
+		_, err := decryptFile("/mock/path/to/file")
+
+		// Then it should return the decryption error
+		if err == nil || !strings.Contains(err.Error(), "mock decryption error") {
+			t.Fatalf("expected mock decryption error, got %v", err)
+		}
 	})
 }
