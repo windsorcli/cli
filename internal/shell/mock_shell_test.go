@@ -2,6 +2,7 @@ package shell
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/di"
@@ -46,7 +47,6 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 		"VAR1": "value1",
 		"VAR2": "value2",
 	}
-	wantOutput := "VAR1=value1\nVAR2=value2\n"
 
 	t.Run("DefaultPrintEnvVars", func(t *testing.T) {
 		// Given a mock shell with default PrintEnvVars implementation
@@ -55,27 +55,73 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 		output := captureStdout(t, func() {
 			mockShell.PrintEnvVars(envVars)
 		})
-		// Then the output should match the expected output
-		if output != wantOutput {
-			t.Errorf("PrintEnvVars() output = %v, want %v", output, wantOutput)
+		// Then the output should be empty as the default implementation does nothing
+		if output != "" {
+			t.Errorf("PrintEnvVars() output = %v, want %v", output, "")
 		}
 	})
 
 	t.Run("CustomPrintEnvVars", func(t *testing.T) {
 		// Given a mock shell with custom PrintEnvVars implementation
 		mockShell := NewMockShell()
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
 			for key, value := range envVars {
 				fmt.Printf("%s=%s\n", key, value)
 			}
+			return nil
 		}
 		// When calling PrintEnvVars
 		output := captureStdout(t, func() {
 			mockShell.PrintEnvVars(envVars)
 		})
-		// Then the output should match the expected output
-		if output != wantOutput {
-			t.Errorf("PrintEnvVars() output = %v, want %v", output, wantOutput)
+		// Then the output should contain all expected environment variables
+		for key, value := range envVars {
+			expectedLine := fmt.Sprintf("%s=%s\n", key, value)
+			if !strings.Contains(output, expectedLine) {
+				t.Errorf("PrintEnvVars() output missing expected line: %v", expectedLine)
+			}
+		}
+	})
+}
+
+func TestMockShell_PrintAlias(t *testing.T) {
+	aliasVars := map[string]string{
+		"ALIAS1": "command1",
+		"ALIAS2": "command2",
+	}
+
+	t.Run("DefaultPrintAlias", func(t *testing.T) {
+		// Given a mock shell with default PrintAlias implementation
+		mockShell := NewMockShell()
+		// When calling PrintAlias
+		output := captureStdout(t, func() {
+			mockShell.PrintAlias(aliasVars)
+		})
+		// Then the output should be empty as the default implementation does nothing
+		if output != "" {
+			t.Errorf("PrintAlias() output = %v, want %v", output, "")
+		}
+	})
+
+	t.Run("CustomPrintAlias", func(t *testing.T) {
+		// Given a mock shell with custom PrintAlias implementation
+		mockShell := NewMockShell()
+		mockShell.PrintAliasFunc = func(aliasVars map[string]string) error {
+			for key, value := range aliasVars {
+				fmt.Printf("%s=%s\n", key, value)
+			}
+			return nil
+		}
+		// When calling PrintAlias
+		output := captureStdout(t, func() {
+			mockShell.PrintAlias(aliasVars)
+		})
+		// Then the output should contain all expected alias variables
+		for key, value := range aliasVars {
+			expectedLine := fmt.Sprintf("%s=%s\n", key, value)
+			if !strings.Contains(output, expectedLine) {
+				t.Errorf("PrintAlias() output missing expected line: %v", expectedLine)
+			}
 		}
 	})
 }
@@ -118,9 +164,9 @@ func TestMockShell_GetProjectRoot(t *testing.T) {
 		mockShell := NewMockShell()
 		// When calling GetProjectRoot
 		got, err := mockShell.GetProjectRoot()
-		// Then an error should be returned
-		if err == nil {
-			t.Errorf("Expected an error but got none")
+		// Then no error should be returned and the result should be empty
+		if err != nil {
+			t.Errorf("GetProjectRoot() error = %v, want nil", err)
 		}
 		if got != "" {
 			t.Errorf("GetProjectRoot() got = %v, want %v", got, "")
@@ -170,9 +216,9 @@ func TestMockShell_Exec(t *testing.T) {
 		mockShell := NewMockShell()
 		// When calling Exec
 		output, err := mockShell.Exec(false, "Executing command", "somecommand", "arg1", "arg2")
-		// Then an error should be returned indicating ExecFn is not implemented
-		if err == nil {
-			t.Errorf("Expected an error but got none")
+		// Then no error should be returned and the result should be empty
+		if err != nil {
+			t.Errorf("Exec() error = %v, want nil", err)
 		}
 		if output != "" {
 			t.Errorf("Exec() output = %v, want %v", output, "")

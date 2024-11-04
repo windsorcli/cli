@@ -52,8 +52,9 @@ func TestWindsorEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeWindsorEnvMocks()
 
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
 			t.Log("PrintEnvVarsFunc called successfully with envVars:", envVars)
+			return nil
 		}
 
 		originalStat := stat

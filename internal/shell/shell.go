@@ -38,7 +38,9 @@ var cmdStart = func(cmd *exec.Cmd) error {
 // Shell interface defines methods for shell operations
 type Shell interface {
 	// PrintEnvVars prints the provided environment variables
-	PrintEnvVars(envVars map[string]string)
+	PrintEnvVars(envVars map[string]string) error
+	// PrintAlias retrieves the shell alias
+	PrintAlias(envVars map[string]string) error
 	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
 	// Exec executes a command with optional privilege elevation

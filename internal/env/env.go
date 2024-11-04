@@ -2,12 +2,10 @@ package env
 
 import (
 	"os"
+	"path/filepath"
 
 	"github.com/windsor-hotel/cli/internal/di"
 )
-
-// stat is a variable that holds the os.Stat function for mocking
-var stat = os.Stat
 
 // EnvInterface defines the methods for environment-specific utility functions
 type EnvInterface interface {
@@ -25,4 +23,21 @@ type Env struct {
 func (e *Env) PostEnvHook() error {
 	// Placeholder
 	return nil
+}
+
+// stat is a variable that holds the os.Stat function for mocking
+var stat = os.Stat
+
+// Define a variable for os.Getwd() for easier testing
+var getwd = os.Getwd
+
+// Define a variable for filepath.Glob for easier testing
+var glob = filepath.Glob
+
+// Wrapper function for os.WriteFile
+var writeFile = os.WriteFile
+
+// boolPtr returns a pointer to a boolean value
+func boolPtr(b bool) *bool {
+	return &b
 }

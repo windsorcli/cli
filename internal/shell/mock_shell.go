@@ -1,15 +1,14 @@
 package shell
 
 import (
-	"fmt"
-	"sort"
-
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // MockShell is a struct that simulates a shell environment for testing purposes.
 type MockShell struct {
-	PrintEnvVarsFunc   func(envVars map[string]string)
+	Shell
+	PrintEnvVarsFunc   func(envVars map[string]string) error
+	PrintAliasFunc     func(envVars map[string]string) error
 	GetProjectRootFunc func() (string, error)
 	ExecFunc           func(verbose bool, message string, command string, args ...string) (string, error)
 	container          di.ContainerInterface
@@ -26,35 +25,36 @@ func NewMockShell(container ...di.ContainerInterface) *MockShell {
 	}
 }
 
-// PrintEnvVars prints the environment variables in a sorted order.
-// If a custom PrintEnvVarsFn is provided, it will use that function instead.
-func (m *MockShell) PrintEnvVars(envVars map[string]string) {
-	keys := make([]string, 0, len(envVars))
-	for k := range envVars {
-		keys = append(keys, k)
+// PrintEnvVars calls the custom PrintEnvVarsFunc if provided.
+func (m *MockShell) PrintEnvVars(envVars map[string]string) error {
+	if m.PrintEnvVarsFunc != nil {
+		return m.PrintEnvVarsFunc(envVars)
 	}
-	sort.Strings(keys)
-
-	for _, k := range keys {
-		fmt.Printf("%s=%s\n", k, envVars[k])
-	}
+	return nil
 }
 
-// GetProjectRoot returns the project root directory.
-// If a custom GetProjectRootFunc is provided, it will use that function instead.
+// PrintAlias calls the custom PrintAliasFunc if provided.
+func (m *MockShell) PrintAlias(envVars map[string]string) error {
+	if m.PrintAliasFunc != nil {
+		return m.PrintAliasFunc(envVars)
+	}
+	return nil
+}
+
+// GetProjectRoot calls the custom GetProjectRootFunc if provided.
 func (m *MockShell) GetProjectRoot() (string, error) {
 	if m.GetProjectRootFunc != nil {
 		return m.GetProjectRootFunc()
 	}
-	return "", fmt.Errorf("GetProjectRootFunc not implemented")
+	return "", nil
 }
 
-// Exec executes a command with optional privilege elevation
+// Exec calls the custom ExecFunc if provided.
 func (m *MockShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
 	if m.ExecFunc != nil {
 		return m.ExecFunc(verbose, message, command, args...)
 	}
-	return "", fmt.Errorf("ExecFunc not implemented")
+	return "", nil
 }
 
 // Ensure MockShell implements the Shell interface
