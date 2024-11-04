@@ -63,7 +63,10 @@ func TestDockerEnv_Print(t *testing.T) {
 		dockerEnv := NewDockerEnv(mocks.Container)
 
 		envVars := make(map[string]string)
-		dockerEnv.Print(envVars)
+		err := dockerEnv.Print(envVars)
+		if err != nil {
+			t.Fatalf("Print returned an error: %v", err)
+		}
 
 		if envVars["COMPOSE_FILE"] != "/mock/config/root/compose.yaml" && envVars["COMPOSE_FILE"] != "/mock/config/root/compose.yml" {
 			t.Errorf("COMPOSE_FILE = %v, want %v or %v", envVars["COMPOSE_FILE"], "/mock/config/root/compose.yaml", "/mock/config/root/compose.yml")
@@ -82,7 +85,10 @@ func TestDockerEnv_Print(t *testing.T) {
 		dockerEnv := NewDockerEnv(mocks.Container)
 
 		envVars := make(map[string]string)
-		dockerEnv.Print(envVars)
+		err := dockerEnv.Print(envVars)
+		if err != nil {
+			t.Fatalf("Print returned an error: %v", err)
+		}
 
 		if envVars["COMPOSE_FILE"] != "" {
 			t.Errorf("COMPOSE_FILE = %v, want empty", envVars["COMPOSE_FILE"])
@@ -98,10 +104,13 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			dockerEnv.Print(envVars)
+			err := dockerEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error resolving contextHandler: mock resolve error\n"
+		expectedOutput := "error resolving contextHandler: mock resolve error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -116,10 +125,13 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			dockerEnv.Print(envVars)
+			err := dockerEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Failed to cast contextHandler to context.ContextInterface\n"
+		expectedOutput := "failed to cast contextHandler to context.ContextInterface\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -134,10 +146,13 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			dockerEnv.Print(envVars)
+			err := dockerEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error resolving shell: mock resolve error\n"
+		expectedOutput := "error resolving shell: mock resolve error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -152,10 +167,13 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			dockerEnv.Print(envVars)
+			err := dockerEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Failed to cast shell to shell.Shell\n"
+		expectedOutput := "failed to cast shell to shell.Shell\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -171,10 +189,13 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			dockerEnv.Print(envVars)
+			err := dockerEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error retrieving configuration root directory: mock context error\n"
+		expectedOutput := "error retrieving configuration root directory: mock context error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -195,7 +216,10 @@ func TestDockerEnv_Print(t *testing.T) {
 		dockerEnv := NewDockerEnv(mocks.Container)
 
 		envVars := make(map[string]string)
-		dockerEnv.Print(envVars)
+		err := dockerEnv.Print(envVars)
+		if err != nil {
+			t.Fatalf("Print returned an error: %v", err)
+		}
 
 		if envVars["COMPOSE_FILE"] != "/mock/config/root/compose.yml" {
 			t.Errorf("COMPOSE_FILE = %v, want %v", envVars["COMPOSE_FILE"], "/mock/config/root/compose.yml")

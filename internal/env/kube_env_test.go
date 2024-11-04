@@ -63,7 +63,10 @@ func TestKubeEnv_Print(t *testing.T) {
 		kubeEnv := NewKubeEnv(mocks.Container)
 
 		envVars := make(map[string]string)
-		kubeEnv.Print(envVars)
+		err := kubeEnv.Print(envVars)
+		if err != nil {
+			t.Fatalf("Print returned an error: %v", err)
+		}
 
 		if envVars["KUBECONFIG"] != "/mock/config/root/.kube/config" || envVars["KUBE_CONFIG_PATH"] != "/mock/config/root/.kube/config" {
 			t.Errorf("KUBECONFIG = %v, KUBE_CONFIG_PATH = %v, want both to be %v", envVars["KUBECONFIG"], envVars["KUBE_CONFIG_PATH"], "/mock/config/root/.kube/config")
@@ -82,7 +85,10 @@ func TestKubeEnv_Print(t *testing.T) {
 		kubeEnv := NewKubeEnv(mocks.Container)
 
 		envVars := make(map[string]string)
-		kubeEnv.Print(envVars)
+		err := kubeEnv.Print(envVars)
+		if err != nil {
+			t.Fatalf("Print returned an error: %v", err)
+		}
 
 		if envVars["KUBECONFIG"] != "" || envVars["KUBE_CONFIG_PATH"] != "" {
 			t.Errorf("KUBECONFIG = %v, KUBE_CONFIG_PATH = %v, want both to be empty", envVars["KUBECONFIG"], envVars["KUBE_CONFIG_PATH"])
@@ -98,10 +104,13 @@ func TestKubeEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			kubeEnv.Print(envVars)
+			err := kubeEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error resolving contextHandler: mock resolve error\n"
+		expectedOutput := "error resolving contextHandler: mock resolve error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -116,10 +125,13 @@ func TestKubeEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			kubeEnv.Print(envVars)
+			err := kubeEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Failed to cast contextHandler to context.ContextInterface\n"
+		expectedOutput := "failed to cast contextHandler to context.ContextInterface\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -134,10 +146,13 @@ func TestKubeEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			kubeEnv.Print(envVars)
+			err := kubeEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error resolving shell: mock resolve error\n"
+		expectedOutput := "error resolving shell: mock resolve error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -152,10 +167,13 @@ func TestKubeEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			kubeEnv.Print(envVars)
+			err := kubeEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Failed to cast shell to shell.Shell\n"
+		expectedOutput := "failed to cast shell to shell.Shell\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -171,10 +189,13 @@ func TestKubeEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			kubeEnv.Print(envVars)
+			err := kubeEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error retrieving configuration root directory: mock context error\n"
+		expectedOutput := "error retrieving configuration root directory: mock context error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}

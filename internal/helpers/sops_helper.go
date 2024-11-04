@@ -91,7 +91,7 @@ var _ Helper = (*SopsHelper)(nil)
 // DecryptFile decrypts a file using the SOPS package
 func DecryptFile(filePath string) ([]byte, error) {
 	// Check if the file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+	if _, err := stat(filePath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("file does not exist: %s", filePath)
 	}
 

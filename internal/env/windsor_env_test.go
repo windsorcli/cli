@@ -69,7 +69,10 @@ func TestWindsorEnv_Print(t *testing.T) {
 		windsorEnv := NewWindsorEnv(mocks.Container)
 
 		envVars := make(map[string]string)
-		windsorEnv.Print(envVars)
+		err := windsorEnv.Print(envVars)
+		if err != nil {
+			t.Fatalf("Print returned an error: %v", err)
+		}
 
 		if envVars["WINDSOR_CONTEXT"] != "mock-context" {
 			t.Errorf("WINDSOR_CONTEXT = %v, want %v", envVars["WINDSOR_CONTEXT"], "mock-context")
@@ -91,7 +94,10 @@ func TestWindsorEnv_Print(t *testing.T) {
 		windsorEnv := NewWindsorEnv(mocks.Container)
 
 		envVars := make(map[string]string)
-		windsorEnv.Print(envVars)
+		err := windsorEnv.Print(envVars)
+		if err != nil {
+			t.Fatalf("Print returned an error: %v", err)
+		}
 
 		if envVars["WINDSOR_CONTEXT"] != "mock-context" {
 			t.Errorf("WINDSOR_CONTEXT = %v, want %v", envVars["WINDSOR_CONTEXT"], "mock-context")
@@ -110,10 +116,13 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			windsorEnv.Print(envVars)
+			err := windsorEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error resolving contextHandler: mock resolve error\n"
+		expectedOutput := "error resolving contextHandler: mock resolve error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -128,10 +137,13 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			windsorEnv.Print(envVars)
+			err := windsorEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Failed to cast contextHandler to context.ContextInterface\n"
+		expectedOutput := "failed to cast contextHandler to context.ContextInterface\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -146,10 +158,13 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			windsorEnv.Print(envVars)
+			err := windsorEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error resolving shell: mock resolve error\n"
+		expectedOutput := "error resolving shell: mock resolve error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -164,10 +179,13 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			windsorEnv.Print(envVars)
+			err := windsorEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Failed to cast shell to shell.Shell\n"
+		expectedOutput := "failed to cast shell to shell.Shell\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -183,10 +201,13 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			windsorEnv.Print(envVars)
+			err := windsorEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error retrieving current context: mock context error\n"
+		expectedOutput := "error retrieving current context: mock context error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -202,10 +223,13 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			windsorEnv.Print(envVars)
+			err := windsorEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error retrieving project root: mock shell error\n"
+		expectedOutput := "error retrieving project root: mock shell error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}

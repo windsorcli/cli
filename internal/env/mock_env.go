@@ -6,7 +6,7 @@ import (
 
 // MockEnv is a struct that simulates an environment for testing purposes.
 type MockEnv struct {
-	PrintFunc       func(envVars map[string]string)
+	PrintFunc       func(envVars map[string]string) error
 	PostEnvHookFunc func() error
 	diContainer     di.ContainerInterface
 }
@@ -20,12 +20,11 @@ func NewMockEnv(diContainer di.ContainerInterface) *MockEnv {
 
 // Print simulates printing the provided environment variables.
 // If a custom PrintFunc is provided, it will use that function instead.
-func (m *MockEnv) Print(envVars map[string]string) {
+func (m *MockEnv) Print(envVars map[string]string) error {
 	if m.PrintFunc != nil {
-		m.PrintFunc(envVars)
-		return
+		return m.PrintFunc(envVars)
 	}
-	// Simulate printing without doing anything real
+	return nil
 }
 
 // PostEnvHook simulates running any necessary commands after the environment variables have been set.

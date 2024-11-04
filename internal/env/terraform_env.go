@@ -34,44 +34,39 @@ func NewTerraformEnv(diContainer di.ContainerInterface) *TerraformEnv {
 }
 
 // Print displays the provided environment variables to the console.
-func (e *TerraformEnv) Print(envVars map[string]string) {
+func (e *TerraformEnv) Print(envVars map[string]string) error {
 	// Resolve dependencies for context and shell operations
 	deps, err := e.resolveDependencies()
 	if err != nil {
-		fmt.Println(err)
-		return
+		return fmt.Errorf("error resolving dependencies: %w", err)
 	}
 
 	// Get the configuration root directory
 	configRoot, err := deps.ContextInterface.GetConfigRoot()
 	if err != nil {
-		fmt.Printf("Error getting config root: %v\n", err)
-		return
+		return fmt.Errorf("error getting config root: %w", err)
 	}
 
 	// Retrieve aliases
 	aliases, err := e.getAlias()
 	if err != nil {
-		fmt.Printf("Error getting alias: %v\n", err)
-		return
+		return fmt.Errorf("error getting alias: %w", err)
 	}
 
 	// Print aliases
 	if err := deps.Shell.PrintAlias(aliases); err != nil {
-		fmt.Printf("Error printing aliases: %v\n", err)
+		return fmt.Errorf("error printing aliases: %w", err)
 	}
 
 	// Find the Terraform project path
 	projectPath, err := findRelativeTerraformProjectPath()
 	if err != nil {
-		fmt.Printf("Error finding project path: %v\n", err)
-		return
+		return fmt.Errorf("error finding project path: %w", err)
 	}
 
 	// Check if projectPath is empty
 	if projectPath == "" {
-		fmt.Println("No Terraform project path found.")
-		return
+		return fmt.Errorf("no Terraform project path found")
 	}
 
 	// Define patterns for tfvars files
@@ -87,8 +82,7 @@ func (e *TerraformEnv) Print(envVars map[string]string) {
 	for _, pattern := range patterns {
 		if _, err := stat(pattern); err != nil {
 			if !os.IsNotExist(err) {
-				fmt.Printf("Error checking file: %v\n", err)
-				return
+				return fmt.Errorf("error checking file: %w", err)
 			}
 		} else {
 			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=%s", pattern))
@@ -105,7 +99,7 @@ func (e *TerraformEnv) Print(envVars map[string]string) {
 	envVars["TF_VAR_context_path"] = strings.TrimSpace(configRoot)
 
 	// Print environment variables
-	deps.Shell.PrintEnvVars(envVars)
+	return deps.Shell.PrintEnvVars(envVars)
 }
 
 // PostEnvHook executes any required operations after setting the environment variables.

@@ -122,7 +122,10 @@ func TestTerraformEnv_Print(t *testing.T) {
 		}
 
 		// When the Print function is called
-		env.Print(envVars)
+		err := env.Print(envVars)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
 
 		// Then the expected environment variables should be set
 		for key, expectedValue := range expectedEnvVars {
@@ -141,7 +144,10 @@ func TestTerraformEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			env := NewTerraformEnv(mocks.Container)
 			envVars := make(map[string]string)
-			env.Print(envVars)
+			err := env.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should contain the expected error message
@@ -164,7 +170,10 @@ func TestTerraformEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			env := NewTerraformEnv(mocks.Container)
 			envVars := make(map[string]string)
-			env.Print(envVars)
+			err := env.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should contain the expected error message
@@ -187,11 +196,14 @@ func TestTerraformEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			env := NewTerraformEnv(mocks.Container)
 			envVars := make(map[string]string)
-			env.Print(envVars)
+			err := env.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should contain the expected error message
-		expectedErrorMessage := "No Terraform project path found.\n"
+		expectedErrorMessage := "no Terraform project path found\n"
 		if !strings.Contains(output, expectedErrorMessage) {
 			t.Errorf("Expected output to contain %q, got %q", expectedErrorMessage, output)
 		}
@@ -214,11 +226,14 @@ func TestTerraformEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			env := NewTerraformEnv(mocks.Container)
 			envVars := make(map[string]string)
-			env.Print(envVars)
+			err := env.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should contain the expected error message
-		expectedErrorMessage := "Error getting config root: mock error getting config root\n"
+		expectedErrorMessage := "error getting config root: mock error getting config root\n"
 		if !strings.Contains(output, expectedErrorMessage) {
 			t.Errorf("Expected output to contain %q, got %q", expectedErrorMessage, output)
 		}
@@ -241,12 +256,16 @@ func TestTerraformEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			env := NewTerraformEnv(mocks.Container)
 			envVars := make(map[string]string)
-			env.Print(envVars)
+			err := env.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		// Then the output should contain an error message about getting alias
-		if !strings.Contains(output, "Error getting alias:") {
-			t.Errorf("Expected output to contain error message about getting alias, got %q", output)
+		// Then the output should contain the expected error message
+		expectedErrorMessage := "error getting alias:"
+		if !strings.Contains(output, expectedErrorMessage) {
+			t.Errorf("Expected output to contain %q, got %q", expectedErrorMessage, output)
 		}
 	})
 
@@ -267,11 +286,14 @@ func TestTerraformEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			env := NewTerraformEnv(mocks.Container)
 			envVars := make(map[string]string)
-			env.Print(envVars)
+			err := env.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should contain the expected error message
-		expectedErrorMessage := "Error printing aliases: mock error printing aliases\n"
+		expectedErrorMessage := "error printing aliases: mock error printing aliases\n"
 		if !strings.Contains(output, expectedErrorMessage) {
 			t.Errorf("Expected output to contain %q, got %q", expectedErrorMessage, output)
 		}
@@ -317,11 +339,14 @@ func TestTerraformEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			env := NewTerraformEnv(mocks.Container)
 			envVars := make(map[string]string)
-			env.Print(envVars)
+			err := env.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should contain the expected error message
-		expectedErrorMessage := "Error checking file: mock error checking file\n"
+		expectedErrorMessage := "error checking file: mock error checking file\n"
 		if !strings.Contains(output, expectedErrorMessage) {
 			t.Errorf("Expected output to contain %q, got %q", expectedErrorMessage, output)
 		}

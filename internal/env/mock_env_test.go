@@ -73,9 +73,12 @@ func TestMockEnv_Print(t *testing.T) {
 		mockEnv := NewMockEnv(nil)
 		// When calling Print
 		var buf bytes.Buffer
-		mockEnv.Print(envVars)
+		err := mockEnv.Print(envVars)
 		output := buf.String()
 		// Then the output should be empty as default Print does nothing
+		if err != nil {
+			t.Errorf("Print() error = %v, want nil", err)
+		}
 		if output != "" {
 			t.Errorf("Print() output = %v, want %v", output, "")
 		}
@@ -85,18 +88,22 @@ func TestMockEnv_Print(t *testing.T) {
 		// Given a mock environment with custom Print implementation
 		mockEnv := NewMockEnv(nil)
 		var buf bytes.Buffer
-		mockEnv.PrintFunc = func(envVars map[string]string) {
+		mockEnv.PrintFunc = func(envVars map[string]string) error {
 			keys := []string{"VAR1", "VAR2"}
 			for _, key := range keys {
 				if value, exists := envVars[key]; exists {
 					fmt.Fprintf(&buf, "%s=%s\n", key, value)
 				}
 			}
+			return nil
 		}
 		// When calling Print
-		mockEnv.Print(envVars)
+		err := mockEnv.Print(envVars)
 		output := buf.String()
 		// Then the output should match the expected output
+		if err != nil {
+			t.Errorf("Print() error = %v, want nil", err)
+		}
 		if output != wantOutput {
 			t.Errorf("Print() output = %v, want %v", output, wantOutput)
 		}

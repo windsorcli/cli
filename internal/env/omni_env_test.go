@@ -63,7 +63,10 @@ func TestOmniEnv_Print(t *testing.T) {
 		omniEnv := NewOmniEnv(mocks.Container)
 
 		envVars := make(map[string]string)
-		omniEnv.Print(envVars)
+		err := omniEnv.Print(envVars)
+		if err != nil {
+			t.Fatalf("Print returned an error: %v", err)
+		}
 
 		if envVars["OMNICONFIG"] != "/mock/config/root/.omni/config" {
 			t.Errorf("OMNICONFIG = %v, want %v", envVars["OMNICONFIG"], "/mock/config/root/.omni/config")
@@ -82,7 +85,10 @@ func TestOmniEnv_Print(t *testing.T) {
 		omniEnv := NewOmniEnv(mocks.Container)
 
 		envVars := make(map[string]string)
-		omniEnv.Print(envVars)
+		err := omniEnv.Print(envVars)
+		if err != nil {
+			t.Fatalf("Print returned an error: %v", err)
+		}
 
 		if envVars["OMNICONFIG"] != "" {
 			t.Errorf("OMNICONFIG = %v, want empty", envVars["OMNICONFIG"])
@@ -98,10 +104,13 @@ func TestOmniEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			omniEnv.Print(envVars)
+			err := omniEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error resolving contextHandler: mock resolve error\n"
+		expectedOutput := "error resolving contextHandler: mock resolve error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -116,10 +125,13 @@ func TestOmniEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			omniEnv.Print(envVars)
+			err := omniEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Failed to cast contextHandler to context.ContextInterface\n"
+		expectedOutput := "failed to cast contextHandler to context.ContextInterface\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -134,10 +146,13 @@ func TestOmniEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			omniEnv.Print(envVars)
+			err := omniEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error resolving shell: mock resolve error\n"
+		expectedOutput := "error resolving shell: mock resolve error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -152,10 +167,13 @@ func TestOmniEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			omniEnv.Print(envVars)
+			err := omniEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Failed to cast shell to shell.Shell\n"
+		expectedOutput := "failed to cast shell to shell.Shell\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -171,10 +189,13 @@ func TestOmniEnv_Print(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			envVars := make(map[string]string)
-			omniEnv.Print(envVars)
+			err := omniEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		expectedOutput := "Error retrieving configuration root directory: mock context error\n"
+		expectedOutput := "error retrieving configuration root directory: mock context error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}

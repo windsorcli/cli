@@ -86,7 +86,10 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// When calling Print
 		envVars := make(map[string]string)
-		awsEnv.Print(envVars)
+		err := awsEnv.Print(envVars)
+		if err != nil {
+			t.Fatalf("Print returned an error: %v", err)
+		}
 
 		// Then the environment variables should be set correctly
 		if envVars["AWS_CONFIG_FILE"] != "/mock/config/root/.aws/config" {
@@ -110,11 +113,14 @@ func TestAwsEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			// When calling Print
 			envVars := make(map[string]string)
-			awsEnv.Print(envVars)
+			err := awsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should indicate the resolve error
-		expectedOutput := "Error resolving cliConfigHandler: mock resolve error\n"
+		expectedOutput := "error resolving cliConfigHandler: mock resolve error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -133,11 +139,14 @@ func TestAwsEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			// When calling Print
 			envVars := make(map[string]string)
-			awsEnv.Print(envVars)
+			err := awsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should indicate the type assertion error
-		expectedOutput := "Failed to cast cliConfigHandler to config.ConfigHandler\n"
+		expectedOutput := "failed to cast cliConfigHandler to config.ConfigHandler\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -159,11 +168,14 @@ func TestAwsEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			// When calling Print
 			envVars := make(map[string]string)
-			awsEnv.Print(envVars)
+			err := awsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should indicate the resolve error
-		expectedOutput := "Error resolving contextHandler: mock resolve error\n"
+		expectedOutput := "error resolving contextHandler: mock resolve error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -185,11 +197,14 @@ func TestAwsEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			// When calling Print
 			envVars := make(map[string]string)
-			awsEnv.Print(envVars)
+			err := awsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should indicate the type assertion error
-		expectedOutput := "Failed to cast contextHandler to context.ContextInterface\n"
+		expectedOutput := "failed to cast contextHandler to context.ContextInterface\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -211,11 +226,14 @@ func TestAwsEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			// When calling Print
 			envVars := make(map[string]string)
-			awsEnv.Print(envVars)
+			err := awsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should indicate the resolve error
-		expectedOutput := "Error resolving shell: mock resolve error\n"
+		expectedOutput := "error resolving shell: mock resolve error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -237,11 +255,14 @@ func TestAwsEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			// When calling Print
 			envVars := make(map[string]string)
-			awsEnv.Print(envVars)
+			err := awsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should indicate the type assertion error
-		expectedOutput := "Failed to cast shell to shell.Shell\n"
+		expectedOutput := "failed to cast shell to shell.Shell\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -264,11 +285,14 @@ func TestAwsEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			// When calling Print
 			envVars := make(map[string]string)
-			awsEnv.Print(envVars)
+			err := awsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should indicate the error
-		expectedOutput := "Error retrieving context configuration: mock config error\n"
+		expectedOutput := "error retrieving context configuration: mock config error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -291,11 +315,14 @@ func TestAwsEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			// When calling Print
 			envVars := make(map[string]string)
-			awsEnv.Print(envVars)
+			err := awsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should indicate the missing configuration
-		expectedOutput := "Context configuration or AWS configuration is missing\n"
+		expectedOutput := "context configuration or AWS configuration is missing\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -327,15 +354,18 @@ func TestAwsEnv_Print(t *testing.T) {
 		awsEnv := NewAwsEnv(mockContainer)
 
 		// Capture stdout
-		envVars := make(map[string]string)
-		captureStdout(t, func() {
+		output := captureStdout(t, func() {
 			// When calling Print
-			awsEnv.Print(envVars)
+			envVars := make(map[string]string)
+			err := awsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
-		// Then the output should not contain AWS_CONFIG_FILE
-		if _, exists := envVars["AWS_CONFIG_FILE"]; exists {
-			t.Errorf("AWS_CONFIG_FILE should not be set when no config file is present")
+		// Then the output should not include AWS_CONFIG_FILE and should not indicate an error
+		if output != "" {
+			t.Errorf("output = %v, want empty output", output)
 		}
 	})
 
@@ -356,17 +386,16 @@ func TestAwsEnv_Print(t *testing.T) {
 		output := captureStdout(t, func() {
 			// When calling Print
 			envVars := make(map[string]string)
-			awsEnv.Print(envVars)
+			err := awsEnv.Print(envVars)
+			if err != nil {
+				fmt.Println(err)
+			}
 		})
 
 		// Then the output should indicate the error
-		expectedOutput := "Error retrieving configuration root directory: mock context error\n"
+		expectedOutput := "error retrieving configuration root directory: mock context error\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
 	})
-}
-
-func stringPtr(s string) *string {
-	return &s
 }

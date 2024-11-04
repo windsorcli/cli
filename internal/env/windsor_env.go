@@ -22,48 +22,42 @@ func NewWindsorEnv(diContainer di.ContainerInterface) *WindsorEnv {
 }
 
 // Print displays the provided environment variables to the console.
-func (e *WindsorEnv) Print(envVars map[string]string) {
+func (e *WindsorEnv) Print(envVars map[string]string) error {
 	// Resolve necessary dependencies for context and shell operations.
 	contextHandler, err := e.diContainer.Resolve("contextHandler")
 	if err != nil {
-		fmt.Printf("Error resolving contextHandler: %v\n", err)
-		return
+		return fmt.Errorf("error resolving contextHandler: %w", err)
 	}
 	context, ok := contextHandler.(context.ContextInterface)
 	if !ok {
-		fmt.Println("Failed to cast contextHandler to context.ContextInterface")
-		return
+		return fmt.Errorf("failed to cast contextHandler to context.ContextInterface")
 	}
 
 	shellInstance, err := e.diContainer.Resolve("shell")
 	if err != nil {
-		fmt.Printf("Error resolving shell: %v\n", err)
-		return
+		return fmt.Errorf("error resolving shell: %w", err)
 	}
 	shell, ok := shellInstance.(shell.Shell)
 	if !ok {
-		fmt.Println("Failed to cast shell to shell.Shell")
-		return
+		return fmt.Errorf("failed to cast shell to shell.Shell")
 	}
 
 	// Add WINDSOR_CONTEXT to the environment variables
 	currentContext, err := context.GetContext()
 	if err != nil {
-		fmt.Printf("Error retrieving current context: %v\n", err)
-		return
+		return fmt.Errorf("error retrieving current context: %w", err)
 	}
 	envVars["WINDSOR_CONTEXT"] = currentContext
 
 	// Get the project root and add WINDSOR_PROJECT_ROOT to the environment variables
 	projectRoot, err := shell.GetProjectRoot()
 	if err != nil {
-		fmt.Printf("Error retrieving project root: %v\n", err)
-		return
+		return fmt.Errorf("error retrieving project root: %w", err)
 	}
 	envVars["WINDSOR_PROJECT_ROOT"] = projectRoot
 
 	// Display the environment variables using the Shell's PrintEnvVars method.
-	shell.PrintEnvVars(envVars)
+	return shell.PrintEnvVars(envVars)
 }
 
 // Ensure WindsorEnv implements the EnvInterface

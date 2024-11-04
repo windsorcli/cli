@@ -9,7 +9,7 @@ import (
 
 // EnvInterface defines the methods for environment-specific utility functions
 type EnvInterface interface {
-	Print(envVars map[string]string)
+	Print(envVars map[string]string) error
 	PostEnvHook() error
 }
 
@@ -36,6 +36,11 @@ var glob = filepath.Glob
 
 // Wrapper function for os.WriteFile
 var writeFile = os.WriteFile
+
+// stringPtr returns a pointer to a string value
+func stringPtr(s string) *string {
+	return &s
+}
 
 // boolPtr returns a pointer to a boolean value
 func boolPtr(b bool) *bool {
