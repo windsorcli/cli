@@ -7,6 +7,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/env"
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
@@ -36,50 +37,8 @@ func main() {
 	container.Register("secureShell", secureShellInstance)
 
 	// Create and register the Context instance
-	contextInstance := context.NewContext(cliConfigHandler, shellInstance)
-	container.Register("contextInstance", contextInstance)
-
-	// Create and register the BaseHelper instance
-	baseHelper, err := helpers.NewBaseHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create base helper: %v", err)
-	}
-	container.Register("baseHelper", baseHelper)
-
-	// Create and register the KubeHelper instance
-	kubeHelper, err := helpers.NewKubeHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create kube helper: %v", err)
-	}
-	container.Register("kubeHelper", kubeHelper)
-
-	// Create and register the TerraformHelper instance
-	terraformHelper, err := helpers.NewTerraformHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create terraform helper: %v", err)
-	}
-	container.Register("terraformHelper", terraformHelper)
-
-	// Create and register the TalosHelper instance
-	talosHelper, err := helpers.NewTalosHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create talos helper: %v", err)
-	}
-	container.Register("talosHelper", talosHelper)
-
-	// Create and register the OmniHelper instance
-	omniHelper, err := helpers.NewOmniHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create omni helper: %v", err)
-	}
-	container.Register("omniHelper", omniHelper)
-
-	// Create and register the SopsHelper instance
-	sopsHelper, err := helpers.NewSopsHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create sops helper: %v", err)
-	}
-	container.Register("sopsHelper", sopsHelper)
+	contextHandler := context.NewContext(cliConfigHandler, shellInstance)
+	container.Register("contextHandler", contextHandler)
 
 	// Create and register the AwsHelper instance
 	awsHelper, err := helpers.NewAwsHelper(container)
@@ -117,6 +76,38 @@ func main() {
 	// Create and register the ColimaVM instance using the mock as reference
 	colimaVM := vm.NewColimaVM(container)
 	container.Register("colimaVM", colimaVM)
+
+	// Create and register the AwsEnv instance
+	awsEnv := env.NewAwsEnv(container)
+	container.Register("awsEnv", awsEnv)
+
+	// Create and register the DockerEnv instance
+	dockerEnv := env.NewDockerEnv(container)
+	container.Register("dockerEnv", dockerEnv)
+
+	// Create and register the KubeEnv instance
+	kubeEnv := env.NewKubeEnv(container)
+	container.Register("kubeEnv", kubeEnv)
+
+	// Create and register the OmniEnv instance
+	omniEnv := env.NewOmniEnv(container)
+	container.Register("omniEnv", omniEnv)
+
+	// Create and register the SopsEnv instance
+	sopsEnv := env.NewSopsEnv(container)
+	container.Register("sopsEnv", sopsEnv)
+
+	// Create and register the TalosEnv instance
+	talosEnv := env.NewTalosEnv(container)
+	container.Register("talosEnv", talosEnv)
+
+	// Create and register the TerraformEnv instance
+	terraformEnv := env.NewTerraformEnv(container)
+	container.Register("terraformEnv", terraformEnv)
+
+	// Create and register the WindsorEnv instance
+	windsorEnv := env.NewWindsorEnv(container)
+	container.Register("windsorEnv", windsorEnv)
 
 	// Inject the DI container into the cmd package
 	cmd.Initialize(container)

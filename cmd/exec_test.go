@@ -29,18 +29,6 @@ func TestExecCmd(t *testing.T) {
 		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "hello\n", nil
 		}
-		mocks.DockerHelper.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{
-				"VAR1": "value1",
-				"VAR2": "value2",
-			}, nil
-		}
-		mocks.TerraformHelper.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{
-				"TF_VAR1": "tf_value1",
-				"TF_VAR2": "tf_value2",
-			}, nil
-		}
 		Initialize(mocks.Container)
 
 		// Capture stdout using a buffer
@@ -85,13 +73,13 @@ func TestExecCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolveHelpersError", func(t *testing.T) {
+	t.Run("ResolveEnvError", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
 		// Setup mock container
 		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(errors.New("resolve helpers error"))
+		mockContainer.SetResolveAllError(errors.New("resolve env error"))
 
 		// Setup mock components using SuperMocks with the mock container
 		mocks := mocks.CreateSuperMocks(mockContainer)
@@ -111,19 +99,19 @@ func TestExecCmd(t *testing.T) {
 		output := buf.String()
 
 		// Then the output should indicate the error
-		expectedOutput := "Error resolving helpers: resolve helpers error"
+		expectedOutput := "Error resolving environments: resolve env error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
-	t.Run("ResolveHelpersErrorWithoutVerbose", func(t *testing.T) {
+	t.Run("ResolveEnvErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a container that returns an error when resolving helpers
+		// Given a container that returns an error when resolving environments
 		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
+		mockContainer.SetResolveAllError(errors.New("resolve env error")) // Simulate error
 		mocks := mocks.CreateSuperMocks(mockContainer)
 		Initialize(mocks.Container)
 
@@ -139,7 +127,7 @@ func TestExecCmd(t *testing.T) {
 		}
 
 		// Then the output should indicate the error
-		expectedOutput := "Error resolving helpers: resolve helpers error"
+		expectedOutput := "Error resolving environments: resolve env error"
 		if !strings.Contains(buf.String(), expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, buf.String())
 		}
@@ -149,9 +137,9 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a helper that returns an error when getting environment variables
+		// Given an environment that returns an error when getting environment variables
 		mocks := mocks.CreateSuperMocks()
-		mocks.DockerHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+		mocks.WindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, errors.New("get env vars error")
 		}
 		Initialize(mocks.Container)
@@ -180,9 +168,9 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a helper that returns an error when getting environment variables
+		// Given an environment that returns an error when getting environment variables
 		mocks := mocks.CreateSuperMocks()
-		mocks.DockerHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+		mocks.WindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, errors.New("get env vars error")
 		}
 		Initialize(mocks.Container)
@@ -211,9 +199,9 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a helper that returns environment variables
+		// Given an environment that returns environment variables
 		mocks := mocks.CreateSuperMocks()
-		mocks.DockerHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+		mocks.WindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{
 				"VAR1": "value1",
 			}, nil
@@ -251,7 +239,7 @@ func TestExecCmd(t *testing.T) {
 		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "", errors.New("command execution error")
 		}
-		mocks.DockerHelper.GetEnvVarsFunc = func() (map[string]string, error) {
+		mocks.WindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{
 				"VAR1": "value1",
 			}, nil

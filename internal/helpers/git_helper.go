@@ -31,7 +31,7 @@ func NewGitHelper(di *di.DIContainer) (*GitHelper, error) {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}
 
-	resolvedContext, err := di.Resolve("contextInstance")
+	resolvedContext, err := di.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
@@ -46,16 +46,6 @@ func NewGitHelper(di *di.DIContainer) (*GitHelper, error) {
 // Initialize performs any necessary initialization for the helper.
 func (h *GitHelper) Initialize() error {
 	// Perform any necessary initialization here
-	return nil
-}
-
-// GetEnvVars is a no-op function
-func (h *GitHelper) GetEnvVars() (map[string]string, error) {
-	return map[string]string{}, nil
-}
-
-// PostEnvExec runs any necessary commands after the environment variables have been set.
-func (h *GitHelper) PostEnvExec() error {
 	return nil
 }
 

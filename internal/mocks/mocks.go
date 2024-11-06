@@ -4,10 +4,11 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/env"
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
-	"github.com/windsor-hotel/cli/internal/vm" // Added import for mock_vm.go
+	"github.com/windsor-hotel/cli/internal/vm"
 )
 
 // SuperMocks holds all the mock instances needed for testing commands.
@@ -23,7 +24,14 @@ type SuperMocks struct {
 	KubeHelper       *helpers.MockHelper
 	OmniHelper       *helpers.MockHelper
 	TalosHelper      *helpers.MockHelper
-	TerraformHelper  *helpers.MockHelper
+	AwsEnv           *env.MockEnv
+	DockerEnv        *env.MockEnv
+	KubeEnv          *env.MockEnv
+	OmniEnv          *env.MockEnv
+	SopsEnv          *env.MockEnv
+	TalosEnv         *env.MockEnv
+	TerraformEnv     *env.MockEnv
+	WindsorEnv       *env.MockEnv
 	SSHClient        *ssh.MockClient
 	SecureShell      *shell.MockShell
 	Container        di.ContainerInterface
@@ -54,6 +62,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 
 	mockContext := context.NewMockContext()
 	mockContext.GetContextFunc = func() (string, error) { return "mock-context", nil }
+	mockContext.SetContextFunc = func(context string) error { return nil }
 
 	mockShell := shell.NewMockShell()
 	mockAwsHelper := helpers.NewMockHelper()
@@ -64,14 +73,23 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	mockKubeHelper := helpers.NewMockHelper()
 	mockOmniHelper := helpers.NewMockHelper()
 	mockTalosHelper := helpers.NewMockHelper()
-	mockTerraformHelper := helpers.NewMockHelper()
 	mockSecureShell := shell.NewMockShell(container)
 	mockSSHClient := &ssh.MockClient{}
 	colimaVM := vm.NewMockVM()
 
+	// Create mock environment instances
+	mockAwsEnv := env.NewMockEnv(container)
+	mockDockerEnv := env.NewMockEnv(container)
+	mockKubeEnv := env.NewMockEnv(container)
+	mockOmniEnv := env.NewMockEnv(container)
+	mockSopsEnv := env.NewMockEnv(container)
+	mockTalosEnv := env.NewMockEnv(container)
+	mockTerraformEnv := env.NewMockEnv(container)
+	mockWindsorEnv := env.NewMockEnv(container)
+
 	// Create and setup the dependency injection container
 	container.Register("cliConfigHandler", mockCLIConfigHandler)
-	container.Register("contextInstance", mockContext)
+	container.Register("contextHandler", mockContext)
 	container.Register("shell", mockShell)
 	container.Register("awsHelper", mockAwsHelper)
 	container.Register("dnsHelper", mockDnsHelper)
@@ -80,10 +98,17 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	container.Register("kubeHelper", mockKubeHelper)
 	container.Register("omniHelper", mockOmniHelper)
 	container.Register("talosHelper", mockTalosHelper)
-	container.Register("terraformHelper", mockTerraformHelper)
 	container.Register("sshClient", mockSSHClient)
 	container.Register("secureShell", mockSecureShell)
 	container.Register("colimaVM", colimaVM)
+	container.Register("awsEnv", mockAwsEnv)
+	container.Register("dockerEnv", mockDockerEnv)
+	container.Register("kubeEnv", mockKubeEnv)
+	container.Register("omniEnv", mockOmniEnv)
+	container.Register("sopsEnv", mockSopsEnv)
+	container.Register("talosEnv", mockTalosEnv)
+	container.Register("terraformEnv", mockTerraformEnv)
+	container.Register("windsorEnv", mockWindsorEnv)
 
 	return SuperMocks{
 		CLIConfigHandler: mockCLIConfigHandler,
@@ -97,7 +122,14 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 		KubeHelper:       mockKubeHelper,
 		OmniHelper:       mockOmniHelper,
 		TalosHelper:      mockTalosHelper,
-		TerraformHelper:  mockTerraformHelper,
+		AwsEnv:           mockAwsEnv,
+		DockerEnv:        mockDockerEnv,
+		KubeEnv:          mockKubeEnv,
+		OmniEnv:          mockOmniEnv,
+		SopsEnv:          mockSopsEnv,
+		TalosEnv:         mockTalosEnv,
+		TerraformEnv:     mockTerraformEnv,
+		WindsorEnv:       mockWindsorEnv,
 		SSHClient:        mockSSHClient,
 		SecureShell:      mockSecureShell,
 		Container:        container,

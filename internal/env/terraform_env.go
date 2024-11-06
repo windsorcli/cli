@@ -1,4 +1,4 @@
-package helpers
+package env
 
 import (
 	"fmt"
@@ -7,101 +7,61 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-// TerraformHelper is a struct that provides various utility functions for working with Terraform
-type TerraformHelper struct {
-	ConfigHandler config.ConfigHandler
-	Context       context.ContextInterface
+// TerraformEnv is a struct that simulates a Terraform environment for testing purposes.
+type TerraformEnv struct {
+	Env
 }
 
-// NewTerraformHelper is a constructor for TerraformHelper
-func NewTerraformHelper(container *di.DIContainer) (*TerraformHelper, error) {
-	resolvedConfigHandler, err := container.Resolve("cliConfigHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
-	}
-
-	cliConfigHandler, ok := resolvedConfigHandler.(config.ConfigHandler)
-	if !ok {
-		return nil, fmt.Errorf("resolved cliConfigHandler is not of type ConfigHandler")
-	}
-
-	resolvedContext, err := container.Resolve("contextInstance")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving context: %w", err)
-	}
-
-	contextInterface, ok := resolvedContext.(context.ContextInterface)
-	if !ok {
-		return nil, fmt.Errorf("resolved context is not of type ContextInterface")
-	}
-
-	return &TerraformHelper{
-		ConfigHandler: cliConfigHandler,
-		Context:       contextInterface,
-	}, nil
+// TerraformDeps holds the resolved dependencies for TerraformEnv.
+type TerraformDeps struct {
+	ContextInterface context.ContextInterface
+	Shell            shell.Shell
+	ConfigHandler    config.ConfigHandler
 }
 
-// Initialize performs any necessary initialization for the helper.
-func (h *TerraformHelper) Initialize() error {
-	// Perform any necessary initialization here
-	return nil
+// NewTerraformEnv initializes a new TerraformEnv instance using the provided dependency injection container.
+func NewTerraformEnv(diContainer di.ContainerInterface) *TerraformEnv {
+	return &TerraformEnv{
+		Env: Env{
+			diContainer: diContainer,
+		},
+	}
 }
 
-// getAlias retrieves the alias for the Terraform command based on the current context
-func (h *TerraformHelper) GetAlias() (map[string]string, error) {
-	// Get the current context
-	context, err := h.Context.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context: %w", err)
-	}
-
-	// Retrieve the context configuration using GetConfig
-	contextConfig, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context config: %w", err)
-	}
-
-	// Check if Localstack is enabled
-	if context == "local" &&
-		contextConfig.AWS != nil &&
-		contextConfig.AWS.Localstack != nil &&
-		contextConfig.AWS.Localstack.Create != nil &&
-		*contextConfig.AWS.Localstack.Create {
-		return map[string]string{"terraform": "tflocal"}, nil
-	}
-
-	return map[string]string{"terraform": ""}, nil
-}
-
-// GetEnvVars retrieves the environment variables for the Terraform command
-func (h *TerraformHelper) GetEnvVars() (map[string]string, error) {
+// GetEnvVars retrieves the environment variables for the Terraform environment.
+func (e *TerraformEnv) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Find the Terraform project path
-	projectPath, err := findRelativeTerraformProjectPath()
+	// Resolve dependencies for context and shell operations
+	deps, err := e.resolveDependencies()
 	if err != nil {
-		// Return empty environment variables if there's a legitimate error
-		return envVars, err
-	}
-
-	// If projectPath is empty, return empty environment variables
-	if projectPath == "" {
-		return envVars, nil
+		return nil, fmt.Errorf("error resolving dependencies: %w", err)
 	}
 
 	// Get the configuration root directory
-	configRoot, err := h.Context.GetConfigRoot()
+	configRoot, err := deps.ContextInterface.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error getting config root: %w", err)
 	}
 
-	// Define patterns for tfvars files based on the relative path
+	// Find the Terraform project path
+	projectPath, err := findRelativeTerraformProjectPath()
+	if err != nil {
+		return nil, fmt.Errorf("error finding project path: %w", err)
+	}
+
+	// Return if we're not in a terraform project folder
+	if projectPath == "" {
+		return nil, nil
+	}
+
+	// Define patterns for tfvars files
 	patterns := []string{
 		filepath.Join(configRoot, "terraform", projectPath+".tfvars"),
 		filepath.Join(configRoot, "terraform", projectPath+".tfvars.json"),
@@ -109,6 +69,7 @@ func (h *TerraformHelper) GetEnvVars() (map[string]string, error) {
 		filepath.Join(configRoot, "terraform", projectPath+"_generated.tfvars.json"),
 	}
 
+	// Check for existing tfvars files
 	var varFileArgs []string
 	for _, pattern := range patterns {
 		if _, err := stat(pattern); err != nil {
@@ -132,36 +93,90 @@ func (h *TerraformHelper) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
-// PostEnvExec runs any necessary commands after the environment variables have been set.
-func (h *TerraformHelper) PostEnvExec() error {
-	return generateBackendOverrideTf(h)
+// PostEnvHook executes any required operations after setting the environment variables.
+func (e *TerraformEnv) PostEnvHook() error {
+	return e.generateBackendOverrideTf()
 }
 
-// GetComposeConfig returns a list of container data for docker-compose.
-func (h *TerraformHelper) GetComposeConfig() (*types.Config, error) {
-	// Stub implementation
-	return nil, nil
+// Print prints the environment variables for the Terraform environment.
+func (e *TerraformEnv) Print() error {
+	envVars, err := e.GetEnvVars()
+	if err != nil {
+		// Return the error if GetEnvVars fails
+		return fmt.Errorf("error getting environment variables: %w", err)
+	}
+	// Call the Print method of the embedded Env struct with the retrieved environment variables
+	return e.Env.Print(envVars)
 }
 
-// WriteConfig writes any vendor specific configuration files that are needed for the helper.
-func (h *TerraformHelper) WriteConfig() error {
-	return nil
+// Ensure TerraformEnv implements the EnvPrinter interface
+var _ EnvPrinter = (*TerraformEnv)(nil)
+
+// resolveDependencies is a convenience function to resolve and cast multiple dependencies at once.
+func (e *TerraformEnv) resolveDependencies() (*TerraformDeps, error) {
+	contextHandler, err := e.diContainer.Resolve("contextHandler")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
+	}
+	contextInterface, ok := contextHandler.(context.ContextInterface)
+	if !ok {
+		return nil, fmt.Errorf("contextHandler is not of type ContextInterface")
+	}
+
+	shellInstance, err := e.diContainer.Resolve("shell")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving shell: %w", err)
+	}
+	shell, ok := shellInstance.(shell.Shell)
+	if !ok {
+		return nil, fmt.Errorf("shell is not of type Shell")
+	}
+
+	configHandler, err := e.diContainer.Resolve("cliConfigHandler")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
+	}
+	cliConfigHandler, ok := configHandler.(config.ConfigHandler)
+	if !ok {
+		return nil, fmt.Errorf("cliConfigHandler is not of type ConfigHandler")
+	}
+
+	return &TerraformDeps{
+		ContextInterface: contextInterface,
+		Shell:            shell,
+		ConfigHandler:    cliConfigHandler,
+	}, nil
 }
 
-// Up executes necessary commands to instantiate the tool or environment.
-func (h *TerraformHelper) Up(verbose ...bool) error {
-	// Basic implementation of the Up function
-	fmt.Println("Executing Terraform Up command...")
-	return nil
-}
+func (e *TerraformEnv) getAlias() (map[string]string, error) {
+	// Resolve necessary dependencies for context operations.
+	deps, err := e.resolveDependencies()
+	if err != nil {
+		return nil, err
+	}
 
-// Info returns information about the helper.
-func (h *TerraformHelper) Info() (interface{}, error) {
-	return nil, nil
-}
+	// Get the current context
+	currentContext, err := deps.ContextInterface.GetContext()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context: %w", err)
+	}
 
-// Ensure TerraformHelper implements Helper interface
-var _ Helper = (*TerraformHelper)(nil)
+	contextConfig, err := deps.ConfigHandler.GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context config: %w", err)
+	}
+
+	// Check if Localstack is enabled
+	if currentContext == "local" &&
+		contextConfig.AWS != nil &&
+		contextConfig.AWS.Localstack != nil &&
+		contextConfig.AWS.Localstack.Create != nil &&
+		*contextConfig.AWS.Localstack.Create {
+		return map[string]string{"terraform": "tflocal"}, nil
+	}
+
+	return map[string]string{"terraform": ""}, nil
+}
 
 // findRelativeTerraformProjectPath finds the path to the Terraform project from the terraform directory
 func findRelativeTerraformProjectPath() (string, error) {
@@ -170,6 +185,9 @@ func findRelativeTerraformProjectPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error getting current directory: %w", err)
 	}
+
+	// Normalize the path for consistent behavior across different OS
+	currentPath = filepath.Clean(currentPath)
 
 	// Check if the current directory contains any Terraform files
 	globPattern := filepath.Join(currentPath, "*.tf")
@@ -187,15 +205,15 @@ func findRelativeTerraformProjectPath() (string, error) {
 
 	// Iterate through the path components to find the "terraform" directory
 	for i := len(pathParts) - 1; i >= 0; i-- {
-		if pathParts[i] == "terraform" {
+		if strings.EqualFold(pathParts[i], "terraform") { // Use case-insensitive comparison for Windows
 			// Join the path components after the "terraform" directory
 			relativePath := filepath.Join(pathParts[i+1:]...)
 			return relativePath, nil
 		}
 	}
 
-	// No "terraform" directory found, return an error
-	return "", fmt.Errorf("no 'terraform' directory found in the current path")
+	// No "terraform" directory found, return an empty string without an error
+	return "", nil
 }
 
 // sanitizeForK8s sanitizes a string to be compatible with Kubernetes naming conventions
@@ -218,7 +236,12 @@ func sanitizeForK8s(input string) string {
 }
 
 // generateBackendOverrideTf generates the backend_override.tf file for the Terraform project
-func generateBackendOverrideTf(h *TerraformHelper) error {
+func (h *TerraformEnv) generateBackendOverrideTf() error {
+	deps, err := h.resolveDependencies()
+	if err != nil {
+		return err
+	}
+
 	// Get the current working directory
 	currentPath, err := getwd()
 	if err != nil {
@@ -237,18 +260,18 @@ func generateBackendOverrideTf(h *TerraformHelper) error {
 	}
 
 	// Get the configuration root directory
-	configRoot, err := h.Context.GetConfigRoot()
+	configRoot, err := deps.ContextInterface.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
 
 	// Get the current backend
-	context, err := h.ConfigHandler.GetConfig()
+	contextConfig, err := deps.ConfigHandler.GetConfig()
 	if err != nil {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	backend := context.Terraform.Backend
+	backend := contextConfig.Terraform.Backend
 
 	// Create the backend_override.tf file
 	backendOverridePath := filepath.Join(currentPath, "backend_override.tf")

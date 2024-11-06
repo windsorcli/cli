@@ -41,7 +41,7 @@ func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
 		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
-	resolvedContext, err := di.Resolve("contextInstance")
+	resolvedContext, err := di.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
@@ -62,37 +62,6 @@ func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
 // Initialize performs any necessary initialization for the helper.
 func (h *DockerHelper) Initialize() error {
 	// Perform any necessary initialization here
-	return nil
-}
-
-// GetEnvVars retrieves Docker-specific environment variables for the current context
-func (h *DockerHelper) GetEnvVars() (map[string]string, error) {
-	// Get the configuration root directory
-	configRoot, err := h.Context.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving config root: %w", err)
-	}
-
-	// Check for the existence of compose.yaml or compose.yml
-	var composeFilePath string
-	yamlPath := filepath.Join(configRoot, "compose.yaml")
-	ymlPath := filepath.Join(configRoot, "compose.yml")
-
-	if _, err := stat(yamlPath); err == nil {
-		composeFilePath = yamlPath
-	} else if _, err := stat(ymlPath); err == nil {
-		composeFilePath = ymlPath
-	}
-
-	envVars := map[string]string{
-		"COMPOSE_FILE": composeFilePath,
-	}
-
-	return envVars, nil
-}
-
-// PostEnvExec runs any necessary commands after the environment variables have been set.
-func (h *DockerHelper) PostEnvExec() error {
 	return nil
 }
 

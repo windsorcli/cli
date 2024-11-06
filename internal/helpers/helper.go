@@ -15,12 +15,6 @@ type Helper interface {
 	// Initialize performs any necessary initialization for the helper.
 	Initialize() error
 
-	// GetEnvVars retrieves environment variables for the current context.
-	GetEnvVars() (map[string]string, error)
-
-	// PostEnvExec runs any necessary commands after the environment variables have been set.
-	PostEnvExec() error
-
 	// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 	GetComposeConfig() (*types.Config, error)
 
@@ -74,8 +68,4 @@ func ptrString(s string) *string {
 
 func ptrBool(b bool) *bool {
 	return &b
-}
-
-func ptrInt(i int) *int {
-	return &i
 }

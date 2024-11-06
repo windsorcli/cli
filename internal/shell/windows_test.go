@@ -5,8 +5,10 @@ package shell
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows"
@@ -118,4 +120,60 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDefaultShell_PrintAlias(t *testing.T) {
+	aliasVars := map[string]string{
+		"ALIAS1": "command1",
+		"ALIAS2": "command2",
+	}
+
+	t.Run("PrintAlias", func(t *testing.T) {
+		// Given a default shell
+		shell := NewDefaultShell()
+
+		// Capture the output of PrintAlias
+		output := captureStdout(t, func() {
+			err := shell.PrintAlias(aliasVars)
+			if err != nil {
+				t.Fatalf("PrintAlias returned an error: %v", err)
+			}
+		})
+
+		// Then the output should contain all expected alias variables
+		for key, value := range aliasVars {
+			expectedLine := fmt.Sprintf("Set-Alias -Name %s -Value \"%s\"\n", key, value)
+			if !strings.Contains(output, expectedLine) {
+				t.Errorf("PrintAlias() output missing expected line: %v", expectedLine)
+			}
+		}
+	})
+
+	t.Run("PrintAliasWithEmptyValue", func(t *testing.T) {
+		// Given a default shell with an alias having an empty value
+		shell := NewDefaultShell()
+		aliasVarsWithEmpty := map[string]string{
+			"ALIAS1": "command1",
+			"ALIAS2": "",
+		}
+
+		// Capture the output of PrintAlias
+		output := captureStdout(t, func() {
+			err := shell.PrintAlias(aliasVarsWithEmpty)
+			if err != nil {
+				t.Fatalf("PrintAlias returned an error: %v", err)
+			}
+		})
+
+		// Then the output should contain the expected alias and remove alias commands
+		expectedAliasLine := fmt.Sprintf("Set-Alias -Name ALIAS1 -Value \"command1\"\n")
+		expectedRemoveAliasLine := fmt.Sprintf("Remove-Item Alias:ALIAS2\n")
+
+		if !strings.Contains(output, expectedAliasLine) {
+			t.Errorf("PrintAlias() output missing expected line: %v", expectedAliasLine)
+		}
+		if !strings.Contains(output, expectedRemoveAliasLine) {
+			t.Errorf("PrintAlias() output missing expected line: %v", expectedRemoveAliasLine)
+		}
+	})
 }

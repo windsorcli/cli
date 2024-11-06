@@ -13,8 +13,8 @@ import (
 
 // SecureShell implements the Shell interface using SSH.
 type SecureShell struct {
-	container di.ContainerInterface
 	Shell
+	container di.ContainerInterface
 }
 
 // NewSecureShell creates a new instance of SecureShell.

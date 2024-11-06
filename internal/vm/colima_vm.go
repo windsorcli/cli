@@ -57,7 +57,7 @@ func (vm *ColimaVM) Down(verbose ...bool) error {
 
 // Info returns the information about the Colima VM
 func (vm *ColimaVM) Info() (interface{}, error) {
-	contextInstance, err := vm.container.Resolve("contextInstance")
+	contextHandler, err := vm.container.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
@@ -67,7 +67,7 @@ func (vm *ColimaVM) Info() (interface{}, error) {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}
 
-	contextName, err := contextInstance.(context.ContextInterface).GetContext()
+	contextName, err := contextHandler.(context.ContextInterface).GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
@@ -161,7 +161,7 @@ func getDefaultValues(context string) (int, int, int, string, string) {
 
 // executeColimaCommand executes a Colima command with the given action
 func (vm *ColimaVM) executeColimaCommand(action string, verbose bool) error {
-	contextInstance, err := vm.container.Resolve("contextInstance")
+	contextHandler, err := vm.container.Resolve("contextHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving context: %w", err)
 	}
@@ -171,7 +171,7 @@ func (vm *ColimaVM) executeColimaCommand(action string, verbose bool) error {
 		return fmt.Errorf("error resolving shell: %w", err)
 	}
 
-	contextName, err := contextInstance.(context.ContextInterface).GetContext()
+	contextName, err := contextHandler.(context.ContextInterface).GetContext()
 	if err != nil {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
@@ -207,7 +207,7 @@ func (vm *ColimaVM) configureColima() error {
 
 // startColimaVM starts the Colima VM and waits for it to have an assigned IP address
 func (vm *ColimaVM) startColimaVM(verbose bool) error {
-	contextInstance, err := vm.container.Resolve("contextInstance")
+	contextHandler, err := vm.container.Resolve("contextHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving context: %w", err)
 	}
@@ -217,7 +217,7 @@ func (vm *ColimaVM) startColimaVM(verbose bool) error {
 		return fmt.Errorf("error resolving shell: %w", err)
 	}
 
-	contextName, err := contextInstance.(context.ContextInterface).GetContext()
+	contextName, err := contextHandler.(context.ContextInterface).GetContext()
 	if err != nil {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
@@ -247,7 +247,7 @@ func (vm *ColimaVM) startColimaVM(verbose bool) error {
 
 // writeConfig writes the Colima configuration file
 func (vm *ColimaVM) writeConfig() error {
-	contextInstance, err := vm.container.Resolve("contextInstance")
+	contextHandler, err := vm.container.Resolve("contextHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving context: %w", err)
 	}
@@ -257,7 +257,7 @@ func (vm *ColimaVM) writeConfig() error {
 		return fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
-	context, err := contextInstance.(context.ContextInterface).GetContext()
+	context, err := contextHandler.(context.ContextInterface).GetContext()
 	if err != nil {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
