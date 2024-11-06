@@ -8,7 +8,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
-	"github.com/windsor-hotel/cli/internal/vm"
+	"github.com/windsor-hotel/cli/internal/virt"
 )
 
 // SuperMocks holds all the mock instances needed for testing commands.
@@ -35,7 +35,7 @@ type SuperMocks struct {
 	SSHClient        *ssh.MockClient
 	SecureShell      *shell.MockShell
 	Container        di.ContainerInterface
-	ColimaVM         *vm.MockVM
+	ColimaVirt       *virt.MockVirt
 }
 
 // CreateSuperMocks initializes all necessary mocks and returns them in a SuperMocks struct.
@@ -75,7 +75,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	mockTalosHelper := helpers.NewMockHelper()
 	mockSecureShell := shell.NewMockShell(container)
 	mockSSHClient := &ssh.MockClient{}
-	colimaVM := vm.NewMockVM()
+	colimaVirt := virt.NewMockVirt()
 
 	// Create mock environment instances
 	mockAwsEnv := env.NewMockEnv(container)
@@ -100,7 +100,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	container.Register("talosHelper", mockTalosHelper)
 	container.Register("sshClient", mockSSHClient)
 	container.Register("secureShell", mockSecureShell)
-	container.Register("colimaVM", colimaVM)
+	container.Register("colimaVirt", colimaVirt)
 	container.Register("awsEnv", mockAwsEnv)
 	container.Register("dockerEnv", mockDockerEnv)
 	container.Register("kubeEnv", mockKubeEnv)
@@ -133,6 +133,6 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 		SSHClient:        mockSSHClient,
 		SecureShell:      mockSecureShell,
 		Container:        container,
-		ColimaVM:         colimaVM,
+		ColimaVirt:       colimaVirt,
 	}
 }

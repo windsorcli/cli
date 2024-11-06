@@ -1,6 +1,7 @@
-package vm
+package virt
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -55,22 +56,18 @@ var newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
 	return yaml.NewEncoder(w, opts...)
 }
 
-// VMInfo holds the information about the virtual machine
-type VMInfo struct {
-	Address string
-	Arch    string
-	CPUs    int
-	Disk    float64
-	Memory  float64
-	Name    string
-	Runtime string
-	Status  string
-}
+// Helper function to capture stdout
+func captureStdout(f func()) string {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
 
-// VMInterface defines methods for VM operations
-type VMInterface interface {
-	Up(verbose ...bool) error
-	Down(verbose ...bool) error
-	Delete(verbose ...bool) error
-	Info() (interface{}, error)
+	f()
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	return buf.String()
 }

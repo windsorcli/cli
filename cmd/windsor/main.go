@@ -11,7 +11,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
-	"github.com/windsor-hotel/cli/internal/vm"
+	"github.com/windsor-hotel/cli/internal/virt"
 )
 
 func main() {
@@ -74,8 +74,8 @@ func main() {
 	container.Register("sshClient", sshClient)
 
 	// Create and register the ColimaVM instance using the mock as reference
-	colimaVM := vm.NewColimaVM(container)
-	container.Register("colimaVM", colimaVM)
+	colimaVM := virt.NewColimaVirt(container)
+	container.Register("colimaVirt", colimaVM)
 
 	// Create and register the AwsEnv instance
 	awsEnv := env.NewAwsEnv(container)

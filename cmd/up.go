@@ -9,7 +9,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/helpers"
-	"github.com/windsor-hotel/cli/internal/vm"
+	"github.com/windsor-hotel/cli/internal/virt"
 )
 
 var upCmd = &cobra.Command{
@@ -38,18 +38,18 @@ var upCmd = &cobra.Command{
 		}
 
 		// Check if the VM is configured and the driver is Colima
-		var vmInfo *vm.VMInfo
 		if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima" {
+			// Create a new ColimaVirt instance
+			colimaVirt := virt.NewColimaVirt(container)
+
 			// Use the Colima VM instance
-			if err := colimaVM.Up(verbose); err != nil {
+			if err := colimaVirt.Up(verbose); err != nil {
 				return fmt.Errorf("Error running Colima VM Up command: %w", err)
 			}
-			// Get and hold on to VM's info
-			info, err := colimaVM.Info()
-			if err != nil {
-				return fmt.Errorf("Error retrieving Colima VM info: %w", err)
+			// Print VM's info
+			if err := colimaVirt.PrintInfo(); err != nil {
+				return fmt.Errorf("Error printing Colima VM info: %w", err)
 			}
-			vmInfo = info.(*vm.VMInfo)
 		}
 
 		// Check if Docker is enabled
@@ -118,14 +118,22 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("Error: No interface starting with 'br-' found")
 			}
 
-			// Get VM host IP from vmInfo
-			vmHostIP := vmInfo.Address
+			// Get VM host IP from virtInfo
+			colimaVirtInstance, ok := colimaVirt.(*virt.ColimaVirt)
+			if !ok {
+				return fmt.Errorf("Error casting to ColimaVirt")
+			}
+			info, err := colimaVirtInstance.GetVMInfo()
+			if err != nil {
+				return fmt.Errorf("Error retrieving Colima info: %w", err)
+			}
+			virtHostIP := info.Address
 
 			// Determine the network interface associated with the VM host IP
-			var vmInterfaceIP string
-			vmIP := net.ParseIP(vmHostIP)
-			if vmIP == nil {
-				return fmt.Errorf("Error parsing VM host IP: %s", vmHostIP)
+			var virtInterfaceIP string
+			virtIP := net.ParseIP(virtHostIP)
+			if virtIP == nil {
+				return fmt.Errorf("Error parsing VM host IP: %s", virtHostIP)
 			}
 			netInterfaces, err := netInterfaces()
 			if err != nil {
@@ -141,12 +149,12 @@ var upCmd = &cobra.Command{
 					if !ok {
 						continue
 					}
-					if ipNet.Contains(vmIP) {
-						vmInterfaceIP = ipNet.IP.String()
+					if ipNet.Contains(virtIP) {
+						virtInterfaceIP = ipNet.IP.String()
 						break
 					}
 				}
-				if vmInterfaceIP != "" {
+				if virtInterfaceIP != "" {
 					break
 				}
 			}
@@ -160,7 +168,7 @@ var upCmd = &cobra.Command{
 				"Checking for existing iptables rule...",
 				"sudo", "iptables", "-t", "filter", "-C", "FORWARD",
 				"-i", "col0", "-o", dockerBridgeInterface,
-				"-s", vmInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
+				"-s", virtInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
 			)
 			if err != nil {
 				// Check if the error is due to the rule not existing
@@ -171,7 +179,7 @@ var upCmd = &cobra.Command{
 						"Setting IP tables on VM...",
 						"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
 						"-i", "col0", "-o", dockerBridgeInterface,
-						"-s", vmInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
+						"-s", virtInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
 					); err != nil {
 						return fmt.Errorf("Error setting iptables rule: %w", err)
 					}
@@ -191,7 +199,7 @@ var upCmd = &cobra.Command{
 				"add",
 				"-net",
 				clusterIPv4CIDR,
-				vmHostIP,
+				virtHostIP,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to add route: %w, output: %s", err, output)
@@ -264,20 +272,6 @@ var upCmd = &cobra.Command{
 		// Print welcome status page
 		fmt.Println(color.CyanString("Welcome to the Windsor Environment 📐"))
 		fmt.Println(color.CyanString("-------------------------------------"))
-
-		// Print VM info if available
-		if vmInfo != nil {
-			fmt.Println(color.GreenString("VM Info:"))
-			fmt.Printf("  Address: %s\n", vmInfo.Address)
-			fmt.Printf("  Arch: %s\n", vmInfo.Arch)
-			fmt.Printf("  CPUs: %d\n", vmInfo.CPUs)
-			fmt.Printf("  Disk: %.2f GB\n", vmInfo.Disk)
-			fmt.Printf("  Memory: %.2f GB\n", vmInfo.Memory)
-			fmt.Printf("  Name: %s\n", vmInfo.Name)
-			fmt.Printf("  Runtime: %s\n", vmInfo.Runtime)
-			fmt.Printf("  Status: %s\n", vmInfo.Status)
-			fmt.Println(color.CyanString("-------------------------------------"))
-		}
 
 		// Print Docker info if available
 		if dockerInfo != nil {
