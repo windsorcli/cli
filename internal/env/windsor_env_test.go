@@ -1,8 +1,10 @@
 package env
 
 import (
-	"errors"
 	"fmt"
+	"os"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/context"
@@ -125,7 +127,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	t.Run("GetContextError", func(t *testing.T) {
 		mocks := setupSafeWindsorEnvMocks()
 		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "", errors.New("mock context error")
+			return "", fmt.Errorf("mock context error")
 		}
 
 		windsorEnv := NewWindsorEnv(mocks.Container)
@@ -140,7 +142,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	t.Run("GetProjectRootError", func(t *testing.T) {
 		mocks := setupSafeWindsorEnvMocks()
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", errors.New("mock shell error")
+			return "", fmt.Errorf("mock shell error")
 		}
 
 		windsorEnv := NewWindsorEnv(mocks.Container)
@@ -160,6 +162,67 @@ func TestWindsorEnv_PostEnvHook(t *testing.T) {
 		err := windsorEnv.PostEnvHook()
 		if err != nil {
 			t.Errorf("PostEnvHook() returned an error: %v", err)
+		}
+	})
+}
+
+func TestWindsorEnv_Print(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Use setupSafeWindsorEnvMocks to create mocks
+		mocks := setupSafeWindsorEnvMocks()
+		mockContainer := mocks.Container
+		windsorEnv := NewWindsorEnv(mockContainer)
+
+		// Mock the stat function to simulate the existence of the Windsor config file
+		stat = func(name string) (os.FileInfo, error) {
+			if name == "/mock/config/root/.windsor/config" {
+				return nil, nil // Simulate that the file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			capturedEnvVars = envVars
+			return nil
+		}
+
+		// Call Print and check for errors
+		err := windsorEnv.Print()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that PrintEnvVarsFunc was called with the correct envVars
+		expectedEnvVars := map[string]string{
+			"WINDSOR_CONTEXT":      "mock-context",
+			"WINDSOR_PROJECT_ROOT": "/mock/project/root",
+		}
+		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
+			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+		}
+	})
+
+	t.Run("GetProjectRootError", func(t *testing.T) {
+		// Use setupSafeWindsorEnvMocks to create mocks
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Override the GetProjectRootFunc to simulate an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock project root error")
+		}
+
+		mockContainer := mocks.Container
+
+		windsorEnv := NewWindsorEnv(mockContainer)
+
+		// Call Print and check for errors
+		err := windsorEnv.Print()
+		if err == nil {
+			t.Error("expected error, got nil")
+		} else if !strings.Contains(err.Error(), "mock project root error") {
+			t.Errorf("unexpected error message: %v", err)
 		}
 	})
 }

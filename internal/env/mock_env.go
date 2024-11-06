@@ -1,15 +1,13 @@
 package env
 
 import (
-	"fmt"
-
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // MockEnv is a struct that simulates an environment for testing purposes.
 type MockEnv struct {
 	Env
-	PrintFunc       func(envVars map[string]string) error
+	PrintFunc       func() error
 	PostEnvHookFunc func() error
 	GetEnvVarsFunc  func() (map[string]string, error)
 }
@@ -26,17 +24,8 @@ func NewMockEnv(diContainer di.ContainerInterface) *MockEnv {
 // Print simulates printing the provided environment variables.
 // If a custom PrintFunc is provided, it will use that function instead.
 func (m *MockEnv) Print() error {
-	envVars, err := m.GetEnvVars()
-	if err != nil {
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-
 	if m.PrintFunc != nil {
-		return m.PrintFunc(envVars)
-	}
-
-	for key, value := range envVars {
-		fmt.Printf("%s=%s\n", key, value)
+		return m.PrintFunc()
 	}
 	return nil
 }

@@ -24,17 +24,14 @@ type Env struct {
 
 // Print prints the environment variables to the console.
 // It can optionally take a map of key:value strings and prints those.
-func (e *Env) Print(additionalVars ...map[string]string) error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
+func (e *Env) Print(customVars ...map[string]string) error {
+	var envVars map[string]string
 
-	// Merge additionalVars into envVars if provided
-	if len(additionalVars) > 0 {
-		for key, value := range additionalVars[0] {
-			envVars[key] = value
-		}
+	// Use only the passed vars
+	if len(customVars) > 0 {
+		envVars = customVars[0]
+	} else {
+		envVars = make(map[string]string)
 	}
 
 	// Use the shell package to print environment variables

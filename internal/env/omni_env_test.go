@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/context"
@@ -128,6 +130,66 @@ func TestOmniEnv_GetEnvVars(t *testing.T) {
 		expectedError := "error retrieving configuration root directory: mock context error"
 		if err == nil || err.Error() != expectedError {
 			t.Errorf("error = %v, want %v", err, expectedError)
+		}
+	})
+}
+
+func TestOmniEnv_Print(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Use setupSafeOmniEnvMocks to create mocks
+		mocks := setupSafeOmniEnvMocks()
+		mockContainer := mocks.Container
+		omniEnv := NewOmniEnv(mockContainer)
+
+		// Mock the stat function to simulate the existence of the omniconfig file
+		stat = func(name string) (os.FileInfo, error) {
+			if name == "/mock/config/root/.omni/config" {
+				return nil, nil // Simulate that the file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			capturedEnvVars = envVars
+			return nil
+		}
+
+		// Call Print and check for errors
+		err := omniEnv.Print()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that PrintEnvVarsFunc was called with the correct envVars
+		expectedEnvVars := map[string]string{
+			"OMNICONFIG": "/mock/config/root/.omni/config",
+		}
+		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
+			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+		}
+	})
+
+	t.Run("GetConfigError", func(t *testing.T) {
+		// Use setupSafeOmniEnvMocks to create mocks
+		mocks := setupSafeOmniEnvMocks()
+
+		// Override the GetConfigFunc to simulate an error
+		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+			return "", errors.New("mock config error")
+		}
+
+		mockContainer := mocks.Container
+
+		omniEnv := NewOmniEnv(mockContainer)
+
+		// Call Print and check for errors
+		err := omniEnv.Print()
+		if err == nil {
+			t.Error("expected error, got nil")
+		} else if !strings.Contains(err.Error(), "mock config error") {
+			t.Errorf("unexpected error message: %v", err)
 		}
 	})
 }

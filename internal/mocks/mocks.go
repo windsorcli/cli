@@ -63,6 +63,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 
 	mockContext := context.NewMockContext()
 	mockContext.GetContextFunc = func() (string, error) { return "mock-context", nil }
+	mockContext.SetContextFunc = func(context string) error { return nil }
 
 	mockShell := shell.NewMockShell()
 	mockAwsHelper := helpers.NewMockHelper()

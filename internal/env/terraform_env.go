@@ -209,8 +209,8 @@ func findRelativeTerraformProjectPath() (string, error) {
 		}
 	}
 
-	// No "terraform" directory found, return an error
-	return "", fmt.Errorf("no 'terraform' directory found in the current path")
+	// No "terraform" directory found, return an empty string without an error
+	return "", nil
 }
 
 // sanitizeForK8s sanitizes a string to be compatible with Kubernetes naming conventions

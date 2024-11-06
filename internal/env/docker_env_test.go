@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/context"
@@ -152,6 +154,66 @@ func TestDockerEnv_GetEnvVars(t *testing.T) {
 
 		if envVars["COMPOSE_FILE"] != "/mock/config/root/compose.yml" {
 			t.Errorf("COMPOSE_FILE = %v, want %v", envVars["COMPOSE_FILE"], "/mock/config/root/compose.yml")
+		}
+	})
+}
+
+func TestDockerEnv_Print(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Use setupSafeAwsEnvMocks to create mocks
+		mocks := setupSafeDockerEnvMocks()
+		mockContainer := mocks.Container
+		dockerEnv := NewDockerEnv(mockContainer)
+
+		// Mock the stat function to simulate the existence of the Docker compose file
+		stat = func(name string) (os.FileInfo, error) {
+			if name == "/mock/config/root/compose.yaml" || name == "/mock/config/root/compose.yml" {
+				return nil, nil // Simulate that the file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			capturedEnvVars = envVars
+			return nil
+		}
+
+		// Call Print and check for errors
+		err := dockerEnv.Print()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that PrintEnvVarsFunc was called with the correct envVars
+		expectedEnvVars := map[string]string{
+			"COMPOSE_FILE": "/mock/config/root/compose.yaml",
+		}
+		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
+			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+		}
+	})
+
+	t.Run("GetConfigError", func(t *testing.T) {
+		// Use setupSafeAwsEnvMocks to create mocks
+		mocks := setupSafeDockerEnvMocks()
+
+		// Override the GetConfigFunc to simulate an error
+		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+			return "", errors.New("mock config error")
+		}
+
+		mockContainer := mocks.Container
+
+		dockerEnv := NewDockerEnv(mockContainer)
+
+		// Call Print and check for errors
+		err := dockerEnv.Print()
+		if err == nil {
+			t.Error("expected error, got nil")
+		} else if !strings.Contains(err.Error(), "mock config error") {
+			t.Errorf("unexpected error message: %v", err)
 		}
 	})
 }

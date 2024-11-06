@@ -124,6 +124,47 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorResolvingDependenciesInGetEnvVars", func(t *testing.T) {
+		mockContainer := di.NewMockContainer()
+		mocks := setupSafeTerraformEnvMocks(mockContainer)
+		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
+
+		// When the GetEnvVars function is called
+		env := NewTerraformEnv(mocks.Container)
+		_, err := env.GetEnvVars()
+
+		// Then the error should contain the expected message
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error resolving dependencies") {
+			t.Errorf("Expected error message to contain 'error resolving dependencies', got %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingProjectPath", func(t *testing.T) {
+		// Mock the getwd function to simulate an error
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+		getwd = func() (string, error) {
+			return "", fmt.Errorf("mock error getting current directory")
+		}
+
+		mocks := setupSafeTerraformEnvMocks()
+
+		// When the GetEnvVars function is called
+		env := NewTerraformEnv(mocks.Container)
+		_, err := env.GetEnvVars()
+
+		// Then the error should contain the expected message
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error getting current directory") {
+			t.Errorf("Expected error message to contain 'error getting current directory', got %v", err)
+		}
+	})
+
 	t.Run("NoProjectPathFound", func(t *testing.T) {
 		// Given a mocked getwd function returning a specific path
 		originalGetwd := getwd
@@ -453,6 +494,89 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error writing backend_override.tf file") {
 			t.Errorf("Expected error message to contain 'error writing backend_override.tf file', got %v", err)
+		}
+	})
+}
+
+func TestTerraformEnv_Print(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Use setupSafeTerraformEnvMocks to create mocks
+		mocks := setupSafeTerraformEnvMocks()
+		mockContainer := mocks.Container
+		terraformEnv := NewTerraformEnv(mockContainer)
+
+		// Mock the stat function to simulate the existence of the terraform config file
+		stat = func(name string) (os.FileInfo, error) {
+			if name == "/mock/config/root/.terraform/config" {
+				return nil, nil // Simulate that the file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock the glob function to simulate the presence of *.tf files
+		originalGlob := glob
+		defer func() { glob = originalGlob }()
+		glob = func(pattern string) ([]string, error) {
+			if strings.Contains(pattern, "*.tf") {
+				return []string{"main.tf"}, nil // Simulate that tf files exist
+			}
+			return nil, nil
+		}
+
+		// Mock the getwd function to return a path that includes "terraform"
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+		getwd = func() (string, error) {
+			return "/mock/project/root/terraform/project/path", nil
+		}
+
+		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			capturedEnvVars = envVars
+			return nil
+		}
+
+		// Call Print and check for errors
+		err := terraformEnv.Print()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that PrintEnvVarsFunc was called with the correct envVars
+		expectedEnvVars := map[string]string{
+			"TF_DATA_DIR":         "/mock/config/root/.terraform/project/path",
+			"TF_CLI_ARGS_init":    "-backend=true -backend-config=path=/mock/config/root/.tfstate/project/path/terraform.tfstate",
+			"TF_CLI_ARGS_plan":    "-out=/mock/config/root/.terraform/project/path/terraform.tfplan",
+			"TF_CLI_ARGS_apply":   "/mock/config/root/.terraform/project/path/terraform.tfplan",
+			"TF_CLI_ARGS_import":  "",
+			"TF_CLI_ARGS_destroy": "",
+			"TF_VAR_context_path": "/mock/config/root",
+		}
+		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
+			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+		}
+	})
+
+	t.Run("GetConfigError", func(t *testing.T) {
+		// Use setupSafeTerraformEnvMocks to create mocks
+		mocks := setupSafeTerraformEnvMocks()
+
+		// Override the GetConfigFunc to simulate an error
+		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock config error")
+		}
+
+		mockContainer := mocks.Container
+
+		terraformEnv := NewTerraformEnv(mockContainer)
+
+		// Call Print and check for errors
+		err := terraformEnv.Print()
+		if err == nil {
+			t.Error("expected error, got nil")
+		} else if !strings.Contains(err.Error(), "mock config error") {
+			t.Errorf("unexpected error message: %v", err)
 		}
 	})
 }
@@ -787,14 +911,14 @@ func TestTerraformEnv_findRelativeTerraformProjectPath(t *testing.T) {
 		defer func() { glob = originalGlob }()
 
 		// When findRelativeTerraformProjectPath is called
-		_, err := findRelativeTerraformProjectPath()
+		projectPath, err := findRelativeTerraformProjectPath()
 
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
+		// Then no error should occur and the project path should be empty
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
-		if !strings.Contains(err.Error(), "no 'terraform' directory found in the current path") {
-			t.Errorf("Expected error message to contain 'no 'terraform' directory found in the current path', got %v", err)
+		if projectPath != "" {
+			t.Errorf("Expected empty project path, got %v", projectPath)
 		}
 	})
 }

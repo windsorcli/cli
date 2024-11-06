@@ -3,6 +3,7 @@ package env
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -319,6 +320,66 @@ func TestSopsEnv_decryptFile(t *testing.T) {
 		// Then it should return the decryption error
 		if err == nil || !strings.Contains(err.Error(), "mock decryption error") {
 			t.Fatalf("expected mock decryption error, got %v", err)
+		}
+	})
+}
+
+func TestSopsEnv_Print(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Use setupSopsEnvMocks to create mocks
+		mocks := setupSopsEnvMocks()
+		mockContainer := mocks.Container
+		sopsEnv := NewSopsEnv(mockContainer)
+
+		// Mock the stat function to simulate the existence of the sops encrypted secrets file
+		stat = func(name string) (os.FileInfo, error) {
+			if name == "/mock/config/root/secrets.enc.yaml" {
+				return nil, nil // Simulate that the file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			capturedEnvVars = envVars
+			return nil
+		}
+
+		// Call Print and check for errors
+		err := sopsEnv.Print()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that PrintEnvVarsFunc was called with the correct envVars
+		expectedEnvVars := map[string]string{
+			"NEW_VAR": "new_value", // Updated expected env var
+		}
+		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
+			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+		}
+	})
+
+	t.Run("GetConfigError", func(t *testing.T) {
+		// Use setupSopsEnvMocks to create mocks
+		mocks := setupSopsEnvMocks()
+
+		// Override the GetConfigFunc to simulate an error
+		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock config error")
+		}
+
+		mockContainer := mocks.Container
+
+		sopsEnv := NewSopsEnv(mockContainer)
+
+		// Call Print and check for errors
+		err := sopsEnv.Print()
+		if err == nil {
+			t.Error("expected error, got nil")
+		} else if !strings.Contains(err.Error(), "mock config error") {
+			t.Errorf("unexpected error message: %v", err)
 		}
 	})
 }

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/context"
@@ -125,6 +127,66 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 		_, err := talosEnv.GetEnvVars()
 		if err == nil || err.Error() != "error retrieving configuration root directory: mock context error" {
 			t.Errorf("expected error retrieving configuration root directory, got %v", err)
+		}
+	})
+}
+
+func TestTalosEnv_Print(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Use setupSafeTalosEnvMocks to create mocks
+		mocks := setupSafeTalosEnvMocks()
+		mockContainer := mocks.Container
+		talosEnv := NewTalosEnv(mockContainer)
+
+		// Mock the stat function to simulate the existence of the talos config file
+		stat = func(name string) (os.FileInfo, error) {
+			if name == "/mock/config/root/.talos/config" {
+				return nil, nil // Simulate that the file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			capturedEnvVars = envVars
+			return nil
+		}
+
+		// Call Print and check for errors
+		err := talosEnv.Print()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that PrintEnvVarsFunc was called with the correct envVars
+		expectedEnvVars := map[string]string{
+			"TALOSCONFIG": "/mock/config/root/.talos/config",
+		}
+		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
+			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+		}
+	})
+
+	t.Run("GetConfigError", func(t *testing.T) {
+		// Use setupSafeTalosEnvMocks to create mocks
+		mocks := setupSafeTalosEnvMocks()
+
+		// Override the GetConfigFunc to simulate an error
+		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+			return "", errors.New("mock config error")
+		}
+
+		mockContainer := mocks.Container
+
+		talosEnv := NewTalosEnv(mockContainer)
+
+		// Call Print and check for errors
+		err := talosEnv.Print()
+		if err == nil {
+			t.Error("expected error, got nil")
+		} else if !strings.Contains(err.Error(), "mock config error") {
+			t.Errorf("unexpected error message: %v", err)
 		}
 	})
 }

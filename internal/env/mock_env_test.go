@@ -2,6 +2,7 @@ package env
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"testing"
 
@@ -98,6 +99,62 @@ func TestMockEnv_GetEnvVars(t *testing.T) {
 			if envVars[key] != value {
 				t.Errorf("GetEnvVars()[%v] = %v, want %v", key, envVars[key], value)
 			}
+		}
+	})
+}
+
+func TestMockEnv_Print(t *testing.T) {
+	t.Run("DefaultPrint", func(t *testing.T) {
+		// Given a mock environment with default Print implementation
+		mockEnv := NewMockEnv(nil)
+		// When calling Print
+		err := mockEnv.Print()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Print() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("CustomPrint", func(t *testing.T) {
+		// Given a mock environment with custom Print implementation
+		mockEnv := NewMockEnv(nil)
+		expectedError := fmt.Errorf("custom print error")
+		mockEnv.PrintFunc = func() error {
+			return expectedError
+		}
+		// When calling Print
+		err := mockEnv.Print()
+		// Then the custom error should be returned
+		if err != expectedError {
+			t.Errorf("Print() error = %v, want %v", err, expectedError)
+		}
+	})
+}
+
+func TestMockEnv_PostEnvHook(t *testing.T) {
+	t.Run("DefaultPostEnvHook", func(t *testing.T) {
+		// Given a mock environment with default PostEnvHook implementation
+		mockEnv := NewMockEnv(nil)
+		// When calling PostEnvHook
+		err := mockEnv.PostEnvHook()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("PostEnvHook() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("CustomPostEnvHook", func(t *testing.T) {
+		// Given a mock environment with custom PostEnvHook implementation
+		mockEnv := NewMockEnv(nil)
+		expectedError := fmt.Errorf("custom post env hook error")
+		mockEnv.PostEnvHookFunc = func() error {
+			return expectedError
+		}
+		// When calling PostEnvHook
+		err := mockEnv.PostEnvHook()
+		// Then the custom error should be returned
+		if err != expectedError {
+			t.Errorf("PostEnvHook() error = %v, want %v", err, expectedError)
 		}
 	})
 }

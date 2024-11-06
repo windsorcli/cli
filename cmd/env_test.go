@@ -22,36 +22,22 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Initialize mocks and set the container
 		mocks := mocks.CreateSuperMocks()
 
-		// Create a mock EnvInterface
+		// Create a mock WindsorEnv
 		mockEnv := env.NewMockEnv(mocks.Container)
-		mockEnv.PrintFunc = func(envVars map[string]string) error {
-			envVars["TF_DATA_DIR"] = "/mock/terraform/data/dir"
-			fmt.Printf("TF_DATA_DIR=%s\n", envVars["TF_DATA_DIR"])
+		mockEnv.PrintFunc = func() error {
+			fmt.Println("export VAR=value")
 			return nil
 		}
-
-		// Mock the Print function using the correct shell package
-		mockShell := mocks.Shell
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
-			for k, v := range envVars {
-				fmt.Printf("%s=%s\n", k, v)
-			}
-			return nil
-		}
-
 		mocks.Container.Register("windsorEnv", mockEnv)
-		mocks.Container.Register("shell", mockShell)
 
 		Initialize(mocks.Container)
 
-		// Capture stdout using the captureStdout function
+		// Capture the output using captureStdout
 		output := captureStdout(func() {
-			// When the env command is executed
 			rootCmd.SetArgs([]string{"env"})
 			err := rootCmd.Execute()
 			if err != nil {
@@ -59,10 +45,10 @@ func TestEnvCmd(t *testing.T) {
 			}
 		})
 
-		// Then the output should contain the expected environment variables
-		expectedOutput := "TF_DATA_DIR=/mock/terraform/data/dir"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// Verify the output
+		expectedOutput := "export VAR=value\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -126,6 +112,37 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorCastingEnvPrinter", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given a normal container with an invalid instance registered
+		container := di.NewContainer()
+		mocks := mocks.CreateSuperMocks(container)
+		mocks.Container.Register("windsorEnv", "invalid-instance")
+
+		Initialize(mocks.Container)
+
+		// Capture stderr
+		var buf bytes.Buffer
+		rootCmd.SetErr(&buf)
+
+		// When the env command is executed with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		output := buf.String()
+
+		// Then the output should indicate the error
+		expectedOutput := "failed to cast resolved instance to env.EnvPrinter"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
 	t.Run("ResolveShellError", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
@@ -160,37 +177,6 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("GetEnvVarsError", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a mock environment that returns an error when getting environment variables
-		mocks := mocks.CreateSuperMocks()
-		mockEnv := mocks.WindsorEnv
-		mockEnv.PrintFunc = func(envVars map[string]string) error {
-			return fmt.Errorf("get env vars error")
-		}
-		mockEnv.PostEnvHookFunc = func() error {
-			return nil
-		}
-
-		Initialize(mocks.Container)
-
-		// When the env command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		if !strings.Contains(output, "get env vars error") {
-			t.Errorf("Expected output to contain error message, got %q", output)
-		}
-	})
-
 	t.Run("GetEnvVarsErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
@@ -198,8 +184,8 @@ func TestEnvCmd(t *testing.T) {
 		// Given a mock environment that returns an error when getting environment variables
 		mocks := mocks.CreateSuperMocks()
 		mockEnv := mocks.WindsorEnv
-		mockEnv.PrintFunc = func(envVars map[string]string) error {
-			return fmt.Errorf("get env vars error")
+		mockEnv.GetEnvVarsFunc = func() (map[string]string, error) {
+			return nil, fmt.Errorf("get env vars error")
 		}
 		mockEnv.PostEnvHookFunc = func() error {
 			return nil
@@ -232,9 +218,7 @@ func TestEnvCmd(t *testing.T) {
 		// Given an env that returns an error when executing PostEnvHook
 		mocks := mocks.CreateSuperMocks()
 		mockEnv := mocks.WindsorEnv
-		mockEnv.PrintFunc = func(envVars map[string]string) error {
-			envVars["VAR1"] = "value1"
-			envVars["VAR2"] = "value2"
+		mockEnv.PrintFunc = func() error {
 			return nil
 		}
 		mockEnv.PostEnvHookFunc = func() error {
@@ -266,9 +250,7 @@ func TestEnvCmd(t *testing.T) {
 		// Given an env that returns an error when executing PostEnvHook
 		mocks := mocks.CreateSuperMocks()
 		mockEnv := mocks.WindsorEnv
-		mockEnv.PrintFunc = func(envVars map[string]string) error {
-			envVars["VAR1"] = "value1"
-			envVars["VAR2"] = "value2"
+		mockEnv.PrintFunc = func() error {
 			return nil
 		}
 		mockEnv.PostEnvHookFunc = func() error {
