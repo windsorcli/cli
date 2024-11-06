@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -29,7 +30,7 @@ func setupSafeOmniEnvMocks(container ...di.ContainerInterface) *OmniEnvMocks {
 
 	mockContext := context.NewMockContext()
 	mockContext.GetConfigRootFunc = func() (string, error) {
-		return "/mock/config/root", nil
+		return filepath.FromSlash("/mock/config/root"), nil
 	}
 
 	mockShell := shell.NewMockShell()
@@ -51,7 +52,7 @@ func TestOmniEnv_GetEnvVars(t *testing.T) {
 		originalStat := stat
 		defer func() { stat = originalStat }()
 		stat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/.omni/config" {
+			if name == filepath.FromSlash("/mock/config/root/.omni/config") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -64,8 +65,8 @@ func TestOmniEnv_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		if envVars["OMNICONFIG"] != "/mock/config/root/.omni/config" {
-			t.Errorf("OMNICONFIG = %v, want %v", envVars["OMNICONFIG"], "/mock/config/root/.omni/config")
+		if envVars["OMNICONFIG"] != filepath.FromSlash("/mock/config/root/.omni/config") {
+			t.Errorf("OMNICONFIG = %v, want %v", envVars["OMNICONFIG"], filepath.FromSlash("/mock/config/root/.omni/config"))
 		}
 	})
 
@@ -143,7 +144,7 @@ func TestOmniEnv_Print(t *testing.T) {
 
 		// Mock the stat function to simulate the existence of the omniconfig file
 		stat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/.omni/config" {
+			if name == filepath.FromSlash("/mock/config/root/.omni/config") {
 				return nil, nil // Simulate that the file exists
 			}
 			return nil, os.ErrNotExist
@@ -164,7 +165,7 @@ func TestOmniEnv_Print(t *testing.T) {
 
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{
-			"OMNICONFIG": "/mock/config/root/.omni/config",
+			"OMNICONFIG": filepath.FromSlash("/mock/config/root/.omni/config"),
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)

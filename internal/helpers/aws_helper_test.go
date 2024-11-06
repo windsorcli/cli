@@ -3,6 +3,7 @@ package helpers
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -43,12 +44,12 @@ func createAwsHelperMocks(mockContainer ...di.ContainerInterface) *AwsHelperMock
 	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 		return "mock-exec-output", nil
 	}
-	mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
+	mockShell.GetProjectRootFunc = func() (string, error) { return filepath.FromSlash("/mock/project/root"), nil }
 
 	mockContext := context.NewMockContext()
 	mockContext.GetContextFunc = func() (string, error) { return "mock-context", nil }
 	mockContext.SetContextFunc = func(context string) error { return nil }
-	mockContext.GetConfigRootFunc = func() (string, error) { return "/mock/config/root", nil }
+	mockContext.GetConfigRootFunc = func() (string, error) { return filepath.FromSlash("/mock/config/root"), nil }
 
 	// Register mocks in the DI container
 	container.Register("cliConfigHandler", mockCLIConfigHandler)

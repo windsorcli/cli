@@ -3,6 +3,7 @@ package env
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -28,7 +29,7 @@ func setupSopsEnvMocks(container ...di.ContainerInterface) *SopsEnvMocks {
 
 	mockContext := context.NewMockContext()
 	mockContext.GetConfigRootFunc = func() (string, error) {
-		return "/mock/config/root", nil
+		return filepath.FromSlash("/mock/config/root"), nil
 	}
 
 	mockShell := shell.NewMockShell()
@@ -49,7 +50,7 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 		sopsEnv := NewSopsEnv(mocks.Container)
 
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 
 		// Mock the file system to simulate the existence of the SOPS file
@@ -150,7 +151,7 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 		mockContainer := di.NewMockContainer()
 		mocks := setupSopsEnvMocks(mockContainer)
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 
 		// And a mocked stat function simulating the file does not exist
@@ -180,7 +181,7 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 		mockContainer := di.NewMockContainer()
 		mocks := setupSopsEnvMocks(mockContainer)
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 
 		// And a mocked stat function simulating the file exists
@@ -215,7 +216,7 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 		mockContainer := di.NewMockContainer()
 		mocks := setupSopsEnvMocks(mockContainer)
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 
 		// And a mocked stat function simulating the file exists
@@ -333,10 +334,15 @@ func TestSopsEnv_Print(t *testing.T) {
 
 		// Mock the stat function to simulate the existence of the sops encrypted secrets file
 		stat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/secrets.enc.yaml" {
+			if filepath.Clean(name) == filepath.FromSlash("/mock/config/root/secrets.enc.yaml") {
 				return nil, nil // Simulate that the file exists
 			}
 			return nil, os.ErrNotExist
+		}
+
+		// Mock the decryption process to ensure the environment variable is set
+		decryptFileFunc = func(filePath string, _ string) ([]byte, error) {
+			return []byte("NEW_VAR: new_value"), nil
 		}
 
 		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars

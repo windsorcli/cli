@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -29,7 +30,7 @@ func setupSafeDockerEnvMocks(container ...di.ContainerInterface) *DockerEnvMocks
 
 	mockContext := context.NewMockContext()
 	mockContext.GetConfigRootFunc = func() (string, error) {
-		return "/mock/config/root", nil
+		return filepath.FromSlash("/mock/config/root"), nil
 	}
 
 	mockShell := shell.NewMockShell()
@@ -51,7 +52,7 @@ func TestDockerEnv_GetEnvVars(t *testing.T) {
 		originalStat := stat
 		defer func() { stat = originalStat }()
 		stat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/compose.yaml" || name == "/mock/config/root/compose.yml" {
+			if name == filepath.FromSlash("/mock/config/root/compose.yaml") || name == filepath.FromSlash("/mock/config/root/compose.yml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -64,8 +65,8 @@ func TestDockerEnv_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		if envVars["COMPOSE_FILE"] != "/mock/config/root/compose.yaml" && envVars["COMPOSE_FILE"] != "/mock/config/root/compose.yml" {
-			t.Errorf("COMPOSE_FILE = %v, want %v or %v", envVars["COMPOSE_FILE"], "/mock/config/root/compose.yaml", "/mock/config/root/compose.yml")
+		if envVars["COMPOSE_FILE"] != filepath.FromSlash("/mock/config/root/compose.yaml") && envVars["COMPOSE_FILE"] != filepath.FromSlash("/mock/config/root/compose.yml") {
+			t.Errorf("COMPOSE_FILE = %v, want %v or %v", envVars["COMPOSE_FILE"], filepath.FromSlash("/mock/config/root/compose.yaml"), filepath.FromSlash("/mock/config/root/compose.yml"))
 		}
 	})
 
@@ -139,7 +140,7 @@ func TestDockerEnv_GetEnvVars(t *testing.T) {
 		originalStat := stat
 		defer func() { stat = originalStat }()
 		stat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/compose.yml" {
+			if name == filepath.FromSlash("/mock/config/root/compose.yml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -152,8 +153,8 @@ func TestDockerEnv_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		if envVars["COMPOSE_FILE"] != "/mock/config/root/compose.yml" {
-			t.Errorf("COMPOSE_FILE = %v, want %v", envVars["COMPOSE_FILE"], "/mock/config/root/compose.yml")
+		if envVars["COMPOSE_FILE"] != filepath.FromSlash("/mock/config/root/compose.yml") {
+			t.Errorf("COMPOSE_FILE = %v, want %v", envVars["COMPOSE_FILE"], filepath.FromSlash("/mock/config/root/compose.yml"))
 		}
 	})
 }
@@ -167,7 +168,7 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		// Mock the stat function to simulate the existence of the Docker compose file
 		stat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/compose.yaml" || name == "/mock/config/root/compose.yml" {
+			if name == filepath.FromSlash("/mock/config/root/compose.yaml") || name == filepath.FromSlash("/mock/config/root/compose.yml") {
 				return nil, nil // Simulate that the file exists
 			}
 			return nil, os.ErrNotExist
@@ -188,7 +189,7 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{
-			"COMPOSE_FILE": "/mock/config/root/compose.yaml",
+			"COMPOSE_FILE": filepath.FromSlash("/mock/config/root/compose.yaml"),
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)

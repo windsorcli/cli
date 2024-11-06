@@ -3,6 +3,7 @@ package env
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -28,7 +29,7 @@ func setupSafeWindsorEnvMocks(container ...di.ContainerInterface) *WindsorEnvMoc
 
 	mockContext := context.NewMockContext()
 	mockContext.GetConfigRootFunc = func() (string, error) {
-		return "/mock/config/root", nil
+		return filepath.FromSlash("/mock/config/root"), nil
 	}
 	mockContext.GetContextFunc = func() (string, error) {
 		return "mock-context", nil
@@ -36,7 +37,7 @@ func setupSafeWindsorEnvMocks(container ...di.ContainerInterface) *WindsorEnvMoc
 
 	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
-		return "/mock/project/root", nil
+		return filepath.FromSlash("/mock/project/root"), nil
 	}
 
 	mockContainer.Register("contextHandler", mockContext)
@@ -63,8 +64,10 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		if envVars["WINDSOR_CONTEXT"] != "mock-context" {
 			t.Errorf("WINDSOR_CONTEXT = %v, want %v", envVars["WINDSOR_CONTEXT"], "mock-context")
 		}
-		if envVars["WINDSOR_PROJECT_ROOT"] != "/mock/project/root" {
-			t.Errorf("WINDSOR_PROJECT_ROOT = %v, want %v", envVars["WINDSOR_PROJECT_ROOT"], "/mock/project/root")
+
+		expectedProjectRoot := filepath.FromSlash("/mock/project/root")
+		if envVars["WINDSOR_PROJECT_ROOT"] != expectedProjectRoot {
+			t.Errorf("WINDSOR_PROJECT_ROOT = %v, want %v", envVars["WINDSOR_PROJECT_ROOT"], expectedProjectRoot)
 		}
 	})
 
@@ -175,7 +178,7 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		// Mock the stat function to simulate the existence of the Windsor config file
 		stat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/.windsor/config" {
+			if filepath.Clean(name) == filepath.FromSlash("/mock/config/root/.windsor/config") {
 				return nil, nil // Simulate that the file exists
 			}
 			return nil, os.ErrNotExist
@@ -197,7 +200,7 @@ func TestWindsorEnv_Print(t *testing.T) {
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{
 			"WINDSOR_CONTEXT":      "mock-context",
-			"WINDSOR_PROJECT_ROOT": "/mock/project/root",
+			"WINDSOR_PROJECT_ROOT": filepath.FromSlash("/mock/project/root"),
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)

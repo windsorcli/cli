@@ -186,6 +186,9 @@ func findRelativeTerraformProjectPath() (string, error) {
 		return "", fmt.Errorf("error getting current directory: %w", err)
 	}
 
+	// Normalize the path for consistent behavior across different OS
+	currentPath = filepath.Clean(currentPath)
+
 	// Check if the current directory contains any Terraform files
 	globPattern := filepath.Join(currentPath, "*.tf")
 	matches, err := glob(globPattern)
@@ -202,7 +205,7 @@ func findRelativeTerraformProjectPath() (string, error) {
 
 	// Iterate through the path components to find the "terraform" directory
 	for i := len(pathParts) - 1; i >= 0; i-- {
-		if pathParts[i] == "terraform" {
+		if strings.EqualFold(pathParts[i], "terraform") { // Use case-insensitive comparison for Windows
 			// Join the path components after the "terraform" directory
 			relativePath := filepath.Join(pathParts[i+1:]...)
 			return relativePath, nil

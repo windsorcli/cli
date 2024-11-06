@@ -541,7 +541,7 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 			return "test-context", nil
 		}
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
@@ -581,16 +581,17 @@ func TestDockerHelper_WriteConfig(t *testing.T) {
 			t.Fatalf("NewDockerHelper() error = %v", err)
 		}
 
-		// Mock the os.MkdirAll function to return an error
+		// Mock the mkdirAll function to simulate a read-only file system error
 		originalMkdirAll := mkdirAll
 		mkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("mock error creating parent context folder: mkdir /mock: read-only file system")
+			return fmt.Errorf("mkdir %s: read-only file system", filepath.Clean("/mock/config/root"))
 		}
 		defer func() { mkdirAll = originalMkdirAll }()
 
 		// And calling WriteConfig
 		err = helper.WriteConfig()
-		if err == nil || !strings.Contains(err.Error(), "mock error creating parent context folder: mkdir /mock: read-only file system") {
+		expectedError := fmt.Sprintf("error creating parent context folder: mkdir %s: read-only file system", filepath.Clean("/mock/config/root"))
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("WriteConfig() error = %v", err)
 		}
 	})

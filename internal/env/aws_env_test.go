@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -46,7 +47,7 @@ func setupSafeAwsEnvMocks(container ...di.ContainerInterface) *AwsEnvMocks {
 	// Create a mock Context using its constructor
 	mockContext := context.NewMockContext()
 	mockContext.GetConfigRootFunc = func() (string, error) {
-		return "/mock/config/root", nil
+		return filepath.FromSlash("/mock/config/root"), nil
 	}
 
 	// Create a mock Shell using its constructor
@@ -72,7 +73,7 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 
 		// Mock the stat function to simulate the existence of the AWS config file
 		stat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/.aws/config" {
+			if name == filepath.FromSlash("/mock/config/root/.aws/config") {
 				return nil, nil // Simulate that the file exists
 			}
 			return nil, os.ErrNotExist
@@ -87,8 +88,9 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// Then the environment variables should be set correctly
-		if envVars["AWS_CONFIG_FILE"] != "/mock/config/root/.aws/config" {
-			t.Errorf("AWS_CONFIG_FILE = %v, want %v", envVars["AWS_CONFIG_FILE"], "/mock/config/root/.aws/config")
+		expectedConfigFile := filepath.FromSlash("/mock/config/root/.aws/config")
+		if envVars["AWS_CONFIG_FILE"] != expectedConfigFile {
+			t.Errorf("AWS_CONFIG_FILE = %v, want %v", envVars["AWS_CONFIG_FILE"], expectedConfigFile)
 		}
 	})
 
@@ -338,7 +340,7 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Mock the stat function to simulate the existence of the AWS config file
 		stat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/.aws/config" {
+			if name == filepath.FromSlash("/mock/config/root/.aws/config") {
 				return nil, nil // Simulate that the file exists
 			}
 			return nil, os.ErrNotExist
@@ -359,7 +361,7 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{
-			"AWS_CONFIG_FILE":  "/mock/config/root/.aws/config",
+			"AWS_CONFIG_FILE":  filepath.FromSlash("/mock/config/root/.aws/config"),
 			"AWS_PROFILE":      "default",
 			"AWS_ENDPOINT_URL": "https://aws.endpoint",
 			"S3_HOSTNAME":      "s3.amazonaws.com",

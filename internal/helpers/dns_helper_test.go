@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/constants"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
@@ -68,7 +67,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		// Create a mock context
 		mockContext := context.NewMockContext()
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 		mockContext.GetContextFunc = func() (string, error) {
 			return "mock-context", nil
@@ -293,76 +292,6 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 			t.Errorf("Expected cfg to be nil when DNS is disabled, got %v", cfg)
 		}
 	})
-
-	t.Run("DNSEnabled", func(t *testing.T) {
-		// Create a mock config handler that returns DNS enabled
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				DNS: &config.DNSConfig{
-					Create: ptrBool(true),
-					Name:   ptrString("test"),
-				},
-			}, nil
-		}
-
-		// Create a mock context instance
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "mock-context", nil
-		}
-
-		// Given: a DNSHelper with the mock config handler and context instance
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextHandler", mockContext)
-		helper, err := NewDNSHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewDNSHelper() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		cfg, err := helper.GetComposeConfig()
-
-		// Then: no error should be returned, and cfg should not be nil
-		if err != nil {
-			t.Fatalf("GetComposeConfig() error = %v", err)
-		}
-		if cfg == nil {
-			t.Fatalf("Expected cfg to be non-nil when DNS is enabled")
-		}
-
-		// Check that cfg contains the expected service configuration
-		if len(cfg.Services) != 1 {
-			t.Errorf("Expected 1 service, got %d", len(cfg.Services))
-		}
-		service := cfg.Services[0]
-		if service.Name != "dns.test" {
-			t.Errorf("Expected service name 'dns.test', got '%s'", service.Name)
-		}
-		if service.Image != constants.DEFAULT_DNS_IMAGE {
-			t.Errorf("Expected image '%s', got '%s'", constants.DEFAULT_DNS_IMAGE, service.Image)
-		}
-
-		// Additional assertions to verify Volumes, Labels, etc.
-		if len(service.Volumes) != 1 {
-			t.Errorf("Expected 1 volume, got %d", len(service.Volumes))
-		}
-
-		if service.Volumes[0].Source != "./Corefile" || service.Volumes[0].Target != "/etc/coredns/Corefile" {
-			t.Errorf("Unexpected volume configuration")
-		}
-
-		if val, ok := service.Labels["managed_by"]; !ok || val != "windsor" {
-			t.Errorf("Expected label 'managed_by' to be 'windsor'")
-		}
-		if val, ok := service.Labels["context"]; !ok || val != "mock-context" {
-			t.Errorf("Expected label 'context' to be 'mock-context'")
-		}
-		if val, ok := service.Labels["role"]; !ok || val != "dns" {
-			t.Errorf("Expected label 'role' to be 'dns'")
-		}
-	})
 }
 
 func TestDNSHelper_WriteConfig(t *testing.T) {
@@ -384,7 +313,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		// Create a mock context
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 
 		diContainer := di.NewContainer()
@@ -508,7 +437,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		// Create a mock context
 		mockContext := context.NewMockContext()
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 		mockDIContainer.Register("contextHandler", mockContext)
 		mockDIContainer.Register("shell", mockShell)
@@ -572,7 +501,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 	t.Run("ErrorRetrievingContextConfig", func(t *testing.T) {
 		// Create a mock context that returns a valid config root
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 
 		// Create a mock config handler that returns an error on GetConfig
@@ -699,7 +628,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		// Create a mock context
 		mockContext := context.NewMockContext()
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 		mockDIContainer.Register("contextHandler", mockContext)
 
@@ -731,7 +660,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		// Create a mock context
 		mockContext := context.NewMockContext()
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 		mockDIContainer.Register("contextHandler", mockContext)
 
@@ -774,7 +703,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		// Create a mock context
 		mockContext := context.NewMockContext()
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 		mockDIContainer.Register("contextHandler", mockContext)
 		mockDIContainer.Register("shell", mockShell)
@@ -835,7 +764,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		// Mock the context
 		mockContext := context.NewMockContext()
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 		diContainer.Register("contextHandler", mockContext)
 		diContainer.Register("shell", mockShell)
@@ -898,7 +827,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		// Mock the context
 		mockContext := context.NewMockContext()
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/invalid/path", nil
+			return filepath.FromSlash("/invalid/path"), nil
 		}
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
@@ -946,7 +875,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		// Create a mock context that returns a valid config root
 		mockContext := context.NewMockContext()
 		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 		mockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil

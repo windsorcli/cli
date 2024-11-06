@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -29,7 +30,7 @@ func setupSafeKubeEnvMocks(container ...di.ContainerInterface) *KubeEnvMocks {
 
 	mockContext := context.NewMockContext()
 	mockContext.GetConfigRootFunc = func() (string, error) {
-		return "/mock/config/root", nil
+		return filepath.FromSlash("/mock/config/root"), nil
 	}
 
 	mockShell := shell.NewMockShell()
@@ -51,7 +52,7 @@ func TestKubeEnv_GetEnvVars(t *testing.T) {
 		originalStat := stat
 		defer func() { stat = originalStat }()
 		stat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/.kube/config" {
+			if name == filepath.FromSlash("/mock/config/root/.kube/config") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -64,8 +65,9 @@ func TestKubeEnv_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		if envVars["KUBECONFIG"] != "/mock/config/root/.kube/config" || envVars["KUBE_CONFIG_PATH"] != "/mock/config/root/.kube/config" {
-			t.Errorf("KUBECONFIG = %v, KUBE_CONFIG_PATH = %v, want both to be %v", envVars["KUBECONFIG"], envVars["KUBE_CONFIG_PATH"], "/mock/config/root/.kube/config")
+		expectedPath := filepath.FromSlash("/mock/config/root/.kube/config")
+		if envVars["KUBECONFIG"] != expectedPath || envVars["KUBE_CONFIG_PATH"] != expectedPath {
+			t.Errorf("KUBECONFIG = %v, KUBE_CONFIG_PATH = %v, want both to be %v", envVars["KUBECONFIG"], envVars["KUBE_CONFIG_PATH"], expectedPath)
 		}
 	})
 
@@ -143,7 +145,7 @@ func TestKubeEnv_Print(t *testing.T) {
 
 		// Mock the stat function to simulate the existence of the kubeconfig file
 		stat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/.kube/config" {
+			if name == filepath.FromSlash("/mock/config/root/.kube/config") {
 				return nil, nil // Simulate that the file exists
 			}
 			return nil, os.ErrNotExist
@@ -164,8 +166,8 @@ func TestKubeEnv_Print(t *testing.T) {
 
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{
-			"KUBECONFIG":       "/mock/config/root/.kube/config",
-			"KUBE_CONFIG_PATH": "/mock/config/root/.kube/config",
+			"KUBECONFIG":       filepath.FromSlash("/mock/config/root/.kube/config"),
+			"KUBE_CONFIG_PATH": filepath.FromSlash("/mock/config/root/.kube/config"),
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
