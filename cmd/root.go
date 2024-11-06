@@ -37,9 +37,6 @@ var shellInstance shell.Shell
 // secureShell instance
 var secureShellInstance shell.Shell
 
-// terraformHelper instance
-var terraformHelper helpers.Helper
-
 // awsHelper instance
 var awsHelper helpers.Helper
 
@@ -243,7 +240,6 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("cliConfigHandler", &cliConfigHandler)
 	resolveAndAssign("shell", &shellInstance)
 	resolveAndAssign("secureShell", &secureShellInstance)
-	resolveAndAssign("terraformHelper", &terraformHelper)
 	resolveAndAssign("awsHelper", &awsHelper)
 	resolveAndAssign("dockerHelper", &dockerHelper)
 	resolveAndAssign("contextHandler", &contextHandler)

@@ -40,48 +40,6 @@ func main() {
 	contextHandler := context.NewContext(cliConfigHandler, shellInstance)
 	container.Register("contextHandler", contextHandler)
 
-	// Create and register the BaseHelper instance
-	baseHelper, err := helpers.NewBaseHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create base helper: %v", err)
-	}
-	container.Register("baseHelper", baseHelper)
-
-	// Create and register the KubeHelper instance
-	kubeHelper, err := helpers.NewKubeHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create kube helper: %v", err)
-	}
-	container.Register("kubeHelper", kubeHelper)
-
-	// Create and register the TerraformHelper instance
-	terraformHelper, err := helpers.NewTerraformHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create terraform helper: %v", err)
-	}
-	container.Register("terraformHelper", terraformHelper)
-
-	// Create and register the TalosHelper instance
-	talosHelper, err := helpers.NewTalosHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create talos helper: %v", err)
-	}
-	container.Register("talosHelper", talosHelper)
-
-	// Create and register the OmniHelper instance
-	omniHelper, err := helpers.NewOmniHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create omni helper: %v", err)
-	}
-	container.Register("omniHelper", omniHelper)
-
-	// Create and register the SopsHelper instance
-	sopsHelper, err := helpers.NewSopsHelper(container)
-	if err != nil {
-		log.Fatalf("failed to create sops helper: %v", err)
-	}
-	container.Register("sopsHelper", sopsHelper)
-
 	// Create and register the AwsHelper instance
 	awsHelper, err := helpers.NewAwsHelper(container)
 	if err != nil {

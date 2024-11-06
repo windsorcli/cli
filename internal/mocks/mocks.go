@@ -24,7 +24,6 @@ type SuperMocks struct {
 	KubeHelper       *helpers.MockHelper
 	OmniHelper       *helpers.MockHelper
 	TalosHelper      *helpers.MockHelper
-	TerraformHelper  *helpers.MockHelper
 	AwsEnv           *env.MockEnv
 	DockerEnv        *env.MockEnv
 	KubeEnv          *env.MockEnv
@@ -74,7 +73,6 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	mockKubeHelper := helpers.NewMockHelper()
 	mockOmniHelper := helpers.NewMockHelper()
 	mockTalosHelper := helpers.NewMockHelper()
-	mockTerraformHelper := helpers.NewMockHelper()
 	mockSecureShell := shell.NewMockShell(container)
 	mockSSHClient := &ssh.MockClient{}
 	colimaVM := vm.NewMockVM()
@@ -100,7 +98,6 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	container.Register("kubeHelper", mockKubeHelper)
 	container.Register("omniHelper", mockOmniHelper)
 	container.Register("talosHelper", mockTalosHelper)
-	container.Register("terraformHelper", mockTerraformHelper)
 	container.Register("sshClient", mockSSHClient)
 	container.Register("secureShell", mockSecureShell)
 	container.Register("colimaVM", colimaVM)
@@ -125,7 +122,6 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 		KubeHelper:       mockKubeHelper,
 		OmniHelper:       mockOmniHelper,
 		TalosHelper:      mockTalosHelper,
-		TerraformHelper:  mockTerraformHelper,
 		AwsEnv:           mockAwsEnv,
 		DockerEnv:        mockDockerEnv,
 		KubeEnv:          mockKubeEnv,

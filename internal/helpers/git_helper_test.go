@@ -462,6 +462,36 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 	})
 }
 
+func TestGitHelper_WriteConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create DI container and register mocks
+		diContainer := di.NewContainer()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockContext := context.NewMockContext()
+		mockShell := shell.NewMockShell()
+		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("contextHandler", mockContext)
+		diContainer.Register("shell", mockShell)
+
+		// Create an instance of GitHelper
+		gitHelper, err := NewGitHelper(diContainer)
+		if err != nil {
+			t.Fatalf("NewGitHelper() error = %v", err)
+		}
+
+		// When: WriteConfig is called
+		err = gitHelper.WriteConfig()
+		if err != nil {
+			t.Fatalf("WriteConfig() error = %v", err)
+		}
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
 func TestGitHelper_Up(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create DI container and register mocks

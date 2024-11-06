@@ -3,7 +3,6 @@ package helpers
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/compose-spec/compose-go/types"
@@ -41,53 +40,6 @@ func NewAwsHelper(di *di.DIContainer) (*AwsHelper, error) {
 func (h *AwsHelper) Initialize() error {
 	// Perform any necessary initialization here
 	return nil
-}
-
-// GetEnvVars retrieves AWS-specific environment variables for the current context
-func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
-	// Retrieve the context configuration using GetConfig
-	contextConfig, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context config: %w", err)
-	}
-
-	// If contextConfig or AWS is nil, return an empty map
-	if contextConfig == nil || contextConfig.AWS == nil {
-		return map[string]string{}, nil
-	}
-
-	// Get the configuration root directory
-	configRoot, err := h.Context.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving config root: %w", err)
-	}
-
-	// Construct the path to the AWS config file
-	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
-	if _, err := stat(awsConfigPath); os.IsNotExist(err) {
-		awsConfigPath = ""
-	}
-
-	// Set the environment variables
-	envVars := map[string]string{}
-
-	if awsConfigPath != "" {
-		envVars["AWS_CONFIG_FILE"] = awsConfigPath
-	}
-	if contextConfig.AWS.AWSProfile != nil {
-		envVars["AWS_PROFILE"] = *contextConfig.AWS.AWSProfile
-	}
-	if contextConfig.AWS.AWSEndpointURL != nil {
-		envVars["AWS_ENDPOINT_URL"] = *contextConfig.AWS.AWSEndpointURL
-	}
-	if contextConfig.AWS.S3Hostname != nil {
-		envVars["S3_HOSTNAME"] = *contextConfig.AWS.S3Hostname
-	}
-	if contextConfig.AWS.MWAAEndpoint != nil {
-		envVars["MWAA_ENDPOINT"] = *contextConfig.AWS.MWAAEndpoint
-	}
-
-	return envVars, nil
 }
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
