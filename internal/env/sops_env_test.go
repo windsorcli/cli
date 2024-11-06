@@ -42,14 +42,10 @@ func setupSopsEnvMocks(container ...di.ContainerInterface) *SopsEnvMocks {
 	}
 }
 
-func TestSopsEnv_Print(t *testing.T) {
+func TestSopsEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSopsEnvMocks()
 		sopsEnv := NewSopsEnv(mocks.Container)
-
-		envVars := map[string]string{
-			"EXISTING_VAR": "existing_value",
-		}
 
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
@@ -70,27 +66,19 @@ func TestSopsEnv_Print(t *testing.T) {
 			return []byte("NEW_VAR: new_value"), nil
 		}
 
-		// Mock the PrintEnvVars function to capture the envVars passed to it
-		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
-			capturedEnvVars = envVars
-			return nil
-		}
-
-		// Call the Print function
-		err := sopsEnv.Print(envVars)
+		// Call the GetEnvVars function
+		envVars, err := sopsEnv.GetEnvVars()
 		if err != nil {
-			t.Fatalf("Print returned an error: %v", err)
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// Validate that PrintEnvVars was called with the expected environment variables
+		// Validate that the environment variables are as expected
 		expectedEnvVars := map[string]string{
-			"EXISTING_VAR": "existing_value",
-			"NEW_VAR":      "new_value",
+			"NEW_VAR": "new_value",
 		}
 		for key, expectedValue := range expectedEnvVars {
-			if capturedEnvVars[key] != expectedValue {
-				t.Errorf("Expected env var %s to be %q, got %q", key, expectedValue, capturedEnvVars[key])
+			if envVars[key] != expectedValue {
+				t.Errorf("Expected env var %s to be %q, got %q", key, expectedValue, envVars[key])
 			}
 		}
 	})
@@ -106,20 +94,13 @@ func TestSopsEnv_Print(t *testing.T) {
 		// When creating SopsEnv
 		sopsEnv := NewSopsEnv(mocks.Container)
 
-		// Capture stdout output
-		output := captureStdout(t, func() {
-			// And calling Print
-			envVars := map[string]string{}
-			err := sopsEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
+		// Call the GetEnvVars function
+		_, err := sopsEnv.GetEnvVars()
 
-		// Then it should print an error message indicating contextHandler resolution failure
+		// Then it should return an error indicating contextHandler resolution failure
 		expectedError := "error resolving contextHandler: mock error resolving contextHandler"
-		if !strings.Contains(output, expectedError) {
-			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, err)
 		}
 	})
 
@@ -132,72 +113,13 @@ func TestSopsEnv_Print(t *testing.T) {
 		// When creating SopsEnv
 		sopsEnv := NewSopsEnv(mockContainer)
 
-		// Capture stdout output
-		output := captureStdout(t, func() {
-			// And calling Print
-			envVars := map[string]string{}
-			err := sopsEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
+		// Call the GetEnvVars function
+		_, err := sopsEnv.GetEnvVars()
 
-		// Then it should print an error message indicating contextHandler casting failure
+		// Then it should return an error indicating contextHandler casting failure
 		expectedError := "failed to cast contextHandler to context.ContextInterface"
-		if !strings.Contains(output, expectedError) {
-			t.Errorf("expected error containing %q, got %v", expectedError, output)
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Given a mock container with a resolve error for shell
-		mockContainer := di.NewMockContainer()
-		setupSopsEnvMocks(mockContainer)
-		mockContainer.SetResolveError("shell", fmt.Errorf("mock error resolving shell"))
-
-		// When creating SopsEnv
-		sopsEnv := NewSopsEnv(mockContainer)
-
-		// Capture stdout output
-		output := captureStdout(t, func() {
-			// And calling Print
-			envVars := map[string]string{}
-			err := sopsEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		// Then it should print an error message indicating shell resolution failure
-		expectedError := "error resolving shell: mock error resolving shell"
-		if !strings.Contains(output, expectedError) {
-			t.Errorf("expected error containing %q, got %v", expectedError, output)
-		}
-	})
-
-	t.Run("ErrorCastingShell", func(t *testing.T) {
-		// Given a mock container with an invalid shell type
-		mockContainer := di.NewMockContainer()
-		setupSopsEnvMocks(mockContainer)
-		mockContainer.Register("shell", "invalidType")
-
-		// When creating SopsEnv
-		sopsEnv := NewSopsEnv(mockContainer)
-
-		// Capture stdout output
-		output := captureStdout(t, func() {
-			// And calling Print
-			envVars := map[string]string{}
-			err := sopsEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		// Then it should print an error message indicating shell casting failure
-		expectedError := "failed to cast shell to shell.Shell"
-		if !strings.Contains(output, expectedError) {
-			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, err)
 		}
 	})
 
@@ -212,20 +134,13 @@ func TestSopsEnv_Print(t *testing.T) {
 		// When creating SopsEnv
 		sopsEnv := NewSopsEnv(mockContainer)
 
-		// Capture stdout output
-		output := captureStdout(t, func() {
-			// And calling Print
-			envVars := map[string]string{}
-			err := sopsEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
+		// Call the GetEnvVars function
+		_, err := sopsEnv.GetEnvVars()
 
-		// Then it should print an error message indicating config root retrieval failure
+		// Then it should return an error indicating config root retrieval failure
 		expectedError := "error retrieving configuration root directory: mock error retrieving config root"
-		if !strings.Contains(output, expectedError) {
-			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, err)
 		}
 	})
 
@@ -247,20 +162,15 @@ func TestSopsEnv_Print(t *testing.T) {
 		// When creating SopsEnv
 		sopsEnv := NewSopsEnv(mockContainer)
 
-		// Capture stdout output
-		output := captureStdout(t, func() {
-			// And calling Print
-			envVars := map[string]string{}
-			err := sopsEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
+		// Call the GetEnvVars function
+		envVars, err := sopsEnv.GetEnvVars()
 
-		// Then it should print an error message indicating the SOPS file does not exist
-		expectedError := "SOPS encrypted secrets file does not exist"
-		if !strings.Contains(output, expectedError) {
-			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		// Then it should return nil without an error
+		if envVars != nil {
+			t.Errorf("expected nil, got %v", envVars)
+		}
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
 		}
 	})
 
@@ -289,20 +199,13 @@ func TestSopsEnv_Print(t *testing.T) {
 		// When creating SopsEnv
 		sopsEnv := NewSopsEnv(mockContainer)
 
-		// Capture stdout output
-		output := captureStdout(t, func() {
-			// And calling Print
-			envVars := map[string]string{}
-			err := sopsEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
+		// Call the GetEnvVars function
+		_, err := sopsEnv.GetEnvVars()
 
-		// Then it should print an error message indicating the decryption failure
+		// Then it should return an error indicating the decryption failure
 		expectedError := "mock error decrypting file"
-		if !strings.Contains(output, expectedError) {
-			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, err)
 		}
 	})
 
@@ -338,20 +241,13 @@ func TestSopsEnv_Print(t *testing.T) {
 		// When creating SopsEnv
 		sopsEnv := NewSopsEnv(mockContainer)
 
-		// Capture stdout output
-		output := captureStdout(t, func() {
-			// And calling Print
-			envVars := map[string]string{}
-			err := sopsEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
+		// Call the GetEnvVars function
+		_, err := sopsEnv.GetEnvVars()
 
-		// Then it should print an error message indicating the conversion failure
+		// Then it should return an error indicating the conversion failure
 		expectedError := "mock error converting YAML to env vars"
-		if !strings.Contains(output, expectedError) {
-			t.Errorf("expected error containing %q, got %v", expectedError, output)
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error containing %q, got %v", expectedError, err)
 		}
 	})
 }

@@ -75,32 +75,6 @@ func (h *TalosHelper) Initialize() error {
 	return nil
 }
 
-// GetEnvVars retrieves Talos-specific environment variables for the current context
-func (h *TalosHelper) GetEnvVars() (map[string]string, error) {
-	// Get the context config path
-	configRoot, err := h.Context.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context config path: %w", err)
-	}
-
-	// Construct the path to the talosconfig file
-	talosConfigPath := filepath.Join(configRoot, ".talos", "config")
-	if _, err := os.Stat(talosConfigPath); os.IsNotExist(err) {
-		talosConfigPath = ""
-	}
-
-	envVars := map[string]string{
-		"TALOSCONFIG": talosConfigPath,
-	}
-
-	return envVars, nil
-}
-
-// PostEnvExec runs any necessary commands after the environment variables have been set.
-func (h *TalosHelper) PostEnvExec() error {
-	return nil
-}
-
 // GetComposeConfig returns a list of container data for docker-compose.
 func (h *TalosHelper) GetComposeConfig() (*types.Config, error) {
 	// Retrieve context name

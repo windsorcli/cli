@@ -2,8 +2,6 @@ package helpers
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/context"
@@ -30,33 +28,6 @@ func NewKubeHelper(di *di.DIContainer) (*KubeHelper, error) {
 // Initialize performs any necessary initialization for the helper.
 func (h *KubeHelper) Initialize() error {
 	// Perform any necessary initialization here
-	return nil
-}
-
-// GetEnvVars retrieves Kubernetes-specific environment variables for the current context
-func (h *KubeHelper) GetEnvVars() (map[string]string, error) {
-	// Get the configuration root directory
-	configRoot, err := h.Context.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving config root: %w", err)
-	}
-
-	// Construct the path to the kubeconfig file
-	kubeConfigPath := filepath.Join(configRoot, ".kube", "config")
-	if _, err := os.Stat(kubeConfigPath); os.IsNotExist(err) {
-		kubeConfigPath = ""
-	}
-
-	envVars := map[string]string{
-		"KUBECONFIG":       kubeConfigPath,
-		"KUBE_CONFIG_PATH": kubeConfigPath,
-	}
-
-	return envVars, nil
-}
-
-// PostEnvExec runs any necessary commands after the environment variables have been set.
-func (h *KubeHelper) PostEnvExec() error {
 	return nil
 }
 

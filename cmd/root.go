@@ -11,6 +11,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/env"
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
@@ -59,6 +60,30 @@ var netInterfaces = net.Interfaces
 
 // colimaVM instance
 var colimaVM vm.VMInterface
+
+// awsEnv instance
+var awsEnv env.EnvPrinter
+
+// dockerEnv instance
+var dockerEnv env.EnvPrinter
+
+// kubeEnv instance
+var kubeEnv env.EnvPrinter
+
+// omniEnv instance
+var omniEnv env.EnvPrinter
+
+// sopsEnv instance
+var sopsEnv env.EnvPrinter
+
+// talosEnv instance
+var talosEnv env.EnvPrinter
+
+// terraformEnv instance
+var terraformEnv env.EnvPrinter
+
+// windsorEnv instance
+var windsorEnv env.EnvPrinter
 
 func ptrBool(b bool) *bool {
 	return &b
@@ -198,11 +223,18 @@ func Initialize(cont di.ContainerInterface) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type ssh.Client\n", key)
 				exitFunc(1)
 			}
-		case *vm.VMInterface: // Added case for vm.VMInterface
+		case *vm.VMInterface:
 			if resolved, ok := instance.(vm.VMInterface); ok {
 				*v = resolved
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type vm.VMInterface\n", key)
+				exitFunc(1)
+			}
+		case *env.EnvPrinter:
+			if resolved, ok := instance.(env.EnvPrinter); ok {
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type env.EnvInterface\n", key)
 				exitFunc(1)
 			}
 		}
@@ -217,4 +249,12 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("contextHandler", &contextHandler)
 	resolveAndAssign("sshClient", &sshClient)
 	resolveAndAssign("colimaVM", &colimaVM)
+	resolveAndAssign("awsEnv", &awsEnv)
+	resolveAndAssign("dockerEnv", &dockerEnv)
+	resolveAndAssign("kubeEnv", &kubeEnv)
+	resolveAndAssign("omniEnv", &omniEnv)
+	resolveAndAssign("sopsEnv", &sopsEnv)
+	resolveAndAssign("talosEnv", &talosEnv)
+	resolveAndAssign("terraformEnv", &terraformEnv)
+	resolveAndAssign("windsorEnv", &windsorEnv)
 }

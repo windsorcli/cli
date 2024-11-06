@@ -2,15 +2,13 @@ package cmd
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/env"
 	"github.com/windsor-hotel/cli/internal/mocks"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 func TestEnvCmd(t *testing.T) {
@@ -26,16 +24,19 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Create a mock TerraformHelper
-		mockTerraformHelper := helpers.NewMockHelper()
-		mockTerraformHelper.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{
-				"TF_DATA_DIR": "/mock/terraform/data/dir",
-			}, nil
+		// Initialize mocks and set the container
+		mocks := mocks.CreateSuperMocks()
+
+		// Create a mock EnvInterface
+		mockEnv := env.NewMockEnv(mocks.Container)
+		mockEnv.PrintFunc = func(envVars map[string]string) error {
+			envVars["TF_DATA_DIR"] = "/mock/terraform/data/dir"
+			fmt.Printf("TF_DATA_DIR=%s\n", envVars["TF_DATA_DIR"])
+			return nil
 		}
 
-		// Mock the PrintEnvVars function
-		mockShell := shell.NewMockShell()
+		// Mock the Print function using the correct shell package
+		mockShell := mocks.Shell
 		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
 			for k, v := range envVars {
 				fmt.Printf("%s=%s\n", k, v)
@@ -43,9 +44,7 @@ func TestEnvCmd(t *testing.T) {
 			return nil
 		}
 
-		// Initialize mocks and set the container
-		mocks := mocks.CreateSuperMocks()
-		mocks.Container.Register("terraformHelper", mockTerraformHelper)
+		mocks.Container.Register("windsorEnv", mockEnv)
 		mocks.Container.Register("shell", mockShell)
 
 		Initialize(mocks.Container)
@@ -67,13 +66,13 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolveHelpersError", func(t *testing.T) {
+	t.Run("ResolveEnvError", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a local container that returns an error when resolving helpers
+		// Given a local container that returns an error when resolving env
 		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
+		mockContainer.SetResolveAllError(fmt.Errorf("resolve env error"))
 		mocks := mocks.CreateSuperMocks(mockContainer)
 
 		Initialize(mocks.Container)
@@ -92,19 +91,19 @@ func TestEnvCmd(t *testing.T) {
 		output := buf.String()
 
 		// Then the output should indicate the error
-		expectedOutput := "Error resolving helpers: resolve helpers error"
+		expectedOutput := "Error resolving environments: resolve env error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
-	t.Run("ResolveHelpersErrorWithoutVerbose", func(t *testing.T) {
+	t.Run("ResolveEnvErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a local container that returns an error when resolving helpers
+		// Given a local container that returns an error when resolving env
 		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(errors.New("resolve helpers error")) // Simulate error
+		mockContainer.SetResolveAllError(fmt.Errorf("resolve env error"))
 		mocks := mocks.CreateSuperMocks(mockContainer)
 
 		Initialize(mocks.Container)
@@ -132,7 +131,7 @@ func TestEnvCmd(t *testing.T) {
 		defer recoverPanic(t)
 		// Given a local container that returns an error when resolving the shell
 		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveError("shell", errors.New("resolve shell error")) // Simulate error
+		mockContainer.SetResolveError("shell", fmt.Errorf("resolve shell error"))
 		mocks := mocks.CreateSuperMocks(mockContainer)
 
 		Initialize(mocks.Container)
@@ -165,14 +164,15 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a helper that returns an error when getting environment variables
+		// Given a mock environment that returns an error when getting environment variables
 		mocks := mocks.CreateSuperMocks()
-		mocks.TerraformHelper.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, errors.New("get env vars error")
+		mockEnv := mocks.WindsorEnv
+		mockEnv.PrintFunc = func(envVars map[string]string) error {
+			return fmt.Errorf("get env vars error")
 		}
-		mocks.TerraformHelper.SetPostEnvExecFunc(func() error {
+		mockEnv.PostEnvHookFunc = func() error {
 			return nil
-		})
+		}
 
 		Initialize(mocks.Container)
 
@@ -186,9 +186,8 @@ func TestEnvCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate the error
-		expectedOutput := "Error getting environment variables: get env vars error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		if !strings.Contains(output, "get env vars error") {
+			t.Errorf("Expected output to contain error message, got %q", output)
 		}
 	})
 
@@ -196,14 +195,15 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a helper that returns an error when getting environment variables
+		// Given a mock environment that returns an error when getting environment variables
 		mocks := mocks.CreateSuperMocks()
-		mocks.TerraformHelper.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, errors.New("get env vars error")
+		mockEnv := mocks.WindsorEnv
+		mockEnv.PrintFunc = func(envVars map[string]string) error {
+			return fmt.Errorf("get env vars error")
 		}
-		mocks.TerraformHelper.SetPostEnvExecFunc(func() error {
+		mockEnv.PostEnvHookFunc = func() error {
 			return nil
-		})
+		}
 
 		Initialize(mocks.Container)
 
@@ -225,21 +225,21 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("PostEnvExecError", func(t *testing.T) {
+	t.Run("PostEnvHookError", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a helper that returns an error when executing PostEnvExec
+		// Given an env that returns an error when executing PostEnvHook
 		mocks := mocks.CreateSuperMocks()
-		mocks.TerraformHelper.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{
-				"VAR1": "value1",
-				"VAR2": "value2",
-			}, nil
+		mockEnv := mocks.WindsorEnv
+		mockEnv.PrintFunc = func(envVars map[string]string) error {
+			envVars["VAR1"] = "value1"
+			envVars["VAR2"] = "value2"
+			return nil
 		}
-		mocks.TerraformHelper.SetPostEnvExecFunc(func() error {
-			return errors.New("post env exec error")
-		})
+		mockEnv.PostEnvHookFunc = func() error {
+			return fmt.Errorf("post env hook error")
+		}
 
 		Initialize(mocks.Container)
 
@@ -253,27 +253,27 @@ func TestEnvCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate the error
-		expectedOutput := "Error executing PostEnvExec: post env exec error"
+		expectedOutput := "Error executing PostEnvHook: post env hook error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
-	t.Run("PostEnvExecErrorWithoutVerbose", func(t *testing.T) {
+	t.Run("PostEnvHookErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a helper that returns an error when executing PostEnvExec
+		// Given an env that returns an error when executing PostEnvHook
 		mocks := mocks.CreateSuperMocks()
-		mocks.TerraformHelper.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{
-				"VAR1": "value1",
-				"VAR2": "value2",
-			}, nil
+		mockEnv := mocks.WindsorEnv
+		mockEnv.PrintFunc = func(envVars map[string]string) error {
+			envVars["VAR1"] = "value1"
+			envVars["VAR2"] = "value2"
+			return nil
 		}
-		mocks.TerraformHelper.SetPostEnvExecFunc(func() error {
-			return errors.New("post env exec error")
-		})
+		mockEnv.PostEnvHookFunc = func() error {
+			return fmt.Errorf("post env hook error")
+		}
 
 		Initialize(mocks.Container)
 

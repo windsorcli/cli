@@ -15,8 +15,7 @@ import (
 
 // TerraformEnv is a struct that simulates a Terraform environment for testing purposes.
 type TerraformEnv struct {
-	EnvInterface
-	diContainer di.ContainerInterface
+	Env
 }
 
 // TerraformDeps holds the resolved dependencies for TerraformEnv.
@@ -29,44 +28,37 @@ type TerraformDeps struct {
 // NewTerraformEnv initializes a new TerraformEnv instance using the provided dependency injection container.
 func NewTerraformEnv(diContainer di.ContainerInterface) *TerraformEnv {
 	return &TerraformEnv{
-		diContainer: diContainer,
+		Env: Env{
+			diContainer: diContainer,
+		},
 	}
 }
 
-// Print displays the provided environment variables to the console.
-func (e *TerraformEnv) Print(envVars map[string]string) error {
+// GetEnvVars retrieves the environment variables for the Terraform environment.
+func (e *TerraformEnv) GetEnvVars() (map[string]string, error) {
+	envVars := make(map[string]string)
+
 	// Resolve dependencies for context and shell operations
 	deps, err := e.resolveDependencies()
 	if err != nil {
-		return fmt.Errorf("error resolving dependencies: %w", err)
+		return nil, fmt.Errorf("error resolving dependencies: %w", err)
 	}
 
 	// Get the configuration root directory
 	configRoot, err := deps.ContextInterface.GetConfigRoot()
 	if err != nil {
-		return fmt.Errorf("error getting config root: %w", err)
-	}
-
-	// Retrieve aliases
-	aliases, err := e.getAlias()
-	if err != nil {
-		return fmt.Errorf("error getting alias: %w", err)
-	}
-
-	// Print aliases
-	if err := deps.Shell.PrintAlias(aliases); err != nil {
-		return fmt.Errorf("error printing aliases: %w", err)
+		return nil, fmt.Errorf("error getting config root: %w", err)
 	}
 
 	// Find the Terraform project path
 	projectPath, err := findRelativeTerraformProjectPath()
 	if err != nil {
-		return fmt.Errorf("error finding project path: %w", err)
+		return nil, fmt.Errorf("error finding project path: %w", err)
 	}
 
-	// Check if projectPath is empty
+	// Return if we're not in a terraform project folder
 	if projectPath == "" {
-		return fmt.Errorf("no Terraform project path found")
+		return nil, nil
 	}
 
 	// Define patterns for tfvars files
@@ -82,7 +74,7 @@ func (e *TerraformEnv) Print(envVars map[string]string) error {
 	for _, pattern := range patterns {
 		if _, err := stat(pattern); err != nil {
 			if !os.IsNotExist(err) {
-				return fmt.Errorf("error checking file: %w", err)
+				return nil, fmt.Errorf("error checking file: %w", err)
 			}
 		} else {
 			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=%s", pattern))
@@ -98,8 +90,7 @@ func (e *TerraformEnv) Print(envVars map[string]string) error {
 	envVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(strings.Join(varFileArgs, " "))
 	envVars["TF_VAR_context_path"] = strings.TrimSpace(configRoot)
 
-	// Print environment variables
-	return deps.Shell.PrintEnvVars(envVars)
+	return envVars, nil
 }
 
 // PostEnvHook executes any required operations after setting the environment variables.
@@ -107,8 +98,19 @@ func (e *TerraformEnv) PostEnvHook() error {
 	return e.generateBackendOverrideTf()
 }
 
-// Ensure TerraformEnv implements the EnvInterface
-var _ EnvInterface = (*TerraformEnv)(nil)
+// Print prints the environment variables for the Terraform environment.
+func (e *TerraformEnv) Print() error {
+	envVars, err := e.GetEnvVars()
+	if err != nil {
+		// Return the error if GetEnvVars fails
+		return fmt.Errorf("error getting environment variables: %w", err)
+	}
+	// Call the Print method of the embedded Env struct with the retrieved environment variables
+	return e.Env.Print(envVars)
+}
+
+// Ensure TerraformEnv implements the EnvPrinter interface
+var _ EnvPrinter = (*TerraformEnv)(nil)
 
 // resolveDependencies is a convenience function to resolve and cast multiple dependencies at once.
 func (e *TerraformEnv) resolveDependencies() (*TerraformDeps, error) {

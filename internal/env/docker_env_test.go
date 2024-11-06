@@ -42,14 +42,9 @@ func setupSafeDockerEnvMocks(container ...di.ContainerInterface) *DockerEnvMocks
 	}
 }
 
-func TestDockerEnv_Print(t *testing.T) {
+func TestDockerEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeDockerEnvMocks()
-
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
-			t.Log("PrintEnvVarsFunc called successfully with envVars:", envVars)
-			return nil
-		}
 
 		originalStat := stat
 		defer func() { stat = originalStat }()
@@ -62,10 +57,9 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		dockerEnv := NewDockerEnv(mocks.Container)
 
-		envVars := make(map[string]string)
-		err := dockerEnv.Print(envVars)
+		envVars, err := dockerEnv.GetEnvVars()
 		if err != nil {
-			t.Fatalf("Print returned an error: %v", err)
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
 		if envVars["COMPOSE_FILE"] != "/mock/config/root/compose.yaml" && envVars["COMPOSE_FILE"] != "/mock/config/root/compose.yml" {
@@ -84,10 +78,9 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		dockerEnv := NewDockerEnv(mocks.Container)
 
-		envVars := make(map[string]string)
-		err := dockerEnv.Print(envVars)
+		envVars, err := dockerEnv.GetEnvVars()
 		if err != nil {
-			t.Fatalf("Print returned an error: %v", err)
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
 		if envVars["COMPOSE_FILE"] != "" {
@@ -102,17 +95,10 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		dockerEnv := NewDockerEnv(mockContainer)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := dockerEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error resolving contextHandler: mock resolve error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := dockerEnv.GetEnvVars()
+		expectedError := "error resolving contextHandler: mock resolve error"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("error = %v, want %v", err, expectedError)
 		}
 	})
 
@@ -123,59 +109,10 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		dockerEnv := NewDockerEnv(container)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := dockerEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "failed to cast contextHandler to context.ContextInterface\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("ResolveShellError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeDockerEnvMocks(mockContainer)
-		mockContainer.SetResolveError("shell", fmt.Errorf("mock resolve error"))
-
-		dockerEnv := NewDockerEnv(mockContainer)
-
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := dockerEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error resolving shell: mock resolve error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("AssertShellError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeDockerEnvMocks(mockContainer)
-		mockContainer.Register("shell", "invalidType")
-
-		dockerEnv := NewDockerEnv(mockContainer)
-
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := dockerEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "failed to cast shell to shell.Shell\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := dockerEnv.GetEnvVars()
+		expectedError := "failed to cast contextHandler to context.ContextInterface"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("error = %v, want %v", err, expectedError)
 		}
 	})
 
@@ -187,17 +124,10 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		dockerEnv := NewDockerEnv(mocks.Container)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := dockerEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error retrieving configuration root directory: mock context error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := dockerEnv.GetEnvVars()
+		expectedError := "error retrieving configuration root directory: mock context error"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("error = %v, want %v", err, expectedError)
 		}
 	})
 
@@ -215,10 +145,9 @@ func TestDockerEnv_Print(t *testing.T) {
 
 		dockerEnv := NewDockerEnv(mocks.Container)
 
-		envVars := make(map[string]string)
-		err := dockerEnv.Print(envVars)
+		envVars, err := dockerEnv.GetEnvVars()
 		if err != nil {
-			t.Fatalf("Print returned an error: %v", err)
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
 		if envVars["COMPOSE_FILE"] != "/mock/config/root/compose.yml" {

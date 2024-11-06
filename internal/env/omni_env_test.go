@@ -42,14 +42,9 @@ func setupSafeOmniEnvMocks(container ...di.ContainerInterface) *OmniEnvMocks {
 	}
 }
 
-func TestOmniEnv_Print(t *testing.T) {
+func TestOmniEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeOmniEnvMocks()
-
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
-			t.Log("PrintEnvVarsFunc called successfully with envVars:", envVars)
-			return nil
-		}
 
 		originalStat := stat
 		defer func() { stat = originalStat }()
@@ -62,10 +57,9 @@ func TestOmniEnv_Print(t *testing.T) {
 
 		omniEnv := NewOmniEnv(mocks.Container)
 
-		envVars := make(map[string]string)
-		err := omniEnv.Print(envVars)
+		envVars, err := omniEnv.GetEnvVars()
 		if err != nil {
-			t.Fatalf("Print returned an error: %v", err)
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
 		if envVars["OMNICONFIG"] != "/mock/config/root/.omni/config" {
@@ -84,10 +78,9 @@ func TestOmniEnv_Print(t *testing.T) {
 
 		omniEnv := NewOmniEnv(mocks.Container)
 
-		envVars := make(map[string]string)
-		err := omniEnv.Print(envVars)
+		envVars, err := omniEnv.GetEnvVars()
 		if err != nil {
-			t.Fatalf("Print returned an error: %v", err)
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
 		if envVars["OMNICONFIG"] != "" {
@@ -102,17 +95,10 @@ func TestOmniEnv_Print(t *testing.T) {
 
 		omniEnv := NewOmniEnv(mockContainer)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := omniEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error resolving contextHandler: mock resolve error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := omniEnv.GetEnvVars()
+		expectedError := "error resolving contextHandler: mock resolve error"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("error = %v, want %v", err, expectedError)
 		}
 	})
 
@@ -123,59 +109,10 @@ func TestOmniEnv_Print(t *testing.T) {
 
 		omniEnv := NewOmniEnv(container)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := omniEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "failed to cast contextHandler to context.ContextInterface\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("ResolveShellError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeOmniEnvMocks(mockContainer)
-		mockContainer.SetResolveError("shell", fmt.Errorf("mock resolve error"))
-
-		omniEnv := NewOmniEnv(mockContainer)
-
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := omniEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error resolving shell: mock resolve error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("AssertShellError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeOmniEnvMocks(mockContainer)
-		mockContainer.Register("shell", "invalidType")
-
-		omniEnv := NewOmniEnv(mockContainer)
-
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := omniEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "failed to cast shell to shell.Shell\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := omniEnv.GetEnvVars()
+		expectedError := "failed to cast contextHandler to context.ContextInterface"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("error = %v, want %v", err, expectedError)
 		}
 	})
 
@@ -187,17 +124,10 @@ func TestOmniEnv_Print(t *testing.T) {
 
 		omniEnv := NewOmniEnv(mocks.Container)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := omniEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error retrieving configuration root directory: mock context error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := omniEnv.GetEnvVars()
+		expectedError := "error retrieving configuration root directory: mock context error"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("error = %v, want %v", err, expectedError)
 		}
 	})
 }

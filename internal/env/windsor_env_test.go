@@ -3,7 +3,6 @@ package env
 import (
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/context"
@@ -48,55 +47,15 @@ func setupSafeWindsorEnvMocks(container ...di.ContainerInterface) *WindsorEnvMoc
 	}
 }
 
-func TestWindsorEnv_Print(t *testing.T) {
+func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeWindsorEnvMocks()
 
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
-			t.Log("PrintEnvVarsFunc called successfully with envVars:", envVars)
-			return nil
-		}
-
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/.windsor/config" {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
 		windsorEnv := NewWindsorEnv(mocks.Container)
 
-		envVars := make(map[string]string)
-		err := windsorEnv.Print(envVars)
+		envVars, err := windsorEnv.GetEnvVars()
 		if err != nil {
-			t.Fatalf("Print returned an error: %v", err)
-		}
-
-		if envVars["WINDSOR_CONTEXT"] != "mock-context" {
-			t.Errorf("WINDSOR_CONTEXT = %v, want %v", envVars["WINDSOR_CONTEXT"], "mock-context")
-		}
-		if envVars["WINDSOR_PROJECT_ROOT"] != "/mock/project/root" {
-			t.Errorf("WINDSOR_PROJECT_ROOT = %v, want %v", envVars["WINDSOR_PROJECT_ROOT"], "/mock/project/root")
-		}
-	})
-
-	t.Run("NoWindsorConfig", func(t *testing.T) {
-		mocks := setupSafeWindsorEnvMocks()
-
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		windsorEnv := NewWindsorEnv(mocks.Container)
-
-		envVars := make(map[string]string)
-		err := windsorEnv.Print(envVars)
-		if err != nil {
-			t.Fatalf("Print returned an error: %v", err)
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
 		if envVars["WINDSOR_CONTEXT"] != "mock-context" {
@@ -114,17 +73,10 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		windsorEnv := NewWindsorEnv(mockContainer)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := windsorEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error resolving contextHandler: mock resolve error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := windsorEnv.GetEnvVars()
+		expectedErrorMessage := "error resolving contextHandler: mock resolve error"
+		if err == nil || err.Error() != expectedErrorMessage {
+			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
 	})
 
@@ -135,17 +87,10 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		windsorEnv := NewWindsorEnv(container)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := windsorEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "failed to cast contextHandler to context.ContextInterface\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := windsorEnv.GetEnvVars()
+		expectedErrorMessage := "failed to cast contextHandler to context.ContextInterface"
+		if err == nil || err.Error() != expectedErrorMessage {
+			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
 	})
 
@@ -156,17 +101,10 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		windsorEnv := NewWindsorEnv(mockContainer)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := windsorEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error resolving shell: mock resolve error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := windsorEnv.GetEnvVars()
+		expectedErrorMessage := "error resolving shell: mock resolve error"
+		if err == nil || err.Error() != expectedErrorMessage {
+			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
 	})
 
@@ -177,17 +115,10 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		windsorEnv := NewWindsorEnv(mockContainer)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := windsorEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "failed to cast shell to shell.Shell\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := windsorEnv.GetEnvVars()
+		expectedErrorMessage := "failed to cast shell to shell.Shell"
+		if err == nil || err.Error() != expectedErrorMessage {
+			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
 	})
 
@@ -199,17 +130,10 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		windsorEnv := NewWindsorEnv(mocks.Container)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := windsorEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error retrieving current context: mock context error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := windsorEnv.GetEnvVars()
+		expectedErrorMessage := "error retrieving current context: mock context error"
+		if err == nil || err.Error() != expectedErrorMessage {
+			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
 	})
 
@@ -221,17 +145,10 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		windsorEnv := NewWindsorEnv(mocks.Container)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := windsorEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error retrieving project root: mock shell error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := windsorEnv.GetEnvVars()
+		expectedErrorMessage := "error retrieving project root: mock shell error"
+		if err == nil || err.Error() != expectedErrorMessage {
+			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
 	})
 }

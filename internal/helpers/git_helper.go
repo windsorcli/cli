@@ -49,16 +49,6 @@ func (h *GitHelper) Initialize() error {
 	return nil
 }
 
-// GetEnvVars is a no-op function
-func (h *GitHelper) GetEnvVars() (map[string]string, error) {
-	return map[string]string{}, nil
-}
-
-// PostEnvExec runs any necessary commands after the environment variables have been set.
-func (h *GitHelper) PostEnvExec() error {
-	return nil
-}
-
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 	contextName, err := h.Context.GetContext()

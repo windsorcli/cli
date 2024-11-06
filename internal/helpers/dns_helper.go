@@ -28,16 +28,6 @@ func (h *DNSHelper) Initialize() error {
 	return nil
 }
 
-// GetEnvVars returns the environment variables
-func (h *DNSHelper) GetEnvVars() (map[string]string, error) {
-	return nil, nil
-}
-
-// PostEnvExec performs any necessary actions after the environment has been executed
-func (h *DNSHelper) PostEnvExec() error {
-	return nil
-}
-
 // GetComposeConfig returns the compose configuration
 func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name

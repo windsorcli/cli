@@ -63,16 +63,10 @@ func setupSafeAwsEnvMocks(container ...di.ContainerInterface) *AwsEnvMocks {
 	}
 }
 
-func TestAwsEnv_Print(t *testing.T) {
+func TestAwsEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Use setupSafeAwsEnvMocks to create mocks
 		mocks := setupSafeAwsEnvMocks()
-
-		// Override the PrintEnvVarsFunc to ensure success
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
-			t.Log("PrintEnvVarsFunc called successfully with envVars:", envVars)
-			return nil
-		}
 
 		// Mock the stat function to simulate the existence of the AWS config file
 		stat = func(name string) (os.FileInfo, error) {
@@ -84,11 +78,10 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		awsEnv := NewAwsEnv(mocks.Container)
 
-		// When calling Print
-		envVars := make(map[string]string)
-		err := awsEnv.Print(envVars)
+		// When calling GetEnvVars
+		envVars, err := awsEnv.GetEnvVars()
 		if err != nil {
-			t.Fatalf("Print returned an error: %v", err)
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
 		// Then the environment variables should be set correctly
@@ -111,9 +104,8 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Capture stdout
 		output := captureStdout(t, func() {
-			// When calling Print
-			envVars := make(map[string]string)
-			err := awsEnv.Print(envVars)
+			// When calling GetEnvVars
+			_, err := awsEnv.GetEnvVars()
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -137,9 +129,8 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Capture stdout
 		output := captureStdout(t, func() {
-			// When calling Print
-			envVars := make(map[string]string)
-			err := awsEnv.Print(envVars)
+			// When calling GetEnvVars
+			_, err := awsEnv.GetEnvVars()
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -166,9 +157,8 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Capture stdout
 		output := captureStdout(t, func() {
-			// When calling Print
-			envVars := make(map[string]string)
-			err := awsEnv.Print(envVars)
+			// When calling GetEnvVars
+			_, err := awsEnv.GetEnvVars()
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -195,9 +185,8 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Capture stdout
 		output := captureStdout(t, func() {
-			// When calling Print
-			envVars := make(map[string]string)
-			err := awsEnv.Print(envVars)
+			// When calling GetEnvVars
+			_, err := awsEnv.GetEnvVars()
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -205,64 +194,6 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Then the output should indicate the type assertion error
 		expectedOutput := "failed to cast contextHandler to context.ContextInterface\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("ResolveShellError", func(t *testing.T) {
-		// Create a mock DI container using NewMockContainer
-		mockContainer := di.NewMockContainer()
-
-		// Use setupSafeAwsEnvMocks to create mocks with the mock container
-		setupSafeAwsEnvMocks(mockContainer)
-
-		// Set the resolve error for shell in the mock container
-		mockContainer.SetResolveError("shell", fmt.Errorf("mock resolve error"))
-
-		awsEnv := NewAwsEnv(mockContainer)
-
-		// Capture stdout
-		output := captureStdout(t, func() {
-			// When calling Print
-			envVars := make(map[string]string)
-			err := awsEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		// Then the output should indicate the resolve error
-		expectedOutput := "error resolving shell: mock resolve error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("AssertShellError", func(t *testing.T) {
-		// Create a mock DI container using NewMockContainer
-		mockContainer := di.NewMockContainer()
-
-		// Use setupSafeAwsEnvMocks to create mocks with the mock container
-		setupSafeAwsEnvMocks(mockContainer)
-
-		// Register an invalid shell with the container
-		mockContainer.Register("shell", "invalidType")
-
-		awsEnv := NewAwsEnv(mockContainer)
-
-		// Capture stdout
-		output := captureStdout(t, func() {
-			// When calling Print
-			envVars := make(map[string]string)
-			err := awsEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		// Then the output should indicate the type assertion error
-		expectedOutput := "failed to cast shell to shell.Shell\n"
 		if output != expectedOutput {
 			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
@@ -283,9 +214,8 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Capture stdout
 		output := captureStdout(t, func() {
-			// When calling Print
-			envVars := make(map[string]string)
-			err := awsEnv.Print(envVars)
+			// When calling GetEnvVars
+			_, err := awsEnv.GetEnvVars()
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -313,9 +243,8 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Capture stdout
 		output := captureStdout(t, func() {
-			// When calling Print
-			envVars := make(map[string]string)
-			err := awsEnv.Print(envVars)
+			// When calling GetEnvVars
+			_, err := awsEnv.GetEnvVars()
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -355,9 +284,8 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Capture stdout
 		output := captureStdout(t, func() {
-			// When calling Print
-			envVars := make(map[string]string)
-			err := awsEnv.Print(envVars)
+			// When calling GetEnvVars
+			_, err := awsEnv.GetEnvVars()
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -384,9 +312,8 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Capture stdout
 		output := captureStdout(t, func() {
-			// When calling Print
-			envVars := make(map[string]string)
-			err := awsEnv.Print(envVars)
+			// When calling GetEnvVars
+			_, err := awsEnv.GetEnvVars()
 			if err != nil {
 				fmt.Println(err)
 			}

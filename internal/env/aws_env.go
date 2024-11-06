@@ -8,67 +8,60 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // AwsEnv is a struct that simulates an AWS environment for testing purposes.
 type AwsEnv struct {
-	EnvInterface
-	diContainer di.ContainerInterface
+	Env
 }
 
 // NewAwsEnv initializes a new AwsEnv instance using the provided dependency injection container.
 func NewAwsEnv(diContainer di.ContainerInterface) *AwsEnv {
 	return &AwsEnv{
-		diContainer: diContainer,
+		Env: Env{
+			diContainer: diContainer,
+		},
 	}
 }
 
-// Print displays the provided environment variables to the console.
-func (a *AwsEnv) Print(envVars map[string]string) error {
+// GetEnvVars retrieves the environment variables for the AWS environment.
+func (a *AwsEnv) GetEnvVars() (map[string]string, error) {
+	envVars := make(map[string]string)
+
 	// Resolve necessary dependencies for configuration, context, and shell operations.
 	contextConfig, err := a.diContainer.Resolve("cliConfigHandler")
 	if err != nil {
-		return fmt.Errorf("error resolving cliConfigHandler: %w", err)
+		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 	configHandler, ok := contextConfig.(config.ConfigHandler)
 	if !ok {
-		return fmt.Errorf("failed to cast cliConfigHandler to config.ConfigHandler")
+		return nil, fmt.Errorf("failed to cast cliConfigHandler to config.ConfigHandler")
 	}
 
 	contextHandler, err := a.diContainer.Resolve("contextHandler")
 	if err != nil {
-		return fmt.Errorf("error resolving contextHandler: %w", err)
+		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
 	context, ok := contextHandler.(context.ContextInterface)
 	if !ok {
-		return fmt.Errorf("failed to cast contextHandler to context.ContextInterface")
-	}
-
-	shellInstance, err := a.diContainer.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-	shell, ok := shellInstance.(shell.Shell)
-	if !ok {
-		return fmt.Errorf("failed to cast shell to shell.Shell")
+		return nil, fmt.Errorf("failed to cast contextHandler to context.ContextInterface")
 	}
 
 	// Access AWS-specific settings from the context configuration.
 	contextConfigData, err := configHandler.GetConfig()
 	if err != nil {
-		return fmt.Errorf("error retrieving context configuration: %w", err)
+		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
 	}
 
 	// Ensure the context configuration and AWS-specific settings are available.
 	if contextConfigData == nil || contextConfigData.AWS == nil {
-		return fmt.Errorf("context configuration or AWS configuration is missing")
+		return nil, fmt.Errorf("context configuration or AWS configuration is missing")
 	}
 
 	// Determine the root directory for configuration files.
 	configRoot, err := context.GetConfigRoot()
 	if err != nil {
-		return fmt.Errorf("error retrieving configuration root directory: %w", err)
+		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 	}
 
 	// Construct the path to the AWS configuration file and verify its existence.
@@ -94,9 +87,19 @@ func (a *AwsEnv) Print(envVars map[string]string) error {
 		envVars["MWAA_ENDPOINT"] = *contextConfigData.AWS.MWAAEndpoint
 	}
 
-	// Display the environment variables using the Shell's PrintEnvVars method.
-	return shell.PrintEnvVars(envVars)
+	return envVars, nil
 }
 
-// Ensure AwsEnv implements the EnvInterface
-var _ EnvInterface = (*AwsEnv)(nil)
+// Print prints the environment variables for the AWS environment.
+func (e *AwsEnv) Print() error {
+	envVars, err := e.GetEnvVars()
+	if err != nil {
+		// Return the error if GetEnvVars fails
+		return fmt.Errorf("error getting environment variables: %w", err)
+	}
+	// Call the Print method of the embedded Env struct with the retrieved environment variables
+	return e.Env.Print(envVars)
+}
+
+// Ensure AwsEnv implements the EnvPrinter interface
+var _ EnvPrinter = (*AwsEnv)(nil)

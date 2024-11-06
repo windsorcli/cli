@@ -59,7 +59,7 @@ func setupSafeTerraformEnvMocks(container ...di.ContainerInterface) *TerraformEn
 	}
 }
 
-func TestTerraformEnv_Print(t *testing.T) {
+func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 
@@ -73,18 +73,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 			"TF_VAR_context_path": "/mock/config/root",
 		}
 
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
-			for key, expectedValue := range expectedEnvVars {
-				if value, exists := envVars[key]; !exists || value != expectedValue {
-					t.Errorf("Expected %s to be %s, got %s", key, expectedValue, value)
-				}
-			}
-			return nil
-		}
-
 		env := NewTerraformEnv(mocks.Container)
-
-		envVars := make(map[string]string)
 
 		// Given a mocked glob function simulating the presence of tf files
 		originalGlob := glob
@@ -121,8 +110,8 @@ func TestTerraformEnv_Print(t *testing.T) {
 			}
 		}
 
-		// When the Print function is called
-		err := env.Print(envVars)
+		// When the GetEnvVars function is called
+		envVars, err := env.GetEnvVars()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -135,54 +124,6 @@ func TestTerraformEnv_Print(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingDependencies", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeTerraformEnvMocks(mockContainer)
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
-
-		// When the Print function is called
-		output := captureStdout(t, func() {
-			env := NewTerraformEnv(mocks.Container)
-			envVars := make(map[string]string)
-			err := env.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		// Then the output should contain the expected error message
-		expectedErrorMessage := "mock error resolving contextHandler"
-		if !strings.Contains(output, expectedErrorMessage) {
-			t.Errorf("Expected output to contain %q, got %q", expectedErrorMessage, output)
-		}
-	})
-
-	t.Run("ErrorFindingProjectPath", func(t *testing.T) {
-		// Given a mocked getwd function returning an error
-		originalGetwd := getwd
-		defer func() { getwd = originalGetwd }()
-		getwd = func() (string, error) {
-			return "", fmt.Errorf("mock error getting current directory")
-		}
-		mocks := setupSafeTerraformEnvMocks()
-
-		// When the Print function is called
-		output := captureStdout(t, func() {
-			env := NewTerraformEnv(mocks.Container)
-			envVars := make(map[string]string)
-			err := env.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		// Then the output should contain the expected error message
-		expectedErrorMessage := "mock error getting current directory"
-		if !strings.Contains(output, expectedErrorMessage) {
-			t.Errorf("Expected output to contain %q, got %q", expectedErrorMessage, output)
-		}
-	})
-
 	t.Run("NoProjectPathFound", func(t *testing.T) {
 		// Given a mocked getwd function returning a specific path
 		originalGetwd := getwd
@@ -192,20 +133,16 @@ func TestTerraformEnv_Print(t *testing.T) {
 		}
 		mocks := setupSafeTerraformEnvMocks()
 
-		// When the Print function is called
-		output := captureStdout(t, func() {
-			env := NewTerraformEnv(mocks.Container)
-			envVars := make(map[string]string)
-			err := env.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
+		// When the GetEnvVars function is called
+		env := NewTerraformEnv(mocks.Container)
+		envVars, err := env.GetEnvVars()
 
-		// Then the output should contain the expected error message
-		expectedErrorMessage := "no Terraform project path found\n"
-		if !strings.Contains(output, expectedErrorMessage) {
-			t.Errorf("Expected output to contain %q, got %q", expectedErrorMessage, output)
+		// Then it should return nil without an error
+		if envVars != nil {
+			t.Errorf("Expected nil, got %v", envVars)
+		}
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
@@ -222,80 +159,14 @@ func TestTerraformEnv_Print(t *testing.T) {
 			return "/mock/project/root/terraform/project/path", nil
 		}
 
-		// When the Print function is called
-		output := captureStdout(t, func() {
-			env := NewTerraformEnv(mocks.Container)
-			envVars := make(map[string]string)
-			err := env.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
+		// When the GetEnvVars function is called
+		env := NewTerraformEnv(mocks.Container)
+		_, err := env.GetEnvVars()
 
-		// Then the output should contain the expected error message
-		expectedErrorMessage := "error getting config root: mock error getting config root\n"
-		if !strings.Contains(output, expectedErrorMessage) {
-			t.Errorf("Expected output to contain %q, got %q", expectedErrorMessage, output)
-		}
-	})
-
-	t.Run("ErrorGettingAlias", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving context")
-		}
-
-		// Given a mocked getwd function simulating being in a terraform project root
-		originalGetwd := getwd
-		defer func() { getwd = originalGetwd }()
-		getwd = func() (string, error) {
-			return "/mock/project/root/terraform/project/path", nil
-		}
-
-		// When the Print function is called
-		output := captureStdout(t, func() {
-			env := NewTerraformEnv(mocks.Container)
-			envVars := make(map[string]string)
-			err := env.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		// Then the output should contain the expected error message
-		expectedErrorMessage := "error getting alias:"
-		if !strings.Contains(output, expectedErrorMessage) {
-			t.Errorf("Expected output to contain %q, got %q", expectedErrorMessage, output)
-		}
-	})
-
-	t.Run("ErrorPrintingAlias", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.Shell.PrintAliasFunc = func(aliases map[string]string) error {
-			return fmt.Errorf("mock error printing aliases")
-		}
-
-		// Given a mocked getwd function simulating being in a terraform project root
-		originalGetwd := getwd
-		defer func() { getwd = originalGetwd }()
-		getwd = func() (string, error) {
-			return "/mock/project/root/terraform/project/path", nil
-		}
-
-		// When the Print function is called
-		output := captureStdout(t, func() {
-			env := NewTerraformEnv(mocks.Container)
-			envVars := make(map[string]string)
-			err := env.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		// Then the output should contain the expected error message
-		expectedErrorMessage := "error printing aliases: mock error printing aliases\n"
-		if !strings.Contains(output, expectedErrorMessage) {
-			t.Errorf("Expected output to contain %q, got %q", expectedErrorMessage, output)
+		// Then the error should be as expected
+		expectedErrorMessage := "error getting config root: mock error getting config root"
+		if err == nil || err.Error() != expectedErrorMessage {
+			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
 	})
 
@@ -306,9 +177,6 @@ func TestTerraformEnv_Print(t *testing.T) {
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return &config.Context{}, nil
-		}
-		mocks.Shell.PrintAliasFunc = func(aliases map[string]string) error {
-			return nil
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root
@@ -335,20 +203,14 @@ func TestTerraformEnv_Print(t *testing.T) {
 			return nil, fmt.Errorf("mock error checking file")
 		}
 
-		// When the Print function is called
-		output := captureStdout(t, func() {
-			env := NewTerraformEnv(mocks.Container)
-			envVars := make(map[string]string)
-			err := env.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
+		// When the GetEnvVars function is called
+		env := NewTerraformEnv(mocks.Container)
+		_, err := env.GetEnvVars()
 
-		// Then the output should contain the expected error message
-		expectedErrorMessage := "error checking file: mock error checking file\n"
-		if !strings.Contains(output, expectedErrorMessage) {
-			t.Errorf("Expected output to contain %q, got %q", expectedErrorMessage, output)
+		// Then the error should be as expected
+		expectedErrorMessage := "error checking file: mock error checking file"
+		if err == nil || err.Error() != expectedErrorMessage {
+			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
 	})
 }

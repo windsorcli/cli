@@ -90,11 +90,6 @@ func (h *AwsHelper) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
-// PostEnvExec runs any necessary commands after the environment variables have been set.
-func (h *AwsHelper) PostEnvExec() error {
-	return nil
-}
-
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (h *AwsHelper) GetComposeConfig() (*types.Config, error) {
 	contextConfig, err := h.ConfigHandler.GetConfig()

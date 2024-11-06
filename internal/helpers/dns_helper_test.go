@@ -60,55 +60,6 @@ func TestDNSHelper_Initialize(t *testing.T) {
 	})
 }
 
-func TestDNSHelper_GetEnvVars(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler, shell, and helper
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell()
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("shell", mockShell)
-		helper, err := NewDNSHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewDNSHelper() error = %v", err)
-		}
-
-		// When: GetEnvVars is called
-		envVars, err := helper.GetEnvVars()
-
-		// Then: no error should be returned and envVars should be nil
-		if err != nil {
-			t.Fatalf("GetEnvVars() error = %v", err)
-		}
-		if envVars != nil {
-			t.Errorf("expected envVars to be nil, got %v", envVars)
-		}
-	})
-}
-
-func TestDNSHelper_PostEnvExec(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler, shell, and helper
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell()
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("shell", mockShell)
-		helper, err := NewDNSHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewDNSHelper() error = %v", err)
-		}
-
-		// When: PostEnvExec is called
-		err = helper.PostEnvExec()
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Fatalf("PostEnvExec() error = %v", err)
-		}
-	})
-}
-
 func TestDNSHelper_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create a mock DI container

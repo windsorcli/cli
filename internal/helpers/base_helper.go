@@ -2,7 +2,6 @@ package helpers
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/config"
@@ -45,48 +44,6 @@ func NewBaseHelper(di *di.DIContainer) (*BaseHelper, error) {
 // Initialize performs any necessary initialization for the helper.
 func (h *BaseHelper) Initialize() error {
 	// Perform any necessary initialization here
-	return nil
-}
-
-// GetEnvVars retrieves environment variables for the current context
-func (h *BaseHelper) GetEnvVars() (map[string]string, error) {
-	// Get the current context
-	context, err := h.Context.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context: %w", err)
-	}
-
-	// Get environment variables for the context from the config handler
-	envVarsInterface, err := h.ConfigHandler.Get(fmt.Sprintf("contexts.%s.environment", context))
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving environment variables: %w", err)
-	}
-	envVars, ok := envVarsInterface.(map[string]string)
-	if !ok {
-		return nil, fmt.Errorf("expected map[string]string for environment variables, got %T", envVarsInterface)
-	}
-
-	// Convert environment variables to a map of strings
-	stringEnvVars := make(map[string]string)
-	for k, v := range envVars {
-		stringEnvVars[strings.ToUpper(k)] = v // Capitalize the key
-	}
-
-	// Add WINDSOR_CONTEXT to the environment variables
-	stringEnvVars["WINDSOR_CONTEXT"] = context
-
-	// Get the project root and add WINDSOR_PROJECT_ROOT to the environment variables
-	projectRoot, err := h.Shell.GetProjectRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving project root: %w", err)
-	}
-	stringEnvVars["WINDSOR_PROJECT_ROOT"] = projectRoot
-
-	return stringEnvVars, nil
-}
-
-// PostEnvExec runs any necessary commands after the environment variables have been set.
-func (h *BaseHelper) PostEnvExec() error {
 	return nil
 }
 

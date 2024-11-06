@@ -2,7 +2,6 @@ package env
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"testing"
 
@@ -61,78 +60,44 @@ func TestMockEnv_NewMockEnv(t *testing.T) {
 	})
 }
 
-func TestMockEnv_Print(t *testing.T) {
-	envVars := map[string]string{
-		"VAR1": "value1",
-		"VAR2": "value2",
-	}
-	wantOutput := "VAR1=value1\nVAR2=value2\n"
-
-	t.Run("DefaultPrint", func(t *testing.T) {
-		// Given a mock environment with default Print implementation
+func TestMockEnv_GetEnvVars(t *testing.T) {
+	t.Run("DefaultGetEnvVars", func(t *testing.T) {
+		// Given a mock environment with default GetEnvVars implementation
 		mockEnv := NewMockEnv(nil)
-		// When calling Print
-		var buf bytes.Buffer
-		err := mockEnv.Print(envVars)
-		output := buf.String()
-		// Then the output should be empty as default Print does nothing
+		// When calling GetEnvVars
+		envVars, err := mockEnv.GetEnvVars()
+		// Then no error should be returned and envVars should be an empty map
 		if err != nil {
-			t.Errorf("Print() error = %v, want nil", err)
+			t.Errorf("GetEnvVars() error = %v, want nil", err)
 		}
-		if output != "" {
-			t.Errorf("Print() output = %v, want %v", output, "")
+		if len(envVars) != 0 {
+			t.Errorf("GetEnvVars() = %v, want empty map", envVars)
 		}
 	})
 
-	t.Run("CustomPrint", func(t *testing.T) {
-		// Given a mock environment with custom Print implementation
+	t.Run("CustomGetEnvVars", func(t *testing.T) {
+		// Given a mock environment with custom GetEnvVars implementation
 		mockEnv := NewMockEnv(nil)
-		var buf bytes.Buffer
-		mockEnv.PrintFunc = func(envVars map[string]string) error {
-			keys := []string{"VAR1", "VAR2"}
-			for _, key := range keys {
-				if value, exists := envVars[key]; exists {
-					fmt.Fprintf(&buf, "%s=%s\n", key, value)
-				}
+		expectedEnvVars := map[string]string{
+			"VAR1": "value1",
+			"VAR2": "value2",
+		}
+		mockEnv.GetEnvVarsFunc = func() (map[string]string, error) {
+			return expectedEnvVars, nil
+		}
+		// When calling GetEnvVars
+		envVars, err := mockEnv.GetEnvVars()
+		// Then no error should be returned and envVars should match expectedEnvVars
+		if err != nil {
+			t.Errorf("GetEnvVars() error = %v, want nil", err)
+		}
+		if len(envVars) != len(expectedEnvVars) {
+			t.Errorf("GetEnvVars() = %v, want %v", envVars, expectedEnvVars)
+		}
+		for key, value := range expectedEnvVars {
+			if envVars[key] != value {
+				t.Errorf("GetEnvVars()[%v] = %v, want %v", key, envVars[key], value)
 			}
-			return nil
-		}
-		// When calling Print
-		err := mockEnv.Print(envVars)
-		output := buf.String()
-		// Then the output should match the expected output
-		if err != nil {
-			t.Errorf("Print() error = %v, want nil", err)
-		}
-		if output != wantOutput {
-			t.Errorf("Print() output = %v, want %v", output, wantOutput)
-		}
-	})
-}
-
-func TestMockEnv_PostEnvHook(t *testing.T) {
-	t.Run("DefaultPostEnvHook", func(t *testing.T) {
-		// Given a mock environment with default PostEnvHook implementation
-		mockEnv := NewMockEnv(nil)
-		// When calling PostEnvHook
-		err := mockEnv.PostEnvHook()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("PostEnvHook() error = %v, want nil", err)
-		}
-	})
-
-	t.Run("CustomPostEnvHook", func(t *testing.T) {
-		// Given a mock environment with custom PostEnvHook implementation
-		mockEnv := NewMockEnv(nil)
-		mockEnv.PostEnvHookFunc = func() error {
-			return fmt.Errorf("custom error")
-		}
-		// When calling PostEnvHook
-		err := mockEnv.PostEnvHook()
-		// Then the custom error should be returned
-		if err == nil || err.Error() != "custom error" {
-			t.Errorf("PostEnvHook() error = %v, want custom error", err)
 		}
 	})
 }

@@ -42,14 +42,9 @@ func setupSafeTalosEnvMocks(container ...di.ContainerInterface) *TalosEnvMocks {
 	}
 }
 
-func TestTalosEnv_Print(t *testing.T) {
+func TestTalosEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeTalosEnvMocks()
-
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
-			t.Log("PrintEnvVarsFunc called successfully with envVars:", envVars)
-			return nil
-		}
 
 		originalStat := stat
 		defer func() { stat = originalStat }()
@@ -62,10 +57,9 @@ func TestTalosEnv_Print(t *testing.T) {
 
 		talosEnv := NewTalosEnv(mocks.Container)
 
-		envVars := make(map[string]string)
-		err := talosEnv.Print(envVars)
+		envVars, err := talosEnv.GetEnvVars()
 		if err != nil {
-			t.Fatalf("Print returned an error: %v", err)
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
 		if envVars["TALOSCONFIG"] != "/mock/config/root/.talos/config" {
@@ -84,10 +78,9 @@ func TestTalosEnv_Print(t *testing.T) {
 
 		talosEnv := NewTalosEnv(mocks.Container)
 
-		envVars := make(map[string]string)
-		err := talosEnv.Print(envVars)
+		envVars, err := talosEnv.GetEnvVars()
 		if err != nil {
-			t.Fatalf("Print returned an error: %v", err)
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
 		if envVars["TALOSCONFIG"] != "" {
@@ -102,17 +95,9 @@ func TestTalosEnv_Print(t *testing.T) {
 
 		talosEnv := NewTalosEnv(mockContainer)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := talosEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error resolving contextHandler: mock resolve error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := talosEnv.GetEnvVars()
+		if err == nil || err.Error() != "error resolving contextHandler: mock resolve error" {
+			t.Errorf("expected error resolving contextHandler, got %v", err)
 		}
 	})
 
@@ -123,59 +108,9 @@ func TestTalosEnv_Print(t *testing.T) {
 
 		talosEnv := NewTalosEnv(container)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := talosEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "failed to cast contextHandler to context.ContextInterface\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("ResolveShellError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeTalosEnvMocks(mockContainer)
-		mockContainer.SetResolveError("shell", fmt.Errorf("mock resolve error"))
-
-		talosEnv := NewTalosEnv(mockContainer)
-
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := talosEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error resolving shell: mock resolve error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("AssertShellError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeTalosEnvMocks(mockContainer)
-		mockContainer.Register("shell", "invalidType")
-
-		talosEnv := NewTalosEnv(mockContainer)
-
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := talosEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "failed to cast shell to shell.Shell\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := talosEnv.GetEnvVars()
+		if err == nil || err.Error() != "failed to cast contextHandler to context.ContextInterface" {
+			t.Errorf("expected failed to cast contextHandler error, got %v", err)
 		}
 	})
 
@@ -187,17 +122,9 @@ func TestTalosEnv_Print(t *testing.T) {
 
 		talosEnv := NewTalosEnv(mocks.Container)
 
-		output := captureStdout(t, func() {
-			envVars := make(map[string]string)
-			err := talosEnv.Print(envVars)
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		expectedOutput := "error retrieving configuration root directory: mock context error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
+		_, err := talosEnv.GetEnvVars()
+		if err == nil || err.Error() != "error retrieving configuration root directory: mock context error" {
+			t.Errorf("expected error retrieving configuration root directory, got %v", err)
 		}
 	})
 }

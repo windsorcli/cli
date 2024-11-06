@@ -6,47 +6,40 @@ import (
 
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // DockerEnv is a struct that simulates a Docker environment for testing purposes.
 type DockerEnv struct {
-	EnvInterface
-	diContainer di.ContainerInterface
+	Env
 }
 
-// NewTalosEnv initializes a new TalosEnv instance using the provided dependency injection container.
+// NewDockerEnv initializes a new DockerEnv instance using the provided dependency injection container.
 func NewDockerEnv(diContainer di.ContainerInterface) *DockerEnv {
 	return &DockerEnv{
-		diContainer: diContainer,
+		Env: Env{
+			diContainer: diContainer,
+		},
 	}
 }
 
-// Print displays the provided environment variables to the console.
-func (e *DockerEnv) Print(envVars map[string]string) error {
-	// Resolve necessary dependencies for context and shell operations.
+// GetEnvVars retrieves the environment variables for the Docker environment.
+func (e *DockerEnv) GetEnvVars() (map[string]string, error) {
+	envVars := make(map[string]string)
+
+	// Resolve necessary dependencies for context operations.
 	contextHandler, err := e.diContainer.Resolve("contextHandler")
 	if err != nil {
-		return fmt.Errorf("error resolving contextHandler: %w", err)
+		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
 	context, ok := contextHandler.(context.ContextInterface)
 	if !ok {
-		return fmt.Errorf("failed to cast contextHandler to context.ContextInterface")
-	}
-
-	shellInstance, err := e.diContainer.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-	shell, ok := shellInstance.(shell.Shell)
-	if !ok {
-		return fmt.Errorf("failed to cast shell to shell.Shell")
+		return nil, fmt.Errorf("failed to cast contextHandler to context.ContextInterface")
 	}
 
 	// Determine the root directory for configuration files.
 	configRoot, err := context.GetConfigRoot()
 	if err != nil {
-		return fmt.Errorf("error retrieving configuration root directory: %w", err)
+		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 	}
 
 	// Check for the existence of compose.yaml or compose.yml
@@ -63,9 +56,19 @@ func (e *DockerEnv) Print(envVars map[string]string) error {
 	// Populate environment variables with Docker configuration data.
 	envVars["COMPOSE_FILE"] = composeFilePath
 
-	// Display the environment variables using the Shell's PrintEnvVars method.
-	return shell.PrintEnvVars(envVars)
+	return envVars, nil
+}
+
+// Print prints the environment variables for the Docker environment.
+func (e *DockerEnv) Print() error {
+	envVars, err := e.GetEnvVars()
+	if err != nil {
+		// Return the error if GetEnvVars fails
+		return fmt.Errorf("error getting environment variables: %w", err)
+	}
+	// Call the Print method of the embedded Env struct with the retrieved environment variables
+	return e.Env.Print(envVars)
 }
 
 // Ensure DockerEnv implements the EnvInterface
-var _ EnvInterface = (*DockerEnv)(nil)
+var _ EnvPrinter = (*DockerEnv)(nil)

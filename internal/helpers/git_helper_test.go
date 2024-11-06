@@ -462,44 +462,6 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 	})
 }
 
-func TestGitHelper_NoOpFunctions(t *testing.T) {
-	// Create a mock DI container and register necessary components
-	diContainer := di.NewContainer()
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockShell := shell.NewMockShell()
-	mockContext := context.NewMockContext()
-	diContainer.Register("cliConfigHandler", mockConfigHandler)
-	diContainer.Register("shell", mockShell)
-	diContainer.Register("contextHandler", mockContext)
-
-	// Create GitHelper
-	gitHelper, err := NewGitHelper(diContainer)
-	if err != nil {
-		t.Fatalf("NewGitHelper() error = %v", err)
-	}
-
-	t.Run("GetEnvVars", func(t *testing.T) {
-		envVars, err := gitHelper.GetEnvVars()
-		if envVars == nil || err != nil {
-			t.Fatalf("expected non-nil envVars and nil error; got %v, %v", envVars, err)
-		}
-	})
-
-	t.Run("PostEnvExec", func(t *testing.T) {
-		err := gitHelper.PostEnvExec()
-		if err != nil {
-			t.Fatalf("expected nil; got %v", err)
-		}
-	})
-
-	t.Run("WriteConfig", func(t *testing.T) {
-		err := gitHelper.WriteConfig()
-		if err != nil {
-			t.Fatalf("expected nil; got %v", err)
-		}
-	})
-}
-
 func TestGitHelper_Up(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create DI container and register mocks

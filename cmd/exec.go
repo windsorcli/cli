@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/env"
 )
 
 var execCmd = &cobra.Command{
@@ -17,24 +17,22 @@ var execCmd = &cobra.Command{
 			return fmt.Errorf("no command provided")
 		}
 
-		// Resolve all helpers from the DI container
-		helperInstances, err := container.ResolveAll((*helpers.Helper)(nil))
+		// Resolve all environments from the DI container
+		envInstances, err := container.ResolveAll((*env.EnvPrinter)(nil))
 		if err != nil {
-			return fmt.Errorf("Error resolving helpers: %w", err)
+			return fmt.Errorf("Error resolving environments: %w", err)
 		}
 
-		// Collect environment variables from all helpers
+		// Collect environment variables from all environments
 		envVars := make(map[string]string)
-		for _, instance := range helperInstances {
-			helper := instance.(helpers.Helper)
-			helperEnvVars, err := helper.GetEnvVars()
+		for _, instance := range envInstances {
+			envPrinter := instance.(env.EnvPrinter)
+			vars, err := envPrinter.GetEnvVars()
 			if err != nil {
 				return fmt.Errorf("Error getting environment variables: %w", err)
 			}
-			for k, v := range helperEnvVars {
-				if v != "" {
-					envVars[k] = v
-				}
+			for k, v := range vars {
+				envVars[k] = v
 			}
 		}
 

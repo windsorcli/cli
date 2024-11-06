@@ -3,7 +3,6 @@ package helpers
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/getsops/sops/v3/decrypt"
@@ -32,35 +31,6 @@ func NewSopsHelper(di *di.DIContainer) (*SopsHelper, error) {
 // Initialize performs any necessary initialization for the helper.
 func (h *SopsHelper) Initialize() error {
 	// Perform any necessary initialization here
-	return nil
-}
-
-// GetEnvVars retrieves Kubernetes-specific environment variables for the current context
-func (h *SopsHelper) GetEnvVars() (map[string]string, error) {
-	// Get the configuration root directory
-	configRoot, err := h.Context.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving config root: %w", err)
-	}
-
-	// Construct the path to the sops encrypted secrets file, return nils if it doesn't exist
-	sopsEncSecretsPath := filepath.Join(configRoot, "secrets.enc.yaml")
-	if _, err := os.Stat(sopsEncSecretsPath); os.IsNotExist(err) {
-		return nil, nil
-	}
-
-	plaintextBytes, err := DecryptFile(sopsEncSecretsPath)
-	if err != nil {
-		return nil, fmt.Errorf("error decrypting sops file: %w", err)
-	}
-
-	envVars, err := YamlToEnvVars(plaintextBytes)
-
-	return envVars, nil
-}
-
-// PostEnvExec runs any necessary commands after the environment variables have been set.
-func (h *SopsHelper) PostEnvExec() error {
 	return nil
 }
 
