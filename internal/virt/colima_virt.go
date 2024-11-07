@@ -35,7 +35,7 @@ func (v *ColimaVirt) Up(verbose ...bool) error {
 		verbose = append(verbose, false)
 	}
 
-	if err := v.configureColima(); err != nil {
+	if err := v.WriteConfig(); err != nil {
 		return err
 	}
 
@@ -103,162 +103,6 @@ func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
 	}
 
 	return vmInfo, nil
-}
-
-// PrintInfo prints the information about the Colima VM
-func (v *ColimaVirt) PrintInfo() error {
-	info, err := v.GetVMInfo()
-	if err != nil {
-		return fmt.Errorf("error retrieving Colima info: %w", err)
-	}
-
-	fmt.Printf("Colima VM Info:\n")
-	fmt.Printf("Address: %s\n", info.Address)
-	fmt.Printf("Arch: %s\n", info.Arch)
-	fmt.Printf("CPUs: %d\n", info.CPUs)
-	fmt.Printf("Disk: %d GB\n", info.Disk)
-	fmt.Printf("Memory: %d GB\n", info.Memory)
-	fmt.Printf("Name: %s\n", info.Name)
-
-	return nil
-}
-
-// Delete removes the Colima VM
-func (v *ColimaVirt) Delete(verbose ...bool) error {
-	if len(verbose) == 0 {
-		verbose = append(verbose, false)
-	}
-
-	return v.executeColimaCommand("delete", verbose[0])
-}
-
-// Ensure ColimaVirt implements VirtInterface and VMInterface
-var _ VirtInterface = (*ColimaVirt)(nil)
-var _ VMInterface = (*ColimaVirt)(nil)
-
-// getArch retrieves the architecture of the system
-var getArch = func() string {
-	arch := goArch
-	if arch == "amd64" {
-		return "x86_64"
-	} else if arch == "arm64" {
-		return "aarch64"
-	}
-	return arch
-}
-
-// getDefaultValues retrieves the default values for the VM properties
-func getDefaultValues(context string) (int, int, int, string, string) {
-	cpu := numCPU() / 2
-	disk := 60 // Disk size in GB
-
-	// Use the mockable function to get the total system memory
-	vmStat, err := virtualMemory()
-	var memory int
-	if err != nil {
-		// Fallback to a default value if memory retrieval fails
-		memory = 2 // Default to 2GB
-	} else {
-		// Convert total system memory from bytes to gigabytes
-		totalMemoryGB := vmStat.Total / (1024 * 1024 * 1024)
-		halfMemoryGB := totalMemoryGB / 2
-
-		// Use the test hook to force the overflow condition
-		if testForceMemoryOverflow || halfMemoryGB > uint64(math.MaxInt) {
-			memory = math.MaxInt
-		} else {
-			memory = int(halfMemoryGB)
-		}
-	}
-
-	hostname := fmt.Sprintf("windsor-%s", context)
-	arch := getArch()
-	return cpu, disk, memory, hostname, arch
-}
-
-// executeColimaCommand executes a Colima command with the given action
-func (v *ColimaVirt) executeColimaCommand(action string, verbose bool) error {
-	contextHandler, err := v.container.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving context: %w", err)
-	}
-
-	shellInstance, err := v.container.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-
-	contextName, err := contextHandler.(context.ContextInterface).GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
-
-	command := "colima"
-	args := []string{action, fmt.Sprintf("windsor-%s", contextName)}
-	output, err := shellInstance.(shell.Shell).Exec(verbose, fmt.Sprintf("Executing colima %s command", action), command, args...)
-	if err != nil {
-		return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
-	}
-
-	return nil
-}
-
-// configureColima writes the Colima configuration file if necessary
-func (v *ColimaVirt) configureColima() error {
-	cliConfigHandler, err := v.container.Resolve("cliConfigHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving cliConfigHandler: %w", err)
-	}
-
-	contextConfig, err := cliConfigHandler.(config.ConfigHandler).GetConfig()
-	if err != nil {
-		return fmt.Errorf("error retrieving config: %w", err)
-	}
-
-	if contextConfig == nil || contextConfig.VM == nil || contextConfig.VM.Driver == nil || *contextConfig.VM.Driver != "colima" {
-		return nil
-	}
-
-	return v.WriteConfig()
-}
-
-// startColima starts the Colima VM and waits for it to have an assigned IP address
-func (v *ColimaVirt) startColima(verbose bool) error {
-	contextHandler, err := v.container.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving context: %w", err)
-	}
-
-	shellInstance, err := v.container.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-
-	contextName, err := contextHandler.(context.ContextInterface).GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
-
-	command := "colima"
-	args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
-	output, err := shellInstance.(shell.Shell).Exec(verbose, "Executing colima start command", command, args...)
-	if err != nil {
-		return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
-	}
-
-	// Wait until the Colima VM has an assigned IP address, try three times
-	for i := 0; i < 3; i++ {
-		info, err := v.GetVMInfo()
-		if err != nil {
-			return fmt.Errorf("Error retrieving Colima info: %w", err)
-		}
-		if info.Address != "" {
-			break
-		}
-		time.Sleep(2 * time.Second)
-	}
-
-	return nil
 }
 
 // WriteConfig writes the Colima configuration file
@@ -377,5 +221,142 @@ func (v *ColimaVirt) WriteConfig() error {
 	if err := rename(tempFilePath, finalFilePath); err != nil {
 		return fmt.Errorf("error renaming temporary file to colima config file: %w", err)
 	}
+	return nil
+}
+
+// PrintInfo prints the information about the Colima VM
+func (v *ColimaVirt) PrintInfo() error {
+	info, err := v.GetVMInfo()
+	if err != nil {
+		return fmt.Errorf("error retrieving Colima info: %w", err)
+	}
+
+	fmt.Printf("Colima VM Info:\n")
+	fmt.Printf("Address: %s\n", info.Address)
+	fmt.Printf("Arch: %s\n", info.Arch)
+	fmt.Printf("CPUs: %d\n", info.CPUs)
+	fmt.Printf("Disk: %d GB\n", info.Disk)
+	fmt.Printf("Memory: %d GB\n", info.Memory)
+	fmt.Printf("Name: %s\n", info.Name)
+
+	return nil
+}
+
+// Delete removes the Colima VM
+func (v *ColimaVirt) Delete(verbose ...bool) error {
+	if len(verbose) == 0 {
+		verbose = append(verbose, false)
+	}
+
+	return v.executeColimaCommand("delete", verbose[0])
+}
+
+// Ensure ColimaVirt implements VirtInterface and VMInterface
+var _ VirtInterface = (*ColimaVirt)(nil)
+var _ VMInterface = (*ColimaVirt)(nil)
+
+// getArch retrieves the architecture of the system
+var getArch = func() string {
+	arch := goArch
+	if arch == "amd64" {
+		return "x86_64"
+	} else if arch == "arm64" {
+		return "aarch64"
+	}
+	return arch
+}
+
+// getDefaultValues retrieves the default values for the VM properties
+func getDefaultValues(context string) (int, int, int, string, string) {
+	cpu := numCPU() / 2
+	disk := 60 // Disk size in GB
+
+	// Use the mockable function to get the total system memory
+	vmStat, err := virtualMemory()
+	var memory int
+	if err != nil {
+		// Fallback to a default value if memory retrieval fails
+		memory = 2 // Default to 2GB
+	} else {
+		// Convert total system memory from bytes to gigabytes
+		totalMemoryGB := vmStat.Total / (1024 * 1024 * 1024)
+		halfMemoryGB := totalMemoryGB / 2
+
+		// Use the test hook to force the overflow condition
+		if testForceMemoryOverflow || halfMemoryGB > uint64(math.MaxInt) {
+			memory = math.MaxInt
+		} else {
+			memory = int(halfMemoryGB)
+		}
+	}
+
+	hostname := fmt.Sprintf("windsor-%s", context)
+	arch := getArch()
+	return cpu, disk, memory, hostname, arch
+}
+
+// executeColimaCommand executes a Colima command with the given action
+func (v *ColimaVirt) executeColimaCommand(action string, verbose bool) error {
+	contextHandler, err := v.container.Resolve("contextHandler")
+	if err != nil {
+		return fmt.Errorf("error resolving context: %w", err)
+	}
+
+	shellInstance, err := v.container.Resolve("shell")
+	if err != nil {
+		return fmt.Errorf("error resolving shell: %w", err)
+	}
+
+	contextName, err := contextHandler.(context.ContextInterface).GetContext()
+	if err != nil {
+		return fmt.Errorf("error retrieving context: %w", err)
+	}
+
+	command := "colima"
+	args := []string{action, fmt.Sprintf("windsor-%s", contextName)}
+	output, err := shellInstance.(shell.Shell).Exec(verbose, fmt.Sprintf("Executing colima %s command", action), command, args...)
+	if err != nil {
+		return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
+	}
+
+	return nil
+}
+
+// startColima starts the Colima VM and waits for it to have an assigned IP address
+func (v *ColimaVirt) startColima(verbose bool) error {
+	contextHandler, err := v.container.Resolve("contextHandler")
+	if err != nil {
+		return fmt.Errorf("error resolving context: %w", err)
+	}
+
+	shellInstance, err := v.container.Resolve("shell")
+	if err != nil {
+		return fmt.Errorf("error resolving shell: %w", err)
+	}
+
+	contextName, err := contextHandler.(context.ContextInterface).GetContext()
+	if err != nil {
+		return fmt.Errorf("error retrieving context: %w", err)
+	}
+
+	command := "colima"
+	args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
+	output, err := shellInstance.(shell.Shell).Exec(verbose, "Executing colima start command", command, args...)
+	if err != nil {
+		return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
+	}
+
+	// Wait until the Colima VM has an assigned IP address, try three times
+	for i := 0; i < 3; i++ {
+		info, err := v.GetVMInfo()
+		if err != nil {
+			return fmt.Errorf("Error retrieving Colima info: %w", err)
+		}
+		if info.Address != "" {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+
 	return nil
 }

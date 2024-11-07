@@ -17,26 +17,6 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-type MockComponents struct {
-	Container         di.ContainerInterface
-	MockContext       *context.MockContext
-	MockShell         *shell.MockShell
-	MockConfigHandler *config.MockConfigHandler
-}
-
-type mockYAMLEncoder struct {
-	encodeFunc func(v interface{}) error
-	closeFunc  func() error
-}
-
-func (m *mockYAMLEncoder) Encode(v interface{}) error {
-	return m.encodeFunc(v)
-}
-
-func (m *mockYAMLEncoder) Close() error {
-	return m.closeFunc()
-}
-
 func setupSafeColimaVmMocks(optionalContainer ...di.ContainerInterface) *MockComponents {
 	var container di.ContainerInterface
 	if len(optionalContainer) > 0 {
@@ -1029,85 +1009,6 @@ func TestColimaVirt_executeColimaCommand(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
-		}
-	})
-}
-
-// TestColimaVirt_configureColima tests the configureColima method of ColimaVirt.
-func TestColimaVirt_configureColima(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
-
-		// Mock the necessary methods to return a valid config for Colima
-		colimaDriver := "colima"
-		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{VM: &config.VMConfig{Driver: &colimaDriver}}, nil
-		}
-
-		// When calling configureColima
-		err := colimaVM.configureColima()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Setup mock components with a mock container
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeColimaVmMocks(mockContainer)
-		colimaVM := NewColimaVirt(mocks.Container)
-
-		// Set an error to be returned when resolving cliConfigHandler
-		mockContainer.SetResolveError("cliConfigHandler", fmt.Errorf("mock resolve error"))
-
-		// When calling configureColima
-		err := colimaVM.configureColima()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-	})
-
-	t.Run("ErrorRetrievingConfig", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
-
-		// Mock the necessary methods to simulate an error when retrieving config
-		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("mock config error")
-		}
-
-		// When calling configureColima
-		err := colimaVM.configureColima()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-	})
-
-	t.Run("NoConfigForColima", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
-
-		// Mock the necessary methods to return a config without Colima driver
-		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{VM: &config.VMConfig{Driver: nil}}, nil
-		}
-
-		// When calling configureColima
-		err := colimaVM.configureColima()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
 		}
 	})
 }

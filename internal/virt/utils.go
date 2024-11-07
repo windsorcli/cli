@@ -45,6 +45,11 @@ func ptrInt(i int) *int {
 	return &i
 }
 
+// ptrBool is a function that creates a pointer to a bool.
+func ptrBool(b bool) *bool {
+	return &b
+}
+
 // YAMLEncoder is an interface for encoding YAML data.
 type YAMLEncoder interface {
 	Encode(v interface{}) error

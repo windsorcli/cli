@@ -2,7 +2,32 @@ package virt
 
 import (
 	"testing"
+
+	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
+
+type MockComponents struct {
+	Container         di.ContainerInterface
+	MockContext       *context.MockContext
+	MockShell         *shell.MockShell
+	MockConfigHandler *config.MockConfigHandler
+}
+
+type mockYAMLEncoder struct {
+	encodeFunc func(v interface{}) error
+	closeFunc  func() error
+}
+
+func (m *mockYAMLEncoder) Encode(v interface{}) error {
+	return m.encodeFunc(v)
+}
+
+func (m *mockYAMLEncoder) Close() error {
+	return m.closeFunc()
+}
 
 // TestMockVirt_Up tests the Up method of MockVirt.
 func TestMockVirt_Up(t *testing.T) {
