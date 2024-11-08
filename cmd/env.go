@@ -24,10 +24,7 @@ var envCmd = &cobra.Command{
 		// Cast envInstances to a slice of EnvPrinter
 		envPrinters := make([]env.EnvPrinter, len(envInstances))
 		for i, instance := range envInstances {
-			envPrinter, ok := instance.(env.EnvPrinter)
-			if !ok {
-				return fmt.Errorf("failed to cast resolved instance to env.EnvPrinter")
-			}
+			envPrinter, _ := instance.(env.EnvPrinter)
 			envPrinters[i] = envPrinter
 		}
 

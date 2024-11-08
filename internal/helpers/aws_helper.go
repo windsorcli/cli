@@ -36,12 +36,6 @@ func NewAwsHelper(di *di.DIContainer) (*AwsHelper, error) {
 	}, nil
 }
 
-// Initialize performs any necessary initialization for the helper.
-func (h *AwsHelper) Initialize() error {
-	// Perform any necessary initialization here
-	return nil
-}
-
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (h *AwsHelper) GetComposeConfig() (*types.Config, error) {
 	contextConfig, err := h.ConfigHandler.GetConfig()
@@ -97,21 +91,6 @@ func (h *AwsHelper) GetComposeConfig() (*types.Config, error) {
 	}
 
 	return &types.Config{Services: services}, nil
-}
-
-// WriteConfig writes any vendor specific configuration files that are needed for the helper.
-func (h *AwsHelper) WriteConfig() error {
-	return nil
-}
-
-// Up executes necessary commands to instantiate the tool or environment.
-func (h *AwsHelper) Up(verbose ...bool) error {
-	return nil
-}
-
-// Info returns information about the helper.
-func (h *AwsHelper) Info() (interface{}, error) {
-	return nil, nil
 }
 
 // Ensure AwsHelper implements Helper interface

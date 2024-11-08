@@ -6,10 +6,6 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // Helper function to compare two maps
@@ -23,33 +19,6 @@ func equalMaps(a, b map[string]string) bool {
 		}
 	}
 	return true
-}
-
-func TestMockHelper_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler and context
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextHandler", mockContext)
-
-		// Create an instance of MockHelper
-		mockHelper := NewMockHelper()
-
-		// When: Initialize is called
-		err := mockHelper.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
 }
 
 func TestMockHelper_GetComposeConfig(t *testing.T) {
@@ -78,6 +47,22 @@ func TestMockHelper_GetComposeConfig(t *testing.T) {
 		// Then: the result should match the expected configuration
 		if !reflect.DeepEqual(composeConfig, expectedConfig) {
 			t.Errorf("expected %v, got %v", expectedConfig, composeConfig)
+		}
+	})
+
+	t.Run("SuccessNoMock", func(t *testing.T) {
+		// Given: a mock helper with no GetComposeConfigFunc
+		mockHelper := NewMockHelper()
+
+		// When: GetComposeConfig is called
+		composeConfig, err := mockHelper.GetComposeConfig()
+
+		// Then: no error should occur and the result should be nil
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
+		if composeConfig != nil {
+			t.Errorf("expected nil, got %v", composeConfig)
 		}
 	})
 
@@ -129,236 +114,6 @@ func TestMockHelper_SetGetComposeConfigFunc(t *testing.T) {
 		}
 		if !reflect.DeepEqual(composeConfig, expectedConfig) {
 			t.Errorf("expected %v, got %v", expectedConfig, composeConfig)
-		}
-	})
-}
-
-func TestMockHelper_WriteConfig(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler, context, and shell
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return "/path/to/config", nil
-		}
-		mockShell := shell.NewMockShell()
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextHandler", mockContext)
-		diContainer.Register("shell", mockShell)
-
-		// Create an instance of MockHelper
-		mockHelper := NewMockHelper()
-		mockHelper.WriteConfigFunc = func() error {
-			return nil
-		}
-
-		// When: WriteConfig is called
-		err := mockHelper.WriteConfig()
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("SetWriteConfigFunc", func(t *testing.T) {
-		// Given: a mock helper
-		mockHelper := NewMockHelper()
-
-		// Define a mock WriteConfigFunc
-		expectedError := fmt.Errorf("mock error writing config")
-		mockWriteConfigFunc := func() error {
-			return expectedError
-		}
-
-		// When: SetWriteConfigFunc is called
-		mockHelper.SetWriteConfigFunc(mockWriteConfigFunc)
-
-		// Then: the WriteConfigFunc should be set and return the expected error
-		err := mockHelper.WriteConfig()
-		if err == nil {
-			t.Fatalf("expected error %v, got nil", expectedError)
-		}
-		if err.Error() != expectedError.Error() {
-			t.Fatalf("expected error %v, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("WriteConfigFuncNotSet", func(t *testing.T) {
-		// Given: a mock helper without a WriteConfigFunc set
-		mockHelper := &MockHelper{}
-
-		// When: WriteConfig is called
-		err := mockHelper.WriteConfig()
-
-		// Then: it should return no error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-}
-
-func TestMockHelper_SetInitializeFunc(t *testing.T) {
-	t.Run("SetInitializeFunc", func(t *testing.T) {
-		// Given: a mock helper
-		mockHelper := NewMockHelper()
-
-		// Define a mock InitializeFunc
-		expectedError := fmt.Errorf("mock initialize error")
-		mockInitializeFunc := func() error {
-			return expectedError
-		}
-
-		// When: SetInitializeFunc is called
-		mockHelper.SetInitializeFunc(mockInitializeFunc)
-
-		// Then: the InitializeFunc should be set and return the expected error
-		err := mockHelper.Initialize()
-		if err == nil {
-			t.Fatalf("expected error %v, got nil", expectedError)
-		}
-		if err.Error() != expectedError.Error() {
-			t.Fatalf("expected error %v, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("SetInitializeFunc", func(t *testing.T) {
-		// Given: a mock helper
-		mockHelper := NewMockHelper()
-
-		// Define a mock InitializeFunc
-		expectedError := fmt.Errorf("mock initialize error")
-		mockInitializeFunc := func() error {
-			return expectedError
-		}
-
-		// When: SetInitializeFunc is called
-		mockHelper.SetInitializeFunc(mockInitializeFunc)
-
-		// Then: the InitializeFunc should be set and return the expected error
-		err := mockHelper.Initialize()
-		if err == nil {
-			t.Fatalf("expected error %v, got nil", expectedError)
-		}
-		if err.Error() != expectedError.Error() {
-			t.Fatalf("expected error %v, got %v", expectedError, err)
-		}
-	})
-}
-
-func TestMockHelper_Up(t *testing.T) {
-	t.Run("UpFuncSet", func(t *testing.T) {
-		// Given: a mock helper with a set UpFunc
-		expectedError := fmt.Errorf("mock up error")
-		mockHelper := NewMockHelper()
-		mockHelper.UpFunc = func() error {
-			return expectedError
-		}
-
-		// When: Up is called
-		err := mockHelper.Up()
-
-		// Then: the UpFunc should be set and return the expected error
-		if err == nil {
-			t.Fatalf("expected error %v, got nil", expectedError)
-		}
-		if err.Error() != expectedError.Error() {
-			t.Fatalf("expected error %v, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("UpFuncNotSet", func(t *testing.T) {
-		// Given: a mock helper without a set UpFunc
-		mockHelper := NewMockHelper()
-
-		// When: Up is called
-		err := mockHelper.Up()
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-}
-
-func TestMockHelper_SetUpFunc(t *testing.T) {
-	t.Run("SetUpFunc", func(t *testing.T) {
-		// Given: a mock helper and a mock UpFunc
-		expectedError := fmt.Errorf("mock up error")
-		mockHelper := NewMockHelper()
-		mockUpFunc := func() error {
-			return expectedError
-		}
-
-		// When: SetUpFunc is called
-		mockHelper.SetUpFunc(mockUpFunc)
-
-		// Then: the UpFunc should be set and return the expected error
-		err := mockHelper.Up()
-		if err == nil {
-			t.Fatalf("expected error %v, got nil", expectedError)
-		}
-		if err.Error() != expectedError.Error() {
-			t.Fatalf("expected error %v, got %v", expectedError, err)
-		}
-	})
-}
-
-func TestMockHelper_Info(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("context", mockContext)
-		diContainer.Register("shell", mockShell)
-
-		// Create an instance of MockHelper
-		mockHelper := NewMockHelper()
-
-		// When: Info is called
-		info, err := mockHelper.Info()
-		if err != nil {
-			t.Fatalf("Info() error = %v", err)
-		}
-
-		// Then: no error should be returned and info should be nil
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if info != nil {
-			t.Errorf("Expected info to be nil, got %v", info)
-		}
-	})
-}
-
-func TestMockHelper_SetInfoFunc(t *testing.T) {
-	t.Run("SetInfoFunc", func(t *testing.T) {
-		// Given: a mock helper and a mock InfoFunc
-		expectedError := fmt.Errorf("mock info error")
-		mockHelper := NewMockHelper()
-		mockInfoFunc := func() (interface{}, error) {
-			return nil, expectedError
-		}
-
-		// When: SetInfoFunc is called
-		mockHelper.SetInfoFunc(mockInfoFunc)
-
-		// Then: the InfoFunc should be set and return the expected error
-		_, err := mockHelper.Info()
-		if err == nil {
-			t.Fatalf("expected error %v, got nil", expectedError)
-		}
-		if err.Error() != expectedError.Error() {
-			t.Fatalf("expected error %v, got %v", expectedError, err)
 		}
 	})
 }

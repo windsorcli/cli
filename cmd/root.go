@@ -58,6 +58,9 @@ var netInterfaces = net.Interfaces
 // colimaVirt instance
 var colimaVirt virt.VirtInterface
 
+// dockerVirt instance
+var dockerVirt virt.VirtInterface
+
 // awsEnv instance
 var awsEnv env.EnvPrinter
 
@@ -89,10 +92,6 @@ func ptrBool(b bool) *bool {
 // Helper functions to create pointers for basic types
 func ptrString(s string) *string {
 	return &s
-}
-
-func ptrInt(i int) *int {
-	return &i
 }
 
 // getCLIConfigPath returns the path to the CLI configuration file
@@ -245,6 +244,7 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("contextHandler", &contextHandler)
 	resolveAndAssign("sshClient", &sshClient)
 	resolveAndAssign("colimaVirt", &colimaVirt)
+	resolveAndAssign("dockerVirt", &dockerVirt)
 	resolveAndAssign("awsEnv", &awsEnv)
 	resolveAndAssign("dockerEnv", &dockerEnv)
 	resolveAndAssign("kubeEnv", &kubeEnv)

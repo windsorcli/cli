@@ -23,11 +23,6 @@ func NewDNSHelper(di *di.DIContainer) (*DNSHelper, error) {
 	}, nil
 }
 
-// Initialize performs any necessary initialization for the helper.
-func (h *DNSHelper) Initialize() error {
-	return nil
-}
-
 // GetComposeConfig returns the compose configuration
 func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name
@@ -171,16 +166,6 @@ func (h *DNSHelper) WriteConfig() error {
 	}
 
 	return nil
-}
-
-// Up executes necessary commands to instantiate the tool or environment.
-func (h *DNSHelper) Up(verbose ...bool) error {
-	return nil
-}
-
-// Info returns information about the helper.
-func (h *DNSHelper) Info() (interface{}, error) {
-	return nil, nil
 }
 
 // Ensure DockerHelper implements Helper interface

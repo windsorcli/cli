@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/helpers"
 )
 
 var (
@@ -122,18 +121,22 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error saving config file: %w", err)
 		}
 
-		// Initialize and write the vendor config files using the DI container
-		helperInstances, err := container.ResolveAll((*helpers.Helper)(nil))
+		// Initialize ColimaVirt if enabled in configuration
+		contextConfig, err := cliConfigHandler.GetConfig()
 		if err != nil {
-			return fmt.Errorf("error resolving helpers: %w", err)
+			return fmt.Errorf("error retrieving context configuration: %w", err)
 		}
-		for _, instance := range helperInstances {
-			helper := instance.(helpers.Helper)
-			if err := helper.Initialize(); err != nil {
-				return fmt.Errorf("error initializing helper: %w", err)
+
+		if contextConfig.VM != nil && *contextConfig.VM.Driver == "colima" {
+			if err := colimaVirt.WriteConfig(); err != nil {
+				return fmt.Errorf("error writing Colima config: %w", err)
 			}
-			if err := helper.WriteConfig(); err != nil {
-				return fmt.Errorf("error writing config for helper: %w", err)
+		}
+
+		// Initialize DockerVirt if enabled in configuration
+		if contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
+			if err := dockerVirt.WriteConfig(); err != nil {
+				return fmt.Errorf("error writing Docker config: %w", err)
 			}
 		}
 

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/mocks"
 )
 
@@ -29,8 +28,23 @@ func TestInitCmd(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given: a valid config handler
+		// Given: a valid config handler that returns a normal config object
 		mocks := mocks.CreateSuperMocks()
+		mocks.ContextInstance.GetConfigRootFunc = func() (string, error) {
+			return "test-context", nil
+		}
+		// Mock the GetConfig function to ensure it is called with the desired object
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Enabled: ptrBool(true),
+				},
+				VM: &config.VMConfig{
+					Driver: ptrString("colima"),
+				},
+			}, nil
+		}
+
 		Initialize(mocks.Container)
 
 		// When: the init command is executed with a valid context
@@ -54,30 +68,9 @@ func TestInitCmd(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		Initialize(mocks.Container)
 
-		// Mock the Get function to ensure it is called with the desired object
-		mocks.CLIConfigHandler.GetFunc = func(key string) (interface{}, error) {
-			if key != "test-context" {
-				t.Errorf("Expected key %q, got %q", "test-context", key)
-			}
-			return map[string]interface{}{
-				"AWS": map[string]interface{}{
-					"AWSEndpointURL": "http://localhost:4566",
-					"AWSProfile":     "test-profile",
-				},
-				"Docker": map[string]interface{}{
-					"Enabled": true,
-				},
-				"Terraform": map[string]interface{}{
-					"Backend": "s3",
-				},
-				"VM": map[string]interface{}{
-					"Driver": "colima",
-					"CPU":    2,
-					"Disk":   20,
-					"Memory": 4096,
-					"Arch":   "x86_64",
-				},
-			}, nil
+		// Mock the GetConfig function to ensure it is called with the desired object
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{}, nil
 		}
 
 		// When: the init command is executed with all flags set
@@ -207,56 +200,6 @@ func TestInitCmd(t *testing.T) {
 
 		// Then: the output should indicate the error
 		expectedOutput := "Error saving config file: save cli config error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("WriteConfigError", func(t *testing.T) {
-		// Given: a helper that returns an error on WriteConfig
-		mocks := mocks.CreateSuperMocks()
-		mocks.DnsHelper.WriteConfigFunc = func() error {
-			return errors.New("write config error")
-		}
-		Initialize(mocks.Container)
-
-		// When: the init command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then: the output should indicate the error
-		expectedOutput := "error writing config for helper: write config error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ResolveHelpersError", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a container that returns an error when resolving helpers
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(errors.New("resolve helpers error"))
-		mocks := mocks.CreateSuperMocks(mockContainer)
-		Initialize(mocks.Container)
-
-		// When the init command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "error resolving helpers: resolve helpers error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
@@ -700,11 +643,11 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("HelperInitializeError", func(t *testing.T) {
-		// Given: a helper that returns an error on Initialize
+	t.Run("ErrorGettingConfig", func(t *testing.T) {
+		// Given: a config handler that returns an error on GetConfig
 		mocks := mocks.CreateSuperMocks()
-		mocks.DnsHelper.InitializeFunc = func() error {
-			return errors.New("initialize error")
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return nil, errors.New("error getting config")
 		}
 		Initialize(mocks.Container)
 
@@ -718,7 +661,71 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error initializing helper: initialize error"
+		expectedOutput := "error retrieving context configuration: error getting config"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorWritingColimaConfig", func(t *testing.T) {
+		// Given: a config handler that returns a valid config with Colima driver
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				VM: &config.VMConfig{
+					Driver: ptrString("colima"),
+				},
+			}, nil
+		}
+		// Mock ColimaVirt to return an error on WriteConfig
+		mocks.ColimaVirt.WriteConfigFunc = func() error {
+			return errors.New("error writing Colima config")
+		}
+		Initialize(mocks.Container)
+
+		// When: the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "error writing Colima config: error writing Colima config"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorWritingDockerConfig", func(t *testing.T) {
+		// Given: a config handler that returns a valid config with Docker enabled
+		mocks := mocks.CreateSuperMocks()
+		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Enabled: ptrBool(true),
+				},
+			}, nil
+		}
+		// Mock DockerVirt to return an error on WriteConfig
+		mocks.DockerVirt.WriteConfigFunc = func() error {
+			return errors.New("error writing Docker config")
+		}
+		Initialize(mocks.Container)
+
+		// When: the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then: the output should indicate the error
+		expectedOutput := "error writing Docker config: error writing Docker config"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}

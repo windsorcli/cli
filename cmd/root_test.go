@@ -19,6 +19,11 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
+// Helper functions to create pointers for basic types
+func ptrInt(i int) *int {
+	return &i
+}
+
 // Struct to hold optional mock handlers and helpers
 type MockDependencies struct {
 	CLIConfigHandler config.ConfigHandler

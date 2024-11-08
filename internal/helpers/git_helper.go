@@ -43,12 +43,6 @@ func NewGitHelper(di *di.DIContainer) (*GitHelper, error) {
 	}, nil
 }
 
-// Initialize performs any necessary initialization for the helper.
-func (h *GitHelper) Initialize() error {
-	// Perform any necessary initialization here
-	return nil
-}
-
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 	contextName, err := h.Context.GetContext()
@@ -159,21 +153,6 @@ func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 	return &types.Config{
 		Services: services,
 	}, nil
-}
-
-// WriteConfig is a no-op function
-func (h *GitHelper) WriteConfig() error {
-	return nil
-}
-
-// Up executes necessary commands to instantiate the tool or environment.
-func (h *GitHelper) Up(verbose ...bool) error {
-	return nil
-}
-
-// Info returns information about the helper.
-func (h *GitHelper) Info() (interface{}, error) {
-	return nil, nil
 }
 
 // Ensure GitHelper implements Helper interface

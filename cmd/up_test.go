@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/mocks"
 	"github.com/windsor-hotel/cli/internal/virt"
 )
@@ -34,17 +33,6 @@ func TestUpCmd(t *testing.T) {
 					CPU:    ptrInt(2),
 					Memory: ptrInt(4),
 					Disk:   ptrInt(10),
-				},
-			}, nil
-		}
-		mocks.DockerHelper.UpFunc = func() error {
-			return nil
-		}
-		mocks.DockerHelper.InfoFunc = func() (interface{}, error) {
-			return &helpers.DockerInfo{
-				Services: map[string]helpers.ServiceInfo{
-					"web": {Role: "web", IP: "192.168.1.2"},
-					"db":  {Role: "db", IP: "192.168.1.2"},
 				},
 			}, nil
 		}

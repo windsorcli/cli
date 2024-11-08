@@ -36,29 +36,6 @@ func TestNewDNSHelper(t *testing.T) {
 	}
 }
 
-func TestDNSHelper_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler, shell, and helper
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockShell := shell.NewMockShell()
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("shell", mockShell)
-		helper, err := NewDNSHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewDNSHelper() error = %v", err)
-		}
-
-		// When: Initialize is called
-		err = helper.Initialize()
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-	})
-}
-
 func TestDNSHelper_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create a mock DI container
@@ -963,64 +940,6 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		// Then: no error should be returned
 		if err != nil {
 			t.Fatalf("WriteConfig() error = %v", err)
-		}
-	})
-}
-
-func TestDNSHelper_Up(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextHandler", mockContext)
-		diContainer.Register("shell", mockShell)
-
-		// Create an instance of DNSHelper
-		dnsHelper, err := NewDNSHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewDNSHelper() error = %v", err)
-		}
-
-		// When: Up is called
-		err = dnsHelper.Up()
-		if err != nil {
-			t.Fatalf("Up() error = %v", err)
-		}
-	})
-}
-
-func TestDNSHelper_Info(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextHandler", mockContext)
-		diContainer.Register("shell", mockShell)
-
-		// Create an instance of DNSHelper
-		dnsHelper, err := NewDNSHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewDNSHelper() error = %v", err)
-		}
-
-		// When: Info is called
-		info, err := dnsHelper.Info()
-		if err != nil {
-			t.Fatalf("Info() error = %v", err)
-		}
-
-		// Then: no error should be returned and info should be nil
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if info != nil {
-			t.Errorf("Expected info to be nil, got %v", info)
 		}
 	})
 }
