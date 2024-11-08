@@ -1,7 +1,6 @@
 package virt
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"net"
@@ -65,25 +64,12 @@ var newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
 	return yaml.NewEncoder(w, opts...)
 }
 
-// Helper function to capture stdout
-func captureStdout(f func()) string {
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	f()
-
-	w.Close()
-	os.Stdout = old
-
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	return buf.String()
-}
-
 // incrementIP increments an IP address by one
 func incrementIP(ip net.IP) net.IP {
 	ip = ip.To4()
+	if ip == nil {
+		return nil
+	}
 	for j := len(ip) - 1; j >= 0; j-- {
 		ip[j]++
 		if ip[j] > 0 {
