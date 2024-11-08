@@ -2,13 +2,17 @@ package virt
 
 import (
 	"fmt"
+	"net"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -98,7 +102,40 @@ func (v *DockerVirt) Delete(verbose ...bool) error {
 
 // WriteConfig writes the Docker configuration file
 func (v *DockerVirt) WriteConfig() error {
-	// Placeholder implementation
+	// Get the config root and construct the file path
+	resolvedContext, err := v.container.Resolve("contextHandler")
+	if err != nil {
+		return fmt.Errorf("error resolving context handler: %w", err)
+	}
+	configRoot, err := resolvedContext.(context.ContextInterface).GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving config root: %w", err)
+	}
+	composeFilePath := filepath.Join(configRoot, "compose.yaml")
+
+	// Ensure the parent context folder exists
+	if err := mkdirAll(filepath.Dir(composeFilePath), 0755); err != nil {
+		return fmt.Errorf("error creating parent context folder: %w", err)
+	}
+
+	// Retrieve the full compose configuration
+	project, err := v.getFullComposeConfig()
+	if err != nil {
+		return fmt.Errorf("error getting full compose config: %w", err)
+	}
+
+	// Serialize the docker-compose config to YAML
+	yamlData, err := yamlMarshal(project)
+	if err != nil {
+		return fmt.Errorf("error marshaling docker-compose config to YAML: %w", err)
+	}
+
+	// Write the YAML data to the specified file
+	err = writeFile(composeFilePath, yamlData, 0644)
+	if err != nil {
+		return fmt.Errorf("error writing docker-compose file: %w", err)
+	}
+
 	return nil
 }
 
@@ -197,4 +234,134 @@ func (v *DockerVirt) checkDockerDaemon() error {
 	args := []string{"info"}
 	_, err = shell.Exec(false, "Checking Docker daemon", command, args...)
 	return err
+}
+
+// getFullComposeConfig retrieves the full compose configuration for the DockerVirt.
+func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
+	// Create a network called "windsor-<context-name>"
+	resolvedContext, err := v.container.Resolve("contextHandler")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving context handler: %w", err)
+	}
+	contextName, err := resolvedContext.(context.ContextInterface).GetContext()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context: %w", err)
+	}
+
+	// Retrieve the context configuration
+	resolvedConfigHandler, err := v.container.Resolve("cliConfigHandler")
+	if err != nil {
+		return nil, fmt.Errorf("error resolving config handler: %w", err)
+	}
+	configHandler := resolvedConfigHandler.(config.ConfigHandler)
+	contextConfig, err := configHandler.GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
+	}
+
+	// Check if Docker is defined in the windsor config
+	if contextConfig.Docker == nil {
+		return nil, nil
+	}
+
+	var combinedServices []types.ServiceConfig
+	var combinedVolumes map[string]types.VolumeConfig
+	var combinedNetworks map[string]types.NetworkConfig
+
+	combinedVolumes = make(map[string]types.VolumeConfig)
+	combinedNetworks = make(map[string]types.NetworkConfig)
+
+	// Initialize helpers on-the-fly
+	helpers, err := v.container.ResolveAll((*helpers.Helper)(nil))
+	if err != nil {
+		return nil, fmt.Errorf("error resolving helpers: %w", err)
+	}
+
+	// Iterate through each helper and collect container configs
+	for _, helper := range helpers {
+		if helperInstance, ok := helper.(interface{ GetComposeConfig() (*types.Config, error) }); ok {
+			helperName := fmt.Sprintf("%T", helperInstance)
+			containerConfigs, err := helperInstance.GetComposeConfig()
+			if err != nil {
+				return nil, fmt.Errorf("error getting container config from helper %s: %w", helperName, err)
+			}
+			if containerConfigs == nil {
+				continue
+			}
+			if containerConfigs.Services != nil {
+				for _, containerConfig := range containerConfigs.Services {
+					combinedServices = append(combinedServices, containerConfig)
+				}
+			}
+			if containerConfigs.Volumes != nil {
+				for volumeName, volumeConfig := range containerConfigs.Volumes {
+					combinedVolumes[volumeName] = volumeConfig
+				}
+			}
+			if containerConfigs.Networks != nil {
+				for networkName, networkConfig := range containerConfigs.Networks {
+					combinedNetworks[networkName] = networkConfig
+				}
+			}
+		}
+	}
+
+	networkName := fmt.Sprintf("windsor-%s", contextName)
+
+	// Assign the CIDR to the network configuration
+	if contextConfig.Docker.NetworkCIDR != nil {
+		combinedNetworks[networkName] = types.NetworkConfig{
+			Driver: "bridge",
+			Ipam: types.IPAMConfig{
+				Driver: "default",
+				Config: []*types.IPAMPool{
+					{
+						Subnet: *contextConfig.Docker.NetworkCIDR,
+					},
+				},
+			},
+		}
+	} else {
+		combinedNetworks[networkName] = types.NetworkConfig{}
+	}
+
+	// Assign IP addresses to services based on the network CIDR
+	if contextConfig.Docker.NetworkCIDR != nil {
+		ip, ipNet, err := net.ParseCIDR(*contextConfig.Docker.NetworkCIDR)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing network CIDR: %w", err)
+		}
+
+		// Skip the network address
+		ip = incrementIP(ip)
+
+		// Skip the first IP address
+		ip = incrementIP(ip)
+
+		// Alphabetize the names of the services
+		sort.Slice(combinedServices, func(i, j int) bool {
+			return combinedServices[i].Name < combinedServices[j].Name
+		})
+
+		for i := range combinedServices {
+			combinedServices[i].Networks = map[string]*types.ServiceNetworkConfig{
+				networkName: {
+					Ipv4Address: ip.String(),
+				},
+			}
+			ip = incrementIP(ip)
+			if !ipNet.Contains(ip) {
+				return nil, fmt.Errorf("not enough IP addresses in the CIDR range")
+			}
+		}
+	}
+
+	// Create a Project using compose-go
+	project := &types.Project{
+		Services: combinedServices,
+		Volumes:  combinedVolumes,
+		Networks: combinedNetworks,
+	}
+
+	return project, nil
 }

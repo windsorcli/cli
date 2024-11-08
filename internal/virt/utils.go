@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net"
 	"os"
 	"runtime"
 
@@ -56,6 +57,9 @@ type YAMLEncoder interface {
 	Close() error
 }
 
+// yamlMarshal is a variable that holds the yaml.Marshal function to marshal a value to YAML.
+var yamlMarshal = yaml.Marshal
+
 // newYAMLEncoder is a function that returns a new YAML encoder.
 var newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
 	return yaml.NewEncoder(w, opts...)
@@ -75,4 +79,16 @@ func captureStdout(f func()) string {
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
 	return buf.String()
+}
+
+// incrementIP increments an IP address by one
+func incrementIP(ip net.IP) net.IP {
+	ip = ip.To4()
+	for j := len(ip) - 1; j >= 0; j-- {
+		ip[j]++
+		if ip[j] > 0 {
+			break
+		}
+	}
+	return ip
 }

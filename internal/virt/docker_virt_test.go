@@ -2,12 +2,15 @@ package virt
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -22,11 +25,13 @@ func setupSafeDockerContainerMocks(optionalContainer ...di.ContainerInterface) *
 	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell()
 	mockConfigHandler := config.NewMockConfigHandler()
+	mockHelper := helpers.NewMockHelper()
 
 	// Register mock instances in the container
 	container.Register("contextHandler", mockContext)
 	container.Register("shell", mockShell)
 	container.Register("cliConfigHandler", mockConfigHandler)
+	container.Register("mockHelper", mockHelper)
 
 	// Implement GetContextFunc on mock context
 	mockContext.GetContextFunc = func() (string, error) {
@@ -50,19 +55,19 @@ func setupSafeDockerContainerMocks(optionalContainer ...di.ContainerInterface) *
 		}, nil
 	}
 
-	// Mock the shell Exec function to return generic JSON structures
+	// Mock the shell Exec function to return generic JSON structures for two containers
 	mockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
 		if command == "docker" && len(args) > 0 {
 			switch args[0] {
 			case "ps":
-				return "container1", nil
+				return "container1\ncontainer2", nil
 			case "inspect":
 				if len(args) > 3 && args[2] == "--format" {
 					switch args[3] {
 					case "{{json .Config.Labels}}":
 						return `{"com.docker.compose.service":"service1","managed_by":"windsor","context":"default-context"}`, nil
 					case "{{json .NetworkSettings.Networks}}":
-						return `{"bridge":{"IPAddress":"192.168.1.2"}}`, nil
+						return `{"bridge":{"IPAddress":"192.168.1.2"},"bridge2":{"IPAddress":"192.168.1.3"}}`, nil
 					}
 				}
 			}
@@ -70,11 +75,39 @@ func setupSafeDockerContainerMocks(optionalContainer ...di.ContainerInterface) *
 		return "", fmt.Errorf("unknown command")
 	}
 
+	// Mock the helper's GetComposeConfigFunc to return a default configuration for two services
+	mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+		return &types.Config{
+			Services: []types.ServiceConfig{
+				{Name: "service1"},
+				{Name: "service2"},
+			},
+			Volumes: map[string]types.VolumeConfig{
+				"volume1": {},
+				"volume2": {},
+			},
+			Networks: map[string]types.NetworkConfig{
+				"network1": {
+					Driver: "bridge",
+				},
+				"network2": {
+					Driver: "bridge",
+				},
+			},
+		}, nil
+	}
+
+	// Mock the GetConfigRootFunc to return a mock config root path
+	mockContext.GetConfigRootFunc = func() (string, error) {
+		return "/mock/config/root", nil
+	}
+
 	return &MockComponents{
 		Container:         container,
 		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
+		MockHelper:        mockHelper,
 	}
 }
 
@@ -672,59 +705,212 @@ func TestDockerVirt_PrintInfo(t *testing.T) {
 
 func TestDockerVirt_WriteConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Stub test for successful WriteConfig
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Mock the mkdirAll function to simulate successful directory creation
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		// Mock the writeFile function to simulate successful file writing
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+
+		// Call the WriteConfig method
+		err := dockerVirt.WriteConfig()
+
+		// Assert no error occurred
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorCreatingParentContextFolder", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Mock the mkdirAll function to simulate a read-only file system error
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			if path == "/mock/config/root" {
+				return fmt.Errorf("read-only file system")
+			}
+			return nil
+		}
+
+		// Call the WriteConfig method
+		err := dockerVirt.WriteConfig()
+
+		// Assert an error occurred
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
+		if err.Error() != "error creating parent context folder: read-only file system" {
+			t.Fatalf("expected error message 'error creating parent context folder: read-only file system', got %v", err)
+		}
 	})
 
 	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Stub test for error resolving context
+		// Setup mock components
+		mockContainer := di.NewMockContainer()
+		mocks := setupSafeDockerContainerMocks(mockContainer)
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Mock the container's Resolve method to return an error for "contextHandler"
+		mockContainer.SetResolveError("contextHandler", fmt.Errorf("error resolving context handler"))
+
+		// Call the WriteConfig method
+		err := dockerVirt.WriteConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
+
+		// Assert the error message is as expected
+		expectedErrorMsg := "error resolving context handler"
+		if !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
 	})
 
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Stub test for error resolving config handler
+	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("error retrieving config root")
+		}
+
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Call the WriteConfig method
+		err := dockerVirt.WriteConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
+
+		// Assert the error message is as expected
+		expectedErrorMsg := "error retrieving config root"
+		if !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
 	})
 
-	t.Run("ErrorRetrievingConfig", func(t *testing.T) {
-		// Stub test for error retrieving config
+	t.Run("ErrorResolvingHelpers", func(t *testing.T) {
+		// Setup mock components
+		mockContainer := di.NewMockContainer()
+		mocks := setupSafeDockerContainerMocks(mockContainer)
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Mock the container's ResolveAll method to return an error for helpers
+		mockContainer.SetResolveAllError(fmt.Errorf("error resolving helpers"))
+
+		// Mock the mkdirAll function to simulate successful directory creation
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return nil // Return nil to simulate successful directory creation
+		}
+
+		// Call the WriteConfig method
+		err := dockerVirt.WriteConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
+
+		// Assert the error message is as expected
+		expectedErrorMsg := "error resolving helpers"
+		if !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
 	})
 
-	t.Run("NoVMDefined", func(t *testing.T) {
-		// Stub test for no VM defined
+	t.Run("ErrorMarshalingYAML", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Mock the mkdirAll function to prevent actual directory creation
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return nil // Return nil to bypass the read-only file system error
+		}
+
+		// Mock the yamlMarshal function to simulate an error
+		originalYamlMarshal := yamlMarshal
+		defer func() { yamlMarshal = originalYamlMarshal }()
+		yamlMarshal = func(v interface{}) ([]byte, error) {
+			return nil, fmt.Errorf("mock yamlMarshal error")
+		}
+
+		// Call the WriteConfig method
+		err := dockerVirt.WriteConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
+
+		// Assert the error message is as expected
+		expectedErrorMsg := "mock yamlMarshal error"
+		if !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
 	})
 
-	t.Run("AArchVM", func(t *testing.T) {
-		// Stub test for AArch VM
-	})
+	t.Run("ErrorWritingFile", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Container)
 
-	t.Run("ErrorSavingConfig", func(t *testing.T) {
-		// Stub test for error saving config
-	})
+		// Mock the mkdirAll function to prevent actual directory creation
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return nil // Return nil to bypass the directory creation
+		}
 
-	t.Run("ErrorRetrievingContext", func(t *testing.T) {
-		// Stub test for error retrieving context
-	})
+		// Mock the yamlMarshal function to return valid YAML data
+		originalYamlMarshal := yamlMarshal
+		defer func() { yamlMarshal = originalYamlMarshal }()
+		yamlMarshal = func(v interface{}) ([]byte, error) {
+			return []byte("valid: yaml"), nil
+		}
 
-	t.Run("ErrorGettingUserHomeDir", func(t *testing.T) {
-		// Stub test for error getting user home directory
-	})
+		// Mock the writeFile function to simulate an error
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("mock writeFile error")
+		}
 
-	t.Run("ErrorCreatingParentDirectories", func(t *testing.T) {
-		// Stub test for error creating parent directories
-	})
+		// Call the WriteConfig method
+		err := dockerVirt.WriteConfig()
 
-	t.Run("ErrorCreatingColimaDirectory", func(t *testing.T) {
-		// Stub test for error creating Colima directory
-	})
+		// Assert that an error occurred
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
 
-	t.Run("ErrorEncodingYaml", func(t *testing.T) {
-		// Stub test for error encoding YAML
-	})
-
-	t.Run("ErrorClosingEncoder", func(t *testing.T) {
-		// Stub test for error closing encoder
-	})
-
-	t.Run("ErrorRenamingTemporaryFile", func(t *testing.T) {
-		// Stub test for error renaming temporary file
+		// Assert the error message is as expected
+		expectedErrorMsg := "mock writeFile error"
+		if !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
 	})
 }
 
@@ -823,6 +1009,392 @@ func TestDockerVirt_checkDockerDaemon(t *testing.T) {
 		expectedErrorMsg := "resolved shell is not of type shell.Shell"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+	})
+}
+
+func TestDockerVirt_getFullComposeConfig(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Call the getFullComposeConfig method
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assert no error occurred
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// Assert the project is not nil
+		if project == nil {
+			t.Errorf("expected a project, got nil")
+		}
+
+		// Assert the project contains the expected services, volumes, and networks
+		expectedServices := []string{"service1", "service2"}
+		if len(project.Services) != len(expectedServices) {
+			t.Errorf("expected %d services, got %d", len(expectedServices), len(project.Services))
+		} else {
+			for i, service := range project.Services {
+				if service.Name != expectedServices[i] {
+					t.Errorf("expected service '%s', got '%s'", expectedServices[i], service.Name)
+				}
+			}
+		}
+
+		if len(project.Volumes) != 2 {
+			t.Errorf("expected 2 volumes, got %d", len(project.Volumes))
+		}
+		if len(project.Networks) != 3 {
+			t.Errorf("expected 3 networks, got %d", len(project.Networks))
+		}
+	})
+
+	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
+		// Setup mock components with a faulty container
+		container := di.NewMockContainer()
+		mocks := setupSafeDockerContainerMocks(container)
+		container.SetResolveError("contextHandler", fmt.Errorf("error resolving context handler"))
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Call the getFullComposeConfig method
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Assert the error message is as expected
+		expectedErrorMsg := "error resolving context handler"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+
+		// Assert the project is nil
+		if project != nil {
+			t.Errorf("expected project to be nil, got %v", project)
+		}
+	})
+
+	t.Run("ErrorRetrievingContext", func(t *testing.T) {
+		// Setup mock components with a faulty context
+		container := di.NewMockContainer()
+		mocks := setupSafeDockerContainerMocks(container)
+		mocks.MockContext.GetContextFunc = func() (string, error) {
+			return "", fmt.Errorf("error retrieving context")
+		}
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Call the getFullComposeConfig method
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Assert the error message is as expected
+		expectedErrorMsg := "error retrieving context"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+
+		// Assert the project is nil
+		if project != nil {
+			t.Errorf("expected project to be nil, got %v", project)
+		}
+	})
+
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		// Setup mock components with a faulty config handler
+		container := di.NewMockContainer()
+		mocks := setupSafeDockerContainerMocks(container)
+		container.SetResolveError("cliConfigHandler", fmt.Errorf("error resolving config handler"))
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Call the getFullComposeConfig method
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Assert the error message is as expected
+		expectedErrorMsg := "error resolving config handler"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+
+		// Assert the project is nil
+		if project != nil {
+			t.Errorf("expected project to be nil, got %v", project)
+		}
+	})
+
+	t.Run("ErrorRetrievingConfig", func(t *testing.T) {
+		// Setup mock components with a faulty config handler
+		container := di.NewMockContainer()
+		mocks := setupSafeDockerContainerMocks(container)
+		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return nil, fmt.Errorf("error retrieving context configuration")
+		}
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Call the getFullComposeConfig method
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Assert the error message is as expected
+		expectedErrorMsg := "error retrieving context configuration"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+
+		// Assert the project is nil
+		if project != nil {
+			t.Errorf("expected project to be nil, got %v", project)
+		}
+	})
+
+	t.Run("NoDockerDefined", func(t *testing.T) {
+		// Setup mock components with a config handler that returns no Docker configuration
+		container := di.NewMockContainer()
+		mocks := setupSafeDockerContainerMocks(container)
+		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: nil, // No Docker configuration
+			}, nil
+		}
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Call the getFullComposeConfig method
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assert no error occurred
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// Assert the project is nil
+		if project != nil {
+			t.Errorf("expected project to be nil, got %v", project)
+		}
+	})
+
+	t.Run("ErrorResolvingHelpers", func(t *testing.T) {
+		// Setup mock components
+		container := di.NewMockContainer()
+		mocks := setupSafeDockerContainerMocks(container)
+		container.SetResolveError("helpers", fmt.Errorf("error resolving helpers"))
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Mock the container's ResolveAll method to return an error
+		container.SetResolveAllError(fmt.Errorf("error resolving helpers"))
+
+		// Call the getFullComposeConfig method
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Assert the error message is as expected
+		expectedErrorMsg := "error resolving helpers"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+
+		// Assert the project is nil
+		if project != nil {
+			t.Errorf("expected project to be nil, got %v", project)
+		}
+	})
+
+	t.Run("ErrorGettingComposeConfig", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Mock the git helper's GetComposeConfigFunc to return an error
+		mocks.MockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+			return nil, fmt.Errorf("error getting compose config")
+		}
+
+		// Call the getFullComposeConfig method
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Assert the error message is as expected
+		expectedErrorMsg := "error getting compose config"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+
+		// Assert the project is nil
+		if project != nil {
+			t.Errorf("expected project to be nil, got %v", project)
+		}
+	})
+
+	t.Run("EmptyContainerConfig", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Mock the helper's GetComposeConfigFunc to return empty container configs and no error
+		mocks.MockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+			return nil, nil
+		}
+
+		// Call the getFullComposeConfig method
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assert that no error occurred
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Assert the project is not nil
+		if project == nil {
+			t.Errorf("expected project to be non-nil, got nil")
+		}
+
+		// Assert the project has no services, volumes, or networks
+		if len(project.Services) != 0 {
+			t.Errorf("expected no services, got %d", len(project.Services))
+		}
+		if len(project.Volumes) != 0 {
+			t.Errorf("expected no volumes, got %d", len(project.Volumes))
+		}
+		if len(project.Networks) != 1 {
+			t.Errorf("expected no networks, got %d", len(project.Networks))
+		}
+	})
+
+	t.Run("NoNetworkCIDRDefined", func(t *testing.T) {
+		// Setup mock components with a config that has no NetworkCIDR
+		mocks := setupSafeDockerContainerMocks()
+		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Enabled: ptrBool(true),
+					Registries: []config.Registry{
+						{
+							Name:   "registry.test",
+							Remote: "https://registry.test",
+							Local:  "https://local.registry.test",
+						},
+					},
+					NetworkCIDR: nil, // No NetworkCIDR defined
+				},
+			}, nil
+		}
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Call the getFullComposeConfig method
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assert that no error occurred
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Assert the project is not nil
+		if project == nil {
+			t.Fatalf("expected project to be non-nil, got nil")
+		}
+	})
+
+	t.Run("ErrorParsingNetworkCIDR", func(t *testing.T) {
+		// Setup mock components with a config that has an invalid NetworkCIDR
+		mocks := setupSafeDockerContainerMocks()
+		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Enabled: ptrBool(true),
+					Registries: []config.Registry{
+						{
+							Name:   "registry.test",
+							Remote: "https://registry.test",
+							Local:  "https://local.registry.test",
+						},
+					},
+					NetworkCIDR: ptrString("invalid-cidr"), // Invalid NetworkCIDR
+				},
+			}, nil
+		}
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Call the getFullComposeConfig method
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Assert the error message is as expected
+		expectedErrorMsg := "error parsing network CIDR"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+
+		// Assert the project is nil
+		if project != nil {
+			t.Errorf("expected project to be nil, got %v", project)
+		}
+	})
+
+	t.Run("NotEnoughIPAddresses", func(t *testing.T) {
+		// Setup mock components with a config that has a small NetworkCIDR
+		mocks := setupSafeDockerContainerMocks()
+		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Enabled: ptrBool(true),
+					Registries: []config.Registry{
+						{
+							Name:   "registry.test",
+							Remote: "https://registry.test",
+							Local:  "https://local.registry.test",
+						},
+					},
+					NetworkCIDR: ptrString("192.168.1.0/31"),
+				},
+			}, nil
+		}
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Call the getFullComposeConfig method
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// Assert the error message is as expected
+		expectedErrorMsg := "not enough IP addresses in the CIDR range"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+
+		// Assert the project is nil
+		if project != nil {
+			t.Fatalf("expected project to be nil, got %v", project)
 		}
 	})
 }
