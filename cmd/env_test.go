@@ -112,71 +112,6 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorCastingEnvPrinter", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-
-		// Given a normal container with an invalid instance registered
-		container := di.NewContainer()
-		mocks := mocks.CreateSuperMocks(container)
-		mocks.Container.Register("windsorEnv", "invalid-instance")
-
-		Initialize(mocks.Container)
-
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
-
-		// When the env command is executed with verbose flag
-		rootCmd.SetArgs([]string{"env", "--verbose"})
-		err := rootCmd.Execute()
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		output := buf.String()
-
-		// Then the output should indicate the error
-		expectedOutput := "failed to cast resolved instance to env.EnvPrinter"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ResolveShellError", func(t *testing.T) {
-		defer resetRootCmd()
-		defer recoverPanic(t)
-		// Given a local container that returns an error when resolving the shell
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveError("shell", fmt.Errorf("resolve shell error"))
-		mocks := mocks.CreateSuperMocks(mockContainer)
-
-		Initialize(mocks.Container)
-
-		// When the env command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error resolving shell: resolve shell error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-
-		// Assert that exitFunc was called with the correct code and message
-		if exitCode != 1 {
-			t.Errorf("Expected exit code 1, got %d", exitCode)
-		}
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected exit message to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
 	t.Run("GetEnvVarsErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
@@ -208,6 +143,70 @@ func TestEnvCmd(t *testing.T) {
 		}
 		if buf.Len() != 0 {
 			t.Fatalf("Expected no output, got %s", buf.String())
+		}
+	})
+
+	t.Run("ErrorPrinting", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given an env that returns an error when executing Print
+		mocks := mocks.CreateSuperMocks()
+		mockEnv := mocks.WindsorEnv
+		mockEnv.PrintFunc = func() error {
+			return fmt.Errorf("print error")
+		}
+		mockEnv.PostEnvHookFunc = func() error {
+			return nil
+		}
+
+		Initialize(mocks.Container)
+
+		// When the env command is executed with verbose flag
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"env", "--verbose"})
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then the output should indicate the error
+		expectedOutput := "Error executing Print: print error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorPrintingWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+		defer recoverPanic(t)
+
+		// Given an env that returns an error when executing Print
+		mocks := mocks.CreateSuperMocks()
+		mockEnv := mocks.WindsorEnv
+		mockEnv.PrintFunc = func() error {
+			return fmt.Errorf("print error")
+		}
+		mockEnv.PostEnvHookFunc = func() error {
+			return nil
+		}
+
+		Initialize(mocks.Container)
+
+		// Capture the output
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"env"})
+			err := rootCmd.Execute()
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+		})
+
+		// Then the output should not indicate the error
+		unexpectedOutput := "Error executing Print: print error"
+		if strings.Contains(output, unexpectedOutput) {
+			t.Errorf("Did not expect output to contain %q, got %q", unexpectedOutput, output)
 		}
 	})
 

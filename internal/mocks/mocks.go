@@ -8,7 +8,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
-	"github.com/windsor-hotel/cli/internal/vm"
+	"github.com/windsor-hotel/cli/internal/virt"
 )
 
 // SuperMocks holds all the mock instances needed for testing commands.
@@ -35,7 +35,8 @@ type SuperMocks struct {
 	SSHClient        *ssh.MockClient
 	SecureShell      *shell.MockShell
 	Container        di.ContainerInterface
-	ColimaVM         *vm.MockVM
+	ColimaVirt       *virt.MockVirt
+	DockerVirt       *virt.MockVirt
 }
 
 // CreateSuperMocks initializes all necessary mocks and returns them in a SuperMocks struct.
@@ -58,7 +59,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	mockCLIConfigHandler.SaveConfigFunc = func(path string) error { return nil }
 	mockCLIConfigHandler.GetFunc = func(key string) (interface{}, error) { return nil, nil }
 	mockCLIConfigHandler.SetDefaultFunc = func(context config.Context) error { return nil }
-	mockCLIConfigHandler.GetConfigFunc = func() (*config.Context, error) { return nil, nil }
+	mockCLIConfigHandler.GetConfigFunc = func() (*config.Context, error) { return &config.Context{}, nil }
 
 	mockContext := context.NewMockContext()
 	mockContext.GetContextFunc = func() (string, error) { return "mock-context", nil }
@@ -75,7 +76,12 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	mockTalosHelper := helpers.NewMockHelper()
 	mockSecureShell := shell.NewMockShell(container)
 	mockSSHClient := &ssh.MockClient{}
-	colimaVM := vm.NewMockVM()
+
+	mockColimaVirt := virt.NewMockVirt()
+	mockColimaVirt.WriteConfigFunc = func() error { return nil }
+
+	mockDockerVirt := virt.NewMockVirt()
+	mockDockerVirt.WriteConfigFunc = func() error { return nil }
 
 	// Create mock environment instances
 	mockAwsEnv := env.NewMockEnv(container)
@@ -100,7 +106,8 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	container.Register("talosHelper", mockTalosHelper)
 	container.Register("sshClient", mockSSHClient)
 	container.Register("secureShell", mockSecureShell)
-	container.Register("colimaVM", colimaVM)
+	container.Register("colimaVirt", mockColimaVirt)
+	container.Register("dockerVirt", mockDockerVirt)
 	container.Register("awsEnv", mockAwsEnv)
 	container.Register("dockerEnv", mockDockerEnv)
 	container.Register("kubeEnv", mockKubeEnv)
@@ -133,6 +140,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 		SSHClient:        mockSSHClient,
 		SecureShell:      mockSecureShell,
 		Container:        container,
-		ColimaVM:         colimaVM,
+		ColimaVirt:       mockColimaVirt,
+		DockerVirt:       mockDockerVirt,
 	}
 }

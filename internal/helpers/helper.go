@@ -12,20 +12,8 @@ import (
 // Helper is an interface that defines methods for retrieving environment variables
 // and can be implemented for individual providers.
 type Helper interface {
-	// Initialize performs any necessary initialization for the helper.
-	Initialize() error
-
 	// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 	GetComposeConfig() (*types.Config, error)
-
-	// WriteConfig writes any vendor specific configuration files that are needed for the helper.
-	WriteConfig() error
-
-	// Up executes necessary commands to instantiate the tool or environment.
-	Up(verbose ...bool) error
-
-	// Info returns information about the helper.
-	Info() (interface{}, error)
 }
 
 // Define a variable for os.Getwd() for easier testing

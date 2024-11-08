@@ -8,8 +8,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/helpers"
-	"github.com/windsor-hotel/cli/internal/vm"
+	"github.com/windsor-hotel/cli/internal/virt"
 )
 
 var upCmd = &cobra.Command{
@@ -17,6 +16,8 @@ var upCmd = &cobra.Command{
 	Short: "Set up the Windsor environment",
 	Long:  "Set up the Windsor environment by executing necessary shell commands.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		var dockerVirt virt.DockerVirt
+
 		// Get the context name
 		contextName, err := contextHandler.GetContext()
 		if err != nil {
@@ -38,34 +39,25 @@ var upCmd = &cobra.Command{
 		}
 
 		// Check if the VM is configured and the driver is Colima
-		var vmInfo *vm.VMInfo
 		if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima" {
+			// Create a new ColimaVirt instance
+			colimaVirt := virt.NewColimaVirt(container)
+
 			// Use the Colima VM instance
-			if err := colimaVM.Up(verbose); err != nil {
+			if err := colimaVirt.Up(verbose); err != nil {
 				return fmt.Errorf("Error running Colima VM Up command: %w", err)
 			}
-			// Get and hold on to VM's info
-			info, err := colimaVM.Info()
-			if err != nil {
-				return fmt.Errorf("Error retrieving Colima VM info: %w", err)
-			}
-			vmInfo = info.(*vm.VMInfo)
 		}
 
 		// Check if Docker is enabled
-		var dockerInfo *helpers.DockerInfo
 		if contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
-			// Run the "Up" command of the DockerHelper
-			if err := dockerHelper.Up(verbose); err != nil {
-				return fmt.Errorf("Error running DockerHelper Up command: %w", err)
+			// Create a new DockerVirt instance
+			dockerVirt = *virt.NewDockerVirt(container)
+
+			// Use the Docker VM instance
+			if err := dockerVirt.Up(verbose); err != nil {
+				return fmt.Errorf("Error running DockerVirt Up command: %w", err)
 			}
-			// Get and hold on to Docker's info
-			info, err := dockerHelper.Info()
-			if err != nil {
-				return fmt.Errorf("Error retrieving Docker info: %w", err)
-			}
-			// Type assertion to *helpers.DockerInfo
-			dockerInfo = info.(*helpers.DockerInfo)
 		}
 
 		// Configure route tables on the VM only if Docker network CIDR is defined
@@ -118,14 +110,22 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("Error: No interface starting with 'br-' found")
 			}
 
-			// Get VM host IP from vmInfo
-			vmHostIP := vmInfo.Address
+			// Get VM host IP from virtInfo
+			colimaVirtInstance, ok := colimaVirt.(*virt.ColimaVirt)
+			if !ok {
+				return fmt.Errorf("Error casting to ColimaVirt")
+			}
+			info, err := colimaVirtInstance.GetVMInfo()
+			if err != nil {
+				return fmt.Errorf("Error retrieving Colima info: %w", err)
+			}
+			virtHostIP := info.Address
 
 			// Determine the network interface associated with the VM host IP
-			var vmInterfaceIP string
-			vmIP := net.ParseIP(vmHostIP)
-			if vmIP == nil {
-				return fmt.Errorf("Error parsing VM host IP: %s", vmHostIP)
+			var virtInterfaceIP string
+			virtIP := net.ParseIP(virtHostIP)
+			if virtIP == nil {
+				return fmt.Errorf("Error parsing VM host IP: %s", virtHostIP)
 			}
 			netInterfaces, err := netInterfaces()
 			if err != nil {
@@ -141,12 +141,12 @@ var upCmd = &cobra.Command{
 					if !ok {
 						continue
 					}
-					if ipNet.Contains(vmIP) {
-						vmInterfaceIP = ipNet.IP.String()
+					if ipNet.Contains(virtIP) {
+						virtInterfaceIP = ipNet.IP.String()
 						break
 					}
 				}
-				if vmInterfaceIP != "" {
+				if virtInterfaceIP != "" {
 					break
 				}
 			}
@@ -160,7 +160,7 @@ var upCmd = &cobra.Command{
 				"Checking for existing iptables rule...",
 				"sudo", "iptables", "-t", "filter", "-C", "FORWARD",
 				"-i", "col0", "-o", dockerBridgeInterface,
-				"-s", vmInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
+				"-s", virtInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
 			)
 			if err != nil {
 				// Check if the error is due to the rule not existing
@@ -171,7 +171,7 @@ var upCmd = &cobra.Command{
 						"Setting IP tables on VM...",
 						"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
 						"-i", "col0", "-o", dockerBridgeInterface,
-						"-s", vmInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
+						"-s", virtInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
 					); err != nil {
 						return fmt.Errorf("Error setting iptables rule: %w", err)
 					}
@@ -191,7 +191,7 @@ var upCmd = &cobra.Command{
 				"add",
 				"-net",
 				clusterIPv4CIDR,
-				vmHostIP,
+				virtHostIP,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to add route: %w, output: %s", err, output)
@@ -203,11 +203,19 @@ var upCmd = &cobra.Command{
 
 				// Get the IP address of the container called "dns.test"
 				var dnsIP string
+				containerInfo, err := dockerVirt.GetContainerInfo()
+				if err != nil {
+					return fmt.Errorf("error retrieving container info: %w", err)
+				}
+
 				if contextConfig.DNS.IP != nil {
 					dnsIP = *contextConfig.DNS.IP
-				} else if dockerInfo != nil {
-					if serviceInfo, exists := dockerInfo.Services["dns.test"]; exists {
-						dnsIP = serviceInfo.IP
+				} else {
+					for _, info := range containerInfo {
+						if info.Name == "dns.test" {
+							dnsIP = info.Address
+							break
+						}
 					}
 				}
 
@@ -265,29 +273,19 @@ var upCmd = &cobra.Command{
 		fmt.Println(color.CyanString("Welcome to the Windsor Environment 📐"))
 		fmt.Println(color.CyanString("-------------------------------------"))
 
-		// Print VM info if available
-		if vmInfo != nil {
-			fmt.Println(color.GreenString("VM Info:"))
-			fmt.Printf("  Address: %s\n", vmInfo.Address)
-			fmt.Printf("  Arch: %s\n", vmInfo.Arch)
-			fmt.Printf("  CPUs: %d\n", vmInfo.CPUs)
-			fmt.Printf("  Disk: %.2f GB\n", vmInfo.Disk)
-			fmt.Printf("  Memory: %.2f GB\n", vmInfo.Memory)
-			fmt.Printf("  Name: %s\n", vmInfo.Name)
-			fmt.Printf("  Runtime: %s\n", vmInfo.Runtime)
-			fmt.Printf("  Status: %s\n", vmInfo.Status)
-			fmt.Println(color.CyanString("-------------------------------------"))
+		// Print Colima info if available
+		if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima" {
+			colimaVirt := virt.NewColimaVirt(container)
+			if err := colimaVirt.PrintInfo(); err != nil {
+				return fmt.Errorf("Error printing Colima info: %w", err)
+			}
 		}
 
 		// Print Docker info if available
-		if dockerInfo != nil {
-			fmt.Println(color.GreenString("Docker Info:"))
-			for serviceName, serviceInfo := range dockerInfo.Services {
-				fmt.Println(color.YellowString("  %s:", serviceName))
-				fmt.Printf("    Role: %s\n", serviceInfo.Role)
-				fmt.Printf("    IP: %s\n", serviceInfo.IP)
+		if contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
+			if err := dockerVirt.PrintInfo(); err != nil {
+				return fmt.Errorf("Error printing Docker info: %w", err)
 			}
-			fmt.Println(color.CyanString("-------------------------------------"))
 		}
 
 		return nil

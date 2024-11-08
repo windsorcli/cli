@@ -92,30 +92,6 @@ func TestAwsHelper_NewAwsHelper(t *testing.T) {
 	})
 }
 
-func TestAwsHelper_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Create mock DI container with necessary mocks
-		mocks := createAwsHelperMocks()
-
-		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
-		if err != nil {
-			t.Fatalf("NewAwsHelper() error = %v", err)
-		}
-
-		// When: Initialize is called
-		err = awsHelper.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-}
-
 func TestAwsHelper_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create mock DI container with necessary mocks
@@ -320,75 +296,6 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		// Then: nil should be returned
 		if composeConfig != nil {
 			t.Fatalf("expected nil composeConfig, got %v", composeConfig)
-		}
-	})
-}
-
-func TestAwsHelper_WriteConfig(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Create mock DI container with necessary mocks
-		mocks := createAwsHelperMocks()
-
-		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
-		if err != nil {
-			t.Fatalf("NewAwsHelper() error = %v", err)
-		}
-
-		// When: WriteConfig is called
-		err = awsHelper.WriteConfig()
-		if err != nil {
-			t.Fatalf("WriteConfig() error = %v", err)
-		}
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-}
-
-func TestAwsHelper_Up(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := createAwsHelperMocks()
-
-		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
-		if err != nil {
-			t.Fatalf("NewAwsHelper() error = %v", err)
-		}
-
-		// When: Up is called
-		err = awsHelper.Up()
-		if err != nil {
-			t.Fatalf("Up() error = %v", err)
-		}
-	})
-}
-
-func TestAwsHelper_Info(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Create mock DI container with necessary mocks
-		mocks := createAwsHelperMocks()
-
-		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(mocks.Container.(*di.DIContainer))
-		if err != nil {
-			t.Fatalf("NewAwsHelper() error = %v", err)
-		}
-
-		// When: Info is called
-		info, err := awsHelper.Info()
-		if err != nil {
-			t.Fatalf("Info() error = %v", err)
-		}
-
-		// Then: no error should be returned and info should be nil
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if info != nil {
-			t.Errorf("Expected info to be nil, got %v", info)
 		}
 	})
 }

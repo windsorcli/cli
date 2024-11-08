@@ -14,38 +14,6 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-func TestGitHelper_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler, context, and shell
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell()
-
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextHandler", mockContext)
-		diContainer.Register("shell", mockShell)
-
-		// Create an instance of GitHelper
-		gitHelper, err := NewGitHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
-		}
-
-		// When: Initialize is called
-		err = gitHelper.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-}
-
 func TestGitHelper_NewGitHelper(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		// Create DI container without registering cliConfigHandler
@@ -458,94 +426,6 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		_, err = gitHelper.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving project root") {
 			t.Fatalf("expected error retrieving project root, got %v", err)
-		}
-	})
-}
-
-func TestGitHelper_WriteConfig(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextHandler", mockContext)
-		diContainer.Register("shell", mockShell)
-
-		// Create an instance of GitHelper
-		gitHelper, err := NewGitHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
-		}
-
-		// When: WriteConfig is called
-		err = gitHelper.WriteConfig()
-		if err != nil {
-			t.Fatalf("WriteConfig() error = %v", err)
-		}
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-}
-
-func TestGitHelper_Up(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextHandler", mockContext)
-		diContainer.Register("shell", mockShell)
-
-		// Create an instance of GitHelper
-		gitHelper, err := NewGitHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
-		}
-
-		// When: Up is called
-		err = gitHelper.Up()
-		if err != nil {
-			t.Fatalf("Up() error = %v", err)
-		}
-	})
-}
-
-func TestGitHelper_Info(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-		mockShell := shell.NewMockShell()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		diContainer.Register("contextHandler", mockContext)
-		diContainer.Register("shell", mockShell)
-
-		// Create an instance of GitHelper
-		gitHelper, err := NewGitHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
-		}
-
-		// When: Info is called
-		info, err := gitHelper.Info()
-		if err != nil {
-			t.Fatalf("Info() error = %v", err)
-		}
-
-		// Then: no error should be returned and info should be nil
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		if info != nil {
-			t.Errorf("Expected info to be nil, got %v", info)
 		}
 	})
 }

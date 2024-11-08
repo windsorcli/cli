@@ -15,7 +15,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
-	"github.com/windsor-hotel/cli/internal/vm"
+	"github.com/windsor-hotel/cli/internal/virt"
 )
 
 var (
@@ -55,8 +55,11 @@ var execCommand = exec.Command
 // NetworkInterfaceIP is the IP address of the network interface
 var netInterfaces = net.Interfaces
 
-// colimaVM instance
-var colimaVM vm.VMInterface
+// colimaVirt instance
+var colimaVirt virt.VirtInterface
+
+// dockerVirt instance
+var dockerVirt virt.VirtInterface
 
 // awsEnv instance
 var awsEnv env.EnvPrinter
@@ -89,10 +92,6 @@ func ptrBool(b bool) *bool {
 // Helper functions to create pointers for basic types
 func ptrString(s string) *string {
 	return &s
-}
-
-func ptrInt(i int) *int {
-	return &i
 }
 
 // getCLIConfigPath returns the path to the CLI configuration file
@@ -220,11 +219,11 @@ func Initialize(cont di.ContainerInterface) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type ssh.Client\n", key)
 				exitFunc(1)
 			}
-		case *vm.VMInterface:
-			if resolved, ok := instance.(vm.VMInterface); ok {
+		case *virt.VirtInterface:
+			if resolved, ok := instance.(virt.VirtInterface); ok {
 				*v = resolved
 			} else {
-				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type vm.VMInterface\n", key)
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type virt.VirtInterface\n", key)
 				exitFunc(1)
 			}
 		case *env.EnvPrinter:
@@ -244,7 +243,8 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("dockerHelper", &dockerHelper)
 	resolveAndAssign("contextHandler", &contextHandler)
 	resolveAndAssign("sshClient", &sshClient)
-	resolveAndAssign("colimaVM", &colimaVM)
+	resolveAndAssign("colimaVirt", &colimaVirt)
+	resolveAndAssign("dockerVirt", &dockerVirt)
 	resolveAndAssign("awsEnv", &awsEnv)
 	resolveAndAssign("dockerEnv", &dockerEnv)
 	resolveAndAssign("kubeEnv", &kubeEnv)

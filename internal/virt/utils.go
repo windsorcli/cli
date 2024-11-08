@@ -1,8 +1,9 @@
-package vm
+package virt
 
 import (
 	"encoding/json"
 	"io"
+	"net"
 	"os"
 	"runtime"
 
@@ -44,33 +45,36 @@ func ptrInt(i int) *int {
 	return &i
 }
 
+// ptrBool is a function that creates a pointer to a bool.
+func ptrBool(b bool) *bool {
+	return &b
+}
+
 // YAMLEncoder is an interface for encoding YAML data.
 type YAMLEncoder interface {
 	Encode(v interface{}) error
 	Close() error
 }
 
+// yamlMarshal is a variable that holds the yaml.Marshal function to marshal a value to YAML.
+var yamlMarshal = yaml.Marshal
+
 // newYAMLEncoder is a function that returns a new YAML encoder.
 var newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
 	return yaml.NewEncoder(w, opts...)
 }
 
-// VMInfo holds the information about the virtual machine
-type VMInfo struct {
-	Address string
-	Arch    string
-	CPUs    int
-	Disk    float64
-	Memory  float64
-	Name    string
-	Runtime string
-	Status  string
-}
-
-// VMInterface defines methods for VM operations
-type VMInterface interface {
-	Up(verbose ...bool) error
-	Down(verbose ...bool) error
-	Delete(verbose ...bool) error
-	Info() (interface{}, error)
+// incrementIP increments an IP address by one
+func incrementIP(ip net.IP) net.IP {
+	ip = ip.To4()
+	if ip == nil {
+		return nil
+	}
+	for j := len(ip) - 1; j >= 0; j-- {
+		ip[j]++
+		if ip[j] > 0 {
+			break
+		}
+	}
+	return ip
 }
