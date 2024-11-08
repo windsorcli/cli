@@ -183,7 +183,7 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 
 		// Mock the necessary methods to simulate a successful info retrieval
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
-			return `{"address":"192.168.5.2","arch":"x86_64","cpus":4,"disk":60,"memory":8,"name":"test-vm","runtime":"docker","status":"Running"}`, nil
+			return `{"address":"192.168.5.2","arch":"x86_64","cpus":4,"disk":64424509440,"memory":8589934592,"name":"test-vm","runtime":"docker","status":"Running"}`, nil
 		}
 
 		// When calling GetVMInfo
@@ -373,7 +373,7 @@ func TestColimaVirt_PrintInfo(t *testing.T) {
 
 		// Mock the necessary methods to simulate a successful info retrieval
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
-			return `{"address":"192.168.5.2","arch":"x86_64","cpus":4,"disk":60,"memory":8,"name":"test-vm","runtime":"docker","status":"Running"}`, nil
+			return `{"address":"192.168.5.2","arch":"x86_64","cpus":4,"disk":64424509440,"memory":8589934592,"name":"test-vm","runtime":"docker","status":"Running"}`, nil
 		}
 
 		// Capture the output
@@ -384,10 +384,9 @@ func TestColimaVirt_PrintInfo(t *testing.T) {
 			}
 		})
 
-		// Verify the output
-		expectedOutput := "Colima VM Info:\nAddress: 192.168.5.2\nArch: x86_64\nCPUs: 4\nDisk: 60 GB\nMemory: 8 GB\nName: test-vm\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		// Verify some contents of the output
+		if !strings.Contains(output, "VM NAME") || !strings.Contains(output, "test-vm") || !strings.Contains(output, "192.168.5.2") {
+			t.Errorf("Output does not contain expected contents. Got %q", output)
 		}
 	})
 

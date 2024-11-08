@@ -166,6 +166,9 @@ func (v *DockerVirt) GetContainerInfo() ([]ContainerInfo, error) {
 	var containerInfos []ContainerInfo
 
 	for _, containerID := range containerIDs {
+		if containerID == "" {
+			continue
+		}
 		inspectArgs := []string{"inspect", containerID, "--format", "{{json .Config.Labels}}"}
 		inspectOut, err := shell.Exec(false, "Inspecting container", command, inspectArgs...)
 		if err != nil {
@@ -214,6 +217,27 @@ func (v *DockerVirt) GetContainerInfo() ([]ContainerInfo, error) {
 	})
 
 	return containerInfos, nil
+}
+
+func (v *DockerVirt) PrintInfo() error {
+	containerInfos, err := v.GetContainerInfo()
+	if err != nil {
+		return fmt.Errorf("error retrieving container info: %w", err)
+	}
+
+	if len(containerInfos) == 0 {
+		fmt.Println("No Docker containers are currently running.")
+		return nil
+	}
+
+	fmt.Printf("%-30s\t%-15s\t%-10s\n", "CONTAINER NAME", "ADDRESS", "ROLE")
+	for _, info := range containerInfos {
+		role := info.Labels["role"]
+		fmt.Printf("%-30s\t%-15s\t%-10s\n", info.Name, info.Address, role)
+	}
+	fmt.Println()
+
+	return nil
 }
 
 // Ensure DockerVirt implements ContainerInterface

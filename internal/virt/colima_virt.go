@@ -93,12 +93,16 @@ func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
 		return VMInfo{}, err
 	}
 
+	// Convert memory and disk from bytes to GB
+	memoryGB := colimaData.Memory / (1024 * 1024 * 1024)
+	diskGB := colimaData.Disk / (1024 * 1024 * 1024)
+
 	vmInfo := VMInfo{
 		Address: colimaData.Address,
 		Arch:    colimaData.Arch,
 		CPUs:    colimaData.CPUs,
-		Disk:    colimaData.Disk,
-		Memory:  colimaData.Memory,
+		Disk:    diskGB,
+		Memory:  memoryGB,
 		Name:    colimaData.Name,
 	}
 
@@ -230,14 +234,9 @@ func (v *ColimaVirt) PrintInfo() error {
 	if err != nil {
 		return fmt.Errorf("error retrieving Colima info: %w", err)
 	}
-
-	fmt.Printf("Colima VM Info:\n")
-	fmt.Printf("Address: %s\n", info.Address)
-	fmt.Printf("Arch: %s\n", info.Arch)
-	fmt.Printf("CPUs: %d\n", info.CPUs)
-	fmt.Printf("Disk: %d GB\n", info.Disk)
-	fmt.Printf("Memory: %d GB\n", info.Memory)
-	fmt.Printf("Name: %s\n", info.Name)
+	fmt.Printf("%-15s %-10s %-10s %-10s %-10s %-15s\n", "VM NAME", "ARCH", "CPUS", "MEMORY", "DISK", "ADDRESS")
+	fmt.Printf("%-15s %-10s %-10d %-10s %-10s %-15s\n", info.Name, info.Arch, info.CPUs, fmt.Sprintf("%dGiB", info.Memory), fmt.Sprintf("%dGiB", info.Disk), info.Address)
+	fmt.Println()
 
 	return nil
 }

@@ -8,7 +8,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/virt"
 )
 
@@ -17,6 +16,8 @@ var upCmd = &cobra.Command{
 	Short: "Set up the Windsor environment",
 	Long:  "Set up the Windsor environment by executing necessary shell commands.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		var dockerVirt virt.DockerVirt
+
 		// Get the context name
 		contextName, err := contextHandler.GetContext()
 		if err != nil {
@@ -46,26 +47,17 @@ var upCmd = &cobra.Command{
 			if err := colimaVirt.Up(verbose); err != nil {
 				return fmt.Errorf("Error running Colima VM Up command: %w", err)
 			}
-			// Print VM's info
-			if err := colimaVirt.PrintInfo(); err != nil {
-				return fmt.Errorf("Error printing Colima VM info: %w", err)
-			}
 		}
 
 		// Check if Docker is enabled
-		var dockerInfo *helpers.DockerInfo
 		if contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
-			// Run the "Up" command of the DockerHelper
-			if err := dockerHelper.Up(verbose); err != nil {
-				return fmt.Errorf("Error running DockerHelper Up command: %w", err)
+			// Create a new DockerVirt instance
+			dockerVirt = *virt.NewDockerVirt(container)
+
+			// Use the Docker VM instance
+			if err := dockerVirt.Up(verbose); err != nil {
+				return fmt.Errorf("Error running DockerVirt Up command: %w", err)
 			}
-			// Get and hold on to Docker's info
-			info, err := dockerHelper.Info()
-			if err != nil {
-				return fmt.Errorf("Error retrieving Docker info: %w", err)
-			}
-			// Type assertion to *helpers.DockerInfo
-			dockerInfo = info.(*helpers.DockerInfo)
 		}
 
 		// Configure route tables on the VM only if Docker network CIDR is defined
@@ -211,11 +203,19 @@ var upCmd = &cobra.Command{
 
 				// Get the IP address of the container called "dns.test"
 				var dnsIP string
+				containerInfo, err := dockerVirt.GetContainerInfo()
+				if err != nil {
+					return fmt.Errorf("error retrieving container info: %w", err)
+				}
+
 				if contextConfig.DNS.IP != nil {
 					dnsIP = *contextConfig.DNS.IP
-				} else if dockerInfo != nil {
-					if serviceInfo, exists := dockerInfo.Services["dns.test"]; exists {
-						dnsIP = serviceInfo.IP
+				} else {
+					for _, info := range containerInfo {
+						if info.Name == "dns.test" {
+							dnsIP = info.Address
+							break
+						}
 					}
 				}
 
@@ -273,15 +273,19 @@ var upCmd = &cobra.Command{
 		fmt.Println(color.CyanString("Welcome to the Windsor Environment 📐"))
 		fmt.Println(color.CyanString("-------------------------------------"))
 
-		// Print Docker info if available
-		if dockerInfo != nil {
-			fmt.Println(color.GreenString("Docker Info:"))
-			for serviceName, serviceInfo := range dockerInfo.Services {
-				fmt.Println(color.YellowString("  %s:", serviceName))
-				fmt.Printf("    Role: %s\n", serviceInfo.Role)
-				fmt.Printf("    IP: %s\n", serviceInfo.IP)
+		// Print Colima info if available
+		if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima" {
+			colimaVirt := virt.NewColimaVirt(container)
+			if err := colimaVirt.PrintInfo(); err != nil {
+				return fmt.Errorf("Error printing Colima info: %w", err)
 			}
-			fmt.Println(color.CyanString("-------------------------------------"))
+		}
+
+		// Print Docker info if available
+		if contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
+			if err := dockerVirt.PrintInfo(); err != nil {
+				return fmt.Errorf("Error printing Docker info: %w", err)
+			}
 		}
 
 		return nil

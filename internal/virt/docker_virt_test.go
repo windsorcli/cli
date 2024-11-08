@@ -695,11 +695,100 @@ func TestDockerVirt_Delete(t *testing.T) {
 
 func TestDockerVirt_PrintInfo(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Stub test for successful PrintInfo
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Mock the GetContainerInfo function to return a list of container info
+		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 {
+				switch args[0] {
+				case "ps":
+					return "container1\ncontainer2", nil
+				case "inspect":
+					if len(args) > 3 && args[2] == "--format" {
+						switch args[3] {
+						case "{{json .Config.Labels}}":
+							return `{"com.docker.compose.service":"service1","managed_by":"windsor","context":"default-context"}`, nil
+						case "{{json .NetworkSettings.Networks}}":
+							return `{"bridge":{"IPAddress":"192.168.1.2"}}`, nil
+						}
+					}
+				}
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+
+		// Capture the output of PrintInfo using captureStdout utility function
+		output := captureStdout(func() {
+			err := dockerVirt.PrintInfo()
+			// Assert no error occurred
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+
+		// Check for the presence of key elements in the output
+		if !strings.Contains(output, "CONTAINER NAME") || !strings.Contains(output, "service1") || !strings.Contains(output, "192.168.1.2") {
+			t.Fatalf("output does not contain expected elements, got %q", output)
+		}
 	})
 
-	t.Run("Error", func(t *testing.T) {
-		// Stub test for error during PrintInfo
+	t.Run("ErrorGettingContainerInfo", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Mock the shell Exec function to simulate an error when fetching container IDs
+		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "ps" {
+				return "", fmt.Errorf("error fetching container IDs")
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+
+		// Call the PrintInfo method
+		err := dockerVirt.PrintInfo()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// Verify that the error message is as expected
+		expectedErrorMsg := "error retrieving container info"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+	})
+
+	t.Run("NoContainers", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Container)
+
+		// Mock the shell Exec function to simulate no running containers
+		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "ps" {
+				return "\n", nil // Simulate no containers running by returning an empty line
+			}
+			return "", nil // Return no error for unknown commands to avoid unexpected errors
+		}
+
+		// Capture the output of PrintInfo using captureStdout utility function
+		output := captureStdout(func() {
+			err := dockerVirt.PrintInfo()
+			// Assert no error occurred
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+
+		// Check that the output contains the message for no running containers
+		expectedOutput := "No Docker containers are currently running."
+		if !strings.Contains(output, expectedOutput) {
+			t.Fatalf("expected output to contain %q, got %q", expectedOutput, output)
+		}
 	})
 }
 
