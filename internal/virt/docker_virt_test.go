@@ -3,6 +3,7 @@ package virt
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -830,7 +831,8 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 		originalMkdirAll := mkdirAll
 		defer func() { mkdirAll = originalMkdirAll }()
 		mkdirAll = func(path string, perm os.FileMode) error {
-			if path == "/mock/config/root" {
+			// Use filepath.FromSlash to ensure compatibility with Windows file paths
+			if filepath.Clean(path) == filepath.FromSlash("/mock/config/root") {
 				return fmt.Errorf("read-only file system")
 			}
 			return nil
