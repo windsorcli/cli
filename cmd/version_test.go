@@ -19,9 +19,9 @@ func TestVersionCommand(t *testing.T) {
 	})
 
 	t.Run("VersionOutput", func(t *testing.T) {
-		// Setup container with mock dependencies
+		// Setup injector with mock dependencies
 		mocks := mocks.CreateSuperMocks()
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When: the version command is executed
 		output := captureStdout(func() {
@@ -40,9 +40,9 @@ func TestVersionCommand(t *testing.T) {
 	})
 
 	t.Run("VersionCommandError", func(t *testing.T) {
-		// Setup container with mock dependencies
+		// Setup injector with mock dependencies
 		mocks := mocks.CreateSuperMocks()
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When: the version command is executed with an error
 		defer func() {

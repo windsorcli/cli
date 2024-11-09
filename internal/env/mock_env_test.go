@@ -38,7 +38,7 @@ func captureStdout(t *testing.T, f func()) string {
 
 func TestMockEnv_NewMockEnv(t *testing.T) {
 	t.Run("CreateMockEnvWithoutContainer", func(t *testing.T) {
-		// When creating a new mock environment without a container
+		// When creating a new mock environment without an injector
 		mockEnv := NewMockEnv(nil)
 		// Then no error should be returned
 		if mockEnv == nil {
@@ -47,16 +47,16 @@ func TestMockEnv_NewMockEnv(t *testing.T) {
 	})
 
 	t.Run("CreateMockEnvWithContainer", func(t *testing.T) {
-		// Given a mock DI container
-		mockContainer := &di.MockContainer{}
-		// When creating a new mock environment with the container
-		mockEnv := NewMockEnv(mockContainer)
-		// Then no error should be returned and the container should be set
+		// Given a mock injector
+		mockInjector := di.NewMockInjector()
+		// When creating a new mock environment with the injector
+		mockEnv := NewMockEnv(mockInjector)
+		// Then no error should be returned and the injector should be set
 		if mockEnv == nil {
 			t.Errorf("Expected mockEnv, got nil")
 		}
-		if mockEnv.diContainer != mockContainer {
-			t.Errorf("Expected container to be set, got %v", mockEnv.diContainer)
+		if mockEnv.Injector != mockInjector {
+			t.Errorf("Expected injector to be set, got %v", mockEnv.Injector)
 		}
 	})
 }

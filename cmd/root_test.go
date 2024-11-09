@@ -90,7 +90,7 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			Initialize(mocks.Container)
+			Initialize(mocks.Injector)
 
 			// When preRunLoadConfig is executed
 			err := preRunLoadConfig(nil, nil)
@@ -126,7 +126,7 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			Initialize(mocks.Container)
+			Initialize(mocks.Injector)
 
 			// When preRunLoadConfig is executed
 			err := preRunLoadConfig(nil, nil)
@@ -151,7 +151,7 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			Initialize(mocks.Container)
+			Initialize(mocks.Injector)
 
 			// Mock exitFunc to capture the exit code
 			var exitCode int
@@ -239,7 +239,7 @@ func TestRootCommand(t *testing.T) {
 
 			// When the cmd package is initialized and stderr is captured
 			actualErrorMsg := captureStderr(func() {
-				Initialize(container)
+				Initialize(injector)
 			})
 
 			// Then exitFunc should not be called and no error message should be printed to stderr
@@ -253,7 +253,7 @@ func TestRootCommand(t *testing.T) {
 
 		t.Run("Error", func(t *testing.T) {
 			// Given no config handlers are registered
-			container := di.NewContainer()
+			injector := di.NewInjector()
 
 			// Mock exitFunc to capture the exit code
 			var exitCode int
@@ -263,7 +263,7 @@ func TestRootCommand(t *testing.T) {
 
 			// When the cmd package is initialized and stderr is captured
 			actualErrorMsg := captureStderr(func() {
-				Initialize(container)
+				Initialize(injector)
 			})
 
 			// Then exitFunc should be called with code 1 and the error message should be printed to stderr
@@ -346,7 +346,7 @@ func TestRootCommand(t *testing.T) {
 				return "value", nil
 			}
 			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "", errors.New("mock error") }
-			Initialize(mocks.Container)
+			Initialize(mocks.Injector)
 
 			// Capture the output to os.Stderr
 			stderr := captureStderr(func() {
@@ -375,7 +375,7 @@ func TestRootCommand(t *testing.T) {
 
 			tempDir := t.TempDir()
 			mocks.Shell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
-			Initialize(mocks.Container)
+			Initialize(mocks.Injector)
 
 			// Create a temporary windsor.yaml file in the project root
 			windsorYamlPath := filepath.Join(tempDir, "windsor.yaml")
@@ -404,7 +404,7 @@ func TestRootCommand(t *testing.T) {
 
 			tempDir := t.TempDir()
 			mocks.Shell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
-			Initialize(mocks.Container)
+			Initialize(mocks.Injector)
 
 			// Create a temporary windsor.yml file in the project root
 			windsorYmlPath := filepath.Join(tempDir, "windsor.yml")

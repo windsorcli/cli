@@ -45,7 +45,7 @@ func TestInitCmd(t *testing.T) {
 			}, nil
 		}
 
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When: the init command is executed with a valid context
 		output := captureStdout(func() {
@@ -66,7 +66,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("AllFlagsSet", func(t *testing.T) {
 		// Given: a valid config handler
 		mocks := mocks.CreateSuperMocks()
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Mock the GetConfig function to ensure it is called with the desired object
 		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
@@ -103,7 +103,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("HomeDirError", func(t *testing.T) {
 		// Mock cliConfigHandler
 		mocks := mocks.CreateSuperMocks()
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Mock os.UserHomeDir to simulate an error
 		originalUserHomeDir := osUserHomeDir
@@ -140,7 +140,7 @@ func TestInitCmd(t *testing.T) {
 		// Given: a config handler that returns an error on SetConfigValue
 		mocks := mocks.CreateSuperMocks()
 		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return errors.New("set config value error") }
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -162,7 +162,7 @@ func TestInitCmd(t *testing.T) {
 		// Given: a config handler that returns an error on SaveConfig
 		mocks := mocks.CreateSuperMocks()
 		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -183,7 +183,7 @@ func TestInitCmd(t *testing.T) {
 		// Given: a config handler that returns an error on SaveConfig
 		mocks := mocks.CreateSuperMocks()
 		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save cli config error") }
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Replace the global contextHandler with the mock
 		originalContextInstance := contextHandler
@@ -215,7 +215,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Act: Call the init command with a local context
 		output := captureStdout(func() {
@@ -240,7 +240,7 @@ func TestInitCmd(t *testing.T) {
 			calledKeys[key] = true
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -270,7 +270,7 @@ func TestInitCmd(t *testing.T) {
 			calledKeys[key] = true
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -298,7 +298,7 @@ func TestInitCmd(t *testing.T) {
 			calledKeys[key] = true
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -329,7 +329,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -353,7 +353,7 @@ func TestInitCmd(t *testing.T) {
 			calledKeys[key] = true
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -380,7 +380,7 @@ func TestInitCmd(t *testing.T) {
 			calledKeys[key] = true
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -417,7 +417,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -437,7 +437,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -457,7 +457,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -477,7 +477,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -497,7 +497,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -517,7 +517,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -536,7 +536,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -556,7 +556,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -576,7 +576,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		rootCmd.SetArgs([]string{
 			"init", "test-context",
@@ -598,7 +598,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return errors.New("error setting default local config")
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When: the init command is executed with a local context
 		output := captureStderr(func() {
@@ -625,7 +625,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When: the init command is executed with a non-local context
 		output := captureStderr(func() {
@@ -649,7 +649,7 @@ func TestInitCmd(t *testing.T) {
 		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return nil, errors.New("error getting config")
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -681,7 +681,7 @@ func TestInitCmd(t *testing.T) {
 		mocks.ColimaVirt.WriteConfigFunc = func() error {
 			return errors.New("error writing Colima config")
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When: the init command is executed
 		output := captureStderr(func() {
@@ -713,7 +713,7 @@ func TestInitCmd(t *testing.T) {
 		mocks.DockerVirt.WriteConfigFunc = func() error {
 			return errors.New("error writing Docker config")
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When: the init command is executed
 		output := captureStderr(func() {

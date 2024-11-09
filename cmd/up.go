@@ -41,7 +41,7 @@ var upCmd = &cobra.Command{
 		// Check if the VM is configured and the driver is Colima
 		if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima" {
 			// Create a new ColimaVirt instance
-			colimaVirt := virt.NewColimaVirt(container)
+			colimaVirt := virt.NewColimaVirt(injector)
 
 			// Use the Colima VM instance
 			if err := colimaVirt.Up(verbose); err != nil {
@@ -52,7 +52,7 @@ var upCmd = &cobra.Command{
 		// Check if Docker is enabled
 		if contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
 			// Create a new DockerVirt instance
-			dockerVirt = *virt.NewDockerVirt(container)
+			dockerVirt = *virt.NewDockerVirt(injector)
 
 			// Use the Docker VM instance
 			if err := dockerVirt.Up(verbose); err != nil {
@@ -275,7 +275,7 @@ var upCmd = &cobra.Command{
 
 		// Print Colima info if available
 		if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima" {
-			colimaVirt := virt.NewColimaVirt(container)
+			colimaVirt := virt.NewColimaVirt(injector)
 			if err := colimaVirt.PrintInfo(); err != nil {
 				return fmt.Errorf("Error printing Colima info: %w", err)
 			}

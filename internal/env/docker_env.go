@@ -13,11 +13,11 @@ type DockerEnv struct {
 	Env
 }
 
-// NewDockerEnv initializes a new DockerEnv instance using the provided dependency injection container.
-func NewDockerEnv(diContainer di.ContainerInterface) *DockerEnv {
+// NewDockerEnv initializes a new DockerEnv instance using the provided dependency injector.
+func NewDockerEnv(injector di.Injector) *DockerEnv {
 	return &DockerEnv{
 		Env: Env{
-			diContainer: diContainer,
+			Injector: injector,
 		},
 	}
 }
@@ -27,7 +27,7 @@ func (e *DockerEnv) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for context operations.
-	contextHandler, err := e.diContainer.Resolve("contextHandler")
+	contextHandler, err := e.Injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}

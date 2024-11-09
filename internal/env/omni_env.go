@@ -14,11 +14,11 @@ type OmniEnv struct {
 	Env
 }
 
-// NewTalosEnv initializes a new TalosEnv instance using the provided dependency injection container.
-func NewOmniEnv(diContainer di.ContainerInterface) *OmniEnv {
+// NewTalosEnv initializes a new TalosEnv instance using the provided dependency injector.
+func NewOmniEnv(injector di.Injector) *OmniEnv {
 	return &OmniEnv{
 		Env: Env{
-			diContainer: diContainer,
+			Injector: injector,
 		},
 	}
 }
@@ -28,7 +28,7 @@ func (e *OmniEnv) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for context operations.
-	contextHandler, err := e.diContainer.Resolve("contextHandler")
+	contextHandler, err := e.Injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}

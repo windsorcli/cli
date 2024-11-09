@@ -19,7 +19,7 @@ type EnvPrinter interface {
 
 // Env is a struct that implements the EnvPrinter interface.
 type Env struct {
-	diContainer di.ContainerInterface
+	Injector di.Injector
 }
 
 // Print prints the environment variables to the console.
@@ -35,7 +35,7 @@ func (e *Env) Print(customVars ...map[string]string) error {
 	}
 
 	// Use the shell package to print environment variables
-	shellInstance, err := e.diContainer.Resolve("shell")
+	shellInstance, err := e.Injector.Resolve("shell")
 	if err != nil {
 		return fmt.Errorf("error resolving shell: %w", err)
 	}

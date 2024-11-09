@@ -12,11 +12,11 @@ type MockEnv struct {
 	GetEnvVarsFunc  func() (map[string]string, error)
 }
 
-// NewMockEnv creates a new instance of MockEnv with the provided di container.
-func NewMockEnv(diContainer di.ContainerInterface) *MockEnv {
+// NewMockEnv creates a new instance of MockEnv with the provided dependency injector.
+func NewMockEnv(injector di.Injector) *MockEnv {
 	return &MockEnv{
 		Env: Env{
-			diContainer: diContainer,
+			Injector: injector,
 		},
 	}
 }

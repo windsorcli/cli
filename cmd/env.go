@@ -12,8 +12,8 @@ var envCmd = &cobra.Command{
 	Short: "Output commands to set environment variables",
 	Long:  "Output commands to set environment variables for the application.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Resolve all environments from the DI container
-		envInstances, err := container.ResolveAll((*env.EnvPrinter)(nil))
+		// Resolve all environments from the injector
+		envInstances, err := injector.ResolveAll((*env.EnvPrinter)(nil))
 		if err != nil {
 			if verbose {
 				return fmt.Errorf("Error resolving environments: %w", err)

@@ -23,8 +23,8 @@ func TestDockerHelper_Initialize(t *testing.T) {
 		mockContext := context.NewMockContext()
 		mockHelper := NewMockHelper()
 
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
+		// Create injector and register mocks
+		diContainer := di.NewInjector()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextHandler", mockContext)
 		diContainer.Register("helper", mockHelper)
@@ -51,8 +51,8 @@ func TestDockerHelper_Initialize(t *testing.T) {
 
 func TestDockerHelper_NewDockerHelper(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Create DI container without registering cliConfigHandler
-		diContainer := di.NewContainer()
+		// Create injector without registering cliConfigHandler
+		diContainer := di.NewInjector()
 
 		// Attempt to create DockerHelper
 		_, err := NewDockerHelper(diContainer)
@@ -62,8 +62,8 @@ func TestDockerHelper_NewDockerHelper(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Create DI container and register only cliConfigHandler
-		diContainer := di.NewContainer()
+		// Create injector and register only cliConfigHandler
+		diContainer := di.NewInjector()
 		mockConfigHandler := config.NewMockConfigHandler()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 
@@ -75,8 +75,8 @@ func TestDockerHelper_NewDockerHelper(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Create DI container and register cliConfigHandler and context
-		diContainer := di.NewContainer()
+		// Create injector and register cliConfigHandler and context
+		diContainer := di.NewInjector()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
@@ -113,8 +113,8 @@ func TestDockerHelper_GetComposeConfig(t *testing.T) {
 			return "test-context", nil
 		}
 
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
+		// Create injector and register mocks
+		diContainer := di.NewInjector()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 		diContainer.Register("contextHandler", mockContext)
 
@@ -178,8 +178,8 @@ func TestDockerHelper_GetComposeConfig(t *testing.T) {
 			return nil, errors.New("mock error retrieving registries")
 		}
 
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
+		// Create injector and register mocks
+		diContainer := di.NewInjector()
 		diContainer.Register("contextHandler", mockContext)
 		diContainer.Register("cliConfigHandler", mockConfigHandlerWithError)
 
@@ -225,8 +225,8 @@ func TestDockerHelper_GetComposeConfig(t *testing.T) {
 			}, nil
 		}
 
-		// Create DI container and register mocks
-		diContainer := di.NewContainer()
+		// Create injector and register mocks
+		diContainer := di.NewInjector()
 		diContainer.Register("contextHandler", mockContext)
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
 

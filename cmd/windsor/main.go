@@ -15,102 +15,102 @@ import (
 )
 
 func main() {
-	// Create a new DI container
-	container := di.NewContainer()
+	// Create a new DI injector
+	injector := di.NewInjector()
 
 	// Register CLI Config Handler (to be initialized later)
 	cliConfigHandler, err := config.NewYamlConfigHandler("")
 	if err != nil {
 		log.Fatalf("failed to create CLI config handler: %v", err)
 	}
-	container.Register("cliConfigHandler", cliConfigHandler)
+	injector.Register("cliConfigHandler", cliConfigHandler)
 
 	// Register Shell instance
 	shellInstance := shell.NewDefaultShell()
-	container.Register("shell", shellInstance)
+	injector.Register("shell", shellInstance)
 
 	// Register SecureShell instance
-	secureShellInstance, err := shell.NewSecureShell(container)
+	secureShellInstance, err := shell.NewSecureShell(injector)
 	if err != nil {
 		log.Fatalf("failed to create secure shell: %v", err)
 	}
-	container.Register("secureShell", secureShellInstance)
+	injector.Register("secureShell", secureShellInstance)
 
 	// Create and register the Context instance
 	contextHandler := context.NewContext(cliConfigHandler, shellInstance)
-	container.Register("contextHandler", contextHandler)
+	injector.Register("contextHandler", contextHandler)
 
 	// Create and register the AwsHelper instance
-	awsHelper, err := helpers.NewAwsHelper(container)
+	awsHelper, err := helpers.NewAwsHelper(injector)
 	if err != nil {
 		log.Fatalf("failed to create aws helper: %v", err)
 	}
-	container.Register("awsHelper", awsHelper)
+	injector.Register("awsHelper", awsHelper)
 
 	// Create and register the GitHelper instance
-	gitHelper, err := helpers.NewGitHelper(container)
+	gitHelper, err := helpers.NewGitHelper(injector)
 	if err != nil {
 		log.Fatalf("failed to create git helper: %v", err)
 	}
-	container.Register("gitHelper", gitHelper)
+	injector.Register("gitHelper", gitHelper)
 
 	// Create and register the DNSHelper instance
-	dnsHelper, err := helpers.NewDNSHelper(container)
+	dnsHelper, err := helpers.NewDNSHelper(injector)
 	if err != nil {
 		log.Fatalf("failed to create dns helper: %v", err)
 	}
-	container.Register("dnsHelper", dnsHelper)
+	injector.Register("dnsHelper", dnsHelper)
 
 	// Create and register the DockerHelper instance
 	// This should go last!
-	dockerHelper, err := helpers.NewDockerHelper(container)
+	dockerHelper, err := helpers.NewDockerHelper(injector)
 	if err != nil {
 		log.Fatalf("failed to create docker helper: %v", err)
 	}
-	container.Register("dockerHelper", dockerHelper)
+	injector.Register("dockerHelper", dockerHelper)
 
 	// Register SSH Client instance
 	sshClient := ssh.NewSSHClient()
-	container.Register("sshClient", sshClient)
+	injector.Register("sshClient", sshClient)
 
 	// Create and register the ColimaVM instance using the mock as reference
-	colimaVM := virt.NewColimaVirt(container)
-	container.Register("colimaVirt", colimaVM)
+	colimaVM := virt.NewColimaVirt(injector)
+	injector.Register("colimaVirt", colimaVM)
 
 	// Create and register the AwsEnv instance
-	awsEnv := env.NewAwsEnv(container)
-	container.Register("awsEnv", awsEnv)
+	awsEnv := env.NewAwsEnv(injector)
+	injector.Register("awsEnv", awsEnv)
 
 	// Create and register the DockerEnv instance
-	dockerEnv := env.NewDockerEnv(container)
-	container.Register("dockerEnv", dockerEnv)
+	dockerEnv := env.NewDockerEnv(injector)
+	injector.Register("dockerEnv", dockerEnv)
 
 	// Create and register the KubeEnv instance
-	kubeEnv := env.NewKubeEnv(container)
-	container.Register("kubeEnv", kubeEnv)
+	kubeEnv := env.NewKubeEnv(injector)
+	injector.Register("kubeEnv", kubeEnv)
 
 	// Create and register the OmniEnv instance
-	omniEnv := env.NewOmniEnv(container)
-	container.Register("omniEnv", omniEnv)
+	omniEnv := env.NewOmniEnv(injector)
+	injector.Register("omniEnv", omniEnv)
 
 	// Create and register the SopsEnv instance
-	sopsEnv := env.NewSopsEnv(container)
-	container.Register("sopsEnv", sopsEnv)
+	sopsEnv := env.NewSopsEnv(injector)
+	injector.Register("sopsEnv", sopsEnv)
 
 	// Create and register the TalosEnv instance
-	talosEnv := env.NewTalosEnv(container)
-	container.Register("talosEnv", talosEnv)
+	talosEnv := env.NewTalosEnv(injector)
+	injector.Register("talosEnv", talosEnv)
 
 	// Create and register the TerraformEnv instance
-	terraformEnv := env.NewTerraformEnv(container)
-	container.Register("terraformEnv", terraformEnv)
+	terraformEnv := env.NewTerraformEnv(injector)
+	injector.Register("terraformEnv", terraformEnv)
 
 	// Create and register the WindsorEnv instance
-	windsorEnv := env.NewWindsorEnv(container)
-	container.Register("windsorEnv", windsorEnv)
+	windsorEnv := env.NewWindsorEnv(injector)
+	injector.Register("windsorEnv", windsorEnv)
 
-	// Inject the DI container into the cmd package
-	cmd.Initialize(container)
+	// Inject the DI injector into the cmd package
+	cmd.Initialize(injector)
 
 	// Execute the root command
 	cmd.Execute()

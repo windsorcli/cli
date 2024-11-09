@@ -19,13 +19,13 @@ var testForceMemoryOverflow = false
 
 // ColimaVirt implements the VirtInterface and VMInterface for Colima
 type ColimaVirt struct {
-	container di.ContainerInterface
+	injector di.Injector
 }
 
-// NewColimaVirt creates a new instance of ColimaVirt using a DI container
-func NewColimaVirt(container di.ContainerInterface) *ColimaVirt {
+// NewColimaVirt creates a new instance of ColimaVirt using a DI injector
+func NewColimaVirt(injector di.Injector) *ColimaVirt {
 	return &ColimaVirt{
-		container: container,
+		injector: injector,
 	}
 }
 
@@ -57,12 +57,12 @@ func (v *ColimaVirt) Down(verbose ...bool) error {
 
 // GetVMInfo returns the information about the Colima VM
 func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
-	contextHandler, err := v.container.Resolve("contextHandler")
+	contextHandler, err := v.injector.Resolve("contextHandler")
 	if err != nil {
 		return VMInfo{}, fmt.Errorf("error resolving context: %w", err)
 	}
 
-	shellInstance, err := v.container.Resolve("shell")
+	shellInstance, err := v.injector.Resolve("shell")
 	if err != nil {
 		return VMInfo{}, fmt.Errorf("error resolving shell: %w", err)
 	}
@@ -111,12 +111,12 @@ func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
 
 // WriteConfig writes the Colima configuration file
 func (v *ColimaVirt) WriteConfig() error {
-	contextHandler, err := v.container.Resolve("contextHandler")
+	contextHandler, err := v.injector.Resolve("contextHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving context: %w", err)
 	}
 
-	cliConfigHandler, err := v.container.Resolve("cliConfigHandler")
+	cliConfigHandler, err := v.injector.Resolve("cliConfigHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
@@ -296,12 +296,12 @@ func getDefaultValues(context string) (int, int, int, string, string) {
 
 // executeColimaCommand executes a Colima command with the given action
 func (v *ColimaVirt) executeColimaCommand(action string, verbose bool) error {
-	contextHandler, err := v.container.Resolve("contextHandler")
+	contextHandler, err := v.injector.Resolve("contextHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving context: %w", err)
 	}
 
-	shellInstance, err := v.container.Resolve("shell")
+	shellInstance, err := v.injector.Resolve("shell")
 	if err != nil {
 		return fmt.Errorf("error resolving shell: %w", err)
 	}
@@ -323,12 +323,12 @@ func (v *ColimaVirt) executeColimaCommand(action string, verbose bool) error {
 
 // startColima starts the Colima VM and waits for it to have an assigned IP address
 func (v *ColimaVirt) startColima(verbose bool) error {
-	contextHandler, err := v.container.Resolve("contextHandler")
+	contextHandler, err := v.injector.Resolve("contextHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving context: %w", err)
 	}
 
-	shellInstance, err := v.container.Resolve("shell")
+	shellInstance, err := v.injector.Resolve("shell")
 	if err != nil {
 		return fmt.Errorf("error resolving shell: %w", err)
 	}

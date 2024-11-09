@@ -14,11 +14,11 @@ type TalosEnv struct {
 	Env
 }
 
-// NewTalosEnv initializes a new TalosEnv instance using the provided dependency injection container.
-func NewTalosEnv(diContainer di.ContainerInterface) *TalosEnv {
+// NewTalosEnv initializes a new TalosEnv instance using the provided dependency injector.
+func NewTalosEnv(injector di.Injector) *TalosEnv {
 	return &TalosEnv{
 		Env: Env{
-			diContainer: diContainer,
+			Injector: injector,
 		},
 	}
 }
@@ -28,7 +28,7 @@ func (e *TalosEnv) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for context operations.
-	contextHandler, err := e.diContainer.Resolve("contextHandler")
+	contextHandler, err := e.Injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}

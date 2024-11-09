@@ -15,17 +15,17 @@ import (
 )
 
 type OmniEnvMocks struct {
-	Container      di.ContainerInterface
+	Injector       di.Injector
 	ContextHandler *context.MockContext
 	Shell          *shell.MockShell
 }
 
-func setupSafeOmniEnvMocks(container ...di.ContainerInterface) *OmniEnvMocks {
-	var mockContainer di.ContainerInterface
-	if len(container) > 0 {
-		mockContainer = container[0]
+func setupSafeOmniEnvMocks(injector ...di.Injector) *OmniEnvMocks {
+	var mockInjector di.Injector
+	if len(injector) > 0 {
+		mockInjector = injector[0]
 	} else {
-		mockContainer = di.NewContainer()
+		mockInjector = di.NewMockInjector()
 	}
 
 	mockContext := context.NewMockContext()
@@ -35,11 +35,11 @@ func setupSafeOmniEnvMocks(container ...di.ContainerInterface) *OmniEnvMocks {
 
 	mockShell := shell.NewMockShell()
 
-	mockContainer.Register("contextHandler", mockContext)
-	mockContainer.Register("shell", mockShell)
+	mockInjector.Register("contextHandler", mockContext)
+	mockInjector.Register("shell", mockShell)
 
 	return &OmniEnvMocks{
-		Container:      mockContainer,
+		Injector:       mockInjector,
 		ContextHandler: mockContext,
 		Shell:          mockShell,
 	}
@@ -58,7 +58,7 @@ func TestOmniEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		omniEnv := NewOmniEnv(mocks.Container)
+		omniEnv := NewOmniEnv(mocks.Injector)
 
 		envVars, err := omniEnv.GetEnvVars()
 		if err != nil {
@@ -79,7 +79,7 @@ func TestOmniEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		omniEnv := NewOmniEnv(mocks.Container)
+		omniEnv := NewOmniEnv(mocks.Injector)
 
 		envVars, err := omniEnv.GetEnvVars()
 		if err != nil {
@@ -92,11 +92,11 @@ func TestOmniEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ResolveContextHandlerError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeOmniEnvMocks(mockContainer)
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
+		mockInjector := di.NewMockInjector()
+		setupSafeOmniEnvMocks(mockInjector)
+		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
 
-		omniEnv := NewOmniEnv(mockContainer)
+		omniEnv := NewOmniEnv(mockInjector)
 
 		_, err := omniEnv.GetEnvVars()
 		expectedError := "error resolving contextHandler: mock resolve error"
@@ -106,11 +106,11 @@ func TestOmniEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("AssertContextHandlerError", func(t *testing.T) {
-		container := di.NewContainer()
-		setupSafeOmniEnvMocks(container)
-		container.Register("contextHandler", "invalidType")
+		mockInjector := di.NewMockInjector()
+		setupSafeOmniEnvMocks(mockInjector)
+		mockInjector.Register("contextHandler", "invalidType")
 
-		omniEnv := NewOmniEnv(container)
+		omniEnv := NewOmniEnv(mockInjector)
 
 		_, err := omniEnv.GetEnvVars()
 		expectedError := "failed to cast contextHandler to context.ContextInterface"
@@ -125,7 +125,7 @@ func TestOmniEnv_GetEnvVars(t *testing.T) {
 			return "", errors.New("mock context error")
 		}
 
-		omniEnv := NewOmniEnv(mocks.Container)
+		omniEnv := NewOmniEnv(mocks.Injector)
 
 		_, err := omniEnv.GetEnvVars()
 		expectedError := "error retrieving configuration root directory: mock context error"
@@ -139,8 +139,8 @@ func TestOmniEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Use setupSafeOmniEnvMocks to create mocks
 		mocks := setupSafeOmniEnvMocks()
-		mockContainer := mocks.Container
-		omniEnv := NewOmniEnv(mockContainer)
+		mockInjector := mocks.Injector
+		omniEnv := NewOmniEnv(mockInjector)
 
 		// Mock the stat function to simulate the existence of the omniconfig file
 		stat = func(name string) (os.FileInfo, error) {
@@ -181,9 +181,9 @@ func TestOmniEnv_Print(t *testing.T) {
 			return "", errors.New("mock config error")
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		omniEnv := NewOmniEnv(mockContainer)
+		omniEnv := NewOmniEnv(mockInjector)
 
 		// Call Print and check for errors
 		err := omniEnv.Print()

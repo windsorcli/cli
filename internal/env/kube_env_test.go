@@ -15,17 +15,17 @@ import (
 )
 
 type KubeEnvMocks struct {
-	Container      di.ContainerInterface
+	Injector       di.Injector
 	ContextHandler *context.MockContext
 	Shell          *shell.MockShell
 }
 
-func setupSafeKubeEnvMocks(container ...di.ContainerInterface) *KubeEnvMocks {
-	var mockContainer di.ContainerInterface
-	if len(container) > 0 {
-		mockContainer = container[0]
+func setupSafeKubeEnvMocks(injector ...di.Injector) *KubeEnvMocks {
+	var mockInjector di.Injector
+	if len(injector) > 0 {
+		mockInjector = injector[0]
 	} else {
-		mockContainer = di.NewContainer()
+		mockInjector = di.NewMockInjector()
 	}
 
 	mockContext := context.NewMockContext()
@@ -35,11 +35,11 @@ func setupSafeKubeEnvMocks(container ...di.ContainerInterface) *KubeEnvMocks {
 
 	mockShell := shell.NewMockShell()
 
-	mockContainer.Register("contextHandler", mockContext)
-	mockContainer.Register("shell", mockShell)
+	mockInjector.Register("contextHandler", mockContext)
+	mockInjector.Register("shell", mockShell)
 
 	return &KubeEnvMocks{
-		Container:      mockContainer,
+		Injector:       mockInjector,
 		ContextHandler: mockContext,
 		Shell:          mockShell,
 	}
@@ -58,7 +58,7 @@ func TestKubeEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		kubeEnv := NewKubeEnv(mocks.Container)
+		kubeEnv := NewKubeEnv(mocks.Injector)
 
 		envVars, err := kubeEnv.GetEnvVars()
 		if err != nil {
@@ -80,7 +80,7 @@ func TestKubeEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		kubeEnv := NewKubeEnv(mocks.Container)
+		kubeEnv := NewKubeEnv(mocks.Injector)
 
 		envVars, err := kubeEnv.GetEnvVars()
 		if err != nil {
@@ -93,11 +93,11 @@ func TestKubeEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ResolveContextHandlerError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeKubeEnvMocks(mockContainer)
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
+		mockInjector := di.NewMockInjector()
+		setupSafeKubeEnvMocks(mockInjector)
+		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
 
-		kubeEnv := NewKubeEnv(mockContainer)
+		kubeEnv := NewKubeEnv(mockInjector)
 
 		_, err := kubeEnv.GetEnvVars()
 		expectedError := "error resolving contextHandler: mock resolve error"
@@ -107,11 +107,11 @@ func TestKubeEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("AssertContextHandlerError", func(t *testing.T) {
-		container := di.NewContainer()
-		setupSafeKubeEnvMocks(container)
-		container.Register("contextHandler", "invalidType")
+		mockInjector := di.NewMockInjector()
+		setupSafeKubeEnvMocks(mockInjector)
+		mockInjector.Register("contextHandler", "invalidType")
 
-		kubeEnv := NewKubeEnv(container)
+		kubeEnv := NewKubeEnv(mockInjector)
 
 		_, err := kubeEnv.GetEnvVars()
 		expectedError := "failed to cast contextHandler to context.ContextInterface"
@@ -126,7 +126,7 @@ func TestKubeEnv_GetEnvVars(t *testing.T) {
 			return "", errors.New("mock context error")
 		}
 
-		kubeEnv := NewKubeEnv(mocks.Container)
+		kubeEnv := NewKubeEnv(mocks.Injector)
 
 		_, err := kubeEnv.GetEnvVars()
 		expectedError := "error retrieving configuration root directory: mock context error"
@@ -140,8 +140,8 @@ func TestKubeEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Use setupSafeKubeEnvMocks to create mocks
 		mocks := setupSafeKubeEnvMocks()
-		mockContainer := mocks.Container
-		kubeEnv := NewKubeEnv(mockContainer)
+		mockInjector := mocks.Injector
+		kubeEnv := NewKubeEnv(mockInjector)
 
 		// Mock the stat function to simulate the existence of the kubeconfig file
 		stat = func(name string) (os.FileInfo, error) {
@@ -183,9 +183,9 @@ func TestKubeEnv_Print(t *testing.T) {
 			return "", errors.New("mock config error")
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		kubeEnv := NewKubeEnv(mockContainer)
+		kubeEnv := NewKubeEnv(mockInjector)
 
 		// Call Print and check for errors
 		err := kubeEnv.Print()

@@ -15,17 +15,17 @@ import (
 )
 
 type DockerEnvMocks struct {
-	Container      di.ContainerInterface
+	Injector       di.Injector
 	ContextHandler *context.MockContext
 	Shell          *shell.MockShell
 }
 
-func setupSafeDockerEnvMocks(container ...di.ContainerInterface) *DockerEnvMocks {
-	var mockContainer di.ContainerInterface
-	if len(container) > 0 {
-		mockContainer = container[0]
+func setupSafeDockerEnvMocks(injector ...di.Injector) *DockerEnvMocks {
+	var mockInjector di.Injector
+	if len(injector) > 0 {
+		mockInjector = injector[0]
 	} else {
-		mockContainer = di.NewContainer()
+		mockInjector = di.NewMockInjector()
 	}
 
 	mockContext := context.NewMockContext()
@@ -35,11 +35,11 @@ func setupSafeDockerEnvMocks(container ...di.ContainerInterface) *DockerEnvMocks
 
 	mockShell := shell.NewMockShell()
 
-	mockContainer.Register("contextHandler", mockContext)
-	mockContainer.Register("shell", mockShell)
+	mockInjector.Register("contextHandler", mockContext)
+	mockInjector.Register("shell", mockShell)
 
 	return &DockerEnvMocks{
-		Container:      mockContainer,
+		Injector:       mockInjector,
 		ContextHandler: mockContext,
 		Shell:          mockShell,
 	}
@@ -58,7 +58,7 @@ func TestDockerEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		dockerEnv := NewDockerEnv(mocks.Container)
+		dockerEnv := NewDockerEnv(mocks.Injector)
 
 		envVars, err := dockerEnv.GetEnvVars()
 		if err != nil {
@@ -79,7 +79,7 @@ func TestDockerEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		dockerEnv := NewDockerEnv(mocks.Container)
+		dockerEnv := NewDockerEnv(mocks.Injector)
 
 		envVars, err := dockerEnv.GetEnvVars()
 		if err != nil {
@@ -92,11 +92,11 @@ func TestDockerEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ResolveContextHandlerError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeDockerEnvMocks(mockContainer)
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
+		mockInjector := di.NewMockInjector()
+		setupSafeDockerEnvMocks(mockInjector)
+		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
 
-		dockerEnv := NewDockerEnv(mockContainer)
+		dockerEnv := NewDockerEnv(mockInjector)
 
 		_, err := dockerEnv.GetEnvVars()
 		expectedError := "error resolving contextHandler: mock resolve error"
@@ -106,11 +106,11 @@ func TestDockerEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("AssertContextHandlerError", func(t *testing.T) {
-		container := di.NewContainer()
-		setupSafeDockerEnvMocks(container)
-		container.Register("contextHandler", "invalidType")
+		mockInjector := di.NewMockInjector()
+		setupSafeDockerEnvMocks(mockInjector)
+		mockInjector.Register("contextHandler", "invalidType")
 
-		dockerEnv := NewDockerEnv(container)
+		dockerEnv := NewDockerEnv(mockInjector)
 
 		_, err := dockerEnv.GetEnvVars()
 		expectedError := "failed to cast contextHandler to context.ContextInterface"
@@ -125,7 +125,7 @@ func TestDockerEnv_GetEnvVars(t *testing.T) {
 			return "", errors.New("mock context error")
 		}
 
-		dockerEnv := NewDockerEnv(mocks.Container)
+		dockerEnv := NewDockerEnv(mocks.Injector)
 
 		_, err := dockerEnv.GetEnvVars()
 		expectedError := "error retrieving configuration root directory: mock context error"
@@ -146,7 +146,7 @@ func TestDockerEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		dockerEnv := NewDockerEnv(mocks.Container)
+		dockerEnv := NewDockerEnv(mocks.Injector)
 
 		envVars, err := dockerEnv.GetEnvVars()
 		if err != nil {
@@ -163,8 +163,8 @@ func TestDockerEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Use setupSafeAwsEnvMocks to create mocks
 		mocks := setupSafeDockerEnvMocks()
-		mockContainer := mocks.Container
-		dockerEnv := NewDockerEnv(mockContainer)
+		mockInjector := mocks.Injector
+		dockerEnv := NewDockerEnv(mockInjector)
 
 		// Mock the stat function to simulate the existence of the Docker compose file
 		stat = func(name string) (os.FileInfo, error) {
@@ -205,9 +205,9 @@ func TestDockerEnv_Print(t *testing.T) {
 			return "", errors.New("mock config error")
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		dockerEnv := NewDockerEnv(mockContainer)
+		dockerEnv := NewDockerEnv(mockInjector)
 
 		// Call Print and check for errors
 		err := dockerEnv.Print()

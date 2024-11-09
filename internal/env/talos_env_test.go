@@ -15,17 +15,17 @@ import (
 )
 
 type TalosEnvMocks struct {
-	Container      di.ContainerInterface
+	Injector       di.Injector
 	ContextHandler *context.MockContext
 	Shell          *shell.MockShell
 }
 
-func setupSafeTalosEnvMocks(container ...di.ContainerInterface) *TalosEnvMocks {
-	var mockContainer di.ContainerInterface
-	if len(container) > 0 {
-		mockContainer = container[0]
+func setupSafeTalosEnvMocks(injector ...di.Injector) *TalosEnvMocks {
+	var mockInjector di.Injector
+	if len(injector) > 0 {
+		mockInjector = injector[0]
 	} else {
-		mockContainer = di.NewContainer()
+		mockInjector = di.NewMockInjector()
 	}
 
 	mockContext := context.NewMockContext()
@@ -35,11 +35,11 @@ func setupSafeTalosEnvMocks(container ...di.ContainerInterface) *TalosEnvMocks {
 
 	mockShell := shell.NewMockShell()
 
-	mockContainer.Register("contextHandler", mockContext)
-	mockContainer.Register("shell", mockShell)
+	mockInjector.Register("contextHandler", mockContext)
+	mockInjector.Register("shell", mockShell)
 
 	return &TalosEnvMocks{
-		Container:      mockContainer,
+		Injector:       mockInjector,
 		ContextHandler: mockContext,
 		Shell:          mockShell,
 	}
@@ -58,7 +58,7 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		talosEnv := NewTalosEnv(mocks.Container)
+		talosEnv := NewTalosEnv(mocks.Injector)
 
 		envVars, err := talosEnv.GetEnvVars()
 		if err != nil {
@@ -80,7 +80,7 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		talosEnv := NewTalosEnv(mocks.Container)
+		talosEnv := NewTalosEnv(mocks.Injector)
 
 		envVars, err := talosEnv.GetEnvVars()
 		if err != nil {
@@ -93,11 +93,11 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ResolveContextHandlerError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeTalosEnvMocks(mockContainer)
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
+		mockInjector := di.NewMockInjector()
+		setupSafeTalosEnvMocks(mockInjector)
+		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
 
-		talosEnv := NewTalosEnv(mockContainer)
+		talosEnv := NewTalosEnv(mockInjector)
 
 		_, err := talosEnv.GetEnvVars()
 		if err == nil || err.Error() != "error resolving contextHandler: mock resolve error" {
@@ -106,11 +106,11 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("AssertContextHandlerError", func(t *testing.T) {
-		container := di.NewContainer()
-		setupSafeTalosEnvMocks(container)
-		container.Register("contextHandler", "invalidType")
+		mockInjector := di.NewMockInjector()
+		setupSafeTalosEnvMocks(mockInjector)
+		mockInjector.Register("contextHandler", "invalidType")
 
-		talosEnv := NewTalosEnv(container)
+		talosEnv := NewTalosEnv(mockInjector)
 
 		_, err := talosEnv.GetEnvVars()
 		if err == nil || err.Error() != "failed to cast contextHandler to context.ContextInterface" {
@@ -124,7 +124,7 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			return "", errors.New("mock context error")
 		}
 
-		talosEnv := NewTalosEnv(mocks.Container)
+		talosEnv := NewTalosEnv(mocks.Injector)
 
 		_, err := talosEnv.GetEnvVars()
 		if err == nil || err.Error() != "error retrieving configuration root directory: mock context error" {
@@ -137,8 +137,8 @@ func TestTalosEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Use setupSafeTalosEnvMocks to create mocks
 		mocks := setupSafeTalosEnvMocks()
-		mockContainer := mocks.Container
-		talosEnv := NewTalosEnv(mockContainer)
+		mockInjector := mocks.Injector
+		talosEnv := NewTalosEnv(mockInjector)
 
 		// Mock the stat function to simulate the existence of the talos config file
 		stat = func(name string) (os.FileInfo, error) {
@@ -179,9 +179,9 @@ func TestTalosEnv_Print(t *testing.T) {
 			return "", errors.New("mock config error")
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		talosEnv := NewTalosEnv(mockContainer)
+		talosEnv := NewTalosEnv(mockInjector)
 
 		// Call Print and check for errors
 		err := talosEnv.Print()

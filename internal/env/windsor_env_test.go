@@ -14,17 +14,17 @@ import (
 )
 
 type WindsorEnvMocks struct {
-	Container      di.ContainerInterface
+	Injector       di.Injector
 	ContextHandler *context.MockContext
 	Shell          *shell.MockShell
 }
 
-func setupSafeWindsorEnvMocks(container ...di.ContainerInterface) *WindsorEnvMocks {
-	var mockContainer di.ContainerInterface
-	if len(container) > 0 {
-		mockContainer = container[0]
+func setupSafeWindsorEnvMocks(injector ...di.Injector) *WindsorEnvMocks {
+	var mockInjector di.Injector
+	if len(injector) > 0 {
+		mockInjector = injector[0]
 	} else {
-		mockContainer = di.NewContainer()
+		mockInjector = di.NewMockInjector()
 	}
 
 	mockContext := context.NewMockContext()
@@ -40,11 +40,11 @@ func setupSafeWindsorEnvMocks(container ...di.ContainerInterface) *WindsorEnvMoc
 		return filepath.FromSlash("/mock/project/root"), nil
 	}
 
-	mockContainer.Register("contextHandler", mockContext)
-	mockContainer.Register("shell", mockShell)
+	mockInjector.Register("contextHandler", mockContext)
+	mockInjector.Register("shell", mockShell)
 
 	return &WindsorEnvMocks{
-		Container:      mockContainer,
+		Injector:       mockInjector,
 		ContextHandler: mockContext,
 		Shell:          mockShell,
 	}
@@ -54,7 +54,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeWindsorEnvMocks()
 
-		windsorEnv := NewWindsorEnv(mocks.Container)
+		windsorEnv := NewWindsorEnv(mocks.Injector)
 
 		envVars, err := windsorEnv.GetEnvVars()
 		if err != nil {
@@ -72,11 +72,11 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ResolveContextHandlerError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeWindsorEnvMocks(mockContainer)
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
+		mockInjector := di.NewMockInjector()
+		setupSafeWindsorEnvMocks(mockInjector)
+		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
 
-		windsorEnv := NewWindsorEnv(mockContainer)
+		windsorEnv := NewWindsorEnv(mockInjector)
 
 		_, err := windsorEnv.GetEnvVars()
 		expectedErrorMessage := "error resolving contextHandler: mock resolve error"
@@ -86,11 +86,11 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("AssertContextHandlerError", func(t *testing.T) {
-		container := di.NewContainer()
-		setupSafeWindsorEnvMocks(container)
-		container.Register("contextHandler", "invalidType")
+		mockInjector := di.NewMockInjector()
+		setupSafeWindsorEnvMocks(mockInjector)
+		mockInjector.Register("contextHandler", "invalidType")
 
-		windsorEnv := NewWindsorEnv(container)
+		windsorEnv := NewWindsorEnv(mockInjector)
 
 		_, err := windsorEnv.GetEnvVars()
 		expectedErrorMessage := "failed to cast contextHandler to context.ContextInterface"
@@ -100,11 +100,11 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ResolveShellError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeWindsorEnvMocks(mockContainer)
-		mockContainer.SetResolveError("shell", fmt.Errorf("mock resolve error"))
+		mockInjector := di.NewMockInjector()
+		setupSafeWindsorEnvMocks(mockInjector)
+		mockInjector.SetResolveError("shell", fmt.Errorf("mock resolve error"))
 
-		windsorEnv := NewWindsorEnv(mockContainer)
+		windsorEnv := NewWindsorEnv(mockInjector)
 
 		_, err := windsorEnv.GetEnvVars()
 		expectedErrorMessage := "error resolving shell: mock resolve error"
@@ -114,11 +114,11 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("AssertShellError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeWindsorEnvMocks(mockContainer)
-		mockContainer.Register("shell", "invalidType")
+		mockInjector := di.NewMockInjector()
+		setupSafeWindsorEnvMocks(mockInjector)
+		mockInjector.Register("shell", "invalidType")
 
-		windsorEnv := NewWindsorEnv(mockContainer)
+		windsorEnv := NewWindsorEnv(mockInjector)
 
 		_, err := windsorEnv.GetEnvVars()
 		expectedErrorMessage := "failed to cast shell to shell.Shell"
@@ -133,7 +133,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			return "", fmt.Errorf("mock context error")
 		}
 
-		windsorEnv := NewWindsorEnv(mocks.Container)
+		windsorEnv := NewWindsorEnv(mocks.Injector)
 
 		_, err := windsorEnv.GetEnvVars()
 		expectedErrorMessage := "error retrieving current context: mock context error"
@@ -148,7 +148,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			return "", fmt.Errorf("mock shell error")
 		}
 
-		windsorEnv := NewWindsorEnv(mocks.Container)
+		windsorEnv := NewWindsorEnv(mocks.Injector)
 
 		_, err := windsorEnv.GetEnvVars()
 		expectedErrorMessage := "error retrieving project root: mock shell error"
@@ -173,8 +173,8 @@ func TestWindsorEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Use setupSafeWindsorEnvMocks to create mocks
 		mocks := setupSafeWindsorEnvMocks()
-		mockContainer := mocks.Container
-		windsorEnv := NewWindsorEnv(mockContainer)
+		mockInjector := mocks.Injector
+		windsorEnv := NewWindsorEnv(mockInjector)
 
 		// Mock the stat function to simulate the existence of the Windsor config file
 		stat = func(name string) (os.FileInfo, error) {
@@ -216,9 +216,9 @@ func TestWindsorEnv_Print(t *testing.T) {
 			return "", fmt.Errorf("mock project root error")
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		windsorEnv := NewWindsorEnv(mockContainer)
+		windsorEnv := NewWindsorEnv(mockInjector)
 
 		// Call Print and check for errors
 		err := windsorEnv.Print()

@@ -14,11 +14,11 @@ type KubeEnv struct {
 	Env
 }
 
-// NewKubeEnv initializes a new KubeEnv instance using the provided dependency injection container.
-func NewKubeEnv(diContainer di.ContainerInterface) *KubeEnv {
+// NewKubeEnv initializes a new KubeEnv instance using the provided dependency injector.
+func NewKubeEnv(injector di.Injector) *KubeEnv {
 	return &KubeEnv{
 		Env: Env{
-			diContainer: diContainer,
+			Injector: injector,
 		},
 	}
 }
@@ -28,7 +28,7 @@ func (k *KubeEnv) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for context and shell operations.
-	contextHandler, err := k.diContainer.Resolve("contextHandler")
+	contextHandler, err := k.Injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 type MockComponents struct {
-	Container         di.ContainerInterface
+	Injector          di.Injector
 	MockContext       *context.MockContext
 	MockShell         *shell.MockShell
 	MockConfigHandler *config.MockConfigHandler

@@ -29,7 +29,7 @@ func TestExecCmd(t *testing.T) {
 		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "hello\n", nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Capture stdout using a buffer
 		output := captureStdout(func() {
@@ -53,7 +53,7 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock components using SuperMocks
 		mocks := mocks.CreateSuperMocks()
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -77,13 +77,13 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Setup mock container
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(errors.New("resolve env error"))
+		// Setup mock injector
+		mockInjector := di.NewMockInjector()
+		mockInjector.SetResolveAllError(errors.New("resolve env error"))
 
-		// Setup mock components using SuperMocks with the mock container
-		mocks := mocks.CreateSuperMocks(mockContainer)
-		Initialize(mocks.Container)
+		// Setup mock components using SuperMocks with the mock injector
+		mocks := mocks.CreateSuperMocks(mockInjector)
+		Initialize(mocks.Injector)
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -109,11 +109,11 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 		defer recoverPanic(t)
 
-		// Given a container that returns an error when resolving environments
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(errors.New("resolve env error")) // Simulate error
-		mocks := mocks.CreateSuperMocks(mockContainer)
-		Initialize(mocks.Container)
+		// Given a injector that returns an error when resolving environments
+		mockInjector := di.NewMockInjector()
+		mockInjector.SetResolveAllError(errors.New("resolve env error")) // Simulate error
+		mocks := mocks.CreateSuperMocks(mockInjector)
+		Initialize(mocks.Injector)
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -142,7 +142,7 @@ func TestExecCmd(t *testing.T) {
 		mocks.WindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, errors.New("get env vars error")
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -173,7 +173,7 @@ func TestExecCmd(t *testing.T) {
 		mocks.WindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, errors.New("get env vars error")
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -206,7 +206,7 @@ func TestExecCmd(t *testing.T) {
 				"VAR1": "value1",
 			}, nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Mock os.Setenv to return an error
 		setenvError := func(key, value string) error {
@@ -244,7 +244,7 @@ func TestExecCmd(t *testing.T) {
 				"VAR1": "value1",
 			}, nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Execute the command
 		rootCmd.SetArgs([]string{"exec", "--verbose", "echo", "hello"})
@@ -272,7 +272,7 @@ func TestExecCmd(t *testing.T) {
 			}
 			return "", errors.New("command execution error")
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Capture output
 		var buf bytes.Buffer

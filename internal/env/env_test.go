@@ -12,9 +12,9 @@ import (
 // TestEnv_GetEnvVars tests the GetEnvVars method of the Env struct
 func TestEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Create a mock container and Env instance
-		mockContainer := di.NewContainer()
-		env := &Env{diContainer: mockContainer}
+		// Create a mock injector and Env instance
+		mockInjector := di.NewMockInjector()
+		env := &Env{Injector: mockInjector}
 
 		// Call GetEnvVars and check for errors
 		envVars, err := env.GetEnvVars()
@@ -33,11 +33,11 @@ func TestEnv_GetEnvVars(t *testing.T) {
 // TestEnv_Print tests the Print method of the Env struct
 func TestEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Create a mock container and Env instance
-		mockContainer := di.NewContainer()
+		// Create a mock injector and Env instance
+		mockInjector := di.NewMockInjector()
 		mockShell := shell.NewMockShell()
-		mockContainer.Register("shell", mockShell)
-		env := &Env{diContainer: mockContainer}
+		mockInjector.Register("shell", mockShell)
+		env := &Env{Injector: mockInjector}
 
 		// Mock the PrintEnvVarsFunc to verify it is called
 		var capturedEnvVars map[string]string
@@ -60,9 +60,9 @@ func TestEnv_Print(t *testing.T) {
 	})
 
 	t.Run("ShellResolveError", func(t *testing.T) {
-		// Create a mock container without registering the shell
-		mockContainer := di.NewContainer()
-		env := &Env{diContainer: mockContainer}
+		// Create a mock injector without registering the shell
+		mockInjector := di.NewMockInjector()
+		env := &Env{Injector: mockInjector}
 
 		// Call Print and expect an error due to missing shell
 		err := env.Print()
@@ -74,10 +74,10 @@ func TestEnv_Print(t *testing.T) {
 	})
 
 	t.Run("CastShellError", func(t *testing.T) {
-		// Create a mock container and Env instance
-		mockContainer := di.NewContainer()
-		mockContainer.Register("shell", "invalid-shell")
-		env := &Env{diContainer: mockContainer}
+		// Create a mock injector and Env instance
+		mockInjector := di.NewMockInjector()
+		mockInjector.Register("shell", "invalid-shell")
+		env := &Env{Injector: mockInjector}
 
 		// Call Print and expect an error due to invalid shell type
 		err := env.Print()

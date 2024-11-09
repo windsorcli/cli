@@ -15,18 +15,18 @@ import (
 )
 
 type TerraformEnvMocks struct {
-	Container      di.ContainerInterface
+	Injector       di.Injector
 	ContextHandler *context.MockContext
 	Shell          *shell.MockShell
 	ConfigHandler  *config.MockConfigHandler
 }
 
-func setupSafeTerraformEnvMocks(container ...di.ContainerInterface) *TerraformEnvMocks {
-	var mockContainer di.ContainerInterface
-	if len(container) > 0 {
-		mockContainer = container[0]
+func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
+	var mockInjector di.Injector
+	if len(injector) > 0 {
+		mockInjector = injector[0]
 	} else {
-		mockContainer = di.NewContainer()
+		mockInjector = di.NewMockInjector()
 	}
 
 	mockContext := context.NewMockContext()
@@ -48,12 +48,12 @@ func setupSafeTerraformEnvMocks(container ...di.ContainerInterface) *TerraformEn
 		}, nil
 	}
 
-	mockContainer.Register("contextHandler", mockContext)
-	mockContainer.Register("shell", mockShell)
-	mockContainer.Register("cliConfigHandler", mockConfigHandler)
+	mockInjector.Register("contextHandler", mockContext)
+	mockInjector.Register("shell", mockShell)
+	mockInjector.Register("cliConfigHandler", mockConfigHandler)
 
 	return &TerraformEnvMocks{
-		Container:      mockContainer,
+		Injector:       mockInjector,
 		ContextHandler: mockContext,
 		Shell:          mockShell,
 		ConfigHandler:  mockConfigHandler,
@@ -74,7 +74,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			"TF_VAR_context_path": filepath.FromSlash("/mock/config/root"),
 		}
 
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 
 		// Given a mocked glob function simulating the presence of tf files
 		originalGlob := glob
@@ -126,12 +126,12 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingDependenciesInGetEnvVars", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeTerraformEnvMocks(mockContainer)
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
+		mockInjector := di.NewMockInjector()
+		setupSafeTerraformEnvMocks(mockInjector)
+		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
 
 		// When the GetEnvVars function is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mockInjector)
 		_, err := env.GetEnvVars()
 
 		// Then the error should contain the expected message
@@ -154,7 +154,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 
 		// When the GetEnvVars function is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		_, err := env.GetEnvVars()
 
 		// Then the error should contain the expected message
@@ -176,7 +176,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 
 		// When the GetEnvVars function is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		envVars, err := env.GetEnvVars()
 
 		// Then it should return nil without an error
@@ -202,7 +202,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// When the GetEnvVars function is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		_, err := env.GetEnvVars()
 
 		// Then the error should be as expected
@@ -246,7 +246,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// When the GetEnvVars function is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		_, err := env.GetEnvVars()
 
 		// Then the error should be as expected
@@ -296,7 +296,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 
 		// When the PostEnvHook function is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.PostEnvHook()
 
 		// Then no error should occur
@@ -306,12 +306,12 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingDependencies", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeTerraformEnvMocks(mockContainer)
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
+		mockInjector := di.NewMockInjector()
+		setupSafeTerraformEnvMocks(mockInjector)
+		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
 
 		// When the PostEnvHook function is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mockInjector)
 		err := env.PostEnvHook()
 
 		// Then the error should contain the expected message
@@ -333,7 +333,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 
 		// When the PostEnvHook function is called
 		mocks := setupSafeTerraformEnvMocks()
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.PostEnvHook()
 
 		// Then the error should contain the expected message
@@ -355,7 +355,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 
 		// When the PostEnvHook function is called
 		mocks := setupSafeTerraformEnvMocks()
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.PostEnvHook()
 
 		// Then the error should contain the expected message
@@ -386,7 +386,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 
 		// When the PostEnvHook function is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.PostEnvHook()
 
 		// Then the error should contain the expected message
@@ -417,7 +417,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 
 		// When the PostEnvHook function is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.PostEnvHook()
 
 		// Then the error should contain the expected message
@@ -452,7 +452,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 
 		// When the PostEnvHook function is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.PostEnvHook()
 
 		// Then the error should contain the expected message
@@ -486,7 +486,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 
 		// When the PostEnvHook function is called
 		mocks := setupSafeTerraformEnvMocks()
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.PostEnvHook()
 
 		// Then the error should contain the expected message
@@ -503,8 +503,8 @@ func TestTerraformEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Use setupSafeTerraformEnvMocks to create mocks
 		mocks := setupSafeTerraformEnvMocks()
-		mockContainer := mocks.Container
-		terraformEnv := NewTerraformEnv(mockContainer)
+		mockInjector := mocks.Injector
+		terraformEnv := NewTerraformEnv(mockInjector)
 
 		// Mock the stat function to simulate the existence of the terraform config file
 		stat = func(name string) (os.FileInfo, error) {
@@ -568,9 +568,9 @@ func TestTerraformEnv_Print(t *testing.T) {
 			return "", fmt.Errorf("mock config error")
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		terraformEnv := NewTerraformEnv(mockContainer)
+		terraformEnv := NewTerraformEnv(mockInjector)
 
 		// Call Print and check for errors
 		err := terraformEnv.Print()
@@ -584,12 +584,12 @@ func TestTerraformEnv_Print(t *testing.T) {
 
 func TestTerraformEnv_resolveDependencies(t *testing.T) {
 	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeTerraformEnvMocks(mockContainer)
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
+		mockInjector := di.NewMockInjector()
+		setupSafeTerraformEnvMocks(mockInjector)
+		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
 
 		// When resolveDependencies is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mockInjector)
 		_, err := env.resolveDependencies()
 
 		// Then the error should contain the expected message
@@ -602,14 +602,14 @@ func TestTerraformEnv_resolveDependencies(t *testing.T) {
 	})
 
 	t.Run("ErrorCastingContextHandler", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeTerraformEnvMocks(mockContainer)
+		mockInjector := di.NewMockInjector()
+		setupSafeTerraformEnvMocks(mockInjector)
 
 		// Given a mock object that does not implement ContextInterface
-		mockContainer.Register("contextHandler", "invalidContextHandler")
+		mockInjector.Register("contextHandler", "invalidContextHandler")
 
 		// When resolveDependencies is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mockInjector)
 		_, err := env.resolveDependencies()
 
 		// Then the error should contain the expected message
@@ -622,12 +622,12 @@ func TestTerraformEnv_resolveDependencies(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeTerraformEnvMocks(mockContainer)
-		mockContainer.SetResolveError("shell", fmt.Errorf("mock error resolving shell"))
+		mockInjector := di.NewMockInjector()
+		setupSafeTerraformEnvMocks(mockInjector)
+		mockInjector.SetResolveError("shell", fmt.Errorf("mock error resolving shell"))
 
 		// When resolveDependencies is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mockInjector)
 		_, err := env.resolveDependencies()
 
 		// Then the error should contain the expected message
@@ -640,14 +640,14 @@ func TestTerraformEnv_resolveDependencies(t *testing.T) {
 	})
 
 	t.Run("ErrorCastingShell", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeTerraformEnvMocks(mockContainer)
+		mockInjector := di.NewMockInjector()
+		setupSafeTerraformEnvMocks(mockInjector)
 
 		// Given a mock object that does not implement Shell
-		mockContainer.Register("shell", "invalidShell")
+		mockInjector.Register("shell", "invalidShell")
 
 		// When resolveDependencies is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mockInjector)
 		_, err := env.resolveDependencies()
 
 		// Then the error should contain the expected message
@@ -660,12 +660,12 @@ func TestTerraformEnv_resolveDependencies(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeTerraformEnvMocks(mockContainer)
-		mockContainer.SetResolveError("cliConfigHandler", fmt.Errorf("mock error resolving cliConfigHandler"))
+		mockInjector := di.NewMockInjector()
+		setupSafeTerraformEnvMocks(mockInjector)
+		mockInjector.SetResolveError("cliConfigHandler", fmt.Errorf("mock error resolving cliConfigHandler"))
 
 		// When resolveDependencies is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mockInjector)
 		_, err := env.resolveDependencies()
 
 		// Then the error should contain the expected message
@@ -678,14 +678,14 @@ func TestTerraformEnv_resolveDependencies(t *testing.T) {
 	})
 
 	t.Run("ErrorCastingConfigHandler", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeTerraformEnvMocks(mockContainer)
+		mockInjector := di.NewMockInjector()
+		setupSafeTerraformEnvMocks(mockInjector)
 
 		// Given a mock object that does not implement ConfigHandler
-		mockContainer.Register("cliConfigHandler", "invalidConfigHandler")
+		mockInjector.Register("cliConfigHandler", "invalidConfigHandler")
 
 		// When resolveDependencies is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mockInjector)
 		_, err := env.resolveDependencies()
 
 		// Then the error should contain the expected message
@@ -700,12 +700,12 @@ func TestTerraformEnv_resolveDependencies(t *testing.T) {
 
 func TestTerraformEnv_getAlias(t *testing.T) {
 	t.Run("ErrorResolvingDependencies", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeTerraformEnvMocks(mockContainer)
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
+		mockInjector := di.NewMockInjector()
+		setupSafeTerraformEnvMocks(mockInjector)
+		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
 
 		// When getAlias is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mockInjector)
 		_, err := env.getAlias()
 
 		// Then the error should contain the expected message
@@ -733,7 +733,7 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		}
 
 		// When getAlias is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		aliases, err := env.getAlias()
 
 		// Then no error should occur and the expected alias should be returned
@@ -762,7 +762,7 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		}
 
 		// When getAlias is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		aliases, err := env.getAlias()
 
 		// Then no error should occur and the expected alias should be returned
@@ -782,7 +782,7 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		}
 
 		// When getAlias is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		_, err := env.getAlias()
 
 		// Then the error should contain the expected message
@@ -801,7 +801,7 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		}
 
 		// When getAlias is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		_, err := env.getAlias()
 
 		// Then the error should contain the expected message
@@ -1025,7 +1025,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.generateBackendOverrideTf()
 
 		// Then no error should occur and the expected backend config should be written
@@ -1080,7 +1080,7 @@ terraform {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.generateBackendOverrideTf()
 
 		// Then no error should occur and the expected backend config should be written
@@ -1135,7 +1135,7 @@ terraform {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.generateBackendOverrideTf()
 
 		// Then no error should occur and the expected backend config should be written
@@ -1155,12 +1155,12 @@ terraform {
 	})
 
 	t.Run("ErrorResolvingDependencies", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeTerraformEnvMocks(mockContainer)
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
+		mockInjector := di.NewMockInjector()
+		setupSafeTerraformEnvMocks(mockInjector)
+		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mockInjector)
 		err := env.generateBackendOverrideTf()
 
 		// Then the error should contain the expected message
@@ -1195,7 +1195,7 @@ terraform {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.generateBackendOverrideTf()
 
 		// Then the error should contain the expected message
@@ -1230,7 +1230,7 @@ terraform {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.generateBackendOverrideTf()
 
 		// Then the error should contain the expected message
@@ -1269,7 +1269,7 @@ terraform {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.generateBackendOverrideTf()
 
 		// Then the error should contain the expected message
@@ -1305,7 +1305,7 @@ terraform {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Container)
+		env := NewTerraformEnv(mocks.Injector)
 		err := env.generateBackendOverrideTf()
 
 		// Then no error should occur

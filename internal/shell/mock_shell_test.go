@@ -18,8 +18,8 @@ func assertError(t *testing.T, err error, shouldError bool) {
 }
 
 func TestMockShell_NewMockShell(t *testing.T) {
-	t.Run("CreateMockShellWithoutContainer", func(t *testing.T) {
-		// When creating a new mock shell without a container
+	t.Run("CreateMockShellWithoutInjector", func(t *testing.T) {
+		// When creating a new mock shell without a injector
 		mockShell := NewMockShell()
 		// Then no error should be returned
 		if mockShell == nil {
@@ -27,17 +27,17 @@ func TestMockShell_NewMockShell(t *testing.T) {
 		}
 	})
 
-	t.Run("CreateMockShellWithContainer", func(t *testing.T) {
-		// Given a mock DI container
-		mockContainer := &di.MockContainer{}
-		// When creating a new mock shell with the container
-		mockShell := NewMockShell(mockContainer)
-		// Then no error should be returned and the container should be set
+	t.Run("CreateMockShellWithInjector", func(t *testing.T) {
+		// Given a mock injector
+		mockInjector := di.NewMockInjector()
+		// When creating a new mock shell with the injector
+		mockShell := NewMockShell(mockInjector)
+		// Then no error should be returned and the injector should be set
 		if mockShell == nil {
 			t.Errorf("Expected mockShell, got nil")
 		}
-		if mockShell.container != mockContainer {
-			t.Errorf("Expected container to be set, got %v", mockShell.container)
+		if mockShell.Injector != mockInjector {
+			t.Errorf("Expected injector to be set, got %v", mockShell.Injector)
 		}
 	})
 }

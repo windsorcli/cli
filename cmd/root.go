@@ -23,7 +23,7 @@ var (
 	osUserHomeDir = os.UserHomeDir
 	osStat        = os.Stat
 	getwd         = os.Getwd
-	container     di.ContainerInterface
+	injector      di.Injector
 	verbose       bool
 	osSetenv      = os.Setenv
 )
@@ -173,12 +173,12 @@ func Execute() {
 	}
 }
 
-// Initialize sets dependency injection container
-func Initialize(cont di.ContainerInterface) {
-	container = cont
+// Initialize sets dependency injector
+func Initialize(inj di.Injector) {
+	injector = inj
 
 	resolveAndAssign := func(key string, target interface{}) {
-		instance, err := container.Resolve(key)
+		instance, err := injector.Resolve(key)
 		if err != nil || instance == nil {
 			fmt.Fprintf(os.Stderr, "Error resolving %s: %v\n", key, err)
 			exitFunc(1)

@@ -14,19 +14,19 @@ import (
 // SecureShell implements the Shell interface using SSH.
 type SecureShell struct {
 	Shell
-	container di.ContainerInterface
+	injector di.Injector
 }
 
 // NewSecureShell creates a new instance of SecureShell.
-func NewSecureShell(container di.ContainerInterface) (*SecureShell, error) {
+func NewSecureShell(injector di.Injector) (*SecureShell, error) {
 	return &SecureShell{
-		container: container,
+		injector: injector,
 	}, nil
 }
 
 // Exec executes a command on the remote host via SSH and returns its output as a string.
 func (s *SecureShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
-	clientInstance, err := s.container.Resolve("sshClient")
+	clientInstance, err := s.injector.Resolve("sshClient")
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve SSH client: %w", err)
 	}

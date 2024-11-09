@@ -17,8 +17,8 @@ var execCmd = &cobra.Command{
 			return fmt.Errorf("no command provided")
 		}
 
-		// Resolve all environments from the DI container
-		envInstances, err := container.ResolveAll((*env.EnvPrinter)(nil))
+		// Resolve all environments from the DI injector
+		envInstances, err := injector.ResolveAll((*env.EnvPrinter)(nil))
 		if err != nil {
 			return fmt.Errorf("Error resolving environments: %w", err)
 		}

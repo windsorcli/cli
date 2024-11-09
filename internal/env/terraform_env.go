@@ -25,11 +25,11 @@ type TerraformDeps struct {
 	ConfigHandler    config.ConfigHandler
 }
 
-// NewTerraformEnv initializes a new TerraformEnv instance using the provided dependency injection container.
-func NewTerraformEnv(diContainer di.ContainerInterface) *TerraformEnv {
+// NewTerraformEnv initializes a new TerraformEnv instance using the provided dependency injector.
+func NewTerraformEnv(injector di.Injector) *TerraformEnv {
 	return &TerraformEnv{
 		Env: Env{
-			diContainer: diContainer,
+			Injector: injector,
 		},
 	}
 }
@@ -114,7 +114,7 @@ var _ EnvPrinter = (*TerraformEnv)(nil)
 
 // resolveDependencies is a convenience function to resolve and cast multiple dependencies at once.
 func (e *TerraformEnv) resolveDependencies() (*TerraformDeps, error) {
-	contextHandler, err := e.diContainer.Resolve("contextHandler")
+	contextHandler, err := e.Injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
@@ -123,7 +123,7 @@ func (e *TerraformEnv) resolveDependencies() (*TerraformDeps, error) {
 		return nil, fmt.Errorf("contextHandler is not of type ContextInterface")
 	}
 
-	shellInstance, err := e.diContainer.Resolve("shell")
+	shellInstance, err := e.Injector.Resolve("shell")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}
@@ -132,7 +132,7 @@ func (e *TerraformEnv) resolveDependencies() (*TerraformDeps, error) {
 		return nil, fmt.Errorf("shell is not of type Shell")
 	}
 
-	configHandler, err := e.diContainer.Resolve("cliConfigHandler")
+	configHandler, err := e.Injector.Resolve("cliConfigHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}

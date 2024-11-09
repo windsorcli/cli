@@ -13,11 +13,11 @@ type WindsorEnv struct {
 	Env
 }
 
-// NewWindsorEnv initializes a new WindsorEnv instance using the provided dependency injection container.
-func NewWindsorEnv(diContainer di.ContainerInterface) *WindsorEnv {
+// NewWindsorEnv initializes a new WindsorEnv instance using the provided dependency injector.
+func NewWindsorEnv(injector di.Injector) *WindsorEnv {
 	return &WindsorEnv{
 		Env: Env{
-			diContainer: diContainer,
+			Injector: injector,
 		},
 	}
 }
@@ -27,7 +27,7 @@ func (e *WindsorEnv) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for context and shell operations.
-	contextHandler, err := e.diContainer.Resolve("contextHandler")
+	contextHandler, err := e.Injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
@@ -36,7 +36,7 @@ func (e *WindsorEnv) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("failed to cast contextHandler to context.ContextInterface")
 	}
 
-	shellInstance, err := e.diContainer.Resolve("shell")
+	shellInstance, err := e.Injector.Resolve("shell")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}

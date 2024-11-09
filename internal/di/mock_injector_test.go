@@ -5,23 +5,23 @@ import (
 	"testing"
 )
 
-func TestMockContainer_RegisterAndResolve(t *testing.T) {
+func TestMockInjector_RegisterAndResolve(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a new mock container
-		container := NewMockContainer()
+		// Given a new mock diContainer
+		injector := NewMockInjector()
 
 		// And a mock service registered
-		mockService := &MockServiceImpl{}
-		container.Register("mockService", mockService)
+		mockService := &MockItemImpl{}
+		injector.Register("mockService", mockService)
 
 		// When resolving the service
-		resolvedInstance, err := container.Resolve("mockService")
+		resolvedInstance, err := injector.Resolve("mockService")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		resolvedService, ok := resolvedInstance.(MockService)
+		resolvedService, ok := resolvedInstance.(MockItem)
 		if !ok {
-			t.Fatalf("expected MockService, got %T", resolvedInstance)
+			t.Fatalf("expected MockItem, got %T", resolvedInstance)
 		}
 
 		// Then the resolved service should perform as expected
@@ -31,11 +31,11 @@ func TestMockContainer_RegisterAndResolve(t *testing.T) {
 	})
 
 	t.Run("NoInstanceRegistered", func(t *testing.T) {
-		// Given a new mock container
-		container := NewMockContainer()
+		// Given a new mock diContainer
+		injector := NewMockInjector()
 
 		// When resolving a non-existent service
-		_, err := container.Resolve("nonExistentService")
+		_, err := injector.Resolve("nonExistentService")
 
 		// Then an error should be returned
 		expectedError := "no instance registered with name nonExistentService"
@@ -45,15 +45,15 @@ func TestMockContainer_RegisterAndResolve(t *testing.T) {
 	})
 
 	t.Run("ResolveError", func(t *testing.T) {
-		// Given a new mock container
-		container := NewMockContainer()
+		// Given a new mock diContainer
+		injector := NewMockInjector()
 
 		// And a resolve error set for a specific service
 		expectedError := errors.New("resolve error")
-		container.SetResolveError("mockService", expectedError)
+		injector.SetResolveError("mockService", expectedError)
 
 		// When resolving the service
-		_, err := container.Resolve("mockService")
+		_, err := injector.Resolve("mockService")
 
 		// Then the expected error should be returned
 		if err == nil || err.Error() != expectedError.Error() {
@@ -64,17 +64,17 @@ func TestMockContainer_RegisterAndResolve(t *testing.T) {
 
 func TestMockContainer_ResolveAll(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a new mock container
-		container := NewMockContainer()
+		// Given a new mock diContainer
+		injector := NewMockInjector()
 
 		// And multiple mock services registered
-		mockService1 := &MockServiceImpl{}
-		mockService2 := &AnotherMockServiceImpl{}
-		container.Register("mockService1", mockService1)
-		container.Register("mockService2", mockService2)
+		mockService1 := &MockItemImpl{}
+		mockService2 := &AnotherMockItemImpl{}
+		injector.Register("mockService1", mockService1)
+		injector.Register("mockService2", mockService2)
 
-		// When resolving all services of type MockService
-		resolvedInstances, err := container.ResolveAll((*MockService)(nil))
+		// When resolving all services of type MockItem
+		resolvedInstances, err := injector.ResolveAll((*MockItem)(nil))
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -86,19 +86,19 @@ func TestMockContainer_ResolveAll(t *testing.T) {
 
 		// And all instances should be of type MockService
 		for _, instance := range resolvedInstances {
-			_, ok := instance.(MockService)
+			_, ok := instance.(MockItem)
 			if !ok {
-				t.Fatalf("expected MockService, got %T", instance)
+				t.Fatalf("expected MockItem, got %T", instance)
 			}
 		}
 	})
 
 	t.Run("NoInstancesFound", func(t *testing.T) {
-		// Given a new mock container
-		container := NewMockContainer()
+		// Given a new mock diContainer
+		injector := NewMockInjector()
 
-		// When resolving all services of type MockService
-		_, err := container.ResolveAll((*MockService)(nil))
+		// When resolving all services of type MockItem
+		_, err := injector.ResolveAll((*MockItem)(nil))
 
 		// Then an error should be returned
 		expectedError := "no instances found for the given type"
@@ -108,15 +108,15 @@ func TestMockContainer_ResolveAll(t *testing.T) {
 	})
 
 	t.Run("ResolveAllError", func(t *testing.T) {
-		// Given a new mock container
-		container := NewMockContainer()
+		// Given a new mock diContainer
+		injector := NewMockInjector()
 
 		// And a resolve all error set
 		expectedError := errors.New("resolve all error")
-		container.SetResolveAllError(expectedError)
+		injector.SetResolveAllError(expectedError)
 
 		// When resolving all services
-		_, err := container.ResolveAll((*MockService)(nil))
+		_, err := injector.ResolveAll((*MockItem)(nil))
 
 		// Then the expected error should be returned
 		if err == nil || err.Error() != expectedError.Error() {

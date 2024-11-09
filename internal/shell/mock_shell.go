@@ -11,48 +11,48 @@ type MockShell struct {
 	PrintAliasFunc     func(envVars map[string]string) error
 	GetProjectRootFunc func() (string, error)
 	ExecFunc           func(verbose bool, message string, command string, args ...string) (string, error)
-	container          di.ContainerInterface
+	Injector           di.Injector
 }
 
-// NewMockShell creates a new instance of MockShell. If a di container is provided, it sets the container on MockShell.
-func NewMockShell(container ...di.ContainerInterface) *MockShell {
-	var diContainer di.ContainerInterface
-	if len(container) > 0 {
-		diContainer = container[0]
+// NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
+func NewMockShell(injector ...di.Injector) *MockShell {
+	var diInjector di.Injector
+	if len(injector) > 0 {
+		diInjector = injector[0]
 	}
 	return &MockShell{
-		container: diContainer,
+		Injector: diInjector,
 	}
 }
 
 // PrintEnvVars calls the custom PrintEnvVarsFunc if provided.
-func (m *MockShell) PrintEnvVars(envVars map[string]string) error {
-	if m.PrintEnvVarsFunc != nil {
-		return m.PrintEnvVarsFunc(envVars)
+func (s *MockShell) PrintEnvVars(envVars map[string]string) error {
+	if s.PrintEnvVarsFunc != nil {
+		return s.PrintEnvVarsFunc(envVars)
 	}
 	return nil
 }
 
 // PrintAlias calls the custom PrintAliasFunc if provided.
-func (m *MockShell) PrintAlias(envVars map[string]string) error {
-	if m.PrintAliasFunc != nil {
-		return m.PrintAliasFunc(envVars)
+func (s *MockShell) PrintAlias(envVars map[string]string) error {
+	if s.PrintAliasFunc != nil {
+		return s.PrintAliasFunc(envVars)
 	}
 	return nil
 }
 
 // GetProjectRoot calls the custom GetProjectRootFunc if provided.
-func (m *MockShell) GetProjectRoot() (string, error) {
-	if m.GetProjectRootFunc != nil {
-		return m.GetProjectRootFunc()
+func (s *MockShell) GetProjectRoot() (string, error) {
+	if s.GetProjectRootFunc != nil {
+		return s.GetProjectRootFunc()
 	}
 	return "", nil
 }
 
 // Exec calls the custom ExecFunc if provided.
-func (m *MockShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
-	if m.ExecFunc != nil {
-		return m.ExecFunc(verbose, message, command, args...)
+func (s *MockShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
+	if s.ExecFunc != nil {
+		return s.ExecFunc(verbose, message, command, args...)
 	}
 	return "", nil
 }

@@ -15,21 +15,21 @@ type AwsEnv struct {
 	Env
 }
 
-// NewAwsEnv initializes a new AwsEnv instance using the provided dependency injection container.
-func NewAwsEnv(diContainer di.ContainerInterface) *AwsEnv {
+// NewAwsEnv initializes a new AwsEnv instance using the provided dependency injector.
+func NewAwsEnv(injector di.Injector) *AwsEnv {
 	return &AwsEnv{
 		Env: Env{
-			diContainer: diContainer,
+			Injector: injector,
 		},
 	}
 }
 
 // GetEnvVars retrieves the environment variables for the AWS environment.
-func (a *AwsEnv) GetEnvVars() (map[string]string, error) {
+func (e *AwsEnv) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for configuration, context, and shell operations.
-	contextConfig, err := a.diContainer.Resolve("cliConfigHandler")
+	contextConfig, err := e.Injector.Resolve("cliConfigHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
@@ -38,7 +38,7 @@ func (a *AwsEnv) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("failed to cast cliConfigHandler to config.ConfigHandler")
 	}
 
-	contextHandler, err := a.diContainer.Resolve("contextHandler")
+	contextHandler, err := e.Injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}

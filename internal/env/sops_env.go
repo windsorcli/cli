@@ -17,11 +17,11 @@ type SopsEnv struct {
 	Env
 }
 
-// NewSopsEnv initializes a new SopsEnv instance using the provided dependency injection container.
-func NewSopsEnv(diContainer di.ContainerInterface) *SopsEnv {
+// NewSopsEnv initializes a new SopsEnv instance using the provided dependency injector.
+func NewSopsEnv(injector di.Injector) *SopsEnv {
 	return &SopsEnv{
 		Env: Env{
-			diContainer: diContainer,
+			Injector: injector,
 		},
 	}
 }
@@ -31,7 +31,7 @@ func (e *SopsEnv) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for context operations.
-	contextHandler, err := e.diContainer.Resolve("contextHandler")
+	contextHandler, err := e.Injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
