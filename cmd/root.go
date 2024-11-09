@@ -13,6 +13,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/env"
 	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/network"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
 	"github.com/windsor-hotel/cli/internal/virt"
@@ -60,6 +61,9 @@ var colimaVirt virt.VirtInterface
 
 // dockerVirt instance
 var dockerVirt virt.VirtInterface
+
+// colimaNetworkManager instance
+var colimaNetworkManager network.NetworkManager
 
 // awsEnv instance
 var awsEnv env.EnvPrinter
@@ -233,6 +237,13 @@ func Initialize(cont di.ContainerInterface) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type env.EnvInterface\n", key)
 				exitFunc(1)
 			}
+		case *network.NetworkManager:
+			if resolved, ok := instance.(network.NetworkManager); ok {
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type network.NetworkManager\n", key)
+				exitFunc(1)
+			}
 		}
 	}
 
@@ -253,4 +264,5 @@ func Initialize(cont di.ContainerInterface) {
 	resolveAndAssign("talosEnv", &talosEnv)
 	resolveAndAssign("terraformEnv", &terraformEnv)
 	resolveAndAssign("windsorEnv", &windsorEnv)
+	resolveAndAssign("colimaNetworkManager", &colimaNetworkManager)
 }

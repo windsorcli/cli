@@ -54,11 +54,12 @@ type TerraformConfig struct {
 
 // VMConfig represents the VM configuration
 type VMConfig struct {
-	Arch   *string `yaml:"arch"`
-	CPU    *int    `yaml:"cpu"`
-	Disk   *int    `yaml:"disk"`
-	Driver *string `yaml:"driver"`
-	Memory *int    `yaml:"memory"`
+	Address *string `yaml:"address"`
+	Arch    *string `yaml:"arch"`
+	CPU     *int    `yaml:"cpu"`
+	Disk    *int    `yaml:"disk"`
+	Driver  *string `yaml:"driver"`
+	Memory  *int    `yaml:"memory"`
 }
 
 // DNSConfig represents the DNS configuration

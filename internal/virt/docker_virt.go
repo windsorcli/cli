@@ -18,13 +18,13 @@ import (
 
 // DockerVirt implements the ContainerInterface for Docker
 type DockerVirt struct {
-	container di.ContainerInterface
+	diContainer di.ContainerInterface
 }
 
-// NewDockerVirt creates a new instance of DockerVirt using a DI container
-func NewDockerVirt(container di.ContainerInterface) *DockerVirt {
+// NewDockerVirt creates a new instance of DockerVirt using a DI diContainer
+func NewDockerVirt(diContainer di.ContainerInterface) *DockerVirt {
 	return &DockerVirt{
-		container: container,
+		diContainer: diContainer,
 	}
 }
 
@@ -36,7 +36,7 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 		verboseFlag = verbose[0]
 	}
 
-	cliConfigHandler, err := v.container.Resolve("cliConfigHandler")
+	cliConfigHandler, err := v.diContainer.Resolve("cliConfigHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving config handler: %w", err)
 	}
@@ -45,7 +45,7 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 		return fmt.Errorf("error retrieving context configuration: %w", err)
 	}
 
-	resolvedShell, err := v.container.Resolve("shell")
+	resolvedShell, err := v.diContainer.Resolve("shell")
 	if err != nil {
 		return fmt.Errorf("error resolving shell: %w", err)
 	}
@@ -103,7 +103,7 @@ func (v *DockerVirt) Delete(verbose ...bool) error {
 // WriteConfig writes the Docker configuration file
 func (v *DockerVirt) WriteConfig() error {
 	// Get the config root and construct the file path
-	resolvedContext, err := v.container.Resolve("contextHandler")
+	resolvedContext, err := v.diContainer.Resolve("contextHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving context handler: %w", err)
 	}
@@ -141,7 +141,7 @@ func (v *DockerVirt) WriteConfig() error {
 
 // GetContainerInfo returns a list of information about the Docker containers, including their labels
 func (v *DockerVirt) GetContainerInfo() ([]ContainerInfo, error) {
-	resolvedContext, err := v.container.Resolve("contextHandler")
+	resolvedContext, err := v.diContainer.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context handler: %w", err)
 	}
@@ -150,7 +150,7 @@ func (v *DockerVirt) GetContainerInfo() ([]ContainerInfo, error) {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	shellInterface, err := v.container.Resolve("shell")
+	shellInterface, err := v.diContainer.Resolve("shell")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}
@@ -245,7 +245,7 @@ var _ ContainerInterface = (*DockerVirt)(nil)
 
 // checkDockerDaemon checks if the Docker daemon is running
 func (v *DockerVirt) checkDockerDaemon() error {
-	resolvedShell, err := v.container.Resolve("shell")
+	resolvedShell, err := v.diContainer.Resolve("shell")
 	if err != nil {
 		return fmt.Errorf("error resolving shell: %w", err)
 	}
@@ -263,7 +263,7 @@ func (v *DockerVirt) checkDockerDaemon() error {
 // getFullComposeConfig retrieves the full compose configuration for the DockerVirt.
 func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	// Create a network called "windsor-<context-name>"
-	resolvedContext, err := v.container.Resolve("contextHandler")
+	resolvedContext, err := v.diContainer.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context handler: %w", err)
 	}
@@ -273,7 +273,7 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	}
 
 	// Retrieve the context configuration
-	resolvedConfigHandler, err := v.container.Resolve("cliConfigHandler")
+	resolvedConfigHandler, err := v.diContainer.Resolve("cliConfigHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving config handler: %w", err)
 	}
@@ -296,7 +296,7 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	combinedNetworks = make(map[string]types.NetworkConfig)
 
 	// Initialize helpers on-the-fly
-	helpers, err := v.container.ResolveAll((*helpers.Helper)(nil))
+	helpers, err := v.diContainer.ResolveAll((*helpers.Helper)(nil))
 	if err != nil {
 		return nil, fmt.Errorf("error resolving helpers: %w", err)
 	}
