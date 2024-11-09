@@ -27,7 +27,7 @@ func TestEnvCmd(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 
 		// Create a mock WindsorEnv
-		mockEnv := env.NewMockEnv(mocks.Injector)
+		mockEnv := env.NewMockEnvPrinter(mocks.Injector)
 		mockEnv.PrintFunc = func() error {
 			fmt.Println("export VAR=value")
 			return nil

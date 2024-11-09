@@ -24,14 +24,14 @@ type SuperMocks struct {
 	KubeHelper       *helpers.MockHelper
 	OmniHelper       *helpers.MockHelper
 	TalosHelper      *helpers.MockHelper
-	AwsEnv           *env.MockEnv
-	DockerEnv        *env.MockEnv
-	KubeEnv          *env.MockEnv
-	OmniEnv          *env.MockEnv
-	SopsEnv          *env.MockEnv
-	TalosEnv         *env.MockEnv
-	TerraformEnv     *env.MockEnv
-	WindsorEnv       *env.MockEnv
+	AwsEnv           *env.MockEnvPrinter
+	DockerEnv        *env.MockEnvPrinter
+	KubeEnv          *env.MockEnvPrinter
+	OmniEnv          *env.MockEnvPrinter
+	SopsEnv          *env.MockEnvPrinter
+	TalosEnv         *env.MockEnvPrinter
+	TerraformEnv     *env.MockEnvPrinter
+	WindsorEnv       *env.MockEnvPrinter
 	SSHClient        *ssh.MockClient
 	SecureShell      *shell.MockShell
 	Injector         *di.MockInjector
@@ -84,14 +84,14 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	mockDockerVirt.WriteConfigFunc = func() error { return nil }
 
 	// Create mock environment instances
-	mockAwsEnv := env.NewMockEnv(injector)
-	mockDockerEnv := env.NewMockEnv(injector)
-	mockKubeEnv := env.NewMockEnv(injector)
-	mockOmniEnv := env.NewMockEnv(injector)
-	mockSopsEnv := env.NewMockEnv(injector)
-	mockTalosEnv := env.NewMockEnv(injector)
-	mockTerraformEnv := env.NewMockEnv(injector)
-	mockWindsorEnv := env.NewMockEnv(injector)
+	mockAwsEnv := env.NewMockEnvPrinter(injector)
+	mockDockerEnv := env.NewMockEnvPrinter(injector)
+	mockKubeEnv := env.NewMockEnvPrinter(injector)
+	mockOmniEnv := env.NewMockEnvPrinter(injector)
+	mockSopsEnv := env.NewMockEnvPrinter(injector)
+	mockTalosEnv := env.NewMockEnvPrinter(injector)
+	mockTerraformEnv := env.NewMockEnvPrinter(injector)
+	mockWindsorEnv := env.NewMockEnvPrinter(injector)
 
 	// Create and setup dependency injection
 	injector.Register("cliConfigHandler", mockCLIConfigHandler)

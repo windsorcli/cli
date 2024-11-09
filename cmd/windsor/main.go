@@ -82,15 +82,15 @@ func main() {
 	injector.Register("awsEnv", awsEnv)
 
 	// Create and register the DockerEnv instance
-	dockerEnv := env.NewDockerEnv(injector)
+	dockerEnv := env.NewDockerEnvPrinter(injector)
 	injector.Register("dockerEnv", dockerEnv)
 
 	// Create and register the KubeEnv instance
-	kubeEnv := env.NewKubeEnv(injector)
+	kubeEnv := env.NewKubeEnvPrinter(injector)
 	injector.Register("kubeEnv", kubeEnv)
 
 	// Create and register the OmniEnv instance
-	omniEnv := env.NewOmniEnv(injector)
+	omniEnv := env.NewOmniEnvPrinter(injector)
 	injector.Register("omniEnv", omniEnv)
 
 	// Create and register the SopsEnv instance

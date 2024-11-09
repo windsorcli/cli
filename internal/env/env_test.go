@@ -14,7 +14,7 @@ func TestEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create a mock injector and Env instance
 		mockInjector := di.NewMockInjector()
-		env := &Env{Injector: mockInjector}
+		env := &BaseEnvPrinter{injector: mockInjector}
 
 		// Call GetEnvVars and check for errors
 		envVars, err := env.GetEnvVars()
@@ -37,7 +37,7 @@ func TestEnv_Print(t *testing.T) {
 		mockInjector := di.NewMockInjector()
 		mockShell := shell.NewMockShell()
 		mockInjector.Register("shell", mockShell)
-		env := &Env{Injector: mockInjector}
+		env := &BaseEnvPrinter{injector: mockInjector}
 
 		// Mock the PrintEnvVarsFunc to verify it is called
 		var capturedEnvVars map[string]string
@@ -62,7 +62,7 @@ func TestEnv_Print(t *testing.T) {
 	t.Run("ShellResolveError", func(t *testing.T) {
 		// Create a mock injector without registering the shell
 		mockInjector := di.NewMockInjector()
-		env := &Env{Injector: mockInjector}
+		env := &BaseEnvPrinter{injector: mockInjector}
 
 		// Call Print and expect an error due to missing shell
 		err := env.Print()
@@ -77,7 +77,7 @@ func TestEnv_Print(t *testing.T) {
 		// Create a mock injector and Env instance
 		mockInjector := di.NewMockInjector()
 		mockInjector.Register("shell", "invalid-shell")
-		env := &Env{Injector: mockInjector}
+		env := &BaseEnvPrinter{injector: mockInjector}
 
 		// Call Print and expect an error due to invalid shell type
 		err := env.Print()

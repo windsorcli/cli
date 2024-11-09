@@ -8,26 +8,26 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-// DockerEnv is a struct that simulates a Docker environment for testing purposes.
-type DockerEnv struct {
-	Env
+// DockerEnvPrinter is a struct that simulates a Docker environment for testing purposes.
+type DockerEnvPrinter struct {
+	BaseEnvPrinter
 }
 
-// NewDockerEnv initializes a new DockerEnv instance using the provided dependency injector.
-func NewDockerEnv(injector di.Injector) *DockerEnv {
-	return &DockerEnv{
-		Env: Env{
-			Injector: injector,
+// NewDockerEnvPrinter initializes a new dockerEnv instance using the provided dependency injector.
+func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
+	return &DockerEnvPrinter{
+		BaseEnvPrinter: BaseEnvPrinter{
+			injector: injector,
 		},
 	}
 }
 
 // GetEnvVars retrieves the environment variables for the Docker environment.
-func (e *DockerEnv) GetEnvVars() (map[string]string, error) {
+func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for context operations.
-	contextHandler, err := e.Injector.Resolve("contextHandler")
+	contextHandler, err := e.injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
@@ -60,15 +60,15 @@ func (e *DockerEnv) GetEnvVars() (map[string]string, error) {
 }
 
 // Print prints the environment variables for the Docker environment.
-func (e *DockerEnv) Print() error {
+func (e *DockerEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded Env struct with the retrieved environment variables
-	return e.Env.Print(envVars)
+	// Call the Print method of the embedded envPrinter struct with the retrieved environment variables
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure DockerEnv implements the EnvInterface
-var _ EnvPrinter = (*DockerEnv)(nil)
+// Ensure dockerEnv implements the EnvPrinter interface
+var _ EnvPrinter = (*DockerEnvPrinter)(nil)

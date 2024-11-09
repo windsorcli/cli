@@ -160,7 +160,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 
 func TestWindsorEnv_PostEnvHook(t *testing.T) {
 	t.Run("TestPostEnvHookNoError", func(t *testing.T) {
-		windsorEnv := &Env{}
+		windsorEnv := &WindsorEnvPrinter{}
 
 		err := windsorEnv.PostEnvHook()
 		if err != nil {

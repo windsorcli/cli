@@ -4,26 +4,26 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-// MockEnv is a struct that simulates an environment for testing purposes.
-type MockEnv struct {
-	Env
+// MockEnvPrinter is a struct that simulates an environment for testing purposes.
+type MockEnvPrinter struct {
+	BaseEnvPrinter
 	PrintFunc       func() error
 	PostEnvHookFunc func() error
 	GetEnvVarsFunc  func() (map[string]string, error)
 }
 
-// NewMockEnv creates a new instance of MockEnv with the provided dependency injector.
-func NewMockEnv(injector di.Injector) *MockEnv {
-	return &MockEnv{
-		Env: Env{
-			Injector: injector,
+// NewMockEnvPrinter creates a new instance of MockEnvPrinter with the provided dependency injector.
+func NewMockEnvPrinter(injector di.Injector) *MockEnvPrinter {
+	return &MockEnvPrinter{
+		BaseEnvPrinter: BaseEnvPrinter{
+			injector: injector,
 		},
 	}
 }
 
 // Print simulates printing the provided environment variables.
 // If a custom PrintFunc is provided, it will use that function instead.
-func (m *MockEnv) Print() error {
+func (m *MockEnvPrinter) Print() error {
 	if m.PrintFunc != nil {
 		return m.PrintFunc()
 	}
@@ -32,7 +32,7 @@ func (m *MockEnv) Print() error {
 
 // GetEnvVars simulates retrieving environment variables.
 // If a custom GetEnvVarsFunc is provided, it will use that function instead.
-func (m *MockEnv) GetEnvVars() (map[string]string, error) {
+func (m *MockEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if m.GetEnvVarsFunc != nil {
 		return m.GetEnvVarsFunc()
 	}
@@ -42,7 +42,7 @@ func (m *MockEnv) GetEnvVars() (map[string]string, error) {
 
 // PostEnvHook simulates running any necessary commands after the environment variables have been set.
 // If a custom PostEnvHookFunc is provided, it will use that function instead.
-func (m *MockEnv) PostEnvHook() error {
+func (m *MockEnvPrinter) PostEnvHook() error {
 	if m.PostEnvHookFunc != nil {
 		return m.PostEnvHookFunc()
 	}
@@ -50,5 +50,5 @@ func (m *MockEnv) PostEnvHook() error {
 	return nil
 }
 
-// Ensure MockEnv implements the EnvPrinter interface
-var _ EnvPrinter = (*MockEnv)(nil)
+// Ensure MockEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*MockEnvPrinter)(nil)

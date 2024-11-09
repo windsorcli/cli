@@ -10,25 +10,25 @@ import (
 )
 
 // TalosEnv is a struct that simulates a Kubernetes environment for testing purposes.
-type TalosEnv struct {
-	Env
+type TalosEnvPrinter struct {
+	BaseEnvPrinter
 }
 
-// NewTalosEnv initializes a new TalosEnv instance using the provided dependency injector.
-func NewTalosEnv(injector di.Injector) *TalosEnv {
-	return &TalosEnv{
-		Env: Env{
-			Injector: injector,
+// NewTalosEnv initializes a new talosEnv instance using the provided dependency injector.
+func NewTalosEnv(injector di.Injector) *TalosEnvPrinter {
+	return &TalosEnvPrinter{
+		BaseEnvPrinter: BaseEnvPrinter{
+			injector: injector,
 		},
 	}
 }
 
 // GetEnvVars retrieves the environment variables for the Talos environment.
-func (e *TalosEnv) GetEnvVars() (map[string]string, error) {
+func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for context operations.
-	contextHandler, err := e.Injector.Resolve("contextHandler")
+	contextHandler, err := e.injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
@@ -56,15 +56,15 @@ func (e *TalosEnv) GetEnvVars() (map[string]string, error) {
 }
 
 // Print prints the environment variables for the Talos environment.
-func (e *TalosEnv) Print() error {
+func (e *TalosEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded Env struct with the retrieved environment variables
-	return e.Env.Print(envVars)
+	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure TalosEnv implements the EnvPrinter interface
-var _ EnvPrinter = (*TalosEnv)(nil)
+// Ensure TalosEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*TalosEnvPrinter)(nil)

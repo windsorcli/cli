@@ -9,25 +9,25 @@ import (
 )
 
 // WindsorEnv is a struct that simulates a Kubernetes environment for testing purposes.
-type WindsorEnv struct {
-	Env
+type WindsorEnvPrinter struct {
+	BaseEnvPrinter
 }
 
-// NewWindsorEnv initializes a new WindsorEnv instance using the provided dependency injector.
-func NewWindsorEnv(injector di.Injector) *WindsorEnv {
-	return &WindsorEnv{
-		Env: Env{
-			Injector: injector,
+// NewWindsorEnv initializes a new WindsorEnvPrinter instance using the provided dependency injector.
+func NewWindsorEnv(injector di.Injector) *WindsorEnvPrinter {
+	return &WindsorEnvPrinter{
+		BaseEnvPrinter: BaseEnvPrinter{
+			injector: injector,
 		},
 	}
 }
 
 // GetEnvVars retrieves the environment variables for the Windsor environment.
-func (e *WindsorEnv) GetEnvVars() (map[string]string, error) {
+func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for context and shell operations.
-	contextHandler, err := e.Injector.Resolve("contextHandler")
+	contextHandler, err := e.injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
@@ -36,7 +36,7 @@ func (e *WindsorEnv) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("failed to cast contextHandler to context.ContextInterface")
 	}
 
-	shellInstance, err := e.Injector.Resolve("shell")
+	shellInstance, err := e.injector.Resolve("shell")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}
@@ -63,15 +63,15 @@ func (e *WindsorEnv) GetEnvVars() (map[string]string, error) {
 }
 
 // Print prints the environment variables for the Windsor environment.
-func (e *WindsorEnv) Print() error {
+func (e *WindsorEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded Env struct with the retrieved environment variables
-	return e.Env.Print(envVars)
+	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure WindsorEnv implements the EnvPrinter interface
-var _ EnvPrinter = (*WindsorEnv)(nil)
+// Ensure WindsorEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*WindsorEnvPrinter)(nil)

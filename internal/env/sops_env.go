@@ -13,25 +13,25 @@ import (
 var decryptFileFunc = decrypt.File
 
 // SopsEnv is a struct that simulates a Kubernetes environment for testing purposes.
-type SopsEnv struct {
-	Env
+type SopsEnvPrinter struct {
+	BaseEnvPrinter
 }
 
-// NewSopsEnv initializes a new SopsEnv instance using the provided dependency injector.
-func NewSopsEnv(injector di.Injector) *SopsEnv {
-	return &SopsEnv{
-		Env: Env{
-			Injector: injector,
+// NewSopsEnv initializes a new SopsEnvPrinter instance using the provided dependency injector.
+func NewSopsEnv(injector di.Injector) *SopsEnvPrinter {
+	return &SopsEnvPrinter{
+		BaseEnvPrinter: BaseEnvPrinter{
+			injector: injector,
 		},
 	}
 }
 
 // GetEnvVars retrieves the environment variables for the SOPS environment.
-func (e *SopsEnv) GetEnvVars() (map[string]string, error) {
+func (e *SopsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for context operations.
-	contextHandler, err := e.Injector.Resolve("contextHandler")
+	contextHandler, err := e.injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
@@ -73,18 +73,18 @@ func (e *SopsEnv) GetEnvVars() (map[string]string, error) {
 }
 
 // Print prints the environment variables for the SOPS environment.
-func (e *SopsEnv) Print() error {
+func (e *SopsEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded Env struct with the retrieved environment variables
-	return e.Env.Print(envVars)
+	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure SopsEnv implements the EnvPrinter interface
-var _ EnvPrinter = (*SopsEnv)(nil)
+// Ensure SopsEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*SopsEnvPrinter)(nil)
 
 // decryptFile decrypts a file using the SOPS package
 func decryptFile(filePath string) ([]byte, error) {

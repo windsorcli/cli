@@ -12,14 +12,14 @@ import (
 
 // AwsEnv is a struct that simulates an AWS environment for testing purposes.
 type AwsEnv struct {
-	Env
+	BaseEnvPrinter
 }
 
-// NewAwsEnv initializes a new AwsEnv instance using the provided dependency injector.
+// NewAwsEnv initializes a new awsEnv instance using the provided dependency injector.
 func NewAwsEnv(injector di.Injector) *AwsEnv {
 	return &AwsEnv{
-		Env: Env{
-			Injector: injector,
+		BaseEnvPrinter: BaseEnvPrinter{
+			injector: injector,
 		},
 	}
 }
@@ -29,7 +29,7 @@ func (e *AwsEnv) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for configuration, context, and shell operations.
-	contextConfig, err := e.Injector.Resolve("cliConfigHandler")
+	contextConfig, err := e.injector.Resolve("cliConfigHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
@@ -38,7 +38,7 @@ func (e *AwsEnv) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("failed to cast cliConfigHandler to config.ConfigHandler")
 	}
 
-	contextHandler, err := e.Injector.Resolve("contextHandler")
+	contextHandler, err := e.injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
@@ -97,9 +97,9 @@ func (e *AwsEnv) Print() error {
 		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded Env struct with the retrieved environment variables
-	return e.Env.Print(envVars)
+	// Call the Print method of the embedded envPrinter struct with the retrieved environment variables
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure AwsEnv implements the EnvPrinter interface
+// Ensure awsEnv implements the EnvPrinter interface
 var _ EnvPrinter = (*AwsEnv)(nil)

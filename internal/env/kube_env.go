@@ -9,26 +9,26 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-// KubeEnv is a struct that simulates a Kubernetes environment for testing purposes.
-type KubeEnv struct {
-	Env
+// KubeEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
+type KubeEnvPrinter struct {
+	BaseEnvPrinter
 }
 
-// NewKubeEnv initializes a new KubeEnv instance using the provided dependency injector.
-func NewKubeEnv(injector di.Injector) *KubeEnv {
-	return &KubeEnv{
-		Env: Env{
-			Injector: injector,
+// NewKubeEnv initializes a new kubeEnv instance using the provided dependency injector.
+func NewKubeEnvPrinter(injector di.Injector) *KubeEnvPrinter {
+	return &KubeEnvPrinter{
+		BaseEnvPrinter: BaseEnvPrinter{
+			injector: injector,
 		},
 	}
 }
 
 // GetEnvVars retrieves the environment variables for the Kubernetes environment.
-func (k *KubeEnv) GetEnvVars() (map[string]string, error) {
+func (k *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for context and shell operations.
-	contextHandler, err := k.Injector.Resolve("contextHandler")
+	contextHandler, err := k.injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
@@ -57,15 +57,15 @@ func (k *KubeEnv) GetEnvVars() (map[string]string, error) {
 }
 
 // Print prints the environment variables for the Kube environment.
-func (e *KubeEnv) Print() error {
+func (e *KubeEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded Env struct with the retrieved environment variables
-	return e.Env.Print(envVars)
+	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure KubeEnv implements the EnvPrinter interface
-var _ EnvPrinter = (*KubeEnv)(nil)
+// Ensure kubeEnv implements the EnvPrinter interface
+var _ EnvPrinter = (*KubeEnvPrinter)(nil)

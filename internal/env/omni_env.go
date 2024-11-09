@@ -9,26 +9,26 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-// OmniEnv is a struct that simulates a Kubernetes environment for testing purposes.
-type OmniEnv struct {
-	Env
+// OmniEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
+type OmniEnvPrinter struct {
+	BaseEnvPrinter
 }
 
-// NewTalosEnv initializes a new TalosEnv instance using the provided dependency injector.
-func NewOmniEnv(injector di.Injector) *OmniEnv {
-	return &OmniEnv{
-		Env: Env{
-			Injector: injector,
+// NewOmniEnv initializes a new omniEnv instance using the provided dependency injector.
+func NewOmniEnvPrinter(injector di.Injector) *OmniEnvPrinter {
+	return &OmniEnvPrinter{
+		BaseEnvPrinter: BaseEnvPrinter{
+			injector: injector,
 		},
 	}
 }
 
 // GetEnvVars retrieves the environment variables for the Omni environment.
-func (e *OmniEnv) GetEnvVars() (map[string]string, error) {
+func (e *OmniEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve necessary dependencies for context operations.
-	contextHandler, err := e.Injector.Resolve("contextHandler")
+	contextHandler, err := e.injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
@@ -56,15 +56,15 @@ func (e *OmniEnv) GetEnvVars() (map[string]string, error) {
 }
 
 // Print prints the environment variables for the Omni environment.
-func (e *OmniEnv) Print() error {
+func (e *OmniEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded Env struct with the retrieved environment variables
-	return e.Env.Print(envVars)
+	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure OmniEnv implements the EnvPrinter interface
-var _ EnvPrinter = (*OmniEnv)(nil)
+// Ensure OmniEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*OmniEnvPrinter)(nil)

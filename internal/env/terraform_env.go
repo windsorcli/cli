@@ -14,8 +14,8 @@ import (
 )
 
 // TerraformEnv is a struct that simulates a Terraform environment for testing purposes.
-type TerraformEnv struct {
-	Env
+type TerraformEnvPrinter struct {
+	BaseEnvPrinter
 }
 
 // TerraformDeps holds the resolved dependencies for TerraformEnv.
@@ -25,17 +25,17 @@ type TerraformDeps struct {
 	ConfigHandler    config.ConfigHandler
 }
 
-// NewTerraformEnv initializes a new TerraformEnv instance using the provided dependency injector.
-func NewTerraformEnv(injector di.Injector) *TerraformEnv {
-	return &TerraformEnv{
-		Env: Env{
-			Injector: injector,
+// NewTerraformEnv initializes a new TerraformEnvPrinter instance using the provided dependency injector.
+func NewTerraformEnv(injector di.Injector) *TerraformEnvPrinter {
+	return &TerraformEnvPrinter{
+		BaseEnvPrinter: BaseEnvPrinter{
+			injector: injector,
 		},
 	}
 }
 
 // GetEnvVars retrieves the environment variables for the Terraform environment.
-func (e *TerraformEnv) GetEnvVars() (map[string]string, error) {
+func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Resolve dependencies for context and shell operations
@@ -94,27 +94,27 @@ func (e *TerraformEnv) GetEnvVars() (map[string]string, error) {
 }
 
 // PostEnvHook executes any required operations after setting the environment variables.
-func (e *TerraformEnv) PostEnvHook() error {
+func (e *TerraformEnvPrinter) PostEnvHook() error {
 	return e.generateBackendOverrideTf()
 }
 
 // Print prints the environment variables for the Terraform environment.
-func (e *TerraformEnv) Print() error {
+func (e *TerraformEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded Env struct with the retrieved environment variables
-	return e.Env.Print(envVars)
+	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure TerraformEnv implements the EnvPrinter interface
-var _ EnvPrinter = (*TerraformEnv)(nil)
+// Ensure TerraformEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*TerraformEnvPrinter)(nil)
 
 // resolveDependencies is a convenience function to resolve and cast multiple dependencies at once.
-func (e *TerraformEnv) resolveDependencies() (*TerraformDeps, error) {
-	contextHandler, err := e.Injector.Resolve("contextHandler")
+func (e *TerraformEnvPrinter) resolveDependencies() (*TerraformDeps, error) {
+	contextHandler, err := e.injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
 	}
@@ -123,7 +123,7 @@ func (e *TerraformEnv) resolveDependencies() (*TerraformDeps, error) {
 		return nil, fmt.Errorf("contextHandler is not of type ContextInterface")
 	}
 
-	shellInstance, err := e.Injector.Resolve("shell")
+	shellInstance, err := e.injector.Resolve("shell")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}
@@ -132,7 +132,7 @@ func (e *TerraformEnv) resolveDependencies() (*TerraformDeps, error) {
 		return nil, fmt.Errorf("shell is not of type Shell")
 	}
 
-	configHandler, err := e.Injector.Resolve("cliConfigHandler")
+	configHandler, err := e.injector.Resolve("cliConfigHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
@@ -148,7 +148,7 @@ func (e *TerraformEnv) resolveDependencies() (*TerraformDeps, error) {
 	}, nil
 }
 
-func (e *TerraformEnv) getAlias() (map[string]string, error) {
+func (e *TerraformEnvPrinter) getAlias() (map[string]string, error) {
 	// Resolve necessary dependencies for context operations.
 	deps, err := e.resolveDependencies()
 	if err != nil {
@@ -236,8 +236,8 @@ func sanitizeForK8s(input string) string {
 }
 
 // generateBackendOverrideTf generates the backend_override.tf file for the Terraform project
-func (h *TerraformEnv) generateBackendOverrideTf() error {
-	deps, err := h.resolveDependencies()
+func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
+	deps, err := e.resolveDependencies()
 	if err != nil {
 		return err
 	}
