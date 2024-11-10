@@ -26,11 +26,8 @@ func NewAwsEnvPrinter(injector di.Injector) *AwsEnvPrinter {
 func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Access AWS-specific settings from the context configuration.
-	contextConfigData, err := e.configHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
-	}
+	// Get the context configuration
+	contextConfigData := e.configHandler.GetConfig()
 
 	// Ensure the context configuration and AWS-specific settings are available.
 	if contextConfigData == nil || contextConfigData.AWS == nil {

@@ -21,7 +21,7 @@ func TestVirt_Initialize(t *testing.T) {
 
 		injector.Register("shell", mockShell)
 		injector.Register("contextHandler", mockContext)
-		injector.Register("cliConfigHandler", mockConfigHandler)
+		injector.Register("configHandler", mockConfigHandler)
 		v := NewBaseVirt(injector)
 
 		// When calling Initialize
@@ -40,7 +40,7 @@ func TestVirt_Initialize(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 
 		injector.Register("contextHandler", mockContext)
-		injector.Register("cliConfigHandler", mockConfigHandler)
+		injector.Register("configHandler", mockConfigHandler)
 		injector.SetResolveError("shell", fmt.Errorf("mock error resolving shell"))
 		v := NewBaseVirt(injector)
 
@@ -60,7 +60,7 @@ func TestVirt_Initialize(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 
 		injector.Register("contextHandler", mockContext)
-		injector.Register("cliConfigHandler", mockConfigHandler)
+		injector.Register("configHandler", mockConfigHandler)
 		injector.Register("shell", "invalid")
 		v := NewBaseVirt(injector)
 
@@ -80,7 +80,7 @@ func TestVirt_Initialize(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 
 		injector.Register("shell", mockShell)
-		injector.Register("cliConfigHandler", mockConfigHandler)
+		injector.Register("configHandler", mockConfigHandler)
 		injector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving context handler"))
 		v := NewBaseVirt(injector)
 
@@ -100,7 +100,7 @@ func TestVirt_Initialize(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 
 		injector.Register("shell", mockShell)
-		injector.Register("cliConfigHandler", mockConfigHandler)
+		injector.Register("configHandler", mockConfigHandler)
 		injector.Register("contextHandler", "invalid")
 		v := NewBaseVirt(injector)
 
@@ -121,15 +121,15 @@ func TestVirt_Initialize(t *testing.T) {
 
 		injector.Register("shell", mockShell)
 		injector.Register("contextHandler", mockContextHandler)
-		injector.SetResolveError("cliConfigHandler", fmt.Errorf("mock error resolving cliConfigHandler"))
+		injector.SetResolveError("configHandler", fmt.Errorf("mock error resolving configHandler"))
 		v := NewBaseVirt(injector)
 
 		// When calling Initialize
 		err := v.Initialize()
 
 		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
-			t.Fatalf("Expected error containing 'error resolving cliConfigHandler', got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
+			t.Fatalf("Expected error containing 'error resolving configHandler', got %v", err)
 		}
 	})
 
@@ -141,7 +141,7 @@ func TestVirt_Initialize(t *testing.T) {
 
 		injector.Register("shell", mockShell)
 		injector.Register("contextHandler", mockContextHandler)
-		injector.Register("cliConfigHandler", "invalid")
+		injector.Register("configHandler", "invalid")
 		v := NewBaseVirt(injector)
 
 		// When calling Initialize

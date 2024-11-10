@@ -36,10 +36,10 @@ type Virt interface {
 }
 
 type BaseVirt struct {
-	injector         di.Injector
-	shell            shell.Shell
-	contextHandler   context.ContextInterface
-	cliConfigHandler config.ConfigHandler
+	injector       di.Injector
+	shell          shell.Shell
+	contextHandler context.ContextInterface
+	configHandler  config.ConfigHandler
 }
 
 // VirtualMachine defines methods for VirtualMachine operations
@@ -79,15 +79,15 @@ func (v *BaseVirt) Initialize() error {
 	}
 	v.contextHandler = contextHandlerInstance
 
-	resolvedCliConfigHandler, err := v.injector.Resolve("cliConfigHandler")
+	resolvedConfigHandler, err := v.injector.Resolve("configHandler")
 	if err != nil {
-		return fmt.Errorf("error resolving cliConfigHandler: %w", err)
+		return fmt.Errorf("error resolving configHandler: %w", err)
 	}
-	cliConfigHandlerInstance, ok := resolvedCliConfigHandler.(config.ConfigHandler)
+	configHandler, ok := resolvedConfigHandler.(config.ConfigHandler)
 	if !ok {
-		return fmt.Errorf("resolved cliConfigHandler is not of type ConfigHandler")
+		return fmt.Errorf("resolved configHandler is not of type ConfigHandler")
 	}
-	v.cliConfigHandler = cliConfigHandlerInstance
+	v.configHandler = configHandler
 
 	return nil
 }

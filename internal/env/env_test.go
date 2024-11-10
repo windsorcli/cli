@@ -17,13 +17,13 @@ func TestEnv_Initialize(t *testing.T) {
 		// Create a mock injector and Env instance
 		mockInjector := di.NewMockInjector()
 
-		// Create and register mock versions of contextHandler, shell, and cliConfigHandler
+		// Create and register mock versions of contextHandler, shell, and configHandler
 		mockContextHandler := context.NewMockContext()
 		mockInjector.Register("contextHandler", mockContextHandler)
 		mockShell := shell.NewMockShell()
 		mockInjector.Register("shell", mockShell)
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 
 		env := NewBaseEnvPrinter(mockInjector)
 
@@ -56,11 +56,11 @@ func TestEnv_Initialize(t *testing.T) {
 		// Create a mock injector and Env instance
 		mockInjector := di.NewMockInjector()
 
-		// Register mock versions of contextHandler and cliConfigHandler
+		// Register mock versions of contextHandler and configHandler
 		mockContextHandler := context.NewMockContext()
 		mockInjector.Register("contextHandler", mockContextHandler)
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 
 		// Set an error for shell resolution to simulate resolution error
 		mockInjector.SetResolveError("shell", errors.New("di: could not resolve dependency"))
@@ -80,11 +80,11 @@ func TestEnv_Initialize(t *testing.T) {
 		// Create a mock injector and Env instance
 		mockInjector := di.NewMockInjector()
 
-		// Register mock versions of contextHandler and cliConfigHandler
+		// Register mock versions of contextHandler and configHandler
 		mockContextHandler := context.NewMockContext()
 		mockInjector.Register("contextHandler", mockContextHandler)
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 
 		// Register an invalid shell that cannot be cast to shell.Shell
 		mockInjector.Register("shell", "invalid")
@@ -110,8 +110,8 @@ func TestEnv_Initialize(t *testing.T) {
 		mockShell := shell.NewMockShell()
 		mockInjector.Register("shell", mockShell)
 
-		// Set an error for cliConfigHandler resolution to simulate resolution error
-		mockInjector.SetResolveError("cliConfigHandler", errors.New("di: could not resolve dependency"))
+		// Set an error for configHandler resolution to simulate resolution error
+		mockInjector.SetResolveError("configHandler", errors.New("di: could not resolve dependency"))
 
 		env := NewBaseEnvPrinter(mockInjector)
 
@@ -119,7 +119,7 @@ func TestEnv_Initialize(t *testing.T) {
 		err := env.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
-		} else if err.Error() != "error resolving cliConfigHandler: di: could not resolve dependency" {
+		} else if err.Error() != "error resolving configHandler: di: could not resolve dependency" {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
@@ -134,8 +134,8 @@ func TestEnv_Initialize(t *testing.T) {
 		mockShell := shell.NewMockShell()
 		mockInjector.Register("shell", mockShell)
 
-		// Register an invalid cliConfigHandler that cannot be cast to config.ConfigHandler
-		mockInjector.Register("cliConfigHandler", "invalid")
+		// Register an invalid configHandler that cannot be cast to config.ConfigHandler
+		mockInjector.Register("configHandler", "invalid")
 
 		env := NewBaseEnvPrinter(mockInjector)
 
@@ -143,7 +143,7 @@ func TestEnv_Initialize(t *testing.T) {
 		err := env.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
-		} else if err.Error() != "cliConfigHandler is not of type ConfigHandler" {
+		} else if err.Error() != "configHandler is not of type ConfigHandler" {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})

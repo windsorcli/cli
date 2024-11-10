@@ -19,11 +19,11 @@ func main() {
 	injector := di.NewInjector()
 
 	// Register CLI Config Handler (to be initialized later)
-	cliConfigHandler, err := config.NewYamlConfigHandler("")
+	configHandler, err := config.NewYamlConfigHandler("")
 	if err != nil {
 		log.Fatalf("failed to create CLI config handler: %v", err)
 	}
-	injector.Register("cliConfigHandler", cliConfigHandler)
+	injector.Register("configHandler", configHandler)
 
 	// Register Shell instance
 	shellInstance := shell.NewDefaultShell(injector)
@@ -37,7 +37,7 @@ func main() {
 	injector.Register("secureShell", secureShellInstance)
 
 	// Create and register the Context instance
-	contextHandler := context.NewContext(cliConfigHandler, shellInstance)
+	contextHandler := context.NewContext(configHandler, shellInstance)
 	injector.Register("contextHandler", contextHandler)
 
 	// Create and register the AwsHelper instance

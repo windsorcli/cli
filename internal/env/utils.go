@@ -26,8 +26,3 @@ var yamlUnmarshal = yaml.Unmarshal
 func stringPtr(s string) *string {
 	return &s
 }
-
-// boolPtr returns a pointer to a boolean value
-func boolPtr(b bool) *bool {
-	return &b
-}

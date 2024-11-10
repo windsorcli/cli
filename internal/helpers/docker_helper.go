@@ -33,9 +33,9 @@ const registryImage = "registry:2.8.3"
 
 // NewDockerHelper is a constructor for DockerHelper
 func NewDockerHelper(injector di.Injector) (*DockerHelper, error) {
-	cliConfigHandler, err := injector.Resolve("cliConfigHandler")
+	configHandler, err := injector.Resolve("configHandler")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
+		return nil, fmt.Errorf("error resolving configHandler: %w", err)
 	}
 
 	resolvedContext, err := injector.Resolve("contextHandler")
@@ -49,7 +49,7 @@ func NewDockerHelper(injector di.Injector) (*DockerHelper, error) {
 	}
 
 	return &DockerHelper{
-		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
+		ConfigHandler: configHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
 		Injector:      injector,
 		Shell:         resolvedShell.(shell.Shell),
@@ -111,10 +111,7 @@ func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 	var services []types.ServiceConfig
 
 	// Retrieve the context configuration using GetConfig
-	contextConfig, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
-	}
+	contextConfig := h.ConfigHandler.GetConfig()
 
 	// Retrieve the list of registries from the context configuration
 	registries := contextConfig.Docker.Registries
@@ -134,10 +131,7 @@ func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 // GetFullComposeConfig retrieves the full compose configuration for the DockerHelper.
 func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	// Retrieve the context configuration using GetConfig
-	contextConfig, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
-	}
+	contextConfig := h.ConfigHandler.GetConfig()
 
 	// Check if Docker is defined in the windsor config
 	if contextConfig.Docker == nil {

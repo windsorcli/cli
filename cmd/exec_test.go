@@ -22,7 +22,6 @@ func TestExecCmd(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Setup mock components using SuperMocks
 		mocks := mocks.CreateSuperMocks()
@@ -49,7 +48,6 @@ func TestExecCmd(t *testing.T) {
 
 	t.Run("NoCommandProvided", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Setup mock components using SuperMocks
 		mocks := mocks.CreateSuperMocks()
@@ -75,7 +73,6 @@ func TestExecCmd(t *testing.T) {
 
 	t.Run("ResolveEnvError", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Setup mock injector
 		mockInjector := di.NewMockInjector()
@@ -107,7 +104,6 @@ func TestExecCmd(t *testing.T) {
 
 	t.Run("ResolveEnvErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given a injector that returns an error when resolving environments
 		mockInjector := di.NewMockInjector()
@@ -135,7 +131,6 @@ func TestExecCmd(t *testing.T) {
 
 	t.Run("GetEnvVarsError", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given an environment that returns an error when getting environment variables
 		mocks := mocks.CreateSuperMocks()
@@ -166,7 +161,6 @@ func TestExecCmd(t *testing.T) {
 
 	t.Run("GetEnvVarsErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given an environment that returns an error when getting environment variables
 		mocks := mocks.CreateSuperMocks()
@@ -197,7 +191,6 @@ func TestExecCmd(t *testing.T) {
 
 	t.Run("SetEnvError", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given an environment that returns environment variables
 		mocks := mocks.CreateSuperMocks()
@@ -232,7 +225,6 @@ func TestExecCmd(t *testing.T) {
 
 	t.Run("CommandExecutionError", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given a shell that returns an error when executing the command
 		mocks := mocks.CreateSuperMocks()
@@ -262,7 +254,6 @@ func TestExecCmd(t *testing.T) {
 
 	t.Run("CommandExecutionErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given a shell that returns an error when executing the command
 		mocks := mocks.CreateSuperMocks()

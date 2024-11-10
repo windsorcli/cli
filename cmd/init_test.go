@@ -34,7 +34,7 @@ func TestInitCmd(t *testing.T) {
 			return "test-context", nil
 		}
 		// Mock the GetConfig function to ensure it is called with the desired object
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(true),
@@ -42,7 +42,7 @@ func TestInitCmd(t *testing.T) {
 				VM: &config.VMConfig{
 					Driver: ptrString("colima"),
 				},
-			}, nil
+			}
 		}
 
 		Initialize(mocks.Injector)
@@ -69,8 +69,8 @@ func TestInitCmd(t *testing.T) {
 		Initialize(mocks.Injector)
 
 		// Mock the GetConfig function to ensure it is called with the desired object
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{}, nil
+		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
+			return &config.Context{}
 		}
 
 		// When: the init command is executed with all flags set
@@ -101,7 +101,7 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("HomeDirError", func(t *testing.T) {
-		// Mock cliConfigHandler
+		// Mock configHandler
 		mocks := mocks.CreateSuperMocks()
 		Initialize(mocks.Injector)
 
@@ -643,39 +643,14 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGettingConfig", func(t *testing.T) {
-		// Given: a config handler that returns an error on GetConfig
-		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, errors.New("error getting config")
-		}
-		Initialize(mocks.Injector)
-
-		// When: the init command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then: the output should indicate the error
-		expectedOutput := "error retrieving context configuration: error getting config"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
 	t.Run("ErrorWritingColimaConfig", func(t *testing.T) {
-		// Given: a config handler that returns a valid config with Colima driver
+		// Given: a config handler that returns "colima" as the VM driver
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				VM: &config.VMConfig{
-					Driver: ptrString("colima"),
-				},
-			}, nil
+		mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
 		}
 		// Mock ColimaVirt to return an error on WriteConfig
 		mocks.ColimaVirt.WriteConfigFunc = func() error {
@@ -702,12 +677,12 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorWritingDockerConfig", func(t *testing.T) {
 		// Given: a config handler that returns a valid config with Docker enabled
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(true),
 				},
-			}, nil
+			}
 		}
 		// Mock DockerVirt to return an error on WriteConfig
 		mocks.DockerVirt.WriteConfigFunc = func() error {

@@ -34,10 +34,6 @@ func (v *ColimaVirt) Up(verbose ...bool) error {
 		verbose = append(verbose, false)
 	}
 
-	if err := v.WriteConfig(); err != nil {
-		return err
-	}
-
 	if err := v.startColima(verbose[0]); err != nil {
 		return err
 	}
@@ -106,10 +102,7 @@ func (v *ColimaVirt) WriteConfig() error {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	config, err := v.cliConfigHandler.GetConfig()
-	if err != nil {
-		return fmt.Errorf("error retrieving config: %w", err)
-	}
+	config := v.configHandler.GetConfig()
 
 	// Check if VM is defined and if the vm driver is colima
 	if config.VM == nil || config.VM.Driver == nil || *config.VM.Driver != "colima" {

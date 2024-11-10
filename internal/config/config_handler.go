@@ -6,13 +6,13 @@ type ConfigHandler interface {
 	LoadConfig(path string) error
 
 	// GetString retrieves a string value for the specified key from the configuration
-	GetString(key string, defaultValue ...string) (string, error)
+	GetString(key string, defaultValue ...string) string
 
 	// GetInt retrieves an integer value for the specified key from the configuration
-	GetInt(key string, defaultValue ...int) (int, error)
+	GetInt(key string, defaultValue ...int) int
 
 	// GetBool retrieves a boolean value for the specified key from the configuration
-	GetBool(key string, defaultValue ...bool) (bool, error)
+	GetBool(key string, defaultValue ...bool) bool
 
 	// Set sets the value for the specified key in the configuration
 	Set(key string, value interface{}) error
@@ -27,5 +27,5 @@ type ConfigHandler interface {
 	SetDefault(context Context) error
 
 	// GetConfig returns the context config object
-	GetConfig() (*Context, error)
+	GetConfig() *Context
 }

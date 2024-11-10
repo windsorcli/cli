@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/briandowns/spinner"
+	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/ssh"
 )
@@ -32,10 +33,11 @@ type Shell interface {
 
 // DefaultShell is the default implementation of the Shell interface
 type DefaultShell struct {
-	projectRoot string
-	mu          sync.Mutex
-	injector    di.Injector
-	sshClient   ssh.Client
+	projectRoot   string
+	mu            sync.Mutex
+	injector      di.Injector
+	sshClient     ssh.Client
+	configHandler config.ConfigHandler
 }
 
 // NewDefaultShell creates a new instance of DefaultShell
@@ -52,6 +54,12 @@ func (s *DefaultShell) Initialize() error {
 		return fmt.Errorf("failed to resolve SSH client: %w", err)
 	}
 	s.sshClient = sshClient.(ssh.Client)
+
+	configHandler, err := s.injector.Resolve("configHandler")
+	if err != nil {
+		return fmt.Errorf("failed to resolve config handler: %w", err)
+	}
+	s.configHandler = configHandler.(config.ConfigHandler)
 
 	return nil
 }

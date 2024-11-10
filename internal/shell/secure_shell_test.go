@@ -100,10 +100,14 @@ func TestSecureShell_Exec(t *testing.T) {
 
 		secureShell, err := NewSecureShell(mocks.Container)
 		secureShell.Initialize()
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Failed to initialize secure shell: %v", err)
+		}
 
 		output, err := secureShell.Exec(false, message, command, args...)
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Failed to execute command: %v", err)
+		}
 		if output != expectedOutput {
 			t.Fatalf("Expected output %q, got %q", expectedOutput, output)
 		}
@@ -129,7 +133,9 @@ func TestSecureShell_Exec(t *testing.T) {
 
 		secureShell, err := NewSecureShell(mocks.Container)
 		secureShell.Initialize()
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Failed to initialize secure shell: %v", err)
+		}
 
 		output, err := secureShell.Exec(false, message, command, args...)
 		if err == nil {
@@ -148,7 +154,9 @@ func TestSecureShell_Exec(t *testing.T) {
 
 		secureShell, err := NewSecureShell(mocks.Container)
 		secureShell.Initialize()
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Failed to initialize secure shell: %v", err)
+		}
 
 		_, err = secureShell.Exec(false, "Running command", "echo", "hello")
 		if err == nil {
@@ -168,7 +176,9 @@ func TestSecureShell_Exec(t *testing.T) {
 
 		secureShell, err := NewSecureShell(mocks.Container)
 		secureShell.Initialize()
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Failed to initialize secure shell: %v", err)
+		}
 
 		_, err = secureShell.Exec(false, "Running command", "echo", "hello")
 		if err == nil {
@@ -204,10 +214,14 @@ func TestSecureShell_Exec(t *testing.T) {
 
 		secureShell, err := NewSecureShell(mocks.Container)
 		secureShell.Initialize()
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Failed to initialize secure shell: %v", err)
+		}
 
 		output, err := secureShell.Exec(true, message, command, args...)
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Failed to execute command: %v", err)
+		}
 		if output != expectedOutput {
 			t.Fatalf("Expected output %q, got %q", expectedOutput, output)
 		}

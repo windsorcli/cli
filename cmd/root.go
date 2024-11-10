@@ -17,7 +17,7 @@ import (
 )
 
 // ConfigHandler instances
-var cliConfigHandler config.ConfigHandler
+var configHandler config.ConfigHandler
 
 // shell instance
 var shellInstance shell.Shell
@@ -110,14 +110,14 @@ func getProjectConfigPath() string {
 
 // preRunLoadConfig is the function assigned to PersistentPreRunE
 func preRunLoadConfig(cmd *cobra.Command, args []string) error {
-	// Check if cliConfigHandler is initialized
-	if cliConfigHandler == nil {
-		return fmt.Errorf("cliConfigHandler is not initialized")
+	// Check if configHandler is initialized
+	if configHandler == nil {
+		return fmt.Errorf("configHandler is not initialized")
 	}
 
 	// Load CLI configuration
 	cliConfigPath := getCLIConfigPath()
-	if err := cliConfigHandler.LoadConfig(cliConfigPath); err != nil {
+	if err := configHandler.LoadConfig(cliConfigPath); err != nil {
 		return fmt.Errorf("error loading CLI config: %w", err)
 	}
 
@@ -221,7 +221,7 @@ func Initialize(inj di.Injector) {
 		}
 	}
 
-	resolveAndAssign("cliConfigHandler", &cliConfigHandler)
+	resolveAndAssign("configHandler", &configHandler)
 	resolveAndAssign("shell", &shellInstance)
 	resolveAndAssign("secureShell", &secureShellInstance)
 	resolveAndAssign("awsHelper", &awsHelper)

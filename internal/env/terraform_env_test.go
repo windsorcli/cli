@@ -40,17 +40,17 @@ func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
 	mockShell := shell.NewMockShell()
 
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+	mockConfigHandler.GetConfigFunc = func() *config.Context {
 		return &config.Context{
 			Terraform: &config.TerraformConfig{
 				Backend: stringPtr("local"),
 			},
-		}, nil
+		}
 	}
 
 	mockInjector.Register("contextHandler", mockContext)
 	mockInjector.Register("shell", mockShell)
-	mockInjector.Register("cliConfigHandler", mockConfigHandler)
+	mockInjector.Register("configHandler", mockConfigHandler)
 
 	return &TerraformEnvMocks{
 		Injector:       mockInjector,
@@ -203,8 +203,8 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		mocks.ContextHandler.GetContextFunc = func() (string, error) {
 			return "mockContext", nil
 		}
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{}, nil
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
+			return &config.Context{}
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root
@@ -250,12 +250,12 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		mocks.ContextHandler.GetContextFunc = func() (string, error) {
 			return "mockContext", nil
 		}
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Terraform: &config.TerraformConfig{
 					Backend: stringPtr("local"),
 				},
-			}, nil
+			}
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root
@@ -371,46 +371,14 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingContext", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("mock error retrieving context")
-		}
-
-		// Given a mocked getwd function simulating being in a terraform project root
-		originalGetwd := getwd
-		defer func() { getwd = originalGetwd }()
-		getwd = func() (string, error) {
-			return filepath.FromSlash("mock/project/root/terraform/project/path"), nil
-		}
-		originalGlob := glob
-		defer func() { glob = originalGlob }()
-		glob = func(pattern string) ([]string, error) {
-			return []string{filepath.FromSlash("mock/project/root/terraform/project/path/main.tf")}, nil
-		}
-
-		// When the PostEnvHook function is called
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
-		err := terraformEnvPrinter.PostEnvHook()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error retrieving context") {
-			t.Errorf("Expected error message to contain 'error retrieving context', got %v", err)
-		}
-	})
-
 	t.Run("UnsupportedBackend", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Terraform: &config.TerraformConfig{
 					Backend: stringPtr("unsupported"),
 				},
-			}, nil
+			}
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root
@@ -566,14 +534,11 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		mocks.ContextHandler.GetContextFunc = func() (string, error) {
 			return "local", nil
 		}
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				AWS: &config.AWSConfig{
-					Localstack: &config.LocalstackConfig{
-						Create: boolPtr(true),
-					},
-				},
-			}, nil
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "aws.localstack.create" {
+				return true
+			}
+			return false
 		}
 
 		// When getAlias is called
@@ -596,14 +561,14 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		mocks.ContextHandler.GetContextFunc = func() (string, error) {
 			return "local", nil
 		}
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
 						Create: boolPtr(false),
 					},
 				},
-			}, nil
+			}
 		}
 
 		// When getAlias is called
@@ -618,46 +583,6 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		expectedAlias := map[string]string{"terraform": ""}
 		if !reflect.DeepEqual(aliases, expectedAlias) {
 			t.Errorf("Expected aliases %v, got %v", expectedAlias, aliases)
-		}
-	})
-
-	t.Run("ErrorRetrievingContext", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving context")
-		}
-
-		// When getAlias is called
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
-		_, err := terraformEnvPrinter.getAlias()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error retrieving context") {
-			t.Errorf("Expected error message to contain 'error retrieving context', got %v", err)
-		}
-	})
-
-	t.Run("ErrorRetrievingConfig", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("mock error retrieving context config")
-		}
-
-		// When getAlias is called
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
-		_, err := terraformEnvPrinter.getAlias()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error retrieving context config") {
-			t.Errorf("Expected error message to contain 'error retrieving context config', got %v", err)
 		}
 	})
 }
@@ -839,12 +764,12 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
 			return filepath.FromSlash("/mock/config/root"), nil
 		}
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Terraform: &config.TerraformConfig{
 					Backend: stringPtr("local"),
 				},
-			}, nil
+			}
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root
@@ -895,12 +820,12 @@ terraform {
 
 	t.Run("S3Backend", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Terraform: &config.TerraformConfig{
 					Backend: stringPtr("s3"),
 				},
-			}, nil
+			}
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root
@@ -951,12 +876,12 @@ terraform {
 
 	t.Run("KubernetesBackend", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Terraform: &config.TerraformConfig{
 					Backend: stringPtr("kubernetes"),
 				},
-			}, nil
+			}
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root
@@ -1041,50 +966,14 @@ terraform {
 		}
 	})
 
-	t.Run("ErrorGettingConfig", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("mock error retrieving context")
-		}
-
-		// Given a mocked getwd function simulating being in a terraform project root
-		originalGetwd := getwd
-		defer func() { getwd = originalGetwd }()
-		getwd = func() (string, error) {
-			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
-		}
-		// And a mocked glob function simulating finding Terraform files
-		originalGlob := glob
-		defer func() { glob = originalGlob }()
-		glob = func(pattern string) ([]string, error) {
-			if pattern == filepath.FromSlash("/mock/project/root/terraform/project/path/*.tf") {
-				return []string{filepath.FromSlash("/mock/project/root/terraform/project/path/main.tf")}, nil
-			}
-			return nil, nil
-		}
-
-		// When generateBackendOverrideTf is called
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
-		err := terraformEnvPrinter.generateBackendOverrideTf()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock error retrieving context") {
-			t.Errorf("Expected error message to contain 'mock error retrieving context', got %v", err)
-		}
-	})
-
 	t.Run("UnsupportedBackend", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Terraform: &config.TerraformConfig{
 					Backend: stringPtr("unsupported"),
 				},
-			}, nil
+			}
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root
@@ -1119,12 +1008,12 @@ terraform {
 
 	t.Run("NoTerraformFiles", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Terraform: &config.TerraformConfig{
 					Backend: stringPtr("local"),
 				},
-			}, nil
+			}
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root

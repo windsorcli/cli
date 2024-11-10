@@ -54,16 +54,16 @@ func (e *BaseEnvPrinter) Initialize() error {
 	}
 	e.shell = shell
 
-	// Resolve the cliConfigHandler
-	configHandler, err := e.injector.Resolve("cliConfigHandler")
+	// Resolve the configHandler
+	configHandler, err := e.injector.Resolve("configHandler")
 	if err != nil {
-		return fmt.Errorf("error resolving cliConfigHandler: %w", err)
+		return fmt.Errorf("error resolving configHandler: %w", err)
 	}
-	cliConfigHandler, ok := configHandler.(config.ConfigHandler)
+	configInterface, ok := configHandler.(config.ConfigHandler)
 	if !ok {
-		return fmt.Errorf("cliConfigHandler is not of type ConfigHandler")
+		return fmt.Errorf("configHandler is not of type ConfigHandler")
 	}
-	e.configHandler = cliConfigHandler
+	e.configHandler = configInterface
 	return nil
 }
 
