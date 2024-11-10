@@ -8,13 +8,13 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-// WindsorEnv is a struct that simulates a Kubernetes environment for testing purposes.
+// WindsorEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
 type WindsorEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewWindsorEnv initializes a new WindsorEnvPrinter instance using the provided dependency injector.
-func NewWindsorEnv(injector di.Injector) *WindsorEnvPrinter {
+// NewWindsorEnvPrinter initializes a new WindsorEnvPrinter instance using the provided dependency injector.
+func NewWindsorEnvPrinter(injector di.Injector) *WindsorEnvPrinter {
 	return &WindsorEnvPrinter{
 		BaseEnvPrinter: BaseEnvPrinter{
 			injector: injector,

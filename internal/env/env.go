@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/goccy/go-yaml"
+	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
@@ -24,11 +25,17 @@ type BaseEnvPrinter struct {
 	injector       di.Injector
 	contextHandler context.ContextInterface
 	shell          shell.Shell
+	configHandler  config.ConfigHandler
+}
+
+// NewBaseEnvPrinter creates a new BaseEnvPrinter instance.
+func NewBaseEnvPrinter(injector di.Injector) *BaseEnvPrinter {
+	return &BaseEnvPrinter{injector: injector}
 }
 
 // Initialize initializes the environment.
 func (e *BaseEnvPrinter) Initialize() error {
-	// Resolve necessary dependencies for context and shell operations.
+	// Resolve the contextHandler
 	contextHandler, err := e.injector.Resolve("contextHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving contextHandler: %w", err)
@@ -39,7 +46,7 @@ func (e *BaseEnvPrinter) Initialize() error {
 	}
 	e.contextHandler = context
 
-	// Use the shell package to print environment variables
+	// Resolve the shell
 	shellInstance, err := e.injector.Resolve("shell")
 	if err != nil {
 		return fmt.Errorf("error resolving shell: %w", err)
@@ -49,6 +56,17 @@ func (e *BaseEnvPrinter) Initialize() error {
 		return fmt.Errorf("shell is not of type Shell")
 	}
 	e.shell = shell
+
+	// Resolve the cliConfigHandler
+	configHandler, err := e.injector.Resolve("cliConfigHandler")
+	if err != nil {
+		return fmt.Errorf("error resolving cliConfigHandler: %w", err)
+	}
+	cliConfigHandler, ok := configHandler.(config.ConfigHandler)
+	if !ok {
+		return fmt.Errorf("cliConfigHandler is not of type ConfigHandler")
+	}
+	e.configHandler = cliConfigHandler
 	return nil
 }
 
@@ -64,17 +82,7 @@ func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
 		envVars = make(map[string]string)
 	}
 
-	// Use the shell package to print environment variables
-	shellInstance, err := e.injector.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-	shell, ok := shellInstance.(shell.Shell)
-	if !ok {
-		return fmt.Errorf("shell is not of type Shell")
-	}
-
-	return shell.PrintEnvVars(envVars)
+	return e.shell.PrintEnvVars(envVars)
 }
 
 // GetEnvVars is a placeholder for retrieving environment variables.

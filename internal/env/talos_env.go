@@ -5,17 +5,16 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-// TalosEnv is a struct that simulates a Kubernetes environment for testing purposes.
+// TalosEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
 type TalosEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewTalosEnv initializes a new talosEnv instance using the provided dependency injector.
-func NewTalosEnv(injector di.Injector) *TalosEnvPrinter {
+// NewTalosEnvPrinter initializes a new talosEnvPrinter instance using the provided dependency injector.
+func NewTalosEnvPrinter(injector di.Injector) *TalosEnvPrinter {
 	return &TalosEnvPrinter{
 		BaseEnvPrinter: BaseEnvPrinter{
 			injector: injector,
@@ -27,18 +26,8 @@ func NewTalosEnv(injector di.Injector) *TalosEnvPrinter {
 func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Resolve necessary dependencies for context operations.
-	contextHandler, err := e.injector.Resolve("contextHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
-	}
-	context, ok := contextHandler.(context.ContextInterface)
-	if !ok {
-		return nil, fmt.Errorf("failed to cast contextHandler to context.ContextInterface")
-	}
-
 	// Determine the root directory for configuration files.
-	configRoot, err := context.GetConfigRoot()
+	configRoot, err := e.contextHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 	}

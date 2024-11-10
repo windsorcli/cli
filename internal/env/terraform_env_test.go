@@ -74,7 +74,8 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			"TF_VAR_context_path": filepath.FromSlash("/mock/config/root"),
 		}
 
-		env := NewTerraformEnv(mocks.Injector)
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
 
 		// Given a mocked glob function simulating the presence of tf files
 		originalGlob := glob
@@ -112,7 +113,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// When the GetEnvVars function is called
-		envVars, err := env.GetEnvVars()
+		envVars, err := terraformEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -122,24 +123,6 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			if value, exists := envVars[key]; !exists || value != expectedValue {
 				t.Errorf("Expected %s to be %s, got %s", key, expectedValue, value)
 			}
-		}
-	})
-
-	t.Run("ErrorResolvingDependenciesInGetEnvVars", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeTerraformEnvMocks(mockInjector)
-		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
-
-		// When the GetEnvVars function is called
-		env := NewTerraformEnv(mockInjector)
-		_, err := env.GetEnvVars()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error resolving dependencies") {
-			t.Errorf("Expected error message to contain 'error resolving dependencies', got %v", err)
 		}
 	})
 
@@ -154,8 +137,9 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 
 		// When the GetEnvVars function is called
-		env := NewTerraformEnv(mocks.Injector)
-		_, err := env.GetEnvVars()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		_, err := terraformEnvPrinter.GetEnvVars()
 
 		// Then the error should contain the expected message
 		if err == nil {
@@ -176,8 +160,9 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 
 		// When the GetEnvVars function is called
-		env := NewTerraformEnv(mocks.Injector)
-		envVars, err := env.GetEnvVars()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		envVars, err := terraformEnvPrinter.GetEnvVars()
 
 		// Then it should return nil without an error
 		if envVars != nil {
@@ -202,8 +187,9 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// When the GetEnvVars function is called
-		env := NewTerraformEnv(mocks.Injector)
-		_, err := env.GetEnvVars()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		_, err := terraformEnvPrinter.GetEnvVars()
 
 		// Then the error should be as expected
 		expectedErrorMessage := "error getting config root: mock error getting config root"
@@ -246,8 +232,9 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// When the GetEnvVars function is called
-		env := NewTerraformEnv(mocks.Injector)
-		_, err := env.GetEnvVars()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		_, err := terraformEnvPrinter.GetEnvVars()
 
 		// Then the error should be as expected
 		expectedErrorMessage := "error checking file: mock error checking file"
@@ -296,30 +283,13 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 
 		// When the PostEnvHook function is called
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.PostEnvHook()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.PostEnvHook()
 
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingDependencies", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeTerraformEnvMocks(mockInjector)
-		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
-
-		// When the PostEnvHook function is called
-		env := NewTerraformEnv(mockInjector)
-		err := env.PostEnvHook()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error resolving") {
-			t.Errorf("Expected error message to contain 'error resolving', got %v", err)
 		}
 	})
 
@@ -333,8 +303,9 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 
 		// When the PostEnvHook function is called
 		mocks := setupSafeTerraformEnvMocks()
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.PostEnvHook()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.PostEnvHook()
 
 		// Then the error should contain the expected message
 		if err == nil {
@@ -355,8 +326,9 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 
 		// When the PostEnvHook function is called
 		mocks := setupSafeTerraformEnvMocks()
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.PostEnvHook()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.PostEnvHook()
 
 		// Then the error should contain the expected message
 		if err == nil {
@@ -386,8 +358,9 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 
 		// When the PostEnvHook function is called
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.PostEnvHook()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.PostEnvHook()
 
 		// Then the error should contain the expected message
 		if err == nil {
@@ -417,8 +390,9 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 
 		// When the PostEnvHook function is called
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.PostEnvHook()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.PostEnvHook()
 
 		// Then the error should contain the expected message
 		if err == nil {
@@ -452,8 +426,9 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 
 		// When the PostEnvHook function is called
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.PostEnvHook()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.PostEnvHook()
 
 		// Then the error should contain the expected message
 		if err == nil {
@@ -486,8 +461,9 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 
 		// When the PostEnvHook function is called
 		mocks := setupSafeTerraformEnvMocks()
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.PostEnvHook()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.PostEnvHook()
 
 		// Then the error should contain the expected message
 		if err == nil {
@@ -504,7 +480,8 @@ func TestTerraformEnv_Print(t *testing.T) {
 		// Use setupSafeTerraformEnvMocks to create mocks
 		mocks := setupSafeTerraformEnvMocks()
 		mockInjector := mocks.Injector
-		terraformEnv := NewTerraformEnv(mockInjector)
+		terraformEnvPrinter := NewTerraformEnvPrinter(mockInjector)
+		terraformEnvPrinter.Initialize()
 
 		// Mock the stat function to simulate the existence of the terraform config file
 		stat = func(name string) (os.FileInfo, error) {
@@ -539,7 +516,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 		}
 
 		// Call Print and check for errors
-		err := terraformEnv.Print()
+		err := terraformEnvPrinter.Print()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -570,10 +547,11 @@ func TestTerraformEnv_Print(t *testing.T) {
 
 		mockInjector := mocks.Injector
 
-		terraformEnv := NewTerraformEnv(mockInjector)
+		terraformEnvPrinter := NewTerraformEnvPrinter(mockInjector)
+		terraformEnvPrinter.Initialize()
 
 		// Call Print and check for errors
-		err := terraformEnv.Print()
+		err := terraformEnvPrinter.Print()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if !strings.Contains(err.Error(), "mock config error") {
@@ -582,141 +560,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 	})
 }
 
-func TestTerraformEnv_resolveDependencies(t *testing.T) {
-	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeTerraformEnvMocks(mockInjector)
-		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
-
-		// When resolveDependencies is called
-		env := NewTerraformEnv(mockInjector)
-		_, err := env.resolveDependencies()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock error resolving contextHandler") {
-			t.Errorf("Expected error message to contain 'mock error resolving contextHandler', got %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingContextHandler", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeTerraformEnvMocks(mockInjector)
-
-		// Given a mock object that does not implement ContextInterface
-		mockInjector.Register("contextHandler", "invalidContextHandler")
-
-		// When resolveDependencies is called
-		env := NewTerraformEnv(mockInjector)
-		_, err := env.resolveDependencies()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "contextHandler is not of type ContextInterface") {
-			t.Errorf("Expected error message to contain 'contextHandler is not of type ContextInterface', got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeTerraformEnvMocks(mockInjector)
-		mockInjector.SetResolveError("shell", fmt.Errorf("mock error resolving shell"))
-
-		// When resolveDependencies is called
-		env := NewTerraformEnv(mockInjector)
-		_, err := env.resolveDependencies()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock error resolving shell") {
-			t.Errorf("Expected error message to contain 'mock error resolving shell', got %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingShell", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeTerraformEnvMocks(mockInjector)
-
-		// Given a mock object that does not implement Shell
-		mockInjector.Register("shell", "invalidShell")
-
-		// When resolveDependencies is called
-		env := NewTerraformEnv(mockInjector)
-		_, err := env.resolveDependencies()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "shell is not of type Shell") {
-			t.Errorf("Expected error message to contain 'shell is not of type Shell', got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeTerraformEnvMocks(mockInjector)
-		mockInjector.SetResolveError("cliConfigHandler", fmt.Errorf("mock error resolving cliConfigHandler"))
-
-		// When resolveDependencies is called
-		env := NewTerraformEnv(mockInjector)
-		_, err := env.resolveDependencies()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock error resolving cliConfigHandler") {
-			t.Errorf("Expected error message to contain 'mock error resolving cliConfigHandler', got %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingConfigHandler", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeTerraformEnvMocks(mockInjector)
-
-		// Given a mock object that does not implement ConfigHandler
-		mockInjector.Register("cliConfigHandler", "invalidConfigHandler")
-
-		// When resolveDependencies is called
-		env := NewTerraformEnv(mockInjector)
-		_, err := env.resolveDependencies()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "cliConfigHandler is not of type ConfigHandler") {
-			t.Errorf("Expected error message to contain 'cliConfigHandler is not of type ConfigHandler', got %v", err)
-		}
-	})
-}
-
 func TestTerraformEnv_getAlias(t *testing.T) {
-	t.Run("ErrorResolvingDependencies", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeTerraformEnvMocks(mockInjector)
-		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
-
-		// When getAlias is called
-		env := NewTerraformEnv(mockInjector)
-		_, err := env.getAlias()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error resolving") {
-			t.Errorf("Expected error message to contain 'error resolving', got %v", err)
-		}
-	})
-
 	t.Run("SuccessLocalstackEnabled", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ContextHandler.GetContextFunc = func() (string, error) {
@@ -733,8 +577,9 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		}
 
 		// When getAlias is called
-		env := NewTerraformEnv(mocks.Injector)
-		aliases, err := env.getAlias()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		aliases, err := terraformEnvPrinter.getAlias()
 
 		// Then no error should occur and the expected alias should be returned
 		if err != nil {
@@ -762,8 +607,9 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		}
 
 		// When getAlias is called
-		env := NewTerraformEnv(mocks.Injector)
-		aliases, err := env.getAlias()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		aliases, err := terraformEnvPrinter.getAlias()
 
 		// Then no error should occur and the expected alias should be returned
 		if err != nil {
@@ -782,8 +628,9 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		}
 
 		// When getAlias is called
-		env := NewTerraformEnv(mocks.Injector)
-		_, err := env.getAlias()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		_, err := terraformEnvPrinter.getAlias()
 
 		// Then the error should contain the expected message
 		if err == nil {
@@ -801,8 +648,9 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		}
 
 		// When getAlias is called
-		env := NewTerraformEnv(mocks.Injector)
-		_, err := env.getAlias()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		_, err := terraformEnvPrinter.getAlias()
 
 		// Then the error should contain the expected message
 		if err == nil {
@@ -1025,8 +873,9 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.generateBackendOverrideTf()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateBackendOverrideTf()
 
 		// Then no error should occur and the expected backend config should be written
 		if err != nil {
@@ -1080,8 +929,9 @@ terraform {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.generateBackendOverrideTf()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateBackendOverrideTf()
 
 		// Then no error should occur and the expected backend config should be written
 		if err != nil {
@@ -1135,8 +985,9 @@ terraform {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.generateBackendOverrideTf()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateBackendOverrideTf()
 
 		// Then no error should occur and the expected backend config should be written
 		if err != nil {
@@ -1151,24 +1002,6 @@ terraform {
 }`
 		if string(writtenData) != expectedContent {
 			t.Errorf("Expected backend config %q, got %q", expectedContent, string(writtenData))
-		}
-	})
-
-	t.Run("ErrorResolvingDependencies", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeTerraformEnvMocks(mockInjector)
-		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
-
-		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mockInjector)
-		err := env.generateBackendOverrideTf()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock error resolving contextHandler") {
-			t.Errorf("Expected error message to contain 'mock error resolving contextHandler', got %v", err)
 		}
 	})
 
@@ -1195,8 +1028,9 @@ terraform {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.generateBackendOverrideTf()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateBackendOverrideTf()
 
 		// Then the error should contain the expected message
 		if err == nil {
@@ -1230,8 +1064,9 @@ terraform {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.generateBackendOverrideTf()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateBackendOverrideTf()
 
 		// Then the error should contain the expected message
 		if err == nil {
@@ -1269,8 +1104,9 @@ terraform {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.generateBackendOverrideTf()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateBackendOverrideTf()
 
 		// Then the error should contain the expected message
 		if err == nil {
@@ -1305,8 +1141,9 @@ terraform {
 		}
 
 		// When generateBackendOverrideTf is called
-		env := NewTerraformEnv(mocks.Injector)
-		err := env.generateBackendOverrideTf()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateBackendOverrideTf()
 
 		// Then no error should occur
 		if err != nil {

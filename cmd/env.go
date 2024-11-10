@@ -28,7 +28,7 @@ var envCmd = &cobra.Command{
 			envPrinters[i] = envPrinter
 		}
 
-		// Iterate through all environments and run their Print functions
+		// Iterate through all environments and run their Initialize and Print functions
 		for _, instance := range envPrinters {
 			if err := instance.Print(); err != nil {
 				if verbose {

@@ -2,7 +2,6 @@ package env
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -58,9 +57,11 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		kubeEnv := NewKubeEnvPrinter(mocks.Injector)
+		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
+		kubeEnvPrinter.Initialize()
+		kubeEnvPrinter.Initialize()
 
-		envVars, err := kubeEnv.GetEnvVars()
+		envVars, err := kubeEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -80,9 +81,10 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		kubeEnv := NewKubeEnvPrinter(mocks.Injector)
+		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
+		kubeEnvPrinter.Initialize()
 
-		envVars, err := kubeEnv.GetEnvVars()
+		envVars, err := kubeEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -92,43 +94,16 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolveContextHandlerError", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeKubeEnvPrinterMocks(mockInjector)
-		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
-
-		kubeEnv := NewKubeEnvPrinter(mockInjector)
-
-		_, err := kubeEnv.GetEnvVars()
-		expectedError := "error resolving contextHandler: mock resolve error"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("error = %v, want %v", err, expectedError)
-		}
-	})
-
-	t.Run("AssertContextHandlerError", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeKubeEnvPrinterMocks(mockInjector)
-		mockInjector.Register("contextHandler", "invalidType")
-
-		kubeEnv := NewKubeEnvPrinter(mockInjector)
-
-		_, err := kubeEnv.GetEnvVars()
-		expectedError := "failed to cast contextHandler to context.ContextInterface"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("error = %v, want %v", err, expectedError)
-		}
-	})
-
 	t.Run("GetConfigRootError", func(t *testing.T) {
 		mocks := setupSafeKubeEnvPrinterMocks()
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock context error")
 		}
 
-		kubeEnv := NewKubeEnvPrinter(mocks.Injector)
+		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
+		kubeEnvPrinter.Initialize()
 
-		_, err := kubeEnv.GetEnvVars()
+		_, err := kubeEnvPrinter.GetEnvVars()
 		expectedError := "error retrieving configuration root directory: mock context error"
 		if err == nil || err.Error() != expectedError {
 			t.Errorf("error = %v, want %v", err, expectedError)
@@ -141,7 +116,8 @@ func TestKubeEnvPrinter_Print(t *testing.T) {
 		// Use setupSafeKubeEnvPrinterMocks to create mocks
 		mocks := setupSafeKubeEnvPrinterMocks()
 		mockInjector := mocks.Injector
-		kubeEnv := NewKubeEnvPrinter(mockInjector)
+		kubeEnvPrinter := NewKubeEnvPrinter(mockInjector)
+		kubeEnvPrinter.Initialize()
 
 		// Mock the stat function to simulate the existence of the kubeconfig file
 		stat = func(name string) (os.FileInfo, error) {
@@ -159,7 +135,7 @@ func TestKubeEnvPrinter_Print(t *testing.T) {
 		}
 
 		// Call Print and check for errors
-		err := kubeEnv.Print()
+		err := kubeEnvPrinter.Print()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -185,10 +161,10 @@ func TestKubeEnvPrinter_Print(t *testing.T) {
 
 		mockInjector := mocks.Injector
 
-		kubeEnv := NewKubeEnvPrinter(mockInjector)
-
+		kubeEnvPrinter := NewKubeEnvPrinter(mockInjector)
+		kubeEnvPrinter.Initialize()
 		// Call Print and check for errors
-		err := kubeEnv.Print()
+		err := kubeEnvPrinter.Print()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if !strings.Contains(err.Error(), "mock config error") {

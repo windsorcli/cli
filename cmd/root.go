@@ -228,6 +228,7 @@ func Initialize(inj di.Injector) {
 			}
 		case *env.EnvPrinter:
 			if resolved, ok := instance.(env.EnvPrinter); ok {
+				resolved.Initialize()
 				*v = resolved
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type env.EnvInterface\n", key)

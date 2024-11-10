@@ -73,12 +73,16 @@ func main() {
 	sshClient := ssh.NewSSHClient()
 	injector.Register("sshClient", sshClient)
 
-	// Create and register the ColimaVM instance using the mock as reference
+	// Create and register the ColimaVirt instance using the mock as reference
 	colimaVM := virt.NewColimaVirt(injector)
 	injector.Register("colimaVirt", colimaVM)
 
+	// Create and register the DockerVirt instance using the mock as reference
+	dockerVM := virt.NewDockerVirt(injector)
+	injector.Register("dockerVirt", dockerVM)
+
 	// Create and register the AwsEnv instance
-	awsEnv := env.NewAwsEnv(injector)
+	awsEnv := env.NewAwsEnvPrinter(injector)
 	injector.Register("awsEnv", awsEnv)
 
 	// Create and register the DockerEnv instance
@@ -94,19 +98,19 @@ func main() {
 	injector.Register("omniEnv", omniEnv)
 
 	// Create and register the SopsEnv instance
-	sopsEnv := env.NewSopsEnv(injector)
+	sopsEnv := env.NewSopsEnvPrinter(injector)
 	injector.Register("sopsEnv", sopsEnv)
 
 	// Create and register the TalosEnv instance
-	talosEnv := env.NewTalosEnv(injector)
+	talosEnv := env.NewTalosEnvPrinter(injector)
 	injector.Register("talosEnv", talosEnv)
 
 	// Create and register the TerraformEnv instance
-	terraformEnv := env.NewTerraformEnv(injector)
+	terraformEnv := env.NewTerraformEnvPrinter(injector)
 	injector.Register("terraformEnv", terraformEnv)
 
 	// Create and register the WindsorEnv instance
-	windsorEnv := env.NewWindsorEnv(injector)
+	windsorEnv := env.NewWindsorEnvPrinter(injector)
 	injector.Register("windsorEnv", windsorEnv)
 
 	// Inject the DI injector into the cmd package

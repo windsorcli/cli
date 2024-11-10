@@ -31,8 +31,8 @@ func TestNewDNSHelper(t *testing.T) {
 	}
 
 	// Verify that the DIContainer is correctly set
-	if helper.Injector != mockInjector {
-		t.Errorf("NewDNSHelper() Injector = %v, want %v", helper.Injector, mockInjector)
+	if helper.injector != mockInjector {
+		t.Errorf("NewDNSHelper() injector = %v, want %v", helper.injector, mockInjector)
 	}
 }
 
@@ -150,7 +150,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 
 		// Given: a DNSHelper with the mock injector
 		helper := &DNSHelper{
-			Injector: mockInjector,
+			injector: mockInjector,
 		}
 
 		// When: GetComposeConfig is called
@@ -178,7 +178,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 
 		// Given: a DNSHelper with the mock injector
 		helper := &DNSHelper{
-			Injector: mockInjector,
+			injector: mockInjector,
 		}
 
 		// When: GetComposeConfig is called
@@ -213,7 +213,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 
 		// Given: a DNSHelper with the mock injector
 		helper := &DNSHelper{
-			Injector: mockInjector,
+			injector: mockInjector,
 		}
 
 		// When: GetComposeConfig is called
@@ -435,7 +435,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		// Given: a DNSHelper with the mock injector
 		helper := &DNSHelper{
-			Injector: mockInjector,
+			injector: mockInjector,
 		}
 
 		// When: WriteConfig is called
@@ -698,7 +698,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		// Given: a DNSHelper with the mock injector
 		helper := &DNSHelper{
-			Injector: mockInjector,
+			injector: mockInjector,
 		}
 
 		// When: WriteConfig is called

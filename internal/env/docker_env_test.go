@@ -2,7 +2,6 @@ package env
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -58,9 +57,10 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		dockerEnv := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
 
-		envVars, err := dockerEnv.GetEnvVars()
+		envVars, err := dockerEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -79,9 +79,10 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		dockerEnv := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
 
-		envVars, err := dockerEnv.GetEnvVars()
+		envVars, err := dockerEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -91,43 +92,16 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolveContextHandlerError", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeDockerEnvPrinterMocks(mockInjector)
-		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
-
-		dockerEnv := NewDockerEnvPrinter(mockInjector)
-
-		_, err := dockerEnv.GetEnvVars()
-		expectedError := "error resolving contextHandler: mock resolve error"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("error = %v, want %v", err, expectedError)
-		}
-	})
-
-	t.Run("AssertContextHandlerError", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		setupSafeDockerEnvPrinterMocks(mockInjector)
-		mockInjector.Register("contextHandler", "invalidType")
-
-		dockerEnv := NewDockerEnvPrinter(mockInjector)
-
-		_, err := dockerEnv.GetEnvVars()
-		expectedError := "failed to cast contextHandler to context.ContextInterface"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("error = %v, want %v", err, expectedError)
-		}
-	})
-
 	t.Run("GetConfigRootError", func(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock context error")
 		}
 
-		dockerEnv := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
 
-		_, err := dockerEnv.GetEnvVars()
+		_, err := dockerEnvPrinter.GetEnvVars()
 		expectedError := "error retrieving configuration root directory: mock context error"
 		if err == nil || err.Error() != expectedError {
 			t.Errorf("error = %v, want %v", err, expectedError)
@@ -146,9 +120,10 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		dockerEnv := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
 
-		envVars, err := dockerEnv.GetEnvVars()
+		envVars, err := dockerEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -164,7 +139,8 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 		// Use setupSafeAwsEnvMocks to create mocks
 		mocks := setupSafeDockerEnvPrinterMocks()
 		mockInjector := mocks.Injector
-		dockerEnv := NewDockerEnvPrinter(mockInjector)
+		dockerEnvPrinter := NewDockerEnvPrinter(mockInjector)
+		dockerEnvPrinter.Initialize()
 
 		// Mock the stat function to simulate the existence of the Docker compose file
 		stat = func(name string) (os.FileInfo, error) {
@@ -182,7 +158,7 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 		}
 
 		// Call Print and check for errors
-		err := dockerEnv.Print()
+		err := dockerEnvPrinter.Print()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -207,10 +183,11 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 
 		mockInjector := mocks.Injector
 
-		dockerEnv := NewDockerEnvPrinter(mockInjector)
+		dockerEnvPrinter := NewDockerEnvPrinter(mockInjector)
+		dockerEnvPrinter.Initialize()
 
 		// Call Print and check for errors
-		err := dockerEnv.Print()
+		err := dockerEnvPrinter.Print()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if !strings.Contains(err.Error(), "mock config error") {
