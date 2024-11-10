@@ -91,6 +91,7 @@ func (y *YamlConfigHandler) SetDefault(context Context) error {
 	if _, err := y.Get(contextKey); err != nil {
 		// If the context is not defined, set it to defaultContextConfig
 		if err := y.Set(contextKey, &context); err != nil {
+			// NOTE: Untestable
 			return fmt.Errorf("error setting default context config: %w", err)
 		}
 	}
@@ -121,29 +122,6 @@ func (y *YamlConfigHandler) Get(path string) (interface{}, error) {
 
 	// Return an error if the key is not found
 	return nil, fmt.Errorf("key %s not found in configuration", path)
-}
-
-// GetContext retrieves the current context from the configuration
-func (y *YamlConfigHandler) GetContext() *string {
-	value, err := y.Get("context")
-	if err != nil || value == nil {
-		return nil
-	}
-	if context, ok := value.(string); ok {
-		return &context
-	}
-	return nil
-}
-
-// SetContext sets the current context in the configuration and saves it
-func (y *YamlConfigHandler) SetContext(context string) error {
-	if err := y.Set("context", context); err != nil {
-		return fmt.Errorf("error setting context: %w", err)
-	}
-	if err := y.SaveConfig(""); err != nil {
-		return fmt.Errorf("error saving config: %w", err)
-	}
-	return nil
 }
 
 // GetString retrieves a string value for the specified key from the configuration
@@ -345,6 +323,7 @@ func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{
 			// Recurse into the field
 			err := setValueByPath(fieldValue, pathKeys[1:], value)
 			if err != nil {
+				// NOTE: Untestable
 				return err
 			}
 		}
@@ -492,6 +471,7 @@ var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
 
 				fieldInterface, err := convert(fieldValue)
 				if err != nil {
+					// NOTE: Untestable
 					return nil, err
 				}
 				if fieldInterface != nil {
@@ -513,6 +493,7 @@ var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
 				elemVal := val.Index(i)
 				elemInterface, err := convert(elemVal)
 				if err != nil {
+					// NOTE: Untestable
 					return nil, err
 				}
 				slice = append(slice, elemInterface)
@@ -529,6 +510,7 @@ var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
 				elemVal := val.MapIndex(key)
 				elemInterface, err := convert(elemVal)
 				if err != nil {
+					// NOTE: Untestable
 					return nil, err
 				}
 				if elemInterface != nil {
@@ -557,6 +539,7 @@ var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
 	val := reflect.ValueOf(v)
 	processed, err := convert(val)
 	if err != nil {
+		// NOTE: Untestable
 		return nil, err
 	}
 	if processed == nil {

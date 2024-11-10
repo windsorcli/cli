@@ -27,8 +27,6 @@ type Shell interface {
 	PrintAlias(envVars map[string]string) error
 	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
-	// GetContextPath retrieves the configuration root path based on the current context
-	GetContextPath() (string, error)
 	// Exec executes a command with optional privilege elevation
 	Exec(verbose bool, message string, command string, args ...string) (string, error)
 }
@@ -119,23 +117,6 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 		currentDir = parentDir
 		depth++
 	}
-}
-
-// GetContextPath retrieves the configuration root path based on the current context
-func (s *DefaultShell) GetContextPath() (string, error) {
-	// Get the current context
-	context := s.configHandler.GetContext()
-	if context == nil {
-		return "", fmt.Errorf("error retrieving context: context is nil")
-	}
-
-	projectRoot, err := s.GetProjectRoot()
-	if err != nil {
-		return "", fmt.Errorf("error retrieving project root: %w", err)
-	}
-
-	configRoot := filepath.Join(projectRoot, "contexts", *context)
-	return configRoot, nil
 }
 
 // Exec executes a command and returns its output as a string

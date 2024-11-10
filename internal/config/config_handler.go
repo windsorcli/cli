@@ -5,12 +5,6 @@ type ConfigHandler interface {
 	// LoadConfig loads the configuration from the specified path
 	LoadConfig(path string) error
 
-	// GetContext retrieves the current context from the configuration
-	GetContext() *string
-
-	// SetContext sets the current context in the configuration and saves it
-	SetContext(context string) error
-
 	// GetString retrieves a string value for the specified key from the configuration
 	GetString(key string, defaultValue ...string) string
 

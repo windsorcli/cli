@@ -31,11 +31,14 @@ func NewContext(configHandler config.ConfigHandler, shell shell.Shell) *Context 
 
 // GetContext retrieves the current context from the configuration
 func (c *Context) GetContext() (string, error) {
-	context := c.ConfigHandler.GetString("context")
-	if context == "" {
+	context, err := c.ConfigHandler.Get("context")
+	if err != nil {
+		return "", fmt.Errorf("error retrieving context: %w", err)
+	}
+	if context == nil {
 		return "local", nil
 	}
-	return context, nil
+	return context.(string), nil
 }
 
 // SetContext sets the current context in the configuration and saves it
