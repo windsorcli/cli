@@ -9,23 +9,48 @@ import (
 	"time"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/helpers"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // DockerVirt implements the ContainerInterface for Docker
 type DockerVirt struct {
-	injector di.Injector
+	BaseVirt
+	helpers []helpers.Helper
 }
 
 // NewDockerVirt creates a new instance of DockerVirt using a DI injector
 func NewDockerVirt(injector di.Injector) *DockerVirt {
 	return &DockerVirt{
-		injector: injector,
+		BaseVirt: BaseVirt{
+			injector: injector,
+		},
 	}
+}
+
+// Initialize resolves the dependencies for DockerVirt
+func (v *DockerVirt) Initialize() error {
+	if err := v.BaseVirt.Initialize(); err != nil {
+		return fmt.Errorf("error initializing base: %w", err)
+	}
+
+	resolvedHelpers, err := v.injector.ResolveAll((*helpers.Helper)(nil))
+	if err != nil {
+		return fmt.Errorf("error resolving helpers: %w", err)
+	}
+
+	// Convert the resolved helpers to the correct type
+	helperSlice := make([]helpers.Helper, len(resolvedHelpers))
+	for i, helper := range resolvedHelpers {
+		if h, ok := helper.(helpers.Helper); ok {
+			helperSlice[i] = h
+		} else {
+			return fmt.Errorf("resolved helper does not implement helpers.Helper interface")
+		}
+	}
+
+	v.helpers = helperSlice
+	return nil
 }
 
 // Up starts docker-compose
@@ -36,20 +61,11 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 		verboseFlag = verbose[0]
 	}
 
-	cliConfigHandler, err := v.injector.Resolve("cliConfigHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving config handler: %w", err)
-	}
-	contextConfig, err := cliConfigHandler.(config.ConfigHandler).GetConfig()
+	// Get the context configuration
+	contextConfig, err := v.cliConfigHandler.GetConfig()
 	if err != nil {
 		return fmt.Errorf("error retrieving context configuration: %w", err)
 	}
-
-	resolvedShell, err := v.injector.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-	shell := resolvedShell.(shell.Shell)
 
 	// Check if Docker is enabled and run "docker-compose up" in daemon mode if necessary
 	if contextConfig != nil && contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
@@ -65,7 +81,7 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 		for i := 0; i < retries; i++ {
 			command := "docker-compose"
 			args := []string{"up", "-d"}
-			output, err := shell.Exec(verboseFlag, "Executing docker-compose up command", command, args...)
+			output, err := v.shell.Exec(verboseFlag, "Executing docker-compose up command", command, args...)
 			if err == nil {
 				lastErr = nil
 				break
@@ -103,11 +119,7 @@ func (v *DockerVirt) Delete(verbose ...bool) error {
 // WriteConfig writes the Docker configuration file
 func (v *DockerVirt) WriteConfig() error {
 	// Get the config root and construct the file path
-	resolvedContext, err := v.injector.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving context handler: %w", err)
-	}
-	configRoot, err := resolvedContext.(context.ContextInterface).GetConfigRoot()
+	configRoot, err := v.contextHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error retrieving config root: %w", err)
 	}
@@ -141,23 +153,15 @@ func (v *DockerVirt) WriteConfig() error {
 
 // GetContainerInfo returns a list of information about the Docker containers, including their labels
 func (v *DockerVirt) GetContainerInfo() ([]ContainerInfo, error) {
-	resolvedContext, err := v.injector.Resolve("contextHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving context handler: %w", err)
-	}
-	contextName, err := resolvedContext.(context.ContextInterface).GetContext()
+	// Get the context name
+	contextName, err := v.contextHandler.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	shellInterface, err := v.injector.Resolve("shell")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving shell: %w", err)
-	}
-	shell := shellInterface.(shell.Shell)
 	command := "docker"
 	args := []string{"ps", "--filter", "label=managed_by=windsor", "--filter", fmt.Sprintf("label=context=%s", contextName), "--format", "{{.ID}}"}
-	out, err := shell.Exec(false, "Fetching container IDs", command, args...)
+	out, err := v.shell.Exec(false, "Fetching container IDs", command, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +174,7 @@ func (v *DockerVirt) GetContainerInfo() ([]ContainerInfo, error) {
 			continue
 		}
 		inspectArgs := []string{"inspect", containerID, "--format", "{{json .Config.Labels}}"}
-		inspectOut, err := shell.Exec(false, "Inspecting container", command, inspectArgs...)
+		inspectOut, err := v.shell.Exec(false, "Inspecting container", command, inspectArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -186,7 +190,7 @@ func (v *DockerVirt) GetContainerInfo() ([]ContainerInfo, error) {
 		}
 
 		networkInspectArgs := []string{"inspect", containerID, "--format", "{{json .NetworkSettings.Networks}}"}
-		networkInspectOut, err := shell.Exec(false, "Inspecting container network settings", command, networkInspectArgs...)
+		networkInspectOut, err := v.shell.Exec(false, "Inspecting container network settings", command, networkInspectArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -240,45 +244,25 @@ func (v *DockerVirt) PrintInfo() error {
 	return nil
 }
 
-// Ensure DockerVirt implements ContainerInterface
-var _ ContainerInterface = (*DockerVirt)(nil)
+// Ensure DockerVirt implements ContainerRuntime
+var _ ContainerRuntime = (*DockerVirt)(nil)
 
 // checkDockerDaemon checks if the Docker daemon is running
 func (v *DockerVirt) checkDockerDaemon() error {
-	resolvedShell, err := v.injector.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-	shell, ok := resolvedShell.(shell.Shell)
-	if !ok {
-		return fmt.Errorf("resolved shell is not of type shell.Shell")
-	}
-
 	command := "docker"
 	args := []string{"info"}
-	_, err = shell.Exec(false, "Checking Docker daemon", command, args...)
+	_, err := v.shell.Exec(false, "Checking Docker daemon", command, args...)
 	return err
 }
 
 // getFullComposeConfig retrieves the full compose configuration for the DockerVirt.
 func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
-	// Create a network called "windsor-<context-name>"
-	resolvedContext, err := v.injector.Resolve("contextHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving context handler: %w", err)
-	}
-	contextName, err := resolvedContext.(context.ContextInterface).GetContext()
+	contextName, err := v.contextHandler.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	// Retrieve the context configuration
-	resolvedConfigHandler, err := v.injector.Resolve("cliConfigHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving config handler: %w", err)
-	}
-	configHandler := resolvedConfigHandler.(config.ConfigHandler)
-	contextConfig, err := configHandler.GetConfig()
+	contextConfig, err := v.cliConfigHandler.GetConfig()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
 	}
@@ -295,14 +279,8 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	combinedVolumes = make(map[string]types.VolumeConfig)
 	combinedNetworks = make(map[string]types.NetworkConfig)
 
-	// Initialize helpers on-the-fly
-	helpers, err := v.injector.ResolveAll((*helpers.Helper)(nil))
-	if err != nil {
-		return nil, fmt.Errorf("error resolving helpers: %w", err)
-	}
-
 	// Iterate through each helper and collect container configs
-	for _, helper := range helpers {
+	for _, helper := range v.helpers {
 		if helperInstance, ok := helper.(interface{ GetComposeConfig() (*types.Config, error) }); ok {
 			helperName := fmt.Sprintf("%T", helperInstance)
 			containerConfigs, err := helperInstance.GetComposeConfig()

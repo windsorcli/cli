@@ -38,10 +38,10 @@ var contextHandler context.ContextInterface
 var sshClient ssh.Client
 
 // colimaVirt instance
-var colimaVirt virt.VirtInterface
+var colimaVirt virt.Virt
 
 // dockerVirt instance
-var dockerVirt virt.VirtInterface
+var dockerVirt virt.Virt
 
 // awsEnv instance
 var awsEnv env.EnvPrinter
@@ -193,11 +193,12 @@ func Initialize(inj di.Injector) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type ssh.Client\n", key)
 				exitFunc(1)
 			}
-		case *virt.VirtInterface:
-			if resolved, ok := instance.(virt.VirtInterface); ok {
+		case *virt.Virt:
+			if resolved, ok := instance.(virt.Virt); ok {
+				resolved.Initialize()
 				*v = resolved
 			} else {
-				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type virt.VirtInterface\n", key)
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type virt.Virt\n", key)
 				exitFunc(1)
 			}
 		case *env.EnvPrinter:

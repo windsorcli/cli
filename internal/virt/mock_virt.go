@@ -6,6 +6,7 @@ import (
 
 // MockVirt is a struct that simulates a virt environment for testing purposes.
 type MockVirt struct {
+	InitializeFunc       func() error
 	UpFunc               func(verbose ...bool) error
 	DownFunc             func(verbose ...bool) error
 	DeleteFunc           func(verbose ...bool) error
@@ -18,6 +19,15 @@ type MockVirt struct {
 // NewMockVirt creates a new instance of MockVirt.
 func NewMockVirt() *MockVirt {
 	return &MockVirt{}
+}
+
+// Initialize initializes the mock virt.
+// If a custom InitializeFunc is provided, it will use that function instead.
+func (m *MockVirt) Initialize() error {
+	if m.InitializeFunc != nil {
+		return m.InitializeFunc()
+	}
+	return nil
 }
 
 // Up starts the mock virt.
@@ -83,7 +93,7 @@ func (m *MockVirt) GetContainerInfo() ([]ContainerInfo, error) {
 	return nil, fmt.Errorf("GetContainerInfoFunc not implemented")
 }
 
-// Ensure MockVirt implements the VirtInterface, VMInterface, and ContainerInterface
-var _ VirtInterface = (*MockVirt)(nil)
-var _ VMInterface = (*MockVirt)(nil)
-var _ ContainerInterface = (*MockVirt)(nil)
+// Ensure MockVirt implements the Virt, VirtualMachine, and ContainerRuntime interfaces
+var _ Virt = (*MockVirt)(nil)
+var _ VirtualMachine = (*MockVirt)(nil)
+var _ ContainerRuntime = (*MockVirt)(nil)
