@@ -224,7 +224,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		// Given a directory structure exceeding max depth
 		rootDir := createTempDir(t, "project-root")
 		currentDir := rootDir
-		for i := 0; i <= maxDepth; i++ {
+		for i := 0; i <= maxFolderSearchDepth; i++ {
 			subDir := filepath.Join(currentDir, "subdir")
 			if err := os.Mkdir(subDir, 0755); err != nil {
 				t.Fatalf("Failed to create subdir %d: %v", i, err)

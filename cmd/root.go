@@ -2,9 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -16,16 +14,6 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
 	"github.com/windsor-hotel/cli/internal/virt"
-)
-
-var (
-	exitFunc      = os.Exit
-	osUserHomeDir = os.UserHomeDir
-	osStat        = os.Stat
-	getwd         = os.Getwd
-	injector      di.Injector
-	verbose       bool
-	osSetenv      = os.Setenv
 )
 
 // ConfigHandler instances
@@ -48,12 +36,6 @@ var contextHandler context.ContextInterface
 
 // sshClient instance
 var sshClient ssh.Client
-
-// execCommand instance
-var execCommand = exec.Command
-
-// NetworkInterfaceIP is the IP address of the network interface
-var netInterfaces = net.Interfaces
 
 // colimaVirt instance
 var colimaVirt virt.VirtInterface
@@ -84,15 +66,6 @@ var terraformEnv env.EnvPrinter
 
 // windsorEnv instance
 var windsorEnv env.EnvPrinter
-
-func ptrBool(b bool) *bool {
-	return &b
-}
-
-// Helper functions to create pointers for basic types
-func ptrString(s string) *string {
-	return &s
-}
 
 // getCLIConfigPath returns the path to the CLI configuration file
 func getCLIConfigPath() string {

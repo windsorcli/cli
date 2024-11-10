@@ -2,10 +2,7 @@ package env
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
-	"github.com/goccy/go-yaml"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
@@ -95,29 +92,4 @@ func (e *BaseEnvPrinter) GetEnvVars() (map[string]string, error) {
 func (e *BaseEnvPrinter) PostEnvHook() error {
 	// Placeholder for post-processing logic
 	return nil
-}
-
-// stat is a variable that holds the os.Stat function for mocking
-var stat = os.Stat
-
-// Define a variable for os.Getwd() for easier testing
-var getwd = os.Getwd
-
-// Define a variable for filepath.Glob for easier testing
-var glob = filepath.Glob
-
-// Wrapper function for os.WriteFile
-var writeFile = os.WriteFile
-
-// Wrapper function for yaml.Unmarshal
-var yamlUnmarshal = yaml.Unmarshal
-
-// stringPtr returns a pointer to a string value
-func stringPtr(s string) *string {
-	return &s
-}
-
-// boolPtr returns a pointer to a boolean value
-func boolPtr(b bool) *bool {
-	return &b
 }

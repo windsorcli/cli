@@ -1,18 +1,5 @@
 package config
 
-// Helper functions to create pointers for basic types
-func ptrString(s string) *string {
-	return &s
-}
-
-func ptrBool(b bool) *bool {
-	return &b
-}
-
-func ptrInt(i int) *int {
-	return &i
-}
-
 // ConfigHandler defines the interface for handling configuration operations
 type ConfigHandler interface {
 	// LoadConfig loads the configuration from the specified path

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,27 +14,8 @@ import (
 	"github.com/windsor-hotel/cli/internal/ssh"
 )
 
-// maxDepth is the maximum depth to search for the project root
-const maxDepth = 10
-
-// getwd is a variable that points to os.Getwd, allowing it to be overridden in tests
-var getwd = os.Getwd
-
-// execCommand is a variable that points to exec.Command, allowing it to be overridden in tests
-var execCommand = osExecCommand
-
-// osExecCommand is a wrapper around exec.Command to allow it to be overridden in tests
-func osExecCommand(name string, arg ...string) *exec.Cmd {
-	return exec.Command(name, arg...)
-}
-
-// osReadFile is a variable that points to os.ReadFile, allowing it to be overridden in tests
-var osReadFile = os.ReadFile
-
-// cmdStart is a variable that points to cmd.Start, allowing it to be overridden in tests
-var cmdStart = func(cmd *exec.Cmd) error {
-	return cmd.Start()
-}
+// maxFolderSearchDepth is the maximum depth to search for the project root
+const maxFolderSearchDepth = 10
 
 // Shell interface defines methods for shell operations
 type Shell interface {
@@ -102,7 +82,7 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 
 	depth := 0
 	for {
-		if depth > maxDepth {
+		if depth > maxFolderSearchDepth {
 			return "", nil
 		}
 

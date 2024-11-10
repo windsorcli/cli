@@ -30,24 +30,6 @@ func NewYamlConfigHandler(path string) (*YamlConfigHandler, error) {
 	return handler, nil
 }
 
-// osReadFile is a variable to allow mocking os.ReadFile in tests
-var osReadFile = os.ReadFile
-
-// osWriteFile is a variable to allow mocking os.WriteFile in tests
-var osWriteFile = os.WriteFile
-
-// Override variable for yamlMarshal
-var yamlMarshal = yaml.Marshal
-
-// Override variable for yamlUnmarshal
-var yamlUnmarshal = yaml.Unmarshal
-
-// osStat is a variable to allow mocking os.Stat in tests
-var osStat = os.Stat
-
-// osMkdirAll is a variable to allow mocking os.MkdirAll in tests
-var osMkdirAll = os.MkdirAll
-
 // LoadConfig loads the configuration from the specified path
 func (y *YamlConfigHandler) LoadConfig(path string) error {
 	if _, err := osStat(path); os.IsNotExist(err) {
