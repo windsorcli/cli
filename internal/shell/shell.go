@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -34,7 +33,6 @@ type Shell interface {
 // DefaultShell is the default implementation of the Shell interface
 type DefaultShell struct {
 	projectRoot   string
-	mu            sync.Mutex
 	injector      di.Injector
 	sshClient     ssh.Client
 	configHandler config.ConfigHandler
@@ -66,9 +64,6 @@ func (s *DefaultShell) Initialize() error {
 
 // GetProjectRoot retrieves the project root directory
 func (s *DefaultShell) GetProjectRoot() (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	// Return cached project root if available
 	if s.projectRoot != "" {
 		return s.projectRoot, nil

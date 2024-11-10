@@ -12,10 +12,7 @@ import (
 // ConfigureHost sets up the local development network
 func (n *networkManager) ConfigureHost() error {
 	// Retrieve the entire configuration object
-	contextConfig, err := n.cliConfigHandler.GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get configuration: %w", err)
-	}
+	contextConfig := n.configHandler.GetConfig()
 
 	// Access the Docker configuration
 	if contextConfig.Docker == nil || contextConfig.Docker.NetworkCIDR == nil {
@@ -29,8 +26,8 @@ func (n *networkManager) ConfigureHost() error {
 	}
 	guestIP := *contextConfig.VM.Driver
 
-	// Get the shell from the DI container
-	shellInstance, err := n.diContainer.Resolve("shell")
+	// Get the shell from the injector
+	shellInstance, err := n.injector.Resolve("shell")
 	if err != nil {
 		return fmt.Errorf("failed to resolve shell instance: %w", err)
 	}

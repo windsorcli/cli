@@ -13,10 +13,10 @@ type colimaNetworkManager struct {
 }
 
 // NewColimaNetworkManager creates a new ColimaNetworkManager
-func NewColimaNetworkManager(container di.ContainerInterface) (NetworkManager, error) {
+func NewColimaNetworkManager(injector di.Injector) (NetworkManager, error) {
 	nm := &colimaNetworkManager{
 		networkManager: networkManager{
-			diContainer: container,
+			injector: injector,
 		},
 	}
 	return nm, nil
@@ -25,10 +25,7 @@ func NewColimaNetworkManager(container di.ContainerInterface) (NetworkManager, e
 // ConfigureGuest forwards the incoming guest traffic to the container network
 func (n *colimaNetworkManager) ConfigureGuest() error {
 	// Retrieve the entire configuration object
-	contextConfig, err := n.cliConfigHandler.GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get configuration: %w", err)
-	}
+	contextConfig := n.configHandler.GetConfig()
 
 	// Access the Docker configuration
 	if contextConfig.Docker == nil || contextConfig.Docker.NetworkCIDR == nil {

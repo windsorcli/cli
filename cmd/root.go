@@ -68,6 +68,9 @@ var terraformEnv env.EnvPrinter
 // windsorEnv instance
 var windsorEnv env.EnvPrinter
 
+// colimaNetworkManager instance
+var colimaNetworkManager network.NetworkManager
+
 // getCLIConfigPath returns the path to the CLI configuration file
 func getCLIConfigPath() string {
 	cliConfigPath := os.Getenv("WINDSORCONFIG")

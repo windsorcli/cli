@@ -22,27 +22,27 @@ type NetworkManager interface {
 
 // networkManager is a concrete implementation of NetworkManager
 type networkManager struct {
-	diContainer      di.ContainerInterface
-	sshClient        ssh.Client
-	shell            shell.Shell
-	secureShell      shell.SecureShell
-	cliConfigHandler config.ConfigHandler
-	colimaVirt       virt.VMInterface
-	dockerVirt       virt.ContainerInterface
+	injector      di.Injector
+	sshClient     ssh.Client
+	shell         shell.Shell
+	secureShell   shell.SecureShell
+	configHandler config.ConfigHandler
+	colimaVirt    virt.Virt
+	dockerVirt    virt.Virt
 }
 
 // NewNetworkManager creates a new NetworkManager
-func NewNetworkManager(container di.ContainerInterface) (NetworkManager, error) {
+func NewNetworkManager(injector di.Injector) (NetworkManager, error) {
 	nm := &networkManager{
-		diContainer: container,
+		injector: injector,
 	}
 	return nm, nil
 }
 
 // Initialize the network manager
 func (n *networkManager) Initialize() error {
-	// Resolve the sshClient from the DI container
-	sshClientInstance, err := n.diContainer.Resolve("sshClient")
+	// Resolve the sshClient from the injector
+	sshClientInstance, err := n.injector.Resolve("sshClient")
 	if err != nil {
 		return fmt.Errorf("failed to resolve ssh client instance: %w", err)
 	}
@@ -52,8 +52,8 @@ func (n *networkManager) Initialize() error {
 	}
 	n.sshClient = sshClient
 
-	// Get the shell from the DI container
-	shellInstance, err := n.diContainer.Resolve("shell")
+	// Get the shell from the injector
+	shellInstance, err := n.injector.Resolve("shell")
 	if err != nil {
 		return fmt.Errorf("failed to resolve shell instance: %w", err)
 	}
@@ -63,27 +63,27 @@ func (n *networkManager) Initialize() error {
 	}
 	n.shell = shellInterface
 
-	// Get the secure shell from the DI container
-	secureShellInstance, err := n.diContainer.Resolve("secureShell")
+	// Get the secure shell from the injector
+	secureShellInstance, err := n.injector.Resolve("secureShell")
 	if err != nil {
 		return fmt.Errorf("failed to resolve secure shell instance: %w", err)
 	}
-	secureShellInterface, ok := secureShellInstance.(shell.SecureShell)
+	secureShell, ok := secureShellInstance.(shell.SecureShell)
 	if !ok {
 		return fmt.Errorf("resolved secure shell instance is not of type shell.SecureShell")
 	}
-	n.secureShell = secureShellInterface
+	n.secureShell = secureShell
 
-	// Get the CLI config handler from the DI container
-	cliConfigHandlerInstance, err := n.diContainer.Resolve("cliConfigHandler")
+	// Get the CLI config handler from the injector
+	configHandlerInstance, err := n.injector.Resolve("configHandler")
 	if err != nil {
 		return fmt.Errorf("failed to resolve CLI config handler: %w", err)
 	}
-	cliConfigHandler, ok := cliConfigHandlerInstance.(config.ConfigHandler)
+	configHandler, ok := configHandlerInstance.(config.ConfigHandler)
 	if !ok {
 		return fmt.Errorf("resolved CLI config handler instance is not of type config.ConfigHandler")
 	}
-	n.cliConfigHandler = cliConfigHandler
+	n.configHandler = configHandler
 
 	return nil
 }

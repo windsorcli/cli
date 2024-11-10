@@ -14,10 +14,10 @@ import (
 )
 
 type AwsHelperMocks struct {
-	Injector         di.Injector
-	CLIConfigHandler *config.MockConfigHandler
-	Shell            *shell.MockShell
-	Context          *context.MockContext
+	Injector      di.Injector
+	ConfigHandler *config.MockConfigHandler
+	Shell         *shell.MockShell
+	Context       *context.MockContext
 }
 
 func createAwsHelperMocks(mockInjector ...di.Injector) *AwsHelperMocks {
@@ -29,16 +29,16 @@ func createAwsHelperMocks(mockInjector ...di.Injector) *AwsHelperMocks {
 	}
 
 	// Create mock instances
-	mockCLIConfigHandler := config.NewMockConfigHandler()
-	mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-	mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string { return "mock-value" }
-	mockCLIConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int { return 0 }
-	mockCLIConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool { return false }
-	mockCLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
-	mockCLIConfigHandler.SaveConfigFunc = func(path string) error { return nil }
-	mockCLIConfigHandler.GetFunc = func(key string) (interface{}, error) { return nil, nil }
-	mockCLIConfigHandler.SetDefaultFunc = func(context config.Context) error { return nil }
-	mockCLIConfigHandler.GetConfigFunc = func() *config.Context { return nil }
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string { return "mock-value" }
+	mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int { return 0 }
+	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool { return false }
+	mockConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+	mockConfigHandler.SaveConfigFunc = func(path string) error { return nil }
+	mockConfigHandler.GetFunc = func(key string) (interface{}, error) { return nil, nil }
+	mockConfigHandler.SetDefaultFunc = func(context config.Context) error { return nil }
+	mockConfigHandler.GetConfigFunc = func() *config.Context { return nil }
 
 	mockShell := shell.NewMockShell()
 	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
@@ -52,15 +52,15 @@ func createAwsHelperMocks(mockInjector ...di.Injector) *AwsHelperMocks {
 	mockContext.GetConfigRootFunc = func() (string, error) { return filepath.FromSlash("/mock/config/root"), nil }
 
 	// Register mocks in the injector
-	injector.Register("configHandler", mockCLIConfigHandler)
+	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 
 	return &AwsHelperMocks{
-		Injector:         injector,
-		CLIConfigHandler: mockCLIConfigHandler,
-		Shell:            mockShell,
-		Context:          mockContext,
+		Injector:      injector,
+		ConfigHandler: mockConfigHandler,
+		Shell:         mockShell,
+		Context:       mockContext,
 	}
 }
 
@@ -98,7 +98,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		mocks := createAwsHelperMocks()
 
 		// Mock GetConfig to return a valid AWS configuration
-		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
@@ -140,7 +140,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		mocks := createAwsHelperMocks()
 
 		// Mock GetConfig to return a valid AWS configuration
-		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
@@ -186,7 +186,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		mocks := createAwsHelperMocks()
 
 		// Mock GetConfig to return a valid AWS configuration
-		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
@@ -225,7 +225,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		mocks := createAwsHelperMocks()
 
 		// Mock GetConfig to return a context with nil AWS configuration
-		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: nil,
 			}
@@ -251,7 +251,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		mocks := createAwsHelperMocks()
 
 		// Mock GetConfig to return a context with nil Localstack configuration
-		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: nil,

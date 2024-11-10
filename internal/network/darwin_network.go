@@ -11,10 +11,7 @@ import (
 // ConfigureHost sets up the local development network
 func (n *networkManager) ConfigureHost() error {
 	// Retrieve the entire configuration object
-	contextConfig, err := n.cliConfigHandler.GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get configuration: %w", err)
-	}
+	contextConfig := n.configHandler.GetConfig()
 
 	// Access the Docker configuration
 	if contextConfig.Docker == nil || contextConfig.Docker.NetworkCIDR == nil {
@@ -51,10 +48,7 @@ func (n *networkManager) ConfigureHost() error {
 // ConfigureDNS sets up the DNS configuration
 func (n *networkManager) configureDNS() error {
 	// Retrieve the entire configuration object
-	contextConfig, err := n.cliConfigHandler.GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get configuration: %w", err)
-	}
+	contextConfig := n.configHandler.GetConfig()
 
 	// Access the DNS configuration
 	if contextConfig.DNS == nil || contextConfig.DNS.Name == nil || contextConfig.DNS.IP == nil {

@@ -18,17 +18,17 @@ func stringPtr(s string) *string {
 func TestDarwinNetworkManager_ConfigureHost(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create a mock shell
-		mockShell := shell.NewMockShell(di.NewContainer())
+		mockShell := shell.NewMockShell(di.NewInjector())
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "", nil
 		}
 
 		// Create a mock DI container
-		diContainer := di.NewContainer()
-		diContainer.Register("shell", mockShell)
+		injector := di.NewInjector()
+		injector.Register("shell", mockShell)
 
 		// Create a networkManager using NewNetworkManager with the mock DI container
-		nm, err := NewNetworkManager(diContainer)
+		nm, err := NewNetworkManager(injector)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -42,11 +42,11 @@ func TestDarwinNetworkManager_ConfigureHost(t *testing.T) {
 
 	t.Run("ResolveShellError", func(t *testing.T) {
 		// Create a mock DI container that does not register the shell
-		diContainer := di.NewMockContainer()
-		diContainer.SetResolveError("shell", fmt.Errorf("shell not found"))
+		injector := di.NewInjector()
+		injector.Register("shell", shell.NewMockShell(injector))
 
 		// Create a networkManager using NewNetworkManager with the mock DI container
-		nm, err := NewNetworkManager(diContainer.DIContainer)
+		nm, err := NewNetworkManager(injector)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -60,17 +60,17 @@ func TestDarwinNetworkManager_ConfigureHost(t *testing.T) {
 
 	t.Run("AddRouteError", func(t *testing.T) {
 		// Create a mock shell
-		mockShell := shell.NewMockShell(di.NewContainer())
+		mockShell := shell.NewMockShell(di.NewInjector())
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "mock output", fmt.Errorf("mock error")
 		}
 
 		// Create a mock DI container
-		diContainer := di.NewContainer()
-		diContainer.Register("shell", mockShell)
+		injector := di.NewInjector()
+		injector.Register("shell", mockShell)
 
 		// Create a networkManager using NewNetworkManager with the mock DI container
-		nm, err := NewNetworkManager(diContainer)
+		nm, err := NewNetworkManager(injector)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}

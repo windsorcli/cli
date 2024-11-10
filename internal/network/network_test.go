@@ -8,7 +8,7 @@ import (
 
 func TestNetworkManager_NewNetworkManager(t *testing.T) {
 	// Given: a DI container
-	diContainer := di.NewContainer()
+	diContainer := di.NewInjector()
 
 	// When: attempting to create NetworkManager
 	_, err := NewNetworkManager(diContainer)
@@ -21,7 +21,7 @@ func TestNetworkManager_NewNetworkManager(t *testing.T) {
 
 func TestNetworkManager_ConfigureGuest(t *testing.T) {
 	// Given: a DI container
-	diContainer := di.NewContainer()
+	diContainer := di.NewInjector()
 
 	// When: creating a NetworkManager and configuring the guest
 	nm, err := NewNetworkManager(diContainer)

@@ -22,7 +22,7 @@ func TestUpCmd(t *testing.T) {
 	// Common success configuration
 	successConfig := func() mocks.SuperMocks {
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled:     ptrBool(true),
