@@ -5,50 +5,29 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-// AwsEnv is a struct that simulates an AWS environment for testing purposes.
-type AwsEnv struct {
-	Env
+// AwsEnvPrinter is a struct that simulates an AWS environment for testing purposes.
+type AwsEnvPrinter struct {
+	BaseEnvPrinter
 }
 
-// NewAwsEnv initializes a new AwsEnv instance using the provided dependency injection container.
-func NewAwsEnv(diContainer di.ContainerInterface) *AwsEnv {
-	return &AwsEnv{
-		Env: Env{
-			diContainer: diContainer,
+// NewAwsEnvPrinter initializes a new awsEnv instance using the provided dependency injector.
+func NewAwsEnvPrinter(injector di.Injector) *AwsEnvPrinter {
+	return &AwsEnvPrinter{
+		BaseEnvPrinter: BaseEnvPrinter{
+			injector: injector,
 		},
 	}
 }
 
 // GetEnvVars retrieves the environment variables for the AWS environment.
-func (a *AwsEnv) GetEnvVars() (map[string]string, error) {
+func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Resolve necessary dependencies for configuration, context, and shell operations.
-	contextConfig, err := a.diContainer.Resolve("cliConfigHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
-	}
-	configHandler, ok := contextConfig.(config.ConfigHandler)
-	if !ok {
-		return nil, fmt.Errorf("failed to cast cliConfigHandler to config.ConfigHandler")
-	}
-
-	contextHandler, err := a.diContainer.Resolve("contextHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
-	}
-	context, ok := contextHandler.(context.ContextInterface)
-	if !ok {
-		return nil, fmt.Errorf("failed to cast contextHandler to context.ContextInterface")
-	}
-
 	// Access AWS-specific settings from the context configuration.
-	contextConfigData, err := configHandler.GetConfig()
+	contextConfigData, err := e.configHandler.GetConfig()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
 	}
@@ -59,7 +38,7 @@ func (a *AwsEnv) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Determine the root directory for configuration files.
-	configRoot, err := context.GetConfigRoot()
+	configRoot, err := e.contextHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 	}
@@ -91,15 +70,15 @@ func (a *AwsEnv) GetEnvVars() (map[string]string, error) {
 }
 
 // Print prints the environment variables for the AWS environment.
-func (e *AwsEnv) Print() error {
+func (e *AwsEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded Env struct with the retrieved environment variables
-	return e.Env.Print(envVars)
+	// Call the Print method of the embedded envPrinter struct with the retrieved environment variables
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure AwsEnv implements the EnvPrinter interface
-var _ EnvPrinter = (*AwsEnv)(nil)
+// Ensure awsEnv implements the EnvPrinter interface
+var _ EnvPrinter = (*AwsEnvPrinter)(nil)

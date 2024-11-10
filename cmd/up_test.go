@@ -76,7 +76,7 @@ func TestUpCmd(t *testing.T) {
 		mocks.ContextInstance.GetContextFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting context")
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When the up command is executed
 		output := captureStderr(func() {
@@ -102,7 +102,7 @@ func TestUpCmd(t *testing.T) {
 		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return nil, fmt.Errorf("mock error getting context config")
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When the up command is executed with verbose flag
 		output := captureStderr(func() {
@@ -129,7 +129,7 @@ func TestUpCmd(t *testing.T) {
 		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return nil, fmt.Errorf("mock error getting context config")
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When the up command is executed without verbose flag
 		output := captureStderr(func() {
@@ -156,7 +156,7 @@ func TestUpCmd(t *testing.T) {
 		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
 			return nil, nil
 		}
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When the up command is executed
 		output := captureStderr(func() {

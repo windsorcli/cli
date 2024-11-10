@@ -4,39 +4,22 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/briandowns/spinner"
+	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/ssh"
 )
 
-// maxDepth is the maximum depth to search for the project root
-const maxDepth = 10
-
-// getwd is a variable that points to os.Getwd, allowing it to be overridden in tests
-var getwd = os.Getwd
-
-// execCommand is a variable that points to exec.Command, allowing it to be overridden in tests
-var execCommand = osExecCommand
-
-// osExecCommand is a wrapper around exec.Command to allow it to be overridden in tests
-func osExecCommand(name string, arg ...string) *exec.Cmd {
-	return exec.Command(name, arg...)
-}
-
-// osReadFile is a variable that points to os.ReadFile, allowing it to be overridden in tests
-var osReadFile = os.ReadFile
-
-// cmdStart is a variable that points to cmd.Start, allowing it to be overridden in tests
-var cmdStart = func(cmd *exec.Cmd) error {
-	return cmd.Start()
-}
+// maxFolderSearchDepth is the maximum depth to search for the project root
+const maxFolderSearchDepth = 10
 
 // Shell interface defines methods for shell operations
 type Shell interface {
+	Initialize() error
 	// PrintEnvVars prints the provided environment variables
 	PrintEnvVars(envVars map[string]string) error
 	// PrintAlias retrieves the shell alias
@@ -51,29 +34,44 @@ type Shell interface {
 type DefaultShell struct {
 	projectRoot string
 	mu          sync.Mutex
+	injector    di.Injector
+	sshClient   ssh.Client
 }
 
 // NewDefaultShell creates a new instance of DefaultShell
-func NewDefaultShell() *DefaultShell {
-	return &DefaultShell{}
+func NewDefaultShell(injector di.Injector) *DefaultShell {
+	return &DefaultShell{
+		injector: injector,
+	}
+}
+
+func (s *DefaultShell) Initialize() error {
+	// Get the SSH client
+	sshClient, err := s.injector.Resolve("sshClient")
+	if err != nil {
+		return fmt.Errorf("failed to resolve SSH client: %w", err)
+	}
+	s.sshClient = sshClient.(ssh.Client)
+
+	return nil
 }
 
 // GetProjectRoot retrieves the project root directory
-func (d *DefaultShell) GetProjectRoot() (string, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+func (s *DefaultShell) GetProjectRoot() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// Return cached project root if available
-	if d.projectRoot != "" {
-		return d.projectRoot, nil
+	if s.projectRoot != "" {
+		return s.projectRoot, nil
 	}
 
 	// Try to get the git root first
 	cmd := execCommand("git", "rev-parse", "--show-toplevel")
 	output, err := cmd.Output()
 	if err == nil {
-		d.projectRoot = strings.TrimSpace(string(output))
-		return d.projectRoot, nil
+		s.projectRoot = strings.TrimSpace(string(output))
+		return s.projectRoot, nil
 	}
 
 	// If git command fails, search for windsor.yaml or windsor.yml
@@ -84,7 +82,7 @@ func (d *DefaultShell) GetProjectRoot() (string, error) {
 
 	depth := 0
 	for {
-		if depth > maxDepth {
+		if depth > maxFolderSearchDepth {
 			return "", nil
 		}
 
@@ -94,12 +92,12 @@ func (d *DefaultShell) GetProjectRoot() (string, error) {
 		windsorYml := filepath.Join(currentDir, "windsor.yml")
 
 		if _, err := os.Stat(windsorYaml); err == nil {
-			d.projectRoot = currentDir
-			return d.projectRoot, nil
+			s.projectRoot = currentDir
+			return s.projectRoot, nil
 		}
 		if _, err := os.Stat(windsorYml); err == nil {
-			d.projectRoot = currentDir
-			return d.projectRoot, nil
+			s.projectRoot = currentDir
+			return s.projectRoot, nil
 		}
 
 		// Move to the parent directory
@@ -114,7 +112,7 @@ func (d *DefaultShell) GetProjectRoot() (string, error) {
 }
 
 // Exec executes a command and returns its output as a string
-func (d *DefaultShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
+func (s *DefaultShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
 	cmd := execCommand(command, args...)
 
 	// Buffers to capture output
@@ -127,17 +125,17 @@ func (d *DefaultShell) Exec(verbose bool, message string, command string, args .
 		return "", fmt.Errorf("failed to start command: %w", err)
 	}
 
-	var s *spinner.Spinner
+	var spinnerInstance *spinner.Spinner
 	if message != "" {
 		// Initialize spinner only if a message is provided
-		s = spinner.New(spinner.CharSets[14], 100*time.Millisecond)
-		s.Suffix = " " + message
-		s.Start()
+		spinnerInstance = spinner.New(spinner.CharSets[14], 100*time.Millisecond)
+		spinnerInstance.Suffix = " " + message
+		spinnerInstance.Start()
 	}
 
 	err := cmd.Wait()
-	if s != nil {
-		s.Stop()
+	if spinnerInstance != nil {
+		spinnerInstance.Stop()
 	}
 
 	if err != nil {

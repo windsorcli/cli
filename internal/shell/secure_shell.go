@@ -8,34 +8,25 @@ import (
 
 	"github.com/briandowns/spinner"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/ssh"
 )
 
 // SecureShell implements the Shell interface using SSH.
 type SecureShell struct {
-	Shell
-	container di.ContainerInterface
+	DefaultShell
 }
 
 // NewSecureShell creates a new instance of SecureShell.
-func NewSecureShell(container di.ContainerInterface) (*SecureShell, error) {
+func NewSecureShell(injector di.Injector) (*SecureShell, error) {
 	return &SecureShell{
-		container: container,
+		DefaultShell: DefaultShell{
+			injector: injector,
+		},
 	}, nil
 }
 
 // Exec executes a command on the remote host via SSH and returns its output as a string.
 func (s *SecureShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
-	clientInstance, err := s.container.Resolve("sshClient")
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve SSH client: %w", err)
-	}
-	client, ok := clientInstance.(ssh.Client)
-	if !ok {
-		return "", fmt.Errorf("resolved SSH client does not implement Client interface")
-	}
-
-	clientConn, err := client.Connect()
+	clientConn, err := s.sshClient.Connect()
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to SSH client: %w", err)
 	}

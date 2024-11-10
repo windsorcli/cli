@@ -14,17 +14,17 @@ import (
 )
 
 type SopsEnvMocks struct {
-	Container      di.ContainerInterface
+	Injector       di.Injector
 	ContextHandler *context.MockContext
 	Shell          *shell.MockShell
 }
 
-func setupSopsEnvMocks(container ...di.ContainerInterface) *SopsEnvMocks {
-	var mockContainer di.ContainerInterface
-	if len(container) > 0 {
-		mockContainer = container[0]
+func setupSopsEnvMocks(injector ...di.Injector) *SopsEnvMocks {
+	var mockInjector di.Injector
+	if len(injector) > 0 {
+		mockInjector = injector[0]
 	} else {
-		mockContainer = di.NewContainer()
+		mockInjector = di.NewMockInjector()
 	}
 
 	mockContext := context.NewMockContext()
@@ -34,11 +34,11 @@ func setupSopsEnvMocks(container ...di.ContainerInterface) *SopsEnvMocks {
 
 	mockShell := shell.NewMockShell()
 
-	mockContainer.Register("contextHandler", mockContext)
-	mockContainer.Register("shell", mockShell)
+	mockInjector.Register("contextHandler", mockContext)
+	mockInjector.Register("shell", mockShell)
 
 	return &SopsEnvMocks{
-		Container:      mockContainer,
+		Injector:       mockInjector,
 		ContextHandler: mockContext,
 		Shell:          mockShell,
 	}
@@ -47,7 +47,8 @@ func setupSopsEnvMocks(container ...di.ContainerInterface) *SopsEnvMocks {
 func TestSopsEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSopsEnvMocks()
-		sopsEnv := NewSopsEnv(mocks.Container)
+		sopsEnv := NewSopsEnvPrinter(mocks.Injector)
+		sopsEnv.Initialize()
 
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
 			return filepath.FromSlash("/mock/config/root"), nil
@@ -85,56 +86,17 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		// Given a mock container with a resolution error for contextHandler
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
-
-		// And a setup with mocks using the mock container
-		mocks := setupSopsEnvMocks(mockContainer)
-
-		// When creating SopsEnv
-		sopsEnv := NewSopsEnv(mocks.Container)
-
-		// Call the GetEnvVars function
-		_, err := sopsEnv.GetEnvVars()
-
-		// Then it should return an error indicating contextHandler resolution failure
-		expectedError := "error resolving contextHandler: mock error resolving contextHandler"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("expected error containing %q, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("ErrorCastingContextHandler", func(t *testing.T) {
-		// Given a mock container with an invalid type for contextHandler
-		mockContainer := di.NewMockContainer()
-		setupSopsEnvMocks(mockContainer)
-		mockContainer.Register("contextHandler", "invalidType")
-
-		// When creating SopsEnv
-		sopsEnv := NewSopsEnv(mockContainer)
-
-		// Call the GetEnvVars function
-		_, err := sopsEnv.GetEnvVars()
-
-		// Then it should return an error indicating contextHandler casting failure
-		expectedError := "failed to cast contextHandler to context.ContextInterface"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("expected error containing %q, got %v", expectedError, err)
-		}
-	})
-
 	t.Run("ErrorRetrievingConfigRoot", func(t *testing.T) {
-		// Given a mock container with a context handler that returns an error for GetConfigRoot
-		mockContainer := di.NewMockContainer()
-		mocks := setupSopsEnvMocks(mockContainer)
+		// Given a mock injector with a context handler that returns an error for GetConfigRoot
+		mockInjector := di.NewMockInjector()
+		mocks := setupSopsEnvMocks(mockInjector)
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error retrieving config root")
 		}
 
 		// When creating SopsEnv
-		sopsEnv := NewSopsEnv(mockContainer)
+		sopsEnv := NewSopsEnvPrinter(mockInjector)
+		sopsEnv.Initialize()
 
 		// Call the GetEnvVars function
 		_, err := sopsEnv.GetEnvVars()
@@ -147,9 +109,9 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("SopsFileDoesNotExist", func(t *testing.T) {
-		// Given a mock container with a valid context handler
-		mockContainer := di.NewMockContainer()
-		mocks := setupSopsEnvMocks(mockContainer)
+		// Given a mock injector with a valid context handler
+		mockInjector := di.NewMockInjector()
+		mocks := setupSopsEnvMocks(mockInjector)
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
 			return filepath.FromSlash("/mock/config/root"), nil
 		}
@@ -162,8 +124,8 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// When creating SopsEnv
-		sopsEnv := NewSopsEnv(mockContainer)
-
+		sopsEnv := NewSopsEnvPrinter(mockInjector)
+		sopsEnv.Initialize()
 		// Call the GetEnvVars function
 		envVars, err := sopsEnv.GetEnvVars()
 
@@ -177,9 +139,9 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorDecryptingSopsFile", func(t *testing.T) {
-		// Given a mock container with a valid context handler
-		mockContainer := di.NewMockContainer()
-		mocks := setupSopsEnvMocks(mockContainer)
+		// Given a mock injector with a valid context handler
+		mockInjector := di.NewMockInjector()
+		mocks := setupSopsEnvMocks(mockInjector)
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
 			return filepath.FromSlash("/mock/config/root"), nil
 		}
@@ -199,8 +161,8 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// When creating SopsEnv
-		sopsEnv := NewSopsEnv(mockContainer)
-
+		sopsEnv := NewSopsEnvPrinter(mockInjector)
+		sopsEnv.Initialize()
 		// Call the GetEnvVars function
 		_, err := sopsEnv.GetEnvVars()
 
@@ -212,9 +174,9 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorConvertingYamlToEnvVars", func(t *testing.T) {
-		// Given a mock container with a valid context handler
-		mockContainer := di.NewMockContainer()
-		mocks := setupSopsEnvMocks(mockContainer)
+		// Given a mock injector with a valid context handler
+		mockInjector := di.NewMockInjector()
+		mocks := setupSopsEnvMocks(mockInjector)
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
 			return filepath.FromSlash("/mock/config/root"), nil
 		}
@@ -241,8 +203,8 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// When creating SopsEnv
-		sopsEnv := NewSopsEnv(mockContainer)
-
+		sopsEnv := NewSopsEnvPrinter(mockInjector)
+		sopsEnv.Initialize()
 		// Call the GetEnvVars function
 		_, err := sopsEnv.GetEnvVars()
 
@@ -329,9 +291,9 @@ func TestSopsEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Use setupSopsEnvMocks to create mocks
 		mocks := setupSopsEnvMocks()
-		mockContainer := mocks.Container
-		sopsEnv := NewSopsEnv(mockContainer)
-
+		mockInjector := mocks.Injector
+		sopsEnv := NewSopsEnvPrinter(mockInjector)
+		sopsEnv.Initialize()
 		// Mock the stat function to simulate the existence of the sops encrypted secrets file
 		stat = func(name string) (os.FileInfo, error) {
 			if filepath.Clean(name) == filepath.FromSlash("/mock/config/root/secrets.enc.yaml") {
@@ -376,10 +338,10 @@ func TestSopsEnv_Print(t *testing.T) {
 			return "", fmt.Errorf("mock config error")
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		sopsEnv := NewSopsEnv(mockContainer)
-
+		sopsEnv := NewSopsEnvPrinter(mockInjector)
+		sopsEnv.Initialize()
 		// Call Print and check for errors
 		err := sopsEnv.Print()
 		if err == nil {

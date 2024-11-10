@@ -13,20 +13,20 @@ import (
 
 // DNSHelper handles DNS configuration
 type DNSHelper struct {
-	DIContainer *di.DIContainer
+	injector di.Injector
 }
 
 // NewDNSHelper creates a new DNSHelper
-func NewDNSHelper(di *di.DIContainer) (*DNSHelper, error) {
+func NewDNSHelper(injector di.Injector) (*DNSHelper, error) {
 	return &DNSHelper{
-		DIContainer: di,
+		injector: injector,
 	}, nil
 }
 
 // GetComposeConfig returns the compose configuration
 func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name
-	contextHandler, err := h.DIContainer.Resolve("contextHandler")
+	contextHandler, err := h.injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
@@ -36,7 +36,7 @@ func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
 	}
 
 	// Retrieve the context configuration
-	cliConfigHandler, err := h.DIContainer.Resolve("cliConfigHandler")
+	cliConfigHandler, err := h.injector.Resolve("cliConfigHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
@@ -83,7 +83,7 @@ func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
 // WriteConfig writes any necessary configuration files needed by the helper
 func (h *DNSHelper) WriteConfig() error {
 	// Retrieve the context configuration
-	cliConfigHandler, err := h.DIContainer.Resolve("cliConfigHandler")
+	cliConfigHandler, err := h.injector.Resolve("cliConfigHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
@@ -103,7 +103,7 @@ func (h *DNSHelper) WriteConfig() error {
 	}
 
 	// Retrieve the configuration directory for the current context
-	resolvedContext, err := h.DIContainer.Resolve("contextHandler")
+	resolvedContext, err := h.injector.Resolve("contextHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving context: %w", err)
 	}
@@ -119,7 +119,7 @@ func (h *DNSHelper) WriteConfig() error {
 	}
 
 	// Retrieve the compose configuration from DockerHelper
-	dockerHelper, err := h.DIContainer.Resolve("dockerHelper")
+	dockerHelper, err := h.injector.Resolve("dockerHelper")
 	if err != nil {
 		return fmt.Errorf("error resolving dockerHelper: %w", err)
 	}

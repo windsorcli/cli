@@ -11,7 +11,7 @@ import (
 )
 
 type MockComponents struct {
-	Container         di.ContainerInterface
+	Injector          di.Injector
 	MockContext       *context.MockContext
 	MockShell         *shell.MockShell
 	MockConfigHandler *config.MockConfigHandler
@@ -29,6 +29,38 @@ func (m *mockYAMLEncoder) Encode(v interface{}) error {
 
 func (m *mockYAMLEncoder) Close() error {
 	return m.closeFunc()
+}
+
+// TestMockVirt_Initialize tests the Initialize method of MockVirt.
+func TestMockVirt_Initialize(t *testing.T) {
+	t.Run("InitializeFuncImplemented", func(t *testing.T) {
+		// Given a MockVirt with a custom InitializeFunc
+		mockVirt := NewMockVirt()
+		mockVirt.InitializeFunc = func() error {
+			return nil
+		}
+
+		// When calling Initialize
+		err := mockVirt.Initialize()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("InitializeFuncNotImplemented", func(t *testing.T) {
+		// Given a MockVirt without a custom InitializeFunc
+		mockVirt := NewMockVirt()
+
+		// When calling Initialize
+		err := mockVirt.Initialize()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
 }
 
 // TestMockVirt_Up tests the Up method of MockVirt.

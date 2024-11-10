@@ -19,13 +19,13 @@ type AwsHelper struct {
 }
 
 // NewAwsHelper is a constructor for AwsHelper
-func NewAwsHelper(di *di.DIContainer) (*AwsHelper, error) {
-	cliConfigHandler, err := di.Resolve("cliConfigHandler")
+func NewAwsHelper(injector di.Injector) (*AwsHelper, error) {
+	cliConfigHandler, err := injector.Resolve("cliConfigHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
-	resolvedContext, err := di.Resolve("contextHandler")
+	resolvedContext, err := injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}

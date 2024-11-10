@@ -17,22 +17,22 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-func setupSafeColimaVmMocks(optionalContainer ...di.ContainerInterface) *MockComponents {
-	var container di.ContainerInterface
-	if len(optionalContainer) > 0 {
-		container = optionalContainer[0]
+func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
+	var injector di.Injector
+	if len(optionalInjector) > 0 {
+		injector = optionalInjector[0]
 	} else {
-		container = di.NewContainer()
+		injector = di.NewInjector()
 	}
 
 	mockContext := context.NewMockContext()
-	mockShell := shell.NewMockShell()
+	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
 
-	// Register mock instances in the container
-	container.Register("contextHandler", mockContext)
-	container.Register("shell", mockShell)
-	container.Register("cliConfigHandler", mockConfigHandler)
+	// Register mock instances in the injector
+	injector.Register("contextHandler", mockContext)
+	injector.Register("shell", mockShell)
+	injector.Register("cliConfigHandler", mockConfigHandler)
 
 	// Implement GetContextFunc on mock context
 	mockContext.GetContextFunc = func() (string, error) {
@@ -53,7 +53,7 @@ func setupSafeColimaVmMocks(optionalContainer ...di.ContainerInterface) *MockCom
 	}
 
 	return &MockComponents{
-		Container:         container,
+		Injector:          injector,
 		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
@@ -65,7 +65,8 @@ func TestColimaVirt_Up(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -86,7 +87,7 @@ func TestColimaVirt_Up(t *testing.T) {
 		mocks.MockConfigHandler.LoadConfigFunc = func(path string) error { return nil }
 
 		// When calling Up
-		err := colimaVM.Up()
+		err := colimaVirt.Up()
 
 		// Then no error should be returned
 		if err != nil {
@@ -97,7 +98,8 @@ func TestColimaVirt_Up(t *testing.T) {
 	t.Run("ErrorConfiguringColima", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods to simulate an error during configuration
 		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
@@ -105,7 +107,7 @@ func TestColimaVirt_Up(t *testing.T) {
 		}
 
 		// When calling Up
-		err := colimaVM.Up()
+		err := colimaVirt.Up()
 
 		// Then an error should be returned
 		if err == nil {
@@ -116,7 +118,8 @@ func TestColimaVirt_Up(t *testing.T) {
 	t.Run("ErrorStartingColima", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods to return an error
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -124,7 +127,7 @@ func TestColimaVirt_Up(t *testing.T) {
 		}
 
 		// When calling Up
-		err := colimaVM.Up()
+		err := colimaVirt.Up()
 
 		// Then an error should be returned
 		if err == nil {
@@ -138,7 +141,8 @@ func TestColimaVirt_Down(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods to simulate a successful stop
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -146,7 +150,7 @@ func TestColimaVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := colimaVM.Down()
+		err := colimaVirt.Down()
 
 		// Then no error should be returned
 		if err != nil {
@@ -157,7 +161,8 @@ func TestColimaVirt_Down(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods to return an error
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -165,7 +170,7 @@ func TestColimaVirt_Down(t *testing.T) {
 		}
 
 		// When calling Down
-		err := colimaVM.Down()
+		err := colimaVirt.Down()
 
 		// Then an error should be returned
 		if err == nil {
@@ -179,7 +184,8 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods to simulate a successful info retrieval
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -187,7 +193,7 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 		}
 
 		// When calling GetVMInfo
-		info, err := colimaVM.GetVMInfo()
+		info, err := colimaVirt.GetVMInfo()
 
 		// Then no error should be returned and info should be correct
 		if err != nil {
@@ -217,7 +223,8 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods to return an error
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -225,53 +232,11 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 		}
 
 		// When calling GetVMInfo
-		_, err := colimaVM.GetVMInfo()
+		_, err := colimaVirt.GetVMInfo()
 
 		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
-		}
-	})
-
-	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Create a mock container
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
-
-		// Setup mock components with the mock container
-		mocks := setupSafeColimaVmMocks(mockContainer)
-		colimaVM := NewColimaVirt(mocks.Container)
-
-		// When calling GetVMInfo
-		_, err := colimaVM.GetVMInfo()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if err.Error() != "error resolving context: mock resolve error" {
-			t.Errorf("Expected error message 'error resolving context: mock resolve error', got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Create a mock container
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveError("shell", fmt.Errorf("mock resolve error"))
-
-		// Setup mock components with the mock container
-		mocks := setupSafeColimaVmMocks(mockContainer)
-		colimaVM := NewColimaVirt(mocks.Container)
-
-		// When calling GetVMInfo
-		_, err := colimaVM.GetVMInfo()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if err.Error() != "error resolving shell: mock resolve error" {
-			t.Errorf("Expected error message 'error resolving shell: mock resolve error', got %v", err)
 		}
 	})
 
@@ -281,10 +246,11 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 		mocks.MockContext.GetContextFunc = func() (string, error) {
 			return "", fmt.Errorf("mock context retrieval error")
 		}
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// When calling GetVMInfo
-		_, err := colimaVM.GetVMInfo()
+		_, err := colimaVirt.GetVMInfo()
 
 		// Then an error should be returned
 		if err == nil {
@@ -309,10 +275,11 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 			return fmt.Errorf("mock unmarshal error")
 		}
 
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// When calling GetVMInfo
-		_, err := colimaVM.GetVMInfo()
+		_, err := colimaVirt.GetVMInfo()
 
 		// Then an error should be returned
 		if err == nil {
@@ -329,7 +296,8 @@ func TestColimaVirt_Delete(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods to simulate a successful delete
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -337,7 +305,7 @@ func TestColimaVirt_Delete(t *testing.T) {
 		}
 
 		// When calling Delete
-		err := colimaVM.Delete()
+		err := colimaVirt.Delete()
 
 		// Then no error should be returned
 		if err != nil {
@@ -348,7 +316,8 @@ func TestColimaVirt_Delete(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods to return an error
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -356,7 +325,7 @@ func TestColimaVirt_Delete(t *testing.T) {
 		}
 
 		// When calling Delete
-		err := colimaVM.Delete()
+		err := colimaVirt.Delete()
 
 		// Then an error should be returned
 		if err == nil {
@@ -369,7 +338,8 @@ func TestColimaVirt_PrintInfo(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods to simulate a successful info retrieval
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -378,7 +348,7 @@ func TestColimaVirt_PrintInfo(t *testing.T) {
 
 		// Capture the output
 		output := captureStdout(func() {
-			err := colimaVM.PrintInfo()
+			err := colimaVirt.PrintInfo()
 			if err != nil {
 				t.Fatalf("Expected no error, got %v", err)
 			}
@@ -393,7 +363,8 @@ func TestColimaVirt_PrintInfo(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods to return an error
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -401,7 +372,7 @@ func TestColimaVirt_PrintInfo(t *testing.T) {
 		}
 
 		// Capture the output
-		err := colimaVM.PrintInfo()
+		err := colimaVirt.PrintInfo()
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
 		}
@@ -419,7 +390,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// And a mock config handler that simulates a successful config save
 		mocks.MockConfigHandler.SaveConfigFunc = func(path string) error {
@@ -427,7 +399,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 
 		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
+		err := colimaVirt.WriteConfig()
 
 		// Then no error should be returned
 		if err != nil {
@@ -435,61 +407,11 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Given a mock container
-		mockContainer := di.NewMockContainer()
-
-		// Simulate an error during context resolution
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock context resolution error"))
-
-		// And a ColimaVirt with mock components
-		mocks := setupSafeColimaVmMocks(mockContainer)
-		colimaVM := NewColimaVirt(mocks.Container)
-
-		// And a mock context that simulates an error during context resolution
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock context resolution error")
-		}
-
-		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock context resolution error") {
-			t.Errorf("Expected error to contain 'mock context resolution error', got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Given a mock container
-		mockContainer := di.NewMockContainer()
-
-		// Simulate an error during config handler resolution
-		mockContainer.SetResolveError("cliConfigHandler", fmt.Errorf("mock config handler resolution error"))
-
-		// And a ColimaVirt with mock components
-		mocks := setupSafeColimaVmMocks(mockContainer)
-		colimaVM := NewColimaVirt(mocks.Container)
-
-		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock config handler resolution error") {
-			t.Errorf("Expected error to contain 'mock config handler resolution error', got %v", err)
-		}
-	})
-
 	t.Run("ErrorRetrievingConfig", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Simulate an error when retrieving the configuration
 		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
@@ -497,7 +419,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 
 		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
+		err := colimaVirt.WriteConfig()
 
 		// Then an error should be returned
 		if err == nil {
@@ -511,7 +433,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("NoVMDefined", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// And a mock config handler that returns a config with no VM defined
 		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
@@ -519,7 +442,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 
 		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
+		err := colimaVirt.WriteConfig()
 
 		// Then no error should be returned
 		if err != nil {
@@ -530,7 +453,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("AArchVM", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the getArch function to return "aarch64"
 		originalGetArch := getArch
@@ -538,7 +462,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		getArch = func() string { return "aarch64" }
 
 		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
+		err := colimaVirt.WriteConfig()
 
 		// Then no error should be returned
 		if err != nil {
@@ -554,7 +478,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("ErrorSavingConfig", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the writeFile function to simulate an error during file writing
 		originalWriteFile := writeFile
@@ -564,7 +489,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 
 		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
+		err := colimaVirt.WriteConfig()
 
 		// Then an error should be returned
 		if err == nil {
@@ -578,7 +503,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("ErrorRetrievingContext", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// And a mock context that simulates an error when retrieving context
 		mocks.MockContext.GetContextFunc = func() (string, error) {
@@ -586,7 +512,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 
 		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
+		err := colimaVirt.WriteConfig()
 
 		// Then an error should be returned
 		if err == nil {
@@ -600,7 +526,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("ErrorGettingUserHomeDir", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the userHomeDir function to simulate an error
 		originalUserHomeDir := userHomeDir
@@ -610,7 +537,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 
 		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
+		err := colimaVirt.WriteConfig()
 
 		// Then an error should be returned
 		if err == nil {
@@ -624,7 +551,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("ErrorCreatingParentDirectories", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the mkdirAll function to simulate an error when creating directories
 		originalMkdirAll := mkdirAll
@@ -634,7 +562,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 
 		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
+		err := colimaVirt.WriteConfig()
 
 		// Then an error should be returned
 		if err == nil {
@@ -648,7 +576,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("ErrorCreatingColimaDirectory", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the mkdirAll function to simulate an error when creating the Colima directory
 		originalMkdirAll := mkdirAll
@@ -661,7 +590,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 
 		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
+		err := colimaVirt.WriteConfig()
 
 		// Then an error should be returned
 		if err == nil {
@@ -675,7 +604,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("ErrorEncodingYaml", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the newYAMLEncoder function to return a mock encoder that returns an error on Encode
 		originalNewYAMLEncoder := newYAMLEncoder
@@ -692,7 +622,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		defer func() { newYAMLEncoder = originalNewYAMLEncoder }()
 
 		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
+		err := colimaVirt.WriteConfig()
 
 		// Then an error should be returned
 		if err == nil {
@@ -706,7 +636,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("ErrorClosingEncoder", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the newYAMLEncoder function to simulate an error during closing
 		originalNewYAMLEncoder := newYAMLEncoder
@@ -723,7 +654,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 
 		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
+		err := colimaVirt.WriteConfig()
 
 		// Then an error should be returned
 		if err == nil {
@@ -737,7 +668,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	t.Run("ErrorRenamingTemporaryFile", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the rename function to simulate an error during renaming
 		originalRename := rename
@@ -747,7 +679,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 
 		// When calling WriteConfig
-		err := colimaVM.WriteConfig()
+		err := colimaVirt.WriteConfig()
 
 		// Then an error should be returned
 		if err == nil {
@@ -924,7 +856,8 @@ func TestColimaVirt_executeColimaCommand(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -935,7 +868,7 @@ func TestColimaVirt_executeColimaCommand(t *testing.T) {
 		}
 
 		// When calling executeColimaCommand
-		err := colimaVM.executeColimaCommand("delete", false)
+		err := colimaVirt.executeColimaCommand("delete", false)
 
 		// Then no error should be returned
 		if err != nil {
@@ -943,48 +876,17 @@ func TestColimaVirt_executeColimaCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Setup mock components with a mock container
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
-		mocks := setupSafeColimaVmMocks(mockContainer)
-		colimaVM := NewColimaVirt(mocks.Container)
-
-		// When calling executeColimaCommand
-		err := colimaVM.executeColimaCommand("delete", false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Setup mock components with a mock container
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveError("shell", fmt.Errorf("mock resolve error"))
-		mocks := setupSafeColimaVmMocks(mockContainer)
-		colimaVM := NewColimaVirt(mocks.Container)
-
-		// When calling executeColimaCommand
-		err := colimaVM.executeColimaCommand("delete", false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-	})
-
 	t.Run("ErrorGettingContext", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods to simulate an error when getting context
 		mocks.MockContext.GetContextFunc = func() (string, error) { return "", fmt.Errorf("mock context error") }
 
 		// When calling executeColimaCommand
-		err := colimaVM.executeColimaCommand("delete", false)
+		err := colimaVirt.executeColimaCommand("delete", false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -995,7 +897,8 @@ func TestColimaVirt_executeColimaCommand(t *testing.T) {
 	t.Run("ErrorExecutingCommand", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -1003,7 +906,7 @@ func TestColimaVirt_executeColimaCommand(t *testing.T) {
 		}
 
 		// When calling executeColimaCommand
-		err := colimaVM.executeColimaCommand("delete", false)
+		err := colimaVirt.executeColimaCommand("delete", false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -1017,7 +920,8 @@ func TestColimaVirt_startColima(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -1040,7 +944,7 @@ func TestColimaVirt_startColima(t *testing.T) {
 		}
 
 		// When calling startColima
-		err := colimaVM.startColima(false)
+		err := colimaVirt.startColima(false)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1048,52 +952,11 @@ func TestColimaVirt_startColima(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Setup mock components with a mock container
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeColimaVmMocks(mockContainer)
-		colimaVM := NewColimaVirt(mocks.Container)
-
-		// Set the mock container to return an error when resolving context
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
-
-		// When calling startColima
-		err := colimaVM.startColima(false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if err.Error() != "error resolving context: mock resolve error" {
-			t.Errorf("Expected error message 'error resolving context: mock resolve error', got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Setup mock components with a mock container
-		mockContainer := di.NewMockContainer()
-		mocks := setupSafeColimaVmMocks(mockContainer)
-		colimaVM := NewColimaVirt(mocks.Container)
-
-		// Set the mock container to return an error when resolving shell
-		mockContainer.SetResolveError("shell", fmt.Errorf("mock resolve error"))
-
-		// When calling startColima
-		err := colimaVM.startColima(false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if err.Error() != "error resolving shell: mock resolve error" {
-			t.Errorf("Expected error message 'error resolving shell: mock resolve error', got %v", err)
-		}
-	})
-
 	t.Run("ErrorExecutingCommand", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
@@ -1101,7 +964,7 @@ func TestColimaVirt_startColima(t *testing.T) {
 		}
 
 		// When calling startColima
-		err := colimaVM.startColima(false)
+		err := colimaVirt.startColima(false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -1112,13 +975,14 @@ func TestColimaVirt_startColima(t *testing.T) {
 	t.Run("ErrorRetrievingContext", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods
 		mocks.MockContext.GetContextFunc = func() (string, error) { return "", fmt.Errorf("mock context error") }
 
 		// When calling startColima
-		err := colimaVM.startColima(false)
+		err := colimaVirt.startColima(false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -1129,7 +993,8 @@ func TestColimaVirt_startColima(t *testing.T) {
 	t.Run("ErrorRetrievingColimaInfo", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		colimaVM := NewColimaVirt(mocks.Container)
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
 
 		// Mock the necessary methods
 		callCount := 0
@@ -1148,7 +1013,7 @@ func TestColimaVirt_startColima(t *testing.T) {
 		}
 
 		// When calling startColima
-		err := colimaVM.startColima(false)
+		err := colimaVirt.startColima(false)
 
 		// Then an error should be returned due to failure in Info() on the second call
 		if err == nil || !strings.Contains(err.Error(), "Error retrieving Colima info") {

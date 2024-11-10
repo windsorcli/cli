@@ -2,7 +2,6 @@ package env
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,18 +13,18 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-type KubeEnvMocks struct {
-	Container      di.ContainerInterface
+type KubeEnvPrinterMocks struct {
+	Injector       di.Injector
 	ContextHandler *context.MockContext
 	Shell          *shell.MockShell
 }
 
-func setupSafeKubeEnvMocks(container ...di.ContainerInterface) *KubeEnvMocks {
-	var mockContainer di.ContainerInterface
-	if len(container) > 0 {
-		mockContainer = container[0]
+func setupSafeKubeEnvPrinterMocks(injector ...di.Injector) *KubeEnvPrinterMocks {
+	var mockInjector di.Injector
+	if len(injector) > 0 {
+		mockInjector = injector[0]
 	} else {
-		mockContainer = di.NewContainer()
+		mockInjector = di.NewMockInjector()
 	}
 
 	mockContext := context.NewMockContext()
@@ -35,19 +34,19 @@ func setupSafeKubeEnvMocks(container ...di.ContainerInterface) *KubeEnvMocks {
 
 	mockShell := shell.NewMockShell()
 
-	mockContainer.Register("contextHandler", mockContext)
-	mockContainer.Register("shell", mockShell)
+	mockInjector.Register("contextHandler", mockContext)
+	mockInjector.Register("shell", mockShell)
 
-	return &KubeEnvMocks{
-		Container:      mockContainer,
+	return &KubeEnvPrinterMocks{
+		Injector:       mockInjector,
 		ContextHandler: mockContext,
 		Shell:          mockShell,
 	}
 }
 
-func TestKubeEnv_GetEnvVars(t *testing.T) {
+func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupSafeKubeEnvMocks()
+		mocks := setupSafeKubeEnvPrinterMocks()
 
 		originalStat := stat
 		defer func() { stat = originalStat }()
@@ -58,9 +57,11 @@ func TestKubeEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		kubeEnv := NewKubeEnv(mocks.Container)
+		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
+		kubeEnvPrinter.Initialize()
+		kubeEnvPrinter.Initialize()
 
-		envVars, err := kubeEnv.GetEnvVars()
+		envVars, err := kubeEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -72,7 +73,7 @@ func TestKubeEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("NoKubeConfig", func(t *testing.T) {
-		mocks := setupSafeKubeEnvMocks()
+		mocks := setupSafeKubeEnvPrinterMocks()
 
 		originalStat := stat
 		defer func() { stat = originalStat }()
@@ -80,9 +81,10 @@ func TestKubeEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		kubeEnv := NewKubeEnv(mocks.Container)
+		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
+		kubeEnvPrinter.Initialize()
 
-		envVars, err := kubeEnv.GetEnvVars()
+		envVars, err := kubeEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -92,43 +94,16 @@ func TestKubeEnv_GetEnvVars(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolveContextHandlerError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		setupSafeKubeEnvMocks(mockContainer)
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
-
-		kubeEnv := NewKubeEnv(mockContainer)
-
-		_, err := kubeEnv.GetEnvVars()
-		expectedError := "error resolving contextHandler: mock resolve error"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("error = %v, want %v", err, expectedError)
-		}
-	})
-
-	t.Run("AssertContextHandlerError", func(t *testing.T) {
-		container := di.NewContainer()
-		setupSafeKubeEnvMocks(container)
-		container.Register("contextHandler", "invalidType")
-
-		kubeEnv := NewKubeEnv(container)
-
-		_, err := kubeEnv.GetEnvVars()
-		expectedError := "failed to cast contextHandler to context.ContextInterface"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("error = %v, want %v", err, expectedError)
-		}
-	})
-
 	t.Run("GetConfigRootError", func(t *testing.T) {
-		mocks := setupSafeKubeEnvMocks()
+		mocks := setupSafeKubeEnvPrinterMocks()
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock context error")
 		}
 
-		kubeEnv := NewKubeEnv(mocks.Container)
+		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
+		kubeEnvPrinter.Initialize()
 
-		_, err := kubeEnv.GetEnvVars()
+		_, err := kubeEnvPrinter.GetEnvVars()
 		expectedError := "error retrieving configuration root directory: mock context error"
 		if err == nil || err.Error() != expectedError {
 			t.Errorf("error = %v, want %v", err, expectedError)
@@ -136,12 +111,13 @@ func TestKubeEnv_GetEnvVars(t *testing.T) {
 	})
 }
 
-func TestKubeEnv_Print(t *testing.T) {
+func TestKubeEnvPrinter_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Use setupSafeKubeEnvMocks to create mocks
-		mocks := setupSafeKubeEnvMocks()
-		mockContainer := mocks.Container
-		kubeEnv := NewKubeEnv(mockContainer)
+		// Use setupSafeKubeEnvPrinterMocks to create mocks
+		mocks := setupSafeKubeEnvPrinterMocks()
+		mockInjector := mocks.Injector
+		kubeEnvPrinter := NewKubeEnvPrinter(mockInjector)
+		kubeEnvPrinter.Initialize()
 
 		// Mock the stat function to simulate the existence of the kubeconfig file
 		stat = func(name string) (os.FileInfo, error) {
@@ -159,7 +135,7 @@ func TestKubeEnv_Print(t *testing.T) {
 		}
 
 		// Call Print and check for errors
-		err := kubeEnv.Print()
+		err := kubeEnvPrinter.Print()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -175,20 +151,20 @@ func TestKubeEnv_Print(t *testing.T) {
 	})
 
 	t.Run("GetConfigError", func(t *testing.T) {
-		// Use setupSafeKubeEnvMocks to create mocks
-		mocks := setupSafeKubeEnvMocks()
+		// Use setupSafeKubeEnvPrinterMocks to create mocks
+		mocks := setupSafeKubeEnvPrinterMocks()
 
 		// Override the GetConfigFunc to simulate an error
 		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock config error")
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		kubeEnv := NewKubeEnv(mockContainer)
-
+		kubeEnvPrinter := NewKubeEnvPrinter(mockInjector)
+		kubeEnvPrinter.Initialize()
 		// Call Print and check for errors
-		err := kubeEnv.Print()
+		err := kubeEnvPrinter.Print()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if !strings.Contains(err.Error(), "mock config error") {

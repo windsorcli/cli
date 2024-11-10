@@ -16,19 +16,19 @@ import (
 )
 
 type AwsEnvMocks struct {
-	Container      di.ContainerInterface
+	Injector       di.Injector
 	ConfigHandler  *config.MockConfigHandler
 	ContextHandler *context.MockContext
 	Shell          *shell.MockShell
 }
 
-func setupSafeAwsEnvMocks(container ...di.ContainerInterface) *AwsEnvMocks {
-	// Use the provided DI container or create a new one if not provided
-	var mockContainer di.ContainerInterface
-	if len(container) > 0 {
-		mockContainer = container[0]
+func setupSafeAwsEnvMocks(injector ...di.Injector) *AwsEnvMocks {
+	// Use the provided injector or create a new one if not provided
+	var mockInjector di.Injector
+	if len(injector) > 0 {
+		mockInjector = injector[0]
 	} else {
-		mockContainer = di.NewContainer()
+		mockInjector = di.NewMockInjector()
 	}
 
 	// Create a mock ConfigHandler using its constructor
@@ -53,13 +53,13 @@ func setupSafeAwsEnvMocks(container ...di.ContainerInterface) *AwsEnvMocks {
 	// Create a mock Shell using its constructor
 	mockShell := shell.NewMockShell()
 
-	// Register the mocks in the DI container
-	mockContainer.Register("cliConfigHandler", mockConfigHandler)
-	mockContainer.Register("contextHandler", mockContext)
-	mockContainer.Register("shell", mockShell)
+	// Register the mocks in the DI injector
+	mockInjector.Register("cliConfigHandler", mockConfigHandler)
+	mockInjector.Register("contextHandler", mockContext)
+	mockInjector.Register("shell", mockShell)
 
 	return &AwsEnvMocks{
-		Container:      mockContainer,
+		Injector:       mockInjector,
 		ConfigHandler:  mockConfigHandler,
 		ContextHandler: mockContext,
 		Shell:          mockShell,
@@ -79,10 +79,11 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		awsEnv := NewAwsEnv(mocks.Container)
+		awsEnvPrinter := NewAwsEnvPrinter(mocks.Injector)
+		awsEnvPrinter.Initialize()
 
 		// When calling GetEnvVars
-		envVars, err := awsEnv.GetEnvVars()
+		envVars, err := awsEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
@@ -91,115 +92,6 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		expectedConfigFile := filepath.FromSlash("/mock/config/root/.aws/config")
 		if envVars["AWS_CONFIG_FILE"] != expectedConfigFile {
 			t.Errorf("AWS_CONFIG_FILE = %v, want %v", envVars["AWS_CONFIG_FILE"], expectedConfigFile)
-		}
-	})
-
-	t.Run("ResolveConfigHandlerError", func(t *testing.T) {
-		// Create a mock DI container using NewMockContainer
-		mockContainer := di.NewMockContainer()
-
-		// Use setupSafeAwsEnvMocks to create mocks with the mock container
-		setupSafeAwsEnvMocks(mockContainer)
-
-		// Set the resolve error for cliConfigHandler in the mock container
-		mockContainer.SetResolveError("cliConfigHandler", fmt.Errorf("mock resolve error"))
-
-		awsEnv := NewAwsEnv(mockContainer)
-
-		// Capture stdout
-		output := captureStdout(t, func() {
-			// When calling GetEnvVars
-			_, err := awsEnv.GetEnvVars()
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		// Then the output should indicate the resolve error
-		expectedOutput := "error resolving cliConfigHandler: mock resolve error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("AssertConfigHandlerError", func(t *testing.T) {
-		// Create a normal DI container
-		container := di.NewContainer()
-
-		// Register an invalid config handler with the container
-		container.Register("cliConfigHandler", "invalidType")
-
-		awsEnv := NewAwsEnv(container)
-
-		// Capture stdout
-		output := captureStdout(t, func() {
-			// When calling GetEnvVars
-			_, err := awsEnv.GetEnvVars()
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		// Then the output should indicate the type assertion error
-		expectedOutput := "failed to cast cliConfigHandler to config.ConfigHandler\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("ResolveContextHandlerError", func(t *testing.T) {
-		// Create a mock DI container using NewMockContainer
-		mockContainer := di.NewMockContainer()
-
-		// Use setupSafeAwsEnvMocks to create mocks with the mock container
-		setupSafeAwsEnvMocks(mockContainer)
-
-		// Set the resolve error for contextHandler in the mock container
-		mockContainer.SetResolveError("contextHandler", fmt.Errorf("mock resolve error"))
-
-		awsEnv := NewAwsEnv(mockContainer)
-
-		// Capture stdout
-		output := captureStdout(t, func() {
-			// When calling GetEnvVars
-			_, err := awsEnv.GetEnvVars()
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		// Then the output should indicate the resolve error
-		expectedOutput := "error resolving contextHandler: mock resolve error\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("AssertContextHandlerError", func(t *testing.T) {
-		// Create a mock DI container using NewContainer
-		mockContainer := di.NewContainer()
-
-		// Use setupSafeAwsEnvMocks to create mocks with the mock container
-		setupSafeAwsEnvMocks(mockContainer)
-
-		// Register an invalid context handler with the container
-		mockContainer.Register("contextHandler", "invalidType")
-
-		awsEnv := NewAwsEnv(mockContainer)
-
-		// Capture stdout
-		output := captureStdout(t, func() {
-			// When calling GetEnvVars
-			_, err := awsEnv.GetEnvVars()
-			if err != nil {
-				fmt.Println(err)
-			}
-		})
-
-		// Then the output should indicate the type assertion error
-		expectedOutput := "failed to cast contextHandler to context.ContextInterface\n"
-		if output != expectedOutput {
-			t.Errorf("output = %v, want %v", output, expectedOutput)
 		}
 	})
 
@@ -212,14 +104,15 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 			return nil, errors.New("mock config error")
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		awsEnv := NewAwsEnv(mockContainer)
+		awsEnvPrinter := NewAwsEnvPrinter(mockInjector)
+		awsEnvPrinter.Initialize()
 
 		// Capture stdout
 		output := captureStdout(t, func() {
 			// When calling GetEnvVars
-			_, err := awsEnv.GetEnvVars()
+			_, err := awsEnvPrinter.GetEnvVars()
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -241,14 +134,15 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 			return &config.Context{AWS: nil}, nil
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		awsEnv := NewAwsEnv(mockContainer)
+		awsEnvPrinter := NewAwsEnvPrinter(mockInjector)
+		awsEnvPrinter.Initialize()
 
 		// Capture stdout
 		output := captureStdout(t, func() {
 			// When calling GetEnvVars
-			_, err := awsEnv.GetEnvVars()
+			_, err := awsEnvPrinter.GetEnvVars()
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -282,14 +176,15 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 			return "/non/existent/path", nil
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		awsEnv := NewAwsEnv(mockContainer)
+		awsEnvPrinter := NewAwsEnvPrinter(mockInjector)
+		awsEnvPrinter.Initialize()
 
 		// Capture stdout
 		output := captureStdout(t, func() {
 			// When calling GetEnvVars
-			_, err := awsEnv.GetEnvVars()
+			_, err := awsEnvPrinter.GetEnvVars()
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -310,14 +205,15 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 			return "", errors.New("mock context error")
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		awsEnv := NewAwsEnv(mockContainer)
+		awsEnvPrinter := NewAwsEnvPrinter(mockInjector)
+		awsEnvPrinter.Initialize()
 
 		// Capture stdout
 		output := captureStdout(t, func() {
 			// When calling GetEnvVars
-			_, err := awsEnv.GetEnvVars()
+			_, err := awsEnvPrinter.GetEnvVars()
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -335,8 +231,9 @@ func TestAwsEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Use setupSafeAwsEnvMocks to create mocks
 		mocks := setupSafeAwsEnvMocks()
-		mockContainer := mocks.Container
-		awsEnv := NewAwsEnv(mockContainer)
+		mockInjector := mocks.Injector
+		awsEnvPrinter := NewAwsEnvPrinter(mockInjector)
+		awsEnvPrinter.Initialize()
 
 		// Mock the stat function to simulate the existence of the AWS config file
 		stat = func(name string) (os.FileInfo, error) {
@@ -354,7 +251,7 @@ func TestAwsEnv_Print(t *testing.T) {
 		}
 
 		// Call Print and check for errors
-		err := awsEnv.Print()
+		err := awsEnvPrinter.Print()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -381,12 +278,13 @@ func TestAwsEnv_Print(t *testing.T) {
 			return nil, errors.New("mock config error")
 		}
 
-		mockContainer := mocks.Container
+		mockInjector := mocks.Injector
 
-		awsEnv := NewAwsEnv(mockContainer)
+		awsEnvPrinter := NewAwsEnvPrinter(mockInjector)
+		awsEnvPrinter.Initialize()
 
 		// Call Print and check for errors
-		err := awsEnv.Print()
+		err := awsEnvPrinter.Print()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if !strings.Contains(err.Error(), "mock config error") {

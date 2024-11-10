@@ -20,18 +20,18 @@ type GitHelper struct {
 }
 
 // NewGitHelper is a constructor for GitHelper
-func NewGitHelper(di *di.DIContainer) (*GitHelper, error) {
-	cliConfigHandler, err := di.Resolve("cliConfigHandler")
+func NewGitHelper(injector di.Injector) (*GitHelper, error) {
+	cliConfigHandler, err := injector.Resolve("cliConfigHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
-	resolvedShell, err := di.Resolve("shell")
+	resolvedShell, err := injector.Resolve("shell")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}
 
-	resolvedContext, err := di.Resolve("contextHandler")
+	resolvedContext, err := injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}

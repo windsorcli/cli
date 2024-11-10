@@ -2,9 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -16,16 +14,6 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
 	"github.com/windsor-hotel/cli/internal/virt"
-)
-
-var (
-	exitFunc      = os.Exit
-	osUserHomeDir = os.UserHomeDir
-	osStat        = os.Stat
-	getwd         = os.Getwd
-	container     di.ContainerInterface
-	verbose       bool
-	osSetenv      = os.Setenv
 )
 
 // ConfigHandler instances
@@ -49,17 +37,11 @@ var contextHandler context.ContextInterface
 // sshClient instance
 var sshClient ssh.Client
 
-// execCommand instance
-var execCommand = exec.Command
-
-// NetworkInterfaceIP is the IP address of the network interface
-var netInterfaces = net.Interfaces
-
 // colimaVirt instance
-var colimaVirt virt.VirtInterface
+var colimaVirt virt.Virt
 
 // dockerVirt instance
-var dockerVirt virt.VirtInterface
+var dockerVirt virt.Virt
 
 // awsEnv instance
 var awsEnv env.EnvPrinter
@@ -84,15 +66,6 @@ var terraformEnv env.EnvPrinter
 
 // windsorEnv instance
 var windsorEnv env.EnvPrinter
-
-func ptrBool(b bool) *bool {
-	return &b
-}
-
-// Helper functions to create pointers for basic types
-func ptrString(s string) *string {
-	return &s
-}
 
 // getCLIConfigPath returns the path to the CLI configuration file
 func getCLIConfigPath() string {
@@ -173,12 +146,12 @@ func Execute() {
 	}
 }
 
-// Initialize sets dependency injection container
-func Initialize(cont di.ContainerInterface) {
-	container = cont
+// Initialize sets dependency injector
+func Initialize(inj di.Injector) {
+	injector = inj
 
 	resolveAndAssign := func(key string, target interface{}) {
-		instance, err := container.Resolve(key)
+		instance, err := injector.Resolve(key)
 		if err != nil || instance == nil {
 			fmt.Fprintf(os.Stderr, "Error resolving %s: %v\n", key, err)
 			exitFunc(1)
@@ -193,6 +166,10 @@ func Initialize(cont di.ContainerInterface) {
 			}
 		case *shell.Shell:
 			if resolved, ok := instance.(shell.Shell); ok {
+				if err := resolved.Initialize(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error initializing shell.Shell: %v\n", err)
+					exitFunc(1)
+				}
 				*v = resolved
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type shell.Shell\n", key)
@@ -219,15 +196,23 @@ func Initialize(cont di.ContainerInterface) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type ssh.Client\n", key)
 				exitFunc(1)
 			}
-		case *virt.VirtInterface:
-			if resolved, ok := instance.(virt.VirtInterface); ok {
+		case *virt.Virt:
+			if resolved, ok := instance.(virt.Virt); ok {
+				if err := resolved.Initialize(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error initializing virt.Virt: %v\n", err)
+					exitFunc(1)
+				}
 				*v = resolved
 			} else {
-				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type virt.VirtInterface\n", key)
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type virt.Virt\n", key)
 				exitFunc(1)
 			}
 		case *env.EnvPrinter:
 			if resolved, ok := instance.(env.EnvPrinter); ok {
+				if err := resolved.Initialize(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error initializing env.EnvPrinter: %v\n", err)
+					exitFunc(1)
+				}
 				*v = resolved
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type env.EnvInterface\n", key)

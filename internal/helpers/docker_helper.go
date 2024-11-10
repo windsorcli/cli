@@ -25,25 +25,25 @@ type ServiceInfo struct {
 type DockerHelper struct {
 	ConfigHandler config.ConfigHandler
 	Context       context.ContextInterface
-	DIContainer   *di.DIContainer
+	Injector      di.Injector
 	Shell         shell.Shell
 }
 
 const registryImage = "registry:2.8.3"
 
 // NewDockerHelper is a constructor for DockerHelper
-func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
-	cliConfigHandler, err := di.Resolve("cliConfigHandler")
+func NewDockerHelper(injector di.Injector) (*DockerHelper, error) {
+	cliConfigHandler, err := injector.Resolve("cliConfigHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
 
-	resolvedContext, err := di.Resolve("contextHandler")
+	resolvedContext, err := injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
-	resolvedShell, err := di.Resolve("shell")
+	resolvedShell, err := injector.Resolve("shell")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}
@@ -51,7 +51,7 @@ func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
 	return &DockerHelper{
 		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
-		DIContainer:   di,
+		Injector:      injector,
 		Shell:         resolvedShell.(shell.Shell),
 	}, nil
 }
@@ -152,7 +152,7 @@ func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	combinedNetworks = make(map[string]types.NetworkConfig)
 
 	// Initialize helpers on-the-fly
-	helpers, err := h.DIContainer.ResolveAll((*Helper)(nil))
+	helpers, err := h.Injector.ResolveAll((*Helper)(nil))
 	if err != nil {
 		return nil, fmt.Errorf("error resolving helpers: %w", err)
 	}

@@ -7,45 +7,29 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-// TerraformEnv is a struct that simulates a Terraform environment for testing purposes.
-type TerraformEnv struct {
-	Env
+// TerraformEnvPrinter is a struct that simulates a Terraform environment for testing purposes.
+type TerraformEnvPrinter struct {
+	BaseEnvPrinter
 }
 
-// TerraformDeps holds the resolved dependencies for TerraformEnv.
-type TerraformDeps struct {
-	ContextInterface context.ContextInterface
-	Shell            shell.Shell
-	ConfigHandler    config.ConfigHandler
-}
-
-// NewTerraformEnv initializes a new TerraformEnv instance using the provided dependency injection container.
-func NewTerraformEnv(diContainer di.ContainerInterface) *TerraformEnv {
-	return &TerraformEnv{
-		Env: Env{
-			diContainer: diContainer,
+// NewTerraformEnvPrinter initializes a new TerraformEnvPrinter instance using the provided dependency injector.
+func NewTerraformEnvPrinter(injector di.Injector) *TerraformEnvPrinter {
+	return &TerraformEnvPrinter{
+		BaseEnvPrinter: BaseEnvPrinter{
+			injector: injector,
 		},
 	}
 }
 
 // GetEnvVars retrieves the environment variables for the Terraform environment.
-func (e *TerraformEnv) GetEnvVars() (map[string]string, error) {
+func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Resolve dependencies for context and shell operations
-	deps, err := e.resolveDependencies()
-	if err != nil {
-		return nil, fmt.Errorf("error resolving dependencies: %w", err)
-	}
-
 	// Get the configuration root directory
-	configRoot, err := deps.ContextInterface.GetConfigRoot()
+	configRoot, err := e.contextHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error getting config root: %w", err)
 	}
@@ -94,74 +78,32 @@ func (e *TerraformEnv) GetEnvVars() (map[string]string, error) {
 }
 
 // PostEnvHook executes any required operations after setting the environment variables.
-func (e *TerraformEnv) PostEnvHook() error {
+func (e *TerraformEnvPrinter) PostEnvHook() error {
 	return e.generateBackendOverrideTf()
 }
 
 // Print prints the environment variables for the Terraform environment.
-func (e *TerraformEnv) Print() error {
+func (e *TerraformEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded Env struct with the retrieved environment variables
-	return e.Env.Print(envVars)
+	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure TerraformEnv implements the EnvPrinter interface
-var _ EnvPrinter = (*TerraformEnv)(nil)
+// Ensure TerraformEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*TerraformEnvPrinter)(nil)
 
-// resolveDependencies is a convenience function to resolve and cast multiple dependencies at once.
-func (e *TerraformEnv) resolveDependencies() (*TerraformDeps, error) {
-	contextHandler, err := e.diContainer.Resolve("contextHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
-	}
-	contextInterface, ok := contextHandler.(context.ContextInterface)
-	if !ok {
-		return nil, fmt.Errorf("contextHandler is not of type ContextInterface")
-	}
-
-	shellInstance, err := e.diContainer.Resolve("shell")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving shell: %w", err)
-	}
-	shell, ok := shellInstance.(shell.Shell)
-	if !ok {
-		return nil, fmt.Errorf("shell is not of type Shell")
-	}
-
-	configHandler, err := e.diContainer.Resolve("cliConfigHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
-	}
-	cliConfigHandler, ok := configHandler.(config.ConfigHandler)
-	if !ok {
-		return nil, fmt.Errorf("cliConfigHandler is not of type ConfigHandler")
-	}
-
-	return &TerraformDeps{
-		ContextInterface: contextInterface,
-		Shell:            shell,
-		ConfigHandler:    cliConfigHandler,
-	}, nil
-}
-
-func (e *TerraformEnv) getAlias() (map[string]string, error) {
-	// Resolve necessary dependencies for context operations.
-	deps, err := e.resolveDependencies()
-	if err != nil {
-		return nil, err
-	}
-
+func (e *TerraformEnvPrinter) getAlias() (map[string]string, error) {
 	// Get the current context
-	currentContext, err := deps.ContextInterface.GetContext()
+	currentContext, err := e.contextHandler.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	contextConfig, err := deps.ConfigHandler.GetConfig()
+	contextConfig, err := e.configHandler.GetConfig()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context config: %w", err)
 	}
@@ -236,12 +178,7 @@ func sanitizeForK8s(input string) string {
 }
 
 // generateBackendOverrideTf generates the backend_override.tf file for the Terraform project
-func (h *TerraformEnv) generateBackendOverrideTf() error {
-	deps, err := h.resolveDependencies()
-	if err != nil {
-		return err
-	}
-
+func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 	// Get the current working directory
 	currentPath, err := getwd()
 	if err != nil {
@@ -260,13 +197,13 @@ func (h *TerraformEnv) generateBackendOverrideTf() error {
 	}
 
 	// Get the configuration root directory
-	configRoot, err := deps.ContextInterface.GetConfigRoot()
+	configRoot, err := e.contextHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
 
 	// Get the current backend
-	contextConfig, err := deps.ConfigHandler.GetConfig()
+	contextConfig, err := e.configHandler.GetConfig()
 	if err != nil {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}

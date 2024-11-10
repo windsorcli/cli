@@ -17,15 +17,15 @@ func (s *MockSpinner) Start() {}
 func (s *MockSpinner) Stop()  {}
 
 // setSafeSecureShellMocks creates a safe "supermock" where all things are mocked and everything returns a non-error.
-func setSafeSecureShellMocks(container ...di.ContainerInterface) struct {
-	Container  di.ContainerInterface
+func setSafeSecureShellMocks(injector ...di.Injector) struct {
+	Container  di.Injector
 	Client     *ssh.MockClient
 	ClientConn *ssh.MockClientConn
 	Session    *ssh.MockSession
 	Shell      *MockShell
 } {
-	if len(container) == 0 {
-		container = []di.ContainerInterface{di.NewMockContainer()}
+	if len(injector) == 0 {
+		injector = []di.Injector{di.NewMockInjector()}
 	}
 
 	mockSession := &ssh.MockSession{
@@ -50,24 +50,24 @@ func setSafeSecureShellMocks(container ...di.ContainerInterface) struct {
 		},
 	}
 
-	mockShell := NewMockShell()
+	mockShell := NewMockShell(injector[0])
 
-	c := container[0]
-	if _, err := c.Resolve("sshClient"); err != nil {
-		c.Register("sshClient", mockClient)
+	i := injector[0]
+	if _, err := i.Resolve("sshClient"); err != nil {
+		i.Register("sshClient", mockClient)
 	}
-	if _, err := c.Resolve("defaultShell"); err != nil {
-		c.Register("defaultShell", mockShell)
+	if _, err := i.Resolve("defaultShell"); err != nil {
+		i.Register("defaultShell", mockShell)
 	}
 
 	return struct {
-		Container  di.ContainerInterface
+		Container  di.Injector
 		Client     *ssh.MockClient
 		ClientConn *ssh.MockClientConn
 		Session    *ssh.MockSession
 		Shell      *MockShell
 	}{
-		Container:  c,
+		Container:  i,
 		Client:     mockClient,
 		ClientConn: mockClientConn,
 		Session:    mockSession,
@@ -99,6 +99,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		}
 
 		secureShell, err := NewSecureShell(mocks.Container)
+		secureShell.Initialize()
 		assertNoError(t, err)
 
 		output, err := secureShell.Exec(false, message, command, args...)
@@ -127,6 +128,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		}
 
 		secureShell, err := NewSecureShell(mocks.Container)
+		secureShell.Initialize()
 		assertNoError(t, err)
 
 		output, err := secureShell.Exec(false, message, command, args...)
@@ -138,44 +140,6 @@ func TestSecureShell_Exec(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolveSSHClientError", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveError("sshClient", fmt.Errorf("failed to resolve SSH client"))
-
-		mocks := setSafeSecureShellMocks(mockContainer)
-
-		secureShell, err := NewSecureShell(mocks.Container)
-		assertNoError(t, err)
-
-		_, err = secureShell.Exec(false, "Running command", "echo", "hello")
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-		expectedError := "failed to resolve SSH client"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("InvalidSSHClient", func(t *testing.T) {
-		mockContainer := di.NewMockContainer()
-		mockContainer.Register("sshClient", "not_a_valid_ssh_client")
-
-		mocks := setSafeSecureShellMocks(mockContainer)
-
-		secureShell, err := NewSecureShell(mocks.Container)
-		assertNoError(t, err)
-
-		_, err = secureShell.Exec(false, "Running command", "echo", "hello")
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-		expectedError := "resolved SSH client does not implement Client interface"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
-
 	t.Run("ConnectError", func(t *testing.T) {
 		mocks := setSafeSecureShellMocks()
 		mocks.Client.ConnectFunc = func() (ssh.ClientConn, error) {
@@ -183,6 +147,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		}
 
 		secureShell, err := NewSecureShell(mocks.Container)
+		secureShell.Initialize()
 		assertNoError(t, err)
 
 		_, err = secureShell.Exec(false, "Running command", "echo", "hello")
@@ -202,6 +167,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		}
 
 		secureShell, err := NewSecureShell(mocks.Container)
+		secureShell.Initialize()
 		assertNoError(t, err)
 
 		_, err = secureShell.Exec(false, "Running command", "echo", "hello")
@@ -237,6 +203,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		}
 
 		secureShell, err := NewSecureShell(mocks.Container)
+		secureShell.Initialize()
 		assertNoError(t, err)
 
 		output, err := secureShell.Exec(true, message, command, args...)
