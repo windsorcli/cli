@@ -232,6 +232,10 @@ func TestShell_GetProjectRoot(t *testing.T) {
 			t.Fatalf("Unexpected error: %v", err)
 		}
 		expectedRootDir := resolveSymlinks(t, rootDir)
+
+		// Normalize paths for Windows compatibility
+		expectedRootDir = normalizePath(expectedRootDir)
+		projectRoot = normalizePath(projectRoot)
 		if expectedRootDir != projectRoot {
 			t.Errorf("Expected project root %q, got %q", expectedRootDir, projectRoot)
 		}
@@ -258,6 +262,11 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 
 		expectedRootDir := resolveSymlinks(t, rootDir)
+
+		// Normalize paths for Windows compatibility
+		expectedRootDir = normalizePath(expectedRootDir)
+		projectRoot = normalizePath(projectRoot)
+
 		if expectedRootDir != projectRoot {
 			t.Errorf("Expected project root %q, got %q", expectedRootDir, projectRoot)
 		}
@@ -270,6 +279,10 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
+
+		// Normalize cached project root for Windows compatibility
+		cachedProjectRoot = normalizePath(cachedProjectRoot)
+
 		if expectedRootDir != cachedProjectRoot {
 			t.Errorf("Expected cached project root %q, got %q", expectedRootDir, cachedProjectRoot)
 		}
