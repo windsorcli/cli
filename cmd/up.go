@@ -18,6 +18,9 @@ var upCmd = &cobra.Command{
 		// Determine if Docker is being used
 		dockerEnabled := configHandler.GetBool("docker.enabled")
 
+		// Determine if DNS is configured
+		dnsName := configHandler.GetString("dns.name")
+
 		// Start Colima if it is being used
 		if driver == "colima" {
 			// Write the Colima configuration
@@ -44,23 +47,27 @@ var upCmd = &cobra.Command{
 			}
 		}
 
-		// Configure the guest network
+		// Configure the network for Colima
 		if driver == "colima" {
 			if err := colimaNetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("Error configuring guest network: %w", err)
 			}
-		}
-
-		// Configure the host network
-		if driver == "colima" {
 			if err := colimaNetworkManager.ConfigureHost(); err != nil {
 				return fmt.Errorf("Error configuring host network: %w", err)
+			}
+		}
+
+		// Configure DNS if dns.name is set
+		if dnsName != "" {
+			if err := colimaNetworkManager.ConfigureDNS(); err != nil {
+				return fmt.Errorf("Error configuring DNS: %w", err)
 			}
 		}
 
 		// Print welcome status page
 		fmt.Println(color.CyanString("Welcome to the Windsor Environment 📐"))
 		fmt.Println(color.CyanString("-------------------------------------"))
+		fmt.Println()
 
 		// Print Colima info if available
 		if driver == "colima" {

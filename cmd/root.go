@@ -224,6 +224,10 @@ func Initialize(inj di.Injector) {
 			}
 		case *network.NetworkManager:
 			if resolved, ok := instance.(network.NetworkManager); ok {
+				if err := resolved.Initialize(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error initializing network.NetworkManager: %v\n", err)
+					exitFunc(1)
+				}
 				*v = resolved
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type network.NetworkManager\n", key)

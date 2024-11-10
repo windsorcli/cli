@@ -9,6 +9,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/env"
 	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/network"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
 	"github.com/windsor-hotel/cli/internal/virt"
@@ -80,6 +81,10 @@ func main() {
 	// Create and register the DockerVirt instance using the mock as reference
 	dockerVM := virt.NewDockerVirt(injector)
 	injector.Register("dockerVirt", dockerVM)
+
+	// Create and register the ColimaNetworkManager instance
+	colimaNetworkManager := network.NewColimaNetworkManager(injector)
+	injector.Register("colimaNetworkManager", colimaNetworkManager)
 
 	// Create and register the AwsEnv instance
 	awsEnv := env.NewAwsEnvPrinter(injector)

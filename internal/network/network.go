@@ -18,6 +18,8 @@ type NetworkManager interface {
 	ConfigureHost() error
 	// ConfigureGuest sets up the guest VM network
 	ConfigureGuest() error
+	// ConfigureDNS sets up the DNS configuration
+	ConfigureDNS() error
 }
 
 // networkManager is a concrete implementation of NetworkManager
@@ -25,7 +27,7 @@ type networkManager struct {
 	injector      di.Injector
 	sshClient     ssh.Client
 	shell         shell.Shell
-	secureShell   shell.SecureShell
+	secureShell   shell.Shell
 	configHandler config.ConfigHandler
 	colimaVirt    virt.Virt
 	dockerVirt    virt.Virt
@@ -68,9 +70,9 @@ func (n *networkManager) Initialize() error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve secure shell instance: %w", err)
 	}
-	secureShell, ok := secureShellInstance.(shell.SecureShell)
+	secureShell, ok := secureShellInstance.(shell.Shell)
 	if !ok {
-		return fmt.Errorf("resolved secure shell instance is not of type shell.SecureShell")
+		return fmt.Errorf("resolved secure shell instance is not of type shell.Shell")
 	}
 	n.secureShell = secureShell
 

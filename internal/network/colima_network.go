@@ -13,31 +13,28 @@ type colimaNetworkManager struct {
 }
 
 // NewColimaNetworkManager creates a new ColimaNetworkManager
-func NewColimaNetworkManager(injector di.Injector) (NetworkManager, error) {
+func NewColimaNetworkManager(injector di.Injector) NetworkManager {
 	nm := &colimaNetworkManager{
 		networkManager: networkManager{
 			injector: injector,
 		},
 	}
-	return nm, nil
+	return nm
 }
 
 // ConfigureGuest forwards the incoming guest traffic to the container network
 func (n *colimaNetworkManager) ConfigureGuest() error {
-	// Retrieve the entire configuration object
-	contextConfig := n.configHandler.GetConfig()
-
 	// Access the Docker configuration
-	if contextConfig.Docker == nil || contextConfig.Docker.NetworkCIDR == nil {
+	networkCIDR := n.configHandler.GetString("docker.network_cidr")
+	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}
-	networkCIDR := *contextConfig.Docker.NetworkCIDR
 
-	// Access the VM configuration
-	if contextConfig.VM == nil || contextConfig.VM.Driver == nil {
+	// Access the VM IP
+	guestIP := n.configHandler.GetString("vm.address")
+	if guestIP == "" {
 		return fmt.Errorf("guest IP is not configured")
 	}
-	guestIP := *contextConfig.VM.Driver
 
 	contextName := "default"
 	sshConfigOutput, err := n.shell.Exec(

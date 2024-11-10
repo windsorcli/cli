@@ -10,20 +10,17 @@ import (
 
 // ConfigureHost sets up the local development network
 func (n *networkManager) ConfigureHost() error {
-	// Retrieve the entire configuration object
-	contextConfig := n.configHandler.GetConfig()
-
 	// Access the Docker configuration
-	if contextConfig.Docker == nil || contextConfig.Docker.NetworkCIDR == nil {
+	networkCIDR := n.configHandler.GetString("docker.network_cidr")
+	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}
-	networkCIDR := *contextConfig.Docker.NetworkCIDR
 
 	// Access the VM configuration
-	if contextConfig.VM == nil || contextConfig.VM.Driver == nil {
+	guestIP := n.configHandler.GetString("vm.address")
+	if guestIP == "" {
 		return fmt.Errorf("guest IP is not configured")
 	}
-	guestIP := *contextConfig.VM.Driver
 
 	// Add route on the host to VM guest
 	output, err := n.shell.Exec(
@@ -40,22 +37,20 @@ func (n *networkManager) ConfigureHost() error {
 	if err != nil {
 		return fmt.Errorf("failed to add route: %w, output: %s", err, output)
 	}
-
-	// Configure the DNS
-	return n.configureDNS()
+	return nil
 }
 
 // ConfigureDNS sets up the DNS configuration
-func (n *networkManager) configureDNS() error {
-	// Retrieve the entire configuration object
-	contextConfig := n.configHandler.GetConfig()
-
-	// Access the DNS configuration
-	if contextConfig.DNS == nil || contextConfig.DNS.Name == nil || contextConfig.DNS.IP == nil {
-		return fmt.Errorf("DNS configuration is not properly set")
+func (n *networkManager) ConfigureDNS() error {
+	// Access the DNS configuration using GetString
+	dnsDomain := n.configHandler.GetString("dns.name")
+	if dnsDomain == "" {
+		return fmt.Errorf("DNS domain is not configured")
 	}
-	dnsDomain := *contextConfig.DNS.Name
-	dnsIP := *contextConfig.DNS.IP
+	dnsIP := n.configHandler.GetString("dns.ip")
+	if dnsIP == "" {
+		return fmt.Errorf("DNS IP is not configured")
+	}
 
 	// Ensure the /etc/resolver directory exists
 	resolverDir := "/etc/resolver"
@@ -76,7 +71,7 @@ func (n *networkManager) configureDNS() error {
 	tempResolverFile := fmt.Sprintf("/tmp/%s", dnsDomain)
 	content := fmt.Sprintf("nameserver %s\n", dnsIP)
 	// #nosec G306 - /etc/resolver files require 0644 permissions
-	if err := os.WriteFile(tempResolverFile, []byte(content), 0644); err != nil {
+	if err := writeFile(tempResolverFile, []byte(content), 0644); err != nil {
 		return fmt.Errorf("Error writing to temporary resolver file: %w", err)
 	}
 
