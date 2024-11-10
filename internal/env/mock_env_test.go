@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-
-	"github.com/windsor-hotel/cli/internal/di"
 )
 
 func captureStdout(t *testing.T, f func()) string {
@@ -39,7 +37,7 @@ func captureStdout(t *testing.T, f func()) string {
 func TestMockEnvPrinter_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock environment with a custom InitializeFunc
-		mockEnv := NewMockEnvPrinter(nil)
+		mockEnv := NewMockEnvPrinter()
 		var initialized bool
 		mockEnv.InitializeFunc = func() error {
 			initialized = true
@@ -60,7 +58,7 @@ func TestMockEnvPrinter_Initialize(t *testing.T) {
 
 	t.Run("DefaultInitialize", func(t *testing.T) {
 		// Given a mock environment with default Initialize implementation
-		mockEnv := NewMockEnvPrinter(nil)
+		mockEnv := NewMockEnvPrinter()
 		// When calling Initialize
 		if err := mockEnv.Initialize(); err != nil {
 			t.Errorf("Initialize() error = %v, want nil", err)
@@ -71,24 +69,10 @@ func TestMockEnvPrinter_Initialize(t *testing.T) {
 func TestMockEnvPrinter_NewMockEnvPrinter(t *testing.T) {
 	t.Run("CreateMockEnvPrinterWithoutContainer", func(t *testing.T) {
 		// When creating a new mock environment without an injector
-		mockEnv := NewMockEnvPrinter(nil)
+		mockEnv := NewMockEnvPrinter()
 		// Then no error should be returned
 		if mockEnv == nil {
 			t.Errorf("Expected mockEnv, got nil")
-		}
-	})
-
-	t.Run("CreateMockEnvPrinterWithContainer", func(t *testing.T) {
-		// Given a mock injector
-		mockInjector := di.NewMockInjector()
-		// When creating a new mock environment with the injector
-		mockEnv := NewMockEnvPrinter(mockInjector)
-		// Then no error should be returned and the injector should be set
-		if mockEnv == nil {
-			t.Errorf("Expected mockEnv, got nil")
-		}
-		if mockEnv.injector != mockInjector {
-			t.Errorf("Expected injector to be set, got %v", mockEnv.injector)
 		}
 	})
 }
@@ -96,7 +80,7 @@ func TestMockEnvPrinter_NewMockEnvPrinter(t *testing.T) {
 func TestMockEnvPrinter_GetEnvVars(t *testing.T) {
 	t.Run("DefaultGetEnvVars", func(t *testing.T) {
 		// Given a mock environment with default GetEnvVars implementation
-		mockEnv := NewMockEnvPrinter(nil)
+		mockEnv := NewMockEnvPrinter()
 		// When calling GetEnvVars
 		envVars, err := mockEnv.GetEnvVars()
 		// Then no error should be returned and envVars should be an empty map
@@ -110,7 +94,7 @@ func TestMockEnvPrinter_GetEnvVars(t *testing.T) {
 
 	t.Run("CustomGetEnvVars", func(t *testing.T) {
 		// Given a mock environment with custom GetEnvVars implementation
-		mockEnv := NewMockEnvPrinter(nil)
+		mockEnv := NewMockEnvPrinter()
 		expectedEnvVars := map[string]string{
 			"VAR1": "value1",
 			"VAR2": "value2",
@@ -138,7 +122,7 @@ func TestMockEnvPrinter_GetEnvVars(t *testing.T) {
 func TestMockEnvPrinter_Print(t *testing.T) {
 	t.Run("DefaultPrint", func(t *testing.T) {
 		// Given a mock environment with default Print implementation
-		mockEnv := NewMockEnvPrinter(nil)
+		mockEnv := NewMockEnvPrinter()
 		// When calling Print
 		err := mockEnv.Print()
 		// Then no error should be returned
@@ -149,7 +133,7 @@ func TestMockEnvPrinter_Print(t *testing.T) {
 
 	t.Run("CustomPrint", func(t *testing.T) {
 		// Given a mock environment with custom Print implementation
-		mockEnv := NewMockEnvPrinter(nil)
+		mockEnv := NewMockEnvPrinter()
 		expectedError := fmt.Errorf("custom print error")
 		mockEnv.PrintFunc = func() error {
 			return expectedError
@@ -166,7 +150,7 @@ func TestMockEnvPrinter_Print(t *testing.T) {
 func TestMockEnvPrinter_PostEnvHook(t *testing.T) {
 	t.Run("DefaultPostEnvHook", func(t *testing.T) {
 		// Given a mock environment with default PostEnvHook implementation
-		mockEnv := NewMockEnvPrinter(nil)
+		mockEnv := NewMockEnvPrinter()
 		// When calling PostEnvHook
 		err := mockEnv.PostEnvHook()
 		// Then no error should be returned
@@ -177,7 +161,7 @@ func TestMockEnvPrinter_PostEnvHook(t *testing.T) {
 
 	t.Run("CustomPostEnvHook", func(t *testing.T) {
 		// Given a mock environment with custom PostEnvHook implementation
-		mockEnv := NewMockEnvPrinter(nil)
+		mockEnv := NewMockEnvPrinter()
 		expectedError := fmt.Errorf("custom post env hook error")
 		mockEnv.PostEnvHookFunc = func() error {
 			return expectedError

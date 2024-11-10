@@ -36,7 +36,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 
 	// Implement GetContextFunc on mock context
 	mockContext.GetContextFunc = func() (string, error) {
-		return "default-context", nil
+		return "mock-context", nil
 	}
 
 	// Set up the mock config handler to return a safe default configuration for Docker VMs
@@ -66,7 +66,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 				if len(args) > 3 && args[2] == "--format" {
 					switch args[3] {
 					case "{{json .Config.Labels}}":
-						return `{"com.docker.compose.service":"service1","managed_by":"windsor","context":"default-context"}`, nil
+						return `{"com.docker.compose.service":"service1","managed_by":"windsor","context":"mock-context"}`, nil
 					case "{{json .NetworkSettings.Networks}}":
 						return `{"bridge":{"IPAddress":"192.168.1.2"},"bridge2":{"IPAddress":"192.168.1.3"}}`, nil
 					}
@@ -702,7 +702,7 @@ func TestDockerVirt_PrintInfo(t *testing.T) {
 					if len(args) > 3 && args[2] == "--format" {
 						switch args[3] {
 						case "{{json .Config.Labels}}":
-							return `{"com.docker.compose.service":"service1","managed_by":"windsor","context":"default-context"}`, nil
+							return `{"com.docker.compose.service":"service1","managed_by":"windsor","context":"mock-context"}`, nil
 						case "{{json .NetworkSettings.Networks}}":
 							return `{"bridge":{"IPAddress":"192.168.1.2"}}`, nil
 						}

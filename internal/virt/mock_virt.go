@@ -1,9 +1,5 @@
 package virt
 
-import (
-	"fmt"
-)
-
 // MockVirt is a struct that simulates a virt environment for testing purposes.
 type MockVirt struct {
 	InitializeFunc       func() error
@@ -36,7 +32,7 @@ func (m *MockVirt) Up(verbose ...bool) error {
 	if m.UpFunc != nil {
 		return m.UpFunc(verbose...)
 	}
-	return fmt.Errorf("UpFunc not implemented")
+	return nil
 }
 
 // Down stops the mock virt.
@@ -45,7 +41,7 @@ func (m *MockVirt) Down(verbose ...bool) error {
 	if m.DownFunc != nil {
 		return m.DownFunc(verbose...)
 	}
-	return fmt.Errorf("DownFunc not implemented")
+	return nil
 }
 
 // Delete removes the mock virt.
@@ -54,7 +50,7 @@ func (m *MockVirt) Delete(verbose ...bool) error {
 	if m.DeleteFunc != nil {
 		return m.DeleteFunc(verbose...)
 	}
-	return fmt.Errorf("DeleteFunc not implemented")
+	return nil
 }
 
 // PrintInfo prints information about the mock virt.
@@ -63,7 +59,7 @@ func (m *MockVirt) PrintInfo() error {
 	if m.PrintInfoFunc != nil {
 		return m.PrintInfoFunc()
 	}
-	return fmt.Errorf("PrintInfoFunc not implemented")
+	return nil
 }
 
 // WriteConfig writes the configuration of the mock virt.
@@ -72,7 +68,7 @@ func (m *MockVirt) WriteConfig() error {
 	if m.WriteConfigFunc != nil {
 		return m.WriteConfigFunc()
 	}
-	return fmt.Errorf("WriteConfigFunc not implemented")
+	return nil
 }
 
 // GetVMInfo retrieves information about the mock VM.
@@ -81,7 +77,7 @@ func (m *MockVirt) GetVMInfo() (VMInfo, error) {
 	if m.GetVMInfoFunc != nil {
 		return m.GetVMInfoFunc()
 	}
-	return VMInfo{}, fmt.Errorf("GetVMInfoFunc not implemented")
+	return VMInfo{}, nil
 }
 
 // GetContainerInfo retrieves information about the mock containers.
@@ -90,7 +86,7 @@ func (m *MockVirt) GetContainerInfo() ([]ContainerInfo, error) {
 	if m.GetContainerInfoFunc != nil {
 		return m.GetContainerInfoFunc()
 	}
-	return nil, fmt.Errorf("GetContainerInfoFunc not implemented")
+	return nil, nil
 }
 
 // Ensure MockVirt implements the Virt, VirtualMachine, and ContainerRuntime interfaces
