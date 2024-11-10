@@ -36,6 +36,38 @@ func captureStdout(t *testing.T, f func()) string {
 	return buf.String()
 }
 
+func TestMockEnvPrinter_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock environment with a custom InitializeFunc
+		mockEnv := NewMockEnvPrinter(nil)
+		var initialized bool
+		mockEnv.InitializeFunc = func() error {
+			initialized = true
+			return nil
+		}
+
+		// When calling Initialize
+		err := mockEnv.Initialize()
+
+		// Then no error should be returned and initialized should be true
+		if err != nil {
+			t.Errorf("Initialize() error = %v, want nil", err)
+		}
+		if !initialized {
+			t.Errorf("Initialize() did not set initialized to true")
+		}
+	})
+
+	t.Run("DefaultInitialize", func(t *testing.T) {
+		// Given a mock environment with default Initialize implementation
+		mockEnv := NewMockEnvPrinter(nil)
+		// When calling Initialize
+		if err := mockEnv.Initialize(); err != nil {
+			t.Errorf("Initialize() error = %v, want nil", err)
+		}
+	})
+}
+
 func TestMockEnvPrinter_NewMockEnvPrinter(t *testing.T) {
 	t.Run("CreateMockEnvPrinterWithoutContainer", func(t *testing.T) {
 		// When creating a new mock environment without an injector
