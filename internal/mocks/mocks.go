@@ -51,20 +51,7 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 
 	// Create mock instances
 	mockCLIConfigHandler := config.NewMockConfigHandler()
-	mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-	mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) { return "mock-value", nil }
-	mockCLIConfigHandler.GetIntFunc = func(key string, defaultValue ...int) (int, error) { return 0, nil }
-	mockCLIConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) { return false, nil }
-	mockCLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
-	mockCLIConfigHandler.SaveConfigFunc = func(path string) error { return nil }
-	mockCLIConfigHandler.GetFunc = func(key string) (interface{}, error) { return nil, nil }
-	mockCLIConfigHandler.SetDefaultFunc = func(context config.Context) error { return nil }
-	mockCLIConfigHandler.GetConfigFunc = func() (*config.Context, error) { return &config.Context{}, nil }
-
 	mockContext := context.NewMockContext()
-	mockContext.GetContextFunc = func() (string, error) { return "mock-context", nil }
-	mockContext.SetContextFunc = func(context string) error { return nil }
-
 	mockShell := shell.NewMockShell()
 	mockAwsHelper := helpers.NewMockHelper()
 	mockColimaHelper := helpers.NewMockHelper()
@@ -74,24 +61,20 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	mockKubeHelper := helpers.NewMockHelper()
 	mockOmniHelper := helpers.NewMockHelper()
 	mockTalosHelper := helpers.NewMockHelper()
-	mockSecureShell := shell.NewMockShell(injector)
+	mockSecureShell := shell.NewMockShell()
 	mockSSHClient := &ssh.MockClient{}
-
 	mockColimaVirt := virt.NewMockVirt()
-	mockColimaVirt.WriteConfigFunc = func() error { return nil }
-
 	mockDockerVirt := virt.NewMockVirt()
-	mockDockerVirt.WriteConfigFunc = func() error { return nil }
 
 	// Create mock environment instances
-	mockAwsEnv := env.NewMockEnvPrinter(injector)
-	mockDockerEnv := env.NewMockEnvPrinter(injector)
-	mockKubeEnv := env.NewMockEnvPrinter(injector)
-	mockOmniEnv := env.NewMockEnvPrinter(injector)
-	mockSopsEnv := env.NewMockEnvPrinter(injector)
-	mockTalosEnv := env.NewMockEnvPrinter(injector)
-	mockTerraformEnv := env.NewMockEnvPrinter(injector)
-	mockWindsorEnv := env.NewMockEnvPrinter(injector)
+	mockAwsEnv := env.NewMockEnvPrinter()
+	mockDockerEnv := env.NewMockEnvPrinter()
+	mockKubeEnv := env.NewMockEnvPrinter()
+	mockOmniEnv := env.NewMockEnvPrinter()
+	mockSopsEnv := env.NewMockEnvPrinter()
+	mockTalosEnv := env.NewMockEnvPrinter()
+	mockTerraformEnv := env.NewMockEnvPrinter()
+	mockWindsorEnv := env.NewMockEnvPrinter()
 
 	// Create and setup dependency injection
 	injector.Register("cliConfigHandler", mockCLIConfigHandler)

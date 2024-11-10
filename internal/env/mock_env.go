@@ -1,9 +1,5 @@
 package env
 
-import (
-	"github.com/windsor-hotel/cli/internal/di"
-)
-
 // MockEnvPrinter is a struct that simulates an environment for testing purposes.
 type MockEnvPrinter struct {
 	BaseEnvPrinter
@@ -13,13 +9,9 @@ type MockEnvPrinter struct {
 	GetEnvVarsFunc  func() (map[string]string, error)
 }
 
-// NewMockEnvPrinter creates a new instance of MockEnvPrinter with the provided dependency injector.
-func NewMockEnvPrinter(injector di.Injector) *MockEnvPrinter {
-	return &MockEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
-	}
+// NewMockEnvPrinter creates a new instance of MockEnvPrinter.
+func NewMockEnvPrinter() *MockEnvPrinter {
+	return &MockEnvPrinter{}
 }
 
 // Initialize calls the custom InitializeFunc if provided.

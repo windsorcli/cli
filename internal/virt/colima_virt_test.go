@@ -36,7 +36,7 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 
 	// Implement GetContextFunc on mock context
 	mockContext.GetContextFunc = func() (string, error) {
-		return "default-context", nil
+		return "mock-context", nil
 	}
 
 	// Set up the mock config handler to return a safe default configuration for Colima VMs

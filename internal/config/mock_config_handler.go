@@ -26,7 +26,7 @@ func (m *MockConfigHandler) LoadConfig(path string) error {
 	return nil
 }
 
-// GetString calls the mock GetStringFunc if set, otherwise returns an empty string and nil error
+// GetString calls the mock GetStringFunc if set, otherwise returns a reasonable default string and nil error
 func (m *MockConfigHandler) GetString(key string, defaultValue ...string) (string, error) {
 	if m.GetStringFunc != nil {
 		return m.GetStringFunc(key, defaultValue...)
@@ -34,10 +34,10 @@ func (m *MockConfigHandler) GetString(key string, defaultValue ...string) (strin
 	if len(defaultValue) > 0 {
 		return defaultValue[0], nil
 	}
-	return "", nil
+	return "mock-string", nil
 }
 
-// GetInt calls the mock GetIntFunc if set, otherwise returns 0 and nil error
+// GetInt calls the mock GetIntFunc if set, otherwise returns a reasonable default int and nil error
 func (m *MockConfigHandler) GetInt(key string, defaultValue ...int) (int, error) {
 	if m.GetIntFunc != nil {
 		return m.GetIntFunc(key, defaultValue...)
@@ -45,10 +45,10 @@ func (m *MockConfigHandler) GetInt(key string, defaultValue ...int) (int, error)
 	if len(defaultValue) > 0 {
 		return defaultValue[0], nil
 	}
-	return 0, nil
+	return 42, nil
 }
 
-// GetBool calls the mock GetBoolFunc if set, otherwise returns false and nil error
+// GetBool calls the mock GetBoolFunc if set, otherwise returns a reasonable default bool and nil error
 func (m *MockConfigHandler) GetBool(key string, defaultValue ...bool) (bool, error) {
 	if m.GetBoolFunc != nil {
 		return m.GetBoolFunc(key, defaultValue...)
@@ -56,7 +56,7 @@ func (m *MockConfigHandler) GetBool(key string, defaultValue ...bool) (bool, err
 	if len(defaultValue) > 0 {
 		return defaultValue[0], nil
 	}
-	return false, nil
+	return true, nil
 }
 
 // Set calls the mock SetFunc if set, otherwise returns nil
@@ -67,12 +67,12 @@ func (m *MockConfigHandler) Set(key string, value interface{}) error {
 	return nil
 }
 
-// Get calls the mock GetFunc if set, otherwise returns nil and nil error
+// Get calls the mock GetFunc if set, otherwise returns a reasonable default value and nil error
 func (m *MockConfigHandler) Get(key string) (interface{}, error) {
 	if m.GetFunc != nil {
 		return m.GetFunc(key)
 	}
-	return nil, nil
+	return "mock-value", nil
 }
 
 // SaveConfig calls the mock SaveConfigFunc if set, otherwise returns nil
@@ -91,12 +91,12 @@ func (m *MockConfigHandler) SetDefault(context Context) error {
 	return nil
 }
 
-// GetConfig calls the mock GetConfigFunc if set, otherwise returns nil and nil error
+// GetConfig calls the mock GetConfigFunc if set, otherwise returns a reasonable default Context and nil error
 func (m *MockConfigHandler) GetConfig() (*Context, error) {
 	if m.GetConfigFunc != nil {
 		return m.GetConfigFunc()
 	}
-	return nil, nil
+	return &Context{}, nil
 }
 
 // Ensure MockConfigHandler implements ConfigHandler

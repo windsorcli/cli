@@ -45,12 +45,12 @@ func TestMockContext_GetContext(t *testing.T) {
 		mockContext := NewMockContext()
 
 		// When calling GetContext
-		_, err := mockContext.GetContext()
+		context, err := mockContext.GetContext()
 
-		// Then an error should be returned
-		assertError(t, err, true)
-		if err.Error() != "GetContextFunc not implemented" {
-			t.Fatalf("expected error 'GetContextFunc not implemented', got %v", err)
+		// Then no error should be returned and context should be "mock-context"
+		assertError(t, err, false)
+		if context != "mock-context" {
+			t.Fatalf("expected context 'mock-context', got %s", context)
 		}
 	})
 }
@@ -94,11 +94,8 @@ func TestMockContext_SetContext(t *testing.T) {
 		// When calling SetContext
 		err := mockContext.SetContext("test-context")
 
-		// Then an error should be returned
-		assertError(t, err, true)
-		if err.Error() != "SetContextFunc not implemented" {
-			t.Fatalf("expected error 'SetContextFunc not implemented', got %v", err)
-		}
+		// Then no error should be returned
+		assertError(t, err, false)
 	})
 }
 
@@ -142,12 +139,12 @@ func TestMockContext_GetConfigRoot(t *testing.T) {
 		mockContext := NewMockContext()
 
 		// When calling GetConfigRoot
-		_, err := mockContext.GetConfigRoot()
+		configRoot, err := mockContext.GetConfigRoot()
 
-		// Then an error should be returned
-		assertError(t, err, true)
-		if err.Error() != "GetConfigRootFunc not implemented" {
-			t.Fatalf("expected error 'GetConfigRootFunc not implemented', got %v", err)
+		// Then no error should be returned and config root should be "/mock/config/root"
+		assertError(t, err, false)
+		if configRoot != "/mock/config/root" {
+			t.Fatalf("expected config root '/mock/config/root', got %s", configRoot)
 		}
 	})
 }
