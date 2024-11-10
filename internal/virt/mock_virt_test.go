@@ -11,7 +11,7 @@ import (
 )
 
 type MockComponents struct {
-	Container         di.ContainerInterface
+	Injector          di.Injector
 	MockContext       *context.MockContext
 	MockShell         *shell.MockShell
 	MockConfigHandler *config.MockConfigHandler
@@ -29,6 +29,38 @@ func (m *mockYAMLEncoder) Encode(v interface{}) error {
 
 func (m *mockYAMLEncoder) Close() error {
 	return m.closeFunc()
+}
+
+// TestMockVirt_Initialize tests the Initialize method of MockVirt.
+func TestMockVirt_Initialize(t *testing.T) {
+	t.Run("InitializeFuncImplemented", func(t *testing.T) {
+		// Given a MockVirt with a custom InitializeFunc
+		mockVirt := NewMockVirt()
+		mockVirt.InitializeFunc = func() error {
+			return nil
+		}
+
+		// When calling Initialize
+		err := mockVirt.Initialize()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("InitializeFuncNotImplemented", func(t *testing.T) {
+		// Given a MockVirt without a custom InitializeFunc
+		mockVirt := NewMockVirt()
+
+		// When calling Initialize
+		err := mockVirt.Initialize()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
 }
 
 // TestMockVirt_Up tests the Up method of MockVirt.
@@ -56,9 +88,9 @@ func TestMockVirt_Up(t *testing.T) {
 		// When calling Up
 		err := mockVirt.Up()
 
-		// Then an error should be returned
-		if err == nil || err.Error() != "UpFunc not implemented" {
-			t.Fatalf("Expected 'UpFunc not implemented' error, got %v", err)
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
 	})
 }
@@ -88,9 +120,9 @@ func TestMockVirt_Down(t *testing.T) {
 		// When calling Down
 		err := mockVirt.Down()
 
-		// Then an error should be returned
-		if err == nil || err.Error() != "DownFunc not implemented" {
-			t.Fatalf("Expected 'DownFunc not implemented' error, got %v", err)
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
 	})
 }
@@ -120,9 +152,9 @@ func TestMockVirt_Delete(t *testing.T) {
 		// When calling Delete
 		err := mockVirt.Delete()
 
-		// Then an error should be returned
-		if err == nil || err.Error() != "DeleteFunc not implemented" {
-			t.Fatalf("Expected 'DeleteFunc not implemented' error, got %v", err)
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
 	})
 }
@@ -152,9 +184,9 @@ func TestMockVirt_PrintInfo(t *testing.T) {
 		// When calling PrintInfo
 		err := mockVirt.PrintInfo()
 
-		// Then an error should be returned
-		if err == nil || err.Error() != "PrintInfoFunc not implemented" {
-			t.Fatalf("Expected 'PrintInfoFunc not implemented' error, got %v", err)
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
 	})
 }
@@ -184,9 +216,9 @@ func TestMockVirt_WriteConfig(t *testing.T) {
 		// When calling WriteConfig
 		err := mockVirt.WriteConfig()
 
-		// Then an error should be returned
-		if err == nil || err.Error() != "WriteConfigFunc not implemented" {
-			t.Fatalf("Expected 'WriteConfigFunc not implemented' error, got %v", err)
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
 	})
 }
@@ -220,9 +252,9 @@ func TestMockVirt_GetVMInfo(t *testing.T) {
 		// When calling GetVMInfo
 		info, err := mockVirt.GetVMInfo()
 
-		// Then an error should be returned
-		if err == nil || err.Error() != "GetVMInfoFunc not implemented" {
-			t.Fatalf("Expected 'GetVMInfoFunc not implemented' error, got %v", err)
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
 		// And the info should be empty
 		if info != (VMInfo{}) {
@@ -260,9 +292,9 @@ func TestMockVirt_GetContainerInfo(t *testing.T) {
 		// When calling GetContainerInfo
 		info, err := mockVirt.GetContainerInfo()
 
-		// Then an error should be returned
-		if err == nil || err.Error() != "GetContainerInfoFunc not implemented" {
-			t.Fatalf("Expected 'GetContainerInfoFunc not implemented' error, got %v", err)
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
 		// And the info should be nil
 		if info != nil {

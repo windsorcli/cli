@@ -6,39 +6,39 @@ import (
 	"sync"
 )
 
-// ContainerInterface defines the methods for the DI container
-type ContainerInterface interface {
+// Injector defines the methods for the injector.
+type Injector interface {
 	Register(name string, instance interface{})
 	Resolve(name string) (interface{}, error)
 	ResolveAll(targetType interface{}) ([]interface{}, error)
 }
 
-// DIContainer holds instances registered with the DI container.
-type DIContainer struct {
-	mu        sync.RWMutex
-	container map[string]interface{}
+// BaseInjector holds instances registered with the injector.
+type BaseInjector struct {
+	mu    sync.RWMutex
+	items map[string]interface{}
 }
 
-// NewContainer creates a new DI container.
-func NewContainer() *DIContainer {
-	return &DIContainer{
-		container: make(map[string]interface{}),
+// NewInjector creates a new injector.
+func NewInjector() *BaseInjector {
+	return &BaseInjector{
+		items: make(map[string]interface{}),
 	}
 }
 
-// Register registers an instance with the DI container.
-func (c *DIContainer) Register(name string, instance interface{}) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.container[name] = instance
+// Register registers an instance with the injector.
+func (i *BaseInjector) Register(name string, instance interface{}) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.items[name] = instance
 }
 
-// Resolve resolves an instance from the DI container.
-func (c *DIContainer) Resolve(name string) (interface{}, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+// Resolve resolves an instance from the injector.
+func (i *BaseInjector) Resolve(name string) (interface{}, error) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 
-	instance, found := c.container[name]
+	instance, found := i.items[name]
 	if !found {
 		return nil, errors.New("no instance registered with name " + name)
 	}
@@ -47,9 +47,9 @@ func (c *DIContainer) Resolve(name string) (interface{}, error) {
 }
 
 // ResolveAll resolves all instances that match the given interface.
-func (c *DIContainer) ResolveAll(targetType interface{}) ([]interface{}, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+func (i *BaseInjector) ResolveAll(targetType interface{}) ([]interface{}, error) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 
 	var results []interface{}
 	targetTypeValue := reflect.TypeOf(targetType)
@@ -58,7 +58,7 @@ func (c *DIContainer) ResolveAll(targetType interface{}) ([]interface{}, error) 
 	}
 	targetTypeValue = targetTypeValue.Elem()
 
-	for _, instance := range c.container {
+	for _, instance := range i.items {
 		if instance == nil {
 			continue
 		}
@@ -74,3 +74,6 @@ func (c *DIContainer) ResolveAll(targetType interface{}) ([]interface{}, error) 
 
 	return results, nil
 }
+
+// Ensure BaseInjector implements Injector interface
+var _ Injector = (*BaseInjector)(nil)

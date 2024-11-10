@@ -20,24 +20,24 @@ type GitHelper struct {
 }
 
 // NewGitHelper is a constructor for GitHelper
-func NewGitHelper(di *di.DIContainer) (*GitHelper, error) {
-	cliConfigHandler, err := di.Resolve("cliConfigHandler")
+func NewGitHelper(injector di.Injector) (*GitHelper, error) {
+	configHandler, err := injector.Resolve("configHandler")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
+		return nil, fmt.Errorf("error resolving configHandler: %w", err)
 	}
 
-	resolvedShell, err := di.Resolve("shell")
+	resolvedShell, err := injector.Resolve("shell")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}
 
-	resolvedContext, err := di.Resolve("contextHandler")
+	resolvedContext, err := injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
 	return &GitHelper{
-		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
+		ConfigHandler: configHandler.(config.ConfigHandler),
 		Shell:         resolvedShell.(shell.Shell),
 		Context:       resolvedContext.(context.ContextInterface),
 	}, nil
@@ -50,10 +50,7 @@ func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	config, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving config: %w", err)
-	}
+	config := h.ConfigHandler.GetConfig()
 
 	if config.Git == nil ||
 		config.Git.Livereload == nil ||

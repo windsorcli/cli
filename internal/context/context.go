@@ -22,23 +22,23 @@ type Context struct {
 }
 
 // NewContext creates a new Context instance
-func NewContext(cliConfigHandler config.ConfigHandler, shell shell.Shell) *Context {
+func NewContext(configHandler config.ConfigHandler, shell shell.Shell) *Context {
 	return &Context{
-		ConfigHandler: cliConfigHandler,
+		ConfigHandler: configHandler,
 		Shell:         shell,
 	}
 }
 
 // GetContext retrieves the current context from the configuration
 func (c *Context) GetContext() (string, error) {
-	context, err := c.ConfigHandler.GetString("context")
+	context, err := c.ConfigHandler.Get("context")
 	if err != nil {
 		return "", fmt.Errorf("error retrieving context: %w", err)
 	}
-	if context == "" {
+	if context == nil {
 		return "local", nil
 	}
-	return context, nil
+	return context.(string), nil
 }
 
 // SetContext sets the current context in the configuration and saves it

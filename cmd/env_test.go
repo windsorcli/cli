@@ -23,18 +23,18 @@ func TestEnvCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
 
-		// Initialize mocks and set the container
+		// Initialize mocks and set the injector
 		mocks := mocks.CreateSuperMocks()
 
 		// Create a mock WindsorEnv
-		mockEnv := env.NewMockEnv(mocks.Container)
+		mockEnv := env.NewMockEnvPrinter()
 		mockEnv.PrintFunc = func() error {
 			fmt.Println("export VAR=value")
 			return nil
 		}
-		mocks.Container.Register("windsorEnv", mockEnv)
+		mocks.Injector.Register("windsorEnv", mockEnv)
 
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Capture the output using captureStdout
 		output := captureStdout(func() {
@@ -54,14 +54,13 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("ResolveEnvError", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
-		// Given a local container that returns an error when resolving env
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(fmt.Errorf("resolve env error"))
-		mocks := mocks.CreateSuperMocks(mockContainer)
+		// Given a local injector that returns an error when resolving env
+		mockInjector := di.NewMockInjector()
+		mockInjector.SetResolveAllError(fmt.Errorf("resolve env error"))
+		mocks := mocks.CreateSuperMocks(mockInjector)
 
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -85,14 +84,13 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("ResolveEnvErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
-		// Given a local container that returns an error when resolving env
-		mockContainer := di.NewMockContainer()
-		mockContainer.SetResolveAllError(fmt.Errorf("resolve env error"))
-		mocks := mocks.CreateSuperMocks(mockContainer)
+		// Given a local injector that returns an error when resolving env
+		mockInjector := di.NewMockInjector()
+		mockInjector.SetResolveAllError(fmt.Errorf("resolve env error"))
+		mocks := mocks.CreateSuperMocks(mockInjector)
 
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -114,7 +112,6 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("GetEnvVarsErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given a mock environment that returns an error when getting environment variables
 		mocks := mocks.CreateSuperMocks()
@@ -126,7 +123,7 @@ func TestEnvCmd(t *testing.T) {
 			return nil
 		}
 
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Capture the output
 		var buf bytes.Buffer
@@ -148,7 +145,6 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("ErrorPrinting", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given an env that returns an error when executing Print
 		mocks := mocks.CreateSuperMocks()
@@ -160,7 +156,7 @@ func TestEnvCmd(t *testing.T) {
 			return nil
 		}
 
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
@@ -180,7 +176,6 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("ErrorPrintingWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given an env that returns an error when executing Print
 		mocks := mocks.CreateSuperMocks()
@@ -192,7 +187,7 @@ func TestEnvCmd(t *testing.T) {
 			return nil
 		}
 
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Capture the output
 		output := captureStderr(func() {
@@ -212,7 +207,6 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("PostEnvHookError", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given an env that returns an error when executing PostEnvHook
 		mocks := mocks.CreateSuperMocks()
@@ -224,7 +218,7 @@ func TestEnvCmd(t *testing.T) {
 			return fmt.Errorf("post env hook error")
 		}
 
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
@@ -244,7 +238,6 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("PostEnvHookErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given an env that returns an error when executing PostEnvHook
 		mocks := mocks.CreateSuperMocks()
@@ -256,7 +249,7 @@ func TestEnvCmd(t *testing.T) {
 			return fmt.Errorf("post env hook error")
 		}
 
-		Initialize(mocks.Container)
+		Initialize(mocks.Injector)
 
 		// Capture the output
 		var buf bytes.Buffer
@@ -283,13 +276,4 @@ func resetRootCmd() {
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
 	verbose = false // Reset the verbose flag
-}
-
-// recoverPanic recovers from a panic and checks for the expected exit code.
-func recoverPanic(t *testing.T) {
-	if r := recover(); r != nil {
-		if r != "exit code: 1" {
-			t.Fatalf("unexpected panic: %v", r)
-		}
-	}
 }

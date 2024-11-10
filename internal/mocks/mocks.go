@@ -24,47 +24,34 @@ type SuperMocks struct {
 	KubeHelper       *helpers.MockHelper
 	OmniHelper       *helpers.MockHelper
 	TalosHelper      *helpers.MockHelper
-	AwsEnv           *env.MockEnv
-	DockerEnv        *env.MockEnv
-	KubeEnv          *env.MockEnv
-	OmniEnv          *env.MockEnv
-	SopsEnv          *env.MockEnv
-	TalosEnv         *env.MockEnv
-	TerraformEnv     *env.MockEnv
-	WindsorEnv       *env.MockEnv
+	AwsEnv           *env.MockEnvPrinter
+	DockerEnv        *env.MockEnvPrinter
+	KubeEnv          *env.MockEnvPrinter
+	OmniEnv          *env.MockEnvPrinter
+	SopsEnv          *env.MockEnvPrinter
+	TalosEnv         *env.MockEnvPrinter
+	TerraformEnv     *env.MockEnvPrinter
+	WindsorEnv       *env.MockEnvPrinter
 	SSHClient        *ssh.MockClient
 	SecureShell      *shell.MockShell
-	Container        di.ContainerInterface
+	Injector         *di.MockInjector
 	ColimaVirt       *virt.MockVirt
 	DockerVirt       *virt.MockVirt
 }
 
 // CreateSuperMocks initializes all necessary mocks and returns them in a SuperMocks struct.
-// It can take an optional mockContainer, in which case it will use this one instead of creating a new DI container.
-func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
-	var container di.ContainerInterface
-	if len(mockContainer) > 0 {
-		container = mockContainer[0]
+// It can take an optional mockInjector, in which case it will use this one instead of creating a new DI injector.
+func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
+	var injector *di.MockInjector
+	if len(mockInjector) > 0 {
+		injector = mockInjector[0]
 	} else {
-		container = di.NewContainer()
+		injector = di.NewMockInjector()
 	}
 
 	// Create mock instances
 	mockCLIConfigHandler := config.NewMockConfigHandler()
-	mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-	mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) { return "mock-value", nil }
-	mockCLIConfigHandler.GetIntFunc = func(key string, defaultValue ...int) (int, error) { return 0, nil }
-	mockCLIConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) { return false, nil }
-	mockCLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
-	mockCLIConfigHandler.SaveConfigFunc = func(path string) error { return nil }
-	mockCLIConfigHandler.GetFunc = func(key string) (interface{}, error) { return nil, nil }
-	mockCLIConfigHandler.SetDefaultFunc = func(context config.Context) error { return nil }
-	mockCLIConfigHandler.GetConfigFunc = func() (*config.Context, error) { return &config.Context{}, nil }
-
 	mockContext := context.NewMockContext()
-	mockContext.GetContextFunc = func() (string, error) { return "mock-context", nil }
-	mockContext.SetContextFunc = func(context string) error { return nil }
-
 	mockShell := shell.NewMockShell()
 	mockAwsHelper := helpers.NewMockHelper()
 	mockColimaHelper := helpers.NewMockHelper()
@@ -74,48 +61,44 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 	mockKubeHelper := helpers.NewMockHelper()
 	mockOmniHelper := helpers.NewMockHelper()
 	mockTalosHelper := helpers.NewMockHelper()
-	mockSecureShell := shell.NewMockShell(container)
+	mockSecureShell := shell.NewMockShell()
 	mockSSHClient := &ssh.MockClient{}
-
 	mockColimaVirt := virt.NewMockVirt()
-	mockColimaVirt.WriteConfigFunc = func() error { return nil }
-
 	mockDockerVirt := virt.NewMockVirt()
-	mockDockerVirt.WriteConfigFunc = func() error { return nil }
 
 	// Create mock environment instances
-	mockAwsEnv := env.NewMockEnv(container)
-	mockDockerEnv := env.NewMockEnv(container)
-	mockKubeEnv := env.NewMockEnv(container)
-	mockOmniEnv := env.NewMockEnv(container)
-	mockSopsEnv := env.NewMockEnv(container)
-	mockTalosEnv := env.NewMockEnv(container)
-	mockTerraformEnv := env.NewMockEnv(container)
-	mockWindsorEnv := env.NewMockEnv(container)
+	mockAwsEnv := env.NewMockEnvPrinter()
+	mockDockerEnv := env.NewMockEnvPrinter()
+	mockKubeEnv := env.NewMockEnvPrinter()
+	mockOmniEnv := env.NewMockEnvPrinter()
+	mockSopsEnv := env.NewMockEnvPrinter()
+	mockTalosEnv := env.NewMockEnvPrinter()
+	mockTerraformEnv := env.NewMockEnvPrinter()
+	mockWindsorEnv := env.NewMockEnvPrinter()
 
-	// Create and setup the dependency injection container
-	container.Register("cliConfigHandler", mockCLIConfigHandler)
-	container.Register("contextHandler", mockContext)
-	container.Register("shell", mockShell)
-	container.Register("awsHelper", mockAwsHelper)
-	container.Register("dnsHelper", mockDnsHelper)
-	container.Register("dockerHelper", mockDockerHelper)
-	container.Register("gitHelper", mockGitHelper)
-	container.Register("kubeHelper", mockKubeHelper)
-	container.Register("omniHelper", mockOmniHelper)
-	container.Register("talosHelper", mockTalosHelper)
-	container.Register("sshClient", mockSSHClient)
-	container.Register("secureShell", mockSecureShell)
-	container.Register("colimaVirt", mockColimaVirt)
-	container.Register("dockerVirt", mockDockerVirt)
-	container.Register("awsEnv", mockAwsEnv)
-	container.Register("dockerEnv", mockDockerEnv)
-	container.Register("kubeEnv", mockKubeEnv)
-	container.Register("omniEnv", mockOmniEnv)
-	container.Register("sopsEnv", mockSopsEnv)
-	container.Register("talosEnv", mockTalosEnv)
-	container.Register("terraformEnv", mockTerraformEnv)
-	container.Register("windsorEnv", mockWindsorEnv)
+	// Create and setup dependency injection
+	injector.Register("configHandler", mockCLIConfigHandler)
+	injector.Register("contextHandler", mockContext)
+	injector.Register("shell", mockShell)
+	injector.Register("awsHelper", mockAwsHelper)
+	injector.Register("dnsHelper", mockDnsHelper)
+	injector.Register("dockerHelper", mockDockerHelper)
+	injector.Register("gitHelper", mockGitHelper)
+	injector.Register("kubeHelper", mockKubeHelper)
+	injector.Register("omniHelper", mockOmniHelper)
+	injector.Register("talosHelper", mockTalosHelper)
+	injector.Register("sshClient", mockSSHClient)
+	injector.Register("secureShell", mockSecureShell)
+	injector.Register("colimaVirt", mockColimaVirt)
+	injector.Register("dockerVirt", mockDockerVirt)
+	injector.Register("awsEnv", mockAwsEnv)
+	injector.Register("dockerEnv", mockDockerEnv)
+	injector.Register("kubeEnv", mockKubeEnv)
+	injector.Register("omniEnv", mockOmniEnv)
+	injector.Register("sopsEnv", mockSopsEnv)
+	injector.Register("talosEnv", mockTalosEnv)
+	injector.Register("terraformEnv", mockTerraformEnv)
+	injector.Register("windsorEnv", mockWindsorEnv)
 
 	return SuperMocks{
 		CLIConfigHandler: mockCLIConfigHandler,
@@ -139,7 +122,7 @@ func CreateSuperMocks(mockContainer ...di.ContainerInterface) SuperMocks {
 		WindsorEnv:       mockWindsorEnv,
 		SSHClient:        mockSSHClient,
 		SecureShell:      mockSecureShell,
-		Container:        container,
+		Injector:         injector,
 		ColimaVirt:       mockColimaVirt,
 		DockerVirt:       mockDockerVirt,
 	}

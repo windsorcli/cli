@@ -25,33 +25,33 @@ type ServiceInfo struct {
 type DockerHelper struct {
 	ConfigHandler config.ConfigHandler
 	Context       context.ContextInterface
-	DIContainer   *di.DIContainer
+	Injector      di.Injector
 	Shell         shell.Shell
 }
 
 const registryImage = "registry:2.8.3"
 
 // NewDockerHelper is a constructor for DockerHelper
-func NewDockerHelper(di *di.DIContainer) (*DockerHelper, error) {
-	cliConfigHandler, err := di.Resolve("cliConfigHandler")
+func NewDockerHelper(injector di.Injector) (*DockerHelper, error) {
+	configHandler, err := injector.Resolve("configHandler")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
+		return nil, fmt.Errorf("error resolving configHandler: %w", err)
 	}
 
-	resolvedContext, err := di.Resolve("contextHandler")
+	resolvedContext, err := injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
-	resolvedShell, err := di.Resolve("shell")
+	resolvedShell, err := injector.Resolve("shell")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}
 
 	return &DockerHelper{
-		ConfigHandler: cliConfigHandler.(config.ConfigHandler),
+		ConfigHandler: configHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
-		DIContainer:   di,
+		Injector:      injector,
 		Shell:         resolvedShell.(shell.Shell),
 	}, nil
 }
@@ -111,10 +111,7 @@ func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 	var services []types.ServiceConfig
 
 	// Retrieve the context configuration using GetConfig
-	contextConfig, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
-	}
+	contextConfig := h.ConfigHandler.GetConfig()
 
 	// Retrieve the list of registries from the context configuration
 	registries := contextConfig.Docker.Registries
@@ -134,10 +131,7 @@ func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 // GetFullComposeConfig retrieves the full compose configuration for the DockerHelper.
 func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	// Retrieve the context configuration using GetConfig
-	contextConfig, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
-	}
+	contextConfig := h.ConfigHandler.GetConfig()
 
 	// Check if Docker is defined in the windsor config
 	if contextConfig.Docker == nil {
@@ -152,7 +146,7 @@ func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	combinedNetworks = make(map[string]types.NetworkConfig)
 
 	// Initialize helpers on-the-fly
-	helpers, err := h.DIContainer.ResolveAll((*Helper)(nil))
+	helpers, err := h.Injector.ResolveAll((*Helper)(nil))
 	if err != nil {
 		return nil, fmt.Errorf("error resolving helpers: %w", err)
 	}

@@ -30,24 +30,6 @@ func NewYamlConfigHandler(path string) (*YamlConfigHandler, error) {
 	return handler, nil
 }
 
-// osReadFile is a variable to allow mocking os.ReadFile in tests
-var osReadFile = os.ReadFile
-
-// osWriteFile is a variable to allow mocking os.WriteFile in tests
-var osWriteFile = os.WriteFile
-
-// Override variable for yamlMarshal
-var yamlMarshal = yaml.Marshal
-
-// Override variable for yamlUnmarshal
-var yamlUnmarshal = yaml.Unmarshal
-
-// osStat is a variable to allow mocking os.Stat in tests
-var osStat = os.Stat
-
-// osMkdirAll is a variable to allow mocking os.MkdirAll in tests
-var osMkdirAll = os.MkdirAll
-
 // LoadConfig loads the configuration from the specified path
 func (y *YamlConfigHandler) LoadConfig(path string) error {
 	if _, err := osStat(path); os.IsNotExist(err) {
@@ -109,6 +91,7 @@ func (y *YamlConfigHandler) SetDefault(context Context) error {
 	if _, err := y.Get(contextKey); err != nil {
 		// If the context is not defined, set it to defaultContextConfig
 		if err := y.Set(contextKey, &context); err != nil {
+			// NOTE: Untestable
 			return fmt.Errorf("error setting default context config: %w", err)
 		}
 	}
@@ -122,21 +105,19 @@ func (y *YamlConfigHandler) Get(path string) (interface{}, error) {
 	}
 	pathKeys := strings.Split(path, ".")
 
-	// Try to get the value from y.config
+	// Use getValueByPath to navigate the struct using YAML tags
 	value, err := getValueByPath(y.config, pathKeys)
-	if err == nil {
-		if value == nil {
-			// Value is nil, proceed to check defaultContextConfig
-			if len(pathKeys) >= 2 && pathKeys[0] == "contexts" {
-				// Attempt to get the value from defaultContextConfig
-				value, err = getValueByPath(y.defaultContextConfig, pathKeys[2:])
-				if err == nil {
-					return value, nil
-				}
+	if err != nil || value == nil {
+		// Value is invalid or nil, proceed to check defaultContextConfig
+		if len(pathKeys) >= 2 && pathKeys[0] == "contexts" {
+			// Attempt to get the value from defaultContextConfig
+			value, err = getValueByPath(y.defaultContextConfig, pathKeys[2:])
+			if err == nil && value != nil {
+				return value, nil
 			}
-		} else {
-			return value, nil
 		}
+	} else {
+		return value, nil
 	}
 
 	// Return an error if the key is not found
@@ -144,46 +125,49 @@ func (y *YamlConfigHandler) Get(path string) (interface{}, error) {
 }
 
 // GetString retrieves a string value for the specified key from the configuration
-func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) (string, error) {
-	value, err := y.Get(key)
-	if err != nil {
+func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) string {
+	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)
+	value, err := y.Get(contextKey)
+	if err != nil || value == nil {
 		if len(defaultValue) > 0 {
-			return defaultValue[0], nil
+			return defaultValue[0]
 		}
-		return "", err
+		return ""
 	}
-	return fmt.Sprintf("%v", value), nil
+	return fmt.Sprintf("%v", value)
 }
 
 // GetInt retrieves an integer value for the specified key from the configuration
-func (y *YamlConfigHandler) GetInt(key string, defaultValue ...int) (int, error) {
-	value, err := y.Get(key)
-	if err != nil {
+func (y *YamlConfigHandler) GetInt(key string, defaultValue ...int) int {
+	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)
+	value, err := y.Get(contextKey)
+	if err != nil || value == nil {
 		if len(defaultValue) > 0 {
-			return defaultValue[0], nil
+			return defaultValue[0]
 		}
-		return 0, err
+		return 0
 	}
 	intValue, ok := value.(int)
 	if !ok {
-		return 0, fmt.Errorf("key %s is not an integer", key)
+		return 0
 	}
-	return intValue, nil
+	return intValue
 }
 
 // GetBool retrieves a boolean value for the specified key from the configuration
-func (y *YamlConfigHandler) GetBool(key string, defaultValue ...bool) (bool, error) {
-	value, err := y.Get(key)
-	if err != nil {
+func (y *YamlConfigHandler) GetBool(key string, defaultValue ...bool) bool {
+	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)
+	value, err := y.Get(contextKey)
+	if err != nil || value == nil {
 		if len(defaultValue) > 0 {
-			return defaultValue[0], nil
+			return defaultValue[0]
 		}
-		return false, err
+		return false
 	}
 	if boolValue, ok := value.(bool); ok {
-		return boolValue, nil
+		return boolValue
 	}
-	return false, fmt.Errorf("key %s is not a boolean", key)
+	return false
 }
 
 // Set updates the value at the specified path in the configuration
@@ -207,15 +191,15 @@ func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 }
 
 // GetConfig returns the context config object for the current context
-func (y *YamlConfigHandler) GetConfig() (*Context, error) {
+func (y *YamlConfigHandler) GetConfig() *Context {
 	context := y.config.Context
 	if context == nil {
-		return nil, fmt.Errorf("context is not set")
+		return &y.defaultContextConfig
 	}
 	if ctx, ok := y.config.Contexts[*context]; ok {
-		return ctx, nil
+		return ctx
 	}
-	return &y.defaultContextConfig, nil
+	return &y.defaultContextConfig
 }
 
 // Ensure YamlConfigHandler implements ConfigHandler
@@ -339,6 +323,7 @@ func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{
 			// Recurse into the field
 			err := setValueByPath(fieldValue, pathKeys[1:], value)
 			if err != nil {
+				// NOTE: Untestable
 				return err
 			}
 		}
@@ -486,6 +471,7 @@ var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
 
 				fieldInterface, err := convert(fieldValue)
 				if err != nil {
+					// NOTE: Untestable
 					return nil, err
 				}
 				if fieldInterface != nil {
@@ -507,6 +493,7 @@ var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
 				elemVal := val.Index(i)
 				elemInterface, err := convert(elemVal)
 				if err != nil {
+					// NOTE: Untestable
 					return nil, err
 				}
 				slice = append(slice, elemInterface)
@@ -523,6 +510,7 @@ var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
 				elemVal := val.MapIndex(key)
 				elemInterface, err := convert(elemVal)
 				if err != nil {
+					// NOTE: Untestable
 					return nil, err
 				}
 				if elemInterface != nil {
@@ -551,6 +539,7 @@ var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
 	val := reflect.ValueOf(v)
 	processed, err := convert(val)
 	if err != nil {
+		// NOTE: Untestable
 		return nil, err
 	}
 	if processed == nil {

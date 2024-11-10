@@ -11,6 +11,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/ssh"
 )
 
 var tempDirs []string
@@ -162,8 +166,53 @@ func captureStdoutAndStderr(t *testing.T, f func()) (string, string) {
 	return stdoutBuf.String(), stderrBuf.String()
 }
 
+func TestShell_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		injector := di.NewInjector()
+
+		// Register a mock SSH client to avoid resolution errors
+		mockSSHClient := &ssh.MockClient{}
+		injector.Register("sshClient", mockSSHClient)
+
+		// Register a mock ConfigHandler to avoid resolution errors
+		mockConfigHandler := config.NewMockConfigHandler()
+		injector.Register("configHandler", mockConfigHandler)
+
+		// Given a DefaultShell instance
+		shell := NewDefaultShell(injector)
+
+		// When calling Initialize
+		err := shell.Initialize()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Initialize() error = %v, wantErr %v", err, false)
+		}
+	})
+
+	t.Run("ErrorResolvingSSHClient", func(t *testing.T) {
+		injector := di.NewMockInjector()
+
+		// Given a DefaultShell instance with a faulty injector
+		shell := NewDefaultShell(injector)
+
+		// Simulate an error in resolving the SSH client
+		injector.SetResolveError("sshClient", fmt.Errorf("failed to resolve SSH client"))
+
+		// When calling Initialize
+		err := shell.Initialize()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Initialize() error = %v, wantErr %v", err, true)
+		}
+	})
+}
+
 func TestShell_GetProjectRoot(t *testing.T) {
 	t.Run("GitRepo", func(t *testing.T) {
+		injector := di.NewInjector()
+
 		// Given a temporary directory with a git repository
 		rootDir := createTempDir(t, "project-root")
 		subDir := filepath.Join(rootDir, "subdir")
@@ -175,16 +224,26 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		changeDir(t, subDir)
 
 		// When calling GetProjectRoot
-		shell := NewDefaultShell()
+		shell := NewDefaultShell(injector)
 		projectRoot, err := shell.GetProjectRoot()
 
 		// Then the project root should be returned without error
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
 		expectedRootDir := resolveSymlinks(t, rootDir)
-		assertEqual(t, expectedRootDir, projectRoot, "project root")
+
+		// Normalize paths for Windows compatibility
+		expectedRootDir = normalizePath(expectedRootDir)
+		projectRoot = normalizePath(projectRoot)
+		if expectedRootDir != projectRoot {
+			t.Errorf("Expected project root %q, got %q", expectedRootDir, projectRoot)
+		}
 	})
 
 	t.Run("Cached", func(t *testing.T) {
+		injector := di.NewInjector()
+
 		// Given a temporary directory with a git repository and cached project root
 		rootDir := createTempDir(t, "project-root")
 		subDir := filepath.Join(rootDir, "subdir")
@@ -196,27 +255,46 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		changeDir(t, subDir)
 
 		// When calling GetProjectRoot
-		shell := NewDefaultShell()
+		shell := NewDefaultShell(injector)
 		projectRoot, err := shell.GetProjectRoot()
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
 
 		expectedRootDir := resolveSymlinks(t, rootDir)
-		assertEqual(t, expectedRootDir, projectRoot, "project root")
+
+		// Normalize paths for Windows compatibility
+		expectedRootDir = normalizePath(expectedRootDir)
+		projectRoot = normalizePath(projectRoot)
+
+		if expectedRootDir != projectRoot {
+			t.Errorf("Expected project root %q, got %q", expectedRootDir, projectRoot)
+		}
 
 		// When calling GetProjectRoot again with cached project root
 		shell.projectRoot = expectedRootDir
 		cachedProjectRoot, err := shell.GetProjectRoot()
 
 		// Then the cached project root should be returned without error
-		assertNoError(t, err)
-		assertEqual(t, expectedRootDir, cachedProjectRoot, "cached project root")
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// Normalize cached project root for Windows compatibility
+		cachedProjectRoot = normalizePath(cachedProjectRoot)
+
+		if expectedRootDir != cachedProjectRoot {
+			t.Errorf("Expected cached project root %q, got %q", expectedRootDir, cachedProjectRoot)
+		}
 	})
 
 	t.Run("MaxDepth", func(t *testing.T) {
+		injector := di.NewInjector()
+
 		// Given a directory structure exceeding max depth
 		rootDir := createTempDir(t, "project-root")
 		currentDir := rootDir
-		for i := 0; i <= maxDepth; i++ {
+		for i := 0; i <= maxFolderSearchDepth; i++ {
 			subDir := filepath.Join(currentDir, "subdir")
 			if err := os.Mkdir(subDir, 0755); err != nil {
 				t.Fatalf("Failed to create subdir %d: %v", i, err)
@@ -227,15 +305,21 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		changeDir(t, currentDir)
 
 		// When calling GetProjectRoot
-		shell := NewDefaultShell()
+		shell := NewDefaultShell(injector)
 		projectRoot, err := shell.GetProjectRoot()
 
 		// Then the project root should be empty
-		assertNoError(t, err)
-		assertEqual(t, "", projectRoot, "project root")
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if projectRoot != "" {
+			t.Errorf("Expected project root to be empty, got %q", projectRoot)
+		}
 	})
 
 	t.Run("NoGitNoYaml", func(t *testing.T) {
+		injector := di.NewInjector()
+
 		// Given a directory without git repository or yaml file
 		rootDir := createTempDir(t, "project-root")
 		subDir := filepath.Join(rootDir, "subdir")
@@ -246,15 +330,21 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		changeDir(t, subDir)
 
 		// When calling GetProjectRoot
-		shell := NewDefaultShell()
+		shell := NewDefaultShell(injector)
 		projectRoot, err := shell.GetProjectRoot()
 
 		// Then the project root should be empty
-		assertNoError(t, err)
-		assertEqual(t, "", projectRoot, "project root")
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if projectRoot != "" {
+			t.Errorf("Expected project root to be empty, got %q", projectRoot)
+		}
 	})
 
 	t.Run("GetwdFails", func(t *testing.T) {
+		injector := di.NewInjector()
+
 		// Given a simulated error in getwd
 		originalGetwd := getwd
 		getwd = func() (string, error) {
@@ -267,7 +357,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		defer func() { execCommand = originalExecCommand }()
 
 		// When calling GetProjectRoot
-		shell := NewDefaultShell()
+		shell := NewDefaultShell(injector)
 		_, err := shell.GetProjectRoot()
 
 		// Then an error should be returned
@@ -278,8 +368,9 @@ func TestShell_GetProjectRoot(t *testing.T) {
 }
 
 func TestShell_Exec(t *testing.T) {
-	shell := NewDefaultShell()
 	t.Run("CommandSuccess", func(t *testing.T) {
+		injector := di.NewInjector()
+
 		// Override execCommand to simulate successful command execution
 		originalExecCommand := execCommand
 		execCommand = mockExecCommandSuccess
@@ -288,9 +379,12 @@ func TestShell_Exec(t *testing.T) {
 		}()
 
 		// When executing a command that succeeds
+		shell := NewDefaultShell(injector)
 		result, err := shell.Exec(false, "Executing echo command", "echo", "hello")
 		// Then no error should be returned
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
 		// And the result should be as expected
 		expectedOutput := "mock output for: echo hello\n"
 		// Normalize the result to handle different line endings
@@ -301,6 +395,8 @@ func TestShell_Exec(t *testing.T) {
 	})
 
 	t.Run("CommandWithError", func(t *testing.T) {
+		injector := di.NewInjector()
+
 		// Override execCommand to simulate command failure
 		originalExecCommand := execCommand
 		execCommand = mockExecCommandError
@@ -308,7 +404,8 @@ func TestShell_Exec(t *testing.T) {
 			execCommand = originalExecCommand
 		}()
 
-		// Capture stdout
+		// When executing a command that fails
+		shell := NewDefaultShell(injector)
 		output := captureStdout(t, func() {
 			// When executing a command that fails
 			_, err := shell.Exec(false, "Executing failing command", "somecommand", "arg1")
@@ -325,6 +422,8 @@ func TestShell_Exec(t *testing.T) {
 	})
 
 	t.Run("VerboseCommandSuccess", func(t *testing.T) {
+		injector := di.NewInjector()
+
 		// Override execCommand to simulate successful command execution
 		originalExecCommand := execCommand
 		execCommand = mockExecCommandSuccess
@@ -335,9 +434,12 @@ func TestShell_Exec(t *testing.T) {
 		// Capture stdout
 		output := captureStdout(t, func() {
 			// When executing a command that succeeds with verbose output
+			shell := NewDefaultShell(injector)
 			result, err := shell.Exec(true, "Executing echo command", "echo", "hello")
 			// Then no error should be returned
-			assertNoError(t, err)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
 			// And the result should be as expected
 			expectedOutput := "mock output for: echo hello\n"
 			// Normalize the result to handle different line endings
@@ -356,6 +458,8 @@ func TestShell_Exec(t *testing.T) {
 	})
 
 	t.Run("FailedToStartCommand", func(t *testing.T) {
+		injector := di.NewInjector()
+
 		// Override cmdStart to simulate command start failure
 		originalCmdStart := cmdStart
 		cmdStart = func(cmd *exec.Cmd) error {
@@ -368,6 +472,7 @@ func TestShell_Exec(t *testing.T) {
 		// Capture stdout
 		output := captureStdout(t, func() {
 			// When executing a command that fails to start
+			shell := NewDefaultShell(injector)
 			_, err := shell.Exec(false, "Executing failing start command", "somecommand", "arg1")
 			// Then an error should be returned
 			if err == nil {
@@ -390,22 +495,6 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Exit(code)
-}
-
-// Helper function to assert no error
-func assertNoError(t *testing.T, err error) {
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-}
-
-// Helper function to assert equality
-func assertEqual(t *testing.T, expected, actual, name string) {
-	expected = normalizePath(expected)
-	actual = normalizePath(actual)
-	if expected != actual {
-		t.Errorf("Expected %s to be %s, got %s", name, expected, actual)
-	}
 }
 
 // Helper function to resolve symlinks

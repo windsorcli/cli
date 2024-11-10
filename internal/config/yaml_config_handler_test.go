@@ -635,17 +635,22 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 
 func TestYamlConfigHandler_GetString(t *testing.T) {
 	t.Run("WithExistingKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		err := handler.Set("contexts.default.environment.EXISTING_KEY", "existingValue")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
+		// Mock the existing context in the configuration
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: ptrString("default"),
+				Contexts: map[string]*Context{
+					"default": {
+						Environment: map[string]string{
+							"EXISTING_KEY": "existingValue",
+						},
+					},
+				},
+			},
 		}
 
 		// Given an existing key in the config
-		got, err := handler.GetString("contexts.default.environment.EXISTING_KEY")
-		if err != nil {
-			t.Fatalf("GetString() unexpected error: %v", err)
-		}
+		got := handler.GetString("environment.EXISTING_KEY")
 
 		// Then the value should be retrieved without error
 		expectedValue := "existingValue"
@@ -655,38 +660,36 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 	})
 
 	t.Run("WithNonExistentKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-
-		// Given a non-existent key in the config
-		got, err := handler.GetString("nonExistentKey")
-		if err == nil {
-			t.Fatalf("GetString() expected error, got nil")
+		// Mock the existing context in the configuration
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: ptrString("default"),
+			},
 		}
 
-		// Then an error should be returned indicating the key was not found
+		// Given a non-existent key in the config
+		got := handler.GetString("nonExistentKey")
+
+		// Then an error should be returned
 		expectedValue := ""
 		if got != expectedValue {
 			t.Errorf("GetString() = %v, expected %v", got, expectedValue)
 		}
-
-		expectedError := "key nonExistentKey not found in configuration"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("GetString() error = %v, expected to contain '%s'", err, expectedError)
-		}
 	})
 
 	t.Run("GetStringWithDefaultValue", func(t *testing.T) {
-		// Given a handler with no specific key set
-		handler, _ := NewYamlConfigHandler("")
+		// Mock the existing context in the configuration
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: ptrString("default"),
+			},
+		}
 
 		// When calling GetString with a non-existent key and a default value
 		defaultValue := "defaultString"
-		value, err := handler.GetString("non.existent.key", defaultValue)
+		value := handler.GetString("non.existent.key", defaultValue)
 
 		// Then the default value should be returned without error
-		if err != nil {
-			t.Fatalf("GetString() unexpected error: %v", err)
-		}
 		if value != defaultValue {
 			t.Errorf("Expected value '%v', got '%v'", defaultValue, value)
 		}
@@ -695,17 +698,20 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 
 func TestYamlConfigHandler_GetInt(t *testing.T) {
 	t.Run("WithExistingIntegerKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		// Mock the existing context in the configuration
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: ptrString("default"),
+			},
+		}
+
 		// Set an integer value
 		err := handler.Set("contexts.default.vm.cpu", 4)
 		if err != nil {
 			t.Fatalf("Set() unexpected error: %v", err)
 		}
 
-		value, err := handler.GetInt("contexts.default.vm.cpu")
-		if err != nil {
-			t.Fatalf("GetInt() unexpected error: %v", err)
-		}
+		value := handler.GetInt("vm.cpu")
 
 		expectedValue := 4
 		if value != expectedValue {
@@ -714,46 +720,58 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 	})
 
 	t.Run("WithExistingNonIntegerKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		handler.Set("contexts.default.aws.aws_endpoint_url", "notAnInt")
-
-		// Given an existing key with a non-integer value
-		_, err := handler.GetInt("contexts.default.aws.aws_endpoint_url")
-		if err == nil {
-			t.Fatalf("GetInt() expected error, got nil")
+		// Mock the existing context in the configuration
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: ptrString("default"),
+				Contexts: map[string]*Context{
+					"default": {
+						AWS: &AWSConfig{
+							AWSEndpointURL: ptrString("notAnInt"),
+						},
+					},
+				},
+			},
 		}
 
+		// Given an existing key with a non-integer value
+		value := handler.GetInt("aws.aws_endpoint_url")
+
 		// Then an error should be returned indicating the value is not an integer
-		expectedError := "key contexts.default.aws.aws_endpoint_url is not an integer"
-		if err.Error() != expectedError {
-			t.Errorf("GetInt() error = %v, expected '%s'", err, expectedError)
+		expectedValue := 0
+		if value != expectedValue {
+			t.Errorf("Expected value %v, got %v", expectedValue, value)
 		}
 	})
 
 	t.Run("WithNonExistentKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		// Mock the existing context in the configuration
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: ptrString("default"),
+			},
+		}
 
 		// Given a non-existent key in the config
-		_, err := handler.GetInt("nonExistentKey")
-		if err == nil {
-			t.Fatalf("GetInt() expected error, got nil")
+		value := handler.GetInt("nonExistentKey")
+		expectedValue := 0
+		if value != expectedValue {
+			t.Errorf("Expected value %v, got %v", expectedValue, value)
 		}
 
 		// Then an error should be returned indicating the key was not found
-		expectedError := "key nonExistentKey not found in configuration"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("GetInt() error = %v, expected to contain '%s'", err, expectedError)
-		}
 	})
 
 	t.Run("WithNonExistentKeyAndDefaultValue", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		// Mock the existing context in the configuration
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: ptrString("default"),
+			},
+		}
 
 		// Given a non-existent key in the config and a default value
-		got, err := handler.GetInt("nonExistentKey", 99)
-		if err != nil {
-			t.Fatalf("GetInt() unexpected error: %v", err)
-		}
+		got := handler.GetInt("nonExistentKey", 99)
 
 		// Then the default value should be returned without error
 		expectedValue := 99
@@ -765,17 +783,20 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 
 func TestYamlConfigHandler_GetBool(t *testing.T) {
 	t.Run("WithExistingBooleanKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		// Mock the existing context in the configuration
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: ptrString("default"),
+			},
+		}
+
 		// Set a boolean value
 		err := handler.Set("contexts.default.docker.enabled", true)
 		if err != nil {
 			t.Fatalf("Set() unexpected error: %v", err)
 		}
 
-		value, err := handler.GetBool("contexts.default.docker.enabled")
-		if err != nil {
-			t.Fatalf("GetBool() unexpected error: %v", err)
-		}
+		value := handler.GetBool("docker.enabled")
 
 		expectedValue := true
 		if value != expectedValue {
@@ -784,46 +805,55 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 	})
 
 	t.Run("WithExistingNonBooleanKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		handler.Set("contexts.default.aws.aws_endpoint_url", "notABool")
-
-		// Given an existing key with a non-boolean value
-		_, err := handler.GetBool("contexts.default.aws.aws_endpoint_url")
-		if err == nil {
-			t.Fatalf("GetBool() expected error, got nil")
+		// Mock the existing context in the configuration
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: ptrString("default"),
+			},
 		}
 
+		// Set a non-boolean value for the key
+		err := handler.Set("contexts.default.aws.aws_endpoint_url", "notABool")
+		if err != nil {
+			t.Fatalf("Set() unexpected error: %v", err)
+		}
+
+		// Given an existing key with a non-boolean value
+		value := handler.GetBool("aws.aws_endpoint_url")
+		expectedValue := false
+
 		// Then an error should be returned indicating the value is not a boolean
-		expectedError := "key contexts.default.aws.aws_endpoint_url is not a boolean"
-		if err.Error() != expectedError {
-			t.Errorf("GetBool() error = %v, expected '%s'", err, expectedError)
+		if value != expectedValue {
+			t.Errorf("Expected value %v, got %v", expectedValue, value)
 		}
 	})
 
 	t.Run("WithNonExistentKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-
-		// Given a non-existent key in the config
-		_, err := handler.GetBool("nonExistentKey")
-		if err == nil {
-			t.Fatalf("GetBool() expected error, got nil")
+		// Mock the existing context in the configuration
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: ptrString("default"),
+			},
 		}
 
-		// Then an error should be returned indicating the key was not found
-		expectedError := "key nonExistentKey not found in configuration"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("GetBool() error = %v, expected to contain '%s'", err, expectedError)
+		// Given a non-existent key in the config
+		value := handler.GetBool("nonExistentKey")
+		expectedValue := false
+		if value != expectedValue {
+			t.Errorf("Expected value %v, got %v", expectedValue, value)
 		}
 	})
 
 	t.Run("WithNonExistentKeyAndDefaultValue", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		// Mock the existing context in the configuration
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: ptrString("default"),
+			},
+		}
 
 		// Given a non-existent key in the config and a default value
-		got, err := handler.GetBool("nonExistentKey", false)
-		if err != nil {
-			t.Fatalf("GetBool() unexpected error: %v", err)
-		}
+		got := handler.GetBool("nonExistentKey", false)
 
 		// Then the default value should be returned without error
 		expectedValue := false
@@ -847,12 +877,9 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 		}
 
 		// When calling GetConfig
-		config, err := handler.GetConfig()
+		config := handler.GetConfig()
 
 		// Then the context config should be returned without error
-		if err != nil {
-			t.Fatalf("GetConfig() unexpected error: %v", err)
-		}
 		if config == nil || config.Environment["ENV_VAR"] != "value" {
 			t.Errorf("Expected context config with ENV_VAR 'value', got %v", config)
 		}
@@ -863,12 +890,11 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 		handler, _ := NewYamlConfigHandler("")
 
 		// When calling GetConfig
-		_, err := handler.GetConfig()
+		config := handler.GetConfig()
 
-		// Then an error should be returned
-		expectedError := "context is not set"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("Expected error '%s', got %v", expectedError, err)
+		// Then the default context config should be returned without error
+		if config == nil || len(config.Environment) != 0 {
+			t.Errorf("Expected empty config map, got %v", config)
 		}
 	})
 
@@ -878,12 +904,9 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 		handler.config.Context = ptrString("nonexistent")
 
 		// When calling GetConfig
-		config, err := handler.GetConfig()
+		config := handler.GetConfig()
 
 		// Then the config should be an empty map and no error should be returned
-		if err != nil {
-			t.Fatalf("GetConfig() unexpected error: %v", err)
-		}
 		if config == nil || len(config.Environment) != 0 {
 			t.Errorf("Expected empty config map, got %v", config)
 		}

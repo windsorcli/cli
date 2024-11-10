@@ -4,40 +4,29 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-// DockerEnv is a struct that simulates a Docker environment for testing purposes.
-type DockerEnv struct {
-	Env
+// DockerEnvPrinter is a struct that simulates a Docker environment for testing purposes.
+type DockerEnvPrinter struct {
+	BaseEnvPrinter
 }
 
-// NewDockerEnv initializes a new DockerEnv instance using the provided dependency injection container.
-func NewDockerEnv(diContainer di.ContainerInterface) *DockerEnv {
-	return &DockerEnv{
-		Env: Env{
-			diContainer: diContainer,
+// NewDockerEnvPrinter initializes a new dockerEnv instance using the provided dependency injector.
+func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
+	return &DockerEnvPrinter{
+		BaseEnvPrinter: BaseEnvPrinter{
+			injector: injector,
 		},
 	}
 }
 
 // GetEnvVars retrieves the environment variables for the Docker environment.
-func (e *DockerEnv) GetEnvVars() (map[string]string, error) {
+func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Resolve necessary dependencies for context operations.
-	contextHandler, err := e.diContainer.Resolve("contextHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving contextHandler: %w", err)
-	}
-	context, ok := contextHandler.(context.ContextInterface)
-	if !ok {
-		return nil, fmt.Errorf("failed to cast contextHandler to context.ContextInterface")
-	}
-
 	// Determine the root directory for configuration files.
-	configRoot, err := context.GetConfigRoot()
+	configRoot, err := e.contextHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 	}
@@ -60,15 +49,15 @@ func (e *DockerEnv) GetEnvVars() (map[string]string, error) {
 }
 
 // Print prints the environment variables for the Docker environment.
-func (e *DockerEnv) Print() error {
+func (e *DockerEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded Env struct with the retrieved environment variables
-	return e.Env.Print(envVars)
+	// Call the Print method of the embedded envPrinter struct with the retrieved environment variables
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure DockerEnv implements the EnvInterface
-var _ EnvPrinter = (*DockerEnv)(nil)
+// Ensure dockerEnv implements the EnvPrinter interface
+var _ EnvPrinter = (*DockerEnvPrinter)(nil)

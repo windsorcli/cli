@@ -10,7 +10,7 @@ import (
 
 // PrintEnvVars prints the provided environment variables in a sorted order.
 // If the value of an environment variable is an empty string, it will print a command to remove the variable.
-func (d *DefaultShell) PrintEnvVars(envVars map[string]string) error {
+func (s *DefaultShell) PrintEnvVars(envVars map[string]string) error {
 	// Create a slice to hold the keys of the envVars map
 	keys := make([]string, 0, len(envVars))
 
@@ -36,7 +36,7 @@ func (d *DefaultShell) PrintEnvVars(envVars map[string]string) error {
 }
 
 // PrintAlias prints the aliases for the shell.
-func (d *DefaultShell) PrintAlias(aliases map[string]string) error {
+func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 	// Create a slice to hold the keys of the aliases map
 	keys := make([]string, 0, len(aliases))
 

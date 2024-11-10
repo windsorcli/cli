@@ -40,79 +40,67 @@ func TestMockConfigHandler_LoadConfig(t *testing.T) {
 }
 
 func TestMockConfigHandler_GetString(t *testing.T) {
-	mockGetErr := errors.New("mock get string error")
-
 	t.Run("WithKey", func(t *testing.T) {
 		handler := NewMockConfigHandler()
-		handler.GetStringFunc = func(key string, defaultValue ...string) (string, error) { return "", mockGetErr }
-		_, err := handler.GetString("someKey")
-		assertError(t, err, mockGetErr)
+		handler.GetStringFunc = func(key string, defaultValue ...string) string { return "" }
+		value := handler.GetString("someKey")
+		assertEqual(t, "", value, "GetString with key")
 	})
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		handler := NewMockConfigHandler()
-		value, err := handler.GetString("someKey")
-		assertError(t, err, nil)
-		assertEqual(t, "", value, "GetString")
+		value := handler.GetString("someKey")
+		assertEqual(t, "mock-string", value, "GetString with no func set")
 	})
 
 	t.Run("WithDefaultValue", func(t *testing.T) {
 		handler := NewMockConfigHandler()
 		defaultValue := "default"
-		value, err := handler.GetString("someKey", defaultValue)
-		assertError(t, err, nil)
+		value := handler.GetString("someKey", defaultValue)
 		assertEqual(t, defaultValue, value, "GetString with default")
 	})
 }
 
 func TestMockConfigHandler_GetInt(t *testing.T) {
-	mockGetErr := errors.New("mock get int error")
-
 	t.Run("WithKey", func(t *testing.T) {
 		handler := NewMockConfigHandler()
-		handler.GetIntFunc = func(key string, defaultValue ...int) (int, error) { return 0, mockGetErr }
-		_, err := handler.GetInt("someKey")
-		assertError(t, err, mockGetErr)
+		handler.GetIntFunc = func(key string, defaultValue ...int) int { return 0 }
+		value := handler.GetInt("someKey")
+		assertEqual(t, 0, value, "GetInt with key")
 	})
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		handler := NewMockConfigHandler()
-		value, err := handler.GetInt("someKey")
-		assertError(t, err, nil)
-		assertEqual(t, 0, value, "GetInt")
+		value := handler.GetInt("someKey")
+		assertEqual(t, 42, value, "GetInt with no func set")
 	})
 
 	t.Run("WithDefaultValue", func(t *testing.T) {
 		handler := NewMockConfigHandler()
 		defaultValue := 42
-		value, err := handler.GetInt("someKey", defaultValue)
-		assertError(t, err, nil)
+		value := handler.GetInt("someKey", defaultValue)
 		assertEqual(t, defaultValue, value, "GetInt with default")
 	})
 }
 
 func TestMockConfigHandler_GetBool(t *testing.T) {
-	mockGetErr := errors.New("mock get bool error")
-
 	t.Run("WithKey", func(t *testing.T) {
 		handler := NewMockConfigHandler()
-		handler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) { return false, mockGetErr }
-		_, err := handler.GetBool("someKey")
-		assertError(t, err, mockGetErr)
+		handler.GetBoolFunc = func(key string, defaultValue ...bool) bool { return false }
+		value := handler.GetBool("someKey")
+		assertEqual(t, false, value, "GetBool with key")
 	})
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		handler := NewMockConfigHandler()
-		value, err := handler.GetBool("someKey")
-		assertError(t, err, nil)
-		assertEqual(t, false, value, "GetBool")
+		value := handler.GetBool("someKey")
+		assertEqual(t, true, value, "GetBool with no func set")
 	})
 
 	t.Run("WithDefaultValue", func(t *testing.T) {
 		handler := NewMockConfigHandler()
 		defaultValue := true
-		value, err := handler.GetBool("someKey", defaultValue)
-		assertError(t, err, nil)
+		value := handler.GetBool("someKey", defaultValue)
 		assertEqual(t, defaultValue, value, "GetBool with default")
 	})
 }
@@ -165,7 +153,7 @@ func TestMockConfigHandler_Get(t *testing.T) {
 		handler := NewMockConfigHandler()
 		value, err := handler.Get("someKey")
 		assertError(t, err, nil)
-		assertEqual(t, nil, value, "Get")
+		assertEqual(t, "mock-value", value, "Get")
 	})
 }
 
@@ -217,14 +205,13 @@ func TestMockConfigHandler_GetConfig(t *testing.T) {
 
 		// Set the GetConfigFunc to update the flag and return a mock context
 		mockContext := &Context{}
-		mockHandler.GetConfigFunc = func() (*Context, error) {
+		mockHandler.GetConfigFunc = func() *Context {
 			called = true
-			return mockContext, nil
+			return mockContext
 		}
 
 		// Act: Call GetConfig
-		config, err := mockHandler.GetConfig()
-		assertError(t, err, nil)
+		config := mockHandler.GetConfig()
 		assertEqual(t, mockContext, config, "GetConfig")
 
 		// Assert: Verify that the function was called
@@ -239,9 +226,8 @@ func TestMockConfigHandler_GetConfig(t *testing.T) {
 		// Ensure GetConfigFunc is not set
 		mockHandler.GetConfigFunc = nil
 
-		// Call GetConfig and expect nil values
-		config, err := mockHandler.GetConfig()
-		assertError(t, err, nil)
-		assertEqual(t, (*Context)(nil), config, "GetConfig")
+		// Call GetConfig and expect a reasonable default context
+		config := mockHandler.GetConfig()
+		assertEqual(t, &Context{}, config, "GetConfig")
 	})
 }

@@ -12,24 +12,14 @@ var upCmd = &cobra.Command{
 	Short: "Set up the Windsor environment",
 	Long:  "Set up the Windsor environment by executing necessary shell commands.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-
-		// Get the context configuration
-		contextConfig, err := cliConfigHandler.GetConfig()
-		if err != nil {
-			if verbose {
-				return fmt.Errorf("Error getting context configuration: %w", err)
-			}
-			return nil
-		}
-
 		// Determine if Colima is being used
-		useColima := contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima"
+		driver := configHandler.GetString("vm.driver")
 
 		// Determine if Docker is being used
-		useDocker := contextConfig.Docker != nil && *contextConfig.Docker.Enabled
+		dockerEnabled := configHandler.GetBool("docker.enabled")
 
 		// Start Colima if it is being used
-		if useColima {
+		if driver == "colima" {
 			// Write the Colima configuration
 			if err := colimaVirt.WriteConfig(); err != nil {
 				return fmt.Errorf("Error writing Colima config: %w", err)
@@ -42,7 +32,7 @@ var upCmd = &cobra.Command{
 		}
 
 		// Start Docker if it is being used
-		if useDocker {
+		if dockerEnabled {
 			// Write the Docker configuration
 			if err := dockerVirt.WriteConfig(); err != nil {
 				return fmt.Errorf("Error writing Docker config: %w", err)
@@ -55,14 +45,14 @@ var upCmd = &cobra.Command{
 		}
 
 		// Configure the guest network
-		if useColima {
+		if driver == "colima" {
 			if err := colimaNetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("Error configuring guest network: %w", err)
 			}
 		}
 
 		// Configure the host network
-		if useColima {
+		if driver == "colima" {
 			if err := colimaNetworkManager.ConfigureHost(); err != nil {
 				return fmt.Errorf("Error configuring host network: %w", err)
 			}
@@ -73,14 +63,14 @@ var upCmd = &cobra.Command{
 		fmt.Println(color.CyanString("-------------------------------------"))
 
 		// Print Colima info if available
-		if useColima {
+		if driver == "colima" {
 			if err := colimaVirt.PrintInfo(); err != nil {
 				return fmt.Errorf("Error printing Colima info: %w", err)
 			}
 		}
 
 		// Print Docker info if available
-		if useDocker {
+		if dockerEnabled {
 			if err := dockerVirt.PrintInfo(); err != nil {
 				return fmt.Errorf("Error printing Docker info: %w", err)
 			}
