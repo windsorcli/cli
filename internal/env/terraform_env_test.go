@@ -534,14 +534,11 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		mocks.ContextHandler.GetContextFunc = func() (string, error) {
 			return "local", nil
 		}
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				AWS: &config.AWSConfig{
-					Localstack: &config.LocalstackConfig{
-						Create: boolPtr(true),
-					},
-				},
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "aws.localstack.create" {
+				return true
 			}
+			return false
 		}
 
 		// When getAlias is called
@@ -586,26 +583,6 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		expectedAlias := map[string]string{"terraform": ""}
 		if !reflect.DeepEqual(aliases, expectedAlias) {
 			t.Errorf("Expected aliases %v, got %v", expectedAlias, aliases)
-		}
-	})
-
-	t.Run("ErrorRetrievingContext", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving context")
-		}
-
-		// When getAlias is called
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
-		_, err := terraformEnvPrinter.getAlias()
-
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error retrieving context") {
-			t.Errorf("Expected error message to contain 'error retrieving context', got %v", err)
 		}
 	})
 }

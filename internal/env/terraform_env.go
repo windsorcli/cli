@@ -97,20 +97,10 @@ func (e *TerraformEnvPrinter) Print() error {
 var _ EnvPrinter = (*TerraformEnvPrinter)(nil)
 
 func (e *TerraformEnvPrinter) getAlias() (map[string]string, error) {
-	// Get the current context
-	currentContext, err := e.contextHandler.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context: %w", err)
-	}
-
-	contextConfig := e.configHandler.GetConfig()
+	enableLocalstack := e.configHandler.GetBool("aws.localstack.create", false)
 
 	// Check if Localstack is enabled
-	if currentContext == "local" &&
-		contextConfig.AWS != nil &&
-		contextConfig.AWS.Localstack != nil &&
-		contextConfig.AWS.Localstack.Create != nil &&
-		*contextConfig.AWS.Localstack.Create {
+	if enableLocalstack {
 		return map[string]string{"terraform": "tflocal"}, nil
 	}
 
