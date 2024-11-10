@@ -104,21 +104,19 @@ func (y *YamlConfigHandler) Get(path string) (interface{}, error) {
 	}
 	pathKeys := strings.Split(path, ".")
 
-	// Try to get the value from y.config
+	// Use getValueByPath to navigate the struct using YAML tags
 	value, err := getValueByPath(y.config, pathKeys)
-	if err == nil {
-		if value == nil {
-			// Value is nil, proceed to check defaultContextConfig
-			if len(pathKeys) >= 2 && pathKeys[0] == "contexts" {
-				// Attempt to get the value from defaultContextConfig
-				value, err = getValueByPath(y.defaultContextConfig, pathKeys[2:])
-				if err == nil {
-					return value, nil
-				}
+	if err != nil || value == nil {
+		// Value is invalid or nil, proceed to check defaultContextConfig
+		if len(pathKeys) >= 2 && pathKeys[0] == "contexts" {
+			// Attempt to get the value from defaultContextConfig
+			value, err = getValueByPath(y.defaultContextConfig, pathKeys[2:])
+			if err == nil && value != nil {
+				return value, nil
 			}
-		} else {
-			return value, nil
 		}
+	} else {
+		return value, nil
 	}
 
 	// Return an error if the key is not found
@@ -127,7 +125,8 @@ func (y *YamlConfigHandler) Get(path string) (interface{}, error) {
 
 // GetString retrieves a string value for the specified key from the configuration
 func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) (string, error) {
-	value, err := y.Get(key)
+	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)
+	value, err := y.Get(contextKey)
 	if err != nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0], nil
@@ -139,7 +138,8 @@ func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) (strin
 
 // GetInt retrieves an integer value for the specified key from the configuration
 func (y *YamlConfigHandler) GetInt(key string, defaultValue ...int) (int, error) {
-	value, err := y.Get(key)
+	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)
+	value, err := y.Get(contextKey)
 	if err != nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0], nil
@@ -155,7 +155,8 @@ func (y *YamlConfigHandler) GetInt(key string, defaultValue ...int) (int, error)
 
 // GetBool retrieves a boolean value for the specified key from the configuration
 func (y *YamlConfigHandler) GetBool(key string, defaultValue ...bool) (bool, error) {
-	value, err := y.Get(key)
+	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)
+	value, err := y.Get(contextKey)
 	if err != nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0], nil
