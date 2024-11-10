@@ -33,6 +33,33 @@ func TestMockShell_NewMockShell(t *testing.T) {
 	})
 }
 
+func TestMockShell_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with a custom Initialize function
+		mockShell := NewMockShell()
+		mockShell.InitializeFunc = func() error {
+			return nil
+		}
+
+		// When calling Initialize
+		err := mockShell.Initialize()
+
+		// Then no error should be returned
+		assertError(t, err, false)
+	})
+
+	t.Run("DefaultInitialize", func(t *testing.T) {
+		// Given a mock shell without a custom Initialize function
+		mockShell := NewMockShell()
+
+		// When calling Initialize
+		err := mockShell.Initialize()
+
+		// Then no error should be returned as the default implementation does nothing
+		assertError(t, err, false)
+	})
+}
+
 func TestMockShell_PrintEnvVars(t *testing.T) {
 	envVars := map[string]string{
 		"VAR1": "value1",

@@ -112,6 +112,75 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	}
 }
 
+func TestDockerVirt_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+
+		// Call the Initialize method
+		err := dockerVirt.Initialize()
+
+		// Assert no error occurred
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// Verify that the helpers were resolved correctly
+		if len(dockerVirt.helpers) == 0 {
+			t.Errorf("expected helpers to be resolved, but got none")
+		}
+	})
+
+	t.Run("ErrorCallingBaseVirtInitialize", func(t *testing.T) {
+		// Setup mock components
+		injector := di.NewMockInjector()
+		mocks := setupSafeDockerContainerMocks(injector)
+		dockerVirt := NewDockerVirt(mocks.Injector)
+
+		// Simulate an error during dependency resolution in BaseVirt's Initialize
+		injector.SetResolveError("shell", fmt.Errorf("mock resolve error"))
+
+		// Call the Initialize method
+		err := dockerVirt.Initialize()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+
+		// Verify the error message contains the expected substring
+		expectedErrorSubstring := "error initializing base"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+		}
+	})
+
+	t.Run("ErrorResolvingHelpers", func(t *testing.T) {
+		// Setup mock components
+		injector := di.NewMockInjector()
+		mocks := setupSafeDockerContainerMocks(injector)
+		dockerVirt := NewDockerVirt(mocks.Injector)
+
+		// Simulate an error during helper resolution
+		injector.SetResolveAllError(fmt.Errorf("mock resolve helpers error"))
+
+		// Call the Initialize method
+		err := dockerVirt.Initialize()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+
+		// Verify the error message contains the expected substring
+		expectedErrorSubstring := "error resolving helpers"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+		}
+	})
+}
+
 func TestDockerVirt_Up(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mock components
@@ -799,6 +868,38 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 		expectedErrorMsg := "error retrieving config root"
 		if !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+	})
+
+	t.Run("ErrorGettingFullComposeConfig", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.Initialize()
+
+		// Mock the mkdirAll function to simulate an error
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return nil // Return nil to bypass the read-only file system error
+		}
+
+		// Mock the GetContext function to simulate a failure
+		mocks.MockContext.GetContextFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving context")
+		}
+
+		// Call the WriteConfig method
+		err := dockerVirt.WriteConfig()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
+
+		// Check for the presence of an error
+		if err == nil {
+			t.Fatal("expected an error, got none")
 		}
 	})
 

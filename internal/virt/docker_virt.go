@@ -42,10 +42,8 @@ func (v *DockerVirt) Initialize() error {
 	// Convert the resolved helpers to the correct type
 	helperSlice := make([]helpers.Helper, len(resolvedHelpers))
 	for i, helper := range resolvedHelpers {
-		if h, ok := helper.(helpers.Helper); ok {
+		if h, _ := helper.(helpers.Helper); h != nil {
 			helperSlice[i] = h
-		} else {
-			return fmt.Errorf("resolved helper does not implement helpers.Helper interface")
 		}
 	}
 

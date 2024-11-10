@@ -52,25 +52,42 @@ type ContainerRuntime interface {
 	GetContainerInfo() ([]ContainerInfo, error)
 }
 
+// NewBaseVirt creates a new BaseVirt instance
+func NewBaseVirt(injector di.Injector) *BaseVirt {
+	return &BaseVirt{injector: injector}
+}
+
 // Initialize is a method that initializes the virt environment
 func (v *BaseVirt) Initialize() error {
 	resolvedShell, err := v.injector.Resolve("shell")
 	if err != nil {
 		return fmt.Errorf("error resolving shell: %w", err)
 	}
-	v.shell = resolvedShell.(shell.Shell)
+	shellInstance, ok := resolvedShell.(shell.Shell)
+	if !ok {
+		return fmt.Errorf("resolved shell is not of type Shell")
+	}
+	v.shell = shellInstance
 
 	resolvedContextHandler, err := v.injector.Resolve("contextHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving context handler: %w", err)
 	}
-	v.contextHandler = resolvedContextHandler.(context.ContextInterface)
+	contextHandlerInstance, ok := resolvedContextHandler.(context.ContextInterface)
+	if !ok {
+		return fmt.Errorf("resolved context handler is not of type ContextInterface")
+	}
+	v.contextHandler = contextHandlerInstance
 
 	resolvedCliConfigHandler, err := v.injector.Resolve("cliConfigHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
-	v.cliConfigHandler = resolvedCliConfigHandler.(config.ConfigHandler)
+	cliConfigHandlerInstance, ok := resolvedCliConfigHandler.(config.ConfigHandler)
+	if !ok {
+		return fmt.Errorf("resolved cliConfigHandler is not of type ConfigHandler")
+	}
+	v.cliConfigHandler = cliConfigHandlerInstance
 
 	return nil
 }

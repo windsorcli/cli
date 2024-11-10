@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/ssh"
 )
 
 var tempDirs []string
@@ -162,6 +163,45 @@ func captureStdoutAndStderr(t *testing.T, f func()) (string, string) {
 	os.Stderr = originalStderr
 
 	return stdoutBuf.String(), stderrBuf.String()
+}
+
+func TestShell_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		injector := di.NewInjector()
+
+		// Register a mock SSH client to avoid resolution errors
+		mockSSHClient := &ssh.MockClient{}
+		injector.Register("sshClient", mockSSHClient)
+
+		// Given a DefaultShell instance
+		shell := NewDefaultShell(injector)
+
+		// When calling Initialize
+		err := shell.Initialize()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Initialize() error = %v, wantErr %v", err, false)
+		}
+	})
+
+	t.Run("ErrorResolvingSSHClient", func(t *testing.T) {
+		injector := di.NewMockInjector()
+
+		// Given a DefaultShell instance with a faulty injector
+		shell := NewDefaultShell(injector)
+
+		// Simulate an error in resolving the SSH client
+		injector.SetResolveError("sshClient", fmt.Errorf("failed to resolve SSH client"))
+
+		// When calling Initialize
+		err := shell.Initialize()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("Initialize() error = %v, wantErr %v", err, true)
+		}
+	})
 }
 
 func TestShell_GetProjectRoot(t *testing.T) {

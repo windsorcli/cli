@@ -166,7 +166,10 @@ func Initialize(inj di.Injector) {
 			}
 		case *shell.Shell:
 			if resolved, ok := instance.(shell.Shell); ok {
-				resolved.Initialize()
+				if err := resolved.Initialize(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error initializing shell.Shell: %v\n", err)
+					exitFunc(1)
+				}
 				*v = resolved
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type shell.Shell\n", key)
@@ -195,7 +198,10 @@ func Initialize(inj di.Injector) {
 			}
 		case *virt.Virt:
 			if resolved, ok := instance.(virt.Virt); ok {
-				resolved.Initialize()
+				if err := resolved.Initialize(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error initializing virt.Virt: %v\n", err)
+					exitFunc(1)
+				}
 				*v = resolved
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type virt.Virt\n", key)
@@ -203,7 +209,10 @@ func Initialize(inj di.Injector) {
 			}
 		case *env.EnvPrinter:
 			if resolved, ok := instance.(env.EnvPrinter); ok {
-				resolved.Initialize()
+				if err := resolved.Initialize(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error initializing env.EnvPrinter: %v\n", err)
+					exitFunc(1)
+				}
 				*v = resolved
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type env.EnvInterface\n", key)
