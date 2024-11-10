@@ -16,21 +16,21 @@ import (
 
 func TestGitHelper_NewGitHelper(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Create injector without registering cliConfigHandler
+		// Create injector without registering configHandler
 		diContainer := di.NewInjector()
 
 		// Attempt to create GitHelper
 		_, err := NewGitHelper(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
-			t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
+			t.Fatalf("expected error resolving configHandler, got %v", err)
 		}
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Create injector and register only cliConfigHandler
+		// Create injector and register only configHandler
 		diContainer := di.NewInjector()
 		mockConfigHandler := config.NewMockConfigHandler()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("configHandler", mockConfigHandler)
 
 		// Attempt to create GitHelper
 		_, err := NewGitHelper(diContainer)
@@ -40,11 +40,11 @@ func TestGitHelper_NewGitHelper(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Create injector and register cliConfigHandler and shell
+		// Create injector and register configHandler and shell
 		diContainer := di.NewInjector()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockShell := shell.NewMockShell()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("configHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 
 		// Attempt to create GitHelper
@@ -84,7 +84,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return "test-context", nil
 		}
 		diContainer := di.NewInjector()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("configHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextHandler", mockContext)
 
@@ -145,7 +145,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return nil
 		}
 		diContainer := di.NewInjector()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("configHandler", mockConfigHandler)
 		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextHandler", mockContext)
@@ -177,7 +177,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return "test-context", nil
 		}
 		diContainer := di.NewInjector()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("configHandler", mockConfigHandler)
 		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextHandler", mockContext)
@@ -216,7 +216,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return "test-context", nil
 		}
 		diContainer := di.NewInjector()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
+		diContainer.Register("configHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextHandler", mockContext)
 

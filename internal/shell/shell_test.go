@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/ssh"
 )
@@ -173,6 +174,10 @@ func TestShell_Initialize(t *testing.T) {
 		mockSSHClient := &ssh.MockClient{}
 		injector.Register("sshClient", mockSSHClient)
 
+		// Register a mock ConfigHandler to avoid resolution errors
+		mockConfigHandler := config.NewMockConfigHandler()
+		injector.Register("configHandler", mockConfigHandler)
+
 		// Given a DefaultShell instance
 		shell := NewDefaultShell(injector)
 
@@ -223,9 +228,13 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		projectRoot, err := shell.GetProjectRoot()
 
 		// Then the project root should be returned without error
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
 		expectedRootDir := resolveSymlinks(t, rootDir)
-		assertEqual(t, expectedRootDir, projectRoot, "project root")
+		if expectedRootDir != projectRoot {
+			t.Errorf("Expected project root %q, got %q", expectedRootDir, projectRoot)
+		}
 	})
 
 	t.Run("Cached", func(t *testing.T) {
@@ -244,18 +253,26 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		// When calling GetProjectRoot
 		shell := NewDefaultShell(injector)
 		projectRoot, err := shell.GetProjectRoot()
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
 
 		expectedRootDir := resolveSymlinks(t, rootDir)
-		assertEqual(t, expectedRootDir, projectRoot, "project root")
+		if expectedRootDir != projectRoot {
+			t.Errorf("Expected project root %q, got %q", expectedRootDir, projectRoot)
+		}
 
 		// When calling GetProjectRoot again with cached project root
 		shell.projectRoot = expectedRootDir
 		cachedProjectRoot, err := shell.GetProjectRoot()
 
 		// Then the cached project root should be returned without error
-		assertNoError(t, err)
-		assertEqual(t, expectedRootDir, cachedProjectRoot, "cached project root")
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if expectedRootDir != cachedProjectRoot {
+			t.Errorf("Expected cached project root %q, got %q", expectedRootDir, cachedProjectRoot)
+		}
 	})
 
 	t.Run("MaxDepth", func(t *testing.T) {
@@ -279,8 +296,12 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		projectRoot, err := shell.GetProjectRoot()
 
 		// Then the project root should be empty
-		assertNoError(t, err)
-		assertEqual(t, "", projectRoot, "project root")
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if projectRoot != "" {
+			t.Errorf("Expected project root to be empty, got %q", projectRoot)
+		}
 	})
 
 	t.Run("NoGitNoYaml", func(t *testing.T) {
@@ -300,8 +321,12 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		projectRoot, err := shell.GetProjectRoot()
 
 		// Then the project root should be empty
-		assertNoError(t, err)
-		assertEqual(t, "", projectRoot, "project root")
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if projectRoot != "" {
+			t.Errorf("Expected project root to be empty, got %q", projectRoot)
+		}
 	})
 
 	t.Run("GetwdFails", func(t *testing.T) {
@@ -329,6 +354,141 @@ func TestShell_GetProjectRoot(t *testing.T) {
 	})
 }
 
+func TestShell_GetContextPath(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		injector := di.NewInjector()
+
+		// Register a mock ConfigHandler to provide a context
+		mockConfigHandler := config.NewMockConfigHandler()
+		context := "test-context"
+		mockConfigHandler.GetContextFunc = func() *string {
+			return &context
+		}
+		injector.Register("configHandler", mockConfigHandler)
+
+		// Register a mock SSH client to avoid initialization error
+		mockSSHClient := &ssh.MockClient{}
+		injector.Register("sshClient", mockSSHClient)
+
+		// Given a DefaultShell instance
+		shell := NewDefaultShell(injector)
+		err := shell.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize shell: %v", err)
+		}
+
+		// Use a mock command execution function to simulate git command success
+		originalExecCommand := execCommand
+		execCommand = func(name string, arg ...string) *exec.Cmd {
+			if name == "git" && len(arg) > 0 && arg[0] == "rev-parse" {
+				return exec.Command("echo", "git rev-parse --show-toplevel")
+			}
+			return exec.Command(name, arg...)
+		}
+		defer func() { execCommand = originalExecCommand }()
+
+		// When calling GetContextPath
+		contextPath, err := shell.GetContextPath()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Failed to get context path: %v", err)
+		}
+		// And the context path should be as expected
+		expectedContextPath := "git rev-parse --show-toplevel/contexts/test-context"
+		if expectedContextPath != contextPath {
+			t.Errorf("Expected context path %q, got %q", expectedContextPath, contextPath)
+		}
+	})
+
+	t.Run("ErrorGettingContext", func(t *testing.T) {
+		// Create a mock ConfigHandler that returns nil for context
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextFunc = func() *string {
+			return nil
+		}
+
+		// Register the mock ConfigHandler
+		injector := di.NewInjector()
+		injector.Register("configHandler", mockConfigHandler)
+
+		// Register a mock SSH client to avoid initialization error
+		mockSSHClient := &ssh.MockClient{}
+		injector.Register("sshClient", mockSSHClient)
+
+		// Given a DefaultShell instance
+		shell := NewDefaultShell(injector)
+		err := shell.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize shell: %v", err)
+		}
+
+		// When calling GetContextPath
+		_, err = shell.GetContextPath()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when retrieving context path, got nil")
+		}
+		expectedErrorMsg := "error retrieving context: context is nil"
+		if err.Error() != expectedErrorMsg {
+			t.Errorf("Expected error message %q, got %q", expectedErrorMsg, err.Error())
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		injector := di.NewInjector()
+
+		// Register a mock ConfigHandler to provide a context
+		mockConfigHandler := config.NewMockConfigHandler()
+		context := "test-context"
+		mockConfigHandler.GetContextFunc = func() *string {
+			return &context
+		}
+		injector.Register("configHandler", mockConfigHandler)
+
+		// Register a mock SSH client to avoid initialization error
+		mockSSHClient := &ssh.MockClient{}
+		injector.Register("sshClient", mockSSHClient)
+
+		// Given a DefaultShell instance
+		shell := NewDefaultShell(injector)
+		err := shell.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize shell: %v", err)
+		}
+
+		// Mock the execCommand function to simulate a failure in GetProjectRoot
+		originalExecCommand := execCommand
+		execCommand = func(name string, arg ...string) *exec.Cmd {
+			if name == "git" && len(arg) > 0 && arg[0] == "rev-parse" {
+				return exec.Command("false") // Simulate git command failure
+			}
+			return exec.Command(name, arg...)
+		}
+		defer func() { execCommand = originalExecCommand }()
+
+		// Mock the getwd function to simulate a failure
+		originalGetwd := getwd
+		getwd = func() (string, error) {
+			return "", fmt.Errorf("failed to get current directory")
+		}
+		defer func() { getwd = originalGetwd }()
+
+		// When calling GetContextPath
+		_, err = shell.GetContextPath()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when retrieving context path, got nil")
+		}
+		expectedErrorMsg := "error retrieving project root: failed to get current directory"
+		if err.Error() != expectedErrorMsg {
+			t.Errorf("Expected error message %q, got %q", expectedErrorMsg, err.Error())
+		}
+	})
+}
+
 func TestShell_Exec(t *testing.T) {
 	t.Run("CommandSuccess", func(t *testing.T) {
 		injector := di.NewInjector()
@@ -344,7 +504,9 @@ func TestShell_Exec(t *testing.T) {
 		shell := NewDefaultShell(injector)
 		result, err := shell.Exec(false, "Executing echo command", "echo", "hello")
 		// Then no error should be returned
-		assertNoError(t, err)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
 		// And the result should be as expected
 		expectedOutput := "mock output for: echo hello\n"
 		// Normalize the result to handle different line endings
@@ -397,7 +559,9 @@ func TestShell_Exec(t *testing.T) {
 			shell := NewDefaultShell(injector)
 			result, err := shell.Exec(true, "Executing echo command", "echo", "hello")
 			// Then no error should be returned
-			assertNoError(t, err)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
 			// And the result should be as expected
 			expectedOutput := "mock output for: echo hello\n"
 			// Normalize the result to handle different line endings
@@ -453,22 +617,6 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Exit(code)
-}
-
-// Helper function to assert no error
-func assertNoError(t *testing.T, err error) {
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-}
-
-// Helper function to assert equality
-func assertEqual(t *testing.T, expected, actual, name string) {
-	expected = normalizePath(expected)
-	actual = normalizePath(actual)
-	if expected != actual {
-		t.Errorf("Expected %s to be %s, got %s", name, expected, actual)
-	}
 }
 
 // Helper function to resolve symlinks

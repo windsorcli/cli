@@ -51,7 +51,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		}
 		mockInjector.Register("contextHandler", mockContext)
 
-		// Create a mock cliConfigHandler
+		// Create a mock configHandler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			enabled := true
@@ -68,7 +68,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		// Create a mock shell
 		mockShell := shell.NewMockShell()
 		mockInjector.Register("shell", mockShell)
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 
 		// Create a mock dockerHelper using MakeDockerHelper
 		mockDockerHelper, err := NewDockerHelper(mockInjector)
@@ -105,7 +105,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		// Create a mock injector that does not register contextHandler
 		mockInjector := di.NewMockInjector()
 
-		// Create a mock cliConfigHandler
+		// Create a mock configHandler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
@@ -117,7 +117,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 				},
 			}
 		}
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 
 		// Given: a DNSHelper with the mock injector
 		helper, err := NewDNSHelper(mockInjector)
@@ -172,7 +172,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 			return "mock-context", nil
 		}
 
-		// Create a mock injector that does not have cliConfigHandler registered
+		// Create a mock injector that does not have configHandler registered
 		mockInjector := di.NewMockInjector()
 		mockInjector.Register("contextHandler", mockContext)
 
@@ -188,8 +188,8 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
 		}
-		if !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
-			t.Errorf("Expected error message to contain 'error resolving cliConfigHandler', got %v", err)
+		if !strings.Contains(err.Error(), "error resolving configHandler") {
+			t.Errorf("Expected error message to contain 'error resolving configHandler', got %v", err)
 		}
 	})
 
@@ -215,7 +215,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 
 		// Given: a DNSHelper with the mock config handler and context instance
 		mockInjector := di.NewMockInjector()
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 		mockInjector.Register("shell", mockShell)
 		mockInjector.Register("contextHandler", mockContext)
 		helper, err := NewDNSHelper(mockInjector)
@@ -259,7 +259,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 			return filepath.FromSlash("/mock/config/root"), nil
 		}
 
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 		mockInjector.Register("contextHandler", mockContext)
 		mockInjector.Register("shell", mockShell)
 
@@ -292,7 +292,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		}
 
 		// Create a real DockerHelper
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 		mockInjector.Register("contextHandler", mockContext)
 		mockInjector.Register("shell", mockShell)
 
@@ -383,7 +383,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		mockInjector.Register("contextHandler", mockContext)
 		mockInjector.Register("shell", mockShell)
 
-		// Create a mock cliConfigHandler
+		// Create a mock configHandler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			enabled := true
@@ -396,7 +396,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				},
 			}
 		}
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 
 		// Given: a DNSHelper with the mock injector
 		helper := &DNSHelper{
@@ -418,7 +418,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 			return "", fmt.Errorf("mock error retrieving config root")
 		}
 
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 		mockInjector.Register("contextHandler", mockContext)
 		mockInjector.Register("dockerHelper", mockDockerHelper)
 		mockInjector.Register("shell", mockShell)
@@ -459,7 +459,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 			}
 		}
 
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 		mockInjector.Register("contextHandler", mockContext)
 		mockInjector.Register("shell", mockShell)
 
@@ -497,7 +497,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		mockInjector := di.NewMockInjector()
 		mockInjector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving context"))
 
-		// Create a mock cliConfigHandler
+		// Create a mock configHandler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
@@ -509,7 +509,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				},
 			}
 		}
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 		mockInjector.Register("shell", mockShell)
 
 		// Given: a DNSHelper with the mock injector
@@ -528,9 +528,9 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingCliConfigHandler", func(t *testing.T) {
-		// Create a mock injector that fails to resolve cliConfigHandler
+		// Create a mock injector that fails to resolve configHandler
 		mockInjector := di.NewMockInjector()
-		mockInjector.SetResolveError("cliConfigHandler", fmt.Errorf("mock error resolving cliConfigHandler"))
+		mockInjector.SetResolveError("configHandler", fmt.Errorf("mock error resolving configHandler"))
 
 		// Create a mock context
 		mockContext := context.NewMockContext()
@@ -554,8 +554,8 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		err = helper.WriteConfig()
 
 		// Then: an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
-			t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
+			t.Fatalf("expected error resolving configHandler, got %v", err)
 		}
 	})
 
@@ -571,7 +571,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		}
 		mockInjector.Register("contextHandler", mockContext)
 
-		// Create a mock cliConfigHandler
+		// Create a mock configHandler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			enabled := true
@@ -584,7 +584,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				},
 			}
 		}
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 		mockInjector.Register("shell", mockShell)
 
 		// Given: a DNSHelper with the mock injector
@@ -615,7 +615,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		mockInjector.Register("contextHandler", mockContext)
 		mockInjector.Register("shell", mockShell)
 
-		// Create a mock cliConfigHandler
+		// Create a mock configHandler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			enabled := true
@@ -628,7 +628,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				},
 			}
 		}
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 
 		// Given: a DNSHelper with the mock injector
 		helper := &DNSHelper{
@@ -661,7 +661,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		// Setup injector with mocks
 		mockInjector := di.NewMockInjector()
 
-		// Mock the cliConfigHandler
+		// Mock the configHandler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			// Return a context config where Docker is enabled
@@ -674,7 +674,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				},
 			}
 		}
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 
 		// Mock the context
 		mockContext := context.NewMockContext()
@@ -737,7 +737,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		mockShell := shell.NewMockShell()
 
 		mockInjector := di.NewMockInjector()
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 		mockInjector.Register("contextHandler", mockContext)
 		mockInjector.Register("shell", mockShell)
 
@@ -793,7 +793,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		mockShell := shell.NewMockShell()
 
 		mockInjector := di.NewMockInjector()
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 		mockInjector.Register("contextHandler", mockContext)
 		mockInjector.Register("shell", mockShell)
 

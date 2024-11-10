@@ -25,19 +25,19 @@ var upCmd = &cobra.Command{
 		}
 
 		// Get the VM driver
-		driver := cliConfigHandler.GetString("vm.driver")
+		driver := configHandler.GetString("vm.driver")
 
 		// Get the Docker enabled status
-		dockerEnabled := cliConfigHandler.GetBool("docker.enabled")
+		dockerEnabled := configHandler.GetBool("docker.enabled")
 
 		// Get the Docker network CIDR
-		dockerNetworkCIDR := cliConfigHandler.GetString("docker.network_cidr")
+		dockerNetworkCIDR := configHandler.GetString("docker.network_cidr")
 
 		// Get the DNS name
-		dnsName := cliConfigHandler.GetString("dns.name")
+		dnsName := configHandler.GetString("dns.name")
 
 		// Get the DNS IP
-		dnsIP := cliConfigHandler.GetString("dns.ip")
+		dnsIP := configHandler.GetString("dns.ip")
 
 		// Simplified check for Colima VM driver
 		if driver == "colima" {

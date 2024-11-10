@@ -51,7 +51,7 @@ func setupSafeAwsEnvMocks(injector ...di.Injector) *AwsEnvMocks {
 	mockShell := shell.NewMockShell()
 
 	// Register the mocks in the DI injector
-	mockInjector.Register("cliConfigHandler", mockConfigHandler)
+	mockInjector.Register("configHandler", mockConfigHandler)
 	mockInjector.Register("contextHandler", mockContext)
 	mockInjector.Register("shell", mockShell)
 

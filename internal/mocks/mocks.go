@@ -77,7 +77,7 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	mockWindsorEnv := env.NewMockEnvPrinter()
 
 	// Create and setup dependency injection
-	injector.Register("cliConfigHandler", mockCLIConfigHandler)
+	injector.Register("configHandler", mockCLIConfigHandler)
 	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("awsHelper", mockAwsHelper)

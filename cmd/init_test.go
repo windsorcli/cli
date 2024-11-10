@@ -101,7 +101,7 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("HomeDirError", func(t *testing.T) {
-		// Mock cliConfigHandler
+		// Mock configHandler
 		mocks := mocks.CreateSuperMocks()
 		Initialize(mocks.Injector)
 

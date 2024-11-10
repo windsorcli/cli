@@ -31,7 +31,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	// Register mock instances in the injector
 	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
-	injector.Register("cliConfigHandler", mockConfigHandler)
+	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("mockHelper", mockHelper)
 
 	// Implement GetContextFunc on mock context

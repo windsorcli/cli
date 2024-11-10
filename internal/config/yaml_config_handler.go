@@ -123,6 +123,29 @@ func (y *YamlConfigHandler) Get(path string) (interface{}, error) {
 	return nil, fmt.Errorf("key %s not found in configuration", path)
 }
 
+// GetContext retrieves the current context from the configuration
+func (y *YamlConfigHandler) GetContext() *string {
+	value, err := y.Get("context")
+	if err != nil || value == nil {
+		return nil
+	}
+	if context, ok := value.(string); ok {
+		return &context
+	}
+	return nil
+}
+
+// SetContext sets the current context in the configuration and saves it
+func (y *YamlConfigHandler) SetContext(context string) error {
+	if err := y.Set("context", context); err != nil {
+		return fmt.Errorf("error setting context: %w", err)
+	}
+	if err := y.SaveConfig(""); err != nil {
+		return fmt.Errorf("error saving config: %w", err)
+	}
+	return nil
+}
+
 // GetString retrieves a string value for the specified key from the configuration
 func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) string {
 	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)

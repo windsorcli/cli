@@ -52,7 +52,7 @@ func createAwsHelperMocks(mockInjector ...di.Injector) *AwsHelperMocks {
 	mockContext.GetConfigRootFunc = func() (string, error) { return filepath.FromSlash("/mock/config/root"), nil }
 
 	// Register mocks in the injector
-	injector.Register("cliConfigHandler", mockCLIConfigHandler)
+	injector.Register("configHandler", mockCLIConfigHandler)
 	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 
@@ -66,14 +66,14 @@ func createAwsHelperMocks(mockInjector ...di.Injector) *AwsHelperMocks {
 
 func TestAwsHelper_NewAwsHelper(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Create mock injector and set resolve error for cliConfigHandler
+		// Create mock injector and set resolve error for configHandler
 		mockInjector := di.NewMockInjector()
-		mockInjector.SetResolveError("cliConfigHandler", fmt.Errorf("error resolving cliConfigHandler"))
+		mockInjector.SetResolveError("configHandler", fmt.Errorf("error resolving configHandler"))
 
 		// Attempt to create AwsHelper
 		_, err := NewAwsHelper(mockInjector)
-		if err == nil || !strings.Contains(err.Error(), "error resolving cliConfigHandler") {
-			t.Fatalf("expected error resolving cliConfigHandler, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
+			t.Fatalf("expected error resolving configHandler, got %v", err)
 		}
 	})
 
@@ -81,7 +81,7 @@ func TestAwsHelper_NewAwsHelper(t *testing.T) {
 		// Create mock injector and set resolve error for context
 		mockInjector := di.NewMockInjector()
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
+		mockInjector.Register("configHandler", mockConfigHandler)
 		mockInjector.SetResolveError("context", fmt.Errorf("error resolving context"))
 
 		// Attempt to create AwsHelper

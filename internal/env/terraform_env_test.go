@@ -50,7 +50,7 @@ func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
 
 	mockInjector.Register("contextHandler", mockContext)
 	mockInjector.Register("shell", mockShell)
-	mockInjector.Register("cliConfigHandler", mockConfigHandler)
+	mockInjector.Register("configHandler", mockConfigHandler)
 
 	return &TerraformEnvMocks{
 		Injector:       mockInjector,

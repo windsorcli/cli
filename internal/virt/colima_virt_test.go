@@ -32,7 +32,7 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 	// Register mock instances in the injector
 	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
-	injector.Register("cliConfigHandler", mockConfigHandler)
+	injector.Register("configHandler", mockConfigHandler)
 
 	// Implement GetContextFunc on mock context
 	mockContext.GetContextFunc = func() (string, error) {

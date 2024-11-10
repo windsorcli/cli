@@ -22,9 +22,9 @@ type Context struct {
 }
 
 // NewContext creates a new Context instance
-func NewContext(cliConfigHandler config.ConfigHandler, shell shell.Shell) *Context {
+func NewContext(configHandler config.ConfigHandler, shell shell.Shell) *Context {
 	return &Context{
-		ConfigHandler: cliConfigHandler,
+		ConfigHandler: configHandler,
 		Shell:         shell,
 	}
 }

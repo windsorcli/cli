@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/briandowns/spinner"
+	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/ssh"
 )
@@ -26,16 +27,19 @@ type Shell interface {
 	PrintAlias(envVars map[string]string) error
 	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
+	// GetContextPath retrieves the configuration root path based on the current context
+	GetContextPath() (string, error)
 	// Exec executes a command with optional privilege elevation
 	Exec(verbose bool, message string, command string, args ...string) (string, error)
 }
 
 // DefaultShell is the default implementation of the Shell interface
 type DefaultShell struct {
-	projectRoot string
-	mu          sync.Mutex
-	injector    di.Injector
-	sshClient   ssh.Client
+	projectRoot   string
+	mu            sync.Mutex
+	injector      di.Injector
+	sshClient     ssh.Client
+	configHandler config.ConfigHandler
 }
 
 // NewDefaultShell creates a new instance of DefaultShell
@@ -52,6 +56,12 @@ func (s *DefaultShell) Initialize() error {
 		return fmt.Errorf("failed to resolve SSH client: %w", err)
 	}
 	s.sshClient = sshClient.(ssh.Client)
+
+	configHandler, err := s.injector.Resolve("configHandler")
+	if err != nil {
+		return fmt.Errorf("failed to resolve config handler: %w", err)
+	}
+	s.configHandler = configHandler.(config.ConfigHandler)
 
 	return nil
 }
@@ -109,6 +119,23 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 		currentDir = parentDir
 		depth++
 	}
+}
+
+// GetContextPath retrieves the configuration root path based on the current context
+func (s *DefaultShell) GetContextPath() (string, error) {
+	// Get the current context
+	context := s.configHandler.GetContext()
+	if context == nil {
+		return "", fmt.Errorf("error retrieving context: context is nil")
+	}
+
+	projectRoot, err := s.GetProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("error retrieving project root: %w", err)
+	}
+
+	configRoot := filepath.Join(projectRoot, "contexts", *context)
+	return configRoot, nil
 }
 
 // Exec executes a command and returns its output as a string

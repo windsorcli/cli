@@ -60,7 +60,7 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 	}
 
 	// Get the context configuration
-	contextConfig := v.cliConfigHandler.GetConfig()
+	contextConfig := v.configHandler.GetConfig()
 
 	// Check if Docker is enabled and run "docker-compose up" in daemon mode if necessary
 	if contextConfig != nil && contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
@@ -257,7 +257,7 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	contextConfig := v.cliConfigHandler.GetConfig()
+	contextConfig := v.configHandler.GetConfig()
 
 	// Check if Docker is defined in the windsor config
 	if contextConfig.Docker == nil {

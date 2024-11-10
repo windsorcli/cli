@@ -3,6 +3,8 @@ package config
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
 	LoadConfigFunc func(path string) error
+	GetContextFunc func() *string
+	SetContextFunc func(context string) error
 	GetStringFunc  func(key string, defaultValue ...string) string
 	GetIntFunc     func(key string, defaultValue ...int) int
 	GetBoolFunc    func(key string, defaultValue ...bool) bool
@@ -22,6 +24,22 @@ func NewMockConfigHandler() *MockConfigHandler {
 func (m *MockConfigHandler) LoadConfig(path string) error {
 	if m.LoadConfigFunc != nil {
 		return m.LoadConfigFunc(path)
+	}
+	return nil
+}
+
+// GetContext calls the mock GetContextFunc if set, otherwise returns nil
+func (m *MockConfigHandler) GetContext() *string {
+	if m.GetContextFunc != nil {
+		return m.GetContextFunc()
+	}
+	return nil
+}
+
+// SetContext calls the mock SetContextFunc if set, otherwise returns nil
+func (m *MockConfigHandler) SetContext(context string) error {
+	if m.SetContextFunc != nil {
+		return m.SetContextFunc(context)
 	}
 	return nil
 }

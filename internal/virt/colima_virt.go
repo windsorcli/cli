@@ -102,7 +102,7 @@ func (v *ColimaVirt) WriteConfig() error {
 		return fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	config := v.cliConfigHandler.GetConfig()
+	config := v.configHandler.GetConfig()
 
 	// Check if VM is defined and if the vm driver is colima
 	if config.VM == nil || config.VM.Driver == nil || *config.VM.Driver != "colima" {

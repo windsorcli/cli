@@ -36,11 +36,11 @@ func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
 	}
 
 	// Retrieve the context configuration
-	cliConfigHandler, err := h.injector.Resolve("cliConfigHandler")
+	configHandler, err := h.injector.Resolve("configHandler")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
+		return nil, fmt.Errorf("error resolving configHandler: %w", err)
 	}
-	contextConfig := cliConfigHandler.(config.ConfigHandler).GetConfig()
+	contextConfig := configHandler.(config.ConfigHandler).GetConfig()
 
 	// Check if the DNS is enabled
 	if contextConfig.DNS == nil || contextConfig.DNS.Create == nil || !*contextConfig.DNS.Create {
@@ -80,11 +80,11 @@ func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
 // WriteConfig writes any necessary configuration files needed by the helper
 func (h *DNSHelper) WriteConfig() error {
 	// Retrieve the context configuration
-	cliConfigHandler, err := h.injector.Resolve("cliConfigHandler")
+	configHandler, err := h.injector.Resolve("configHandler")
 	if err != nil {
-		return fmt.Errorf("error resolving cliConfigHandler: %w", err)
+		return fmt.Errorf("error resolving configHandler: %w", err)
 	}
-	contextConfig := cliConfigHandler.(config.ConfigHandler).GetConfig()
+	contextConfig := configHandler.(config.ConfigHandler).GetConfig()
 
 	// Check if DNS is defined and DNS Create is enabled
 	if contextConfig.DNS == nil || contextConfig.DNS.Create == nil || !*contextConfig.DNS.Create {
