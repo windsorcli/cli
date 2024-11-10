@@ -31,14 +31,14 @@ func createAwsHelperMocks(mockInjector ...di.Injector) *AwsHelperMocks {
 	// Create mock instances
 	mockCLIConfigHandler := config.NewMockConfigHandler()
 	mockCLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-	mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) (string, error) { return "mock-value", nil }
-	mockCLIConfigHandler.GetIntFunc = func(key string, defaultValue ...int) (int, error) { return 0, nil }
-	mockCLIConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) (bool, error) { return false, nil }
+	mockCLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string { return "mock-value" }
+	mockCLIConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int { return 0 }
+	mockCLIConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool { return false }
 	mockCLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
 	mockCLIConfigHandler.SaveConfigFunc = func(path string) error { return nil }
 	mockCLIConfigHandler.GetFunc = func(key string) (interface{}, error) { return nil, nil }
 	mockCLIConfigHandler.SetDefaultFunc = func(context config.Context) error { return nil }
-	mockCLIConfigHandler.GetConfigFunc = func() (*config.Context, error) { return nil, nil }
+	mockCLIConfigHandler.GetConfigFunc = func() *config.Context { return nil }
 
 	mockShell := shell.NewMockShell()
 	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
@@ -98,7 +98,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		mocks := createAwsHelperMocks()
 
 		// Mock GetConfig to return a valid AWS configuration
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
@@ -106,7 +106,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 						Services: []string{"s3", "dynamodb"},
 					},
 				},
-			}, nil
+			}
 		}
 
 		// Create an instance of AwsHelper
@@ -140,7 +140,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		mocks := createAwsHelperMocks()
 
 		// Mock GetConfig to return a valid AWS configuration
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
@@ -148,7 +148,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 						Services: []string{"s3", "dynamodb"},
 					},
 				},
-			}, nil
+			}
 		}
 
 		// Create an instance of AwsHelper
@@ -186,7 +186,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		mocks := createAwsHelperMocks()
 
 		// Mock GetConfig to return a valid AWS configuration
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
@@ -194,7 +194,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 						Services: []string{"s3", "dynamodb"},
 					},
 				},
-			}, nil
+			}
 		}
 
 		// Create an instance of AwsHelper
@@ -220,40 +220,15 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingContextConfig", func(t *testing.T) {
-		// Create mock injector with necessary mocks
-		mocks := createAwsHelperMocks()
-
-		// Mock GetConfig to return an error
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("error retrieving context config")
-		}
-
-		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(mocks.Injector)
-		if err != nil {
-			t.Fatalf("NewAwsHelper() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		_, err = awsHelper.GetComposeConfig()
-
-		// Then: an error should be returned
-		expectedError := "error retrieving context config"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error containing %q, got %v", expectedError, err)
-		}
-	})
-
 	t.Run("AWSConfigNil", func(t *testing.T) {
 		// Create mock injector with necessary mocks
 		mocks := createAwsHelperMocks()
 
 		// Mock GetConfig to return a context with nil AWS configuration
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: nil,
-			}, nil
+			}
 		}
 
 		// Create an instance of AwsHelper
@@ -276,12 +251,12 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		mocks := createAwsHelperMocks()
 
 		// Mock GetConfig to return a context with nil Localstack configuration
-		mocks.CLIConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: nil,
 				},
-			}, nil
+			}
 		}
 
 		// Create an instance of AwsHelper

@@ -1,7 +1,6 @@
 package helpers
 
 import (
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -94,7 +93,7 @@ func TestDockerHelper_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, shell, context, and helper
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Registries: []config.Registry{
@@ -105,7 +104,7 @@ func TestDockerHelper_GetComposeConfig(t *testing.T) {
 						},
 					},
 				},
-			}, nil
+			}
 		}
 
 		mockContext := context.NewMockContext()
@@ -164,100 +163,6 @@ func TestDockerHelper_GetComposeConfig(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("expected configuration:\n%+v\nto be in the list of configurations:\n%+v", expectedConfig, composeConfig.Services)
-		}
-	})
-
-	t.Run("ErrorRetrievingRegistries", func(t *testing.T) {
-		// Given: a mock context and config handler that returns an error for GetConfig
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-		mockConfigHandlerWithError := config.NewMockConfigHandler()
-		mockConfigHandlerWithError.GetConfigFunc = func() (*config.Context, error) {
-			return nil, errors.New("mock error retrieving registries")
-		}
-
-		// Create injector and register mocks
-		diContainer := di.NewInjector()
-		diContainer.Register("contextHandler", mockContext)
-		diContainer.Register("cliConfigHandler", mockConfigHandlerWithError)
-
-		// Register MockHelper
-		mockHelper := NewMockHelper()
-		diContainer.Register("helper", mockHelper)
-
-		// Register MockShell
-		mockShell := shell.NewMockShell()
-		diContainer.Register("shell", mockShell)
-
-		// Create DockerHelper
-		helper, err := NewDockerHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewDockerHelper() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		_, err = helper.GetComposeConfig()
-
-		// Then: it should return an error indicating the failure to retrieve registries
-		expectedError := "error retrieving context configuration: mock error retrieving registries"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error %v, got %v", expectedError, err)
-		}
-	})
-
-	// Test error retrieving context
-	t.Run("ErrorRetrievingContext", func(t *testing.T) {
-		// Given: a mock context and config handler that returns an error for GetContext
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "", errors.New("mock error retrieving context")
-		}
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Registries: []config.Registry{
-						{Name: "registry1"},
-					},
-				},
-			}, nil
-		}
-
-		// Create injector and register mocks
-		diContainer := di.NewInjector()
-		diContainer.Register("contextHandler", mockContext)
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-
-		// Register MockHelper
-		mockHelper := NewMockHelper()
-		mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
-			return &types.Config{
-				Services: []types.ServiceConfig{
-					{Name: "registry1"},
-				},
-			}, nil
-		}
-		diContainer.Register("helper", mockHelper)
-
-		// Register MockShell
-		mockShell := shell.NewMockShell()
-		diContainer.Register("shell", mockShell)
-
-		// Create DockerHelper
-		helper, err := NewDockerHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewDockerHelper() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		_, err = helper.GetComposeConfig()
-
-		// Then: it should return an error indicating the failure to retrieve context
-		expectedError := "error retrieving context: mock error retrieving context"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error %v, got %v", expectedError, err)
 		}
 	})
 }

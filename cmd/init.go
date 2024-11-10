@@ -121,20 +121,17 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error saving config file: %w", err)
 		}
 
-		// Initialize ColimaVirt if enabled in configuration
-		contextConfig, err := cliConfigHandler.GetConfig()
-		if err != nil {
-			return fmt.Errorf("error retrieving context configuration: %w", err)
-		}
-
-		if contextConfig.VM != nil && *contextConfig.VM.Driver == "colima" {
+		// Configure ColimaVirt if enabled in configuration
+		driver := cliConfigHandler.GetString("vm.driver")
+		if driver == "colima" {
 			if err := colimaVirt.WriteConfig(); err != nil {
 				return fmt.Errorf("error writing Colima config: %w", err)
 			}
 		}
 
-		// Initialize DockerVirt if enabled in configuration
-		if contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
+		// Configure DockerVirt if enabled in configuration
+		dockerEnabled := cliConfigHandler.GetBool("docker.enabled")
+		if dockerEnabled {
 			if err := dockerVirt.WriteConfig(); err != nil {
 				return fmt.Errorf("error writing Docker config: %w", err)
 			}

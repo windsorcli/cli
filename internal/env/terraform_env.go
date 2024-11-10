@@ -103,10 +103,7 @@ func (e *TerraformEnvPrinter) getAlias() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	contextConfig, err := e.configHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context config: %w", err)
-	}
+	contextConfig := e.configHandler.GetConfig()
 
 	// Check if Localstack is enabled
 	if currentContext == "local" &&
@@ -203,10 +200,7 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 	}
 
 	// Get the current backend
-	contextConfig, err := e.configHandler.GetConfig()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextConfig := e.configHandler.GetConfig()
 
 	backend := contextConfig.Terraform.Backend
 

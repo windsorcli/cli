@@ -54,7 +54,6 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("ResolveEnvError", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given a local injector that returns an error when resolving env
 		mockInjector := di.NewMockInjector()
@@ -85,7 +84,6 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("ResolveEnvErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given a local injector that returns an error when resolving env
 		mockInjector := di.NewMockInjector()
@@ -114,7 +112,6 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("GetEnvVarsErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given a mock environment that returns an error when getting environment variables
 		mocks := mocks.CreateSuperMocks()
@@ -148,7 +145,6 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("ErrorPrinting", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given an env that returns an error when executing Print
 		mocks := mocks.CreateSuperMocks()
@@ -180,7 +176,6 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("ErrorPrintingWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given an env that returns an error when executing Print
 		mocks := mocks.CreateSuperMocks()
@@ -212,7 +207,6 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("PostEnvHookError", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given an env that returns an error when executing PostEnvHook
 		mocks := mocks.CreateSuperMocks()
@@ -244,7 +238,6 @@ func TestEnvCmd(t *testing.T) {
 
 	t.Run("PostEnvHookErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
-		defer recoverPanic(t)
 
 		// Given an env that returns an error when executing PostEnvHook
 		mocks := mocks.CreateSuperMocks()
@@ -283,13 +276,4 @@ func resetRootCmd() {
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
 	verbose = false // Reset the verbose flag
-}
-
-// recoverPanic recovers from a panic and checks for the expected exit code.
-func recoverPanic(t *testing.T) {
-	if r := recover(); r != nil {
-		if r != "exit code: 1" {
-			t.Fatalf("unexpected panic: %v", r)
-		}
-	}
 }

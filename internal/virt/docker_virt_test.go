@@ -40,7 +40,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	}
 
 	// Set up the mock config handler to return a safe default configuration for Docker VMs
-	mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+	mockConfigHandler.GetConfigFunc = func() *config.Context {
 		return &config.Context{
 			Docker: &config.DockerConfig{
 				Enabled: ptrBool(true),
@@ -53,7 +53,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 				},
 				NetworkCIDR: ptrString("10.1.0.0/16"),
 			},
-		}, nil
+		}
 	}
 
 	// Mock the shell Exec function to return generic JSON structures for two containers
@@ -245,32 +245,6 @@ func TestDockerVirt_Up(t *testing.T) {
 		// Verify that the mock shell's Exec function was called with the expected command
 		if !execCalled {
 			t.Errorf("expected Exec to be called with 'docker-compose up', but it was not")
-		}
-	})
-
-	t.Run("ErrorRetrievingContextConfiguration", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the GetConfig function to simulate an error when retrieving context configuration
-		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("error retrieving context configuration")
-		}
-
-		// Call the Up method
-		err := dockerVirt.Up()
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Errorf("expected an error, got nil")
-		}
-
-		// Verify that the error message is as expected
-		expectedErrorMsg := "error retrieving context configuration"
-		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
 	})
 
@@ -1105,44 +1079,14 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingConfig", func(t *testing.T) {
-		// Setup mock components with a faulty config handler
-		mockInjector := di.NewMockInjector()
-		mocks := setupSafeDockerContainerMocks(mockInjector)
-		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("error retrieving context configuration")
-		}
-		dockerVirt := NewDockerVirt(mockInjector)
-		dockerVirt.Initialize()
-
-		// Call the getFullComposeConfig method
-		project, err := dockerVirt.getFullComposeConfig()
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Errorf("expected an error, got nil")
-		}
-
-		// Assert the error message is as expected
-		expectedErrorMsg := "error retrieving context configuration"
-		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
-		}
-
-		// Assert the project is nil
-		if project != nil {
-			t.Errorf("expected project to be nil, got %v", project)
-		}
-	})
-
 	t.Run("NoDockerDefined", func(t *testing.T) {
 		// Setup mock components with a config handler that returns no Docker configuration
 		mockInjector := di.NewMockInjector()
 		mocks := setupSafeDockerContainerMocks(mockInjector)
-		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: nil, // No Docker configuration
-			}, nil
+			}
 		}
 		dockerVirt := NewDockerVirt(mockInjector)
 		dockerVirt.Initialize()
@@ -1233,7 +1177,7 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 	t.Run("NoNetworkCIDRDefined", func(t *testing.T) {
 		// Setup mock components with a config that has no NetworkCIDR
 		mocks := setupSafeDockerContainerMocks()
-		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(true),
@@ -1246,7 +1190,7 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 					},
 					NetworkCIDR: nil, // No NetworkCIDR defined
 				},
-			}, nil
+			}
 		}
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()
@@ -1268,7 +1212,7 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 	t.Run("ErrorParsingNetworkCIDR", func(t *testing.T) {
 		// Setup mock components with a config that has an invalid NetworkCIDR
 		mocks := setupSafeDockerContainerMocks()
-		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(true),
@@ -1281,7 +1225,7 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 					},
 					NetworkCIDR: ptrString("invalid-cidr"), // Invalid NetworkCIDR
 				},
-			}, nil
+			}
 		}
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()
@@ -1309,7 +1253,7 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 	t.Run("NotEnoughIPAddresses", func(t *testing.T) {
 		// Setup mock components with a config that has a small NetworkCIDR
 		mocks := setupSafeDockerContainerMocks()
-		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(true),
@@ -1322,7 +1266,7 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 					},
 					NetworkCIDR: ptrString("192.168.1.0/31"),
 				},
-			}, nil
+			}
 		}
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()

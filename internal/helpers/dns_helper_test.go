@@ -53,7 +53,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 
 		// Create a mock cliConfigHandler
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			enabled := true
 			return &config.Context{
 				Docker: &config.DockerConfig{
@@ -63,7 +63,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 					Create: &enabled,
 					Name:   ptrString("test1"),
 				},
-			}, nil
+			}
 		}
 		// Create a mock shell
 		mockShell := shell.NewMockShell()
@@ -107,7 +107,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 
 		// Create a mock cliConfigHandler
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(true),
@@ -115,7 +115,7 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 				DNS: &config.DNSConfig{
 					Create: ptrBool(true),
 				},
-			}, nil
+			}
 		}
 		mockInjector.Register("cliConfigHandler", mockConfigHandler)
 
@@ -193,50 +193,15 @@ func TestDNSHelper_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingContextConfig", func(t *testing.T) {
-		// Create a mock context instance
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "mock-context", nil
-		}
-
-		// Create a mock config handler that returns an error when GetConfig is called
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("error retrieving context configuration")
-		}
-
-		// Create a mock injector
-		mockInjector := di.NewMockInjector()
-		mockInjector.Register("contextHandler", mockContext)
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
-
-		// Given: a DNSHelper with the mock injector
-		helper := &DNSHelper{
-			injector: mockInjector,
-		}
-
-		// When: GetComposeConfig is called
-		_, err := helper.GetComposeConfig()
-
-		// Then: an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if err.Error() != "error retrieving context configuration: error retrieving context configuration" {
-			t.Errorf("Expected error message 'error retrieving context configuration: error retrieving context configuration', got %v", err)
-		}
-	})
-
 	t.Run("DNSDisabled", func(t *testing.T) {
 		// Create a mock config handler that returns DNS disabled
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				DNS: &config.DNSConfig{
 					Create: ptrBool(false),
 				},
-			}, nil
+			}
 		}
 
 		// Create a mock shell
@@ -281,12 +246,12 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 	t.Run("DockerDisabled", func(t *testing.T) {
 		// Create a mock config handler that returns Docker disabled
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(false),
 				},
-			}, nil
+			}
 		}
 
 		// Create a mock context
@@ -338,7 +303,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		mockInjector.Register("dockerHelper", dockerHelper)
 
 		// Create a mock config handler that returns Docker enabled
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled:     ptrBool(true),
@@ -359,7 +324,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				DNS: &config.DNSConfig{
 					Create: ptrBool(true),
 				},
-			}, nil
+			}
 		}
 
 		// Given: a DNSHelper with the mock config handler, context, and real DockerHelper
@@ -420,7 +385,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		// Create a mock cliConfigHandler
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			enabled := true
 			return &config.Context{
 				Docker: &config.DockerConfig{
@@ -429,7 +394,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				DNS: &config.DNSConfig{
 					Create: &enabled,
 				},
-			}, nil
+			}
 		}
 		mockInjector.Register("cliConfigHandler", mockConfigHandler)
 
@@ -473,37 +438,6 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingContextConfig", func(t *testing.T) {
-		// Create a mock context that returns a valid config root
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return filepath.FromSlash("/mock/config/root"), nil
-		}
-
-		// Create a mock config handler that returns an error on GetConfig
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("mock error retrieving context configuration")
-		}
-
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
-		mockInjector.Register("contextHandler", mockContext)
-		mockInjector.Register("dockerHelper", mockDockerHelper)
-		mockInjector.Register("shell", mockShell)
-
-		// Given: a DNSHelper with the mock config handler and context
-		helper, err := NewDNSHelper(mockInjector)
-		if err != nil {
-			t.Fatalf("NewDNSHelper() error = %v", err)
-		}
-
-		// When: WriteConfig is called
-		err = helper.WriteConfig()
-
-		// Then: an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "error retrieving context configuration") {
-			t.Fatalf("expected error retrieving context configuration, got %v", err)
-		}
-	})
-
 	t.Run("ErrorWritingCorefile", func(t *testing.T) {
 		// Create a temporary directory for config root
 		tempDir := t.TempDir()
@@ -514,7 +448,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		}
 
 		// Create a mock config handler that returns Docker enabled
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(true),
@@ -522,7 +456,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				DNS: &config.DNSConfig{
 					Create: ptrBool(true),
 				},
-			}, nil
+			}
 		}
 
 		mockInjector.Register("cliConfigHandler", mockConfigHandler)
@@ -565,7 +499,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		// Create a mock cliConfigHandler
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(true),
@@ -573,7 +507,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				DNS: &config.DNSConfig{
 					Create: ptrBool(true),
 				},
-			}, nil
+			}
 		}
 		mockInjector.Register("cliConfigHandler", mockConfigHandler)
 		mockInjector.Register("shell", mockShell)
@@ -639,7 +573,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		// Create a mock cliConfigHandler
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			enabled := true
 			return &config.Context{
 				Docker: &config.DockerConfig{
@@ -648,7 +582,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				DNS: &config.DNSConfig{
 					Create: &enabled,
 				},
-			}, nil
+			}
 		}
 		mockInjector.Register("cliConfigHandler", mockConfigHandler)
 		mockInjector.Register("shell", mockShell)
@@ -683,7 +617,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		// Create a mock cliConfigHandler
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			enabled := true
 			return &config.Context{
 				Docker: &config.DockerConfig{
@@ -692,7 +626,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				DNS: &config.DNSConfig{
 					Create: &enabled,
 				},
-			}, nil
+			}
 		}
 		mockInjector.Register("cliConfigHandler", mockConfigHandler)
 
@@ -707,61 +641,6 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 		// Then: an error should be returned
 		if err == nil || !strings.Contains(err.Error(), "error casting to DockerHelper") {
 			t.Fatalf("expected error casting to DockerHelper, got %v", err)
-		}
-	})
-
-	t.Run("ErrorRetrievingComposeConfig", func(t *testing.T) {
-		// Given: a DNSHelper with a injector containing mocks
-		mockInjector := di.NewMockInjector()
-
-		// Mock the cliConfigHandler
-		mockConfigHandler := config.NewMockConfigHandler()
-		callCount := 0
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			callCount++
-			if callCount == 2 {
-				return nil, fmt.Errorf("mock error retrieving context configuration")
-			}
-			enabled := true
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Enabled: &enabled,
-				},
-				DNS: &config.DNSConfig{
-					Create: &enabled,
-				},
-			}, nil
-		}
-		mockInjector.Register("cliConfigHandler", mockConfigHandler)
-
-		// Mock the context
-		mockContext := context.NewMockContext()
-		mockContext.GetConfigRootFunc = func() (string, error) {
-			return filepath.FromSlash("/mock/config/root"), nil
-		}
-		mockInjector.Register("contextHandler", mockContext)
-		mockInjector.Register("shell", mockShell)
-
-		// Create the DockerHelper instance
-		dockerHelper, err := NewDockerHelper(mockInjector)
-		if err != nil {
-			t.Fatalf("NewDockerHelper() error = %v", err)
-		}
-		mockInjector.Register("dockerHelper", dockerHelper)
-
-		// Create the DNSHelper instance
-		dnsHelper, err := NewDNSHelper(mockInjector)
-		if err != nil {
-			t.Fatalf("NewDNSHelper() error = %v", err)
-		}
-
-		// When: WriteConfig is called
-		err = dnsHelper.WriteConfig()
-
-		// Then: it should return an error indicating the failure to retrieve the context configuration
-		expectedError := "error retrieving context configuration: mock error retrieving context configuration"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error %v, got %v", expectedError, err)
 		}
 	})
 
@@ -784,7 +663,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 
 		// Mock the cliConfigHandler
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			// Return a context config where Docker is enabled
 			return &config.Context{
 				Docker: &config.DockerConfig{
@@ -793,7 +672,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				DNS: &config.DNSConfig{
 					Create: ptrBool(true),
 				},
-			}, nil
+			}
 		}
 		mockInjector.Register("cliConfigHandler", mockConfigHandler)
 
@@ -834,7 +713,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 	t.Run("DNSEnabledDockerDisabled", func(t *testing.T) {
 		// Create a mock config handler that returns DNS enabled and Docker disabled
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(false),
@@ -842,7 +721,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 				DNS: &config.DNSConfig{
 					Create: ptrBool(true),
 				},
-			}, nil
+			}
 		}
 
 		// Create a mock context that returns a valid config root
@@ -886,7 +765,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 	t.Run("DNSEnabledDockerEnabledWithName", func(t *testing.T) {
 		// Create a mock config handler that returns DNS enabled, Docker enabled, and a DNS name defined
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(true),
@@ -895,7 +774,7 @@ func TestDNSHelper_WriteConfig(t *testing.T) {
 					Create: ptrBool(true),
 					Name:   ptrString("custom-dns"),
 				},
-			}, nil
+			}
 		}
 
 		// Create a temporary directory for config root

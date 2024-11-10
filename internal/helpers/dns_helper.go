@@ -40,10 +40,7 @@ func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
-	contextConfig, err := cliConfigHandler.(config.ConfigHandler).GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
-	}
+	contextConfig := cliConfigHandler.(config.ConfigHandler).GetConfig()
 
 	// Check if the DNS is enabled
 	if contextConfig.DNS == nil || contextConfig.DNS.Create == nil || !*contextConfig.DNS.Create {
@@ -87,10 +84,7 @@ func (h *DNSHelper) WriteConfig() error {
 	if err != nil {
 		return fmt.Errorf("error resolving cliConfigHandler: %w", err)
 	}
-	contextConfig, err := cliConfigHandler.(config.ConfigHandler).GetConfig()
-	if err != nil {
-		return fmt.Errorf("error retrieving context configuration: %w", err)
-	}
+	contextConfig := cliConfigHandler.(config.ConfigHandler).GetConfig()
 
 	// Check if DNS is defined and DNS Create is enabled
 	if contextConfig.DNS == nil || contextConfig.DNS.Create == nil || !*contextConfig.DNS.Create {

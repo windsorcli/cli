@@ -111,10 +111,7 @@ func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 	var services []types.ServiceConfig
 
 	// Retrieve the context configuration using GetConfig
-	contextConfig, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
-	}
+	contextConfig := h.ConfigHandler.GetConfig()
 
 	// Retrieve the list of registries from the context configuration
 	registries := contextConfig.Docker.Registries
@@ -134,10 +131,7 @@ func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 // GetFullComposeConfig retrieves the full compose configuration for the DockerHelper.
 func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	// Retrieve the context configuration using GetConfig
-	contextConfig, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context configuration: %w", err)
-	}
+	contextConfig := h.ConfigHandler.GetConfig()
 
 	// Check if Docker is defined in the windsor config
 	if contextConfig.Docker == nil {

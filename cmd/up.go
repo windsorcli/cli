@@ -24,22 +24,23 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("Error getting context: %w", err)
 		}
 
-		// Get the context configuration
-		contextConfig, err := cliConfigHandler.GetConfig()
-		if err != nil {
-			if verbose {
-				return fmt.Errorf("Error getting context configuration: %w", err)
-			}
-			return nil
-		}
+		// Get the VM driver
+		driver := cliConfigHandler.GetString("vm.driver")
 
-		// Handle when there is no contextConfig configured
-		if contextConfig == nil {
-			return nil
-		}
+		// Get the Docker enabled status
+		dockerEnabled := cliConfigHandler.GetBool("docker.enabled")
 
-		// Check if the VM is configured and the driver is Colima
-		if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima" {
+		// Get the Docker network CIDR
+		dockerNetworkCIDR := cliConfigHandler.GetString("docker.network_cidr")
+
+		// Get the DNS name
+		dnsName := cliConfigHandler.GetString("dns.name")
+
+		// Get the DNS IP
+		dnsIP := cliConfigHandler.GetString("dns.ip")
+
+		// Simplified check for Colima VM driver
+		if driver == "colima" {
 			// Create a new ColimaVirt instance
 			colimaVirt := virt.NewColimaVirt(injector)
 
@@ -50,7 +51,7 @@ var upCmd = &cobra.Command{
 		}
 
 		// Check if Docker is enabled
-		if contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
+		if dockerEnabled {
 			// Create a new DockerVirt instance
 			dockerVirt = *virt.NewDockerVirt(injector)
 
@@ -61,13 +62,7 @@ var upCmd = &cobra.Command{
 		}
 
 		// Configure route tables on the VM only if Docker network CIDR is defined
-		if contextConfig.VM != nil &&
-			contextConfig.VM.Driver != nil &&
-			*contextConfig.VM.Driver == "colima" &&
-			contextConfig.Docker != nil &&
-			contextConfig.Docker.Enabled != nil &&
-			*contextConfig.Docker.Enabled &&
-			contextConfig.Docker.NetworkCIDR != nil {
+		if dockerEnabled && driver == "colima" && dockerNetworkCIDR != "" {
 			// Execute VM-specific SSH config command
 			sshConfigOutput, err := shellInstance.Exec(
 				verbose,
@@ -151,16 +146,13 @@ var upCmd = &cobra.Command{
 				}
 			}
 
-			// Get cluster IPv4 CIDR from contextConfig
-			clusterIPv4CIDR := *contextConfig.Docker.NetworkCIDR
-
 			// Check if the iptables rule already exists
 			_, err = secureShellInstance.Exec(
 				verbose,
 				"Checking for existing iptables rule...",
 				"sudo", "iptables", "-t", "filter", "-C", "FORWARD",
 				"-i", "col0", "-o", dockerBridgeInterface,
-				"-s", virtInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
+				"-s", virtInterfaceIP, "-d", dockerNetworkCIDR, "-j", "ACCEPT",
 			)
 			if err != nil {
 				// Check if the error is due to the rule not existing
@@ -171,7 +163,7 @@ var upCmd = &cobra.Command{
 						"Setting IP tables on VM...",
 						"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
 						"-i", "col0", "-o", dockerBridgeInterface,
-						"-s", virtInterfaceIP, "-d", clusterIPv4CIDR, "-j", "ACCEPT",
+						"-s", virtInterfaceIP, "-d", dockerNetworkCIDR, "-j", "ACCEPT",
 					); err != nil {
 						return fmt.Errorf("Error setting iptables rule: %w", err)
 					}
@@ -190,7 +182,7 @@ var upCmd = &cobra.Command{
 				"-nv",
 				"add",
 				"-net",
-				clusterIPv4CIDR,
+				dockerNetworkCIDR,
 				virtHostIP,
 			)
 			if err != nil {
@@ -198,29 +190,25 @@ var upCmd = &cobra.Command{
 			}
 
 			// Update DNS settings for the private TLD (MacOS)
-			if contextConfig.DNS != nil && contextConfig.DNS.Name != nil {
-				tld := *contextConfig.DNS.Name
+			if dnsName != "" {
+				tld := dnsName
 
 				// Get the IP address of the container called "dns.test"
-				var dnsIP string
 				containerInfo, err := dockerVirt.GetContainerInfo()
 				if err != nil {
 					return fmt.Errorf("error retrieving container info: %w", err)
 				}
 
-				if contextConfig.DNS.IP != nil {
-					dnsIP = *contextConfig.DNS.IP
-				} else {
+				if dnsIP == "" {
 					for _, info := range containerInfo {
 						if info.Name == "dns.test" {
 							dnsIP = info.Address
 							break
 						}
 					}
-				}
-
-				if dnsIP == "" {
-					return fmt.Errorf("Error: No IP address found for dns.test")
+					if dnsIP == "" {
+						return fmt.Errorf("Error: No IP address found for dns.test")
+					}
 				}
 
 				// Ensure the /etc/resolver directory exists
@@ -274,7 +262,7 @@ var upCmd = &cobra.Command{
 		fmt.Println(color.CyanString("-------------------------------------"))
 
 		// Print Colima info if available
-		if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "colima" {
+		if driver == "colima" {
 			colimaVirt := virt.NewColimaVirt(injector)
 			if err := colimaVirt.PrintInfo(); err != nil {
 				return fmt.Errorf("Error printing Colima info: %w", err)
@@ -282,7 +270,7 @@ var upCmd = &cobra.Command{
 		}
 
 		// Print Docker info if available
-		if contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
+		if dockerEnabled {
 			if err := dockerVirt.PrintInfo(); err != nil {
 				return fmt.Errorf("Error printing Docker info: %w", err)
 			}

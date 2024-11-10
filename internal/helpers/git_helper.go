@@ -50,10 +50,7 @@ func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	config, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving config: %w", err)
-	}
+	config := h.ConfigHandler.GetConfig()
 
 	if config.Git == nil ||
 		config.Git.Livereload == nil ||

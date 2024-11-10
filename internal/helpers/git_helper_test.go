@@ -59,7 +59,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, shell, and context
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Git: &config.GitConfig{
 					Livereload: &config.GitLivereloadConfig{
@@ -73,7 +73,7 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 						VerifySsl:    ptrBool(false),
 					},
 				},
-			}, nil
+			}
 		}
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
@@ -141,8 +141,8 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 			return "", fmt.Errorf("mock context error")
 		}
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("mock context error")
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
+			return nil
 		}
 		diContainer := di.NewInjector()
 		diContainer.Register("cliConfigHandler", mockConfigHandler)
@@ -163,14 +163,14 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 
 	t.Run("GitLivereloadNotEnabled", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Git: &config.GitConfig{
 					Livereload: &config.GitLivereloadConfig{
 						Create: ptrBool(false),
 					},
 				},
-			}, nil
+			}
 		}
 		mockContext := context.NewMockContext()
 		mockContext.GetContextFunc = func() (string, error) {
@@ -196,214 +196,16 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingRsyncExclude", func(t *testing.T) {
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				Git: &config.GitConfig{
-					Livereload: &config.GitLivereloadConfig{
-						Create:       ptrBool(true),
-						RsyncExclude: nil,
-					},
-				},
-			}, fmt.Errorf("mock error retrieving rsync_exclude")
-		}
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-		diContainer := di.NewInjector()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell()
-		diContainer.Register("shell", mockShell)
-		diContainer.Register("contextHandler", mockContext)
-
-		gitHelper, err := NewGitHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
-		}
-
-		_, err = gitHelper.GetComposeConfig()
-		if err == nil || !strings.Contains(err.Error(), "mock error retrieving rsync_exclude") {
-			t.Fatalf("expected error retrieving rsync_exclude, got %v", err)
-		}
-	})
-
-	t.Run("ErrorRetrievingRsyncProtect", func(t *testing.T) {
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				Git: &config.GitConfig{
-					Livereload: &config.GitLivereloadConfig{
-						Create:       ptrBool(true),
-						RsyncProtect: nil,
-					},
-				},
-			}, fmt.Errorf("mock error retrieving rsync_protect")
-		}
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-		diContainer := di.NewInjector()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell()
-		diContainer.Register("shell", mockShell)
-		diContainer.Register("contextHandler", mockContext)
-
-		gitHelper, err := NewGitHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
-		}
-
-		_, err = gitHelper.GetComposeConfig()
-		if err == nil || !strings.Contains(err.Error(), "mock error retrieving rsync_protect") {
-			t.Fatalf("expected error retrieving rsync_protect, got %v", err)
-		}
-	})
-
-	t.Run("ErrorRetrievingGitUsername", func(t *testing.T) {
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				Git: &config.GitConfig{
-					Livereload: &config.GitLivereloadConfig{
-						Create:   ptrBool(true),
-						Username: nil,
-					},
-				},
-			}, fmt.Errorf("mock error retrieving git username")
-		}
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-		diContainer := di.NewInjector()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell()
-		diContainer.Register("shell", mockShell)
-		diContainer.Register("contextHandler", mockContext)
-
-		gitHelper, err := NewGitHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
-		}
-
-		_, err = gitHelper.GetComposeConfig()
-		if err == nil || !strings.Contains(err.Error(), "mock error retrieving git username") {
-			t.Fatalf("expected error retrieving git username, got %v", err)
-		}
-	})
-
-	t.Run("ErrorRetrievingGitPassword", func(t *testing.T) {
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				Git: &config.GitConfig{
-					Livereload: &config.GitLivereloadConfig{
-						Create:   ptrBool(true),
-						Password: nil,
-					},
-				},
-			}, fmt.Errorf("mock error retrieving git password")
-		}
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-		diContainer := di.NewInjector()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell()
-		diContainer.Register("shell", mockShell)
-		diContainer.Register("contextHandler", mockContext)
-
-		gitHelper, err := NewGitHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
-		}
-
-		_, err = gitHelper.GetComposeConfig()
-		if err == nil || !strings.Contains(err.Error(), "mock error retrieving git password") {
-			t.Fatalf("expected error retrieving git password, got %v", err)
-		}
-	})
-
-	t.Run("ErrorRetrievingWebhookUrl", func(t *testing.T) {
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				Git: &config.GitConfig{
-					Livereload: &config.GitLivereloadConfig{
-						Create:     ptrBool(true),
-						WebhookUrl: nil,
-					},
-				},
-			}, fmt.Errorf("mock error retrieving webhook url")
-		}
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-		diContainer := di.NewInjector()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell()
-		diContainer.Register("shell", mockShell)
-		diContainer.Register("contextHandler", mockContext)
-
-		gitHelper, err := NewGitHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
-		}
-
-		_, err = gitHelper.GetComposeConfig()
-		if err == nil || !strings.Contains(err.Error(), "mock error retrieving webhook url") {
-			t.Fatalf("expected error retrieving webhook url, got %v", err)
-		}
-	})
-
-	t.Run("ErrorRetrievingVerifySsl", func(t *testing.T) {
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{
-				Git: &config.GitConfig{
-					Livereload: &config.GitLivereloadConfig{
-						Create:    ptrBool(true),
-						VerifySsl: nil,
-					},
-				},
-			}, fmt.Errorf("mock error retrieving verify_ssl")
-		}
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-		diContainer := di.NewInjector()
-		diContainer.Register("cliConfigHandler", mockConfigHandler)
-		mockShell := shell.NewMockShell()
-		diContainer.Register("shell", mockShell)
-		diContainer.Register("contextHandler", mockContext)
-
-		gitHelper, err := NewGitHelper(diContainer)
-		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
-		}
-
-		_, err = gitHelper.GetComposeConfig()
-		if err == nil || !strings.Contains(err.Error(), "mock error retrieving verify_ssl") {
-			t.Fatalf("expected error retrieving verify_ssl, got %v", err)
-		}
-	})
-
 	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Git: &config.GitConfig{
 					Livereload: &config.GitLivereloadConfig{
 						Create: ptrBool(true),
 					},
 				},
-			}, nil
+			}
 		}
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {

@@ -38,10 +38,7 @@ func NewAwsHelper(injector di.Injector) (*AwsHelper, error) {
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (h *AwsHelper) GetComposeConfig() (*types.Config, error) {
-	contextConfig, err := h.ConfigHandler.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context config: %w", err)
-	}
+	contextConfig := h.ConfigHandler.GetConfig()
 
 	if contextConfig.AWS == nil ||
 		contextConfig.AWS.Localstack == nil ||

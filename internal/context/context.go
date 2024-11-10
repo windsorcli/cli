@@ -31,10 +31,7 @@ func NewContext(cliConfigHandler config.ConfigHandler, shell shell.Shell) *Conte
 
 // GetContext retrieves the current context from the configuration
 func (c *Context) GetContext() (string, error) {
-	context, err := c.ConfigHandler.GetString("context")
-	if err != nil {
-		return "", fmt.Errorf("error retrieving context: %w", err)
-	}
+	context := c.ConfigHandler.GetString("context")
 	if context == "" {
 		return "local", nil
 	}

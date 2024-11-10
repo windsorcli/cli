@@ -40,7 +40,7 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 	}
 
 	// Set up the mock config handler to return a safe default configuration for Colima VMs
-	mockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
+	mockConfigHandler.GetConfigFunc = func() *config.Context {
 		return &config.Context{
 			VM: &config.VMConfig{
 				Arch:   ptrString(goArch),
@@ -49,7 +49,7 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 				Driver: ptrString("colima"),
 				Memory: ptrInt(4 * 1024 * 1024 * 1024), // 4GB
 			},
-		}, nil
+		}
 	}
 
 	return &MockComponents{
@@ -92,26 +92,6 @@ func TestColimaVirt_Up(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorConfiguringColima", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// Mock the necessary methods to simulate an error during configuration
-		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("mock configuration error")
-		}
-
-		// When calling Up
-		err := colimaVirt.Up()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
 		}
 	})
 
@@ -407,29 +387,6 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingConfig", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// Simulate an error when retrieving the configuration
-		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return nil, fmt.Errorf("mock config retrieval error")
-		}
-
-		// When calling WriteConfig
-		err := colimaVirt.WriteConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock config retrieval error") {
-			t.Errorf("Expected error to contain 'mock config retrieval error', got %v", err)
-		}
-	})
-
 	t.Run("NoVMDefined", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		mocks := setupSafeColimaVmMocks()
@@ -437,8 +394,8 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// And a mock config handler that returns a config with no VM defined
-		mocks.MockConfigHandler.GetConfigFunc = func() (*config.Context, error) {
-			return &config.Context{VM: nil}, nil
+		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
+			return &config.Context{VM: nil}
 		}
 
 		// When calling WriteConfig
