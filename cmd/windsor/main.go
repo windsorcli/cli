@@ -26,7 +26,7 @@ func main() {
 	injector.Register("cliConfigHandler", cliConfigHandler)
 
 	// Register Shell instance
-	shellInstance := shell.NewDefaultShell()
+	shellInstance := shell.NewDefaultShell(injector)
 	injector.Register("shell", shellInstance)
 
 	// Register SecureShell instance

@@ -13,28 +13,28 @@ type Injector interface {
 	ResolveAll(targetType interface{}) ([]interface{}, error)
 }
 
-// simpleInjector holds instances registered with the injector.
-type simpleInjector struct {
+// BaseInjector holds instances registered with the injector.
+type BaseInjector struct {
 	mu    sync.RWMutex
 	items map[string]interface{}
 }
 
 // NewInjector creates a new injector.
-func NewInjector() *simpleInjector {
-	return &simpleInjector{
+func NewInjector() *BaseInjector {
+	return &BaseInjector{
 		items: make(map[string]interface{}),
 	}
 }
 
 // Register registers an instance with the injector.
-func (i *simpleInjector) Register(name string, instance interface{}) {
+func (i *BaseInjector) Register(name string, instance interface{}) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	i.items[name] = instance
 }
 
 // Resolve resolves an instance from the injector.
-func (i *simpleInjector) Resolve(name string) (interface{}, error) {
+func (i *BaseInjector) Resolve(name string) (interface{}, error) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
@@ -47,7 +47,7 @@ func (i *simpleInjector) Resolve(name string) (interface{}, error) {
 }
 
 // ResolveAll resolves all instances that match the given interface.
-func (i *simpleInjector) ResolveAll(targetType interface{}) ([]interface{}, error) {
+func (i *BaseInjector) ResolveAll(targetType interface{}) ([]interface{}, error) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
@@ -75,5 +75,5 @@ func (i *simpleInjector) ResolveAll(targetType interface{}) ([]interface{}, erro
 	return results, nil
 }
 
-// Ensure simpleInjector implements Injector interface
-var _ Injector = (*simpleInjector)(nil)
+// Ensure BaseInjector implements Injector interface
+var _ Injector = (*BaseInjector)(nil)

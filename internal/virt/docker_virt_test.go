@@ -24,7 +24,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	}
 
 	mockContext := context.NewMockContext()
-	mockShell := shell.NewMockShell()
+	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockHelper := helpers.NewMockHelper()
 

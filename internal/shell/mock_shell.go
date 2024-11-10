@@ -6,23 +6,33 @@ import (
 
 // MockShell is a struct that simulates a shell environment for testing purposes.
 type MockShell struct {
-	Shell
+	DefaultShell
+	InitializeFunc     func() error
 	PrintEnvVarsFunc   func(envVars map[string]string) error
 	PrintAliasFunc     func(envVars map[string]string) error
 	GetProjectRootFunc func() (string, error)
 	ExecFunc           func(verbose bool, message string, command string, args ...string) (string, error)
-	Injector           di.Injector
 }
 
 // NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
-func NewMockShell(injector ...di.Injector) *MockShell {
-	var diInjector di.Injector
-	if len(injector) > 0 {
-		diInjector = injector[0]
+func NewMockShell(injectors ...di.Injector) *MockShell {
+	var injector di.Injector
+	if len(injectors) > 0 {
+		injector = injectors[0]
 	}
 	return &MockShell{
-		Injector: diInjector,
+		DefaultShell: DefaultShell{
+			injector: injector,
+		},
 	}
+}
+
+// Initialize calls the custom InitializeFunc if provided.
+func (s *MockShell) Initialize() error {
+	if s.InitializeFunc != nil {
+		return s.InitializeFunc()
+	}
+	return nil
 }
 
 // PrintEnvVars calls the custom PrintEnvVarsFunc if provided.

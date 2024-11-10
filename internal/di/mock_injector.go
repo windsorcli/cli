@@ -6,7 +6,7 @@ import (
 
 // MockInjector extends the RealInjector with additional testing functionality
 type MockInjector struct {
-	*simpleInjector
+	*BaseInjector
 	resolveError    map[string]error
 	resolveAllError error
 	mu              sync.RWMutex
@@ -15,8 +15,8 @@ type MockInjector struct {
 // NewMockInjector creates a new mock DI injector
 func NewMockInjector() *MockInjector {
 	return &MockInjector{
-		simpleInjector: NewInjector(),
-		resolveError:   make(map[string]error),
+		BaseInjector: NewInjector(),
+		resolveError: make(map[string]error),
 	}
 }
 
@@ -43,7 +43,7 @@ func (m *MockInjector) Resolve(name string) (interface{}, error) {
 		return nil, err
 	}
 
-	return m.simpleInjector.Resolve(name)
+	return m.BaseInjector.Resolve(name)
 }
 
 // ResolveAll overrides the RealInjector's ResolveAll method to add error simulation
@@ -55,5 +55,5 @@ func (m *MockInjector) ResolveAll(targetType interface{}) ([]interface{}, error)
 		return nil, m.resolveAllError
 	}
 
-	return m.simpleInjector.ResolveAll(targetType)
+	return m.BaseInjector.ResolveAll(targetType)
 }

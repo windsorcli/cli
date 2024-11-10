@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsor-hotel/cli/internal/di"
 	"golang.org/x/sys/windows"
 )
 
@@ -40,8 +41,10 @@ func normalizeWindowsPath(path string) string {
 }
 
 func TestDefaultShell_PrintEnvVars(t *testing.T) {
+	injector := di.NewInjector()
+
 	// Given a default shell and a set of environment variables
-	shell := NewDefaultShell()
+	shell := NewDefaultShell(injector)
 	envVars := map[string]string{
 		"VAR2": "value2",
 		"VAR1": "value1",
@@ -73,6 +76,8 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 }
 
 func TestDefaultShell_GetProjectRoot(t *testing.T) {
+	injector := di.NewInjector()
+
 	testCases := []struct {
 		name     string
 		fileName string
@@ -96,7 +101,7 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 			// And changing the working directory to subDir
 			changeDir(t, subDir)
 
-			shell := NewDefaultShell()
+			shell := NewDefaultShell(injector)
 
 			// When finding the project root using the specified file
 			projectRoot, err := shell.GetProjectRoot()
@@ -130,7 +135,8 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 
 	t.Run("PrintAlias", func(t *testing.T) {
 		// Given a default shell
-		shell := NewDefaultShell()
+		injector := di.NewInjector()
+		shell := NewDefaultShell(injector)
 
 		// Capture the output of PrintAlias
 		output := captureStdout(t, func() {
@@ -151,7 +157,8 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 
 	t.Run("PrintAliasWithEmptyValue", func(t *testing.T) {
 		// Given a default shell with an alias having an empty value
-		shell := NewDefaultShell()
+		injector := di.NewInjector()
+		shell := NewDefaultShell(injector)
 		aliasVarsWithEmpty := map[string]string{
 			"ALIAS1": "command1",
 			"ALIAS2": "",

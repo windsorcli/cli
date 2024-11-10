@@ -18,16 +18,7 @@ func assertError(t *testing.T, err error, shouldError bool) {
 }
 
 func TestMockShell_NewMockShell(t *testing.T) {
-	t.Run("CreateMockShellWithoutInjector", func(t *testing.T) {
-		// When creating a new mock shell without a injector
-		mockShell := NewMockShell()
-		// Then no error should be returned
-		if mockShell == nil {
-			t.Errorf("Expected mockShell, got nil")
-		}
-	})
-
-	t.Run("CreateMockShellWithInjector", func(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
 		// Given a mock injector
 		mockInjector := di.NewMockInjector()
 		// When creating a new mock shell with the injector
@@ -36,8 +27,8 @@ func TestMockShell_NewMockShell(t *testing.T) {
 		if mockShell == nil {
 			t.Errorf("Expected mockShell, got nil")
 		}
-		if mockShell.Injector != mockInjector {
-			t.Errorf("Expected injector to be set, got %v", mockShell.Injector)
+		if mockShell.injector != mockInjector {
+			t.Errorf("Expected injector to be set, got %v", mockShell.injector)
 		}
 	})
 }
@@ -49,8 +40,10 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 	}
 
 	t.Run("DefaultPrintEnvVars", func(t *testing.T) {
+		injector := di.NewInjector()
+
 		// Given a mock shell with default PrintEnvVars implementation
-		mockShell := NewMockShell()
+		mockShell := NewMockShell(injector)
 		// When calling PrintEnvVars
 		output := captureStdout(t, func() {
 			mockShell.PrintEnvVars(envVars)
@@ -62,8 +55,9 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 	})
 
 	t.Run("CustomPrintEnvVars", func(t *testing.T) {
+		injector := di.NewInjector()
 		// Given a mock shell with custom PrintEnvVars implementation
-		mockShell := NewMockShell()
+		mockShell := NewMockShell(injector)
 		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
 			for key, value := range envVars {
 				fmt.Printf("%s=%s\n", key, value)
@@ -91,8 +85,9 @@ func TestMockShell_PrintAlias(t *testing.T) {
 	}
 
 	t.Run("DefaultPrintAlias", func(t *testing.T) {
+		injector := di.NewInjector()
 		// Given a mock shell with default PrintAlias implementation
-		mockShell := NewMockShell()
+		mockShell := NewMockShell(injector)
 		// When calling PrintAlias
 		output := captureStdout(t, func() {
 			mockShell.PrintAlias(aliasVars)
@@ -104,8 +99,9 @@ func TestMockShell_PrintAlias(t *testing.T) {
 	})
 
 	t.Run("CustomPrintAlias", func(t *testing.T) {
+		injector := di.NewInjector()
 		// Given a mock shell with custom PrintAlias implementation
-		mockShell := NewMockShell()
+		mockShell := NewMockShell(injector)
 		mockShell.PrintAliasFunc = func(aliasVars map[string]string) error {
 			for key, value := range aliasVars {
 				fmt.Printf("%s=%s\n", key, value)
@@ -129,7 +125,8 @@ func TestMockShell_PrintAlias(t *testing.T) {
 func TestMockShell_GetProjectRoot(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell that successfully retrieves the project root
-		mockShell := NewMockShell()
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
@@ -144,7 +141,8 @@ func TestMockShell_GetProjectRoot(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		// Given a mock shell that returns an error when retrieving the project root
-		mockShell := NewMockShell()
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error retrieving project root")
 		}
@@ -161,7 +159,8 @@ func TestMockShell_GetProjectRoot(t *testing.T) {
 
 	t.Run("NotImplemented", func(t *testing.T) {
 		// Given a mock shell with no GetProjectRoot implementation
-		mockShell := NewMockShell()
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
 		// When calling GetProjectRoot
 		got, err := mockShell.GetProjectRoot()
 		// Then no error should be returned and the result should be empty
@@ -177,7 +176,8 @@ func TestMockShell_GetProjectRoot(t *testing.T) {
 func TestMockShell_Exec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom ExecFn implementation
-		mockShell := NewMockShell()
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			// Simulate command execution and return a mocked output
 			return "mocked output", nil
@@ -196,7 +196,8 @@ func TestMockShell_Exec(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		// Given a mock shell whose ExecFn returns an error
-		mockShell := NewMockShell()
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
 		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			// Simulate command failure
 			return "", fmt.Errorf("execution error")
@@ -213,7 +214,8 @@ func TestMockShell_Exec(t *testing.T) {
 	})
 	t.Run("NotImplemented", func(t *testing.T) {
 		// Given a mock shell with no ExecFn implementation
-		mockShell := NewMockShell()
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
 		// When calling Exec
 		output, err := mockShell.Exec(false, "Executing command", "somecommand", "arg1", "arg2")
 		// Then no error should be returned and the result should be empty

@@ -26,7 +26,7 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 	}
 
 	mockContext := context.NewMockContext()
-	mockShell := shell.NewMockShell()
+	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
 
 	// Register mock instances in the injector

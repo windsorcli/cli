@@ -193,6 +193,7 @@ func Initialize(inj di.Injector) {
 			}
 		case *shell.Shell:
 			if resolved, ok := instance.(shell.Shell); ok {
+				resolved.Initialize()
 				*v = resolved
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type shell.Shell\n", key)

@@ -7,6 +7,7 @@ import (
 // MockEnvPrinter is a struct that simulates an environment for testing purposes.
 type MockEnvPrinter struct {
 	BaseEnvPrinter
+	InitializeFunc  func() error
 	PrintFunc       func() error
 	PostEnvHookFunc func() error
 	GetEnvVarsFunc  func() (map[string]string, error)
@@ -19,6 +20,14 @@ func NewMockEnvPrinter(injector di.Injector) *MockEnvPrinter {
 			injector: injector,
 		},
 	}
+}
+
+// Initialize calls the custom InitializeFunc if provided.
+func (m *MockEnvPrinter) Initialize() error {
+	if m.InitializeFunc != nil {
+		return m.InitializeFunc()
+	}
+	return nil
 }
 
 // Print simulates printing the provided environment variables.

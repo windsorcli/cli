@@ -49,15 +49,15 @@ type Helper interface {
 }
 
 // Helper functions for setup and common operations
-func setupInjector() *simpleInjector {
+func setupInjector() *BaseInjector {
 	return NewInjector()
 }
 
-func registerMockItem(injector *simpleInjector, name string, service MockItem) {
+func registerMockItem(injector *BaseInjector, name string, service MockItem) {
 	injector.Register(name, service)
 }
 
-func resolveService(t *testing.T, injector *simpleInjector, name string) MockItem {
+func resolveService(t *testing.T, injector *BaseInjector, name string) MockItem {
 	resolvedInstance, err := injector.Resolve(name)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
