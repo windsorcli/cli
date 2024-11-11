@@ -36,7 +36,12 @@ func (n *colimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	contextName := "default"
+	// Get the context name
+	contextName, err := n.contextHandler.GetContext()
+	if err != nil {
+		return fmt.Errorf("error retrieving context: %w", err)
+	}
+
 	sshConfigOutput, err := n.shell.Exec(
 		false,
 		"",
@@ -78,13 +83,19 @@ func (n *colimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("error: no docker bridge interface found")
 	}
 
+	// Get the host IP
+	hostIP, err := n.getHostIP()
+	if err != nil {
+		return fmt.Errorf("error getting host IP: %w", err)
+	}
+
 	// Check if the iptables rule already exists
 	_, err = n.secureShell.Exec(
 		false,
-		"Checking for existing iptables rule...",
+		"",
 		"sudo", "iptables", "-t", "filter", "-C", "FORWARD",
 		"-i", "col0", "-o", dockerBridgeInterface,
-		"-s", guestIP, "-d", networkCIDR, "-j", "ACCEPT",
+		"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
 	)
 	if err != nil {
 		// Check if the error is due to the rule not existing
@@ -92,10 +103,10 @@ func (n *colimaNetworkManager) ConfigureGuest() error {
 			// Rule does not exist, proceed to add it
 			if _, err := n.secureShell.Exec(
 				false,
-				"Setting IP tables on VM...",
+				"Configuring IP tables on Colima virtual machine",
 				"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
 				"-i", "col0", "-o", dockerBridgeInterface,
-				"-s", guestIP, "-d", networkCIDR, "-j", "ACCEPT",
+				"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
 			); err != nil {
 				return fmt.Errorf("error setting iptables rule: %w", err)
 			}

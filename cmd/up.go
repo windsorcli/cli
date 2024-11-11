@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -18,8 +17,14 @@ var upCmd = &cobra.Command{
 		// Determine if Docker is being used
 		dockerEnabled := configHandler.GetBool("docker.enabled")
 
-		// Determine if DNS is configured
+		// Get the DNS name
 		dnsName := configHandler.GetString("dns.name")
+
+		// Initialize the DNS address
+		dnsAddress := ""
+
+		// Get the DNS create flag
+		createDns := configHandler.GetBool("dns.create")
 
 		// Start Colima if it is being used
 		if driver == "colima" {
@@ -41,9 +46,28 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("Error writing Docker config: %w", err)
 			}
 
+			// Write the DNS configuration
+			if createDns {
+				if err := dnsHelper.WriteConfig(); err != nil {
+					return fmt.Errorf("Error writing DNS config: %w", err)
+				}
+			}
+
 			// Start the Docker VM
 			if err := dockerVirt.Up(verbose); err != nil {
 				return fmt.Errorf("Error running DockerVirt Up command: %w", err)
+			}
+
+			// Get the DNS address
+			if dnsName != "" {
+				dnsService, err := dockerVirt.GetContainerInfo("dns.test")
+				if err != nil {
+					return fmt.Errorf("Error getting DNS service: %w", err)
+				}
+				if len(dnsService) == 0 {
+					return fmt.Errorf("DNS service not found")
+				}
+				dnsAddress = dnsService[0].Address
 			}
 		}
 
@@ -58,28 +82,15 @@ var upCmd = &cobra.Command{
 		}
 
 		// Configure DNS if dns.name is set
-		if dnsName != "" {
+		if dnsName != "" && dnsAddress != "" {
+
+			// Begin hack to get the DNS address into the config
+			configData := configHandler.GetConfig()
+			configData.DNS.Address = &dnsAddress
+			// End hack
+
 			if err := colimaNetworkManager.ConfigureDNS(); err != nil {
 				return fmt.Errorf("Error configuring DNS: %w", err)
-			}
-		}
-
-		// Print welcome status page
-		fmt.Println(color.CyanString("Welcome to the Windsor Environment 📐"))
-		fmt.Println(color.CyanString("-------------------------------------"))
-		fmt.Println()
-
-		// Print Colima info if available
-		if driver == "colima" {
-			if err := colimaVirt.PrintInfo(); err != nil {
-				return fmt.Errorf("Error printing Colima info: %w", err)
-			}
-		}
-
-		// Print Docker info if available
-		if dockerEnabled {
-			if err := dockerVirt.PrintInfo(); err != nil {
-				return fmt.Errorf("Error printing Docker info: %w", err)
 			}
 		}
 

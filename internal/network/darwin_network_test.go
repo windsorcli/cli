@@ -5,6 +5,7 @@ package network
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"testing"
 
@@ -62,7 +63,7 @@ func setupDarwinNetworkManagerMocks() *DarwinNetworkManagerMocks {
 			return "192.168.5.100"
 		case "dns.name":
 			return "example.com"
-		case "dns.ip":
+		case "dns.address":
 			return "1.2.3.4"
 		default:
 			if len(defaultValue) > 0 {
@@ -78,12 +79,23 @@ func setupDarwinNetworkManagerMocks() *DarwinNetworkManagerMocks {
 	// Create a mock SSH client
 	mockSSHClient := &ssh.MockClient{}
 
+	// Introduce a simple mock network interface
+	mockNetworkInterface := &MockNetworkInterfaceProvider{
+		InterfacesFunc: func() ([]net.Interface, error) {
+			return []net.Interface{}, nil
+		},
+		InterfaceAddrsFunc: func(iface net.Interface) ([]net.Addr, error) {
+			return []net.Addr{}, nil
+		},
+	}
+
 	// Register mocks in the injector
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("contextHandler", mockContext)
 	injector.Register("sshClient", mockSSHClient)
+	injector.Register("networkInterfaceProvider", mockNetworkInterface)
 
 	// Return a struct containing all mocks
 	return &DarwinNetworkManagerMocks{
@@ -312,20 +324,20 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Set the DNS IP to an empty string to simulate the missing configuration
+		// Set the DNS address to an empty string to simulate the missing configuration
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.ip" {
+			if key == "dns.address" {
 				return ""
 			}
 			return "some_value"
 		}
 
-		// Call the ConfigureDNS method and expect an error due to missing DNS IP
+		// Call the ConfigureDNS method and expect an error due to missing DNS address
 		err = nm.ConfigureDNS()
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := "DNS IP is not configured"
+		expectedError := "DNS address is not configured"
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}

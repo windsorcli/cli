@@ -64,9 +64,9 @@ type VMConfig struct {
 
 // DNSConfig represents the DNS configuration
 type DNSConfig struct {
-	Create *bool   `yaml:"create"`
-	Name   *string `yaml:"name"`
-	IP     *string `yaml:"ip"`
+	Create  *bool   `yaml:"create"`
+	Name    *string `yaml:"name"`
+	Address *string `yaml:"address"`
 }
 
 // ClusterConfig represents the cluster configuration
@@ -125,9 +125,9 @@ var DefaultConfig = Context{
 	},
 	Cluster: nil,
 	DNS: &DNSConfig{
-		Create: nil,
-		Name:   nil,
-		IP:     nil,
+		Create:  nil,
+		Name:    nil,
+		Address: nil,
 	},
 }
 
@@ -211,8 +211,8 @@ var DefaultLocalConfig = Context{
 		},
 	},
 	DNS: &DNSConfig{
-		Create: ptrBool(true),
-		Name:   ptrString("test"),
-		IP:     nil,
+		Create:  ptrBool(true),
+		Name:    ptrString("test"),
+		Address: nil,
 	},
 }

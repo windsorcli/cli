@@ -1,5 +1,7 @@
 package network
 
+import "net"
+
 // MockNetworkManager is a struct that simulates a network manager for testing purposes.
 type MockNetworkManager struct {
 	NetworkManager
@@ -48,3 +50,22 @@ func (m *MockNetworkManager) ConfigureDNS() error {
 
 // Ensure MockNetworkManager implements the NetworkManager interface
 var _ NetworkManager = (*MockNetworkManager)(nil)
+
+// MockNetworkInterfaceProvider is a struct that simulates a network interface provider for testing purposes.
+type MockNetworkInterfaceProvider struct {
+	InterfacesFunc     func() ([]net.Interface, error)
+	InterfaceAddrsFunc func(iface net.Interface) ([]net.Addr, error)
+}
+
+// Interfaces calls the custom InterfacesFunc if provided.
+func (m *MockNetworkInterfaceProvider) Interfaces() ([]net.Interface, error) {
+	return m.InterfacesFunc()
+}
+
+// InterfaceAddrs calls the custom InterfaceAddrsFunc if provided.
+func (m *MockNetworkInterfaceProvider) InterfaceAddrs(iface net.Interface) ([]net.Addr, error) {
+	return m.InterfaceAddrsFunc(iface)
+}
+
+// Ensure MockNetworkInterfaceProvider implements the NetworkInterfaceProvider interface
+var _ NetworkInterfaceProvider = (*MockNetworkInterfaceProvider)(nil)

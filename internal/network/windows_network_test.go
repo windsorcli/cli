@@ -206,7 +206,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			if key == "dns.name" {
 				return "example.com"
 			}
-			if key == "dns.ip" {
+			if key == "dns.address" {
 				return "8.8.8.8"
 			}
 			if len(defaultValue) > 0 {
@@ -243,7 +243,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks := setupWindowsNetworkManagerMocks()
 
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.ip" {
+			if key == "dns.address" {
 				return "8.8.8.8"
 			}
 			if len(defaultValue) > 0 {
@@ -301,8 +301,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 
 		err = nm.ConfigureDNS()
 
-		if err == nil || err.Error() != "DNS IP is not configured" {
-			t.Errorf("expected error 'DNS IP is not configured', got %v", err)
+		if err == nil || err.Error() != "DNS address is not configured" {
+			t.Errorf("expected error 'DNS address is not configured', got %v", err)
 		}
 	})
 
@@ -314,7 +314,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			if key == "dns.name" {
 				return "example.com"
 			}
-			if key == "dns.ip" {
+			if key == "dns.address" {
 				return "192.168.1.1"
 			}
 			if len(defaultValue) > 0 {

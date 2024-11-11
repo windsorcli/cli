@@ -74,11 +74,11 @@ func main() {
 	sshClient := ssh.NewSSHClient()
 	injector.Register("sshClient", sshClient)
 
-	// Create and register the ColimaVirt instance using the mock as reference
+	// Create and register the ColimaVirt instance
 	colimaVM := virt.NewColimaVirt(injector)
 	injector.Register("colimaVirt", colimaVM)
 
-	// Create and register the DockerVirt instance using the mock as reference
+	// Create and register the DockerVirt instance
 	dockerVM := virt.NewDockerVirt(injector)
 	injector.Register("dockerVirt", dockerVM)
 
@@ -117,6 +117,10 @@ func main() {
 	// Create and register the WindsorEnv instance
 	windsorEnv := env.NewWindsorEnvPrinter(injector)
 	injector.Register("windsorEnv", windsorEnv)
+
+	// Create and register the RealNetworkInterfaceProvider instance
+	networkInterfaceProvider := network.RealNetworkInterfaceProvider{}
+	injector.Register("networkInterfaceProvider", networkInterfaceProvider)
 
 	// Inject the DI injector into the cmd package
 	cmd.Initialize(injector)

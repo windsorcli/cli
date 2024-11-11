@@ -46,6 +46,7 @@ tasks:
           go test -coverprofile=coverage.out ./...
         fi
       - go tool cover -html=coverage.out -o coverage.html
+    silent: true
 
   scan:
     desc: Scan for security vulnerabilities

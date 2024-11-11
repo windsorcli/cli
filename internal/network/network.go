@@ -2,8 +2,10 @@ package network
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
@@ -24,13 +26,15 @@ type NetworkManager interface {
 
 // networkManager is a concrete implementation of NetworkManager
 type networkManager struct {
-	injector      di.Injector
-	sshClient     ssh.Client
-	shell         shell.Shell
-	secureShell   shell.Shell
-	configHandler config.ConfigHandler
-	colimaVirt    virt.Virt
-	dockerVirt    virt.Virt
+	injector                 di.Injector
+	sshClient                ssh.Client
+	shell                    shell.Shell
+	secureShell              shell.Shell
+	configHandler            config.ConfigHandler
+	contextHandler           context.ContextInterface
+	colimaVirt               virt.Virt
+	dockerVirt               virt.Virt
+	networkInterfaceProvider NetworkInterfaceProvider
 }
 
 // NewNetworkManager creates a new NetworkManager
@@ -87,6 +91,28 @@ func (n *networkManager) Initialize() error {
 	}
 	n.configHandler = configHandler
 
+	// Get the context handler from the injector
+	contextHandlerInstance, err := n.injector.Resolve("contextHandler")
+	if err != nil {
+		return fmt.Errorf("failed to resolve context handler: %w", err)
+	}
+	contextHandler, ok := contextHandlerInstance.(context.ContextInterface)
+	if !ok {
+		return fmt.Errorf("resolved context handler instance is not of type context.ContextInterface")
+	}
+	n.contextHandler = contextHandler
+
+	// Get the network interface provider from the injector
+	networkInterfaceProviderInstance, err := n.injector.Resolve("networkInterfaceProvider")
+	if err != nil {
+		return fmt.Errorf("failed to resolve network interface provider: %w", err)
+	}
+	networkInterfaceProvider, ok := networkInterfaceProviderInstance.(NetworkInterfaceProvider)
+	if !ok {
+		return fmt.Errorf("resolved network interface provider instance is not of type NetworkInterfaceProvider")
+	}
+	n.networkInterfaceProvider = networkInterfaceProvider
+
 	return nil
 }
 
@@ -97,3 +123,51 @@ func (n *networkManager) ConfigureGuest() error {
 
 // Ensure networkManager implements NetworkManager
 var _ NetworkManager = (*networkManager)(nil)
+
+// getHostIP gets the host IP address
+func (n *networkManager) getHostIP() (string, error) {
+	// Get the guest IP address
+	guestIP := n.configHandler.GetString("vm.address")
+	if guestIP == "" {
+		return "", fmt.Errorf("guest IP is not configured")
+	}
+
+	// Parse the guest IP
+	guestIPAddr := net.ParseIP(guestIP)
+	if guestIPAddr == nil {
+		return "", fmt.Errorf("invalid guest IP address")
+	}
+
+	// Get a list of network interfaces
+	interfaces, err := n.networkInterfaceProvider.Interfaces()
+	if err != nil {
+		return "", fmt.Errorf("failed to get network interfaces: %w", err)
+	}
+
+	// Iterate over each network interface
+	for _, iface := range interfaces {
+		addrs, err := n.networkInterfaceProvider.InterfaceAddrs(iface)
+		if err != nil {
+			return "", fmt.Errorf("failed to get addresses for interface %s: %w", iface.Name, err)
+		}
+
+		// Check each address associated with the interface
+		for _, addr := range addrs {
+			var ipNet *net.IPNet
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ipNet = v
+			case *net.IPAddr:
+				ipNet = &net.IPNet{IP: v.IP, Mask: v.IP.DefaultMask()}
+			}
+
+			// Check if the IP is in the same subnet as the guest IP
+			if ipNet != nil && ipNet.Contains(guestIPAddr) {
+				// Return the host IP in the same subnet as the guest IP
+				return ipNet.IP.String(), nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("failed to find host IP in the same subnet as guest IP")
+}

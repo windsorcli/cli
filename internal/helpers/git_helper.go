@@ -14,6 +14,7 @@ import (
 
 // GitHelper is a helper struct that provides various utility functions
 type GitHelper struct {
+	BaseHelper
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
 	Context       context.ContextInterface

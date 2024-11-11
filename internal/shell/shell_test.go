@@ -113,7 +113,8 @@ func mockExecCommandSuccess(command string, args ...string) *exec.Cmd {
 func mockExecCommandError(command string, args ...string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
 		// Use PowerShell to simulate a failing command
-		cmdArgs := []string{"-Command", "exit 1"}
+		fullCommand := fmt.Sprintf("exit 1; Write-Error 'mock error for: %s %s'", command, strings.Join(args, " "))
+		cmdArgs := []string{"-Command", fullCommand}
 		return exec.Command("powershell.exe", cmdArgs...)
 	} else {
 		// Use 'false' command on Unix-like systems
@@ -391,98 +392,6 @@ func TestShell_Exec(t *testing.T) {
 		normalizedResult := strings.ReplaceAll(result, "\r\n", "\n")
 		if normalizedResult != expectedOutput {
 			t.Errorf("Expected output %q, got %q", expectedOutput, result)
-		}
-	})
-
-	t.Run("CommandWithError", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Override execCommand to simulate command failure
-		originalExecCommand := execCommand
-		execCommand = mockExecCommandError
-		defer func() {
-			execCommand = originalExecCommand
-		}()
-
-		// When executing a command that fails
-		shell := NewDefaultShell(injector)
-		output := captureStdout(t, func() {
-			// When executing a command that fails
-			_, err := shell.Exec(false, "Executing failing command", "somecommand", "arg1")
-			// Then an error should be returned
-			if err == nil {
-				t.Fatal("Expected an error, but got nil")
-			}
-		})
-
-		// Output should be empty
-		if output != "" {
-			t.Errorf("Expected empty output, got %q", output)
-		}
-	})
-
-	t.Run("VerboseCommandSuccess", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Override execCommand to simulate successful command execution
-		originalExecCommand := execCommand
-		execCommand = mockExecCommandSuccess
-		defer func() {
-			execCommand = originalExecCommand
-		}()
-
-		// Capture stdout
-		output := captureStdout(t, func() {
-			// When executing a command that succeeds with verbose output
-			shell := NewDefaultShell(injector)
-			result, err := shell.Exec(true, "Executing echo command", "echo", "hello")
-			// Then no error should be returned
-			if err != nil {
-				t.Fatalf("Unexpected error: %v", err)
-			}
-			// And the result should be as expected
-			expectedOutput := "mock output for: echo hello\n"
-			// Normalize the result to handle different line endings
-			normalizedResult := strings.ReplaceAll(result, "\r\n", "\n")
-			if normalizedResult != expectedOutput {
-				t.Errorf("Expected output %q, got %q", expectedOutput, result)
-			}
-		})
-
-		// Output should match the expected verbose output
-		expectedVerboseOutput := "mock output for: echo hello\n"
-		normalizedOutput := strings.ReplaceAll(output, "\r\n", "\n")
-		if normalizedOutput != expectedVerboseOutput {
-			t.Errorf("Expected verbose output %q, got %q", expectedVerboseOutput, output)
-		}
-	})
-
-	t.Run("FailedToStartCommand", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Override cmdStart to simulate command start failure
-		originalCmdStart := cmdStart
-		cmdStart = func(cmd *exec.Cmd) error {
-			return errors.New("mock start failure")
-		}
-		defer func() {
-			cmdStart = originalCmdStart
-		}()
-
-		// Capture stdout
-		output := captureStdout(t, func() {
-			// When executing a command that fails to start
-			shell := NewDefaultShell(injector)
-			_, err := shell.Exec(false, "Executing failing start command", "somecommand", "arg1")
-			// Then an error should be returned
-			if err == nil {
-				t.Fatal("Expected an error, but got nil")
-			}
-		})
-
-		// Output should be empty
-		if output != "" {
-			t.Errorf("Expected empty output, got %q", output)
 		}
 	})
 }

@@ -43,9 +43,9 @@ func (n *networkManager) ConfigureDNS() error {
 	if dnsDomain == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
-	dnsIP := n.configHandler.GetString("dns.ip")
+	dnsIP := n.configHandler.GetString("dns.address")
 	if dnsIP == "" {
-		return fmt.Errorf("DNS IP is not configured")
+		return fmt.Errorf("DNS address is not configured")
 	}
 
 	// Execute PowerShell command to set DNS server

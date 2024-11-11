@@ -25,7 +25,7 @@ func (n *networkManager) ConfigureHost() error {
 	// Add route on the host to VM guest
 	output, err := n.shell.Exec(
 		false,
-		"",
+		"Configuring host route",
 		"sudo",
 		"route",
 		"-nv",
@@ -47,9 +47,9 @@ func (n *networkManager) ConfigureDNS() error {
 	if dnsDomain == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
-	dnsIP := n.configHandler.GetString("dns.ip")
+	dnsIP := n.configHandler.GetString("dns.address")
 	if dnsIP == "" {
-		return fmt.Errorf("DNS IP is not configured")
+		return fmt.Errorf("DNS address is not configured")
 	}
 
 	// Ensure the /etc/resolver directory exists
@@ -79,7 +79,7 @@ func (n *networkManager) ConfigureDNS() error {
 	resolverFile := fmt.Sprintf("%s/%s", resolverDir, dnsDomain)
 	if _, err := n.shell.Exec(
 		false,
-		"",
+		"Configuring DNS resolver at "+resolverFile,
 		"sudo",
 		"mv",
 		tempResolverFile,
@@ -89,10 +89,10 @@ func (n *networkManager) ConfigureDNS() error {
 	}
 
 	// Flush the DNS cache
-	if _, err := n.shell.Exec(false, "", "sudo", "dscacheutil", "-flushcache"); err != nil {
+	if _, err := n.shell.Exec(false, "Flushing DNS cache", "sudo", "dscacheutil", "-flushcache"); err != nil {
 		return fmt.Errorf("Error flushing DNS cache: %w", err)
 	}
-	if _, err := n.shell.Exec(false, "", "sudo", "killall", "-HUP", "mDNSResponder"); err != nil {
+	if _, err := n.shell.Exec(false, "Restarting DNS daemon", "sudo", "killall", "-HUP", "mDNSResponder"); err != nil {
 		return fmt.Errorf("Error restarting mDNSResponder: %w", err)
 	}
 

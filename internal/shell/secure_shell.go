@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/briandowns/spinner"
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
@@ -48,17 +46,27 @@ func (s *SecureShell) Exec(verbose bool, message string, command string, args ..
 	session.SetStdout(&stdoutBuf)
 	session.SetStderr(&stderrBuf)
 
-	// Initialize spinner
-	spr := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
-	spr.Suffix = " " + message
-	spr.Start()
+	// Always print the message if it is not empty
+	if message != "" {
+		fmt.Println(message)
+	}
 
-	err = session.Run(fullCommand)
+	// Start the command and handle errors
+	errChan := make(chan error, 1)
+	go func() {
+		if err := session.Run(fullCommand); err != nil {
+			errChan <- fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+			return
+		}
+		errChan <- nil
+	}()
 
-	spr.Stop()
-
-	if err != nil {
-		return "", fmt.Errorf("command execution failed: %w, stderr: %s", err, stderrBuf.String())
+	// Wait for the command to finish or an error to occur
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return "", err
+		}
 	}
 
 	output := stdoutBuf.String()

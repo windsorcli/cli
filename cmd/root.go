@@ -32,6 +32,9 @@ var awsHelper helpers.Helper
 // dockerHelper instance
 var dockerHelper helpers.Helper
 
+// dnsHelper instance
+var dnsHelper helpers.Helper
+
 // context instance
 var contextHandler context.ContextInterface
 
@@ -39,10 +42,10 @@ var contextHandler context.ContextInterface
 var sshClient ssh.Client
 
 // colimaVirt instance
-var colimaVirt virt.Virt
+var colimaVirt virt.VirtualMachine
 
 // dockerVirt instance
-var dockerVirt virt.Virt
+var dockerVirt virt.ContainerRuntime
 
 // awsEnv instance
 var awsEnv env.EnvPrinter
@@ -211,6 +214,28 @@ func Initialize(inj di.Injector) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type virt.Virt\n", key)
 				exitFunc(1)
 			}
+		case *virt.ContainerRuntime:
+			if resolved, ok := instance.(virt.ContainerRuntime); ok {
+				if err := resolved.Initialize(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error initializing virt.ContainerRuntime: %v\n", err)
+					exitFunc(1)
+				}
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type virt.ContainerRuntime\n", key)
+				exitFunc(1)
+			}
+		case *virt.VirtualMachine:
+			if resolved, ok := instance.(virt.VirtualMachine); ok {
+				if err := resolved.Initialize(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error initializing virt.VirtualMachine: %v\n", err)
+					exitFunc(1)
+				}
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type virt.VirtualMachine\n", key)
+				exitFunc(1)
+			}
 		case *env.EnvPrinter:
 			if resolved, ok := instance.(env.EnvPrinter); ok {
 				if err := resolved.Initialize(); err != nil {
@@ -241,6 +266,7 @@ func Initialize(inj di.Injector) {
 	resolveAndAssign("secureShell", &secureShellInstance)
 	resolveAndAssign("awsHelper", &awsHelper)
 	resolveAndAssign("dockerHelper", &dockerHelper)
+	resolveAndAssign("dnsHelper", &dnsHelper)
 	resolveAndAssign("contextHandler", &contextHandler)
 	resolveAndAssign("sshClient", &sshClient)
 	resolveAndAssign("colimaVirt", &colimaVirt)
