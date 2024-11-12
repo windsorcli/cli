@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
@@ -19,11 +20,12 @@ func stringPtr(s string) *string {
 }
 
 type WindowsNetworkManagerMocks struct {
-	Injector          di.Injector
-	MockShell         *shell.MockShell
-	MockSecureShell   *shell.MockShell
-	MockConfigHandler *config.MockConfigHandler
-	MockSSHClient     *ssh.MockClient
+	Injector                     di.Injector
+	MockShell                    *shell.MockShell
+	MockSecureShell              *shell.MockShell
+	MockConfigHandler            *config.MockConfigHandler
+	MockSSHClient                *ssh.MockClient
+	MockNetworkInterfaceProvider *MockNetworkInterfaceProvider
 }
 
 func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
@@ -58,22 +60,34 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 		}
 	}
 
+	// Create a mock context handler
+	mockContext := context.NewMockContext()
+	mockContext.GetContextFunc = func() (string, error) {
+		return "mocked context", nil
+	}
+
 	// Create a mock SSH client
 	mockSSHClient := &ssh.MockClient{}
+
+	// Create a mock network interface provider
+	mockNetworkInterfaceProvider := &MockNetworkInterfaceProvider{}
 
 	// Register mocks in the injector
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("configHandler", mockConfigHandler)
+	injector.Register("contextHandler", mockContext)
 	injector.Register("sshClient", mockSSHClient)
+	injector.Register("networkInterfaceProvider", mockNetworkInterfaceProvider)
 
 	// Return a struct containing all mocks
 	return &WindowsNetworkManagerMocks{
-		Injector:          injector,
-		MockShell:         mockShell,
-		MockSecureShell:   mockSecureShell,
-		MockConfigHandler: mockConfigHandler,
-		MockSSHClient:     mockSSHClient,
+		Injector:                     injector,
+		MockShell:                    mockShell,
+		MockSecureShell:              mockSecureShell,
+		MockConfigHandler:            mockConfigHandler,
+		MockSSHClient:                mockSSHClient,
+		MockNetworkInterfaceProvider: mockNetworkInterfaceProvider,
 	}
 }
 
@@ -82,8 +96,8 @@ func TestWindowsNetworkManager_ConfigureHost(t *testing.T) {
 		// Setup mocks using setupWindowsNetworkManagerMocks
 		mocks := setupWindowsNetworkManagerMocks()
 
-		// Create a network manager using NewNetworkManager with the mock injector
-		nm, err := NewNetworkManager(mocks.Injector)
+		// Create a network manager using NewBaseNetworkManager with the mock injector
+		nm, err := NewBaseNetworkManager(mocks.Injector)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -103,8 +117,8 @@ func TestWindowsNetworkManager_ConfigureHost(t *testing.T) {
 		// Setup mocks using setupWindowsNetworkManagerMocks
 		mocks := setupWindowsNetworkManagerMocks()
 
-		// Create a network manager using NewNetworkManager with the mock injector
-		nm, err := NewNetworkManager(mocks.Injector)
+		// Create a network manager using NewBaseNetworkManager with the mock injector
+		nm, err := NewBaseNetworkManager(mocks.Injector)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -132,8 +146,8 @@ func TestWindowsNetworkManager_ConfigureHost(t *testing.T) {
 		// Setup mocks using setupWindowsNetworkManagerMocks
 		mocks := setupWindowsNetworkManagerMocks()
 
-		// Create a network manager using NewNetworkManager with the mock injector
-		nm, err := NewNetworkManager(mocks.Injector)
+		// Create a network manager using NewBaseNetworkManager with the mock injector
+		nm, err := NewBaseNetworkManager(mocks.Injector)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -164,8 +178,8 @@ func TestWindowsNetworkManager_ConfigureHost(t *testing.T) {
 		// Setup mocks using setupWindowsNetworkManagerMocks
 		mocks := setupWindowsNetworkManagerMocks()
 
-		// Create a network manager using NewNetworkManager with the mock injector
-		nm, err := NewNetworkManager(mocks.Injector)
+		// Create a network manager using NewBaseNetworkManager with the mock injector
+		nm, err := NewBaseNetworkManager(mocks.Injector)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -221,7 +235,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", fmt.Errorf("unexpected command")
 		}
 
-		nm, err := NewNetworkManager(mocks.Injector)
+		nm, err := NewBaseNetworkManager(mocks.Injector)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -255,7 +269,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", fmt.Errorf("unexpected command")
 		}
 
-		nm, err := NewNetworkManager(mocks.Injector)
+		nm, err := NewBaseNetworkManager(mocks.Injector)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -289,7 +303,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", fmt.Errorf("unexpected command")
 		}
 
-		nm, err := NewNetworkManager(mocks.Injector)
+		nm, err := NewBaseNetworkManager(mocks.Injector)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -326,7 +340,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", fmt.Errorf("failed to set DNS server")
 		}
 
-		nm, err := NewNetworkManager(mocks.Injector)
+		nm, err := NewBaseNetworkManager(mocks.Injector)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}

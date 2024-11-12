@@ -119,7 +119,7 @@ func main() {
 	injector.Register("windsorEnv", windsorEnv)
 
 	// Create and register the RealNetworkInterfaceProvider instance
-	networkInterfaceProvider := network.RealNetworkInterfaceProvider{}
+	networkInterfaceProvider := &network.RealNetworkInterfaceProvider{}
 	injector.Register("networkInterfaceProvider", networkInterfaceProvider)
 
 	// Inject the DI injector into the cmd package

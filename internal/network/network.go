@@ -24,8 +24,8 @@ type NetworkManager interface {
 	ConfigureDNS() error
 }
 
-// networkManager is a concrete implementation of NetworkManager
-type networkManager struct {
+// BaseNetworkManager is a concrete implementation of NetworkManager
+type BaseNetworkManager struct {
 	injector                 di.Injector
 	sshClient                ssh.Client
 	shell                    shell.Shell
@@ -38,15 +38,15 @@ type networkManager struct {
 }
 
 // NewNetworkManager creates a new NetworkManager
-func NewNetworkManager(injector di.Injector) (NetworkManager, error) {
-	nm := &networkManager{
+func NewBaseNetworkManager(injector di.Injector) (*BaseNetworkManager, error) {
+	nm := &BaseNetworkManager{
 		injector: injector,
 	}
 	return nm, nil
 }
 
 // Initialize the network manager
-func (n *networkManager) Initialize() error {
+func (n *BaseNetworkManager) Initialize() error {
 	// Resolve the sshClient from the injector
 	sshClientInstance, err := n.injector.Resolve("sshClient")
 	if err != nil {
@@ -117,15 +117,15 @@ func (n *networkManager) Initialize() error {
 }
 
 // ConfigureGuest sets up the guest VM network
-func (n *networkManager) ConfigureGuest() error {
+func (n *BaseNetworkManager) ConfigureGuest() error {
 	return nil
 }
 
-// Ensure networkManager implements NetworkManager
-var _ NetworkManager = (*networkManager)(nil)
+// Ensure BaseNetworkManager implements NetworkManager
+var _ NetworkManager = (*BaseNetworkManager)(nil)
 
 // getHostIP gets the host IP address
-func (n *networkManager) getHostIP() (string, error) {
+func (n *BaseNetworkManager) getHostIP() (string, error) {
 	// Get the guest IP address
 	guestIP := n.configHandler.GetString("vm.address")
 	if guestIP == "" {

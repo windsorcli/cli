@@ -203,9 +203,9 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 		}
 
 		var ipAddress string
-		for _, network := range networks {
+		networkKey := fmt.Sprintf("windsor-%s", contextName)
+		if network, exists := networks[networkKey]; exists {
 			ipAddress = network.IPAddress
-			break
 		}
 
 		containerInfo := ContainerInfo{

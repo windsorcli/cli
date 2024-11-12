@@ -132,7 +132,7 @@ func (s *DefaultShell) Exec(verbose bool, message string, command string, args .
 			return
 		}
 
-		if err := cmd.Wait(); err != nil {
+		if err := cmdWait(cmd); err != nil {
 			errChan <- fmt.Errorf("command execution failed: %w\n%s", err, errorBuffer.String())
 			return
 		}

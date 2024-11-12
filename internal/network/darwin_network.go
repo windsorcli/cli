@@ -9,7 +9,7 @@ import (
 )
 
 // ConfigureHost sets up the local development network
-func (n *networkManager) ConfigureHost() error {
+func (n *BaseNetworkManager) ConfigureHost() error {
 	// Access the Docker configuration
 	networkCIDR := n.configHandler.GetString("docker.network_cidr")
 	if networkCIDR == "" {
@@ -41,7 +41,7 @@ func (n *networkManager) ConfigureHost() error {
 }
 
 // ConfigureDNS sets up the DNS configuration
-func (n *networkManager) ConfigureDNS() error {
+func (n *BaseNetworkManager) ConfigureDNS() error {
 	// Access the DNS configuration using GetString
 	dnsDomain := n.configHandler.GetString("dns.name")
 	if dnsDomain == "" {

@@ -8,14 +8,14 @@ import (
 )
 
 // colimaNetworkManager is a concrete implementation of NetworkManager
-type colimaNetworkManager struct {
-	networkManager
+type ColimaNetworkManager struct {
+	BaseNetworkManager
 }
 
 // NewColimaNetworkManager creates a new ColimaNetworkManager
 func NewColimaNetworkManager(injector di.Injector) NetworkManager {
-	nm := &colimaNetworkManager{
-		networkManager: networkManager{
+	nm := &ColimaNetworkManager{
+		BaseNetworkManager: BaseNetworkManager{
 			injector: injector,
 		},
 	}
@@ -23,7 +23,7 @@ func NewColimaNetworkManager(injector di.Injector) NetworkManager {
 }
 
 // ConfigureGuest forwards the incoming guest traffic to the container network
-func (n *colimaNetworkManager) ConfigureGuest() error {
+func (n *ColimaNetworkManager) ConfigureGuest() error {
 	// Access the Docker configuration
 	networkCIDR := n.configHandler.GetString("docker.network_cidr")
 	if networkCIDR == "" {
@@ -119,5 +119,5 @@ func (n *colimaNetworkManager) ConfigureGuest() error {
 	return nil
 }
 
-// Ensure colimaNetworkManager implements NetworkManager
-var _ NetworkManager = (*colimaNetworkManager)(nil)
+// Ensure ColimaNetworkManager implements NetworkManager
+var _ NetworkManager = (*ColimaNetworkManager)(nil)

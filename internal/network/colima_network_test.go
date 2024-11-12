@@ -227,6 +227,35 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorGettingContext", func(t *testing.T) {
+		// Setup mocks using setupColimaNetworkManagerMocks
+		mocks := setupColimaNetworkManagerMocks()
+
+		// Override the GetContext method to return an error
+		mocks.MockContextHandler.GetContextFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error getting context")
+		}
+
+		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
+		nm := NewColimaNetworkManager(mocks.Injector)
+
+		// Initialize the network manager
+		err := nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Call the ConfigureGuest method and expect an error due to failed context retrieval
+		err = nm.ConfigureGuest()
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "error retrieving context: mock error getting context"
+		if err.Error() != expectedError {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
 	t.Run("ErrorGettingSSHConfig", func(t *testing.T) {
 		// Setup mocks using setupColimaNetworkManagerMocks
 		mocks := setupColimaNetworkManagerMocks()
@@ -424,6 +453,40 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to find host IP in the same subnet as guest IP") {
 			t.Fatalf("expected error to contain 'failed to find host IP in the same subnet as guest IP', got %q", err.Error())
+		}
+	})
+	t.Run("ErrorCheckingIptablesRule", func(t *testing.T) {
+		// Setup mocks using setupColimaNetworkManagerMocks
+		mocks := setupColimaNetworkManagerMocks()
+
+		// Override the ExecFunc to simulate an unexpected error when checking iptables rule
+		originalExecFunc := mocks.MockSecureShell.ExecFunc
+		mocks.MockSecureShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+			if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-C" {
+				return "", fmt.Errorf("unexpected error checking iptables rule")
+			}
+			return originalExecFunc(verbose, message, command, args...)
+		}
+
+		// Use the mock injector from setupColimaNetworkManagerMocks
+		injector := mocks.Injector
+
+		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
+		nm := NewColimaNetworkManager(injector)
+
+		// Initialize the network manager
+		err := nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Call the ConfigureGuest method and expect an error due to unexpected iptables rule check failure
+		err = nm.ConfigureGuest()
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error checking iptables rule") {
+			t.Fatalf("expected error to contain 'error checking iptables rule', got %q", err.Error())
 		}
 	})
 }
