@@ -8,8 +8,8 @@ import (
 	"os"
 )
 
-// ConfigureHost sets up the local development network
-func (n *BaseNetworkManager) ConfigureHost() error {
+// ConfigureHostRoute sets up the local development network
+func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	// Access the Docker configuration
 	networkCIDR := n.configHandler.GetString("docker.network_cidr")
 	if networkCIDR == "" {

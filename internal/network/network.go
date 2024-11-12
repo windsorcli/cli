@@ -16,8 +16,8 @@ import (
 type NetworkManager interface {
 	// Initialize the network manager
 	Initialize() error
-	// ConfigureHost sets up the local development network
-	ConfigureHost() error
+	// ConfigureHostRoute sets up the local development network
+	ConfigureHostRoute() error
 	// ConfigureGuest sets up the guest VM network
 	ConfigureGuest() error
 	// ConfigureDNS sets up the DNS configuration

@@ -91,7 +91,7 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 	}
 }
 
-func TestWindowsNetworkManager_ConfigureHost(t *testing.T) {
+func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mocks using setupWindowsNetworkManagerMocks
 		mocks := setupWindowsNetworkManagerMocks()
@@ -107,7 +107,7 @@ func TestWindowsNetworkManager_ConfigureHost(t *testing.T) {
 		}
 
 		// Call the method under test
-		err = nm.ConfigureHost()
+		err = nm.ConfigureHostRoute()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -136,7 +136,7 @@ func TestWindowsNetworkManager_ConfigureHost(t *testing.T) {
 			return ""
 		}
 
-		err = nm.ConfigureHost()
+		err = nm.ConfigureHostRoute()
 		if err == nil || err.Error() != "network CIDR is not configured" {
 			t.Errorf("expected error 'network CIDR is not configured', got %v", err)
 		}
@@ -168,7 +168,7 @@ func TestWindowsNetworkManager_ConfigureHost(t *testing.T) {
 			return ""
 		}
 
-		err = nm.ConfigureHost()
+		err = nm.ConfigureHostRoute()
 		if err == nil || err.Error() != "guest IP is not configured" {
 			t.Errorf("expected error 'guest IP is not configured', got %v", err)
 		}
@@ -203,7 +203,7 @@ func TestWindowsNetworkManager_ConfigureHost(t *testing.T) {
 			return "", fmt.Errorf("mocked shell execution error")
 		}
 
-		err = nm.ConfigureHost()
+		err = nm.ConfigureHostRoute()
 
 		if err == nil || err.Error() != "failed to add route: mocked shell execution error, output: " {
 			t.Errorf("expected error 'failed to add route: mocked shell execution error, output: ', got %v", err)

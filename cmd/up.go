@@ -76,7 +76,7 @@ var upCmd = &cobra.Command{
 			if err := colimaNetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("Error configuring guest network: %w", err)
 			}
-			if err := colimaNetworkManager.ConfigureHost(); err != nil {
+			if err := colimaNetworkManager.ConfigureHostRoute(); err != nil {
 				return fmt.Errorf("Error configuring host network: %w", err)
 			}
 		}

@@ -11,6 +11,12 @@ var stat = os.Stat
 // writeFile is a wrapper around os.WriteFile
 var writeFile = os.WriteFile
 
+// readLink is a wrapper around os.Readlink
+var readLink = os.Readlink
+
+// mkdirAll is a wrapper around os.MkdirAll
+var mkdirAll = os.MkdirAll
+
 // NetworkInterfaceProvider abstracts the system's network interface operations
 type NetworkInterfaceProvider interface {
 	Interfaces() ([]net.Interface, error)

@@ -27,14 +27,14 @@ func TestMockNetworkManager_Initialize(t *testing.T) {
 	})
 }
 
-func TestMockNetworkManager_ConfigureHost(t *testing.T) {
+func TestMockNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mockManager := NewMockNetworkManager()
-		mockManager.ConfigureHostFunc = func() error {
+		mockManager.ConfigureHostRouteFunc = func() error {
 			return nil
 		}
 
-		err := mockManager.ConfigureHost()
+		err := mockManager.ConfigureHostRoute()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -43,7 +43,7 @@ func TestMockNetworkManager_ConfigureHost(t *testing.T) {
 	t.Run("NoFuncSet", func(t *testing.T) {
 		mockManager := NewMockNetworkManager()
 
-		err := mockManager.ConfigureHost()
+		err := mockManager.ConfigureHostRoute()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
