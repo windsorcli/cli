@@ -6,7 +6,8 @@
       "matchManagers": ["github-actions"],
       "matchPackagePatterns": [".*"],
       "versioning": "github-tags",
-      "pinDigests": true
+      "pinDigests": true,
+      "automerge": true
     },
     {
       "description": "Update Go modules",

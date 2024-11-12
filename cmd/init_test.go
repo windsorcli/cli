@@ -644,7 +644,7 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorWritingColimaConfig", func(t *testing.T) {
-		// Given: a config handler that returns a valid config with Colima driver
+		// Given: a config handler that returns "colima" as the VM driver
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
