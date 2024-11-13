@@ -76,7 +76,7 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 		for i := 0; i < retries; i++ {
 			command := "docker-compose"
 			args := []string{"up", "-d"}
-			output, err := v.shell.Exec(verboseFlag, "Executing docker-compose up command", command, args...)
+			output, err := v.shell.Exec(verboseFlag, fmt.Sprintf("Running %s %s", command, strings.Join(args, " ")), command, args...)
 			if err == nil {
 				lastErr = nil
 				break
@@ -147,7 +147,7 @@ func (v *DockerVirt) WriteConfig() error {
 }
 
 // GetContainerInfo returns a list of information about the Docker containers, including their labels
-func (v *DockerVirt) GetContainerInfo() ([]ContainerInfo, error) {
+func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 	// Get the context name
 	contextName, err := v.contextHandler.GetContext()
 	if err != nil {
@@ -156,7 +156,7 @@ func (v *DockerVirt) GetContainerInfo() ([]ContainerInfo, error) {
 
 	command := "docker"
 	args := []string{"ps", "--filter", "label=managed_by=windsor", "--filter", fmt.Sprintf("label=context=%s", contextName), "--format", "{{.ID}}"}
-	out, err := v.shell.Exec(false, "Fetching container IDs", command, args...)
+	out, err := v.shell.Exec(false, "", command, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (v *DockerVirt) GetContainerInfo() ([]ContainerInfo, error) {
 			continue
 		}
 		inspectArgs := []string{"inspect", containerID, "--format", "{{json .Config.Labels}}"}
-		inspectOut, err := v.shell.Exec(false, "Inspecting container", command, inspectArgs...)
+		inspectOut, err := v.shell.Exec(false, "", command, inspectArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -184,8 +184,13 @@ func (v *DockerVirt) GetContainerInfo() ([]ContainerInfo, error) {
 			continue
 		}
 
+		// If a name is provided, check if it matches the current serviceName
+		if len(name) > 0 && serviceName != name[0] {
+			continue
+		}
+
 		networkInspectArgs := []string{"inspect", containerID, "--format", "{{json .NetworkSettings.Networks}}"}
-		networkInspectOut, err := v.shell.Exec(false, "Inspecting container network settings", command, networkInspectArgs...)
+		networkInspectOut, err := v.shell.Exec(false, "", command, networkInspectArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -198,16 +203,23 @@ func (v *DockerVirt) GetContainerInfo() ([]ContainerInfo, error) {
 		}
 
 		var ipAddress string
-		for _, network := range networks {
+		networkKey := fmt.Sprintf("windsor-%s", contextName)
+		if network, exists := networks[networkKey]; exists {
 			ipAddress = network.IPAddress
-			break
 		}
 
-		containerInfos = append(containerInfos, ContainerInfo{
+		containerInfo := ContainerInfo{
 			Name:    serviceName,
 			Address: ipAddress,
 			Labels:  labels,
-		})
+		}
+
+		// If a name is provided and matches, return immediately with this containerInfo
+		if len(name) > 0 && serviceName == name[0] {
+			return []ContainerInfo{containerInfo}, nil
+		}
+
+		containerInfos = append(containerInfos, containerInfo)
 	}
 
 	// Sort containerInfos alphabetically by container name
@@ -246,7 +258,7 @@ var _ ContainerRuntime = (*DockerVirt)(nil)
 func (v *DockerVirt) checkDockerDaemon() error {
 	command := "docker"
 	args := []string{"info"}
-	_, err := v.shell.Exec(false, "Checking Docker daemon", command, args...)
+	_, err := v.shell.Exec(false, "", command, args...)
 	return err
 }
 

@@ -23,3 +23,8 @@ var osReadFile = os.ReadFile
 var cmdStart = func(cmd *exec.Cmd) error {
 	return cmd.Start()
 }
+
+// cmdWait is a variable that points to cmd.Wait, allowing it to be overridden in tests
+var cmdWait = func(cmd *exec.Cmd) error {
+	return cmd.Wait()
+}

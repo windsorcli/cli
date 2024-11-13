@@ -901,7 +901,7 @@ func TestColimaVirt_startColima(t *testing.T) {
 		}
 
 		// When calling startColima
-		err := colimaVirt.startColima(false)
+		_, err := colimaVirt.startColima(false)
 
 		// Then no error should be returned
 		if err != nil {
@@ -921,7 +921,7 @@ func TestColimaVirt_startColima(t *testing.T) {
 		}
 
 		// When calling startColima
-		err := colimaVirt.startColima(false)
+		_, err := colimaVirt.startColima(false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -939,7 +939,7 @@ func TestColimaVirt_startColima(t *testing.T) {
 		mocks.MockContext.GetContextFunc = func() (string, error) { return "", fmt.Errorf("mock context error") }
 
 		// When calling startColima
-		err := colimaVirt.startColima(false)
+		_, err := colimaVirt.startColima(false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -970,11 +970,37 @@ func TestColimaVirt_startColima(t *testing.T) {
 		}
 
 		// When calling startColima
-		err := colimaVirt.startColima(false)
+		_, err := colimaVirt.startColima(false)
 
 		// Then an error should be returned due to failure in Info() on the second call
 		if err == nil || !strings.Contains(err.Error(), "Error retrieving Colima info") {
 			t.Fatalf("Expected error containing 'Error retrieving Colima info', got %v", err)
+		}
+	})
+
+	t.Run("FailedToRetrieveVMInfo", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeColimaVmMocks()
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
+
+		// Mock the necessary methods
+		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "start" {
+				return "", nil // Simulate successful execution
+			}
+			if command == "colima" && len(args) > 0 && args[0] == "ls" {
+				return `{"address": ""}`, nil // Simulate no IP address
+			}
+			return "", fmt.Errorf("unexpected command")
+		}
+
+		// When calling startColima
+		_, err := colimaVirt.startColima(false)
+
+		// Then an error should be returned due to failure to retrieve VM info with a valid address
+		if err == nil || !strings.Contains(err.Error(), "Failed to retrieve VM info with a valid address") {
+			t.Fatalf("Expected error containing 'Failed to retrieve VM info with a valid address', got %v", err)
 		}
 	})
 }

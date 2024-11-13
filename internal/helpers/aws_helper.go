@@ -14,6 +14,7 @@ import (
 
 // AwsHelper is a helper struct that provides AWS-specific utility functions
 type AwsHelper struct {
+	BaseHelper
 	ConfigHandler config.ConfigHandler
 	Context       context.ContextInterface
 }

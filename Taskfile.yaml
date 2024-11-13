@@ -39,8 +39,14 @@ tasks:
   test:
     desc: Run tests
     cmds:
-      - go test -coverprofile=coverage.out ./...
+      - |
+        if [ -n "{{.CLI_ARGS}}" ]; then
+          go test -coverprofile=coverage.out -run {{.CLI_ARGS}} ./...
+        else
+          go test -coverprofile=coverage.out ./...
+        fi
       - go tool cover -html=coverage.out -o coverage.html
+    silent: true
 
   scan:
     desc: Scan for security vulnerabilities

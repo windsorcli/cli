@@ -80,8 +80,8 @@ func TestContext_Set(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a valid config handler
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
-		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return nil }
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+		mocks.ConfigHandler.SaveConfigFunc = func(path string) error { return nil }
 		mocks.ContextInstance.SetContextFunc = func(contextName string) error { return nil }
 		Initialize(mocks.Injector)
 		// When the set context command is executed with a valid context
@@ -124,8 +124,8 @@ func TestContext_Set(t *testing.T) {
 	// t.Run("SaveConfigError", func(t *testing.T) {
 	// 	// Given a config handler that returns an error on SaveConfig
 	// 	mocks := mocks.CreateSuperMocks()
-	// 	mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
-	// 	mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
+	// 	mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+	// 	mocks.ConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
 	// 	mocks.ContextInstance.SetContextFunc = func(contextName string) error { return nil }
 	// 	Initialize(mocks.Container)
 
@@ -191,8 +191,8 @@ func TestContext_SetAlias(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a valid config handler and context
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
-		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return nil }
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+		mocks.ConfigHandler.SaveConfigFunc = func(path string) error { return nil }
 		mocks.ContextInstance.SetContextFunc = func(contextName string) error { return nil }
 		Initialize(mocks.Injector)
 

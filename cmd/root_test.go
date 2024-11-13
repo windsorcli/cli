@@ -26,13 +26,13 @@ func ptrInt(i int) *int {
 
 // Struct to hold optional mock handlers and helpers
 type MockDependencies struct {
-	CLIConfigHandler config.ConfigHandler
-	Shell            shell.Shell
-	TerraformHelper  helpers.Helper
-	AwsHelper        helpers.Helper
-	ColimaHelper     helpers.Helper
-	DockerHelper     helpers.Helper
-	ContextInstance  context.ContextInterface
+	ConfigHandler   config.ConfigHandler
+	Shell           shell.Shell
+	TerraformHelper helpers.Helper
+	AwsHelper       helpers.Helper
+	ColimaHelper    helpers.Helper
+	DockerHelper    helpers.Helper
+	ContextInstance context.ContextInterface
 }
 
 // Helper function to capture stdout output
@@ -85,8 +85,8 @@ func TestRootCommand(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mocks := mocks.CreateSuperMocks()
-			mocks.CLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			mocks.ConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 				return "value"
 			}
 			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
@@ -101,7 +101,7 @@ func TestRootCommand(t *testing.T) {
 			}
 		})
 
-		t.Run("NoCLIConfigHandler", func(t *testing.T) {
+		t.Run("NoConfigHandler", func(t *testing.T) {
 			// Given no CLI config handler is registered
 			configHandler = nil
 
@@ -121,8 +121,8 @@ func TestRootCommand(t *testing.T) {
 		t.Run("CLIConfigLoadError", func(t *testing.T) {
 			// Given CLI config handler returns an error on LoadConfig
 			mocks := mocks.CreateSuperMocks()
-			mocks.CLIConfigHandler.LoadConfigFunc = func(path string) error { return errors.New("mock load error") }
-			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			mocks.ConfigHandler.LoadConfigFunc = func(path string) error { return errors.New("mock load error") }
+			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 				return "value"
 			}
 			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
@@ -146,8 +146,8 @@ func TestRootCommand(t *testing.T) {
 		t.Run("ValidConfigHandlers", func(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mocks := mocks.CreateSuperMocks()
-			mocks.CLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			mocks.ConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 				return "value"
 			}
 			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
@@ -225,8 +225,8 @@ func TestRootCommand(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mocks := mocks.CreateSuperMocks()
-			mocks.CLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			mocks.ConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 				return "value"
 			}
 			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
@@ -342,7 +342,7 @@ func TestRootCommand(t *testing.T) {
 		t.Run("GetwdError", func(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mocks := mocks.CreateSuperMocks()
-			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 				return "value"
 			}
 			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "", errors.New("mock error") }
@@ -368,8 +368,8 @@ func TestRootCommand(t *testing.T) {
 		t.Run("WindsorYaml", func(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mocks := mocks.CreateSuperMocks()
-			mocks.CLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			mocks.ConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 				return "value"
 			}
 
@@ -397,8 +397,8 @@ func TestRootCommand(t *testing.T) {
 		t.Run("WindsorYml", func(t *testing.T) {
 			// Given valid config handlers and shell instance
 			mocks := mocks.CreateSuperMocks()
-			mocks.CLIConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			mocks.ConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 				return "value"
 			}
 

@@ -2,13 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"net"
-	"os"
-	"strings"
 
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/virt"
 )
 
 var upCmd = &cobra.Command{
@@ -16,263 +11,86 @@ var upCmd = &cobra.Command{
 	Short: "Set up the Windsor environment",
 	Long:  "Set up the Windsor environment by executing necessary shell commands.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var dockerVirt virt.DockerVirt
-
-		// Get the context name
-		contextName, err := contextHandler.GetContext()
-		if err != nil {
-			return fmt.Errorf("Error getting context: %w", err)
-		}
-
-		// Get the VM driver
+		// Determine if Colima is being used
 		driver := configHandler.GetString("vm.driver")
 
-		// Get the Docker enabled status
+		// Determine if Docker is being used
 		dockerEnabled := configHandler.GetBool("docker.enabled")
-
-		// Get the Docker network CIDR
-		dockerNetworkCIDR := configHandler.GetString("docker.network_cidr")
 
 		// Get the DNS name
 		dnsName := configHandler.GetString("dns.name")
 
-		// Get the DNS IP
-		dnsIP := configHandler.GetString("dns.ip")
+		// Initialize the DNS address
+		dnsAddress := ""
 
-		// Simplified check for Colima VM driver
+		// Get the DNS create flag
+		createDns := configHandler.GetBool("dns.create")
+
+		// Start Colima if it is being used
 		if driver == "colima" {
-			// Create a new ColimaVirt instance
-			colimaVirt := virt.NewColimaVirt(injector)
+			// Write the Colima configuration
+			if err := colimaVirt.WriteConfig(); err != nil {
+				return fmt.Errorf("Error writing Colima config: %w", err)
+			}
 
-			// Use the Colima VM instance
+			// Start the Colima VM
 			if err := colimaVirt.Up(verbose); err != nil {
 				return fmt.Errorf("Error running Colima VM Up command: %w", err)
 			}
 		}
 
-		// Check if Docker is enabled
+		// Start Docker if it is being used
 		if dockerEnabled {
-			// Create a new DockerVirt instance
-			dockerVirt = *virt.NewDockerVirt(injector)
+			// Write the Docker configuration
+			if err := dockerVirt.WriteConfig(); err != nil {
+				return fmt.Errorf("Error writing Docker config: %w", err)
+			}
 
-			// Use the Docker VM instance
+			// Write the DNS configuration
+			if createDns {
+				if err := dnsHelper.WriteConfig(); err != nil {
+					return fmt.Errorf("Error writing DNS config: %w", err)
+				}
+			}
+
+			// Start the Docker VM
 			if err := dockerVirt.Up(verbose); err != nil {
 				return fmt.Errorf("Error running DockerVirt Up command: %w", err)
 			}
-		}
 
-		// Configure route tables on the VM only if Docker network CIDR is defined
-		if dockerEnabled && driver == "colima" && dockerNetworkCIDR != "" {
-			// Execute VM-specific SSH config command
-			sshConfigOutput, err := shellInstance.Exec(
-				verbose,
-				"",
-				"colima",
-				"ssh-config",
-				"--profile",
-				fmt.Sprintf("windsor-%s", contextName),
-			)
-			if err != nil {
-				return fmt.Errorf("Error executing VM SSH config command: %w", err)
-			}
-
-			// Pass the contents to the sshClient
-			if err := sshClient.SetClientConfigFile(sshConfigOutput, fmt.Sprintf("colima-windsor-%s", contextName)); err != nil {
-				return fmt.Errorf("Error setting SSH client config: %w", err)
-			}
-
-			// Execute a command to get a list of network interfaces
-			output, err := secureShellInstance.Exec(
-				verbose,
-				"",
-				"ls",
-				"/sys/class/net",
-			)
-			if err != nil {
-				return fmt.Errorf("Error executing command to list network interfaces: %w", err)
-			}
-
-			// Find the name of the interface that starts with "br-"
-			var dockerBridgeInterface string
-			interfaces := strings.Split(output, "\n")
-			for _, iface := range interfaces {
-				if strings.HasPrefix(iface, "br-") {
-					dockerBridgeInterface = iface
-					break
-				}
-			}
-			if dockerBridgeInterface == "" {
-				return fmt.Errorf("Error: No interface starting with 'br-' found")
-			}
-
-			// Get VM host IP from virtInfo
-			colimaVirtInstance, ok := colimaVirt.(*virt.ColimaVirt)
-			if !ok {
-				return fmt.Errorf("Error casting to ColimaVirt")
-			}
-			info, err := colimaVirtInstance.GetVMInfo()
-			if err != nil {
-				return fmt.Errorf("Error retrieving Colima info: %w", err)
-			}
-			virtHostIP := info.Address
-
-			// Determine the network interface associated with the VM host IP
-			var virtInterfaceIP string
-			virtIP := net.ParseIP(virtHostIP)
-			if virtIP == nil {
-				return fmt.Errorf("Error parsing VM host IP: %s", virtHostIP)
-			}
-			netInterfaces, err := netInterfaces()
-			if err != nil {
-				return fmt.Errorf("Error getting network interfaces: %w", err)
-			}
-			for _, iface := range netInterfaces {
-				addrs, err := iface.Addrs()
-				if err != nil {
-					return fmt.Errorf("Error getting addresses for interface %s: %w", iface.Name, err)
-				}
-				for _, addr := range addrs {
-					ipNet, ok := addr.(*net.IPNet)
-					if !ok {
-						continue
-					}
-					if ipNet.Contains(virtIP) {
-						virtInterfaceIP = ipNet.IP.String()
-						break
-					}
-				}
-				if virtInterfaceIP != "" {
-					break
-				}
-			}
-
-			// Check if the iptables rule already exists
-			_, err = secureShellInstance.Exec(
-				verbose,
-				"Checking for existing iptables rule...",
-				"sudo", "iptables", "-t", "filter", "-C", "FORWARD",
-				"-i", "col0", "-o", dockerBridgeInterface,
-				"-s", virtInterfaceIP, "-d", dockerNetworkCIDR, "-j", "ACCEPT",
-			)
-			if err != nil {
-				// Check if the error is due to the rule not existing
-				if strings.Contains(err.Error(), "Bad rule") {
-					// Rule does not exist, proceed to add it
-					if _, err := secureShellInstance.Exec(
-						verbose,
-						"Setting IP tables on VM...",
-						"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
-						"-i", "col0", "-o", dockerBridgeInterface,
-						"-s", virtInterfaceIP, "-d", dockerNetworkCIDR, "-j", "ACCEPT",
-					); err != nil {
-						return fmt.Errorf("Error setting iptables rule: %w", err)
-					}
-				} else {
-					// An unexpected error occurred
-					return fmt.Errorf("Error checking iptables rule: %w", err)
-				}
-			}
-
-			// Add route on the host to VM guest
-			output, err = shellInstance.Exec(
-				false,
-				"",
-				"sudo",
-				"route",
-				"-nv",
-				"add",
-				"-net",
-				dockerNetworkCIDR,
-				virtHostIP,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to add route: %w, output: %s", err, output)
-			}
-
-			// Update DNS settings for the private TLD (MacOS)
+			// Get the DNS address
 			if dnsName != "" {
-				tld := dnsName
-
-				// Get the IP address of the container called "dns.test"
-				containerInfo, err := dockerVirt.GetContainerInfo()
+				dnsService, err := dockerVirt.GetContainerInfo("dns.test")
 				if err != nil {
-					return fmt.Errorf("error retrieving container info: %w", err)
+					return fmt.Errorf("Error getting DNS service: %w", err)
 				}
-
-				if dnsIP == "" {
-					for _, info := range containerInfo {
-						if info.Name == "dns.test" {
-							dnsIP = info.Address
-							break
-						}
-					}
-					if dnsIP == "" {
-						return fmt.Errorf("Error: No IP address found for dns.test")
-					}
+				if len(dnsService) == 0 {
+					return fmt.Errorf("DNS service not found")
 				}
-
-				// Ensure the /etc/resolver directory exists
-				resolverDir := "/etc/resolver"
-				if _, err := os.Stat(resolverDir); os.IsNotExist(err) {
-					if _, err := shellInstance.Exec(
-						false,
-						"",
-						"sudo",
-						"mkdir",
-						"-p",
-						resolverDir,
-					); err != nil {
-						return fmt.Errorf("Error creating resolver directory: %w", err)
-					}
-				}
-
-				// Write the DNS server to a temporary file
-				tempResolverFile := fmt.Sprintf("/tmp/%s", tld)
-				content := fmt.Sprintf("nameserver %s\n", dnsIP)
-				// #nosec G306 - /etc/resolver files require 0644 permissions
-				if err := os.WriteFile(tempResolverFile, []byte(content), 0644); err != nil {
-					return fmt.Errorf("Error writing to temporary resolver file: %w", err)
-				}
-
-				// Move the temporary file to the /etc/resolver/<tld> file
-				resolverFile := fmt.Sprintf("%s/%s", resolverDir, tld)
-				if _, err := shellInstance.Exec(
-					false,
-					"",
-					"sudo",
-					"mv",
-					tempResolverFile,
-					resolverFile,
-				); err != nil {
-					return fmt.Errorf("Error moving resolver file: %w", err)
-				}
-
-				// Flush the DNS cache
-				if _, err := shellInstance.Exec(false, "", "sudo", "dscacheutil", "-flushcache"); err != nil {
-					return fmt.Errorf("Error flushing DNS cache: %w", err)
-				}
-				if _, err := shellInstance.Exec(false, "", "sudo", "killall", "-HUP", "mDNSResponder"); err != nil {
-					return fmt.Errorf("Error restarting mDNSResponder: %w", err)
-				}
+				dnsAddress = dnsService[0].Address
 			}
 		}
 
-		// Print welcome status page
-		fmt.Println(color.CyanString("Welcome to the Windsor Environment 📐"))
-		fmt.Println(color.CyanString("-------------------------------------"))
-
-		// Print Colima info if available
+		// Configure the network for Colima
 		if driver == "colima" {
-			colimaVirt := virt.NewColimaVirt(injector)
-			if err := colimaVirt.PrintInfo(); err != nil {
-				return fmt.Errorf("Error printing Colima info: %w", err)
+			if err := colimaNetworkManager.ConfigureGuest(); err != nil {
+				return fmt.Errorf("Error configuring guest network: %w", err)
+			}
+			if err := colimaNetworkManager.ConfigureHostRoute(); err != nil {
+				return fmt.Errorf("Error configuring host network: %w", err)
 			}
 		}
 
-		// Print Docker info if available
-		if dockerEnabled {
-			if err := dockerVirt.PrintInfo(); err != nil {
-				return fmt.Errorf("Error printing Docker info: %w", err)
+		// Configure DNS if dns.name is set
+		if dnsName != "" && dnsAddress != "" {
+
+			// Begin hack to get the DNS address into the config
+			configData := configHandler.GetConfig()
+			configData.DNS.Address = &dnsAddress
+			// End hack
+
+			if err := colimaNetworkManager.ConfigureDNS(); err != nil {
+				return fmt.Errorf("Error configuring DNS: %w", err)
 			}
 		}
 

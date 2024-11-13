@@ -1,15 +1,11 @@
 package shell
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/briandowns/spinner"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/ssh"
@@ -34,7 +30,6 @@ type Shell interface {
 // DefaultShell is the default implementation of the Shell interface
 type DefaultShell struct {
 	projectRoot   string
-	mu            sync.Mutex
 	injector      di.Injector
 	sshClient     ssh.Client
 	configHandler config.ConfigHandler
@@ -66,9 +61,6 @@ func (s *DefaultShell) Initialize() error {
 
 // GetProjectRoot retrieves the project root directory
 func (s *DefaultShell) GetProjectRoot() (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	// Return cached project root if available
 	if s.projectRoot != "" {
 		return s.projectRoot, nil
@@ -123,39 +115,38 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 func (s *DefaultShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
 	cmd := execCommand(command, args...)
 
-	// Buffers to capture output
-	var stdoutBuf, stderrBuf bytes.Buffer
+	var outputBuffer, errorBuffer strings.Builder
+	cmd.Stdout = &outputBuffer
+	cmd.Stderr = &errorBuffer
 
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
-
-	if err := cmdStart(cmd); err != nil {
-		return "", fmt.Errorf("failed to start command: %w", err)
-	}
-
-	var spinnerInstance *spinner.Spinner
+	// Always print the message if it is not empty
 	if message != "" {
-		// Initialize spinner only if a message is provided
-		spinnerInstance = spinner.New(spinner.CharSets[14], 100*time.Millisecond)
-		spinnerInstance.Suffix = " " + message
-		spinnerInstance.Start()
+		fmt.Println(message)
 	}
 
-	err := cmd.Wait()
-	if spinnerInstance != nil {
-		spinnerInstance.Stop()
+	// Start the command and handle errors
+	errChan := make(chan error, 1)
+	go func() {
+		if err := cmdStart(cmd); err != nil {
+			errChan <- fmt.Errorf("failed to start command: %w", err)
+			return
+		}
+
+		if err := cmdWait(cmd); err != nil {
+			errChan <- fmt.Errorf("command execution failed: %w\n%s", err, errorBuffer.String())
+			return
+		}
+
+		errChan <- nil
+	}()
+
+	// Wait for the command to finish or an error to occur
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return "", err
+		}
 	}
 
-	if err != nil {
-		// Print stderr on error
-		fmt.Print(stderrBuf.String())
-		return "", fmt.Errorf("command execution failed: %w", err)
-	}
-
-	if verbose {
-		// Print stdout if verbose
-		fmt.Print(stdoutBuf.String())
-	}
-
-	return stdoutBuf.String(), nil
+	return outputBuffer.String(), nil
 }

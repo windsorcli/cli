@@ -30,6 +30,11 @@ func NewYamlConfigHandler(path string) (*YamlConfigHandler, error) {
 	return handler, nil
 }
 
+// Initialize initializes the configuration handler
+func (y *YamlConfigHandler) Initialize() error {
+	return nil
+}
+
 // LoadConfig loads the configuration from the specified path
 func (y *YamlConfigHandler) LoadConfig(path string) error {
 	if _, err := osStat(path); os.IsNotExist(err) {

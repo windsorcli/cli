@@ -6,6 +6,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/env"
 	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/network"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
 	"github.com/windsor-hotel/cli/internal/virt"
@@ -13,30 +14,31 @@ import (
 
 // SuperMocks holds all the mock instances needed for testing commands.
 type SuperMocks struct {
-	CLIConfigHandler *config.MockConfigHandler
-	ContextInstance  *context.MockContext
-	Shell            *shell.MockShell
-	AwsHelper        *helpers.MockHelper
-	ColimaHelper     *helpers.MockHelper
-	DockerHelper     *helpers.MockHelper
-	DnsHelper        *helpers.MockHelper
-	GitHelper        *helpers.MockHelper
-	KubeHelper       *helpers.MockHelper
-	OmniHelper       *helpers.MockHelper
-	TalosHelper      *helpers.MockHelper
-	AwsEnv           *env.MockEnvPrinter
-	DockerEnv        *env.MockEnvPrinter
-	KubeEnv          *env.MockEnvPrinter
-	OmniEnv          *env.MockEnvPrinter
-	SopsEnv          *env.MockEnvPrinter
-	TalosEnv         *env.MockEnvPrinter
-	TerraformEnv     *env.MockEnvPrinter
-	WindsorEnv       *env.MockEnvPrinter
-	SSHClient        *ssh.MockClient
-	SecureShell      *shell.MockShell
-	Injector         *di.MockInjector
-	ColimaVirt       *virt.MockVirt
-	DockerVirt       *virt.MockVirt
+	ConfigHandler        *config.MockConfigHandler
+	ContextInstance      *context.MockContext
+	Shell                *shell.MockShell
+	AwsHelper            *helpers.MockHelper
+	ColimaHelper         *helpers.MockHelper
+	DockerHelper         *helpers.MockHelper
+	DnsHelper            *helpers.MockHelper
+	GitHelper            *helpers.MockHelper
+	KubeHelper           *helpers.MockHelper
+	OmniHelper           *helpers.MockHelper
+	TalosHelper          *helpers.MockHelper
+	AwsEnv               *env.MockEnvPrinter
+	DockerEnv            *env.MockEnvPrinter
+	KubeEnv              *env.MockEnvPrinter
+	OmniEnv              *env.MockEnvPrinter
+	SopsEnv              *env.MockEnvPrinter
+	TalosEnv             *env.MockEnvPrinter
+	TerraformEnv         *env.MockEnvPrinter
+	WindsorEnv           *env.MockEnvPrinter
+	SSHClient            *ssh.MockClient
+	SecureShell          *shell.MockShell
+	Injector             *di.MockInjector
+	ColimaVirt           *virt.MockVirt
+	DockerVirt           *virt.MockVirt
+	ColimaNetworkManager *network.MockNetworkManager
 }
 
 // CreateSuperMocks initializes all necessary mocks and returns them in a SuperMocks struct.
@@ -50,9 +52,11 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	}
 
 	// Create mock instances
-	mockCLIConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler := config.NewMockConfigHandler()
 	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell()
+
+	// Create mock helper instances
 	mockAwsHelper := helpers.NewMockHelper()
 	mockColimaHelper := helpers.NewMockHelper()
 	mockDockerHelper := helpers.NewMockHelper()
@@ -63,6 +67,8 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	mockTalosHelper := helpers.NewMockHelper()
 	mockSecureShell := shell.NewMockShell()
 	mockSSHClient := &ssh.MockClient{}
+
+	// Create mock virt instances
 	mockColimaVirt := virt.NewMockVirt()
 	mockDockerVirt := virt.NewMockVirt()
 
@@ -76,8 +82,11 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	mockTerraformEnv := env.NewMockEnvPrinter()
 	mockWindsorEnv := env.NewMockEnvPrinter()
 
+	// Create mock network manager instance
+	mockColimaNetworkManager := network.NewMockNetworkManager()
+
 	// Create and setup dependency injection
-	injector.Register("configHandler", mockCLIConfigHandler)
+	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("awsHelper", mockAwsHelper)
@@ -99,31 +108,33 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	injector.Register("talosEnv", mockTalosEnv)
 	injector.Register("terraformEnv", mockTerraformEnv)
 	injector.Register("windsorEnv", mockWindsorEnv)
+	injector.Register("colimaNetworkManager", mockColimaNetworkManager)
 
 	return SuperMocks{
-		CLIConfigHandler: mockCLIConfigHandler,
-		ContextInstance:  mockContext,
-		Shell:            mockShell,
-		AwsHelper:        mockAwsHelper,
-		ColimaHelper:     mockColimaHelper,
-		DockerHelper:     mockDockerHelper,
-		DnsHelper:        mockDnsHelper,
-		GitHelper:        mockGitHelper,
-		KubeHelper:       mockKubeHelper,
-		OmniHelper:       mockOmniHelper,
-		TalosHelper:      mockTalosHelper,
-		AwsEnv:           mockAwsEnv,
-		DockerEnv:        mockDockerEnv,
-		KubeEnv:          mockKubeEnv,
-		OmniEnv:          mockOmniEnv,
-		SopsEnv:          mockSopsEnv,
-		TalosEnv:         mockTalosEnv,
-		TerraformEnv:     mockTerraformEnv,
-		WindsorEnv:       mockWindsorEnv,
-		SSHClient:        mockSSHClient,
-		SecureShell:      mockSecureShell,
-		Injector:         injector,
-		ColimaVirt:       mockColimaVirt,
-		DockerVirt:       mockDockerVirt,
+		ConfigHandler:        mockConfigHandler,
+		ContextInstance:      mockContext,
+		Shell:                mockShell,
+		AwsHelper:            mockAwsHelper,
+		ColimaHelper:         mockColimaHelper,
+		DockerHelper:         mockDockerHelper,
+		DnsHelper:            mockDnsHelper,
+		GitHelper:            mockGitHelper,
+		KubeHelper:           mockKubeHelper,
+		OmniHelper:           mockOmniHelper,
+		TalosHelper:          mockTalosHelper,
+		AwsEnv:               mockAwsEnv,
+		DockerEnv:            mockDockerEnv,
+		KubeEnv:              mockKubeEnv,
+		OmniEnv:              mockOmniEnv,
+		SopsEnv:              mockSopsEnv,
+		TalosEnv:             mockTalosEnv,
+		TerraformEnv:         mockTerraformEnv,
+		WindsorEnv:           mockWindsorEnv,
+		SSHClient:            mockSSHClient,
+		SecureShell:          mockSecureShell,
+		Injector:             injector,
+		ColimaVirt:           mockColimaVirt,
+		DockerVirt:           mockDockerVirt,
+		ColimaNetworkManager: mockColimaNetworkManager,
 	}
 }

@@ -44,12 +44,14 @@ type BaseVirt struct {
 
 // VirtualMachine defines methods for VirtualMachine operations
 type VirtualMachine interface {
+	Virt
 	GetVMInfo() (VMInfo, error)
 }
 
 // ContainerRuntime defines methods for container operations
 type ContainerRuntime interface {
-	GetContainerInfo() ([]ContainerInfo, error)
+	Virt
+	GetContainerInfo(name ...string) ([]ContainerInfo, error)
 }
 
 // NewBaseVirt creates a new BaseVirt instance

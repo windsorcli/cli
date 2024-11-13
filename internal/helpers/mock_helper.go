@@ -4,6 +4,7 @@ import "github.com/compose-spec/compose-go/types"
 
 // MockHelper is a mock implementation of the Helper interface
 type MockHelper struct {
+	BaseHelper
 	// GetContainerConfigFunc is a function that mocks the GetContainerConfig method
 	GetComposeConfigFunc func() (*types.Config, error)
 }

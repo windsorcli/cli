@@ -268,7 +268,7 @@ func TestMockVirt_GetContainerInfo(t *testing.T) {
 	t.Run("GetContainerInfoFuncImplemented", func(t *testing.T) {
 		// Given a MockVirt with a custom GetContainerInfoFunc
 		mockVirt := NewMockVirt()
-		mockVirt.GetContainerInfoFunc = func() ([]ContainerInfo, error) {
+		mockVirt.GetContainerInfoFunc = func(name ...string) ([]ContainerInfo, error) {
 			return []ContainerInfo{{Name: "container1"}}, nil
 		}
 
@@ -296,9 +296,9 @@ func TestMockVirt_GetContainerInfo(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		// And the info should be nil
-		if info != nil {
-			t.Errorf("Expected info to be nil, got %v", info)
+		// And the info should be an empty list
+		if len(info) != 0 {
+			t.Errorf("Expected info to be an empty list, got %v", info)
 		}
 	})
 }

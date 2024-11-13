@@ -23,6 +23,7 @@ type ServiceInfo struct {
 
 // DockerHelper is a helper struct that provides Docker-specific utility functions
 type DockerHelper struct {
+	BaseHelper
 	ConfigHandler config.ConfigHandler
 	Context       context.ContextInterface
 	Injector      di.Injector

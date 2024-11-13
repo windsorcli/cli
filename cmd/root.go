@@ -11,6 +11,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/env"
 	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/network"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
 	"github.com/windsor-hotel/cli/internal/virt"
@@ -31,6 +32,9 @@ var awsHelper helpers.Helper
 // dockerHelper instance
 var dockerHelper helpers.Helper
 
+// dnsHelper instance
+var dnsHelper helpers.Helper
+
 // context instance
 var contextHandler context.ContextInterface
 
@@ -38,10 +42,10 @@ var contextHandler context.ContextInterface
 var sshClient ssh.Client
 
 // colimaVirt instance
-var colimaVirt virt.Virt
+var colimaVirt virt.VirtualMachine
 
 // dockerVirt instance
-var dockerVirt virt.Virt
+var dockerVirt virt.ContainerRuntime
 
 // awsEnv instance
 var awsEnv env.EnvPrinter
@@ -66,6 +70,9 @@ var terraformEnv env.EnvPrinter
 
 // windsorEnv instance
 var windsorEnv env.EnvPrinter
+
+// colimaNetworkManager instance
+var colimaNetworkManager network.NetworkManager
 
 // getCLIConfigPath returns the path to the CLI configuration file
 func getCLIConfigPath() string {
@@ -207,6 +214,28 @@ func Initialize(inj di.Injector) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type virt.Virt\n", key)
 				exitFunc(1)
 			}
+		case *virt.ContainerRuntime:
+			if resolved, ok := instance.(virt.ContainerRuntime); ok {
+				if err := resolved.Initialize(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error initializing virt.ContainerRuntime: %v\n", err)
+					exitFunc(1)
+				}
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type virt.ContainerRuntime\n", key)
+				exitFunc(1)
+			}
+		case *virt.VirtualMachine:
+			if resolved, ok := instance.(virt.VirtualMachine); ok {
+				if err := resolved.Initialize(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error initializing virt.VirtualMachine: %v\n", err)
+					exitFunc(1)
+				}
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type virt.VirtualMachine\n", key)
+				exitFunc(1)
+			}
 		case *env.EnvPrinter:
 			if resolved, ok := instance.(env.EnvPrinter); ok {
 				if err := resolved.Initialize(); err != nil {
@@ -218,6 +247,17 @@ func Initialize(inj di.Injector) {
 				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type env.EnvInterface\n", key)
 				exitFunc(1)
 			}
+		case *network.NetworkManager:
+			if resolved, ok := instance.(network.NetworkManager); ok {
+				if err := resolved.Initialize(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error initializing network.NetworkManager: %v\n", err)
+					exitFunc(1)
+				}
+				*v = resolved
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: resolved instance for %s is not of type network.NetworkManager\n", key)
+				exitFunc(1)
+			}
 		}
 	}
 
@@ -226,6 +266,7 @@ func Initialize(inj di.Injector) {
 	resolveAndAssign("secureShell", &secureShellInstance)
 	resolveAndAssign("awsHelper", &awsHelper)
 	resolveAndAssign("dockerHelper", &dockerHelper)
+	resolveAndAssign("dnsHelper", &dnsHelper)
 	resolveAndAssign("contextHandler", &contextHandler)
 	resolveAndAssign("sshClient", &sshClient)
 	resolveAndAssign("colimaVirt", &colimaVirt)
@@ -238,4 +279,5 @@ func Initialize(inj di.Injector) {
 	resolveAndAssign("talosEnv", &talosEnv)
 	resolveAndAssign("terraformEnv", &terraformEnv)
 	resolveAndAssign("windsorEnv", &windsorEnv)
+	resolveAndAssign("colimaNetworkManager", &colimaNetworkManager)
 }

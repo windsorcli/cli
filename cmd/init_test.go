@@ -34,7 +34,7 @@ func TestInitCmd(t *testing.T) {
 			return "test-context", nil
 		}
 		// Mock the GetConfig function to ensure it is called with the desired object
-		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(true),
@@ -69,7 +69,7 @@ func TestInitCmd(t *testing.T) {
 		Initialize(mocks.Injector)
 
 		// Mock the GetConfig function to ensure it is called with the desired object
-		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{}
 		}
 
@@ -139,7 +139,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetConfigValueError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SetConfigValue
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error { return errors.New("set config value error") }
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error { return errors.New("set config value error") }
 		Initialize(mocks.Injector)
 
 		// When: the init command is executed
@@ -161,7 +161,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SaveConfigError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SaveConfig
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
+		mocks.ConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save config error") }
 		Initialize(mocks.Injector)
 
 		// When: the init command is executed
@@ -182,7 +182,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("CLIConfigSaveError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SaveConfig
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save cli config error") }
+		mocks.ConfigHandler.SaveConfigFunc = func(path string) error { return errors.New("save cli config error") }
 		Initialize(mocks.Injector)
 
 		// Replace the global contextHandler with the mock
@@ -208,7 +208,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("LocalContextSetsDefault", func(t *testing.T) {
 		// Arrange: Create a mock config handler and set the SetDefaultFunc to check the parameters
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetDefaultFunc = func(context config.Context) error {
+		mocks.ConfigHandler.SetDefaultFunc = func(context config.Context) error {
 			expectedValue := config.DefaultLocalConfig
 			if !reflect.DeepEqual(context, expectedValue) {
 				return fmt.Errorf("Expected value %v, got %v", expectedValue, context)
@@ -236,7 +236,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("AWSConfiguration", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		calledKeys := make(map[string]bool)
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
 			return nil
 		}
@@ -266,7 +266,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("DockerConfiguration", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		calledKeys := make(map[string]bool)
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
 			return nil
 		}
@@ -294,7 +294,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("GitLivereloadConfiguration", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		calledKeys := make(map[string]bool)
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
 			return nil
 		}
@@ -322,7 +322,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("GitLivereloadConfigurationError", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		calledKeys := make(map[string]bool)
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
 			if key == "contexts.test-context.git.livereload.enabled" {
 				return fmt.Errorf("mock set error")
@@ -349,7 +349,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("TerraformConfiguration", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		calledKeys := make(map[string]bool)
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
 			return nil
 		}
@@ -376,7 +376,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("VMConfiguration", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		calledKeys := make(map[string]bool)
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
 			return nil
 		}
@@ -411,7 +411,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorSettingAWSEndpointURL", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.aws.aws_endpoint_url" {
 				return errors.New("error setting AWS endpoint URL")
 			}
@@ -431,7 +431,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorSettingAWSProfile", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.aws.aws_profile" {
 				return errors.New("error setting AWS profile")
 			}
@@ -451,7 +451,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorSettingDockerConfiguration", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.docker.enabled" {
 				return errors.New("error setting Docker enabled")
 			}
@@ -471,7 +471,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorSettingTerraformConfiguration", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.terraform.backend" {
 				return errors.New("error setting Terraform backend")
 			}
@@ -491,7 +491,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorSettingVMConfigurationArch", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.arch" {
 				return errors.New("error setting VM architecture")
 			}
@@ -511,7 +511,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorSettingVMConfigurationDriver", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.driver" {
 				return errors.New("error setting VM driver")
 			}
@@ -530,7 +530,7 @@ func TestInitCmd(t *testing.T) {
 	})
 	t.Run("ErrorSettingVMConfigurationCPU", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.cpu" {
 				return errors.New("error setting VM CPU")
 			}
@@ -550,7 +550,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorSettingVMConfigurationDisk", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.disk" {
 				return errors.New("error setting VM disk")
 			}
@@ -570,7 +570,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorSettingVMConfigurationMemory", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "contexts.test-context.vm.memory" {
 				return errors.New("error setting VM memory")
 			}
@@ -591,7 +591,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetDefaultLocalConfigError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SetDefault for local config
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetDefaultFunc = func(context config.Context) error {
+		mocks.ConfigHandler.SetDefaultFunc = func(context config.Context) error {
 			expectedValue := config.DefaultLocalConfig
 			if !reflect.DeepEqual(context, expectedValue) {
 				return fmt.Errorf("Expected value %v, got %v", expectedValue, context)
@@ -619,7 +619,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("SetDefaultConfigError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SetDefault for default config
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.SetDefaultFunc = func(context config.Context) error {
+		mocks.ConfigHandler.SetDefaultFunc = func(context config.Context) error {
 			if reflect.DeepEqual(context, config.DefaultConfig) {
 				return errors.New("error setting default config")
 			}
@@ -646,7 +646,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorWritingColimaConfig", func(t *testing.T) {
 		// Given: a config handler that returns "colima" as the VM driver
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
 				return "colima"
 			}
@@ -677,7 +677,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorWritingDockerConfig", func(t *testing.T) {
 		// Given: a config handler that returns a valid config with Docker enabled
 		mocks := mocks.CreateSuperMocks()
-		mocks.CLIConfigHandler.GetConfigFunc = func() *config.Context {
+		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
 					Enabled: ptrBool(true),

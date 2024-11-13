@@ -66,9 +66,18 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 				if len(args) > 3 && args[2] == "--format" {
 					switch args[3] {
 					case "{{json .Config.Labels}}":
-						return `{"com.docker.compose.service":"service1","managed_by":"windsor","context":"mock-context"}`, nil
+						// Return both matching and non-matching service names
+						if args[1] == "container1" {
+							return `{"com.docker.compose.service":"service1","managed_by":"windsor","context":"mock-context"}`, nil
+						} else if args[1] == "container2" {
+							return `{"com.docker.compose.service":"service2","managed_by":"windsor","context":"mock-context"}`, nil
+						}
 					case "{{json .NetworkSettings.Networks}}":
-						return `{"bridge":{"IPAddress":"192.168.1.2"},"bridge2":{"IPAddress":"192.168.1.3"}}`, nil
+						if args[1] == "container1" {
+							return `{"windsor-mock-context":{"IPAddress":"192.168.1.2"}}`, nil
+						} else if args[1] == "container2" {
+							return `{"windsor-mock-context":{"IPAddress":"192.168.1.3"}}`, nil
+						}
 					}
 				}
 			}
@@ -368,68 +377,72 @@ func TestDockerVirt_Down(t *testing.T) {
 }
 
 func TestDockerVirt_GetContainerInfo(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
+	t.Run("SuccessNoArguments", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()
 
-		// Mock the necessary methods
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-
-		// Mock the shell Exec function to simulate successful docker ps and label inspection for two containers
-		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
-			if command == "docker" {
-				if len(args) > 0 && args[0] == "ps" {
-					return "container1\ncontainer2", nil // Simulate successful docker ps with two containers
-				}
-				if len(args) > 0 && args[0] == "inspect" && strings.Contains(description, "Inspecting container") {
-					switch args[3] {
-					case "{{json .Config.Labels}}":
-						if args[1] == "container1" {
-							return `{"com.docker.compose.service":"service1","managed_by":"windsor","context":"test-context"}`, nil
-						} else if args[1] == "container2" {
-							return `{"com.docker.compose.service":"service2","managed_by":"windsor","context":"test-context"}`, nil
-						}
-					case "{{json .NetworkSettings.Networks}}":
-						if args[1] == "container1" {
-							return `{"bridge":{"IPAddress":"192.168.1.2"}}`, nil
-						} else if args[1] == "container2" {
-							return `{"bridge":{"IPAddress":"192.168.1.3"}}`, nil
-						}
-					}
-				}
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-
 		// When calling GetContainerInfo
-		containerInfo, err := dockerVirt.GetContainerInfo()
+		containerInfos, err := dockerVirt.GetContainerInfo()
 
-		// Then no error should be returned and container info should be as expected
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(containerInfo) != 2 {
-			t.Fatalf("Expected two container infos, got %d", len(containerInfo))
+
+		// And the container info should be as expected
+		if len(containerInfos) != 2 {
+			t.Fatalf("Expected 2 container info, got %d", len(containerInfos))
 		}
-		if containerInfo[0].Address != "192.168.1.2" {
-			t.Fatalf("Expected container1 IP '192.168.1.2', got %s", containerInfo[0].Address)
+
+		// Create a map to store expected addresses for each service
+		expectedAddresses := map[string]string{
+			"service1": "192.168.1.2",
+			"service2": "192.168.1.3",
 		}
-		if containerInfo[0].Name != "service1" {
-			t.Fatalf("Expected container1 name 'service1', got %s", containerInfo[0].Name)
-		}
-		if containerInfo[1].Address != "192.168.1.3" {
-			t.Fatalf("Expected container2 IP '192.168.1.3', got %s", containerInfo[1].Address)
-		}
-		if containerInfo[1].Name != "service2" {
-			t.Fatalf("Expected container2 name 'service2', got %s", containerInfo[1].Name)
+
+		for _, containerInfo := range containerInfos {
+			expectedAddress, exists := expectedAddresses[containerInfo.Name]
+			if !exists {
+				t.Errorf("Unexpected container name %q", containerInfo.Name)
+				continue
+			}
+			if containerInfo.Address != expectedAddress {
+				t.Errorf("Expected container address %q for service %q, got %q", expectedAddress, containerInfo.Name, containerInfo.Address)
+			}
 		}
 	})
 
-	t.Run("Error", func(t *testing.T) {
+	t.Run("SuccessWithNameArgument", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.Initialize()
+
+		// When calling GetContainerInfo with a specific name argument
+		containerInfos, err := dockerVirt.GetContainerInfo("service2")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And the container info should be as expected
+		if len(containerInfos) != 1 {
+			t.Fatalf("Expected 1 container info, got %d", len(containerInfos))
+		}
+		expectedName := "service2"
+		expectedAddress := "192.168.1.3"
+		if containerInfos[0].Name != expectedName {
+			t.Errorf("Expected container name %q, got %q", expectedName, containerInfos[0].Name)
+		}
+		if containerInfos[0].Address != expectedAddress {
+			t.Errorf("Expected container address %q, got %q", expectedAddress, containerInfos[0].Address)
+		}
+	})
+
+	t.Run("ErrorGettingContext", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
 		dockerVirt := NewDockerVirt(mocks.Injector)
@@ -452,49 +465,25 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorFetchingContainerIDs", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the shell Exec function to simulate an error when fetching container IDs
-		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "ps" {
-				return "", fmt.Errorf("mock error fetching container IDs")
-			}
-			return "", fmt.Errorf("unknown command")
-		}
-
-		// When calling GetContainerInfo
-		_, err := dockerVirt.GetContainerInfo()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected an error, got none")
-		}
-		if err.Error() != "mock error fetching container IDs" {
-			t.Fatalf("Expected error message 'mock error fetching container IDs', got %v", err)
-		}
-	})
-
 	t.Run("ErrorInspectingContainer", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()
 
-		// Mock the shell Exec function to simulate an error when inspecting a container
+		// Mock the necessary methods to simulate an error during container inspection
+		originalExecFunc := mocks.MockShell.ExecFunc
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
-			if command == "docker" {
-				if len(args) > 0 && args[0] == "ps" {
-					return "mocked container ID", nil // Simulate successful docker ps
-				}
-				if len(args) > 0 && args[0] == "inspect" {
-					return "", fmt.Errorf("mock error inspecting container")
+			if command == "docker" && len(args) > 0 {
+				switch args[0] {
+				case "inspect":
+					if len(args) > 2 && args[2] == "--format" {
+						return "", fmt.Errorf("mock error inspecting container")
+					}
 				}
 			}
-			return "", fmt.Errorf("unknown command")
+			// Call the original ExecFunc for any other cases
+			return originalExecFunc(verbose, description, command, args...)
 		}
 
 		// When calling GetContainerInfo
@@ -509,28 +498,25 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorInspectingContainerNetworkSettings", func(t *testing.T) {
+	t.Run("ErrorUnmarshallingContainerInfo", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()
 
-		// Mock the shell Exec function to simulate an error when inspecting container network settings
+		// Mock the necessary methods to simulate an error during JSON unmarshalling
+		originalExecFunc := mocks.MockShell.ExecFunc
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
-			if command == "docker" {
-				if len(args) > 0 && args[0] == "ps" {
-					return "mocked container ID", nil // Simulate successful docker ps
-				}
-				if len(args) > 0 && args[0] == "inspect" {
-					if strings.Contains(description, "Inspecting container") {
-						return `{"com.docker.compose.service": "mocked-service"}`, nil // Simulate successful label inspection
-					}
-					if strings.Contains(description, "network settings") {
-						return "", fmt.Errorf("json: cannot unmarshal string into Go value of type struct { IPAddress string \"json:\\\"IPAddress\\\"\" }")
+			if command == "docker" && len(args) > 0 {
+				switch args[0] {
+				case "inspect":
+					if len(args) > 2 && args[2] == "--format" {
+						return "{invalid-json}", nil // Return invalid JSON to trigger unmarshalling error
 					}
 				}
 			}
-			return "", fmt.Errorf("unknown command")
+			// Call the original ExecFunc for any other cases
+			return originalExecFunc(verbose, description, command, args...)
 		}
 
 		// When calling GetContainerInfo
@@ -540,33 +526,21 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected an error, got none")
 		}
-		if err.Error() != "json: cannot unmarshal string into Go value of type struct { IPAddress string \"json:\\\"IPAddress\\\"\" }" {
-			t.Fatalf("Expected error message 'json: cannot unmarshal string into Go value of type struct { IPAddress string \"json:\\\"IPAddress\\\"\" }', got %v", err)
+		if !strings.Contains(err.Error(), "invalid character") {
+			t.Fatalf("Expected JSON unmarshalling error, got %v", err)
 		}
 	})
 
-	t.Run("ErrorUnmarshallingLabels", func(t *testing.T) {
+	t.Run("ErrorGettingContainerInfo", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()
 
-		// Mock the jsonUnmarshal function to simulate an error when unmarshalling labels
-		originalJsonUnmarshal := jsonUnmarshal
-		defer func() { jsonUnmarshal = originalJsonUnmarshal }()
-		jsonUnmarshal = func(data []byte, v interface{}) error {
-			return fmt.Errorf("json: cannot unmarshal string into Go value of type map[string]string")
-		}
-
-		// Mock the shell Exec function to simulate successful docker ps and label inspection
+		// Mock the shell Exec function to simulate an error when retrieving container info
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
-			if command == "docker" {
-				if len(args) > 0 && args[0] == "ps" {
-					return "mocked container ID", nil // Simulate successful docker ps
-				}
-				if len(args) > 0 && args[0] == "inspect" && strings.Contains(description, "Inspecting container") {
-					return `{"com.docker.compose.service": "mocked-service"}`, nil // Simulate successful label inspection
-				}
+			if command == "docker" && len(args) > 0 && args[0] == "ps" {
+				return "", fmt.Errorf("mock error retrieving container info")
 			}
 			return "", fmt.Errorf("unknown command")
 		}
@@ -578,62 +552,24 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected an error, got none")
 		}
-		if err.Error() != "json: cannot unmarshal string into Go value of type map[string]string" {
-			t.Fatalf("Expected error message 'json: cannot unmarshal string into Go value of type map[string]string', got %v", err)
+		if err.Error() != "mock error retrieving container info" {
+			t.Fatalf("Expected error message 'mock error retrieving container info', got %v", err)
 		}
 	})
 
-	t.Run("MissingServiceName", func(t *testing.T) {
+	t.Run("ErrorInspectingNetwork", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()
 
-		// Mock the shell Exec function to simulate successful docker ps and label inspection
+		// Mock the shell Exec function to simulate an error when inspecting network
+		originalExecFunc := mocks.MockShell.ExecFunc
 		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
-			if command == "docker" {
-				if len(args) > 0 && args[0] == "ps" {
-					return "mocked container ID", nil // Simulate successful docker ps
-				}
-				if len(args) > 0 && args[0] == "inspect" && strings.Contains(description, "Inspecting container") {
-					return `{}`, nil // Simulate missing service name in labels
-				}
+			if command == "docker" && len(args) > 0 && args[0] == "inspect" && args[2] == "--format" && args[3] == "{{json .NetworkSettings.Networks}}" {
+				return "", fmt.Errorf("mock error inspecting network")
 			}
-			return "", fmt.Errorf("unknown command")
-		}
-
-		// When calling GetContainerInfo
-		containerInfos, err := dockerVirt.GetContainerInfo()
-
-		// Then no error should be returned and containerInfos should be empty
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if len(containerInfos) != 0 {
-			t.Fatalf("Expected no container info, got %v", containerInfos)
-		}
-	})
-
-	t.Run("ErrorInspectingNetworkSettings", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the shell Exec function to simulate an error during network settings inspection
-		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
-			if command == "docker" {
-				if len(args) > 0 && args[0] == "ps" {
-					return "mocked container ID", nil // Simulate successful docker ps
-				}
-				if len(args) > 0 && args[0] == "inspect" && strings.Contains(description, "Inspecting container network settings") {
-					return "", fmt.Errorf("error inspecting network settings") // Simulate error during network settings inspection
-				}
-				if len(args) > 0 && args[0] == "inspect" && strings.Contains(description, "Inspecting container") {
-					return `{"com.docker.compose.service": "mocked-service"}`, nil // Simulate successful label inspection
-				}
-			}
-			return "", fmt.Errorf("unknown command")
+			return originalExecFunc(verbose, description, command, args...)
 		}
 
 		// When calling GetContainerInfo
@@ -643,8 +579,35 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected an error, got none")
 		}
-		if err.Error() != "error inspecting network settings" {
-			t.Fatalf("Expected error message 'error inspecting network settings', got %v", err)
+		if err.Error() != "mock error inspecting network" {
+			t.Fatalf("Expected error message 'mock error inspecting network', got %v", err)
+		}
+	})
+
+	t.Run("ErrorUnmarshallingNetworkInfo", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.Initialize()
+
+		// Mock the shell Exec function to simulate an error when unmarshalling network info
+		originalExecFunc := mocks.MockShell.ExecFunc
+		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "inspect" && args[2] == "--format" && args[3] == "{{json .NetworkSettings.Networks}}" {
+				return `invalid json`, nil
+			}
+			return originalExecFunc(verbose, description, command, args...)
+		}
+
+		// When calling GetContainerInfo
+		_, err := dockerVirt.GetContainerInfo()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected an error, got none")
+		}
+		if !strings.Contains(err.Error(), "invalid character") {
+			t.Fatalf("Expected error message containing 'invalid character', got %v", err)
 		}
 	})
 }
@@ -665,26 +628,6 @@ func TestDockerVirt_PrintInfo(t *testing.T) {
 		mocks := setupSafeDockerContainerMocks()
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()
-
-		// Mock the GetContainerInfo function to return a list of container info
-		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 {
-				switch args[0] {
-				case "ps":
-					return "container1\ncontainer2", nil
-				case "inspect":
-					if len(args) > 3 && args[2] == "--format" {
-						switch args[3] {
-						case "{{json .Config.Labels}}":
-							return `{"com.docker.compose.service":"service1","managed_by":"windsor","context":"mock-context"}`, nil
-						case "{{json .NetworkSettings.Networks}}":
-							return `{"bridge":{"IPAddress":"192.168.1.2"}}`, nil
-						}
-					}
-				}
-			}
-			return "", fmt.Errorf("unknown command")
-		}
 
 		// Capture the output of PrintInfo using captureStdout utility function
 		output := captureStdout(func() {
