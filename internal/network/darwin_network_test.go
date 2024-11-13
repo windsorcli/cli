@@ -237,6 +237,21 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 }
 
 func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
+	originalStat := stat
+	originalWriteFile := writeFile
+	defer func() {
+		stat = originalStat
+		writeFile = originalWriteFile
+	}()
+
+	stat = func(_ string) (os.FileInfo, error) {
+		return nil, nil
+	}
+
+	writeFile = func(_ string, _ []byte, _ os.FileMode) error {
+		return nil
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
@@ -386,13 +401,6 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Mock the stat function to simulate the resolver directory existing
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(_ string) (os.FileInfo, error) {
-			return nil, nil
-		}
-
 		// Simulate an error when trying to write to the temporary resolver file
 		originalWriteFile := writeFile
 		defer func() { writeFile = originalWriteFile }()
@@ -429,20 +437,6 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Mock the stat function to simulate the resolver directory existing
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(_ string) (os.FileInfo, error) {
-			return nil, nil
-		}
-
-		// Mock the writeFile function to simulate successful writing to the temporary resolver file
-		originalWriteFile := writeFile
-		defer func() { writeFile = originalWriteFile }()
-		writeFile = func(_ string, _ []byte, _ os.FileMode) error {
-			return nil
-		}
-
 		// Simulate an error when trying to move the temporary resolver file
 		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "mv" {
@@ -477,20 +471,6 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Mock the stat function to simulate the resolver directory existing
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(_ string) (os.FileInfo, error) {
-			return nil, nil
-		}
-
-		// Mock the writeFile function to simulate successful writing to the temporary resolver file
-		originalWriteFile := writeFile
-		defer func() { writeFile = originalWriteFile }()
-		writeFile = func(_ string, _ []byte, _ os.FileMode) error {
-			return nil
-		}
-
 		// Simulate an error when trying to flush the DNS cache
 		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "dscacheutil" && args[1] == "-flushcache" {
@@ -523,20 +503,6 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		err = nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// Mock the stat function to simulate the resolver directory existing
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(_ string) (os.FileInfo, error) {
-			return nil, nil
-		}
-
-		// Mock the writeFile function to simulate successful writing to the temporary resolver file
-		originalWriteFile := writeFile
-		defer func() { writeFile = originalWriteFile }()
-		writeFile = func(_ string, _ []byte, _ os.FileMode) error {
-			return nil
 		}
 
 		// Simulate an error when trying to restart the mDNSResponder
