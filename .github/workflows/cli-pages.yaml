@@ -1,0 +1,54 @@
+name: ci 
+on:
+  push:
+    branches:
+      - mkdocs
+permissions:
+  contents: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Git Credentials
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+      - name: Set Cache ID
+        run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
+        shell: bash
+      - uses: actions/cache@v4
+        with:
+          key: mkdocs-material-${{ env.cache_id }}
+          path: .cache
+          restore-keys: |
+            mkdocs-material-
+      - name: Install Dependencies
+        run: |
+          pip install mkdocs-material
+          pip install mkdocs-macros-plugin
+          pip install mike
+
+      - name: Clone Windsorcli Repository
+        run: |
+          git clone https://github.com/windsor-hotel/windsorcli.git
+
+          # Optionally, checkout a specific branch or tag
+          # cd windsorcli
+          # git checkout branch-name
+    
+      # - name: Copy Docs Folder
+      #   run: |
+      #     cp -r./docs/* ./windsorcli/docs
+
+      - name: Deploy site
+        run: |
+          cd windsorcli
+          git fetch origin gh-pages --depth=1
+          git fetch --tags
+          latest_tag=$(git describe --tags `git rev-list --tags --max-count=1`)
+          mike deploy -t $latest_tag --push --allow-empty --update-aliases $latest_tag latest
+  
