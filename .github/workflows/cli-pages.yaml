@@ -31,7 +31,6 @@ jobs:
           pip install mkdocs-material
           pip install mkdocs-macros-plugin
           pip install mike
-          pip install -r requirements.txt
 
       - name: Clone Windsorcli Repository
         env:
@@ -41,6 +40,7 @@ jobs:
           # Optionally, checkout a specific branch or tag
           cd windsorcli
           git checkout dev
+          pip install -r ./requirements.txt
           cd ..
     
       # - name: Copy Docs Folder
