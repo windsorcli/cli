@@ -45,6 +45,7 @@ jobs:
     
       - name: Copy Docs Folder
         run: |
+          mkdir -p ./windsorcli/docs
           cp -r ./docs/* ./windsorcli/docs
 
       - name: Deploy site
