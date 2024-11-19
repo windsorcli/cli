@@ -43,9 +43,9 @@ jobs:
           pip install -r ./requirements.txt
           cd ..
     
-      # - name: Copy Docs Folder
-      #   run: |
-      #     cp -r ./docs/* ./windsorcli/docs
+      - name: Copy Docs Folder
+        run: |
+          cp -r ./docs/* ./windsorcli/docs
 
       - name: Deploy site
         run: |
