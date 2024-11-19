@@ -33,9 +33,10 @@ jobs:
           pip install mike
 
       - name: Clone Windsorcli Repository
+        env:
+          GH_TOKEN: ${{ secrets.GHTOKEN }}
         run: |
           git clone https://$GH_TOKEN@github.com/windsor-hotel/windsorcli.git
-
           # Optionally, checkout a specific branch or tag
           # cd windsorcli
           # git checkout branch-name
