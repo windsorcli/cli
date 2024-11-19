@@ -38,8 +38,9 @@ jobs:
         run: |
           git clone https://$GH_TOKEN@github.com/windsor-hotel/windsorcli.git
           # Optionally, checkout a specific branch or tag
-          # cd windsorcli
-          # git checkout branch-name
+          cd windsorcli
+          git checkout dev
+          cd ..
     
       # - name: Copy Docs Folder
       #   run: |
