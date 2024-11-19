@@ -34,7 +34,7 @@ jobs:
 
       - name: Clone Windsorcli Repository
         run: |
-          git clone $GH-Token:https://github.com/windsor-hotel/windsorcli.git
+          git clone $GHTOKEN:https://github.com/windsor-hotel/windsorcli.git
 
           # Optionally, checkout a specific branch or tag
           # cd windsorcli
