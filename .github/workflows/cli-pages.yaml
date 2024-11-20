@@ -39,25 +39,17 @@ jobs:
           git tag $new_tag
           git push origin $new_tag
 
-      - name: Clone cli Repository
-        env:
-          GH_TOKEN: ${{ secrets.GHTOKEN }}
+          - name: Clone WindsorCLI Repository
+          run: |
+            git clone https://github.com/your-username/windsorcli.git
+          working-directory: ${{ runner.temp }}
+  
+      - name: Tag WindsorCLI Repository
         run: |
-          git clone https://$GH_TOKEN@github.com/windsor-hotel/cli.git
-          # Optionally, checkout a specific branch or tag
-          pushd cli
-          git checkout dev
-          popd
-      
-      - name: Copy Docs Folder
-        run: |
-          mkdir -p ./docs
-          cp -r ../cli/docs/* ./docs
+          cd windsorcli
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git tag $new_tag
+          git push origin $new_tag
+        working-directory: ${{ runner.temp }}
 
-      - name: Deploy site
-        run: |
-          pushd cli
-          git fetch origin gh-pages --depth=1
-          git fetch --tags
-          latest_tag=$(git describe --tags `git rev-list --tags --max-count=1`)
-          mike deploy -t $latest_tag --push --allow-empty --update-aliases $latest_tag latest
