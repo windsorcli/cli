@@ -40,8 +40,10 @@ jobs:
       #     git push origin $new_tag
 
       - name: Clone WindsorCLI Repository
+        env:
+          GH_TOKEN: ${{ secrets.GHTOKEN }}
         run: |
-          git clone https://github.com/your-username/windsorcli.git
+          git clone https://$GH_TOKEN@github.com/your-username/windsorcli.git
         working-directory: ${{ runner.temp }}
   
       - name: Tag WindsorCLI Repository
