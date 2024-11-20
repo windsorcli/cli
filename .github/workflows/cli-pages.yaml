@@ -39,10 +39,10 @@ jobs:
       #     git tag $new_tag
       #     git push origin $new_tag
 
-      #     - name: Clone WindsorCLI Repository
-      #     run: |
-      #       git clone https://github.com/your-username/windsorcli.git
-      #     working-directory: ${{ runner.temp }}
+      - name: Clone WindsorCLI Repository
+        run: |
+          git clone https://github.com/your-username/windsorcli.git
+        working-directory: ${{ runner.temp }}
   
       - name: Tag WindsorCLI Repository
         run: |
