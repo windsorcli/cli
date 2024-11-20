@@ -3,7 +3,6 @@ on:
   push:
     branches:
       - mkdocs
-  
 jobs:
   trigger-build-event:
     runs-on: ubuntu-latest
