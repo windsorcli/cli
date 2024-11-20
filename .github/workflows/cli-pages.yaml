@@ -43,7 +43,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GHTOKEN }}
         run: |
-          git clone https://$GH_TOKEN@github.com/your-username/windsorcli.git
+          git clone https://$GH_TOKEN@github.com/windsor-hotel/windsorcli.git
         working-directory: ${{ runner.temp }}
   
       - name: Tag WindsorCLI Repository
