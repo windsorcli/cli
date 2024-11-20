@@ -32,17 +32,17 @@ jobs:
           pip install mkdocs-macros-plugin
           pip install mike
 
-      - name: Create and Push Tag
-        run: |
-          latest_tag=$(git describe --tags `git rev-list --tags --max-count=1`)
-          new_tag="deploy-$(date +'%Y%m%d%H%M%S')"
-          git tag $new_tag
-          git push origin $new_tag
+      # - name: Create and Push Tag
+      #   run: |
+      #     latest_tag=$(git describe --tags `git rev-list --tags --max-count=1`)
+      #     new_tag="deploy-$(date +'%Y%m%d%H%M%S')"
+      #     git tag $new_tag
+      #     git push origin $new_tag
 
-          - name: Clone WindsorCLI Repository
-          run: |
-            git clone https://github.com/your-username/windsorcli.git
-          working-directory: ${{ runner.temp }}
+      #     - name: Clone WindsorCLI Repository
+      #     run: |
+      #       git clone https://github.com/your-username/windsorcli.git
+      #     working-directory: ${{ runner.temp }}
   
       - name: Tag WindsorCLI Repository
         run: |
