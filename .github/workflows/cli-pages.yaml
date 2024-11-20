@@ -14,30 +14,6 @@ jobs:
         run: |
           git config --global user.name github-actions[bot]
           git config --global user.email 41898282+github-actions[bot]@users.noreply.github.com
-      # - uses: actions/setup-python@v5
-      #   with:
-      #     python-version: 3.x
-      # - name: Set Cache ID
-      #   run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
-      #   shell: bash
-      # - uses: actions/cache@v4
-      #   with:
-      #     key: mkdocs-material-${{ env.cache_id }}
-      #     path: .cache
-      #     restore-keys: |
-      #       mkdocs-material-
-      # - name: Install Dependencies
-      #   run: |
-      #     pip install mkdocs-material
-      #     pip install mkdocs-macros-plugin
-      #     pip install mike
-
-      # - name: Create and Push Tag
-      #   run: |
-      #     latest_tag=$(git describe --tags `git rev-list --tags --max-count=1`)
-      #     new_tag="deploy-$(date +'%Y%m%d%H%M%S')"
-      #     git tag $new_tag
-      #     git push origin $new_tag
 
       - name: Trigger WindsorCLI Build
         env:
@@ -48,20 +24,3 @@ jobs:
             -H "Authorization: token $GH_TOKEN" \
             https://api.github.com/repos/windsor-hotel/windsorcli/dispatches \
             -d '{"event_type": "custom_event_type"}'
-                  
-      # - name: Clone WindsorCLI Repository
-      #   env:
-      #     GH_TOKEN: ${{ secrets.GHTOKEN }}
-      #   run: |
-      #     git clone https://$GH_TOKEN@github.com/windsor-hotel/windsorcli.git
-      #   working-directory: ${{ runner.temp }}
-  
-      # - name: Tag WindsorCLI Repository
-      #   run: |
-      #     cd windsorcli
-      #     git config user.name github-actions[bot]
-      #     git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-      #     git tag $new_tag
-      #     git push origin $new_tag
-      #   working-directory: ${{ runner.temp }}
-
