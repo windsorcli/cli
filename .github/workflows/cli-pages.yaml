@@ -1,4 +1,4 @@
-name: ci 
+name: cli-pages
 on:
   push:
     branches:
@@ -23,4 +23,4 @@ jobs:
             -H "Accept: application/vnd.github.everest-preview+json" \
             -H "Authorization: token $GH_TOKEN" \
             https://api.github.com/repos/windsor-hotel/windsorcli/dispatches \
-            -d '{"event_type": "custom_event_type"}'
+            -d '{"event_type": "build_event"}'
