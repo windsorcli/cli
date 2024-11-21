@@ -3,41 +3,20 @@ name: Trigger Target Workflow
 on:
   push:
   workflow_dispatch:
-    inputs:
-      repo_owner:
-        description: 'Input the repository owner/organization'
-        required: true
-        default: "windsor-hotel"
-      repo_name:
-        description: 'Input the repository name'
-        required: true
-        default: "cli"
-      repo_version:
-        description: 'Input the repository version'
-        required: true
-        default: "mkdocs"
-      target_repo_owner:
-        description: 'Input the target repository owner/organization'
-        required: true
-        default: "windsor-hotel"
-      target_repo_name:
-        description: 'Input the target repository name'
-        required: true
-        default: "windsorcli"
     
 jobs:
   trigger:
     runs-on: ubuntu-latest
 
     steps:
-      - name: "Trigger Build Event in the ${{ github.event.inputs.target_repo_name }} repository"
+      - name: Trigger Build Event in the windsorcli repository
         run: |
           event_type="build-event" 
-          repo_owner="${{ github.event.inputs.repo_owner }}" 
-          repo_name="${{ github.event.inputs.repo_name }}"  
-          repo_version="${{ github.event.inputs.repo_version }}"
-          target_repo_owner="${{ github.event.inputs.target_repo_owner }}" 
-          target_repo_name="${{ github.event.inputs.target_repo_name }}"  
+          repo_owner="windsor-hotel" 
+          repo_name="cli"  
+          repo_version="mkdocs"
+          target_repo_owner="windsor-hotel" 
+          target_repo_name="windsorcli"  
   
           curl -L \
             -X POST \
