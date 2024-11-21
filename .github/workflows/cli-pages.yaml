@@ -20,7 +20,7 @@ jobs:
           # Set the required variables
           repo_owner="windsor-hotel" 
           repo_name="cli"  
-          event_type="trigger-workflow" 
+          event_type="build_event" 
           service=${{ github.event.inputs.target_service }}"
           version="${{ github.event.inputs.target_version }}"
   
