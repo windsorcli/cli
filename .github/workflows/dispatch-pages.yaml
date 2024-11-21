@@ -1,22 +1,46 @@
-name: Trigger Target Workflow
+name: Trigger Build and Deployment Workflow for gh-pages
 
 on:
   push:
+    paths:
+      - 'docs/**'
   workflow_dispatch:
     
 jobs:
   trigger:
     runs-on: ubuntu-latest
 
+    env:
+      REPO_OWNER: windsor-hotel
+      REPO_NAME: cli
+      TARGET_REPO_OWNER: windsor-hotel
+      TARGET_REPO_NAME: windsorcli
+
     steps:
-      - name: Trigger Build Event in the windsorcli repository
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Determine repo version
+        id: determine_version
+        run: |
+          if [ "${{ github.event_name }}" == "push" ] && [ -n "${{ github.event.ref }}" ] && [[ "${{ github.event.ref }}" == refs/tags/* ]]; then
+            # If the event is a push and it's a tag, use the tag name
+            tag_name="${{ github.ref_name }}"
+            echo "repo_version=$tag_name" >> $GITHUB_ENV
+          else
+            # Otherwise, use the current branch name
+            current_branch=$(git rev-parse --abbrev-ref HEAD)
+            echo "repo_version=$current_branch" >> $GITHUB_ENV
+          fi
+
+      - name: Trigger Build Event in the ${{ env.TARGET_REPO_NAME }} repository
         run: |
           event_type="build-event" 
-          repo_owner="windsor-hotel" 
-          repo_name="cli"  
-          repo_version="mkdocs"
-          target_repo_owner="windsor-hotel" 
-          target_repo_name="windsorcli"  
+          repo_owner="${{ env.REPO_OWNER }}" 
+          repo_name="${{ env.REPO_NAME }}"  
+          repo_version="${{ env.repo_version }}"
+          target_repo_owner="${{ env.TARGET_REPO_OWNER }}" 
+          target_repo_name="${{ env.TARGET_REPO_NAME }}"  
   
           curl -L \
             -X POST \
