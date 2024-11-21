@@ -20,7 +20,7 @@ jobs:
         run: |
           # Set the required variables
           repo_owner="windsor-hotel" 
-          repo_name="cli"  
+          repo_name="windsorcli"  
           event_type="build-event" 
           service="service"
           version="dev"
