@@ -4,13 +4,19 @@ on:
   push:
   workflow_dispatch:
     inputs:
-      target_service:
-        description: 'Input a service name (e.g., demo-app)'
+      repo_owner:
+        description: 'Input the repository owner/organization'
         required: true
-      target_version:
-        description: 'Input a version (e.g., v1.0.0)'
+        default: "windsor-hotel"
+      repo_name:
+        description: 'Input the repository name'
         required: true
-
+        default: "cli"
+      repo_version:
+        description: 'Input the repository version'
+        required: true
+        default: "mkdocs"
+  
 jobs:
   trigger:
     runs-on: ubuntu-latest
