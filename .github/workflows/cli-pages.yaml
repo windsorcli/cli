@@ -22,7 +22,7 @@ jobs:
           repo_owner="windsor-hotel" 
           repo_name="cli"  
           event_type="build_event" 
-          service=${{ github.event.inputs.target_service }}"
+          service="service"
           version="dev"
   
           curl -L \
