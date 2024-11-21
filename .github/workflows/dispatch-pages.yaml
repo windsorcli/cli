@@ -16,7 +16,15 @@ on:
         description: 'Input the repository version'
         required: true
         default: "mkdocs"
-  
+      target_repo_owner:
+        description: 'Input the repository owner/organization'
+        required: true
+        default: "windsor-hotel"
+      target_repo_name:
+        description: 'Input the repository name'
+        required: true
+        default: "windsorcli"
+    
 jobs:
   trigger:
     runs-on: ubuntu-latest
