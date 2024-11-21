@@ -22,7 +22,7 @@ jobs:
           repo_name="cli"  
           event_type="build_event" 
           service=${{ github.event.inputs.target_service }}"
-          version="${{ github.event.inputs.target_version }}"
+          version="dev"
   
           curl -L \
             -X POST \
