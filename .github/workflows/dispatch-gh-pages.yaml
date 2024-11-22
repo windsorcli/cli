@@ -2,8 +2,10 @@ name: Trigger Build and Deployment Workflow for gh-pages
 
 on:
   push:
-    tags:
-      - '*'      
+    paths:
+      - 'docs/**'
+    # tags:
+    #   - '*'      
   workflow_dispatch:
     
 jobs:
