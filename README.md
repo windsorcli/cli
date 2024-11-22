@@ -1,80 +1,33 @@
-# Windsor CLI
+## [Windsor Command Line Interface](https://windsor-hotel.github.io/windsorcli/)
+
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/windsor-hotel/windsorcli)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/windsor-hotel/windsorcli/test.yml)
 
 Windsor CLI is a powerful command-line interface designed to streamline and enhance your development workflow. It provides a suite of tools and commands to manage your projects efficiently.
 
-## Table of Contents
+## [Purpose](#purpose)
 
-- [Features](#features)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Configuration](#configuration)
-- [Contributing](#contributing)
-- [License](#license)
+The Windsor CLI is designed to simplify and enhance the development workflow for developers working on various projects. Its primary purpose is to provide a unified command-line interface that streamlines project setup, configuration management, and integration with other tools. By offering a consistent and efficient way to manage projects, the Windsor CLI aims to reduce the time and effort required for repetitive tasks, allowing developers to focus more on coding and less on setup and configuration.
 
-## Features
+Key objectives of the Windsor CLI include:
 
+- **Efficiency**: Automate routine tasks to save time and reduce manual errors.
+- **Consistency**: Ensure a standardized approach to project management across different environments and teams.
+- **Flexibility**: Support a wide range of configurations and integrations to accommodate diverse project needs.
+- **Cross-Platform Compatibility**: Provide a seamless experience on Windows, macOS, and Linux systems.
+
+By achieving these objectives, the Windsor CLI empowers developers to work more productively and collaboratively, ultimately leading to faster and more reliable project delivery.
+
+## [Features](#features)
 - **Project Initialization**: Quickly set up new projects with predefined configurations.
 - **Configuration Management**: Easily manage and switch between different project configurations.
 - **Shell Integration**: Seamlessly integrates with your shell environment for enhanced productivity.
 - **Cross-Platform Support**: Works on Windows, macOS, and Linux.
 
-## Installation
-
-To install Windsor CLI, you need to have Go installed on your system. You can then install Windsor CLI using the following command:
-
-```sh
-go install github.com/windsor-hotel/cli@latest
-```
-
-## Usage
-
-After installation, you can use the `windsor` command to interact with the CLI. Here are some common commands:
-
-### Initialize a Project
-
-```sh
-windsor init [context]
-```
-
-This command initializes the application by setting up necessary configurations and environment.
-
-## Configuration
-
-Windsor CLI uses configuration files to manage settings. The configuration files are typically located in the following paths:
-
-- **CLI Configuration**: `~/.config/windsor/config.yaml`
-- **Project Configuration**: `./windsor.yaml` or `./windsor.yml`
-
-You can customize these configurations to suit your needs.
-
-### Example Configuration
-
-Here is an example of a CLI configuration file:
-
-```yaml
-context: default
-contexts:
-  default:
-    environment:
-      FOO_VAR: bar
-```
-
-## Shell Integration
-
-To automatically load Windsor CLI environment variables in your shell, you can add the following to your `precmd()` function in your shell configuration file (e.g., `.zshrc` for Zsh or `.bashrc` for Bash):
-
-```sh
-precmd() {
-  if command -v windsor >/dev/null 2>&1; then
-    eval "$(windsor env)"
-  fi
-}
-```
 
 This will ensure that the Windsor CLI environment variables are loaded every time a new shell session is started.
 
-## Contributing
-
+## [Contributing](#contributing)
 We welcome contributions to Windsor CLI! If you would like to contribute, please follow these steps:
 
 1. Fork the repository.
@@ -85,10 +38,11 @@ We welcome contributions to Windsor CLI! If you would like to contribute, please
 
 Please ensure that your code adheres to our coding standards and includes appropriate tests.
 
-## License
+## [License](#license)
 
 Windsor CLI is licensed under the Mozilla Public License Version 2.0. See the [LICENSE](LICENSE) file for more details.
 
----
+
+## [Contact Information](#contact-information)
 
 Thank you for using Windsor CLI! If you have any questions or need further assistance, please feel free to open an issue on our GitHub repository.
