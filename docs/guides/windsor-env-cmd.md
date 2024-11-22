@@ -55,10 +55,14 @@ unset OMNICONFIG
 export ANSIBLE_BECOME_PASSWORD="****"
 unset COMPOSE_FILE
 export TF_CLI_ARGS_apply="****/repositories/blueprints/contexts/local/.terraform/cluster/talos/terraform.tfplan"
-export TF_CLI_ARGS_destroy="-var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos.tfvars -var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos_generated.tfvars.json"
-export TF_CLI_ARGS_import="-var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos.tfvars -var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos_generated.tfvars.json"
+export TF_CLI_ARGS_destroy="-var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos.tfvars \
+  -var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos_generated.tfvars.json"
+export TF_CLI_ARGS_import="-var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos.tfvars \
+  -var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos_generated.tfvars.json"
 export TF_CLI_ARGS_init="-backend=true -backend-config=path=****/repositories/blueprints/contexts/local/.tfstate/cluster/talos/terraform.tfstate"
-export TF_CLI_ARGS_plan="-out=****/repositories/blueprints/contexts/local/.terraform/cluster/talos/terraform.tfplan -var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos.tfvars -var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos_generated.tfvars.json"
+export TF_CLI_ARGS_plan="-out=****/repositories/blueprints/contexts/local/.terraform/cluster/talos/terraform.tfplan \
+  -var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos.tfvars \
+  -var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos_generated.tfvars.json"
 export TF_DATA_DIR="****/repositories/blueprints/contexts/local/.terraform/cluster/talos"
 export TF_VAR_context_path="****/repositories/blueprints/contexts/local"
 export TALOSCONFIG="****/repositories/blueprints/contexts/local/.talos/config"
@@ -73,7 +77,7 @@ export MWAA_ENDPOINT="http://mwaa.local.aws.test:4566"
 export S3_HOSTNAME="http://s3.local.aws.test:4566"
 ````
 
-## Explanation of Output
+## Configures Tool Environment Variables
 
 The exection of the windsor env output in the command prompt sets environment variables to configure various tools. Environment variables are key-value pairs that can be used to customize the behavior of software applications without altering the code. They provide a flexible way to manage configuration settings, such as API keys, database connections, and other sensitive information, which can vary between different environments (e.g., development, testing, production).
 
