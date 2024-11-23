@@ -1,3 +1,6 @@
+<!-- Add this to reveal the draft watermark -->
+<!-- <div class="draft-watermark"></div> -->
+
 # [WindsorCLI](https://windsor-hotel.github.io/windsorcli/)
 The Windsor Command Line Interface (CLI) is a powerful tool designed to streamline your workflow and enhance productivity. With a small suite of intuitive commands, the Windsor CLI allows you to efficiently manage contexts for other tools in your development environment.
 

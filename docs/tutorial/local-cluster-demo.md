@@ -1,5 +1,5 @@
 # Local Cluster Demo
-After [installation](../install.md), you can use the \`windsor\` command to interact with the CLI. 
+After [installation](../install/install.md), you can use the \`windsor\` command to interact with the CLI. 
 
 ### Clone the blueprint-template to create "new-project"
 

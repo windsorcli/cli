@@ -1,5 +1,5 @@
 # Quick Start
-After [installation](../install.md), you can use the \`windsor\` command to interact with the CLI. Here are some common commands:
+After [installation](../install/install.md), you can use the \`windsor\` command to interact with the CLI. Here are some common commands:
 
 ### Check windsor version
 
