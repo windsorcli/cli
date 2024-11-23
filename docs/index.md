@@ -14,7 +14,9 @@ The Windsor Command Line Interface (CLI) is a powerful tool designed to streamli
 
 ## [Purpose](#purpose)
 
-The Windsor CLI is designed to simplify and enhance the development workflow for developers working on various projects. Its primary purpose is to provide a unified command-line interface that streamlines project setup, configuration management, and integration with other tools. By offering a consistent and efficient way to manage contexts, the Windsor CLI aims to reduce the time and effort required for repetitive tasks, allowing developers to focus more on coding and less on setup and configuration.
+The Windsor CLI is designed to simplify and enhance the development workflow for developers working on various projects. Its primary purpose is to provide a unified command-line interface that streamlines project setup, configuration management, and integration with other tools. 
+
+By offering a consistent and efficient way to manage "contexts", the Windsor CLI aims to reduce the time and effort required for repetitive tasks, allowing developers to focus more on coding and less on setup and configuration.
 
 Key objectives of the Windsor CLI include:
 
@@ -23,9 +25,10 @@ Key objectives of the Windsor CLI include:
 - **Flexibility**: Support a wide range of configurations and integrations to accommodate diverse project needs.
 - **Scalability**: Scale the environment and the production workload.
 - **Configuration Management**: Easily manage and switch between different project configurations.
-- **Shell Integration**: Seamlessly integrates with your shell environment for enhanced productivity.
+- **Shell Integration**: Seamlessly integrate with your shell environment for enhanced productivity.
 - **Cross-Platform Compatibility**: Provide a seamless experience on Windows, macOS, and Linux systems.
 - **Security**: Fully compliant and automated security updates.
+- **Visibility**: Provide dashboards to ensure informative decisions.
 
 ## [Contributing](#contributing)
 We welcome contributions to Windsor CLI! If you would like to contribute, please follow these steps:
