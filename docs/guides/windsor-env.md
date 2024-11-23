@@ -1,9 +1,9 @@
 
-# Windsor CLI: `env` Command
+# `windsor env`
 
-The `windsor env` command is a feature of the Windsor CLI that outputs the current environment configuration for your project. This command is particularly useful for dynamically managing environment variables based on the context of your current working directory.
+The `windsor env` command provides the current environment configuration for your project. It is especially useful for dynamically managing environment variables based on the context of your current working directory.
 
-The windsor env command outputs the desired state for the shell environment variables.  The desired state is determined by the location of the command prompt in the file structure and the current context.  
+This command outputs the intended state of shell environment variables, determined by the command prompt's location within the file structure and the current context.
 
 ## Purpose
 
@@ -23,12 +23,12 @@ The `windsor env` command is designed to be context-sensitive and aware of the f
 ## How It Works
 
 ```bash
-+-------------------+     +-------------+     +------------------+     +-------------------------------+
-| Current Context   |---->|             |---->| export env-var-0 |---->| $shell                        |
-+-------------------+     | windsor env |     | export env-var-1 |     | precmd(eval "$(windsor env)") |
-+-------------------+     |             |     | export env-var-n |     | %prompt%                      |
-| Current Directory |---->|             |     |                  |     |                               |
-+-------------------+     +-------------+     +------------------+     +-------------------------------+
++-------------------+     +---------------------+     +-------------------------------+
+| Current Context   |---->|  windsor env        |     | $shell                        |
++-------------------+     |    export env-var-1 |---->| precmd(eval "$(windsor env)") |
++-------------------+     |    export env-var-n |     | %prompt%                      |
+| Current Directory |---->|                     |     |                               |
++-------------------+     +---------------------+     +-------------------------------+
 ```
 
 ![full-bootstrap](../img/full-bootstrap.gif)
@@ -45,11 +45,12 @@ The `windsor env` command is designed to be context-sensitive and aware of the f
 
 By using the `windsor env` command in conjunction with the `precmd()` function, developers can maintain a flexible and efficient development environment that adapts to their current working context.
 
-## Usage
+## Example Usage with Ansible, Terraform, Talos, AWS, and Kubectl
 
-When you run the `windsor env` command, it outputs a list of environment variables that are currently set or unset. Here's an example of what the output might look like:
+The `windsor env`command outputs a list of environment variables for the current context or state. 
 
 ````bash
+cd terraform/talos
 talos% windsor env
 unset OMNICONFIG
 export ANSIBLE_BECOME_PASSWORD="****"
@@ -77,7 +78,9 @@ export MWAA_ENDPOINT="http://mwaa.local.aws.test:4566"
 export S3_HOSTNAME="http://s3.local.aws.test:4566"
 ````
 
-## Configures Tool Environment Variables
+In the case above, the talos folder is under the terraform folder so environment variables for terraform, talos, kube, aws and other tools are set
+
+## Environment Variables
 
 The exection of the windsor env output in the command prompt sets environment variables to configure various tools. Environment variables are key-value pairs that can be used to customize the behavior of software applications without altering the code. They provide a flexible way to manage configuration settings, such as API keys, database connections, and other sensitive information, which can vary between different environments (e.g., development, testing, production).
 
