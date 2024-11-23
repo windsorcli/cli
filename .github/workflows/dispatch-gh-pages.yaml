@@ -35,7 +35,7 @@ jobs:
 
       - name: Trigger Build Event in the ${{ env.TARGET_REPO_NAME }} repository
         run: |
-          event_type="build-event" 
+          event_type="build-and-deploy" 
           repo_owner="${{ env.REPO_OWNER }}" 
           repo_name="${{ env.REPO_NAME }}"  
           repo_version="${{ env.repo_version }}"
