@@ -1,4 +1,4 @@
-name: Trigger Build and Deployment Workflow for gh-pages
+name: Trigger build-and-deploy workflow for gh-pages
 
 on:
   push:
