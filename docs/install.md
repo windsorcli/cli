@@ -1,9 +1,10 @@
-<!-- Add this to the top of your Markdown file -->
+<!-- Add this to reveal the draft watermark -->
 <!-- <div class="draft-watermark"></div> -->
 
-
+## [Prerequisites](#prerequisites)
 Ensure you have **[Go](https://golang.org/doc/install)** and **[Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)** installed on your system
 
+## [Installation](#installation)
 | Installation Method          | Description         |
 |------------------------------|---------------------|
 | [Source Code Installation](./install/source-code-installation.md) | Clone and build        |
@@ -12,7 +13,9 @@ Ensure you have **[Go](https://golang.org/doc/install)** and **[Git](https://git
 
 ## [Shell Integration](#shell-integration)
 
-To automatically load Windsor CLI environment variables in your shell, add the following to your `precmd()` function in your shell configuration file (e.g., `.zshrc` for Zsh or `.bashrc` for Bash):
+Add this `precmd()` definition to your shell configuration file (e.g., `.zshrc` for Zsh or `.bashrc` for Bash).
+
+This is required for the Windsor CLI to load environment variables automatically in the shell:
 
 ```bash
 precmd() {
