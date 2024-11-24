@@ -113,15 +113,15 @@ func (s *DNSService) WriteConfig() error {
 	}
 
 	// Retrieve the compose configuration from DockerService
-	dockerService, err := s.injector.Resolve("dockerService")
+	dockerServiceInterface, err := s.injector.Resolve("dockerService")
 	if err != nil {
 		return fmt.Errorf("error resolving dockerService: %w", err)
 	}
-	dockerServiceInstance, ok := dockerService.(DockerService)
+	dockerService, ok := dockerServiceInterface.(DockerService)
 	if !ok {
 		return fmt.Errorf("error casting to DockerService")
 	}
-	composeConfig, err := dockerServiceInstance.GetFullComposeConfig()
+	composeConfig, err := dockerService.GetFullComposeConfig()
 	if err != nil {
 		return fmt.Errorf("error retrieving compose configuration: %w", err)
 	}
