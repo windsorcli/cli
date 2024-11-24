@@ -33,7 +33,11 @@ func Execute(inj di.Injector) error {
 	}
 
 	// Load CLI configuration
-	cliConfigPath := getCLIConfigPath()
+	cliConfigPath, err := getCLIConfigPath()
+	if err != nil {
+		return fmt.Errorf("error getting CLI config path: %w", err)
+	}
+
 	if err := configHandler.LoadConfig(cliConfigPath); err != nil {
 		return fmt.Errorf("error loading CLI config: %w", err)
 	}
@@ -57,15 +61,14 @@ func init() {
 }
 
 // getCLIConfigPath returns the path to the CLI configuration file
-var getCLIConfigPath = func() string {
+var getCLIConfigPath = func() (string, error) {
 	cliConfigPath := os.Getenv("WINDSORCONFIG")
 	if cliConfigPath == "" {
 		home, err := osUserHomeDir()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error finding home directory, %s\n", err)
-			exitFunc(1)
+			return "", fmt.Errorf("error retrieving user home directory: %w", err)
 		}
 		cliConfigPath = filepath.Join(home, ".config", "windsor", "config.yaml")
 	}
-	return cliConfigPath
+	return cliConfigPath, nil
 }

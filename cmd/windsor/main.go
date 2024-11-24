@@ -123,7 +123,5 @@ func main() {
 	injector.Register("networkInterfaceProvider", networkInterfaceProvider)
 
 	// Execute the root command
-	if err := cmd.Execute(injector); err != nil {
-		log.Fatalf("failed to execute command: %v", err)
-	}
+	cmd.Execute(injector)
 }

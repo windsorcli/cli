@@ -129,32 +129,21 @@ func TestRoot_Execute(t *testing.T) {
 }
 
 func TestRoot_getCLIConfigPath(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
 	t.Run("UserHomeDirError", func(t *testing.T) {
 		// Given osUserHomeDir is mocked to return an error
+		originalUserHomeDir := osUserHomeDir
 		osUserHomeDir = func() (string, error) {
 			return "", errors.New("mock error")
 		}
+		defer func() { osUserHomeDir = originalUserHomeDir }()
 
-		// Execute the function and capture stderr
-		stderr := captureStderr(func() {
-			getCLIConfigPath()
-		})
+		// Execute the function
+		_, err := getCLIConfigPath()
 
-		// Verify the error message
-		expectedErrorMessage := "error finding home directory, mock error\n"
-		if stderr != expectedErrorMessage {
-			t.Errorf("expected error message %q, got %q", expectedErrorMessage, stderr)
-		}
-
-		// Verify the exit code
-		if exitCode != 1 {
-			t.Errorf("expected exit code 1, got %d", exitCode)
+		// Verify the error
+		expectedError := "error retrieving user home directory: mock error"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("expected error %q, got %v", expectedError, err)
 		}
 	})
 }

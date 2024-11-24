@@ -8,9 +8,10 @@ import (
 )
 
 var envCmd = &cobra.Command{
-	Use:   "env",
-	Short: "Output commands to set environment variables",
-	Long:  "Output commands to set environment variables for the application.",
+	Use:          "env",
+	Short:        "Output commands to set environment variables",
+	Long:         "Output commands to set environment variables for the application.",
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Resolve all environments from the injector
 		envInstances, err := injector.ResolveAll((*env.EnvPrinter)(nil))

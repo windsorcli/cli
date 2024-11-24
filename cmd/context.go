@@ -9,9 +9,10 @@ import (
 
 // getContextCmd represents the get command
 var getContextCmd = &cobra.Command{
-	Use:   "get",
-	Short: "Get the current context",
-	Long:  "Retrieve and display the current context from the configuration",
+	Use:          "get",
+	Short:        "Get the current context",
+	Long:         "Retrieve and display the current context from the configuration",
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		contextHandler, err := getContextHandler()
 		if err != nil {

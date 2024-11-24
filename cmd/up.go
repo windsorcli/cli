@@ -12,9 +12,10 @@ import (
 )
 
 var upCmd = &cobra.Command{
-	Use:   "up",
-	Short: "Set up the Windsor environment",
-	Long:  "Set up the Windsor environment by executing necessary shell commands.",
+	Use:          "up",
+	Short:        "Set up the Windsor environment",
+	Long:         "Set up the Windsor environment by executing necessary shell commands.",
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Resolve configHandler
 		configHandlerInstance, err := injector.Resolve("configHandler")
@@ -99,9 +100,6 @@ var upCmd = &cobra.Command{
 			if !ok {
 				return fmt.Errorf("Resolved instance is not of type virt.ContainerRuntime")
 			}
-			if err := dockerVirt.Up(verbose); err != nil {
-				return fmt.Errorf("Error running DockerVirt Up command: %w", err)
-			}
 
 			// Resolve dnsHelper
 			dnsHelperInstance, err := injector.Resolve("dnsHelper")
@@ -130,6 +128,11 @@ var upCmd = &cobra.Command{
 					return fmt.Errorf("DNS service not found")
 				}
 				dnsAddress = dnsService[0].Address
+			}
+
+			// Run the DockerVirt Up command
+			if err := dockerVirt.Up(verbose); err != nil {
+				return fmt.Errorf("Error running DockerVirt Up command: %w", err)
 			}
 		}
 

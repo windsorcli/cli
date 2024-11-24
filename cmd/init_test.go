@@ -210,40 +210,31 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("HomeDirError", func(t *testing.T) {
-		// Mock configHandler
+		// Given: a mocked error when retrieving the user home directory
 		mocks := mocks.CreateSuperMocks()
 
-		// Mock os.UserHomeDir to simulate an error
+		// Mock osUserHomeDir to simulate an error
 		originalUserHomeDir := osUserHomeDir
 		osUserHomeDir = func() (string, error) {
 			return "", fmt.Errorf("mocked error retrieving home directory")
 		}
 		defer func() { osUserHomeDir = originalUserHomeDir }()
 
-		// Mock the exit function to prevent the test from exiting
-		exitCalled := false
-		exitFunc = func(code int) {
-			exitCalled = true
-		}
-
+		// When: the init command is executed
 		rootCmd.SetArgs([]string{"init", "test-context"})
 		err := Execute(mocks.Injector)
 
-		// Check that the error is as expected
+		// Then: check for presence of error using contains
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
 
-		expectedError := "error retrieving home directory: mocked error retrieving home directory"
-		if err.Error() != expectedError {
-			t.Fatalf("Execute() error = %v, expected '%s'", err, expectedError)
-		}
-
-		// Check that exit was called
-		if !exitCalled {
-			t.Fatalf("Expected exit to be called, but it was not")
+		expectedError := "mocked error retrieving home directory"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
 		}
 	})
+
 	t.Run("SetConfigValueError", func(t *testing.T) {
 		// Given: a config handler that returns an error on SetConfigValue
 		mocks := mocks.CreateSuperMocks()

@@ -24,10 +24,11 @@ var (
 )
 
 var initCmd = &cobra.Command{
-	Use:   "init [context]",
-	Short: "Initialize the application",
-	Long:  "Initialize the application by setting up necessary configurations and environment",
-	Args:  cobra.MaximumNArgs(1),
+	Use:          "init [context]",
+	Short:        "Initialize the application",
+	Long:         "Initialize the application by setting up necessary configurations and environment",
+	Args:         cobra.MaximumNArgs(1),
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		contextHandler, err := getContextHandler()
 		if err != nil {
