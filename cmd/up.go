@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/network"
+	"github.com/windsor-hotel/cli/internal/services"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/virt"
 )
@@ -101,19 +101,19 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("Resolved instance is not of type virt.ContainerRuntime")
 			}
 
-			// Resolve dnsHelper
-			dnsHelperInstance, err := injector.Resolve("dnsHelper")
+			// Resolve dnsService
+			dnsServiceInstance, err := injector.Resolve("dnsService")
 			if err != nil {
-				return fmt.Errorf("Error resolving dnsHelper: %w", err)
+				return fmt.Errorf("Error resolving dnsService: %w", err)
 			}
-			dnsHelper, ok := dnsHelperInstance.(helpers.Helper)
+			dnsService, ok := dnsServiceInstance.(services.Service)
 			if !ok {
-				return fmt.Errorf("Resolved instance is not of type helpers.Helper")
+				return fmt.Errorf("Resolved instance is not of type services.Service")
 			}
 
 			// Write the DNS configuration
 			if createDns {
-				if err := dnsHelper.WriteConfig(); err != nil {
+				if err := dnsService.WriteConfig(); err != nil {
 					return fmt.Errorf("Error writing DNS config: %w", err)
 				}
 			}

@@ -1,4 +1,4 @@
-package helpers
+package services
 
 import (
 	"fmt"
@@ -12,16 +12,16 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-// GitHelper is a helper struct that provides various utility functions
-type GitHelper struct {
-	BaseHelper
+// GitService is a service struct that provides various utility functions
+type GitService struct {
+	BaseService
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
 	Context       context.ContextInterface
 }
 
-// NewGitHelper is a constructor for GitHelper
-func NewGitHelper(injector di.Injector) (*GitHelper, error) {
+// NewGitService is a constructor for GitService
+func NewGitService(injector di.Injector) (*GitService, error) {
 	configHandler, err := injector.Resolve("configHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving configHandler: %w", err)
@@ -37,7 +37,7 @@ func NewGitHelper(injector di.Injector) (*GitHelper, error) {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
-	return &GitHelper{
+	return &GitService{
 		ConfigHandler: configHandler.(config.ConfigHandler),
 		Shell:         resolvedShell.(shell.Shell),
 		Context:       resolvedContext.(context.ContextInterface),
@@ -45,13 +45,13 @@ func NewGitHelper(injector di.Injector) (*GitHelper, error) {
 }
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
-func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
-	contextName, err := h.Context.GetContext()
+func (s *GitService) GetComposeConfig() (*types.Config, error) {
+	contextName, err := s.Context.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	config := h.ConfigHandler.GetConfig()
+	config := s.ConfigHandler.GetConfig()
 
 	if config.Git == nil ||
 		config.Git.Livereload == nil ||
@@ -120,7 +120,7 @@ func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 	}
 
 	// Get the project root using the shell
-	projectRoot, err := h.Shell.GetProjectRoot()
+	projectRoot, err := s.Shell.GetProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving project root: %w", err)
 	}
@@ -153,8 +153,8 @@ func (h *GitHelper) GetComposeConfig() (*types.Config, error) {
 	}, nil
 }
 
-// Ensure GitHelper implements Helper interface
-var _ Helper = (*GitHelper)(nil)
+// Ensure GitService implements Service interface
+var _ Service = (*GitService)(nil)
 
 // strPtr is a helper function to create a pointer to a string
 func strPtr(s string) *string {

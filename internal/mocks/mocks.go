@@ -5,8 +5,8 @@ import (
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/network"
+	"github.com/windsor-hotel/cli/internal/services"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
 	"github.com/windsor-hotel/cli/internal/virt"
@@ -17,14 +17,14 @@ type SuperMocks struct {
 	ConfigHandler        *config.MockConfigHandler
 	ContextHandler       *context.MockContext
 	Shell                *shell.MockShell
-	AwsHelper            *helpers.MockHelper
-	ColimaHelper         *helpers.MockHelper
-	DockerHelper         *helpers.MockHelper
-	DnsHelper            *helpers.MockHelper
-	GitHelper            *helpers.MockHelper
-	KubeHelper           *helpers.MockHelper
-	OmniHelper           *helpers.MockHelper
-	TalosHelper          *helpers.MockHelper
+	AwsService           *services.MockService
+	ColimaService        *services.MockService
+	DockerService        *services.MockService
+	DnsService           *services.MockService
+	GitService           *services.MockService
+	KubeService          *services.MockService
+	OmniService          *services.MockService
+	TalosService         *services.MockService
 	AwsEnv               *env.MockEnvPrinter
 	DockerEnv            *env.MockEnvPrinter
 	KubeEnv              *env.MockEnvPrinter
@@ -56,15 +56,15 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell()
 
-	// Create mock helper instances
-	mockAwsHelper := helpers.NewMockHelper()
-	mockColimaHelper := helpers.NewMockHelper()
-	mockDockerHelper := helpers.NewMockHelper()
-	mockDnsHelper := helpers.NewMockHelper()
-	mockGitHelper := helpers.NewMockHelper()
-	mockKubeHelper := helpers.NewMockHelper()
-	mockOmniHelper := helpers.NewMockHelper()
-	mockTalosHelper := helpers.NewMockHelper()
+	// Create mock service instances
+	mockAwsService := services.NewMockService()
+	mockColimaService := services.NewMockService()
+	mockDockerService := services.NewMockService()
+	mockDnsService := services.NewMockService()
+	mockGitService := services.NewMockService()
+	mockKubeService := services.NewMockService()
+	mockOmniService := services.NewMockService()
+	mockTalosService := services.NewMockService()
 	mockSecureShell := shell.NewMockShell()
 	mockSSHClient := &ssh.MockClient{}
 
@@ -89,13 +89,13 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
-	injector.Register("awsHelper", mockAwsHelper)
-	injector.Register("dnsHelper", mockDnsHelper)
-	injector.Register("dockerHelper", mockDockerHelper)
-	injector.Register("gitHelper", mockGitHelper)
-	injector.Register("kubeHelper", mockKubeHelper)
-	injector.Register("omniHelper", mockOmniHelper)
-	injector.Register("talosHelper", mockTalosHelper)
+	injector.Register("awsService", mockAwsService)
+	injector.Register("dnsService", mockDnsService)
+	injector.Register("dockerService", mockDockerService)
+	injector.Register("gitService", mockGitService)
+	injector.Register("kubeService", mockKubeService)
+	injector.Register("omniService", mockOmniService)
+	injector.Register("talosService", mockTalosService)
 	injector.Register("sshClient", mockSSHClient)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("colimaVirt", mockColimaVirt)
@@ -114,14 +114,14 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 		ConfigHandler:        mockConfigHandler,
 		ContextHandler:       mockContext,
 		Shell:                mockShell,
-		AwsHelper:            mockAwsHelper,
-		ColimaHelper:         mockColimaHelper,
-		DockerHelper:         mockDockerHelper,
-		DnsHelper:            mockDnsHelper,
-		GitHelper:            mockGitHelper,
-		KubeHelper:           mockKubeHelper,
-		OmniHelper:           mockOmniHelper,
-		TalosHelper:          mockTalosHelper,
+		AwsService:           mockAwsService,
+		ColimaService:        mockColimaService,
+		DockerService:        mockDockerService,
+		DnsService:           mockDnsService,
+		GitService:           mockGitService,
+		KubeService:          mockKubeService,
+		OmniService:          mockOmniService,
+		TalosService:         mockTalosService,
 		AwsEnv:               mockAwsEnv,
 		DockerEnv:            mockDockerEnv,
 		KubeEnv:              mockKubeEnv,

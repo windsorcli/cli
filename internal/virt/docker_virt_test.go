@@ -11,7 +11,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/services"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -26,13 +26,13 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockHelper := helpers.NewMockHelper()
+	mockService := services.NewMockService()
 
 	// Register mock instances in the injector
 	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("mockHelper", mockHelper)
+	injector.Register("dockerService", mockService)
 
 	// Implement GetContextFunc on mock context
 	mockContext.GetContextFunc = func() (string, error) {
@@ -85,8 +85,8 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 		return "", fmt.Errorf("unknown command")
 	}
 
-	// Mock the helper's GetComposeConfigFunc to return a default configuration for two services
-	mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+	// Mock the service's GetComposeConfigFunc to return a default configuration for two services
+	mockService.GetComposeConfigFunc = func() (*types.Config, error) {
 		return &types.Config{
 			Services: []types.ServiceConfig{
 				{Name: "service1"},
@@ -117,7 +117,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
-		MockHelper:        mockHelper,
+		MockService:       mockService,
 	}
 }
 
@@ -135,9 +135,9 @@ func TestDockerVirt_Initialize(t *testing.T) {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		// Verify that the helpers were resolved correctly
-		if len(dockerVirt.helpers) == 0 {
-			t.Errorf("expected helpers to be resolved, but got none")
+		// Verify that the services were resolved correctly
+		if len(dockerVirt.services) == 0 {
+			t.Errorf("expected services to be resolved, but got none")
 		}
 	})
 
@@ -165,14 +165,14 @@ func TestDockerVirt_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingHelpers", func(t *testing.T) {
+	t.Run("ErrorResolvingServices", func(t *testing.T) {
 		// Setup mock components
 		injector := di.NewMockInjector()
 		mocks := setupSafeDockerContainerMocks(injector)
 		dockerVirt := NewDockerVirt(mocks.Injector)
 
-		// Simulate an error during helper resolution
-		injector.SetResolveAllError(fmt.Errorf("mock resolve helpers error"))
+		// Simulate an error during service resolution
+		injector.SetResolveAllError(fmt.Errorf("mock resolve services error"))
 
 		// Call the Initialize method
 		err := dockerVirt.Initialize()
@@ -183,7 +183,7 @@ func TestDockerVirt_Initialize(t *testing.T) {
 		}
 
 		// Verify the error message contains the expected substring
-		expectedErrorSubstring := "error resolving helpers"
+		expectedErrorSubstring := "error resolving services"
 		if !strings.Contains(err.Error(), expectedErrorSubstring) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
@@ -1055,8 +1055,8 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		dockerVirt := NewDockerVirt(mockInjector)
 		dockerVirt.Initialize()
 
-		// Mock the git helper's GetComposeConfigFunc to return an error
-		mocks.MockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+		// Mock the git service's GetComposeConfigFunc to return an error
+		mocks.MockService.GetComposeConfigFunc = func() (*types.Config, error) {
 			return nil, fmt.Errorf("error getting compose config")
 		}
 
@@ -1087,8 +1087,8 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		dockerVirt := NewDockerVirt(mockInjector)
 		dockerVirt.Initialize()
 
-		// Mock the helper's GetComposeConfigFunc to return empty container configs and no error
-		mocks.MockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+		// Mock the service's GetComposeConfigFunc to return empty container configs and no error
+		mocks.MockService.GetComposeConfigFunc = func() (*types.Config, error) {
 			return nil, nil
 		}
 

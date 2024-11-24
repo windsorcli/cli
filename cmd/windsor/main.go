@@ -8,8 +8,8 @@ import (
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/network"
+	"github.com/windsor-hotel/cli/internal/services"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
 	"github.com/windsor-hotel/cli/internal/virt"
@@ -41,34 +41,34 @@ func main() {
 	contextHandler := context.NewContext(configHandler, shellInstance)
 	injector.Register("contextHandler", contextHandler)
 
-	// Create and register the AwsHelper instance
-	awsHelper, err := helpers.NewAwsHelper(injector)
+	// Create and register the AwsService instance
+	awsService, err := services.NewAwsService(injector)
 	if err != nil {
-		log.Fatalf("failed to create aws helper: %v", err)
+		log.Fatalf("failed to create aws service: %v", err)
 	}
-	injector.Register("awsHelper", awsHelper)
+	injector.Register("awsService", awsService)
 
-	// Create and register the GitHelper instance
-	gitHelper, err := helpers.NewGitHelper(injector)
+	// Create and register the GitService instance
+	gitService, err := services.NewGitService(injector)
 	if err != nil {
-		log.Fatalf("failed to create git helper: %v", err)
+		log.Fatalf("failed to create git service: %v", err)
 	}
-	injector.Register("gitHelper", gitHelper)
+	injector.Register("gitService", gitService)
 
-	// Create and register the DNSHelper instance
-	dnsHelper, err := helpers.NewDNSHelper(injector)
+	// Create and register the DNSService instance
+	dnsService, err := services.NewDNSService(injector)
 	if err != nil {
-		log.Fatalf("failed to create dns helper: %v", err)
+		log.Fatalf("failed to create dns service: %v", err)
 	}
-	injector.Register("dnsHelper", dnsHelper)
+	injector.Register("dnsService", dnsService)
 
-	// Create and register the DockerHelper instance
+	// Create and register the DockerService instance
 	// This should go last!
-	dockerHelper, err := helpers.NewDockerHelper(injector)
+	dockerService, err := services.NewDockerService(injector)
 	if err != nil {
-		log.Fatalf("failed to create docker helper: %v", err)
+		log.Fatalf("failed to create docker service: %v", err)
 	}
-	injector.Register("dockerHelper", dockerHelper)
+	injector.Register("dockerService", dockerService)
 
 	// Register SSH Client instance
 	sshClient := ssh.NewSSHClient()

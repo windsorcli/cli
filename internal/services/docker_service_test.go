@@ -1,4 +1,4 @@
-package helpers
+package services
 
 import (
 	"reflect"
@@ -15,28 +15,28 @@ import (
 // Mock function for yamlMarshal to simulate an error
 var originalYamlMarshal = yamlMarshal
 
-func TestDockerHelper_Initialize(t *testing.T) {
+func TestDockerService_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler, context, and helper
+		// Given: a mock config handler, context, and service
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockContext := context.NewMockContext()
-		mockHelper := NewMockHelper()
+		mockService := NewMockService()
 
 		// Create injector and register mocks
 		diContainer := di.NewInjector()
 		diContainer.Register("configHandler", mockConfigHandler)
 		diContainer.Register("contextHandler", mockContext)
-		diContainer.Register("helper", mockHelper)
+		diContainer.Register("service", mockService)
 		diContainer.Register("shell", shell.NewMockShell())
 
-		// Create an instance of DockerHelper
-		dockerHelper, err := NewDockerHelper(diContainer)
+		// Create an instance of DockerService
+		dockerService, err := NewDockerService(diContainer)
 		if err != nil {
-			t.Fatalf("NewDockerHelper() error = %v", err)
+			t.Fatalf("NewDockerService() error = %v", err)
 		}
 
 		// When: Initialize is called
-		err = dockerHelper.Initialize()
+		err = dockerService.Initialize()
 		if err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
@@ -48,13 +48,13 @@ func TestDockerHelper_Initialize(t *testing.T) {
 	})
 }
 
-func TestDockerHelper_NewDockerHelper(t *testing.T) {
+func TestDockerService_NewDockerService(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		// Create injector without registering configHandler
 		diContainer := di.NewInjector()
 
-		// Attempt to create DockerHelper
-		_, err := NewDockerHelper(diContainer)
+		// Attempt to create DockerService
+		_, err := NewDockerService(diContainer)
 		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
 			t.Fatalf("expected error resolving configHandler, got %v", err)
 		}
@@ -66,8 +66,8 @@ func TestDockerHelper_NewDockerHelper(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		diContainer.Register("configHandler", mockConfigHandler)
 
-		// Attempt to create DockerHelper
-		_, err := NewDockerHelper(diContainer)
+		// Attempt to create DockerService
+		_, err := NewDockerService(diContainer)
 		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
 			t.Fatalf("expected error resolving context, got %v", err)
 		}
@@ -81,17 +81,17 @@ func TestDockerHelper_NewDockerHelper(t *testing.T) {
 		diContainer.Register("configHandler", mockConfigHandler)
 		diContainer.Register("contextHandler", mockContext)
 
-		// Attempt to create DockerHelper
-		_, err := NewDockerHelper(diContainer)
+		// Attempt to create DockerService
+		_, err := NewDockerService(diContainer)
 		if err == nil || !strings.Contains(err.Error(), "error resolving shell") {
 			t.Fatalf("expected error resolving shell, got %v", err)
 		}
 	})
 }
 
-func TestDockerHelper_GetComposeConfig(t *testing.T) {
+func TestDockerService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler, shell, context, and helper
+		// Given: a mock config handler, shell, context, and service
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
@@ -117,21 +117,21 @@ func TestDockerHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("configHandler", mockConfigHandler)
 		diContainer.Register("contextHandler", mockContext)
 
-		// Register MockHelper
-		mockHelper := NewMockHelper()
-		diContainer.Register("helper", mockHelper)
+		// Register MockService
+		mockService := NewMockService()
+		diContainer.Register("service", mockService)
 
 		// Register MockShell
 		mockShell := shell.NewMockShell()
 		diContainer.Register("shell", mockShell)
 
-		helper, err := NewDockerHelper(diContainer)
+		dockerService, err := NewDockerService(diContainer)
 		if err != nil {
-			t.Fatalf("NewDockerHelper() error = %v", err)
+			t.Fatalf("NewDockerService() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
-		composeConfig, err := helper.GetComposeConfig()
+		composeConfig, err := dockerService.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}

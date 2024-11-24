@@ -1,4 +1,4 @@
-package helpers
+package services
 
 import (
 	"fmt"
@@ -12,15 +12,15 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-// AwsHelper is a helper struct that provides AWS-specific utility functions
-type AwsHelper struct {
-	BaseHelper
+// AwsService is a service struct that provides AWS-specific utility functions
+type AwsService struct {
+	BaseService
 	ConfigHandler config.ConfigHandler
 	Context       context.ContextInterface
 }
 
-// NewAwsHelper is a constructor for AwsHelper
-func NewAwsHelper(injector di.Injector) (*AwsHelper, error) {
+// NewAwsService is a constructor for AwsService
+func NewAwsService(injector di.Injector) (*AwsService, error) {
 	configHandler, err := injector.Resolve("configHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving configHandler: %w", err)
@@ -31,15 +31,15 @@ func NewAwsHelper(injector di.Injector) (*AwsHelper, error) {
 		return nil, fmt.Errorf("error resolving context: %w", err)
 	}
 
-	return &AwsHelper{
+	return &AwsService{
 		ConfigHandler: configHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
 	}, nil
 }
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
-func (h *AwsHelper) GetComposeConfig() (*types.Config, error) {
-	contextConfig := h.ConfigHandler.GetConfig()
+func (s *AwsService) GetComposeConfig() (*types.Config, error) {
+	contextConfig := s.ConfigHandler.GetConfig()
 
 	if contextConfig.AWS == nil ||
 		contextConfig.AWS.Localstack == nil ||
@@ -91,5 +91,5 @@ func (h *AwsHelper) GetComposeConfig() (*types.Config, error) {
 	return &types.Config{Services: services}, nil
 }
 
-// Ensure AwsHelper implements Helper interface
-var _ Helper = (*AwsHelper)(nil)
+// Ensure AwsService implements Service interface
+var _ Service = (*AwsService)(nil)

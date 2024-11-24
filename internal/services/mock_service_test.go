@@ -1,4 +1,4 @@
-package helpers
+package services
 
 import (
 	"fmt"
@@ -21,9 +21,9 @@ func equalMaps(a, b map[string]string) bool {
 	return true
 }
 
-func TestMockHelper_GetComposeConfig(t *testing.T) {
+func TestMockService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock helper with a GetComposeConfigFunc
+		// Given: a mock service with a GetComposeConfigFunc
 		expectedConfig := &types.Config{
 			Services: []types.ServiceConfig{
 				{
@@ -32,14 +32,14 @@ func TestMockHelper_GetComposeConfig(t *testing.T) {
 				},
 			},
 		}
-		mockHelper := &MockHelper{
+		mockService := &MockService{
 			GetComposeConfigFunc: func() (*types.Config, error) {
 				return expectedConfig, nil
 			},
 		}
 
 		// When: GetComposeConfig is called
-		composeConfig, err := mockHelper.GetComposeConfig()
+		composeConfig, err := mockService.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
@@ -51,11 +51,11 @@ func TestMockHelper_GetComposeConfig(t *testing.T) {
 	})
 
 	t.Run("SuccessNoMock", func(t *testing.T) {
-		// Given: a mock helper with no GetComposeConfigFunc
-		mockHelper := NewMockHelper()
+		// Given: a mock service with no GetComposeConfigFunc
+		mockService := NewMockService()
 
 		// When: GetComposeConfig is called
-		composeConfig, err := mockHelper.GetComposeConfig()
+		composeConfig, err := mockService.GetComposeConfig()
 
 		// Then: no error should occur and the result should be nil
 		if err != nil {
@@ -67,16 +67,16 @@ func TestMockHelper_GetComposeConfig(t *testing.T) {
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		// Given: a mock helper with a GetComposeConfigFunc that returns an error
+		// Given: a mock service with a GetComposeConfigFunc that returns an error
 		expectedError := fmt.Errorf("mock error getting compose config")
-		mockHelper := &MockHelper{
+		mockService := &MockService{
 			GetComposeConfigFunc: func() (*types.Config, error) {
 				return nil, expectedError
 			},
 		}
 
 		// When: GetComposeConfig is called
-		_, err := mockHelper.GetComposeConfig()
+		_, err := mockService.GetComposeConfig()
 		if err == nil {
 			t.Fatalf("expected error %v, got nil", expectedError)
 		}
@@ -86,10 +86,10 @@ func TestMockHelper_GetComposeConfig(t *testing.T) {
 	})
 }
 
-func TestMockHelper_SetGetComposeConfigFunc(t *testing.T) {
+func TestMockService_SetGetComposeConfigFunc(t *testing.T) {
 	t.Run("SetGetComposeConfigFunc", func(t *testing.T) {
-		// Given: a mock helper
-		mockHelper := NewMockHelper()
+		// Given: a mock service
+		mockService := NewMockService()
 
 		// Define a mock GetComposeConfigFunc
 		expectedConfig := &types.Config{
@@ -105,10 +105,10 @@ func TestMockHelper_SetGetComposeConfigFunc(t *testing.T) {
 		}
 
 		// When: SetGetComposeConfigFunc is called
-		mockHelper.SetGetComposeConfigFunc(mockGetComposeConfigFunc)
+		mockService.SetGetComposeConfigFunc(mockGetComposeConfigFunc)
 
 		// Then: the GetComposeConfigFunc should be set and return the expected configuration
-		composeConfig, err := mockHelper.GetComposeConfig()
+		composeConfig, err := mockService.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}

@@ -1,4 +1,4 @@
-package helpers
+package services
 
 import (
 	"fmt"
@@ -21,9 +21,9 @@ type ServiceInfo struct {
 	IP   string `json:"ip"`
 }
 
-// DockerHelper is a helper struct that provides Docker-specific utility functions
-type DockerHelper struct {
-	BaseHelper
+// DockerService is a service struct that provides Docker-specific utility functions
+type DockerService struct {
+	BaseService
 	ConfigHandler config.ConfigHandler
 	Context       context.ContextInterface
 	Injector      di.Injector
@@ -32,8 +32,8 @@ type DockerHelper struct {
 
 const registryImage = "registry:2.8.3"
 
-// NewDockerHelper is a constructor for DockerHelper
-func NewDockerHelper(injector di.Injector) (*DockerHelper, error) {
+// NewDockerService is a constructor for DockerService
+func NewDockerService(injector di.Injector) (*DockerService, error) {
 	configHandler, err := injector.Resolve("configHandler")
 	if err != nil {
 		return nil, fmt.Errorf("error resolving configHandler: %w", err)
@@ -49,7 +49,7 @@ func NewDockerHelper(injector di.Injector) (*DockerHelper, error) {
 		return nil, fmt.Errorf("error resolving shell: %w", err)
 	}
 
-	return &DockerHelper{
+	return &DockerService{
 		ConfigHandler: configHandler.(config.ConfigHandler),
 		Context:       resolvedContext.(context.ContextInterface),
 		Injector:      injector,
@@ -57,17 +57,17 @@ func NewDockerHelper(injector di.Injector) (*DockerHelper, error) {
 	}, nil
 }
 
-// Initialize performs any necessary initialization for the helper.
-func (h *DockerHelper) Initialize() error {
+// Initialize performs any necessary initialization for the service.
+func (s *DockerService) Initialize() error {
 	// Perform any necessary initialization here
 	return nil
 }
 
 // generateRegistryService creates a ServiceConfig for a Docker registry service
 // with the specified name, remote URL, and local URL.
-func (h *DockerHelper) generateRegistryService(name, remoteURL, localURL string) (types.ServiceConfig, error) {
+func (s *DockerService) generateRegistryService(name, remoteURL, localURL string) (types.ServiceConfig, error) {
 	// Retrieve the context name
-	contextName, err := h.Context.GetContext()
+	contextName, err := s.Context.GetContext()
 	if err != nil {
 		return types.ServiceConfig{}, fmt.Errorf("error retrieving context: %w", err)
 	}
@@ -108,18 +108,18 @@ func (h *DockerHelper) generateRegistryService(name, remoteURL, localURL string)
 }
 
 // GetComposeConfig returns a list of container data for docker-compose.
-func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
+func (s *DockerService) GetComposeConfig() (*types.Config, error) {
 	var services []types.ServiceConfig
 
 	// Retrieve the context configuration using GetConfig
-	contextConfig := h.ConfigHandler.GetConfig()
+	contextConfig := s.ConfigHandler.GetConfig()
 
 	// Retrieve the list of registries from the context configuration
 	registries := contextConfig.Docker.Registries
 
 	// Convert registries to service definitions
 	for _, registry := range registries {
-		service, err := h.generateRegistryService(registry.Name, registry.Remote, registry.Local)
+		service, err := s.generateRegistryService(registry.Name, registry.Remote, registry.Local)
 		if err != nil {
 			return nil, err
 		}
@@ -129,10 +129,10 @@ func (h *DockerHelper) GetComposeConfig() (*types.Config, error) {
 	return &types.Config{Services: services}, nil
 }
 
-// GetFullComposeConfig retrieves the full compose configuration for the DockerHelper.
-func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
+// GetFullComposeConfig retrieves the full compose configuration for the DockerService.
+func (s *DockerService) GetFullComposeConfig() (*types.Project, error) {
 	// Retrieve the context configuration using GetConfig
-	contextConfig := h.ConfigHandler.GetConfig()
+	contextConfig := s.ConfigHandler.GetConfig()
 
 	// Check if Docker is defined in the windsor config
 	if contextConfig.Docker == nil {
@@ -146,19 +146,19 @@ func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	combinedVolumes = make(map[string]types.VolumeConfig)
 	combinedNetworks = make(map[string]types.NetworkConfig)
 
-	// Initialize helpers on-the-fly
-	helpers, err := h.Injector.ResolveAll((*Helper)(nil))
+	// Initialize services on-the-fly
+	services, err := s.Injector.ResolveAll((*Service)(nil))
 	if err != nil {
-		return nil, fmt.Errorf("error resolving helpers: %w", err)
+		return nil, fmt.Errorf("error resolving services: %w", err)
 	}
 
-	// Iterate through each helper and collect container configs
-	for _, helper := range helpers {
-		if helperInstance, ok := helper.(Helper); ok {
-			helperName := fmt.Sprintf("%T", helperInstance)
-			containerConfigs, err := helperInstance.GetComposeConfig()
+	// Iterate through each service and collect container configs
+	for _, service := range services {
+		if serviceInstance, ok := service.(Service); ok {
+			serviceName := fmt.Sprintf("%T", serviceInstance)
+			containerConfigs, err := serviceInstance.GetComposeConfig()
 			if err != nil {
-				return nil, fmt.Errorf("error getting container config from helper %s: %w", helperName, err)
+				return nil, fmt.Errorf("error getting container config from service %s: %w", serviceName, err)
 			}
 			if containerConfigs == nil {
 				continue
@@ -182,7 +182,7 @@ func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	}
 
 	// Create a network called "windsor-<context-name>"
-	contextName, err := h.Context.GetContext()
+	contextName, err := s.Context.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
@@ -246,8 +246,8 @@ func (h *DockerHelper) GetFullComposeConfig() (*types.Project, error) {
 	return project, nil
 }
 
-// Ensure DockerHelper implements Helper interface
-var _ Helper = (*DockerHelper)(nil)
+// Ensure DockerService implements Service interface
+var _ Service = (*DockerService)(nil)
 
 // incrementIP increments an IP address by one
 func incrementIP(ip net.IP) net.IP {

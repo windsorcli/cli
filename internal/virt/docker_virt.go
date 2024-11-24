@@ -11,13 +11,13 @@ import (
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/services"
 )
 
 // DockerVirt implements the ContainerInterface for Docker
 type DockerVirt struct {
 	BaseVirt
-	helpers []helpers.Helper
+	services []services.Service
 }
 
 // NewDockerVirt creates a new instance of DockerVirt using a DI injector
@@ -35,20 +35,20 @@ func (v *DockerVirt) Initialize() error {
 		return fmt.Errorf("error initializing base: %w", err)
 	}
 
-	resolvedHelpers, err := v.injector.ResolveAll((*helpers.Helper)(nil))
+	resolvedServices, err := v.injector.ResolveAll((*services.Service)(nil))
 	if err != nil {
-		return fmt.Errorf("error resolving helpers: %w", err)
+		return fmt.Errorf("error resolving services: %w", err)
 	}
 
-	// Convert the resolved helpers to the correct type
-	helperSlice := make([]helpers.Helper, len(resolvedHelpers))
-	for i, helper := range resolvedHelpers {
-		if h, _ := helper.(helpers.Helper); h != nil {
-			helperSlice[i] = h
+	// Convert the resolved services to the correct type
+	serviceSlice := make([]services.Service, len(resolvedServices))
+	for i, service := range resolvedServices {
+		if s, _ := service.(services.Service); s != nil {
+			serviceSlice[i] = s
 		}
 	}
 
-	v.helpers = helperSlice
+	v.services = serviceSlice
 	return nil
 }
 
@@ -289,13 +289,13 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	combinedVolumes = make(map[string]types.VolumeConfig)
 	combinedNetworks = make(map[string]types.NetworkConfig)
 
-	// Iterate through each helper and collect container configs
-	for _, helper := range v.helpers {
-		if helperInstance, ok := helper.(interface{ GetComposeConfig() (*types.Config, error) }); ok {
-			helperName := fmt.Sprintf("%T", helperInstance)
-			containerConfigs, err := helperInstance.GetComposeConfig()
+	// Iterate through each service and collect container configs
+	for _, service := range v.services {
+		if serviceInstance, ok := service.(interface{ GetComposeConfig() (*types.Config, error) }); ok {
+			serviceName := fmt.Sprintf("%T", serviceInstance)
+			containerConfigs, err := serviceInstance.GetComposeConfig()
 			if err != nil {
-				return nil, fmt.Errorf("error getting container config from helper %s: %w", helperName, err)
+				return nil, fmt.Errorf("error getting container config from service %s: %w", serviceName, err)
 			}
 			if containerConfigs == nil {
 				continue

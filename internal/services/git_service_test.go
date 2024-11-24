@@ -1,4 +1,4 @@
-package helpers
+package services
 
 import (
 	"fmt"
@@ -14,13 +14,13 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-func TestGitHelper_NewGitHelper(t *testing.T) {
+func TestGitService_NewGitService(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		// Create injector without registering configHandler
 		diContainer := di.NewInjector()
 
-		// Attempt to create GitHelper
-		_, err := NewGitHelper(diContainer)
+		// Attempt to create GitService
+		_, err := NewGitService(diContainer)
 		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
 			t.Fatalf("expected error resolving configHandler, got %v", err)
 		}
@@ -32,8 +32,8 @@ func TestGitHelper_NewGitHelper(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		diContainer.Register("configHandler", mockConfigHandler)
 
-		// Attempt to create GitHelper
-		_, err := NewGitHelper(diContainer)
+		// Attempt to create GitService
+		_, err := NewGitService(diContainer)
 		if err == nil || !strings.Contains(err.Error(), "error resolving shell") {
 			t.Fatalf("expected error resolving shell, got %v", err)
 		}
@@ -47,15 +47,15 @@ func TestGitHelper_NewGitHelper(t *testing.T) {
 		diContainer.Register("configHandler", mockConfigHandler)
 		diContainer.Register("shell", mockShell)
 
-		// Attempt to create GitHelper
-		_, err := NewGitHelper(diContainer)
+		// Attempt to create GitService
+		_, err := NewGitService(diContainer)
 		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
 			t.Fatalf("expected error resolving context, got %v", err)
 		}
 	})
 }
 
-func TestGitHelper_GetComposeConfig(t *testing.T) {
+func TestGitService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, shell, and context
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -88,14 +88,14 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextHandler", mockContext)
 
-		// Create GitHelper
-		gitHelper, err := NewGitHelper(diContainer)
+		// Create GitService
+		gitService, err := NewGitService(diContainer)
 		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
+			t.Fatalf("NewGitService() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called with git livereload enabled
-		composeConfig, err := gitHelper.GetComposeConfig()
+		composeConfig, err := gitService.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
@@ -150,12 +150,12 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextHandler", mockContext)
 
-		gitHelper, err := NewGitHelper(diContainer)
+		gitService, err := NewGitService(diContainer)
 		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
+			t.Fatalf("NewGitService() error = %v", err)
 		}
 
-		_, err = gitHelper.GetComposeConfig()
+		_, err = gitService.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving context") {
 			t.Fatalf("expected error retrieving context, got %v", err)
 		}
@@ -182,12 +182,12 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextHandler", mockContext)
 
-		gitHelper, err := NewGitHelper(diContainer)
+		gitService, err := NewGitService(diContainer)
 		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
+			t.Fatalf("NewGitService() error = %v", err)
 		}
 
-		composeConfig, err := gitHelper.GetComposeConfig()
+		composeConfig, err := gitService.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
@@ -220,12 +220,12 @@ func TestGitHelper_GetComposeConfig(t *testing.T) {
 		diContainer.Register("shell", mockShell)
 		diContainer.Register("contextHandler", mockContext)
 
-		gitHelper, err := NewGitHelper(diContainer)
+		gitService, err := NewGitService(diContainer)
 		if err != nil {
-			t.Fatalf("NewGitHelper() error = %v", err)
+			t.Fatalf("NewGitService() error = %v", err)
 		}
 
-		_, err = gitHelper.GetComposeConfig()
+		_, err = gitService.GetComposeConfig()
 		if err == nil || !strings.Contains(err.Error(), "error retrieving project root") {
 			t.Fatalf("expected error retrieving project root, got %v", err)
 		}
