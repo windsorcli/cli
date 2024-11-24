@@ -122,9 +122,7 @@ func main() {
 	networkInterfaceProvider := &network.RealNetworkInterfaceProvider{}
 	injector.Register("networkInterfaceProvider", networkInterfaceProvider)
 
-	// Inject the DI injector into the cmd package
-	cmd.Initialize(injector)
-
-	// Execute the root command
-	cmd.Execute()
+	// Execute the root command and handle the error silently,
+	// allowing the CLI framework to report the error
+	_ = cmd.Execute(injector)
 }

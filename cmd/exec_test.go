@@ -13,9 +13,7 @@ import (
 
 func TestExecCmd(t *testing.T) {
 	originalExitFunc := exitFunc
-	exitFunc = func(code int) {
-		mockExit(code, "")
-	}
+	exitFunc = mockExit
 	t.Cleanup(func() {
 		exitFunc = originalExitFunc
 	})
@@ -28,12 +26,11 @@ func TestExecCmd(t *testing.T) {
 		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "hello\n", nil
 		}
-		Initialize(mocks.Injector)
 
 		// Capture stdout using a buffer
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-			err := rootCmd.Execute()
+			err := Execute(mocks.Injector)
 			if err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
@@ -51,13 +48,12 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock components using SuperMocks
 		mocks := mocks.CreateSuperMocks()
-		Initialize(mocks.Injector)
 
 		// Capture stderr
 		var buf bytes.Buffer
 		rootCmd.SetErr(&buf)
 		rootCmd.SetArgs([]string{"exec"})
-		err := rootCmd.Execute()
+		err := Execute(mocks.Injector)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -80,7 +76,6 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock components using SuperMocks with the mock injector
 		mocks := mocks.CreateSuperMocks(mockInjector)
-		Initialize(mocks.Injector)
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -88,7 +83,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := rootCmd.Execute()
+		err := Execute(mocks.Injector)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -109,7 +104,6 @@ func TestExecCmd(t *testing.T) {
 		mockInjector := di.NewMockInjector()
 		mockInjector.SetResolveAllError(errors.New("resolve env error")) // Simulate error
 		mocks := mocks.CreateSuperMocks(mockInjector)
-		Initialize(mocks.Injector)
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -117,7 +111,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed without verbose flag
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := rootCmd.Execute()
+		err := Execute(mocks.Injector)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -129,6 +123,35 @@ func TestExecCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorInitializing", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given an environment that returns an error when initializing
+		mocks := mocks.CreateSuperMocks()
+		mocks.WindsorEnv.InitializeFunc = func() error {
+			return errors.New("initialize error")
+		}
+
+		// Capture stderr
+		var buf bytes.Buffer
+		rootCmd.SetErr(&buf)
+
+		// When the exec command is executed with verbose flag
+		rootCmd.SetArgs([]string{"exec", "--verbose", "echo", "hello"})
+		err := Execute(mocks.Injector)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		output := buf.String()
+
+		// Then the output should indicate the error
+		expectedOutput := "Error initializing environment: initialize error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
 	t.Run("GetEnvVarsError", func(t *testing.T) {
 		defer resetRootCmd()
 
@@ -137,7 +160,6 @@ func TestExecCmd(t *testing.T) {
 		mocks.WindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, errors.New("get env vars error")
 		}
-		Initialize(mocks.Injector)
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -145,7 +167,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed with verbose flag
 		rootCmd.SetArgs([]string{"exec", "--verbose", "echo", "hello"})
-		err := rootCmd.Execute()
+		err := Execute(mocks.Injector)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -167,7 +189,6 @@ func TestExecCmd(t *testing.T) {
 		mocks.WindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, errors.New("get env vars error")
 		}
-		Initialize(mocks.Injector)
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -175,7 +196,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed without verbose flag
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := rootCmd.Execute()
+		err := Execute(mocks.Injector)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -199,8 +220,6 @@ func TestExecCmd(t *testing.T) {
 				"VAR1": "value1",
 			}, nil
 		}
-		Initialize(mocks.Injector)
-
 		// Mock os.Setenv to return an error
 		setenvError := func(key, value string) error {
 			return errors.New("set env error")
@@ -211,13 +230,79 @@ func TestExecCmd(t *testing.T) {
 
 		// Execute the command
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := rootCmd.Execute()
+		err := Execute(mocks.Injector)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
 
 		// Then the error should indicate the set environment variable error
 		expectedError := "Error setting environment variable VAR1: set env error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error to be %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorResolvingShell", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given an injector that returns an error when resolving the shell
+		mockInjector := di.NewMockInjector()
+		mockInjector.SetResolveError("shell", errors.New("resolve shell error"))
+		mocks := mocks.CreateSuperMocks(mockInjector)
+
+		// When the exec command is executed
+		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
+		err := Execute(mocks.Injector)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then the error should indicate the shell resolution error
+		expectedError := "Error resolving shell instance: resolve shell error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error to be %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorCastingShell", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a shell that returns an error when casting
+		mocks := mocks.CreateSuperMocks()
+		mocks.Injector.Register("shell", "invalid")
+
+		// When the exec command is executed
+		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
+		err := Execute(mocks.Injector)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then the error should indicate the casting error
+		expectedError := "Resolved instance is not of type shell.Shell"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error to be %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorInitializingShell", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a shell that returns an error when initializing
+		mocks := mocks.CreateSuperMocks()
+		mocks.Shell.InitializeFunc = func() error {
+			return errors.New("initialize shell error")
+		}
+
+		// When the exec command is executed
+		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
+		err := Execute(mocks.Injector)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then the error should indicate the shell initialization error
+		expectedError := "Error initializing shell: initialize shell error"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error to be %q, got %q", expectedError, err.Error())
 		}
@@ -236,11 +321,10 @@ func TestExecCmd(t *testing.T) {
 				"VAR1": "value1",
 			}, nil
 		}
-		Initialize(mocks.Injector)
 
 		// Execute the command
 		rootCmd.SetArgs([]string{"exec", "--verbose", "echo", "hello"})
-		err := rootCmd.Execute()
+		err := Execute(mocks.Injector)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -263,7 +347,6 @@ func TestExecCmd(t *testing.T) {
 			}
 			return "", errors.New("command execution error")
 		}
-		Initialize(mocks.Injector)
 
 		// Capture output
 		var buf bytes.Buffer
@@ -272,7 +355,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed without verbose flag
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := rootCmd.Execute()
+		err := Execute(mocks.Injector)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}

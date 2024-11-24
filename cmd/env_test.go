@@ -13,9 +13,7 @@ import (
 
 func TestEnvCmd(t *testing.T) {
 	originalExitFunc := exitFunc
-	exitFunc = func(code int) {
-		mockExit(code, "")
-	}
+	exitFunc = mockExit
 	t.Cleanup(func() {
 		exitFunc = originalExitFunc
 	})
@@ -34,12 +32,10 @@ func TestEnvCmd(t *testing.T) {
 		}
 		mocks.Injector.Register("windsorEnv", mockEnv)
 
-		Initialize(mocks.Injector)
-
 		// Capture the output using captureStdout
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"env"})
-			err := rootCmd.Execute()
+			err := Execute(mocks.Injector)
 			if err != nil {
 				t.Fatalf("Expected no error, got %v", err)
 			}
@@ -60,15 +56,13 @@ func TestEnvCmd(t *testing.T) {
 		mockInjector.SetResolveAllError(fmt.Errorf("resolve env error"))
 		mocks := mocks.CreateSuperMocks(mockInjector)
 
-		Initialize(mocks.Injector)
-
 		// Capture stderr
 		var buf bytes.Buffer
 		rootCmd.SetErr(&buf)
 
 		// When the env command is executed with verbose flag
 		rootCmd.SetArgs([]string{"env", "--verbose"})
-		err := rootCmd.Execute()
+		err := Execute(mocks.Injector)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -90,15 +84,13 @@ func TestEnvCmd(t *testing.T) {
 		mockInjector.SetResolveAllError(fmt.Errorf("resolve env error"))
 		mocks := mocks.CreateSuperMocks(mockInjector)
 
-		Initialize(mocks.Injector)
-
 		// Capture stderr
 		var buf bytes.Buffer
 		rootCmd.SetErr(&buf)
 
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
-		err := rootCmd.Execute()
+		err := Execute(mocks.Injector)
 		// Then the error should be nil and no output should be produced
 		if err != nil {
 			t.Fatalf("Expected error nil, got %v", err)
@@ -123,8 +115,6 @@ func TestEnvCmd(t *testing.T) {
 			return nil
 		}
 
-		Initialize(mocks.Injector)
-
 		// Capture the output
 		var buf bytes.Buffer
 		rootCmd.SetOut(&buf)
@@ -132,7 +122,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
-		err := rootCmd.Execute()
+		err := Execute(mocks.Injector)
 
 		// Then the error should be nil and no output should be produced
 		if err != nil {
@@ -140,6 +130,64 @@ func TestEnvCmd(t *testing.T) {
 		}
 		if buf.Len() != 0 {
 			t.Fatalf("Expected no output, got %s", buf.String())
+		}
+	})
+
+	t.Run("ErrorInitializing", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given an env that returns an error when initializing
+		mocks := mocks.CreateSuperMocks()
+		mockEnv := mocks.WindsorEnv
+		mockEnv.InitializeFunc = func() error {
+			return fmt.Errorf("initialize error")
+		}
+		mockEnv.PostEnvHookFunc = func() error {
+			return nil
+		}
+
+		// When the env command is executed with verbose flag
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"env", "--verbose"})
+			err := Execute(mocks.Injector)
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then the output should indicate the error
+		expectedOutput := "Error executing Initialize: initialize error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorInitializingWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given an env that returns an error when initializing
+		mocks := mocks.CreateSuperMocks()
+		mockEnv := mocks.WindsorEnv
+		mockEnv.InitializeFunc = func() error {
+			return fmt.Errorf("initialize error")
+		}
+		mockEnv.PostEnvHookFunc = func() error {
+			return nil
+		}
+
+		// Capture the output
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"env"})
+			err := Execute(mocks.Injector)
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+		})
+
+		// Then the output should not indicate the error
+		expectedOutput := ""
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -156,12 +204,10 @@ func TestEnvCmd(t *testing.T) {
 			return nil
 		}
 
-		Initialize(mocks.Injector)
-
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := rootCmd.Execute()
+			err := Execute(mocks.Injector)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -187,12 +233,10 @@ func TestEnvCmd(t *testing.T) {
 			return nil
 		}
 
-		Initialize(mocks.Injector)
-
 		// Capture the output
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"env"})
-			err := rootCmd.Execute()
+			err := Execute(mocks.Injector)
 			if err != nil {
 				t.Fatalf("Expected no error, got %v", err)
 			}
@@ -218,12 +262,10 @@ func TestEnvCmd(t *testing.T) {
 			return fmt.Errorf("post env hook error")
 		}
 
-		Initialize(mocks.Injector)
-
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := rootCmd.Execute()
+			err := Execute(mocks.Injector)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -249,8 +291,6 @@ func TestEnvCmd(t *testing.T) {
 			return fmt.Errorf("post env hook error")
 		}
 
-		Initialize(mocks.Injector)
-
 		// Capture the output
 		var buf bytes.Buffer
 		rootCmd.SetOut(&buf)
@@ -258,7 +298,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
-		err := rootCmd.Execute()
+		err := Execute(mocks.Injector)
 
 		// Then the error should be nil and no output should be produced
 		if err != nil {
