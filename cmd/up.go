@@ -4,6 +4,11 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/network"
+	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/virt"
 )
 
 var upCmd = &cobra.Command{
@@ -11,6 +16,47 @@ var upCmd = &cobra.Command{
 	Short: "Set up the Windsor environment",
 	Long:  "Set up the Windsor environment by executing necessary shell commands.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Resolve configHandler
+		configHandlerInstance, err := injector.Resolve("configHandler")
+		if err != nil {
+			return fmt.Errorf("Error resolving configHandler: %w", err)
+		}
+		configHandler, ok := configHandlerInstance.(config.ConfigHandler)
+		if !ok {
+			return fmt.Errorf("Resolved instance is not of type config.ConfigHandler")
+		}
+
+		// Resolve and initialize shell
+		shellInstance, err := injector.Resolve("shell")
+		if err != nil {
+			return fmt.Errorf("Error resolving shell: %w", err)
+		}
+		shellInstanceResolved, ok := shellInstance.(shell.Shell)
+		if !ok {
+			return fmt.Errorf("Resolved instance is not of type shell.Shell")
+		}
+		if err := shellInstanceResolved.Initialize(); err != nil {
+			return fmt.Errorf("Error initializing shell: %w", err)
+		}
+
+		// Resolve and initialize secureShell
+		secureShellInstance, err := injector.Resolve("secureShell")
+		if err != nil {
+			return fmt.Errorf("Error resolving secureShell: %w", err)
+		}
+		secureShell, ok := secureShellInstance.(shell.Shell)
+		if !ok {
+			return fmt.Errorf("Resolved instance is not of type shell.Shell")
+		}
+		if err := secureShell.Initialize(); err != nil {
+			return fmt.Errorf("Error initializing secureShell: %w", err)
+		}
+
+		// Call the init command
+		if err := initCmd.RunE(cmd, args); err != nil {
+			return fmt.Errorf("Error running init command: %w", err)
+		}
+
 		// Determine if Colima is being used
 		driver := configHandler.GetString("vm.driver")
 
@@ -26,24 +72,45 @@ var upCmd = &cobra.Command{
 		// Get the DNS create flag
 		createDns := configHandler.GetBool("dns.create")
 
-		// Start Colima if it is being used
+		// Configure ColimaVirt if enabled in configuration
 		if driver == "colima" {
-			// Write the Colima configuration
-			if err := colimaVirt.WriteConfig(); err != nil {
-				return fmt.Errorf("Error writing Colima config: %w", err)
+			// Resolve colimaVirt
+			colimaVirtInstance, err := injector.Resolve("colimaVirt")
+			if err != nil {
+				return fmt.Errorf("Error resolving colimaVirt: %w", err)
 			}
-
-			// Start the Colima VM
+			colimaVirt, ok := colimaVirtInstance.(virt.VirtualMachine)
+			if !ok {
+				return fmt.Errorf("Resolved instance is not of type virt.VirtualMachine")
+			}
 			if err := colimaVirt.Up(verbose); err != nil {
 				return fmt.Errorf("Error running Colima VM Up command: %w", err)
 			}
 		}
 
-		// Start Docker if it is being used
+		// Configure DockerVirt if enabled in configuration
 		if dockerEnabled {
-			// Write the Docker configuration
-			if err := dockerVirt.WriteConfig(); err != nil {
-				return fmt.Errorf("Error writing Docker config: %w", err)
+			// Resolve dockerVirt
+			dockerVirtInstance, err := injector.Resolve("dockerVirt")
+			if err != nil {
+				return fmt.Errorf("Error resolving dockerVirt: %w", err)
+			}
+			dockerVirt, ok := dockerVirtInstance.(virt.ContainerRuntime)
+			if !ok {
+				return fmt.Errorf("Resolved instance is not of type virt.ContainerRuntime")
+			}
+			if err := dockerVirt.Up(verbose); err != nil {
+				return fmt.Errorf("Error running DockerVirt Up command: %w", err)
+			}
+
+			// Resolve dnsHelper
+			dnsHelperInstance, err := injector.Resolve("dnsHelper")
+			if err != nil {
+				return fmt.Errorf("Error resolving dnsHelper: %w", err)
+			}
+			dnsHelper, ok := dnsHelperInstance.(helpers.Helper)
+			if !ok {
+				return fmt.Errorf("Resolved instance is not of type helpers.Helper")
 			}
 
 			// Write the DNS configuration
@@ -51,11 +118,6 @@ var upCmd = &cobra.Command{
 				if err := dnsHelper.WriteConfig(); err != nil {
 					return fmt.Errorf("Error writing DNS config: %w", err)
 				}
-			}
-
-			// Start the Docker VM
-			if err := dockerVirt.Up(verbose); err != nil {
-				return fmt.Errorf("Error running DockerVirt Up command: %w", err)
 			}
 
 			// Get the DNS address
@@ -69,6 +131,21 @@ var upCmd = &cobra.Command{
 				}
 				dnsAddress = dnsService[0].Address
 			}
+		}
+
+		// Resolve colimaNetworkManager
+		colimaNetworkManagerInstance, err := injector.Resolve("colimaNetworkManager")
+		if err != nil {
+			return fmt.Errorf("Error resolving colimaNetworkManager: %w", err)
+		}
+		colimaNetworkManager, ok := colimaNetworkManagerInstance.(network.NetworkManager)
+		if !ok {
+			return fmt.Errorf("Resolved instance is not of type network.NetworkManager")
+		}
+
+		// Initialize the network manager
+		if err := colimaNetworkManager.Initialize(); err != nil {
+			return fmt.Errorf("Error initializing network manager: %w", err)
 		}
 
 		// Configure the network for Colima

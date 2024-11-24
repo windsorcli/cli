@@ -15,7 +15,7 @@ import (
 // SuperMocks holds all the mock instances needed for testing commands.
 type SuperMocks struct {
 	ConfigHandler        *config.MockConfigHandler
-	ContextInstance      *context.MockContext
+	ContextHandler       *context.MockContext
 	Shell                *shell.MockShell
 	AwsHelper            *helpers.MockHelper
 	ColimaHelper         *helpers.MockHelper
@@ -112,7 +112,7 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 
 	return SuperMocks{
 		ConfigHandler:        mockConfigHandler,
-		ContextInstance:      mockContext,
+		ContextHandler:       mockContext,
 		Shell:                mockShell,
 		AwsHelper:            mockAwsHelper,
 		ColimaHelper:         mockColimaHelper,

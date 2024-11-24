@@ -122,9 +122,8 @@ func main() {
 	networkInterfaceProvider := &network.RealNetworkInterfaceProvider{}
 	injector.Register("networkInterfaceProvider", networkInterfaceProvider)
 
-	// Inject the DI injector into the cmd package
-	cmd.Initialize(injector)
-
 	// Execute the root command
-	cmd.Execute()
+	if err := cmd.Execute(injector); err != nil {
+		log.Fatalf("failed to execute command: %v", err)
+	}
 }

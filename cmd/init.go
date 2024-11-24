@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/virt"
 )
 
 var (
@@ -26,12 +27,24 @@ var initCmd = &cobra.Command{
 	Use:   "init [context]",
 	Short: "Initialize the application",
 	Long:  "Initialize the application by setting up necessary configurations and environment",
-	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		contextName := args[0]
+		contextHandler, err := getContextHandler()
+		if err != nil {
+			return fmt.Errorf("Error getting context handler: %w", err)
+		}
+		var contextName string
+		if len(args) == 1 {
+			contextName = args[0]
+		} else {
+			contextName, err = contextHandler.GetContext()
+			if err != nil {
+				return fmt.Errorf("no context provided and no current context set: %w", err)
+			}
+		}
 
 		// Determine the cliConfig path
-		cliConfigPath := os.Getenv("WINDSOR_CONFIG")
+		cliConfigPath := os.Getenv("WINDSORCONFIG")
 		if cliConfigPath == "" {
 			homeDir, err := osUserHomeDir()
 			if err != nil {
@@ -39,10 +52,9 @@ var initCmd = &cobra.Command{
 			}
 			cliConfigPath = filepath.Join(homeDir, ".config", "windsor", "config.yaml")
 		}
-
 		// Set the context value
-		if err := configHandler.Set("context", contextName); err != nil {
-			return fmt.Errorf("Error setting config value: %w", err)
+		if err := contextHandler.SetContext(contextName); err != nil {
+			return fmt.Errorf("Error setting context value: %w", err)
 		}
 
 		// If the context is local or starts with "local-", set the defaults to the default local config
@@ -124,6 +136,18 @@ var initCmd = &cobra.Command{
 		// Configure ColimaVirt if enabled in configuration
 		driver := configHandler.GetString("vm.driver")
 		if driver == "colima" {
+			// Resolve colimaVirt
+			colimaVirtInstance, err := injector.Resolve("colimaVirt")
+			if err != nil {
+				return fmt.Errorf("Error resolving colimaVirt: %w", err)
+			}
+			colimaVirt, ok := colimaVirtInstance.(virt.VirtualMachine)
+			if !ok {
+				return fmt.Errorf("Resolved instance is not of type virt.VirtualMachine")
+			}
+			if err := colimaVirt.Initialize(); err != nil {
+				return fmt.Errorf("error initializing Colima: %w", err)
+			}
 			if err := colimaVirt.WriteConfig(); err != nil {
 				return fmt.Errorf("error writing Colima config: %w", err)
 			}
@@ -132,6 +156,18 @@ var initCmd = &cobra.Command{
 		// Configure DockerVirt if enabled in configuration
 		dockerEnabled := configHandler.GetBool("docker.enabled")
 		if dockerEnabled {
+			// Resolve dockerVirt
+			dockerVirtInstance, err := injector.Resolve("dockerVirt")
+			if err != nil {
+				return fmt.Errorf("Error resolving dockerVirt: %w", err)
+			}
+			dockerVirt, ok := dockerVirtInstance.(virt.ContainerRuntime)
+			if !ok {
+				return fmt.Errorf("Resolved instance is not of type virt.ContainerRuntime")
+			}
+			if err := dockerVirt.Initialize(); err != nil {
+				return fmt.Errorf("error initializing Docker: %w", err)
+			}
 			if err := dockerVirt.WriteConfig(); err != nil {
 				return fmt.Errorf("error writing Docker config: %w", err)
 			}

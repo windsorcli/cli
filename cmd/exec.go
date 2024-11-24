@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/env"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 var execCmd = &cobra.Command{
@@ -23,10 +24,13 @@ var execCmd = &cobra.Command{
 			return fmt.Errorf("Error resolving environments: %w", err)
 		}
 
-		// Collect environment variables from all environments
+		// Collect and initialize environment variables from all environments
 		envVars := make(map[string]string)
 		for _, instance := range envInstances {
 			envPrinter := instance.(env.EnvPrinter)
+			if err := envPrinter.Initialize(); err != nil {
+				return fmt.Errorf("Error initializing environment: %w", err)
+			}
 			vars, err := envPrinter.GetEnvVars()
 			if err != nil {
 				return fmt.Errorf("Error getting environment variables: %w", err)
@@ -43,7 +47,22 @@ var execCmd = &cobra.Command{
 			}
 		}
 
-		// Execute the command using the existing shell instance
+		// Resolve the shell instance
+		instance, err := injector.Resolve("shell")
+		if err != nil {
+			return fmt.Errorf("Error resolving shell instance: %w", err)
+		}
+		shellInstance, ok := instance.(shell.Shell)
+		if !ok {
+			return fmt.Errorf("Resolved instance is not of type shell.Shell")
+		}
+
+		// Initialize the shell instance
+		if err := shellInstance.Initialize(); err != nil {
+			return fmt.Errorf("Error initializing shell: %w", err)
+		}
+
+		// Execute the command using the resolved shell instance
 		output, err := shellInstance.Exec(false, "", args[0], args[1:]...)
 		if err != nil {
 			return fmt.Errorf("command execution failed: %w", err)

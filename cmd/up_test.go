@@ -6,9 +6,7 @@ import (
 
 func TestUpCmd(t *testing.T) {
 	originalExitFunc := exitFunc
-	exitFunc = func(code int) {
-		mockExit(code, "")
-	}
+	exitFunc = mockExit
 	t.Cleanup(func() {
 		exitFunc = originalExitFunc
 	})

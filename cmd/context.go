@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsor-hotel/cli/internal/context"
 )
 
 // getContextCmd represents the get command
@@ -12,11 +13,15 @@ var getContextCmd = &cobra.Command{
 	Short: "Get the current context",
 	Long:  "Retrieve and display the current context from the configuration",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		context, err := contextHandler.GetContext()
+		contextHandler, err := getContextHandler()
+		if err != nil {
+			return fmt.Errorf("Error getting context handler: %w", err)
+		}
+		currentContext, err := contextHandler.GetContext()
 		if err != nil {
 			return fmt.Errorf("Error getting context: %w", err)
 		}
-		fmt.Println(context)
+		fmt.Println(currentContext)
 		return nil
 	},
 }
@@ -28,6 +33,10 @@ var setContextCmd = &cobra.Command{
 	Long:  "Set the current context in the configuration and save it",
 	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
 	RunE: func(cmd *cobra.Command, args []string) error {
+		contextHandler, err := getContextHandler()
+		if err != nil {
+			return fmt.Errorf("Error getting context handler: %w", err)
+		}
 		contextName := args[0]
 		if err := contextHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("Error setting context: %w", err)
@@ -37,7 +46,7 @@ var setContextCmd = &cobra.Command{
 	},
 }
 
-// Alias commands
+// getContextAliasCmd is an alias for the get command
 var getContextAliasCmd = &cobra.Command{
 	Use:   "get-context",
 	Short: "Alias for 'context get'",
@@ -48,6 +57,7 @@ var getContextAliasCmd = &cobra.Command{
 	},
 }
 
+// setContextAliasCmd is an alias for the set command
 var setContextAliasCmd = &cobra.Command{
 	Use:   "set-context [context]",
 	Short: "Alias for 'context set'",
@@ -73,4 +83,17 @@ func init() {
 	// Add alias commands to rootCmd
 	rootCmd.AddCommand(getContextAliasCmd)
 	rootCmd.AddCommand(setContextAliasCmd)
+}
+
+// getContextHandler resolves the contextHandler from the injector and returns it as a context.ContextInterface
+var getContextHandler = func() (context.ContextInterface, error) {
+	instance, err := injector.Resolve("contextHandler")
+	if err != nil {
+		return nil, fmt.Errorf("Error resolving contextHandler: %w", err)
+	}
+	contextHandler, ok := instance.(context.ContextInterface)
+	if !ok {
+		return nil, fmt.Errorf("Error: resolved instance is not of type context.ContextInterface")
+	}
+	return contextHandler, nil
 }

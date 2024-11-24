@@ -28,18 +28,20 @@ var envCmd = &cobra.Command{
 			envPrinters[i] = envPrinter
 		}
 
-		// Iterate through all environments and run their Initialize and Print functions
+		// Iterate through all environments and run their Initialize, Print, and PostEnvHook functions
 		for _, instance := range envPrinters {
+			if err := instance.Initialize(); err != nil {
+				if verbose {
+					return fmt.Errorf("Error executing Initialize: %w", err)
+				}
+				return nil
+			}
 			if err := instance.Print(); err != nil {
 				if verbose {
 					return fmt.Errorf("Error executing Print: %w", err)
 				}
 				return nil
 			}
-		}
-
-		// Run PostEnvHook functions after all Print functions
-		for _, instance := range envPrinters {
 			if err := instance.PostEnvHook(); err != nil {
 				if verbose {
 					return fmt.Errorf("Error executing PostEnvHook: %w", err)

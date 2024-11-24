@@ -3,6 +3,7 @@ package virt
 import (
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -69,6 +70,9 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
 
+		// Determine if running in CI environment
+		isCI := strings.ToLower(os.Getenv("CI")) == "true"
+
 		// Retry logic for docker-compose up
 		retries := 3
 		var lastErr error
@@ -87,7 +91,9 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 
 			if i < retries-1 {
 				fmt.Println("Retrying docker-compose up...")
-				time.Sleep(2 * time.Second)
+				if !isCI {
+					time.Sleep(2 * time.Second)
+				}
 			}
 		}
 
