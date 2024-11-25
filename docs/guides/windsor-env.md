@@ -55,23 +55,23 @@ talos% windsor env
 unset OMNICONFIG
 export ANSIBLE_BECOME_PASSWORD="****"
 unset COMPOSE_FILE
-export TF_CLI_ARGS_apply="****/repositories/blueprints/contexts/local/.terraform/cluster/talos/terraform.tfplan"
-export TF_CLI_ARGS_destroy="-var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos.tfvars \
-  -var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos_generated.tfvars.json"
-export TF_CLI_ARGS_import="-var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos.tfvars \
-  -var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos_generated.tfvars.json"
-export TF_CLI_ARGS_init="-backend=true -backend-config=path=****/repositories/blueprints/contexts/local/.tfstate/cluster/talos/terraform.tfstate"
-export TF_CLI_ARGS_plan="-out=****/repositories/blueprints/contexts/local/.terraform/cluster/talos/terraform.tfplan \
-  -var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos.tfvars \
-  -var-file=****/repositories/blueprints/contexts/local/terraform/cluster/talos_generated.tfvars.json"
-export TF_DATA_DIR="****/repositories/blueprints/contexts/local/.terraform/cluster/talos"
-export TF_VAR_context_path="****/repositories/blueprints/contexts/local"
-export TALOSCONFIG="****/repositories/blueprints/contexts/local/.talos/config"
+export TF_CLI_ARGS_apply="*****/contexts/local/.terraform/cluster/talos/terraform.tfplan"
+export TF_CLI_ARGS_destroy="-var-file=*****/contexts/local/terraform/cluster/talos.tfvars \
+  -var-file=*****/contexts/local/terraform/cluster/talos_generated.tfvars.json"
+export TF_CLI_ARGS_import="-var-file=*****/contexts/local/terraform/cluster/talos.tfvars \
+  -var-file=*****/contexts/local/terraform/cluster/talos_generated.tfvars.json"
+export TF_CLI_ARGS_init="-backend=true -backend-config=path=*****/contexts/local/.tfstate/cluster/talos/terraform.tfstate"
+export TF_CLI_ARGS_plan="-out=*****/contexts/local/.terraform/cluster/talos/terraform.tfplan \
+  -var-file=*****/contexts/local/terraform/cluster/talos.tfvars \
+  -var-file=*****/contexts/local/terraform/cluster/talos_generated.tfvars.json"
+export TF_DATA_DIR="*****/contexts/local/.terraform/cluster/talos"
+export TF_VAR_context_path="*****/contexts/local"
+export TALOSCONFIG="*****/contexts/local/.talos/config"
 export WINDSOR_CONTEXT="local"
-export WINDSOR_PROJECT_ROOT="****/repositories/blueprints"
-export KUBECONFIG="****/repositories/blueprints/contexts/local/.kube/config"
-export KUBE_CONFIG_PATH="****/repositories/blueprints/contexts/local/.kube/config"
-export AWS_CONFIG_FILE="****/repositories/blueprints/contexts/local/.aws/config"
+export WINDSOR_PROJECT_ROOT="*****"
+export KUBECONFIG="*****/contexts/local/.kube/config"
+export KUBE_CONFIG_PATH="*****/contexts/local/.kube/config"
+export AWS_CONFIG_FILE="*****/contexts/local/.aws/config"
 export AWS_ENDPOINT_URL="http://aws.test:4566"
 export AWS_PROFILE="local"
 export MWAA_ENDPOINT="http://mwaa.local.aws.test:4566"
@@ -80,7 +80,7 @@ export S3_HOSTNAME="http://s3.local.aws.test:4566"
 
 In the case above, the talos folder is under the terraform folder so environment variables for terraform, talos, kube, aws and other tools are set
 
-## Environment Variables
+## [Environment Variables](../guides/environment-variables.md)
 
 The exection of the windsor env output in the command prompt sets environment variables to configure various tools. Environment variables are key-value pairs that can be used to customize the behavior of software applications without altering the code. They provide a flexible way to manage configuration settings, such as API keys, database connections, and other sensitive information, which can vary between different environments (e.g., development, testing, production).
 
@@ -88,35 +88,4 @@ In this context, the `windsor env` command is used to set up these environment v
 
 By using environment variables, tools can be more easily configured and deployed across different environments, enhancing portability and reducing the risk of configuration errors. This approach also supports better security practices by keeping sensitive information out of the source code.
 
-# Secrets
-The windsor env command applies all secrets listed in the context's secrets file.
-
-The secrets file for each context is located here,
-
-$PROJECT_ROOT/contexts/< context-name >/secrets.enc.yaml
-
-The secrets file contains a key/value pairs of secrets that are applied to the shell's environment.
-
-
-## Try it out
-
-```bash
-sops edit contexts/local/secrets.enc.yaml
-```
-
-Add these lines
-
-```bash
-api_key: plaintext-value
-db_password: plaintext-password
-```
-
-Save the file.  List windsor env
-
-```bash
-env | grep api_key
-api_key=plaintext-value
-
-env | grep db_password
-db_password=plaintext-password
-```
+See [Environment Variables](../guides/environment-variables.md) for a more detailed description of environment variables.
