@@ -88,3 +88,35 @@ In this context, the `windsor env` command is used to set up these environment v
 
 By using environment variables, tools can be more easily configured and deployed across different environments, enhancing portability and reducing the risk of configuration errors. This approach also supports better security practices by keeping sensitive information out of the source code.
 
+# Secrets
+The windsor env command applies all secrets listed in the context's secrets file.
+
+The secrets file for each context is located here,
+
+$PROJECT_ROOT/contexts/<context-name>/secrets.enc.yaml
+
+The secrets file contains a key/value pairs of secrets that are applied to the shell's environment.
+
+
+## Try it out
+
+```bash
+sops edit contexts/local/secrets.enc.yaml
+```
+
+Add these lines
+
+```bash
+api_key: plaintext-value
+db_password: plaintext-password
+```
+
+Save the file.  List windsor env
+
+```bash
+env | grep api_key
+api_key=plaintext-value
+
+env | grep db_password
+db_password=plaintext-password
+```
