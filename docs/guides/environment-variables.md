@@ -53,7 +53,7 @@ api_key: plaintext-value
 db_password: plaintext-password
 ```
 
-Save the file.  List windsor env
+Save the file.  Confirm environment variables are set.
 
 ```bash
 env | grep api_key
