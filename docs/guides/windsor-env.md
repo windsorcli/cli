@@ -93,7 +93,7 @@ The windsor env command applies all secrets listed in the context's secrets file
 
 The secrets file for each context is located here,
 
-$PROJECT_ROOT/contexts/<context-name>/secrets.enc.yaml
+$PROJECT_ROOT/contexts/< context-name >/secrets.enc.yaml
 
 The secrets file contains a key/value pairs of secrets that are applied to the shell's environment.
 
