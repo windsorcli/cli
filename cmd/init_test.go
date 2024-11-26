@@ -103,7 +103,7 @@ func TestInitCmd(t *testing.T) {
 
 		// Override getContextHandler to return an error
 		originalGetContextHandler := getContextHandler
-		getContextHandler = func() (context.ContextInterface, error) {
+		getContextHandler = func() (context.ContextHandler, error) {
 			return nil, fmt.Errorf("mocked error getting context")
 		}
 		defer func() { getContextHandler = originalGetContextHandler }()

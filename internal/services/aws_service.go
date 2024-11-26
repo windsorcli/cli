@@ -15,31 +15,45 @@ import (
 // AwsService is a service struct that provides AWS-specific utility functions
 type AwsService struct {
 	BaseService
-	ConfigHandler config.ConfigHandler
-	Context       context.ContextInterface
+	injector       di.Injector
+	configHandler  config.ConfigHandler
+	contextHandler context.ContextHandler
 }
 
 // NewAwsService is a constructor for AwsService
-func NewAwsService(injector di.Injector) (*AwsService, error) {
-	configHandler, err := injector.Resolve("configHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving configHandler: %w", err)
-	}
-
-	resolvedContext, err := injector.Resolve("contextHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving context: %w", err)
-	}
-
+func NewAwsService(injector di.Injector) *AwsService {
 	return &AwsService{
-		ConfigHandler: configHandler.(config.ConfigHandler),
-		Context:       resolvedContext.(context.ContextInterface),
-	}, nil
+		injector: injector,
+	}
+}
+
+// Initialize resolves and sets all the things resolved from the DI
+func (s *AwsService) Initialize() error {
+	// Call the parent Initialize method
+	if err := s.BaseService.Initialize(); err != nil {
+		return err
+	}
+
+	// Resolve the configHandler from the injector
+	configHandler, err := s.injector.Resolve("configHandler")
+	if err != nil {
+		return fmt.Errorf("error resolving configHandler: %w", err)
+	}
+	s.configHandler = configHandler.(config.ConfigHandler)
+
+	// Resolve the context from the injector
+	resolvedContext, err := s.injector.Resolve("contextHandler")
+	if err != nil {
+		return fmt.Errorf("error resolving context: %w", err)
+	}
+	s.contextHandler = resolvedContext.(context.ContextHandler)
+
+	return nil
 }
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (s *AwsService) GetComposeConfig() (*types.Config, error) {
-	contextConfig := s.ConfigHandler.GetConfig()
+	contextConfig := s.configHandler.GetConfig()
 
 	if contextConfig.AWS == nil ||
 		contextConfig.AWS.Localstack == nil ||

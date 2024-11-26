@@ -38,36 +38,24 @@ func main() {
 	injector.Register("secureShell", secureShellInstance)
 
 	// Create and register the Context instance
-	contextHandler := context.NewContext(configHandler, shellInstance)
+	contextHandler := context.NewBaseContextHandler(configHandler, shellInstance)
 	injector.Register("contextHandler", contextHandler)
 
 	// Create and register the AwsService instance
-	awsService, err := services.NewAwsService(injector)
-	if err != nil {
-		log.Fatalf("failed to create aws service: %v", err)
-	}
+	awsService := services.NewAwsService(injector)
 	injector.Register("awsService", awsService)
 
 	// Create and register the GitService instance
-	gitService, err := services.NewGitService(injector)
-	if err != nil {
-		log.Fatalf("failed to create git service: %v", err)
-	}
+	gitService := services.NewGitService(injector)
 	injector.Register("gitService", gitService)
 
 	// Create and register the DNSService instance
-	dnsService, err := services.NewDNSService(injector)
-	if err != nil {
-		log.Fatalf("failed to create dns service: %v", err)
-	}
+	dnsService := services.NewDNSService(injector)
 	injector.Register("dnsService", dnsService)
 
 	// Create and register the DockerService instance
 	// This should go last!
-	dockerService, err := services.NewDockerService(injector)
-	if err != nil {
-		log.Fatalf("failed to create docker service: %v", err)
-	}
+	dockerService := services.NewDockerService(injector)
 	injector.Register("dockerService", dockerService)
 
 	// Register SSH Client instance

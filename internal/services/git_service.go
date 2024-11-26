@@ -15,43 +15,53 @@ import (
 // GitService is a service struct that provides various utility functions
 type GitService struct {
 	BaseService
-	ConfigHandler config.ConfigHandler
-	Shell         shell.Shell
-	Context       context.ContextInterface
+	injector       di.Injector
+	configHandler  config.ConfigHandler
+	shell          shell.Shell
+	contextHandler context.ContextHandler
 }
 
 // NewGitService is a constructor for GitService
-func NewGitService(injector di.Injector) (*GitService, error) {
-	configHandler, err := injector.Resolve("configHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving configHandler: %w", err)
+func NewGitService(injector di.Injector) *GitService {
+	return &GitService{injector: injector}
+}
+
+// Initialize resolves dependencies and initializes the GitService
+func (s *GitService) Initialize() error {
+	if err := s.BaseService.Initialize(); err != nil {
+		return err
 	}
 
-	resolvedShell, err := injector.Resolve("shell")
+	configHandler, err := s.injector.Resolve("configHandler")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving shell: %w", err)
+		return fmt.Errorf("error resolving configHandler: %w", err)
 	}
 
-	resolvedContext, err := injector.Resolve("contextHandler")
+	resolvedShell, err := s.injector.Resolve("shell")
 	if err != nil {
-		return nil, fmt.Errorf("error resolving context: %w", err)
+		return fmt.Errorf("error resolving shell: %w", err)
 	}
 
-	return &GitService{
-		ConfigHandler: configHandler.(config.ConfigHandler),
-		Shell:         resolvedShell.(shell.Shell),
-		Context:       resolvedContext.(context.ContextInterface),
-	}, nil
+	resolvedContext, err := s.injector.Resolve("contextHandler")
+	if err != nil {
+		return fmt.Errorf("error resolving context: %w", err)
+	}
+
+	s.configHandler = configHandler.(config.ConfigHandler)
+	s.shell = resolvedShell.(shell.Shell)
+	s.contextHandler = resolvedContext.(context.ContextHandler)
+
+	return nil
 }
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (s *GitService) GetComposeConfig() (*types.Config, error) {
-	contextName, err := s.Context.GetContext()
+	contextName, err := s.contextHandler.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
 	}
 
-	config := s.ConfigHandler.GetConfig()
+	config := s.configHandler.GetConfig()
 
 	if config.Git == nil ||
 		config.Git.Livereload == nil ||
@@ -120,7 +130,7 @@ func (s *GitService) GetComposeConfig() (*types.Config, error) {
 	}
 
 	// Get the project root using the shell
-	projectRoot, err := s.Shell.GetProjectRoot()
+	projectRoot, err := s.shell.GetProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving project root: %w", err)
 	}

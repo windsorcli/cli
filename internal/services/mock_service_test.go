@@ -6,7 +6,19 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
+	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
+
+type MockComponents struct {
+	Injector          di.Injector
+	MockContext       *context.MockContext
+	MockShell         *shell.MockShell
+	MockConfigHandler *config.MockConfigHandler
+	MockService       *MockService
+}
 
 // Helper function to compare two maps
 func equalMaps(a, b map[string]string) bool {
@@ -38,6 +50,12 @@ func TestMockService_GetComposeConfig(t *testing.T) {
 			},
 		}
 
+		// Initialize the service
+		err := mockService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
 		// When: GetComposeConfig is called
 		composeConfig, err := mockService.GetComposeConfig()
 		if err != nil {
@@ -53,6 +71,12 @@ func TestMockService_GetComposeConfig(t *testing.T) {
 	t.Run("SuccessNoMock", func(t *testing.T) {
 		// Given: a mock service with no GetComposeConfigFunc
 		mockService := NewMockService()
+
+		// Initialize the service
+		err := mockService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
 
 		// When: GetComposeConfig is called
 		composeConfig, err := mockService.GetComposeConfig()
@@ -75,8 +99,14 @@ func TestMockService_GetComposeConfig(t *testing.T) {
 			},
 		}
 
+		// Initialize the service
+		err := mockService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
 		// When: GetComposeConfig is called
-		_, err := mockService.GetComposeConfig()
+		_, err = mockService.GetComposeConfig()
 		if err == nil {
 			t.Fatalf("expected error %v, got nil", expectedError)
 		}
@@ -86,10 +116,16 @@ func TestMockService_GetComposeConfig(t *testing.T) {
 	})
 }
 
-func TestMockService_SetGetComposeConfigFunc(t *testing.T) {
-	t.Run("SetGetComposeConfigFunc", func(t *testing.T) {
+func TestMockService_GetComposeConfigFunc(t *testing.T) {
+	t.Run("GetComposeConfigFunc", func(t *testing.T) {
 		// Given: a mock service
 		mockService := NewMockService()
+
+		// Initialize the service
+		err := mockService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
 
 		// Define a mock GetComposeConfigFunc
 		expectedConfig := &types.Config{
@@ -104,8 +140,8 @@ func TestMockService_SetGetComposeConfigFunc(t *testing.T) {
 			return expectedConfig, nil
 		}
 
-		// When: SetGetComposeConfigFunc is called
-		mockService.SetGetComposeConfigFunc(mockGetComposeConfigFunc)
+		// When: GetComposeConfigFunc is called
+		mockService.GetComposeConfigFunc = mockGetComposeConfigFunc
 
 		// Then: the GetComposeConfigFunc should be set and return the expected configuration
 		composeConfig, err := mockService.GetComposeConfig()

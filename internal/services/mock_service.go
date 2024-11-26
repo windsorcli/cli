@@ -22,10 +22,5 @@ func (m *MockService) GetComposeConfig() (*types.Config, error) {
 	return nil, nil
 }
 
-// SetGetComposeConfigFunc sets the GetComposeConfigFunc for the mock service
-func (m *MockService) SetGetComposeConfigFunc(getComposeConfigFunc func() (*types.Config, error)) {
-	m.GetComposeConfigFunc = getComposeConfigFunc
-}
-
 // Ensure MockService implements Service interface
 var _ Service = (*MockService)(nil)

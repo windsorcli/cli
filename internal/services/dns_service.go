@@ -13,34 +13,53 @@ import (
 
 // DNSService handles DNS configuration
 type DNSService struct {
-	injector di.Injector
+	BaseService
+	injector       di.Injector
+	configHandler  config.ConfigHandler
+	contextHandler context.ContextHandler
 }
 
 // NewDNSService creates a new DNSService
-func NewDNSService(injector di.Injector) (*DNSService, error) {
+func NewDNSService(injector di.Injector) *DNSService {
 	return &DNSService{
 		injector: injector,
-	}, nil
+	}
+}
+
+// Initialize resolves and sets all the things resolved from the DI
+func (s *DNSService) Initialize() error {
+	// Call the parent Initialize method
+	if err := s.BaseService.Initialize(); err != nil {
+		return err
+	}
+
+	// Resolve the configHandler from the injector
+	configHandler, err := s.injector.Resolve("configHandler")
+	if err != nil {
+		return fmt.Errorf("error resolving configHandler: %w", err)
+	}
+	s.configHandler = configHandler.(config.ConfigHandler)
+
+	// Resolve the contextHandler from the injector
+	resolvedContext, err := s.injector.Resolve("contextHandler")
+	if err != nil {
+		return fmt.Errorf("error resolving context: %w", err)
+	}
+	s.contextHandler = resolvedContext.(context.ContextHandler)
+
+	return nil
 }
 
 // GetComposeConfig returns the compose configuration
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name
-	contextHandler, err := s.injector.Resolve("contextHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving context: %w", err)
-	}
-	contextName, err := contextHandler.(context.ContextInterface).GetContext()
+	contextName, err := s.contextHandler.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context name: %w", err)
 	}
 
 	// Retrieve the context configuration
-	configHandler, err := s.injector.Resolve("configHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving configHandler: %w", err)
-	}
-	contextConfig := configHandler.(config.ConfigHandler).GetConfig()
+	contextConfig := s.configHandler.GetConfig()
 
 	// Check if the DNS is enabled
 	if contextConfig.DNS == nil || contextConfig.DNS.Create == nil || !*contextConfig.DNS.Create {
@@ -80,11 +99,7 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 // WriteConfig writes any necessary configuration files needed by the service
 func (s *DNSService) WriteConfig() error {
 	// Retrieve the context configuration
-	configHandler, err := s.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
-	}
-	contextConfig := configHandler.(config.ConfigHandler).GetConfig()
+	contextConfig := s.configHandler.GetConfig()
 
 	// Check if DNS is defined and DNS Create is enabled
 	if contextConfig.DNS == nil || contextConfig.DNS.Create == nil || !*contextConfig.DNS.Create {
@@ -97,46 +112,45 @@ func (s *DNSService) WriteConfig() error {
 	}
 
 	// Retrieve the configuration directory for the current context
-	resolvedContext, err := s.injector.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving context: %w", err)
-	}
-	configDir, err := resolvedContext.(context.ContextInterface).GetConfigRoot()
+	configDir, err := s.contextHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error retrieving config root: %w", err)
 	}
 
 	// Get the TLD from the configuration
-	name := "test"
+	tld := "test"
 	if contextConfig.DNS.Name != nil && *contextConfig.DNS.Name != "" {
-		name = *contextConfig.DNS.Name
+		tld = *contextConfig.DNS.Name
 	}
 
-	// Retrieve the compose configuration from DockerService
-	dockerServiceInterface, err := s.injector.Resolve("dockerService")
+	// Retrieve the list of services from the injector
+	resolvedServices, err := s.injector.ResolveAll((*Service)(nil))
 	if err != nil {
-		return fmt.Errorf("error resolving dockerService: %w", err)
-	}
-	dockerService, ok := dockerServiceInterface.(DockerService)
-	if !ok {
-		return fmt.Errorf("error casting to DockerService")
-	}
-	composeConfig, err := dockerService.GetFullComposeConfig()
-	if err != nil {
-		return fmt.Errorf("error retrieving compose configuration: %w", err)
+		return fmt.Errorf("error resolving services: %w", err)
 	}
 
-	// Gather the IP address of each service
+	// Gather the IP address of each service using the Address field
 	var hostEntries string
-	for _, service := range composeConfig.Services {
-		for _, networkConfig := range service.Networks {
-			if networkConfig.Ipv4Address != "" {
-				hostEntries += fmt.Sprintf("        %s %s\n", networkConfig.Ipv4Address, service.Name)
+	for _, serviceInterface := range resolvedServices {
+		service, _ := serviceInterface.(Service)
+		composeConfig, err := service.GetComposeConfig()
+		if err != nil || composeConfig == nil {
+			continue
+		}
+		for _, svc := range composeConfig.Services {
+			if svc.Name != "" {
+				if addressService, ok := service.(interface{ GetAddress() string }); ok {
+					address := addressService.GetAddress()
+					if address != "" {
+						fullName := fmt.Sprintf("%s.%s", svc.Name, tld)
+						hostEntries += fmt.Sprintf("        %s %s\n", fullName, address)
+					}
+				}
 			}
 		}
 	}
 
-	// Template out the Corefile with information from the compose configuration
+	// Template out the Corefile with information from the services
 	corefileContent := fmt.Sprintf(`
 %s:53 {
     hosts {
@@ -145,7 +159,7 @@ func (s *DNSService) WriteConfig() error {
 
     forward . 1.1.1.1 8.8.8.8
 }
-`, name, hostEntries)
+`, tld, hostEntries)
 
 	corefilePath := filepath.Join(configDir, "Corefile")
 

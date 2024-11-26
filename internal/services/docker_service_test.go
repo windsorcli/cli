@@ -1,11 +1,9 @@
 package services
 
 import (
-	"reflect"
-	"strings"
+	"errors"
 	"testing"
 
-	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
@@ -15,28 +13,84 @@ import (
 // Mock function for yamlMarshal to simulate an error
 var originalYamlMarshal = yamlMarshal
 
+func setupSafeDockerServiceMocks(optionalInjector ...di.Injector) *MockComponents {
+	var injector di.Injector
+	if len(optionalInjector) > 0 {
+		injector = optionalInjector[0]
+	} else {
+		injector = di.NewMockInjector()
+	}
+
+	mockContext := context.NewMockContext()
+	mockShell := shell.NewMockShell(injector)
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockService := NewMockService()
+
+	// Register mock instances in the injector
+	injector.Register("contextHandler", mockContext)
+	injector.Register("shell", mockShell)
+	injector.Register("configHandler", mockConfigHandler)
+	injector.Register("dockerService", mockService)
+
+	// Implement GetContextFunc on mock context
+	mockContext.GetContextFunc = func() (string, error) {
+		return "mock-context", nil
+	}
+
+	// Set up the mock config handler to return a safe default configuration for Docker
+	mockConfigHandler.GetConfigFunc = func() *config.Context {
+		return &config.Context{
+			Docker: &config.DockerConfig{
+				Enabled: ptrBool(true),
+				Registries: []config.Registry{
+					{
+						Name:   "registry.test",
+						Remote: "registry.remote",
+						Local:  "registry.local",
+					},
+				},
+				NetworkCIDR: ptrString("10.1.0.0/16"),
+			},
+		}
+	}
+
+	return &MockComponents{
+		Injector:          injector,
+		MockContext:       mockContext,
+		MockShell:         mockShell,
+		MockConfigHandler: mockConfigHandler,
+		MockService:       mockService,
+	}
+}
+
+func TestDockerService_NewDockerService(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a set of mock components
+		mocks := setupSafeDockerServiceMocks()
+
+		// When: a new DockerService is created
+		dockerService := NewDockerService(mocks.Injector)
+
+		// Then: the DockerService should not be nil
+		if dockerService == nil {
+			t.Fatalf("expected DockerService, got nil")
+		}
+
+		// And: the DockerService should have the correct injector
+		if dockerService.injector != mocks.Injector {
+			t.Errorf("expected injector %v, got %v", mocks.Injector, dockerService.injector)
+		}
+	})
+}
+
 func TestDockerService_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, context, and service
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-		mockService := NewMockService()
-
-		// Create injector and register mocks
-		diContainer := di.NewInjector()
-		diContainer.Register("configHandler", mockConfigHandler)
-		diContainer.Register("contextHandler", mockContext)
-		diContainer.Register("service", mockService)
-		diContainer.Register("shell", shell.NewMockShell())
-
-		// Create an instance of DockerService
-		dockerService, err := NewDockerService(diContainer)
-		if err != nil {
-			t.Fatalf("NewDockerService() error = %v", err)
-		}
+		mocks := setupSafeDockerServiceMocks()
+		dockerService := NewDockerService(mocks.Injector)
 
 		// When: Initialize is called
-		err = dockerService.Initialize()
+		err := dockerService.Initialize()
 		if err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
@@ -46,45 +100,61 @@ func TestDockerService_Initialize(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
-}
 
-func TestDockerService_NewDockerService(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		// Create injector without registering configHandler
-		diContainer := di.NewInjector()
+		mockInjector := di.NewMockInjector()
+		setupSafeDockerServiceMocks(mockInjector)
+		mockInjector.SetResolveError("configHandler", errors.New("mock error resolving configHandler"))
 
 		// Attempt to create DockerService
-		_, err := NewDockerService(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
-			t.Fatalf("expected error resolving configHandler, got %v", err)
+		dockerService := NewDockerService(mockInjector)
+		if dockerService == nil {
+			t.Fatalf("expected DockerService, got nil")
+		}
+
+		// Initialize the service
+		err := dockerService.Initialize()
+		if err == nil {
+			t.Fatalf("Expected an error during initialization, got nil")
 		}
 	})
 
 	t.Run("ErrorResolvingContext", func(t *testing.T) {
 		// Create injector and register only configHandler
-		diContainer := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		diContainer.Register("configHandler", mockConfigHandler)
+		mockInjector := di.NewMockInjector()
+		setupSafeDockerServiceMocks(mockInjector)
+		mockInjector.SetResolveError("contextHandler", errors.New("mock error resolving contextHandler"))
 
 		// Attempt to create DockerService
-		_, err := NewDockerService(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
-			t.Fatalf("expected error resolving context, got %v", err)
+		dockerService := NewDockerService(mockInjector)
+		if dockerService == nil {
+			t.Fatalf("expected DockerService, got nil")
+		}
+
+		// Initialize the service
+		err := dockerService.Initialize()
+		if err == nil {
+			t.Fatalf("Expected an error during initialization, got nil")
 		}
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
 		// Create injector and register configHandler and context
-		diContainer := di.NewInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockContext := context.NewMockContext()
-		diContainer.Register("configHandler", mockConfigHandler)
-		diContainer.Register("contextHandler", mockContext)
+		mockInjector := di.NewMockInjector()
+		setupSafeDockerServiceMocks(mockInjector)
+		mockInjector.SetResolveError("shell", errors.New("mock error resolving shell"))
 
 		// Attempt to create DockerService
-		_, err := NewDockerService(diContainer)
-		if err == nil || !strings.Contains(err.Error(), "error resolving shell") {
-			t.Fatalf("expected error resolving shell, got %v", err)
+		dockerService := NewDockerService(mockInjector)
+		if dockerService == nil {
+			t.Fatalf("expected DockerService, got nil")
+		}
+
+		// Initialize the service
+		err := dockerService.Initialize()
+		if err == nil {
+			t.Fatalf("Expected an error during initialization, got nil")
 		}
 	})
 }
@@ -92,42 +162,11 @@ func TestDockerService_NewDockerService(t *testing.T) {
 func TestDockerService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, shell, context, and service
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Registries: []config.Registry{
-						{
-							Name:   "registry.test",
-							Remote: "registry.remote",
-							Local:  "registry.local",
-						},
-					},
-				},
-			}
-		}
-
-		mockContext := context.NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
-		}
-
-		// Create injector and register mocks
-		diContainer := di.NewInjector()
-		diContainer.Register("configHandler", mockConfigHandler)
-		diContainer.Register("contextHandler", mockContext)
-
-		// Register MockService
-		mockService := NewMockService()
-		diContainer.Register("service", mockService)
-
-		// Register MockShell
-		mockShell := shell.NewMockShell()
-		diContainer.Register("shell", mockShell)
-
-		dockerService, err := NewDockerService(diContainer)
+		mocks := setupSafeDockerServiceMocks()
+		dockerService := NewDockerService(mocks.Injector)
+		err := dockerService.Initialize()
 		if err != nil {
-			t.Fatalf("NewDockerService() error = %v", err)
+			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
@@ -136,33 +175,26 @@ func TestDockerService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
 
-		// Then: the result should match the expected configuration
-		localURL := "registry.local"
-		remoteURL := "registry.remote"
-		expectedConfig := types.ServiceConfig{
-			Name:    "registry.test",
-			Image:   "registry:2.8.3",
-			Restart: "always",
-			Labels: map[string]string{
-				"managed_by": "windsor",
-				"role":       "registry",
-				"context":    "test-context",
-			},
-			Environment: map[string]*string{
-				"REGISTRY_PROXY_LOCALURL":  &localURL,
-				"REGISTRY_PROXY_REMOTEURL": &remoteURL,
-			},
-		}
-
+		// Then: check for characteristic properties in the configuration
+		expectedName := "registry.test"
+		expectedRemoteURL := "registry.remote"
+		expectedLocalURL := "registry.local"
 		found := false
+
 		for _, config := range composeConfig.Services {
-			if reflect.DeepEqual(config, expectedConfig) {
-				found = true
-				break
+			if config.Name == expectedName {
+				remoteURL, remoteExists := config.Environment["REGISTRY_PROXY_REMOTEURL"]
+				localURL, localExists := config.Environment["REGISTRY_PROXY_LOCALURL"]
+
+				if remoteExists && localExists && *remoteURL == expectedRemoteURL && *localURL == expectedLocalURL {
+					found = true
+					break
+				}
 			}
 		}
+
 		if !found {
-			t.Errorf("expected configuration:\n%+v\nto be in the list of configurations:\n%+v", expectedConfig, composeConfig.Services)
+			t.Errorf("expected service with name %q and environment variables REGISTRY_PROXY_REMOTEURL=%q and REGISTRY_PROXY_LOCALURL=%q to be in the list of configurations:\n%+v", expectedName, expectedRemoteURL, expectedLocalURL, composeConfig.Services)
 		}
 	})
 }

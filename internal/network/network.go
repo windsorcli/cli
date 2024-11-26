@@ -31,7 +31,7 @@ type BaseNetworkManager struct {
 	shell                    shell.Shell
 	secureShell              shell.Shell
 	configHandler            config.ConfigHandler
-	contextHandler           context.ContextInterface
+	contextHandler           context.ContextHandler
 	colimaVirt               virt.Virt
 	dockerVirt               virt.Virt
 	networkInterfaceProvider NetworkInterfaceProvider
@@ -96,9 +96,9 @@ func (n *BaseNetworkManager) Initialize() error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve context handler: %w", err)
 	}
-	contextHandler, ok := contextHandlerInstance.(context.ContextInterface)
+	contextHandler, ok := contextHandlerInstance.(context.ContextHandler)
 	if !ok {
-		return fmt.Errorf("resolved context handler instance is not of type context.ContextInterface")
+		return fmt.Errorf("resolved context handler instance is not of type context.ContextHandler")
 	}
 	n.contextHandler = contextHandler
 

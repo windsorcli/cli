@@ -20,7 +20,7 @@ type EnvPrinter interface {
 // Env is a struct that implements the EnvPrinter interface.
 type BaseEnvPrinter struct {
 	injector       di.Injector
-	contextHandler context.ContextInterface
+	contextHandler context.ContextHandler
 	shell          shell.Shell
 	configHandler  config.ConfigHandler
 }
@@ -37,9 +37,9 @@ func (e *BaseEnvPrinter) Initialize() error {
 	if err != nil {
 		return fmt.Errorf("error resolving contextHandler: %w", err)
 	}
-	context, ok := contextHandler.(context.ContextInterface)
+	context, ok := contextHandler.(context.ContextHandler)
 	if !ok {
-		return fmt.Errorf("failed to cast contextHandler to context.ContextInterface")
+		return fmt.Errorf("failed to cast contextHandler to context.ContextHandler")
 	}
 	e.contextHandler = context
 

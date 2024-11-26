@@ -1,6 +1,9 @@
 package services
 
 import (
+	"errors"
+	"net"
+
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/di"
 )
@@ -13,15 +16,45 @@ type Service interface {
 
 	// WriteConfig writes any necessary configuration files needed by the service
 	WriteConfig() error
+
+	// SetAddress sets the address if it is a valid IPv4 address
+	SetAddress(address string) error
+
+	// GetAddress returns the current address of the service
+	GetAddress() string
+
+	// Initialize performs any necessary initialization for the service.
+	Initialize() error
 }
 
 // BaseService is a base implementation of the Service interface
 type BaseService struct {
 	injector di.Injector
+	address  string
 }
 
 // WriteConfig is a no-op for the Service interface
 func (s *BaseService) WriteConfig() error {
+	// No operation performed
+	return nil
+}
+
+// SetAddress sets the address if it is a valid IPv4 address
+func (s *BaseService) SetAddress(address string) error {
+	if net.ParseIP(address) == nil || net.ParseIP(address).To4() == nil {
+		return errors.New("invalid IPv4 address")
+	}
+	s.address = address
+	return nil
+}
+
+// GetAddress returns the current address of the service
+func (s *BaseService) GetAddress() string {
+	return s.address
+}
+
+// Initialize is a no-op for the Service interface
+func (s *BaseService) Initialize() error {
 	// No operation performed
 	return nil
 }

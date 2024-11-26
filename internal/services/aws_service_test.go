@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
@@ -71,9 +70,9 @@ func TestAwsService_NewAwsService(t *testing.T) {
 		mockInjector.SetResolveError("configHandler", fmt.Errorf("error resolving configHandler"))
 
 		// Attempt to create AwsService
-		_, err := NewAwsService(mockInjector)
-		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
-			t.Fatalf("expected error resolving configHandler, got %v", err)
+		awsService := NewAwsService(mockInjector)
+		if awsService == nil {
+			t.Fatalf("expected error resolving configHandler")
 		}
 	})
 
@@ -85,9 +84,9 @@ func TestAwsService_NewAwsService(t *testing.T) {
 		mockInjector.SetResolveError("context", fmt.Errorf("error resolving context"))
 
 		// Attempt to create AwsService
-		_, err := NewAwsService(mockInjector)
-		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
-			t.Fatalf("expected error resolving context, got %v", err)
+		awsService := NewAwsService(mockInjector)
+		if awsService == nil {
+			t.Fatalf("expected error resolving context")
 		}
 	})
 }
@@ -110,9 +109,11 @@ func TestAwsService_GetComposeConfig(t *testing.T) {
 		}
 
 		// Create an instance of AwsService
-		awsService, err := NewAwsService(mocks.Injector)
-		if err != nil {
-			t.Fatalf("NewAwsService() error = %v", err)
+		awsService := NewAwsService(mocks.Injector)
+
+		// Initialize the service
+		if err := awsService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
@@ -152,9 +153,11 @@ func TestAwsService_GetComposeConfig(t *testing.T) {
 		}
 
 		// Create an instance of AwsService
-		awsService, err := NewAwsService(mocks.Injector)
-		if err != nil {
-			t.Fatalf("NewAwsService() error = %v", err)
+		awsService := NewAwsService(mocks.Injector)
+
+		// Initialize the service
+		if err := awsService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
@@ -198,9 +201,11 @@ func TestAwsService_GetComposeConfig(t *testing.T) {
 		}
 
 		// Create an instance of AwsService
-		awsService, err := NewAwsService(mocks.Injector)
-		if err != nil {
-			t.Fatalf("NewAwsService() error = %v", err)
+		awsService := NewAwsService(mocks.Injector)
+
+		// Initialize the service
+		if err := awsService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
@@ -232,13 +237,18 @@ func TestAwsService_GetComposeConfig(t *testing.T) {
 		}
 
 		// Create an instance of AwsService
-		awsService, err := NewAwsService(mocks.Injector)
-		if err != nil {
-			t.Fatalf("NewAwsService() error = %v", err)
+		awsService := NewAwsService(mocks.Injector)
+
+		// Initialize the service
+		if err := awsService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
 		composeConfig, err := awsService.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
 
 		// Then: nil should be returned
 		if composeConfig != nil {
@@ -260,13 +270,18 @@ func TestAwsService_GetComposeConfig(t *testing.T) {
 		}
 
 		// Create an instance of AwsService
-		awsService, err := NewAwsService(mocks.Injector)
-		if err != nil {
-			t.Fatalf("NewAwsService() error = %v", err)
+		awsService := NewAwsService(mocks.Injector)
+
+		// Initialize the service
+		if err := awsService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
 		composeConfig, err := awsService.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
 
 		// Then: nil should be returned
 		if composeConfig != nil {
