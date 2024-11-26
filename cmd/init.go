@@ -71,60 +71,60 @@ var initCmd = &cobra.Command{
 
 		// Conditionally set AWS configuration
 		if cmd.Flags().Changed("aws-endpoint-url") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", contextName), awsEndpointURL); err != nil {
+			if err := configHandler.Set("aws.aws_endpoint_url", awsEndpointURL); err != nil {
 				return fmt.Errorf("Error setting AWS endpoint URL: %w", err)
 			}
 		}
 		if cmd.Flags().Changed("aws-profile") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.aws.aws_profile", contextName), awsProfile); err != nil {
+			if err := configHandler.Set("aws.aws_profile", awsProfile); err != nil {
 				return fmt.Errorf("Error setting AWS profile: %w", err)
 			}
 		}
 
 		// Conditionally set Docker configuration
 		if cmd.Flags().Changed("docker") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.docker.enabled", contextName), docker); err != nil {
+			if err := configHandler.Set("docker.enabled", docker); err != nil {
 				return fmt.Errorf("Error setting Docker enabled: %w", err)
 			}
 		}
 
 		// Conditionally set Terraform configuration
 		if cmd.Flags().Changed("backend") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.terraform.backend", contextName), backend); err != nil {
+			if err := configHandler.Set("terraform.backend", backend); err != nil {
 				return fmt.Errorf("Error setting Terraform backend: %w", err)
 			}
 		}
 
 		// Conditionally set VM configuration
 		if cmd.Flags().Changed("vm-driver") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.vm.driver", contextName), vmType); err != nil {
+			if err := configHandler.Set("vm.driver", vmType); err != nil {
 				return fmt.Errorf("Error setting VM driver: %w", err)
 			}
 		}
 		if cmd.Flags().Changed("vm-cpu") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.vm.cpu", contextName), cpu); err != nil {
+			if err := configHandler.Set("vm.cpu", cpu); err != nil {
 				return fmt.Errorf("Error setting VM CPU: %w", err)
 			}
 		}
 		if cmd.Flags().Changed("vm-disk") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.vm.disk", contextName), disk); err != nil {
+			if err := configHandler.Set("vm.disk", disk); err != nil {
 				return fmt.Errorf("Error setting VM disk: %w", err)
 			}
 		}
 		if cmd.Flags().Changed("vm-memory") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.vm.memory", contextName), memory); err != nil {
+			if err := configHandler.Set("vm.memory", memory); err != nil {
 				return fmt.Errorf("Error setting VM memory: %w", err)
 			}
 		}
 		if cmd.Flags().Changed("vm-arch") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.vm.arch", contextName), arch); err != nil {
+			if err := configHandler.Set("vm.arch", arch); err != nil {
 				return fmt.Errorf("Error setting VM architecture: %w", err)
 			}
 		}
 
 		// Conditionally set Git Livereload configuration
 		if cmd.Flags().Changed("git-livereload") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.git.livereload.enabled", contextName), gitLivereload); err != nil {
+			if err := configHandler.Set("git.livereload.enabled", gitLivereload); err != nil {
 				return fmt.Errorf("Error setting Git Livereload enabled: %w", err)
 			}
 		}

@@ -344,8 +344,8 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		expectedKeys := map[string]bool{
-			"contexts.test-context.aws.aws_endpoint_url": true,
-			"contexts.test-context.aws.aws_profile":      true,
+			"aws.aws_endpoint_url": true,
+			"aws.aws_profile":      true,
 		}
 		for key := range expectedKeys {
 			if !calledKeys[key] {
@@ -371,7 +371,7 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		expectedKeys := map[string]bool{
-			"contexts.test-context.docker.enabled": true,
+			"docker.enabled": true,
 		}
 		for key := range expectedKeys {
 			if !calledKeys[key] {
@@ -398,7 +398,7 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		expectedKeys := map[string]bool{
-			"contexts.test-context.git.livereload.enabled": true,
+			"git.livereload.enabled": true,
 		}
 		for key := range expectedKeys {
 			if !calledKeys[key] {
@@ -412,7 +412,7 @@ func TestInitCmd(t *testing.T) {
 		calledKeys := make(map[string]bool)
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
-			if key == "contexts.test-context.git.livereload.enabled" {
+			if key == "git.livereload.enabled" {
 				return fmt.Errorf("mock set error")
 			}
 			return nil
@@ -451,7 +451,7 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		expectedKeys := map[string]bool{
-			"contexts.test-context.terraform.backend": true,
+			"terraform.backend": true,
 		}
 		for key := range expectedKeys {
 			if !calledKeys[key] {
@@ -481,11 +481,11 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		expectedKeys := map[string]bool{
-			"contexts.test-context.vm.driver": true,
-			"contexts.test-context.vm.cpu":    true,
-			"contexts.test-context.vm.disk":   true,
-			"contexts.test-context.vm.memory": true,
-			"contexts.test-context.vm.arch":   true,
+			"vm.driver": true,
+			"vm.cpu":    true,
+			"vm.disk":   true,
+			"vm.memory": true,
+			"vm.arch":   true,
 		}
 		for key := range expectedKeys {
 			if !calledKeys[key] {
@@ -497,7 +497,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingAWSEndpointURL", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.aws.aws_endpoint_url" {
+			if key == "aws.aws_endpoint_url" {
 				return errors.New("error setting AWS endpoint URL")
 			}
 			return nil
@@ -516,7 +516,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingAWSProfile", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.aws.aws_profile" {
+			if key == "aws.aws_profile" {
 				return errors.New("error setting AWS profile")
 			}
 			return nil
@@ -535,7 +535,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingDockerConfiguration", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.docker.enabled" {
+			if key == "docker.enabled" {
 				return errors.New("error setting Docker enabled")
 			}
 			return nil
@@ -553,7 +553,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingTerraformConfiguration", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.terraform.backend" {
+			if key == "terraform.backend" {
 				return errors.New("error setting Terraform backend")
 			}
 			return nil
@@ -572,7 +572,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingVMConfigurationArch", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.vm.arch" {
+			if key == "vm.arch" {
 				return errors.New("error setting VM architecture")
 			}
 			return nil
@@ -591,7 +591,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingVMConfigurationDriver", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.vm.driver" {
+			if key == "vm.driver" {
 				return errors.New("error setting VM driver")
 			}
 			return nil
@@ -609,7 +609,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingVMConfigurationCPU", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.vm.cpu" {
+			if key == "vm.cpu" {
 				return errors.New("error setting VM CPU")
 			}
 			return nil
@@ -628,7 +628,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingVMConfigurationDisk", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.vm.disk" {
+			if key == "vm.disk" {
 				return errors.New("error setting VM disk")
 			}
 			return nil
@@ -647,7 +647,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingVMConfigurationMemory", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.vm.memory" {
+			if key == "vm.memory" {
 				return errors.New("error setting VM memory")
 			}
 			return nil
