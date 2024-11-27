@@ -26,39 +26,3 @@ export TF_CLI_ARGS_plan="-out=*****/contexts/local/.terraform/cluster/talos/terr
 export TF_DATA_DIR="*****/contexts/local/.terraform/cluster/talos"
 export TF_VAR_context_path="*****/contexts/local"
 ```
-
-# Secrets File : contexts/< context-name >/secrets.enc.yaml
-
-![secrets](../img/sops-secret.gif)
-
-The windsor env command applies all secrets listed in the context's secrets file.
-
-The secrets file for each context is located here,
-
-$PROJECT_ROOT/contexts/< context-name >/secrets.enc.yaml
-
-The secrets file contains a key/value pairs of secrets that are applied to the shell's environment.
-
-
-## Try it out
-
-```bash
-sops edit contexts/local/secrets.enc.yaml
-```
-
-Add these lines
-
-```bash
-api_key: plaintext-value
-db_password: plaintext-password
-```
-
-Save the file.  Confirm environment variables are set.
-
-```bash
-env | grep api_key
-api_key=plaintext-value
-
-env | grep db_password
-db_password=plaintext-password
-```
