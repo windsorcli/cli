@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/services"
 	"github.com/windsor-hotel/cli/internal/virt"
 )
 
@@ -53,6 +54,11 @@ var initCmd = &cobra.Command{
 			}
 			cliConfigPath = filepath.Join(homeDir, ".config", "windsor", "config.yaml")
 		}
+		// Load the configuration
+		if err := configHandler.LoadConfig(cliConfigPath); err != nil {
+			return fmt.Errorf("Error loading config file: %w", err)
+		}
+
 		// Set the context value
 		if err := contextHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("Error setting context value: %w", err)
@@ -134,30 +140,39 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error saving config file: %w", err)
 		}
 
-		// Configure ColimaVirt if enabled in configuration
-		driver := configHandler.GetString("vm.driver")
-		if driver == "colima" {
-			// Resolve colimaVirt
-			colimaVirtInstance, err := injector.Resolve("colimaVirt")
-			if err != nil {
-				return fmt.Errorf("Error resolving colimaVirt: %w", err)
-			}
-			colimaVirt, ok := colimaVirtInstance.(virt.VirtualMachine)
+		// Resolve all services
+		resolvedServices, err := injector.ResolveAll((*services.Service)(nil))
+		if err != nil {
+			return fmt.Errorf("Error resolving services: %w", err)
+		}
+
+		// Initialize all services
+		for _, serviceInterface := range resolvedServices {
+			service, ok := serviceInterface.(services.Service)
 			if !ok {
-				return fmt.Errorf("Resolved instance is not of type virt.VirtualMachine")
+				return fmt.Errorf("Resolved instance is not of expected type")
 			}
-			if err := colimaVirt.Initialize(); err != nil {
-				return fmt.Errorf("error initializing Colima: %w", err)
-			}
-			if err := colimaVirt.WriteConfig(); err != nil {
-				return fmt.Errorf("error writing Colima config: %w", err)
+
+			if err := service.Initialize(); err != nil {
+				return fmt.Errorf("error initializing service: %w", err)
 			}
 		}
 
-		// Configure DockerVirt if enabled in configuration
+		// Write configuration for all services
+		for _, serviceInterface := range resolvedServices {
+			service, ok := serviceInterface.(services.Service)
+			if !ok {
+				return fmt.Errorf("Resolved instance is not of expected type")
+			}
+
+			if err := service.WriteConfig(); err != nil {
+				return fmt.Errorf("error writing service config: %w", err)
+			}
+		}
+
+		// Initialize DockerVirt if enabled
 		dockerEnabled := configHandler.GetBool("docker.enabled")
 		if dockerEnabled {
-			// Resolve dockerVirt
 			dockerVirtInstance, err := injector.Resolve("dockerVirt")
 			if err != nil {
 				return fmt.Errorf("Error resolving dockerVirt: %w", err)
@@ -167,10 +182,23 @@ var initCmd = &cobra.Command{
 				return fmt.Errorf("Resolved instance is not of type virt.ContainerRuntime")
 			}
 			if err := dockerVirt.Initialize(); err != nil {
-				return fmt.Errorf("error initializing Docker: %w", err)
+				return fmt.Errorf("Error initializing dockerVirt: %w", err)
 			}
-			if err := dockerVirt.WriteConfig(); err != nil {
-				return fmt.Errorf("error writing Docker config: %w", err)
+		}
+
+		// Initialize ColimaVirt if enabled
+		vmType := configHandler.GetString("vm.driver")
+		if vmType == "colima" {
+			colimaVirtInstance, err := injector.Resolve("colimaVirt")
+			if err != nil {
+				return fmt.Errorf("Error resolving colimaVirt: %w", err)
+			}
+			colimaVirt, ok := colimaVirtInstance.(virt.VirtualMachine)
+			if !ok {
+				return fmt.Errorf("Resolved instance is not of type virt.VirtualMachine")
+			}
+			if err := colimaVirt.Initialize(); err != nil {
+				return fmt.Errorf("Error initializing colimaVirt: %w", err)
 			}
 		}
 

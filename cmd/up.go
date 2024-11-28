@@ -111,11 +111,21 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("Resolved instance is not of type services.Service")
 			}
 
+			// Write the docker-compose file
+			if err := dockerVirt.WriteConfig(); err != nil {
+				return fmt.Errorf("Error writing docker-compose file: %w", err)
+			}
+
 			// Write the DNS configuration
 			if createDns {
 				if err := dnsService.WriteConfig(); err != nil {
 					return fmt.Errorf("Error writing DNS config: %w", err)
 				}
+			}
+
+			// Run the DockerVirt Up command
+			if err := dockerVirt.Up(verbose); err != nil {
+				return fmt.Errorf("Error running DockerVirt Up command: %w", err)
 			}
 
 			// Get the DNS address
@@ -128,11 +138,6 @@ var upCmd = &cobra.Command{
 					return fmt.Errorf("DNS service not found")
 				}
 				dnsAddress = dnsService[0].Address
-			}
-
-			// Run the DockerVirt Up command
-			if err := dockerVirt.Up(verbose); err != nil {
-				return fmt.Errorf("Error running DockerVirt Up command: %w", err)
 			}
 		}
 

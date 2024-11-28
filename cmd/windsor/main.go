@@ -54,7 +54,6 @@ func main() {
 	injector.Register("dnsService", dnsService)
 
 	// Create and register the DockerService instance
-	// This should go last!
 	dockerService := services.NewDockerService(injector)
 	injector.Register("dockerService", dockerService)
 

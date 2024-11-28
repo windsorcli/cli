@@ -91,14 +91,21 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 		// Determine if running in CI environment
 		isCI := strings.ToLower(os.Getenv("CI")) == "true"
 
+		// Get the path to the compose.yaml file
+		configRoot, err := v.contextHandler.GetConfigRoot()
+		if err != nil {
+			return fmt.Errorf("error retrieving config root: %w", err)
+		}
+		composeFilePath := filepath.Join(configRoot, "compose.yaml")
+
 		// Retry logic for docker-compose up
 		retries := 3
 		var lastErr error
 		var lastOutput string
 		for i := 0; i < retries; i++ {
 			command := "docker-compose"
-			args := []string{"up", "-d"}
-			output, err := v.shell.Exec(verboseFlag, fmt.Sprintf("Running %s %s", command, strings.Join(args, " ")), command, args...)
+			args := []string{"-f", composeFilePath, "up", "-d"}
+			output, err := v.shell.Exec(verboseFlag, "Running docker-compose up -d", command, args...)
 			if err == nil {
 				lastErr = nil
 				break
@@ -116,7 +123,7 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 		}
 
 		if lastErr != nil {
-			return fmt.Errorf("Error executing command %s %v: %w\n%s", "docker-compose", []string{"up", "-d"}, lastErr, lastOutput)
+			return fmt.Errorf("Error executing command %s %v: %w\n%s", "docker-compose", []string{"-f", composeFilePath, "up", "-d"}, lastErr, lastOutput)
 		}
 	}
 
