@@ -17,6 +17,7 @@ type DNSService struct {
 	injector       di.Injector
 	configHandler  config.ConfigHandler
 	contextHandler context.ContextHandler
+	services       []Service
 }
 
 // NewDNSService creates a new DNSService
@@ -28,11 +29,6 @@ func NewDNSService(injector di.Injector) *DNSService {
 
 // Initialize resolves and sets all the things resolved from the DI
 func (s *DNSService) Initialize() error {
-	// Call the parent Initialize method
-	if err := s.BaseService.Initialize(); err != nil {
-		return err
-	}
-
 	// Resolve the configHandler from the injector
 	configHandler, err := s.injector.Resolve("configHandler")
 	if err != nil {
@@ -46,6 +42,21 @@ func (s *DNSService) Initialize() error {
 		return fmt.Errorf("error resolving context: %w", err)
 	}
 	s.contextHandler = resolvedContext.(context.ContextHandler)
+
+	// Resolve all services from the injector
+	resolvedServices, err := s.injector.ResolveAll(new(Service))
+	if err != nil {
+		return fmt.Errorf("error resolving services: %w", err)
+	}
+
+	// Initialize each service
+	for _, serviceInterface := range resolvedServices {
+		service, _ := serviceInterface.(Service)
+		if err := service.Initialize(); err != nil {
+			return fmt.Errorf("error initializing service: %w", err)
+		}
+		s.services = append(s.services, service)
+	}
 
 	return nil
 }
@@ -123,16 +134,9 @@ func (s *DNSService) WriteConfig() error {
 		tld = *contextConfig.DNS.Name
 	}
 
-	// Retrieve the list of services from the injector
-	resolvedServices, err := s.injector.ResolveAll((*Service)(nil))
-	if err != nil {
-		return fmt.Errorf("error resolving services: %w", err)
-	}
-
 	// Gather the IP address of each service using the Address field
 	var hostEntries string
-	for _, serviceInterface := range resolvedServices {
-		service, _ := serviceInterface.(Service)
+	for _, service := range s.services {
 		composeConfig, err := service.GetComposeConfig()
 		if err != nil || composeConfig == nil {
 			continue

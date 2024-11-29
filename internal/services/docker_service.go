@@ -2,7 +2,6 @@ package services
 
 import (
 	"fmt"
-	"net"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsor-hotel/cli/internal/config"
@@ -29,11 +28,6 @@ func NewDockerService(injector di.Injector) *DockerService {
 
 // Initialize performs any necessary initialization for the service.
 func (s *DockerService) Initialize() error {
-	// Call the parent Initialize method
-	if err := s.BaseService.Initialize(); err != nil {
-		return err
-	}
-
 	// Resolve the configHandler from the injector
 	configHandler, err := s.injector.Resolve("configHandler")
 	if err != nil {
@@ -126,15 +120,3 @@ func (s *DockerService) GetComposeConfig() (*types.Config, error) {
 
 // Ensure DockerService implements Service interface
 var _ Service = (*DockerService)(nil)
-
-// incrementIP increments an IP address by one
-func incrementIP(ip net.IP) net.IP {
-	ip = ip.To4()
-	for j := len(ip) - 1; j >= 0; j-- {
-		ip[j]++
-		if ip[j] > 0 {
-			break
-		}
-	}
-	return ip
-}

@@ -91,6 +91,60 @@ func TestAwsService_NewAwsService(t *testing.T) {
 	})
 }
 
+func TestAwsService_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create mock injector with necessary mocks
+		mocks := createAwsServiceMocks()
+
+		// Create an instance of AwsService
+		awsService := NewAwsService(mocks.Injector)
+
+		// Initialize the service
+		err := awsService.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		// Create mock injector and set resolve error for configHandler
+		mockInjector := di.NewMockInjector()
+		mockInjector.SetResolveError("configHandler", fmt.Errorf("error resolving configHandler"))
+
+		// Create an instance of AwsService
+		awsService := NewAwsService(mockInjector)
+
+		// Initialize the service
+		err := awsService.Initialize()
+		if err == nil {
+			t.Fatalf("expected error resolving configHandler, got nil")
+		}
+		if err.Error() != "error resolving configHandler: error resolving configHandler" {
+			t.Fatalf("expected error message 'error resolving configHandler: error resolving configHandler', got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingContext", func(t *testing.T) {
+		// Create mock injector and set resolve error for contextHandler
+		mockInjector := di.NewMockInjector()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockInjector.Register("configHandler", mockConfigHandler)
+		mockInjector.SetResolveError("contextHandler", fmt.Errorf("error resolving contextHandler"))
+
+		// Create an instance of AwsService
+		awsService := NewAwsService(mockInjector)
+
+		// Initialize the service
+		err := awsService.Initialize()
+		if err == nil {
+			t.Fatalf("expected error resolving contextHandler, got nil")
+		}
+		if err.Error() != "error resolving context: error resolving contextHandler" {
+			t.Fatalf("expected error message 'error resolving context: error resolving contextHandler', got %v", err)
+		}
+	})
+}
+
 func TestAwsService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create mock injector with necessary mocks

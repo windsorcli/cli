@@ -2,6 +2,8 @@ package services
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
@@ -35,19 +37,12 @@ func setupSafeGitServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 		return "mock-context", nil
 	}
 
-	// Set up the mock config handler to return a safe default configuration for Git
+	// Set up the mock config handler to return minimal configuration for Git
 	mockConfigHandler.GetConfigFunc = func() *config.Context {
 		return &config.Context{
 			Git: &config.GitConfig{
 				Livereload: &config.GitLivereloadConfig{
-					RsyncExclude: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE),
-					RsyncProtect: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT),
-					Username:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME),
-					Password:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD),
-					WebhookUrl:   ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL),
-					Image:        ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE),
-					Create:       ptrBool(true),
-					VerifySsl:    ptrBool(false),
+					Create: ptrBool(true),
 				},
 			},
 		}
@@ -190,6 +185,78 @@ func TestGitService_GetComposeConfig(t *testing.T) {
 
 		if !serviceFound {
 			t.Errorf("expected service with name %q and image %q to be in the list of configurations:\n%+v", expectedName, expectedImage, composeConfig.Services)
+		}
+	})
+
+	t.Run("ErrorGettingContext", func(t *testing.T) {
+		mocks := setupSafeGitServiceMocks()
+		mocks.MockContext.GetContextFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving context")
+		}
+
+		// When: a new GitService is created and initialized
+		gitService := NewGitService(mocks.Injector)
+		err := gitService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetComposeConfig is called
+		_, err = gitService.GetComposeConfig()
+
+		// Then: an error should be returned
+		if err == nil || !strings.Contains(err.Error(), "mock error retrieving context") {
+			t.Fatalf("expected error retrieving context, got %v", err)
+		}
+	})
+
+	t.Run("GitNotEnabled", func(t *testing.T) {
+		mocks := setupSafeGitServiceMocks()
+		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
+			return &config.Context{
+				Git: nil,
+			}
+		}
+		gitService := NewGitService(mocks.Injector)
+		err := gitService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetComposeConfig is called
+		composeConfig, err := gitService.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
+
+		// Then: verify the configuration is nil
+		if composeConfig != nil {
+			t.Errorf("expected nil configuration, got %+v", composeConfig)
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		mocks := setupSafeGitServiceMocks()
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving project root")
+		}
+
+		// When: a new GitService is created and initialized
+		gitService := NewGitService(mocks.Injector)
+		err := gitService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetComposeConfig is called
+		composeConfig, err := gitService.GetComposeConfig()
+
+		// Then: verify the configuration is empty and an error should be returned
+		if composeConfig != nil && len(composeConfig.Services) > 0 {
+			t.Errorf("expected empty configuration, got %+v", composeConfig)
+		}
+		if err == nil || !strings.Contains(err.Error(), "mock error retrieving project root") {
+			t.Fatalf("expected error retrieving project root, got %v", err)
 		}
 	})
 }

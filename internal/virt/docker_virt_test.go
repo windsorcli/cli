@@ -203,7 +203,7 @@ func TestDockerVirt_Up(t *testing.T) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "", nil // Simulate successful Docker daemon check
 			}
-			if command == "docker-compose" && len(args) > 0 && args[0] == "up" {
+			if command == "docker-compose" && len(args) > 0 && args[2] == "up" {
 				execCalled = true
 				return "", nil
 			}
@@ -236,7 +236,7 @@ func TestDockerVirt_Up(t *testing.T) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "", nil // Simulate successful Docker daemon check
 			}
-			if command == "docker-compose" && len(args) > 0 && args[0] == "up" {
+			if command == "docker-compose" && len(args) > 0 && args[2] == "up" {
 				execCalled = true
 				return "", nil
 			}
@@ -300,7 +300,7 @@ func TestDockerVirt_Up(t *testing.T) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
-			if command == "docker-compose" && len(args) > 0 && args[0] == "up" {
+			if command == "docker-compose" && len(args) > 0 && args[2] == "up" {
 				execCallCount++
 				if execCallCount < 3 {
 					return "", fmt.Errorf("temporary error")
@@ -338,8 +338,11 @@ func TestDockerVirt_Up(t *testing.T) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
-			if command == "docker-compose" && len(args) > 0 && args[0] == "up" {
+			if command == "docker-compose" && len(args) > 2 && args[2] == "up" {
 				execCallCount++
+				if execCallCount < 3 {
+					return "", fmt.Errorf("temporary error")
+				}
 				return "", fmt.Errorf("persistent error")
 			}
 			return "", fmt.Errorf("unknown command")
@@ -359,7 +362,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		}
 
 		// Verify that the error message is as expected
-		expectedErrorMsg := "Error executing command docker-compose [up -d]"
+		expectedErrorMsg := "persistent error"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}

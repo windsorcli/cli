@@ -29,11 +29,6 @@ func NewAwsService(injector di.Injector) *AwsService {
 
 // Initialize resolves and sets all the things resolved from the DI
 func (s *AwsService) Initialize() error {
-	// Call the parent Initialize method
-	if err := s.BaseService.Initialize(); err != nil {
-		return err
-	}
-
 	// Resolve the configHandler from the injector
 	configHandler, err := s.injector.Resolve("configHandler")
 	if err != nil {

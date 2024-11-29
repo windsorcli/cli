@@ -28,25 +28,25 @@ func NewGitService(injector di.Injector) *GitService {
 
 // Initialize resolves dependencies and initializes the GitService
 func (s *GitService) Initialize() error {
-	if err := s.BaseService.Initialize(); err != nil {
-		return err
-	}
-
+	// Resolve the configHandler from the injector
 	configHandler, err := s.injector.Resolve("configHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving configHandler: %w", err)
 	}
 
+	// Resolve the shell from the injector
 	resolvedShell, err := s.injector.Resolve("shell")
 	if err != nil {
 		return fmt.Errorf("error resolving shell: %w", err)
 	}
 
+	// Resolve the contextHandler from the injector
 	resolvedContext, err := s.injector.Resolve("contextHandler")
 	if err != nil {
 		return fmt.Errorf("error resolving context: %w", err)
 	}
 
+	// Set the resolved dependencies to the GitService fields
 	s.configHandler = configHandler.(config.ConfigHandler)
 	s.shell = resolvedShell.(shell.Shell)
 	s.contextHandler = resolvedContext.(context.ContextHandler)

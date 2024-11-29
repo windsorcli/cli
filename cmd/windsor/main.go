@@ -57,6 +57,10 @@ func main() {
 	dockerService := services.NewDockerService(injector)
 	injector.Register("dockerService", dockerService)
 
+	// Create and register the TalosControlPlaneService instance
+	talosControlPlaneService := services.NewTalosControlPlaneService(injector)
+	injector.Register("talosControlPlaneService", talosControlPlaneService)
+
 	// Register SSH Client instance
 	sshClient := ssh.NewSSHClient()
 	injector.Register("sshClient", sshClient)

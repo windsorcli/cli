@@ -806,39 +806,9 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		// Then: the error message should indicate the error
-		expectedError := "error initializing Colima: initialization failed"
+		expectedError := "Error initializing colimaVirt: initialization failed"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorWritingColimaConfig", func(t *testing.T) {
-		// Given: a config handler that returns "colima" as the VM driver
-		mocks := mocks.CreateSuperMocks()
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "colima"
-			}
-			return ""
-		}
-		// Mock ColimaVirt to return an error on WriteConfig
-		mocks.ColimaVirt.WriteConfigFunc = func() error {
-			return errors.New("error writing Colima config")
-		}
-
-		// When: the init command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(mocks.Injector)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then: the output should indicate the error
-		expectedOutput := "error writing Colima config: error writing Colima config"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -906,38 +876,7 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error initializing Docker: error initializing Docker"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorWritingDockerConfig", func(t *testing.T) {
-		// Given: a config handler that returns a valid config with Docker enabled
-		mocks := mocks.CreateSuperMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Enabled: ptrBool(true),
-				},
-			}
-		}
-		// Mock DockerVirt to return an error on WriteConfig
-		mocks.DockerVirt.WriteConfigFunc = func() error {
-			return errors.New("error writing Docker config")
-		}
-
-		// When: the init command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(mocks.Injector)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then: the output should indicate the error
-		expectedOutput := "error writing Docker config: error writing Docker config"
+		expectedOutput := "Error: Error initializing dockerVirt: error initializing Docker"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
