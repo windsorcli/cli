@@ -67,9 +67,6 @@ var newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
 // incrementIP increments an IP address by one
 func incrementIP(ip net.IP) net.IP {
 	ip = ip.To4()
-	if ip == nil {
-		return nil
-	}
 	for j := len(ip) - 1; j >= 0; j-- {
 		ip[j]++
 		if ip[j] > 0 {

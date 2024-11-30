@@ -114,11 +114,8 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 			lastErr = err
 			lastOutput = output
 
-			if i < retries-1 {
-				fmt.Println("Retrying docker-compose up...")
-				if !isCI {
-					time.Sleep(2 * time.Second)
-				}
+			if i < retries-1 && !isCI {
+				time.Sleep(2 * time.Second)
 			}
 		}
 
@@ -392,7 +389,7 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 }
 
 // assignIPAddresses assigns IP addresses to services based on the network CIDR.
-func assignIPAddresses(services []services.Service, networkCIDR *string) error {
+var assignIPAddresses = func(services []services.Service, networkCIDR *string) error {
 	if networkCIDR == nil {
 		return nil
 	}
