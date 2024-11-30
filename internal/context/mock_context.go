@@ -36,5 +36,5 @@ func (m *MockContext) GetConfigRoot() (string, error) {
 	return "/mock/config/root", nil
 }
 
-// Ensure MockContext implements the ContextInterface
-var _ ContextInterface = (*MockContext)(nil)
+// Ensure MockContext implements the ContextHandler interface
+var _ ContextHandler = (*MockContext)(nil)

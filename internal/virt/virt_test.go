@@ -108,8 +108,8 @@ func TestVirt_Initialize(t *testing.T) {
 		err := v.Initialize()
 
 		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "not of type ContextInterface") {
-			t.Fatalf("Expected error containing 'not of type ContextInterface', got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "not of type ContextHandler") {
+			t.Fatalf("Expected error containing 'not of type ContextHandler', got %v", err)
 		}
 	})
 

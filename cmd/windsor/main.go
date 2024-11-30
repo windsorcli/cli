@@ -8,8 +8,8 @@ import (
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/helpers"
 	"github.com/windsor-hotel/cli/internal/network"
+	"github.com/windsor-hotel/cli/internal/services"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
 	"github.com/windsor-hotel/cli/internal/virt"
@@ -38,37 +38,28 @@ func main() {
 	injector.Register("secureShell", secureShellInstance)
 
 	// Create and register the Context instance
-	contextHandler := context.NewContext(configHandler, shellInstance)
+	contextHandler := context.NewBaseContextHandler(configHandler, shellInstance)
 	injector.Register("contextHandler", contextHandler)
 
-	// Create and register the AwsHelper instance
-	awsHelper, err := helpers.NewAwsHelper(injector)
-	if err != nil {
-		log.Fatalf("failed to create aws helper: %v", err)
-	}
-	injector.Register("awsHelper", awsHelper)
+	// Create and register the AwsService instance
+	awsService := services.NewAwsService(injector)
+	injector.Register("awsService", awsService)
 
-	// Create and register the GitHelper instance
-	gitHelper, err := helpers.NewGitHelper(injector)
-	if err != nil {
-		log.Fatalf("failed to create git helper: %v", err)
-	}
-	injector.Register("gitHelper", gitHelper)
+	// Create and register the GitService instance
+	gitService := services.NewGitService(injector)
+	injector.Register("gitService", gitService)
 
-	// Create and register the DNSHelper instance
-	dnsHelper, err := helpers.NewDNSHelper(injector)
-	if err != nil {
-		log.Fatalf("failed to create dns helper: %v", err)
-	}
-	injector.Register("dnsHelper", dnsHelper)
+	// Create and register the DNSService instance
+	dnsService := services.NewDNSService(injector)
+	injector.Register("dnsService", dnsService)
 
-	// Create and register the DockerHelper instance
-	// This should go last!
-	dockerHelper, err := helpers.NewDockerHelper(injector)
-	if err != nil {
-		log.Fatalf("failed to create docker helper: %v", err)
-	}
-	injector.Register("dockerHelper", dockerHelper)
+	// Create and register the DockerService instance
+	dockerService := services.NewDockerService(injector)
+	injector.Register("dockerService", dockerService)
+
+	// Create and register the TalosControlPlaneService instance
+	talosControlPlaneService := services.NewTalosControlPlaneService(injector)
+	injector.Register("talosControlPlaneService", talosControlPlaneService)
 
 	// Register SSH Client instance
 	sshClient := ssh.NewSSHClient()

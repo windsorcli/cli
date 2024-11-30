@@ -1,35 +1,12 @@
-package helpers
+package services
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
 
-	"github.com/compose-spec/compose-go/types"
 	"github.com/goccy/go-yaml"
-	"github.com/windsor-hotel/cli/internal/di"
 )
-
-// Helper is an interface that defines methods for retrieving environment variables
-// and can be implemented for individual providers.
-type Helper interface {
-	// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
-	GetComposeConfig() (*types.Config, error)
-
-	// WriteConfig writes any necessary configuration files needed by the helper
-	WriteConfig() error
-}
-
-// BaseHelper is a base implementation of the Helper interface
-type BaseHelper struct {
-	injector di.Injector
-}
-
-// WriteConfig is a no-op for the Helper interface
-func (h *BaseHelper) WriteConfig() error {
-	// No operation performed
-	return nil
-}
 
 // Define a variable for os.Getwd() for easier testing
 var getwd = os.Getwd

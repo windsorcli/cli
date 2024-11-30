@@ -377,7 +377,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		err = nm.Initialize()
 		if err == nil {
 			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "resolved context handler instance is not of type context.ContextInterface" {
+		} else if err.Error() != "resolved context handler instance is not of type context.ContextHandler" {
 			t.Fatalf("unexpected error message: got %v", err)
 		}
 	})

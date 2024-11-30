@@ -1,46 +1,61 @@
-package helpers
+package services
 
 import (
 	"fmt"
 	"path/filepath"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/constants"
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-// DNSHelper handles DNS configuration
-type DNSHelper struct {
-	injector di.Injector
+// DNSService handles DNS configuration
+type DNSService struct {
+	BaseService
+	services []Service
 }
 
-// NewDNSHelper creates a new DNSHelper
-func NewDNSHelper(injector di.Injector) (*DNSHelper, error) {
-	return &DNSHelper{
-		injector: injector,
-	}, nil
+// NewDNSService creates a new DNSService
+func NewDNSService(injector di.Injector) *DNSService {
+	return &DNSService{
+		BaseService: BaseService{
+			injector: injector,
+		},
+	}
+}
+
+// Initialize resolves and sets all the things resolved from the DI
+func (s *DNSService) Initialize() error {
+	// Call the base Initialize method
+	if err := s.BaseService.Initialize(); err != nil {
+		return err
+	}
+
+	// Resolve all services from the injector
+	resolvedServices, err := s.injector.ResolveAll(new(Service))
+	if err != nil {
+		return fmt.Errorf("error resolving services: %w", err)
+	}
+
+	// Set each service on the class
+	for _, serviceInterface := range resolvedServices {
+		service, _ := serviceInterface.(Service)
+		s.services = append(s.services, service)
+	}
+
+	return nil
 }
 
 // GetComposeConfig returns the compose configuration
-func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
+func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name
-	contextHandler, err := h.injector.Resolve("contextHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving context: %w", err)
-	}
-	contextName, err := contextHandler.(context.ContextInterface).GetContext()
+	contextName, err := s.contextHandler.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context name: %w", err)
 	}
 
 	// Retrieve the context configuration
-	configHandler, err := h.injector.Resolve("configHandler")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving configHandler: %w", err)
-	}
-	contextConfig := configHandler.(config.ConfigHandler).GetConfig()
+	contextConfig := s.configHandler.GetConfig()
 
 	// Check if the DNS is enabled
 	if contextConfig.DNS == nil || contextConfig.DNS.Create == nil || !*contextConfig.DNS.Create {
@@ -77,14 +92,10 @@ func (h *DNSHelper) GetComposeConfig() (*types.Config, error) {
 	return &types.Config{Services: services, Volumes: volumes}, nil
 }
 
-// WriteConfig writes any necessary configuration files needed by the helper
-func (h *DNSHelper) WriteConfig() error {
+// WriteConfig writes any necessary configuration files needed by the service
+func (s *DNSService) WriteConfig() error {
 	// Retrieve the context configuration
-	configHandler, err := h.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
-	}
-	contextConfig := configHandler.(config.ConfigHandler).GetConfig()
+	contextConfig := s.configHandler.GetConfig()
 
 	// Check if DNS is defined and DNS Create is enabled
 	if contextConfig.DNS == nil || contextConfig.DNS.Create == nil || !*contextConfig.DNS.Create {
@@ -97,46 +108,38 @@ func (h *DNSHelper) WriteConfig() error {
 	}
 
 	// Retrieve the configuration directory for the current context
-	resolvedContext, err := h.injector.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving context: %w", err)
-	}
-	configDir, err := resolvedContext.(context.ContextInterface).GetConfigRoot()
+	configDir, err := s.contextHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error retrieving config root: %w", err)
 	}
 
 	// Get the TLD from the configuration
-	name := "test"
+	tld := "test"
 	if contextConfig.DNS.Name != nil && *contextConfig.DNS.Name != "" {
-		name = *contextConfig.DNS.Name
+		tld = *contextConfig.DNS.Name
 	}
 
-	// Retrieve the compose configuration from DockerHelper
-	dockerHelper, err := h.injector.Resolve("dockerHelper")
-	if err != nil {
-		return fmt.Errorf("error resolving dockerHelper: %w", err)
-	}
-	dockerHelperInstance, ok := dockerHelper.(*DockerHelper)
-	if !ok {
-		return fmt.Errorf("error casting to DockerHelper")
-	}
-	composeConfig, err := dockerHelperInstance.GetFullComposeConfig()
-	if err != nil {
-		return fmt.Errorf("error retrieving compose configuration: %w", err)
-	}
-
-	// Gather the IP address of each service
+	// Gather the IP address of each service using the Address field
 	var hostEntries string
-	for _, service := range composeConfig.Services {
-		for _, networkConfig := range service.Networks {
-			if networkConfig.Ipv4Address != "" {
-				hostEntries += fmt.Sprintf("        %s %s\n", networkConfig.Ipv4Address, service.Name)
+	for _, service := range s.services {
+		composeConfig, err := service.GetComposeConfig()
+		if err != nil || composeConfig == nil {
+			continue
+		}
+		for _, svc := range composeConfig.Services {
+			if svc.Name != "" {
+				if addressService, ok := service.(interface{ GetAddress() string }); ok {
+					address := addressService.GetAddress()
+					if address != "" {
+						fullName := fmt.Sprintf("%s.%s", svc.Name, tld)
+						hostEntries += fmt.Sprintf("        %s %s\n", fullName, address)
+					}
+				}
 			}
 		}
 	}
 
-	// Template out the Corefile with information from the compose configuration
+	// Template out the Corefile with information from the services
 	corefileContent := fmt.Sprintf(`
 %s:53 {
     hosts {
@@ -145,7 +148,7 @@ func (h *DNSHelper) WriteConfig() error {
 
     forward . 1.1.1.1 8.8.8.8
 }
-`, name, hostEntries)
+`, tld, hostEntries)
 
 	corefilePath := filepath.Join(configDir, "Corefile")
 
@@ -162,5 +165,5 @@ func (h *DNSHelper) WriteConfig() error {
 	return nil
 }
 
-// Ensure DockerHelper implements Helper interface
-var _ Helper = (*DNSHelper)(nil)
+// Ensure DNSService implements Service interface
+var _ Service = (*DNSService)(nil)

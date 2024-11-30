@@ -38,7 +38,7 @@ func TestEnv_Initialize(t *testing.T) {
 		// Create a mock injector and Env instance
 		mockInjector := di.NewMockInjector()
 
-		// Register an invalid contextHandler that cannot be cast to context.ContextInterface
+		// Register an invalid contextHandler that cannot be cast to context.ContextHandler
 		mockInjector.Register("contextHandler", "invalid")
 
 		env := NewBaseEnvPrinter(mockInjector)
@@ -47,7 +47,7 @@ func TestEnv_Initialize(t *testing.T) {
 		err := env.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
-		} else if err.Error() != "failed to cast contextHandler to context.ContextInterface" {
+		} else if err.Error() != "failed to cast contextHandler to context.ContextHandler" {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})

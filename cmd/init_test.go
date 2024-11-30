@@ -103,7 +103,7 @@ func TestInitCmd(t *testing.T) {
 
 		// Override getContextHandler to return an error
 		originalGetContextHandler := getContextHandler
-		getContextHandler = func() (context.ContextInterface, error) {
+		getContextHandler = func() (context.ContextHandler, error) {
 			return nil, fmt.Errorf("mocked error getting context")
 		}
 		defer func() { getContextHandler = originalGetContextHandler }()
@@ -344,8 +344,8 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		expectedKeys := map[string]bool{
-			"contexts.test-context.aws.aws_endpoint_url": true,
-			"contexts.test-context.aws.aws_profile":      true,
+			"aws.aws_endpoint_url": true,
+			"aws.aws_profile":      true,
 		}
 		for key := range expectedKeys {
 			if !calledKeys[key] {
@@ -371,7 +371,7 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		expectedKeys := map[string]bool{
-			"contexts.test-context.docker.enabled": true,
+			"docker.enabled": true,
 		}
 		for key := range expectedKeys {
 			if !calledKeys[key] {
@@ -398,7 +398,7 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		expectedKeys := map[string]bool{
-			"contexts.test-context.git.livereload.enabled": true,
+			"git.livereload.enabled": true,
 		}
 		for key := range expectedKeys {
 			if !calledKeys[key] {
@@ -412,7 +412,7 @@ func TestInitCmd(t *testing.T) {
 		calledKeys := make(map[string]bool)
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
 			calledKeys[key] = true
-			if key == "contexts.test-context.git.livereload.enabled" {
+			if key == "git.livereload.enabled" {
 				return fmt.Errorf("mock set error")
 			}
 			return nil
@@ -451,7 +451,7 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		expectedKeys := map[string]bool{
-			"contexts.test-context.terraform.backend": true,
+			"terraform.backend": true,
 		}
 		for key := range expectedKeys {
 			if !calledKeys[key] {
@@ -481,11 +481,11 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		expectedKeys := map[string]bool{
-			"contexts.test-context.vm.driver": true,
-			"contexts.test-context.vm.cpu":    true,
-			"contexts.test-context.vm.disk":   true,
-			"contexts.test-context.vm.memory": true,
-			"contexts.test-context.vm.arch":   true,
+			"vm.driver": true,
+			"vm.cpu":    true,
+			"vm.disk":   true,
+			"vm.memory": true,
+			"vm.arch":   true,
 		}
 		for key := range expectedKeys {
 			if !calledKeys[key] {
@@ -497,7 +497,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingAWSEndpointURL", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.aws.aws_endpoint_url" {
+			if key == "aws.aws_endpoint_url" {
 				return errors.New("error setting AWS endpoint URL")
 			}
 			return nil
@@ -516,7 +516,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingAWSProfile", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.aws.aws_profile" {
+			if key == "aws.aws_profile" {
 				return errors.New("error setting AWS profile")
 			}
 			return nil
@@ -535,7 +535,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingDockerConfiguration", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.docker.enabled" {
+			if key == "docker.enabled" {
 				return errors.New("error setting Docker enabled")
 			}
 			return nil
@@ -553,7 +553,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingTerraformConfiguration", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.terraform.backend" {
+			if key == "terraform.backend" {
 				return errors.New("error setting Terraform backend")
 			}
 			return nil
@@ -572,7 +572,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingVMConfigurationArch", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.vm.arch" {
+			if key == "vm.arch" {
 				return errors.New("error setting VM architecture")
 			}
 			return nil
@@ -591,7 +591,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingVMConfigurationDriver", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.vm.driver" {
+			if key == "vm.driver" {
 				return errors.New("error setting VM driver")
 			}
 			return nil
@@ -609,7 +609,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingVMConfigurationCPU", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.vm.cpu" {
+			if key == "vm.cpu" {
 				return errors.New("error setting VM CPU")
 			}
 			return nil
@@ -628,7 +628,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingVMConfigurationDisk", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.vm.disk" {
+			if key == "vm.disk" {
 				return errors.New("error setting VM disk")
 			}
 			return nil
@@ -647,7 +647,7 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorSettingVMConfigurationMemory", func(t *testing.T) {
 		mocks := mocks.CreateSuperMocks()
 		mocks.ConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "contexts.test-context.vm.memory" {
+			if key == "vm.memory" {
 				return errors.New("error setting VM memory")
 			}
 			return nil
@@ -806,39 +806,9 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		// Then: the error message should indicate the error
-		expectedError := "error initializing Colima: initialization failed"
+		expectedError := "Error initializing colimaVirt: initialization failed"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorWritingColimaConfig", func(t *testing.T) {
-		// Given: a config handler that returns "colima" as the VM driver
-		mocks := mocks.CreateSuperMocks()
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "colima"
-			}
-			return ""
-		}
-		// Mock ColimaVirt to return an error on WriteConfig
-		mocks.ColimaVirt.WriteConfigFunc = func() error {
-			return errors.New("error writing Colima config")
-		}
-
-		// When: the init command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(mocks.Injector)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then: the output should indicate the error
-		expectedOutput := "error writing Colima config: error writing Colima config"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -906,38 +876,7 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then: the output should indicate the error
-		expectedOutput := "error initializing Docker: error initializing Docker"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorWritingDockerConfig", func(t *testing.T) {
-		// Given: a config handler that returns a valid config with Docker enabled
-		mocks := mocks.CreateSuperMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Enabled: ptrBool(true),
-				},
-			}
-		}
-		// Mock DockerVirt to return an error on WriteConfig
-		mocks.DockerVirt.WriteConfigFunc = func() error {
-			return errors.New("error writing Docker config")
-		}
-
-		// When: the init command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(mocks.Injector)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then: the output should indicate the error
-		expectedOutput := "error writing Docker config: error writing Docker config"
+		expectedOutput := "Error: Error initializing dockerVirt: error initializing Docker"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
