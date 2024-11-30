@@ -78,7 +78,11 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 
 	// Create a single control plane service
 	controlPlaneConfig := commonConfig
-	controlPlaneConfig.Name = s.GetName()
+	if s.GetName() == "" {
+		controlPlaneConfig.Name = "controlplane.test"
+	} else {
+		controlPlaneConfig.Name = s.GetName()
+	}
 	controlPlaneConfig.Environment = map[string]*string{
 		"PLATFORM": strPtr("container"),
 		"TALOSSKU": strPtr(fmt.Sprintf("%dCPU-%dRAM", controlPlaneCPU, controlPlaneRAM*1024)),

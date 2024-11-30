@@ -93,7 +93,11 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 
 	// Create a single worker service
 	workerConfig := commonConfig
-	workerConfig.Name = s.GetName()
+	if s.GetName() == "" {
+		workerConfig.Name = "worker.test"
+	} else {
+		workerConfig.Name = s.GetName()
+	}
 	workerConfig.Environment = map[string]*string{
 		"PLATFORM": strPtr("container"),
 		"TALOSSKU": strPtr(fmt.Sprintf("%dCPU-%dRAM", workerCPU, workerRAM*1024)),

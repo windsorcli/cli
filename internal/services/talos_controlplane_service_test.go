@@ -140,45 +140,62 @@ func TestTalosControlPlaneService_Initialize(t *testing.T) {
 
 func TestTalosControlPlaneService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Setup mocks for this test
-		mocks := setupSafeTalosControlPlaneServiceMocks()
-		service := NewTalosControlPlaneService(mocks.Injector)
-		service.SetName("controlplane-1.test")
-
-		// Initialize the service
-		err := service.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
+		testCases := []struct {
+			name     string
+			setName  bool
+			expected string
+		}{
+			{"WithoutSetName", false, "controlplane.test"},
+			{"WithSetName", true, "custom.controlplane"},
 		}
 
-		// Mock the GetComposeConfig method to return a valid config
-		expectedConfig := &types.Config{
-			Services: []types.ServiceConfig{
-				{
-					Name:  "controlplane-1.test",
-					Image: constants.DEFAULT_TALOS_IMAGE,
-				},
-			},
-		}
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				// Setup mocks for this test
+				mocks := setupSafeTalosControlPlaneServiceMocks()
+				service := NewTalosControlPlaneService(mocks.Injector)
 
-		// When: the GetComposeConfig method is called
-		config, err := service.GetComposeConfig()
+				// Optionally set the name
+				if tc.setName {
+					service.SetName(tc.expected)
+				}
 
-		// Then: no error should be returned and the config should match the expected config
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if config == nil {
-			t.Fatalf("expected config, got nil")
-		}
-		if len(config.Services) != 1 {
-			t.Fatalf("expected 1 services, got %d", len(config.Services))
-		}
-		if config.Services[0].Name != expectedConfig.Services[0].Name {
-			t.Fatalf("expected service name %s, got %s", expectedConfig.Services[0].Name, config.Services[0].Name)
-		}
-		if config.Services[0].Image != expectedConfig.Services[0].Image {
-			t.Fatalf("expected service image %s, got %s", expectedConfig.Services[0].Image, config.Services[0].Image)
+				// Initialize the service
+				err := service.Initialize()
+				if err != nil {
+					t.Fatalf("expected no error during initialization, got %v", err)
+				}
+
+				// Mock the GetComposeConfig method to return a valid config
+				expectedConfig := &types.Config{
+					Services: []types.ServiceConfig{
+						{
+							Name:  tc.expected,
+							Image: constants.DEFAULT_TALOS_IMAGE,
+						},
+					},
+				}
+
+				// When: the GetComposeConfig method is called
+				config, err := service.GetComposeConfig()
+
+				// Then: no error should be returned and the config should match the expected config
+				if err != nil {
+					t.Fatalf("expected no error, got %v", err)
+				}
+				if config == nil {
+					t.Fatalf("expected config, got nil")
+				}
+				if len(config.Services) != 1 {
+					t.Fatalf("expected 1 services, got %d", len(config.Services))
+				}
+				if config.Services[0].Name != expectedConfig.Services[0].Name {
+					t.Fatalf("expected service name %s, got %s", expectedConfig.Services[0].Name, config.Services[0].Name)
+				}
+				if config.Services[0].Image != expectedConfig.Services[0].Image {
+					t.Fatalf("expected service image %s, got %s", expectedConfig.Services[0].Image, config.Services[0].Image)
+				}
+			})
 		}
 	})
 

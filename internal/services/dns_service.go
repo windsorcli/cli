@@ -49,12 +49,9 @@ func (s *DNSService) Initialize() error {
 		return fmt.Errorf("error resolving services: %w", err)
 	}
 
-	// Initialize each service
+	// Set each service on the class
 	for _, serviceInterface := range resolvedServices {
 		service, _ := serviceInterface.(Service)
-		if err := service.Initialize(); err != nil {
-			return fmt.Errorf("error initializing service: %w", err)
-		}
 		s.services = append(s.services, service)
 	}
 

@@ -168,28 +168,6 @@ func TestDNSService_Initialize(t *testing.T) {
 			t.Errorf("Expected error message '%s', got %v", expectedErrorMessage, err)
 		}
 	})
-
-	t.Run("ErrorInitializingServices", func(t *testing.T) {
-		mocks := createDNSServiceMocks()
-		mocks.MockService.InitializeFunc = func() error {
-			return fmt.Errorf("error initializing services")
-		}
-
-		// Given: a DNSService with the mock injector
-		service := NewDNSService(mocks.Injector)
-
-		// When: Initialize is called
-		err := service.Initialize()
-
-		// Then: an error should be returned
-		if err == nil {
-			t.Fatalf("Expected error initializing services, got nil")
-		}
-		expectedErrorMessage := "error initializing service: error initializing services"
-		if err.Error() != expectedErrorMessage {
-			t.Errorf("Expected error message '%s', got %v", expectedErrorMessage, err)
-		}
-	})
 }
 
 func TestDNSService_GetComposeConfig(t *testing.T) {

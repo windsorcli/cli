@@ -104,26 +104,26 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 		var lastOutput string
 		for i := 0; i < retries; i++ {
 			command := "docker-compose"
-			args := []string{"-f", composeFilePath, "up", "-d"}
-			output, err := v.shell.Exec(verboseFlag, "Running docker-compose up -d", command, args...)
+			args := []string{"-f", composeFilePath, "up", "-d", "--remove-orphans"}
+			message := ""
+			if i == 0 {
+				message = "Running docker-compose up..."
+			}
+			output, err := v.shell.Exec(verboseFlag, message, command, args...)
 			if err == nil {
 				lastErr = nil
 				break
 			}
-
 			lastErr = err
 			lastOutput = output
-
 			if i < retries-1 && !isCI {
 				time.Sleep(2 * time.Second)
 			}
 		}
-
 		if lastErr != nil {
-			return fmt.Errorf("Error executing command %s %v: %w\n%s", "docker-compose", []string{"-f", composeFilePath, "up", "-d"}, lastErr, lastOutput)
+			return fmt.Errorf("Error executing command %s %v: %w\n%s", "docker-compose", []string{"-f", composeFilePath, "up", "-d", "--remove-orphans"}, lastErr, lastOutput)
 		}
 	}
-
 	return nil
 }
 
