@@ -4,52 +4,23 @@ import (
 	"fmt"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // DockerService is a service struct that provides Docker-specific utility functions
 type DockerService struct {
 	BaseService
-	configHandler  config.ConfigHandler
-	contextHandler context.ContextHandler
-	injector       di.Injector
-	shell          shell.Shell
 }
 
 const registryImage = "registry:2.8.3"
 
 // NewDockerService is a constructor for DockerService
 func NewDockerService(injector di.Injector) *DockerService {
-	return &DockerService{injector: injector}
-}
-
-// Initialize performs any necessary initialization for the service.
-func (s *DockerService) Initialize() error {
-	// Resolve the configHandler from the injector
-	configHandler, err := s.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
+	return &DockerService{
+		BaseService: BaseService{
+			injector: injector,
+		},
 	}
-	s.configHandler = configHandler.(config.ConfigHandler)
-
-	// Resolve the contextHandler from the injector
-	resolvedContext, err := s.injector.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving context: %w", err)
-	}
-	s.contextHandler = resolvedContext.(context.ContextHandler)
-
-	// Resolve the shell from the injector
-	resolvedShell, err := s.injector.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-	s.shell = resolvedShell.(shell.Shell)
-
-	return nil
 }
 
 // generateRegistryService creates a ServiceConfig for a Docker registry service

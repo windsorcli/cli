@@ -5,43 +5,31 @@ import (
 	"path/filepath"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/constants"
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // DNSService handles DNS configuration
 type DNSService struct {
 	BaseService
-	injector       di.Injector
-	configHandler  config.ConfigHandler
-	contextHandler context.ContextHandler
-	services       []Service
+	services []Service
 }
 
 // NewDNSService creates a new DNSService
 func NewDNSService(injector di.Injector) *DNSService {
 	return &DNSService{
-		injector: injector,
+		BaseService: BaseService{
+			injector: injector,
+		},
 	}
 }
 
 // Initialize resolves and sets all the things resolved from the DI
 func (s *DNSService) Initialize() error {
-	// Resolve the configHandler from the injector
-	configHandler, err := s.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
+	// Call the base Initialize method
+	if err := s.BaseService.Initialize(); err != nil {
+		return err
 	}
-	s.configHandler = configHandler.(config.ConfigHandler)
-
-	// Resolve the contextHandler from the injector
-	resolvedContext, err := s.injector.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving context: %w", err)
-	}
-	s.contextHandler = resolvedContext.(context.ContextHandler)
 
 	// Resolve all services from the injector
 	resolvedServices, err := s.injector.ResolveAll(new(Service))

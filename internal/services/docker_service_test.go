@@ -1,7 +1,6 @@
 package services
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -81,82 +80,6 @@ func TestDockerService_NewDockerService(t *testing.T) {
 		// And: the DockerService should have the correct injector
 		if dockerService.injector != mocks.Injector {
 			t.Errorf("expected injector %v, got %v", mocks.Injector, dockerService.injector)
-		}
-	})
-}
-
-func TestDockerService_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a mock config handler, context, and service
-		mocks := setupSafeDockerServiceMocks()
-		dockerService := NewDockerService(mocks.Injector)
-
-		// When: Initialize is called
-		err := dockerService.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Create injector without registering configHandler
-		mockInjector := di.NewMockInjector()
-		setupSafeDockerServiceMocks(mockInjector)
-		mockInjector.SetResolveError("configHandler", errors.New("mock error resolving configHandler"))
-
-		// Attempt to create DockerService
-		dockerService := NewDockerService(mockInjector)
-		if dockerService == nil {
-			t.Fatalf("expected DockerService, got nil")
-		}
-
-		// Initialize the service
-		err := dockerService.Initialize()
-		if err == nil {
-			t.Fatalf("Expected an error during initialization, got nil")
-		}
-	})
-
-	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Create injector and register only configHandler
-		mockInjector := di.NewMockInjector()
-		setupSafeDockerServiceMocks(mockInjector)
-		mockInjector.SetResolveError("contextHandler", errors.New("mock error resolving contextHandler"))
-
-		// Attempt to create DockerService
-		dockerService := NewDockerService(mockInjector)
-		if dockerService == nil {
-			t.Fatalf("expected DockerService, got nil")
-		}
-
-		// Initialize the service
-		err := dockerService.Initialize()
-		if err == nil {
-			t.Fatalf("Expected an error during initialization, got nil")
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Create injector and register configHandler and context
-		mockInjector := di.NewMockInjector()
-		setupSafeDockerServiceMocks(mockInjector)
-		mockInjector.SetResolveError("shell", errors.New("mock error resolving shell"))
-
-		// Attempt to create DockerService
-		dockerService := NewDockerService(mockInjector)
-		if dockerService == nil {
-			t.Fatalf("expected DockerService, got nil")
-		}
-
-		// Initialize the service
-		err := dockerService.Initialize()
-		if err == nil {
-			t.Fatalf("Expected an error during initialization, got nil")
 		}
 	})
 }

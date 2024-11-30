@@ -4,41 +4,21 @@ import (
 	"fmt"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/constants"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 type TalosControlPlaneService struct {
 	BaseService
-	injector      di.Injector
-	configHandler config.ConfigHandler
-	shell         shell.Shell
 }
 
 // NewTalosControlPlaneService is a constructor for TalosControlPlaneService
 func NewTalosControlPlaneService(injector di.Injector) *TalosControlPlaneService {
-	return &TalosControlPlaneService{injector: injector}
-}
-
-// Initialize resolves dependencies and initializes the TalosControlPlaneService
-func (s *TalosControlPlaneService) Initialize() error {
-	// Resolve the configHandler from the injector
-	configHandlerInstance, err := s.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
+	return &TalosControlPlaneService{
+		BaseService: BaseService{
+			injector: injector,
+		},
 	}
-	s.configHandler = configHandlerInstance.(config.ConfigHandler)
-
-	// Resolve the shell from the injector
-	shellInstance, err := s.injector.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-	s.shell = shellInstance.(shell.Shell)
-
-	return nil
 }
 
 // GetComposeConfig returns a list of container data for docker-compose.

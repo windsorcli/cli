@@ -100,47 +100,24 @@ func TestDNSService_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+	t.Run("ErrorInBaseInitialize", func(t *testing.T) {
 		mockInjector := di.NewMockInjector()
-
-		// Create a mock injector with necessary mocks
 		mocks := createDNSServiceMocks(mockInjector)
-		mockInjector.SetResolveError("configHandler", fmt.Errorf("error resolving configHandler"))
 
 		// Given: a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
+
+		// Set the resolve error for BaseService Initialize
+		mockInjector.SetResolveError("configHandler", fmt.Errorf("mock error in base Initialize"))
 
 		// When: Initialize is called
 		err := service.Initialize()
 
 		// Then: an error should be returned
 		if err == nil {
-			t.Fatalf("Expected error resolving configHandler, got nil")
+			t.Fatalf("Expected error in base Initialize, got nil")
 		}
-		expectedErrorMessage := "error resolving configHandler: error resolving configHandler"
-		if err.Error() != expectedErrorMessage {
-			t.Errorf("Expected error message '%s', got %v", expectedErrorMessage, err)
-		}
-	})
-
-	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-
-		// Create a mock injector with necessary mocks
-		mocks := createDNSServiceMocks(mockInjector)
-		mockInjector.SetResolveError("contextHandler", fmt.Errorf("error resolving contextHandler"))
-
-		// Given: a DNSService with the mock injector
-		service := NewDNSService(mocks.Injector)
-
-		// When: Initialize is called
-		err := service.Initialize()
-
-		// Then: an error should be returned
-		if err == nil {
-			t.Fatalf("Expected error resolving contextHandler, got nil")
-		}
-		expectedErrorMessage := "error resolving context: error resolving contextHandler"
+		expectedErrorMessage := "error resolving configHandler: mock error in base Initialize"
 		if err.Error() != expectedErrorMessage {
 			t.Errorf("Expected error message '%s', got %v", expectedErrorMessage, err)
 		}

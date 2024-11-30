@@ -6,41 +6,21 @@ import (
 	"path/filepath"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/constants"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 type TalosWorkerService struct {
 	BaseService
-	injector      di.Injector
-	configHandler config.ConfigHandler
-	shell         shell.Shell
 }
 
 // NewTalosWorkerService is a constructor for TalosWorkerService
 func NewTalosWorkerService(injector di.Injector) *TalosWorkerService {
-	return &TalosWorkerService{injector: injector}
-}
-
-// Initialize resolves dependencies and initializes the TalosWorkerService
-func (s *TalosWorkerService) Initialize() error {
-	// Resolve the configHandler from the injector
-	configHandlerInstance, err := s.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
+	return &TalosWorkerService{
+		BaseService: BaseService{
+			injector: injector,
+		},
 	}
-	s.configHandler = configHandlerInstance.(config.ConfigHandler)
-
-	// Resolve the shell from the injector
-	shellInstance, err := s.injector.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-	s.shell = shellInstance.(shell.Shell)
-
-	return nil
 }
 
 // GetComposeConfig returns a list of container data for docker-compose.

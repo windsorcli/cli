@@ -1,7 +1,6 @@
 package services
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
@@ -82,58 +81,6 @@ func TestTalosControlPlaneService_NewTalosControlPlaneService(t *testing.T) {
 		// Then: the TalosControlPlaneService should not be nil
 		if service == nil {
 			t.Fatalf("expected TalosControlPlaneService, got nil")
-		}
-	})
-}
-
-func TestTalosControlPlaneService_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a set of mock components
-		mocks := setupSafeTalosControlPlaneServiceMocks()
-
-		// When: the TalosControlPlaneService is initialized
-		service := NewTalosControlPlaneService(mocks.Injector)
-		err := service.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Given: a set of mock components with an error in resolving configHandler
-		mockInjector := di.NewMockInjector()
-		setupSafeTalosControlPlaneServiceMocks(mockInjector)
-		mockInjector.SetResolveError("configHandler", fmt.Errorf("mock error resolving configHandler"))
-
-		// When: a new TalosControlPlaneService is created
-		service := NewTalosControlPlaneService(mockInjector)
-
-		// Then: the initialization should return an error
-		err := service.Initialize()
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-		if err.Error() != "error resolving configHandler: mock error resolving configHandler" {
-			t.Fatalf("expected error message 'error resolving configHandler: mock error resolving configHandler', got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Create injector and register configHandler and context
-		mockInjector := di.NewMockInjector()
-		setupSafeTalosControlPlaneServiceMocks(mockInjector)
-		mockInjector.SetResolveError("shell", fmt.Errorf("mock error resolving shell"))
-
-		// Attempt to create TalosControlPlaneService
-		service := NewTalosControlPlaneService(mockInjector)
-		if service == nil {
-			t.Fatalf("expected TalosControlPlaneService, got nil")
-		}
-
-		// Initialize the service
-		err := service.Initialize()
-		if err == nil {
-			t.Fatalf("Expected an error during initialization, got nil")
 		}
 	})
 }

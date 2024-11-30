@@ -5,53 +5,22 @@ import (
 	"path/filepath"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/constants"
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // GitService is a service struct that provides various utility functions
 type GitService struct {
 	BaseService
-	injector       di.Injector
-	configHandler  config.ConfigHandler
-	shell          shell.Shell
-	contextHandler context.ContextHandler
 }
 
 // NewGitService is a constructor for GitService
 func NewGitService(injector di.Injector) *GitService {
-	return &GitService{injector: injector}
-}
-
-// Initialize resolves dependencies and initializes the GitService
-func (s *GitService) Initialize() error {
-	// Resolve the configHandler from the injector
-	configHandler, err := s.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
+	return &GitService{
+		BaseService: BaseService{
+			injector: injector,
+		},
 	}
-
-	// Resolve the shell from the injector
-	resolvedShell, err := s.injector.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-
-	// Resolve the contextHandler from the injector
-	resolvedContext, err := s.injector.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving context: %w", err)
-	}
-
-	// Set the resolved dependencies to the GitService fields
-	s.configHandler = configHandler.(config.ConfigHandler)
-	s.shell = resolvedShell.(shell.Shell)
-	s.contextHandler = resolvedContext.(context.ContextHandler)
-
-	return nil
 }
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.

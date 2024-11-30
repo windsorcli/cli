@@ -1,49 +1,26 @@
 package services
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/constants"
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // AwsService is a service struct that provides AWS-specific utility functions
 type AwsService struct {
 	BaseService
-	injector       di.Injector
-	configHandler  config.ConfigHandler
-	contextHandler context.ContextHandler
 }
 
 // NewAwsService is a constructor for AwsService
 func NewAwsService(injector di.Injector) *AwsService {
 	return &AwsService{
-		injector: injector,
+		BaseService: BaseService{
+			injector: injector,
+		},
 	}
-}
-
-// Initialize resolves and sets all the things resolved from the DI
-func (s *AwsService) Initialize() error {
-	// Resolve the configHandler from the injector
-	configHandler, err := s.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
-	}
-	s.configHandler = configHandler.(config.ConfigHandler)
-
-	// Resolve the context from the injector
-	resolvedContext, err := s.injector.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving context: %w", err)
-	}
-	s.contextHandler = resolvedContext.(context.ContextHandler)
-
-	return nil
 }
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.

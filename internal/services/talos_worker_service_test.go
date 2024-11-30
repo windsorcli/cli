@@ -88,58 +88,6 @@ func TestTalosWorkerService_NewTalosWorkerService(t *testing.T) {
 	})
 }
 
-func TestTalosWorkerService_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a set of mock components
-		mocks := setupSafeTalosWorkerServiceMocks()
-
-		// When: the TalosWorkerService is initialized
-		service := NewTalosWorkerService(mocks.Injector)
-		err := service.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Given: a set of mock components with an error in resolving configHandler
-		mockInjector := di.NewMockInjector()
-		setupSafeTalosWorkerServiceMocks(mockInjector)
-		mockInjector.SetResolveError("configHandler", fmt.Errorf("mock error resolving configHandler"))
-
-		// When: a new TalosWorkerService is created
-		service := NewTalosWorkerService(mockInjector)
-
-		// Then: the initialization should return an error
-		err := service.Initialize()
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-		if err.Error() != "error resolving configHandler: mock error resolving configHandler" {
-			t.Fatalf("expected error message 'error resolving configHandler: mock error resolving configHandler', got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Create injector and register configHandler and context
-		mockInjector := di.NewMockInjector()
-		setupSafeTalosWorkerServiceMocks(mockInjector)
-		mockInjector.SetResolveError("shell", fmt.Errorf("mock error resolving shell"))
-
-		// Attempt to create TalosWorkerService
-		service := NewTalosWorkerService(mockInjector)
-		if service == nil {
-			t.Fatalf("expected TalosWorkerService, got nil")
-		}
-
-		// Initialize the service
-		err := service.Initialize()
-		if err == nil {
-			t.Fatalf("Expected an error during initialization, got nil")
-		}
-	})
-}
-
 func TestTalosWorkerService_GetComposeConfig(t *testing.T) {
 	// Mock the os functions to avoid actual file system operations
 	originalStat := stat
