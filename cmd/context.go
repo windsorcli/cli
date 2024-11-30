@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/context"
 )
 
 // getContextCmd represents the get command
@@ -14,7 +13,7 @@ var getContextCmd = &cobra.Command{
 	Long:         "Retrieve and display the current context from the configuration",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		contextHandler, err := getContextHandler()
+		contextHandler, err := controller.ResolveContextHandler()
 		if err != nil {
 			return fmt.Errorf("Error getting context handler: %w", err)
 		}
@@ -34,7 +33,7 @@ var setContextCmd = &cobra.Command{
 	Long:  "Set the current context in the configuration and save it",
 	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
 	RunE: func(cmd *cobra.Command, args []string) error {
-		contextHandler, err := getContextHandler()
+		contextHandler, err := controller.ResolveContextHandler()
 		if err != nil {
 			return fmt.Errorf("Error getting context handler: %w", err)
 		}
@@ -84,17 +83,4 @@ func init() {
 	// Add alias commands to rootCmd
 	rootCmd.AddCommand(getContextAliasCmd)
 	rootCmd.AddCommand(setContextAliasCmd)
-}
-
-// getContextHandler resolves the contextHandler from the injector and returns it as a context.ContextHandler
-var getContextHandler = func() (context.ContextHandler, error) {
-	instance, err := injector.Resolve("contextHandler")
-	if err != nil {
-		return nil, fmt.Errorf("Error resolving contextHandler: %w", err)
-	}
-	contextHandler, ok := instance.(context.ContextHandler)
-	if !ok {
-		return nil, fmt.Errorf("Error: resolved instance is not of type context.ContextHandler")
-	}
-	return contextHandler, nil
 }

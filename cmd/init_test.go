@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/mocks"
 )
@@ -48,7 +47,7 @@ func TestInitCmd(t *testing.T) {
 		// When: the init command is executed with a valid context
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
@@ -84,7 +83,7 @@ func TestInitCmd(t *testing.T) {
 				"--vm-memory", "4096",
 				"--vm-arch", "x86_64",
 			})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
@@ -97,33 +96,6 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("GetContextHandlerError", func(t *testing.T) {
-		// Given: a valid config handler
-		mocks := mocks.CreateSuperMocks()
-
-		// Override getContextHandler to return an error
-		originalGetContextHandler := getContextHandler
-		getContextHandler = func() (context.ContextHandler, error) {
-			return nil, fmt.Errorf("mocked error getting context")
-		}
-		defer func() { getContextHandler = originalGetContextHandler }()
-
-		// When: the init command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(mocks.Injector)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then: the output should indicate the mocked error
-		expectedError := "Error getting context handler: mocked error getting context"
-		if !strings.Contains(output, expectedError) {
-			t.Errorf("Expected error %q, got %q", expectedError, output)
-		}
-	})
-
 	t.Run("NoContextProvided", func(t *testing.T) {
 		// Given: a valid config handler
 		mocks := mocks.CreateSuperMocks()
@@ -131,7 +103,7 @@ func TestInitCmd(t *testing.T) {
 		// When: the init command is executed without a context
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"init"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -151,7 +123,7 @@ func TestInitCmd(t *testing.T) {
 		// When: the init command is executed with a context name provided
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -174,7 +146,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When: the init command is executed
 		rootCmd.SetArgs([]string{"init"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -197,7 +169,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When: the init command is executed
 		rootCmd.SetArgs([]string{"init", "test-context"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -222,7 +194,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When: the init command is executed
 		rootCmd.SetArgs([]string{"init", "test-context"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 
 		// Then: check for presence of error using contains
 		if err == nil {
@@ -243,7 +215,7 @@ func TestInitCmd(t *testing.T) {
 		// When: the init command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -264,7 +236,7 @@ func TestInitCmd(t *testing.T) {
 		// When: the init command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -285,7 +257,7 @@ func TestInitCmd(t *testing.T) {
 		// When: the init command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -312,7 +284,7 @@ func TestInitCmd(t *testing.T) {
 		// Act: Call the init command with a local context
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"init", "local"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
@@ -338,7 +310,7 @@ func TestInitCmd(t *testing.T) {
 			"--aws-endpoint-url", "http://localhost:4566",
 			"--aws-profile", "test-profile",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
@@ -365,7 +337,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--docker",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
@@ -392,7 +364,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--git-livereload",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
@@ -422,7 +394,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--git-livereload",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -445,7 +417,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--backend", "s3",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
@@ -475,7 +447,7 @@ func TestInitCmd(t *testing.T) {
 			"--vm-memory", "4096",
 			"--vm-arch", "x86_64",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
@@ -507,7 +479,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--aws-endpoint-url", "http://localhost:4566",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil || err.Error() != "Error setting AWS endpoint URL: error setting AWS endpoint URL" {
 			t.Fatalf("Expected error setting AWS endpoint URL, got %v", err)
 		}
@@ -526,7 +498,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--aws-profile", "default",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil || err.Error() != "Error setting AWS profile: error setting AWS profile" {
 			t.Fatalf("Expected error setting AWS profile, got %v", err)
 		}
@@ -544,7 +516,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--docker",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil || err.Error() != "Error setting Docker enabled: error setting Docker enabled" {
 			t.Fatalf("Expected error setting Docker enabled, got %v", err)
 		}
@@ -563,7 +535,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--backend", "s3",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil || err.Error() != "Error setting Terraform backend: error setting Terraform backend" {
 			t.Fatalf("Expected error setting Terraform backend, got %v", err)
 		}
@@ -582,7 +554,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--vm-arch", "x86_64",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil || err.Error() != "Error setting VM architecture: error setting VM architecture" {
 			t.Fatalf("Expected error setting VM architecture, got %v", err)
 		}
@@ -601,7 +573,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--vm-driver", "colima",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil || err.Error() != "Error setting VM driver: error setting VM driver" {
 			t.Fatalf("Expected error setting VM driver, got %v", err)
 		}
@@ -619,7 +591,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--vm-cpu", "2",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil || err.Error() != "Error setting VM CPU: error setting VM CPU" {
 			t.Fatalf("Expected error setting VM CPU, got %v", err)
 		}
@@ -638,7 +610,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--vm-disk", "20",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil || err.Error() != "Error setting VM disk: error setting VM disk" {
 			t.Fatalf("Expected error setting VM disk, got %v", err)
 		}
@@ -657,7 +629,7 @@ func TestInitCmd(t *testing.T) {
 			"init", "test-context",
 			"--vm-memory", "4096",
 		})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil || err.Error() != "Error setting VM memory: error setting VM memory" {
 			t.Fatalf("Expected error setting VM memory, got %v", err)
 		}
@@ -677,7 +649,7 @@ func TestInitCmd(t *testing.T) {
 		// When: the init command is executed with a local context
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "local"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -703,7 +675,7 @@ func TestInitCmd(t *testing.T) {
 		// When: the init command is executed with a non-local context
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -721,7 +693,7 @@ func TestInitCmd(t *testing.T) {
 
 		// Given: an injector that returns an error when resolving colimaVirt
 		mocks := mocks.CreateSuperMocks(mockInjector)
-		mockInjector.SetResolveError("colimaVirt", errors.New("error resolving colimaVirt"))
+		mockInjector.SetResolveError("virtualMachine", errors.New("error resolving virtual machine"))
 
 		// Mock the configHandler to return "colima" for vm.driver
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -736,43 +708,13 @@ func TestInitCmd(t *testing.T) {
 
 		// When: the init command is executed with a context that enables Colima
 		rootCmd.SetArgs([]string{"init", "test-context", "--vm-driver", "colima"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
 
 		// Then: the error message should indicate the error
-		expectedError := "Error resolving colimaVirt: error resolving colimaVirt"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorCastingColimaVirt", func(t *testing.T) {
-		// Given: an injector that returns an invalid type for colimaVirt
-		mocks := mocks.CreateSuperMocks()
-		mocks.Injector.Register("colimaVirt", "invalid")
-
-		// Mock the configHandler to return "colima" for vm.driver
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "colima"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		// When: the init command is executed with a context that enables Colima
-		rootCmd.SetArgs([]string{"init", "test-context", "--vm-driver", "colima"})
-		err := Execute(mocks.Injector)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then: the error message should indicate the error
-		expectedError := "Resolved instance is not of type virt.VirtualMachine"
+		expectedError := "Error resolving colimaVirt: error resolving virtual machine"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
@@ -781,11 +723,11 @@ func TestInitCmd(t *testing.T) {
 	t.Run("ErrorInitializingColima", func(t *testing.T) {
 		// Given: an injector that returns a valid colimaVirt but initialization fails
 		mocks := mocks.CreateSuperMocks()
-		colimaVirtMock := mocks.ColimaVirt
-		colimaVirtMock.InitializeFunc = func() error {
+		mockVirtualMachine := mocks.VirtualMachine
+		mockVirtualMachine.InitializeFunc = func() error {
 			return fmt.Errorf("initialization failed")
 		}
-		mocks.Injector.Register("colimaVirt", colimaVirtMock)
+		mocks.Injector.Register("virtualMachine", mockVirtualMachine)
 
 		// Mock the configHandler to return "colima" for vm.driver
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -800,7 +742,7 @@ func TestInitCmd(t *testing.T) {
 
 		// When: the init command is executed with a context that enables Colima
 		rootCmd.SetArgs([]string{"init", "test-context", "--vm-driver", "colima"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -813,39 +755,19 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingDockerVirt", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-
-		// Given: an injector that returns an error when resolving dockerVirt
-		mocks := mocks.CreateSuperMocks(mockInjector)
-		mockInjector.SetResolveError("dockerVirt", errors.New("error resolving dockerVirt"))
-
-		// When: the init command is executed
-		rootCmd.SetArgs([]string{"init", "test-context"})
-		err := Execute(mocks.Injector)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then: the error message should indicate the error
-		expectedError := "Error resolving dockerVirt: error resolving dockerVirt"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorCastingDockerVirt", func(t *testing.T) {
+		// Given: a mock injector that simulates an error when resolving dockerVirt
 		mocks := mocks.CreateSuperMocks()
-		mocks.Injector.Register("dockerVirt", "invalid")
+		mocks.Injector.SetResolveError("containerRuntime", errors.New("error resolving container runtime: error resolving dockerVirt"))
 
-		// When: the init command is executed
-		rootCmd.SetArgs([]string{"init", "test-context"})
-		err := Execute(mocks.Injector)
+		// When: the init command is executed with Docker enabled
+		rootCmd.SetArgs([]string{"init", "test-context", "--docker"})
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
 
-		// Then: the error message should indicate the error
-		expectedError := "Resolved instance is not of type virt.ContainerRuntime"
+		// Then: check if the error message is contained
+		expectedError := "error resolving dockerVirt"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
@@ -862,14 +784,15 @@ func TestInitCmd(t *testing.T) {
 			}
 		}
 		// Mock DockerVirt to return an error on Initialize
-		mocks.DockerVirt.InitializeFunc = func() error {
+		mockContainerRuntime := mocks.ContainerRuntime
+		mockContainerRuntime.InitializeFunc = func() error {
 			return errors.New("error initializing Docker")
 		}
 
 		// When: the init command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}

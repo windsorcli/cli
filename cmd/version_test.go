@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"testing"
 
+	ctrl "github.com/windsor-hotel/cli/internal/controller"
 	"github.com/windsor-hotel/cli/internal/mocks"
 )
 
@@ -19,10 +20,13 @@ func TestVersionCommand(t *testing.T) {
 		// Setup injector with mock dependencies
 		mocks := mocks.CreateSuperMocks()
 
+		// Create a mock controller
+		mockController := ctrl.NewController(mocks.Injector)
+
 		// When: the version command is executed
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"version"})
-			err := Execute(mocks.Injector)
+			err := Execute(mockController)
 			if err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}

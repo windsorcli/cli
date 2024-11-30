@@ -30,7 +30,7 @@ func TestExecCmd(t *testing.T) {
 		// Capture stdout using a buffer
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
@@ -53,7 +53,7 @@ func TestExecCmd(t *testing.T) {
 		var buf bytes.Buffer
 		rootCmd.SetErr(&buf)
 		rootCmd.SetArgs([]string{"exec"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -83,7 +83,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -111,7 +111,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed without verbose flag
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -138,7 +138,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed with verbose flag
 		rootCmd.SetArgs([]string{"exec", "--verbose", "echo", "hello"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -167,7 +167,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed with verbose flag
 		rootCmd.SetArgs([]string{"exec", "--verbose", "echo", "hello"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -196,7 +196,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed without verbose flag
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -230,7 +230,7 @@ func TestExecCmd(t *testing.T) {
 
 		// Execute the command
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -252,7 +252,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -273,13 +273,13 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
 
 		// Then the error should indicate the casting error
-		expectedError := "Resolved instance is not of type shell.Shell"
+		expectedError := "Error resolving shell instance: resolved instance is not a Shell"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error to be %q, got %q", expectedError, err.Error())
 		}
@@ -296,7 +296,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -324,7 +324,7 @@ func TestExecCmd(t *testing.T) {
 
 		// Execute the command
 		rootCmd.SetArgs([]string{"exec", "--verbose", "echo", "hello"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -355,7 +355,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed without verbose flag
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}

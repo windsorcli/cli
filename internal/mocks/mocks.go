@@ -3,6 +3,7 @@ package mocks
 import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/controller"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/env"
 	"github.com/windsor-hotel/cli/internal/network"
@@ -14,31 +15,32 @@ import (
 
 // SuperMocks holds all the mock instances needed for testing commands.
 type SuperMocks struct {
-	ConfigHandler        *config.MockConfigHandler
-	ContextHandler       *context.MockContext
-	Shell                *shell.MockShell
-	AwsService           *services.MockService
-	ColimaService        *services.MockService
-	DockerService        *services.MockService
-	DnsService           *services.MockService
-	GitService           *services.MockService
-	KubeService          *services.MockService
-	OmniService          *services.MockService
-	TalosService         *services.MockService
-	AwsEnv               *env.MockEnvPrinter
-	DockerEnv            *env.MockEnvPrinter
-	KubeEnv              *env.MockEnvPrinter
-	OmniEnv              *env.MockEnvPrinter
-	SopsEnv              *env.MockEnvPrinter
-	TalosEnv             *env.MockEnvPrinter
-	TerraformEnv         *env.MockEnvPrinter
-	WindsorEnv           *env.MockEnvPrinter
-	SSHClient            *ssh.MockClient
-	SecureShell          *shell.MockShell
-	Injector             *di.MockInjector
-	ColimaVirt           *virt.MockVirt
-	DockerVirt           *virt.MockVirt
-	ColimaNetworkManager *network.MockNetworkManager
+	ConfigHandler    *config.MockConfigHandler
+	ContextHandler   *context.MockContext
+	Shell            *shell.MockShell
+	AwsService       *services.MockService
+	ColimaService    *services.MockService
+	DockerService    *services.MockService
+	DnsService       *services.MockService
+	GitService       *services.MockService
+	KubeService      *services.MockService
+	OmniService      *services.MockService
+	TalosService     *services.MockService
+	AwsEnv           *env.MockEnvPrinter
+	DockerEnv        *env.MockEnvPrinter
+	KubeEnv          *env.MockEnvPrinter
+	OmniEnv          *env.MockEnvPrinter
+	SopsEnv          *env.MockEnvPrinter
+	TalosEnv         *env.MockEnvPrinter
+	TerraformEnv     *env.MockEnvPrinter
+	WindsorEnv       *env.MockEnvPrinter
+	SSHClient        *ssh.MockClient
+	SecureShell      *shell.MockShell
+	Injector         *di.MockInjector
+	VirtualMachine   *virt.MockVirt
+	ContainerRuntime *virt.MockVirt
+	NetworkManager   *network.MockNetworkManager
+	Controller       *controller.BaseController
 }
 
 // CreateSuperMocks initializes all necessary mocks and returns them in a SuperMocks struct.
@@ -58,9 +60,8 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 
 	// Create mock service instances
 	mockAwsService := services.NewMockService()
-	mockColimaService := services.NewMockService()
-	mockDockerService := services.NewMockService()
 	mockDnsService := services.NewMockService()
+	mockDockerService := services.NewMockService()
 	mockGitService := services.NewMockService()
 	mockKubeService := services.NewMockService()
 	mockOmniService := services.NewMockService()
@@ -69,8 +70,8 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	mockSSHClient := &ssh.MockClient{}
 
 	// Create mock virt instances
-	mockColimaVirt := virt.NewMockVirt()
-	mockDockerVirt := virt.NewMockVirt()
+	mockVirtualMachine := virt.NewMockVirt()
+	mockContainerRuntime := virt.NewMockVirt()
 
 	// Create mock environment instances
 	mockAwsEnv := env.NewMockEnvPrinter()
@@ -83,7 +84,7 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	mockWindsorEnv := env.NewMockEnvPrinter()
 
 	// Create mock network manager instance
-	mockColimaNetworkManager := network.NewMockNetworkManager()
+	mockNetworkManager := network.NewMockNetworkManager()
 
 	// Create and setup dependency injection
 	injector.Register("configHandler", mockConfigHandler)
@@ -98,8 +99,8 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	injector.Register("talosService", mockTalosService)
 	injector.Register("sshClient", mockSSHClient)
 	injector.Register("secureShell", mockSecureShell)
-	injector.Register("colimaVirt", mockColimaVirt)
-	injector.Register("dockerVirt", mockDockerVirt)
+	injector.Register("virtualMachine", mockVirtualMachine)
+	injector.Register("containerRuntime", mockContainerRuntime)
 	injector.Register("awsEnv", mockAwsEnv)
 	injector.Register("dockerEnv", mockDockerEnv)
 	injector.Register("kubeEnv", mockKubeEnv)
@@ -108,33 +109,35 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	injector.Register("talosEnv", mockTalosEnv)
 	injector.Register("terraformEnv", mockTerraformEnv)
 	injector.Register("windsorEnv", mockWindsorEnv)
-	injector.Register("colimaNetworkManager", mockColimaNetworkManager)
+	injector.Register("networkManager", mockNetworkManager)
+
+	// Create a mock controller
+	mockController := controller.NewController(injector)
 
 	return SuperMocks{
-		ConfigHandler:        mockConfigHandler,
-		ContextHandler:       mockContext,
-		Shell:                mockShell,
-		AwsService:           mockAwsService,
-		ColimaService:        mockColimaService,
-		DockerService:        mockDockerService,
-		DnsService:           mockDnsService,
-		GitService:           mockGitService,
-		KubeService:          mockKubeService,
-		OmniService:          mockOmniService,
-		TalosService:         mockTalosService,
-		AwsEnv:               mockAwsEnv,
-		DockerEnv:            mockDockerEnv,
-		KubeEnv:              mockKubeEnv,
-		OmniEnv:              mockOmniEnv,
-		SopsEnv:              mockSopsEnv,
-		TalosEnv:             mockTalosEnv,
-		TerraformEnv:         mockTerraformEnv,
-		WindsorEnv:           mockWindsorEnv,
-		SSHClient:            mockSSHClient,
-		SecureShell:          mockSecureShell,
-		Injector:             injector,
-		ColimaVirt:           mockColimaVirt,
-		DockerVirt:           mockDockerVirt,
-		ColimaNetworkManager: mockColimaNetworkManager,
+		ConfigHandler:    mockConfigHandler,
+		ContextHandler:   mockContext,
+		Shell:            mockShell,
+		AwsService:       mockAwsService,
+		DnsService:       mockDnsService,
+		GitService:       mockGitService,
+		KubeService:      mockKubeService,
+		OmniService:      mockOmniService,
+		TalosService:     mockTalosService,
+		AwsEnv:           mockAwsEnv,
+		DockerEnv:        mockDockerEnv,
+		KubeEnv:          mockKubeEnv,
+		OmniEnv:          mockOmniEnv,
+		SopsEnv:          mockSopsEnv,
+		TalosEnv:         mockTalosEnv,
+		TerraformEnv:     mockTerraformEnv,
+		WindsorEnv:       mockWindsorEnv,
+		SSHClient:        mockSSHClient,
+		SecureShell:      mockSecureShell,
+		Injector:         injector,
+		VirtualMachine:   mockVirtualMachine,
+		ContainerRuntime: mockContainerRuntime,
+		NetworkManager:   mockNetworkManager,
+		Controller:       mockController,
 	}
 }

@@ -7,8 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/services"
-	"github.com/windsor-hotel/cli/internal/virt"
 )
 
 var (
@@ -31,7 +29,7 @@ var initCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		contextHandler, err := getContextHandler()
+		contextHandler, err := controller.ResolveContextHandler()
 		if err != nil {
 			return fmt.Errorf("Error getting context handler: %w", err)
 		}
@@ -54,7 +52,12 @@ var initCmd = &cobra.Command{
 			}
 			cliConfigPath = filepath.Join(homeDir, ".config", "windsor", "config.yaml")
 		}
+
 		// Load the configuration
+		configHandler, err := controller.ResolveConfigHandler()
+		if err != nil {
+			return fmt.Errorf("Error resolving config handler: %w", err)
+		}
 		if err := configHandler.LoadConfig(cliConfigPath); err != nil {
 			return fmt.Errorf("Error loading config file: %w", err)
 		}
@@ -141,30 +144,20 @@ var initCmd = &cobra.Command{
 		}
 
 		// Resolve all services
-		resolvedServices, err := injector.ResolveAll((*services.Service)(nil))
+		resolvedServices, err := controller.ResolveAllServices()
 		if err != nil {
 			return fmt.Errorf("Error resolving services: %w", err)
 		}
 
 		// Initialize all services
-		for _, serviceInterface := range resolvedServices {
-			service, ok := serviceInterface.(services.Service)
-			if !ok {
-				return fmt.Errorf("Resolved instance is not of expected type")
-			}
-
+		for _, service := range resolvedServices {
 			if err := service.Initialize(); err != nil {
 				return fmt.Errorf("error initializing service: %w", err)
 			}
 		}
 
 		// Write configuration for all services
-		for _, serviceInterface := range resolvedServices {
-			service, ok := serviceInterface.(services.Service)
-			if !ok {
-				return fmt.Errorf("Resolved instance is not of expected type")
-			}
-
+		for _, service := range resolvedServices {
 			if err := service.WriteConfig(); err != nil {
 				return fmt.Errorf("error writing service config: %w", err)
 			}
@@ -173,13 +166,9 @@ var initCmd = &cobra.Command{
 		// Initialize DockerVirt if enabled
 		dockerEnabled := configHandler.GetBool("docker.enabled")
 		if dockerEnabled {
-			dockerVirtInstance, err := injector.Resolve("dockerVirt")
+			dockerVirt, err := controller.ResolveContainerRuntime()
 			if err != nil {
 				return fmt.Errorf("Error resolving dockerVirt: %w", err)
-			}
-			dockerVirt, ok := dockerVirtInstance.(virt.ContainerRuntime)
-			if !ok {
-				return fmt.Errorf("Resolved instance is not of type virt.ContainerRuntime")
 			}
 			if err := dockerVirt.Initialize(); err != nil {
 				return fmt.Errorf("Error initializing dockerVirt: %w", err)
@@ -189,13 +178,9 @@ var initCmd = &cobra.Command{
 		// Initialize ColimaVirt if enabled
 		vmType := configHandler.GetString("vm.driver")
 		if vmType == "colima" {
-			colimaVirtInstance, err := injector.Resolve("colimaVirt")
+			colimaVirt, err := controller.ResolveVirtualMachine()
 			if err != nil {
 				return fmt.Errorf("Error resolving colimaVirt: %w", err)
-			}
-			colimaVirt, ok := colimaVirtInstance.(virt.VirtualMachine)
-			if !ok {
-				return fmt.Errorf("Resolved instance is not of type virt.VirtualMachine")
 			}
 			if err := colimaVirt.Initialize(); err != nil {
 				return fmt.Errorf("Error initializing colimaVirt: %w", err)

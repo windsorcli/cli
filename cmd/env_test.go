@@ -35,7 +35,7 @@ func TestEnvCmd(t *testing.T) {
 		// Capture the output using captureStdout
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"env"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Expected no error, got %v", err)
 			}
@@ -62,7 +62,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// When the env command is executed with verbose flag
 		rootCmd.SetArgs([]string{"env", "--verbose"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -70,7 +70,7 @@ func TestEnvCmd(t *testing.T) {
 		output := buf.String()
 
 		// Then the output should indicate the error
-		expectedOutput := "Error resolving environments: resolve env error"
+		expectedOutput := "Error: Error resolving environment printers: resolve env error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
@@ -90,7 +90,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 		// Then the error should be nil and no output should be produced
 		if err != nil {
 			t.Fatalf("Expected error nil, got %v", err)
@@ -122,7 +122,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 
 		// Then the error should be nil and no output should be produced
 		if err != nil {
@@ -149,7 +149,7 @@ func TestEnvCmd(t *testing.T) {
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -178,7 +178,7 @@ func TestEnvCmd(t *testing.T) {
 		// Capture the output
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"env"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Expected no error, got %v", err)
 			}
@@ -207,7 +207,7 @@ func TestEnvCmd(t *testing.T) {
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -236,7 +236,7 @@ func TestEnvCmd(t *testing.T) {
 		// Capture the output
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"env"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Expected no error, got %v", err)
 			}
@@ -265,7 +265,7 @@ func TestEnvCmd(t *testing.T) {
 		// When the env command is executed with verbose flag
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := Execute(mocks.Injector)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -298,7 +298,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 
 		// Then the error should be nil and no output should be produced
 		if err != nil {

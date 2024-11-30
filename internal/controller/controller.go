@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/windsor-hotel/cli/internal/config"
@@ -16,13 +15,14 @@ import (
 
 // Controller interface defines the methods for the controller.
 type Controller interface {
-	Initialize(injector di.Injector) error
+	Initialize() error
 	ResolveInjector() di.Injector
 	ResolveConfigHandler() (config.ConfigHandler, error)
 	ResolveContextHandler() (context.ContextHandler, error)
 	ResolveEnvPrinter(name string) (env.EnvPrinter, error)
 	ResolveAllEnvPrinters() ([]env.EnvPrinter, error)
 	ResolveShell() (shell.Shell, error)
+	ResolveSecureShell() (shell.Shell, error)
 	ResolveNetworkManager() (network.NetworkManager, error)
 	ResolveService(name string) (services.Service, error)
 	ResolveAllServices() ([]services.Service, error)
@@ -35,10 +35,13 @@ type BaseController struct {
 	injector di.Injector
 }
 
-// Initialize the controller.
-func (c *BaseController) Initialize(injector di.Injector) error {
-	c.injector = injector
+// NewController creates a new controller.
+func NewController(injector di.Injector) *BaseController {
+	return &BaseController{injector: injector}
+}
 
+// Initialize the controller.
+func (c *BaseController) Initialize() error {
 	return nil
 }
 
@@ -55,7 +58,7 @@ func (c *BaseController) ResolveConfigHandler() (config.ConfigHandler, error) {
 	}
 	configHandler, ok := instance.(config.ConfigHandler)
 	if !ok {
-		return nil, errors.New("resolved instance is not a ConfigHandler")
+		return nil, fmt.Errorf("resolved instance is not a ConfigHandler")
 	}
 	return configHandler, nil
 }
@@ -68,7 +71,7 @@ func (c *BaseController) ResolveContextHandler() (context.ContextHandler, error)
 	}
 	contextHandler, ok := instance.(context.ContextHandler)
 	if !ok {
-		return nil, errors.New("resolved instance is not a ContextHandler")
+		return nil, fmt.Errorf("resolved instance is not a ContextHandler")
 	}
 	return contextHandler, nil
 }
@@ -81,7 +84,7 @@ func (c *BaseController) ResolveEnvPrinter(name string) (env.EnvPrinter, error) 
 	}
 	envPrinter, ok := instance.(env.EnvPrinter)
 	if !ok {
-		return nil, errors.New("resolved instance is not an EnvPrinter")
+		return nil, fmt.Errorf("resolved instance is not an EnvPrinter")
 	}
 	return envPrinter, nil
 }
@@ -108,7 +111,20 @@ func (c *BaseController) ResolveShell() (shell.Shell, error) {
 	}
 	shellInstance, ok := instance.(shell.Shell)
 	if !ok {
-		return nil, errors.New("resolved instance is not a Shell")
+		return nil, fmt.Errorf("resolved instance is not a Shell")
+	}
+	return shellInstance, nil
+}
+
+// ResolveSecureShell resolves the secureShell instance.
+func (c *BaseController) ResolveSecureShell() (shell.Shell, error) {
+	instance, err := c.injector.Resolve("secureShell")
+	if err != nil {
+		return nil, err
+	}
+	shellInstance, ok := instance.(shell.Shell)
+	if !ok {
+		return nil, fmt.Errorf("resolved instance is not a Shell")
 	}
 	return shellInstance, nil
 }
@@ -121,7 +137,7 @@ func (c *BaseController) ResolveNetworkManager() (network.NetworkManager, error)
 	}
 	networkManager, ok := instance.(network.NetworkManager)
 	if !ok {
-		return nil, errors.New("resolved instance is not a NetworkManager")
+		return nil, fmt.Errorf("resolved instance is not a NetworkManager")
 	}
 	return networkManager, nil
 }
@@ -134,7 +150,7 @@ func (c *BaseController) ResolveService(name string) (services.Service, error) {
 	}
 	serviceInstance, ok := instance.(services.Service)
 	if !ok {
-		return nil, errors.New("resolved instance is not a Service")
+		return nil, fmt.Errorf("resolved instance is not a Service")
 	}
 	return serviceInstance, nil
 }
@@ -178,3 +194,6 @@ func (c *BaseController) ResolveContainerRuntime() (virt.ContainerRuntime, error
 	}
 	return containerRuntime, nil
 }
+
+// Ensure BaseController implements the Controller interface
+var _ Controller = (*BaseController)(nil)

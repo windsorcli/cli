@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/env"
 )
 
 var envCmd = &cobra.Command{
@@ -13,37 +12,30 @@ var envCmd = &cobra.Command{
 	Long:         "Output commands to set environment variables for the application.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Resolve all environments from the injector
-		envInstances, err := injector.ResolveAll((*env.EnvPrinter)(nil))
+		// Resolve all environment printers using the controller
+		envPrinters, err := controller.ResolveAllEnvPrinters()
 		if err != nil {
 			if verbose {
-				return fmt.Errorf("Error resolving environments: %w", err)
+				return fmt.Errorf("Error resolving environment printers: %w", err)
 			}
 			return nil
 		}
 
-		// Cast envInstances to a slice of EnvPrinter
-		envPrinters := make([]env.EnvPrinter, len(envInstances))
-		for i, instance := range envInstances {
-			envPrinter, _ := instance.(env.EnvPrinter)
-			envPrinters[i] = envPrinter
-		}
-
-		// Iterate through all environments and run their Initialize, Print, and PostEnvHook functions
-		for _, instance := range envPrinters {
-			if err := instance.Initialize(); err != nil {
+		// Iterate through all environment printers and run their Initialize, Print, and PostEnvHook functions
+		for _, envPrinter := range envPrinters {
+			if err := envPrinter.Initialize(); err != nil {
 				if verbose {
 					return fmt.Errorf("Error executing Initialize: %w", err)
 				}
 				return nil
 			}
-			if err := instance.Print(); err != nil {
+			if err := envPrinter.Print(); err != nil {
 				if verbose {
 					return fmt.Errorf("Error executing Print: %w", err)
 				}
 				return nil
 			}
-			if err := instance.PostEnvHook(); err != nil {
+			if err := envPrinter.PostEnvHook(); err != nil {
 				if verbose {
 					return fmt.Errorf("Error executing PostEnvHook: %w", err)
 				}

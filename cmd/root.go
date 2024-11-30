@@ -7,29 +7,23 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/di"
+	ctrl "github.com/windsor-hotel/cli/internal/controller"
 )
 
-// Injector is the global injector
-var injector di.Injector
+// controller is the global controller
+var controller ctrl.Controller
 
 // configHandler is the global config handler
 var configHandler config.ConfigHandler
 
 // This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute(inj di.Injector) error {
-	// Set the injector
-	injector = inj
+func Execute(controllerInstance ctrl.Controller) error {
+	// Set the controller
+	controller = controllerInstance
 
-	configHandlerInstance, err := injector.Resolve("configHandler")
+	configHandler, err := controller.ResolveConfigHandler()
 	if err != nil {
 		return fmt.Errorf("error resolving configHandler: %w", err)
-	}
-
-	var ok bool
-	configHandler, ok = configHandlerInstance.(config.ConfigHandler)
-	if !ok {
-		return fmt.Errorf("resolved instance is not of type config.ConfigHandler")
 	}
 
 	// Load CLI configuration

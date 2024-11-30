@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	ctrl "github.com/windsor-hotel/cli/internal/controller"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/mocks"
 )
@@ -63,10 +64,10 @@ func TestRoot_Execute(t *testing.T) {
 
 	t.Run("NoConfigHandlers", func(t *testing.T) {
 		// Given no config handlers are registered
-		injector := di.NewInjector()
+		controller := ctrl.NewController(di.NewInjector())
 
 		// When: Execute is called
-		err := Execute(injector)
+		err := Execute(controller)
 
 		// Then: it should return an error indicating configHandler resolution failure
 		if err == nil {
@@ -86,25 +87,10 @@ func TestRoot_Execute(t *testing.T) {
 		mockInjector.SetResolveError("configHandler", errors.New("error resolving configHandler"))
 
 		// When: Execute is called
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 
 		// Then: the error message should indicate the error
 		expectedError := "error resolving configHandler: error resolving configHandler"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("ErrorCastingConfigHandler", func(t *testing.T) {
-		// Given: an injector that returns an instance that is not of type config.ConfigHandler
-		mocks := mocks.CreateSuperMocks()
-		mocks.Injector.Register("configHandler", "invalid")
-
-		// When: Execute is called
-		err := Execute(mocks.Injector)
-
-		// Then: the error message should indicate the error
-		expectedError := "resolved instance is not of type config.ConfigHandler"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
 		}
@@ -118,7 +104,7 @@ func TestRoot_Execute(t *testing.T) {
 		}
 
 		// When: Execute is called
-		err := Execute(mocks.Injector)
+		err := Execute(mocks.Controller)
 
 		// Then: the error message should indicate the error
 		expectedError := "error loading CLI config: error loading CLI config"

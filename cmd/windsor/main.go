@@ -6,6 +6,7 @@ import (
 	"github.com/windsor-hotel/cli/cmd"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
+	"github.com/windsor-hotel/cli/internal/controller"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/env"
 	"github.com/windsor-hotel/cli/internal/network"
@@ -19,6 +20,9 @@ func main() {
 	// Create a new DI injector
 	injector := di.NewInjector()
 
+	// Create a new controller
+	controller := controller.NewController(injector)
+
 	// Register CLI Config Handler (to be initialized later)
 	configHandler, err := config.NewYamlConfigHandler("")
 	if err != nil {
@@ -31,10 +35,7 @@ func main() {
 	injector.Register("shell", shellInstance)
 
 	// Register SecureShell instance
-	secureShellInstance, err := shell.NewSecureShell(injector)
-	if err != nil {
-		log.Fatalf("failed to create secure shell: %v", err)
-	}
+	secureShellInstance := shell.NewSecureShell(injector)
 	injector.Register("secureShell", secureShellInstance)
 
 	// Create and register the Context instance
@@ -67,15 +68,15 @@ func main() {
 
 	// Create and register the ColimaVirt instance
 	colimaVM := virt.NewColimaVirt(injector)
-	injector.Register("colimaVirt", colimaVM)
+	injector.Register("virtualMachine", colimaVM)
 
 	// Create and register the DockerVirt instance
 	dockerVM := virt.NewDockerVirt(injector)
-	injector.Register("dockerVirt", dockerVM)
+	injector.Register("containerRuntime", dockerVM)
 
 	// Create and register the ColimaNetworkManager instance
 	colimaNetworkManager := network.NewColimaNetworkManager(injector)
-	injector.Register("colimaNetworkManager", colimaNetworkManager)
+	injector.Register("networkManager", colimaNetworkManager)
 
 	// Create and register the AwsEnv instance
 	awsEnv := env.NewAwsEnvPrinter(injector)
@@ -115,5 +116,5 @@ func main() {
 
 	// Execute the root command and handle the error silently,
 	// allowing the CLI framework to report the error
-	_ = cmd.Execute(injector)
+	_ = cmd.Execute(controller)
 }

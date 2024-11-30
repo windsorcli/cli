@@ -8,7 +8,6 @@ import (
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/ssh"
 )
 
 // maxFolderSearchDepth is the maximum depth to search for the project root
@@ -31,7 +30,6 @@ type Shell interface {
 type DefaultShell struct {
 	projectRoot   string
 	injector      di.Injector
-	sshClient     ssh.Client
 	configHandler config.ConfigHandler
 }
 
@@ -43,13 +41,6 @@ func NewDefaultShell(injector di.Injector) *DefaultShell {
 }
 
 func (s *DefaultShell) Initialize() error {
-	// Get the SSH client
-	sshClient, err := s.injector.Resolve("sshClient")
-	if err != nil {
-		return fmt.Errorf("failed to resolve SSH client: %w", err)
-	}
-	s.sshClient = sshClient.(ssh.Client)
-
 	configHandler, err := s.injector.Resolve("configHandler")
 	if err != nil {
 		return fmt.Errorf("failed to resolve config handler: %w", err)
