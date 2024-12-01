@@ -5,6 +5,12 @@ import (
 	"io"
 	"os"
 	"testing"
+
+	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/context"
+	ctrl "github.com/windsor-hotel/cli/internal/controller"
+	"github.com/windsor-hotel/cli/internal/env"
+	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 // Helper functions to create pointers for basic types
@@ -47,6 +53,14 @@ var exitCode int
 
 func mockExit(code int) {
 	exitCode = code
+}
+
+type MockObjects struct {
+	Controller     *ctrl.MockController
+	Shell          *shell.MockShell
+	EnvPrinter     *env.MockEnvPrinter
+	ConfigHandler  *config.MockConfigHandler
+	ContextHandler *context.MockContext
 }
 
 func TestRoot_Execute(t *testing.T) {

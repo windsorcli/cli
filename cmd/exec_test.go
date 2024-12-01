@@ -13,7 +13,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-func setupSafeExecCmdMocks() (*ctrl.MockController, *shell.MockShell, *env.MockEnvPrinter) {
+func setupSafeExecCmdMocks() *MockObjects {
 	injector := di.NewInjector()
 	mockController := ctrl.NewMockController(injector)
 
@@ -33,7 +33,11 @@ func setupSafeExecCmdMocks() (*ctrl.MockController, *shell.MockShell, *env.MockE
 		return mockShell, nil
 	}
 
-	return mockController, mockShell, mockEnvPrinter
+	return &MockObjects{
+		Controller: mockController,
+		Shell:      mockShell,
+		EnvPrinter: mockEnvPrinter,
+	}
 }
 
 func TestExecCmd(t *testing.T) {
@@ -47,12 +51,12 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Setup mock controller
-		mockController, _, _ := setupSafeExecCmdMocks()
+		mocks := setupSafeExecCmdMocks()
 
 		// Capture stdout using captureStdout
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-			err := Execute(mockController)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Expected no error, got %v", err)
 			}
@@ -225,8 +229,8 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Setup mock controller
-		mockController, _, mockEnvPrinter := setupSafeExecCmdMocks()
-		mockEnvPrinter.PrintFunc = func() error {
+		mocks := setupSafeExecCmdMocks()
+		mocks.EnvPrinter.PrintFunc = func() error {
 			return fmt.Errorf("print error")
 		}
 
@@ -236,7 +240,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mockController)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -254,8 +258,8 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Setup mock controller
-		mockController, _, mockEnvPrinter := setupSafeExecCmdMocks()
-		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+		mocks := setupSafeExecCmdMocks()
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, fmt.Errorf("get env vars error")
 		}
 
@@ -265,7 +269,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mockController)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -283,8 +287,8 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Setup mock controller
-		mockController, _, mockEnvPrinter := setupSafeExecCmdMocks()
-		mockEnvPrinter.PostEnvHookFunc = func() error {
+		mocks := setupSafeExecCmdMocks()
+		mocks.EnvPrinter.PostEnvHookFunc = func() error {
 			return fmt.Errorf("post env hook error")
 		}
 
@@ -294,7 +298,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mockController)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -312,8 +316,8 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Setup mock controller
-		mockController, _, mockEnvPrinter := setupSafeExecCmdMocks()
-		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+		mocks := setupSafeExecCmdMocks()
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{"KEY": "VALUE"}, nil
 		}
 
@@ -330,7 +334,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mockController)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -348,8 +352,8 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Setup mock controller
-		mockController, _, _ := setupSafeExecCmdMocks()
-		mockController.ResolveShellFunc = func() (shell.Shell, error) {
+		mocks := setupSafeExecCmdMocks()
+		mocks.Controller.ResolveShellFunc = func() (shell.Shell, error) {
 			return nil, fmt.Errorf("resolve shell error")
 		}
 
@@ -359,7 +363,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mockController)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -377,8 +381,8 @@ func TestExecCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Setup mock controller
-		mockController, mockShell, _ := setupSafeExecCmdMocks()
-		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks := setupSafeExecCmdMocks()
+		mocks.Shell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 			return "", fmt.Errorf("command execution error")
 		}
 
@@ -388,7 +392,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mockController)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
