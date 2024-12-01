@@ -54,7 +54,6 @@ Windsor CLI is licensed under the Mozilla Public License Version 2.0. See the [L
 
 Thank you for using Windsor CLI! If you have any questions or need further assistance, please feel free to open an issue on our GitHub repository.
 
-
 <!-- Add buttons to load new files
 <button id="quickStartButton">Quick Start</button>
 <button id="demoButton">Local Cluster Demo</button>
