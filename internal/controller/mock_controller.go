@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"fmt"
+
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
@@ -130,28 +132,59 @@ func (m *MockController) CreateServiceComponents() error {
 	}
 
 	// Create mock dns service
-	dnsService := services.NewMockService()
-	m.injector.Register("dnsService", dnsService)
+	dnsEnabled := m.configHandler.GetBool("dns.enabled")
+	if dnsEnabled {
+		dnsService := services.NewMockService()
+		m.injector.Register("dnsService", dnsService)
+	}
 
-	// Create mock git service
-	gitService := services.NewMockService()
-	m.injector.Register("gitService", gitService)
+	// Create mock git livereload service
+	gitLivereloadEnabled := m.configHandler.GetBool("git.livereload.enabled")
+	if gitLivereloadEnabled {
+		gitLivereloadService := services.NewMockService()
+		m.injector.Register("gitLivereloadService", gitLivereloadService)
+	}
 
-	// Create mock docker service
-	dockerService := services.NewMockService()
-	m.injector.Register("dockerService", dockerService)
+	// Create mock localstack service
+	localstackEnabled := m.configHandler.GetBool("aws.localstack.enabled")
+	if localstackEnabled {
+		localstackService := services.NewMockService()
+		m.injector.Register("localstackService", localstackService)
+	}
 
-	// Create mock kube service
-	kubeService := services.NewMockService()
-	m.injector.Register("kubeService", kubeService)
+	// Create mock registry services
+	registryServices := m.configHandler.GetConfig().Docker.Registries
+	for _, registry := range registryServices {
+		service := services.NewMockService()
+		service.SetName(registry.Name)
+		serviceName := fmt.Sprintf("registryService.%s", registry.Name)
+		m.injector.Register(serviceName, service)
+	}
 
-	// Create mock omni service
-	omniService := services.NewMockService()
-	m.injector.Register("omniService", omniService)
+	// Create mock cluster services
+	clusterEnabled := m.configHandler.GetBool("cluster.enabled")
+	if clusterEnabled {
+		controlPlaneCount := m.configHandler.GetInt("cluster.controlplanes.count")
+		workerCount := m.configHandler.GetInt("cluster.workers.count")
 
-	// Create mock talos service
-	talosService := services.NewMockService()
-	m.injector.Register("talosService", talosService)
+		clusterDriver := m.configHandler.GetString("cluster.driver")
+
+		// Create mock talos cluster
+		if clusterDriver == "talos" {
+			for i := 1; i <= controlPlaneCount; i++ {
+				controlPlaneService := services.NewMockService()
+				controlPlaneService.SetName(fmt.Sprintf("controlplane-%d", i))
+				serviceName := fmt.Sprintf("clusterNode.controlplane-%d", i)
+				m.injector.Register(serviceName, controlPlaneService)
+			}
+			for i := 1; i <= workerCount; i++ {
+				workerService := services.NewMockService()
+				workerService.SetName(fmt.Sprintf("worker-%d", i))
+				serviceName := fmt.Sprintf("clusterNode.worker-%d", i)
+				m.injector.Register(serviceName, workerService)
+			}
+		}
+	}
 
 	return nil
 }
@@ -162,17 +195,25 @@ func (m *MockController) CreateVirtualizationComponents() error {
 		return m.CreateVirtualizationComponentsFunc()
 	}
 
-	// Create mock colima virtual machine
-	colimaVirtualMachine := virt.NewMockVirt()
-	m.injector.Register("virtualMachine", colimaVirtualMachine)
+	vmDriver := m.configHandler.GetString("vm.driver")
+	dockerEnabled := m.configHandler.GetBool("docker.enabled")
 
-	// Create mock colima network manager
-	networkManager := network.NewMockNetworkManager()
-	m.injector.Register("networkManager", networkManager)
+	// Create mock colima components
+	if vmDriver == "colima" {
+		// Create mock colima virtual machine
+		colimaVirtualMachine := virt.NewMockVirt()
+		m.injector.Register("virtualMachine", colimaVirtualMachine)
+
+		// Create mock colima network manager
+		networkManager := network.NewMockNetworkManager()
+		m.injector.Register("networkManager", networkManager)
+	}
 
 	// Create mock docker container runtime
-	containerRuntime := virt.NewMockVirt()
-	m.injector.Register("containerRuntime", containerRuntime)
+	if dockerEnabled {
+		containerRuntime := virt.NewMockVirt()
+		m.injector.Register("containerRuntime", containerRuntime)
+	}
 
 	return nil
 }

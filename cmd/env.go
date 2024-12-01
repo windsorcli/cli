@@ -20,6 +20,14 @@ var envCmd = &cobra.Command{
 			return nil
 		}
 
+		// Create common components
+		if err := controller.CreateCommonComponents(); err != nil {
+			if verbose {
+				return fmt.Errorf("Error creating common components: %w", err)
+			}
+			return nil
+		}
+
 		// Create environment components
 		if err := controller.CreateEnvComponents(); err != nil {
 			if verbose {

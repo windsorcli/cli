@@ -98,7 +98,7 @@ func TestMockController_CreateEnvComponents(t *testing.T) {
 }
 
 func TestMockController_CreateServiceComponents(t *testing.T) {
-	t.Run("CreateServiceComponents", func(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
 		injector := di.NewInjector()
 		mockCtrl := NewMockController(injector)
 		mockCtrl.CreateServiceComponentsFunc = func() error {
@@ -112,6 +112,62 @@ func TestMockController_CreateServiceComponents(t *testing.T) {
 	t.Run("NoCreateServiceComponentsFunc", func(t *testing.T) {
 		injector := di.NewInjector()
 		mockCtrl := NewMockController(injector)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockCtrl.configHandler = mockConfigHandler
+
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			switch key {
+			case "dns.enabled":
+				return true
+			case "git.livereload.enabled":
+				return true
+			case "aws.localstack.enabled":
+				return true
+			case "cluster.enabled":
+				return true
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return false
+			}
+		}
+
+		mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
+			switch key {
+			case "cluster.controlplanes.count":
+				return 3
+			case "cluster.workers.count":
+				return 5
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return 0
+			}
+		}
+
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mockConfigHandler.GetConfigFunc = func() *config.Context {
+			return &config.Context{
+				Docker: &config.DockerConfig{
+					Registries: []config.Registry{
+						{Name: "registry1"},
+						{Name: "registry2"},
+					},
+				},
+			}
+		}
+
 		if err := mockCtrl.CreateServiceComponents(); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -133,6 +189,17 @@ func TestMockController_CreateVirtualizationComponents(t *testing.T) {
 	t.Run("NoCreateVirtualizationComponentsFunc", func(t *testing.T) {
 		injector := di.NewInjector()
 		mockCtrl := NewMockController(injector)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockCtrl.configHandler = mockConfigHandler
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
 		if err := mockCtrl.CreateVirtualizationComponents(); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}

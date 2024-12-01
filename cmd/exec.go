@@ -16,17 +16,37 @@ var execCmd = &cobra.Command{
 			return fmt.Errorf("no command provided")
 		}
 
+		// Initialize the controller
+		if err := controller.Initialize(); err != nil {
+			return fmt.Errorf("Error initializing controller: %w", err)
+		}
+
+		// Create common components
+		if err := controller.CreateCommonComponents(); err != nil {
+			return fmt.Errorf("Error creating common components: %w", err)
+		}
+
+		// Create environment components
+		if err := controller.CreateEnvComponents(); err != nil {
+			return fmt.Errorf("Error creating environment components: %w", err)
+		}
+
+		// Initialize components
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
+		}
+
 		// Resolve all environment printers using the controller
 		envPrinters, err := controller.ResolveAllEnvPrinters()
 		if err != nil {
-			return fmt.Errorf("Error resolving environments: %w", err)
+			return fmt.Errorf("Error resolving environment printers: %w", err)
 		}
 
-		// Collect and initialize environment variables from all environments
+		// Collect environment variables from all printers
 		envVars := make(map[string]string)
 		for _, envPrinter := range envPrinters {
-			if err := envPrinter.Initialize(); err != nil {
-				return fmt.Errorf("Error initializing environment: %w", err)
+			if err := envPrinter.Print(); err != nil {
+				return fmt.Errorf("Error executing Print: %w", err)
 			}
 			vars, err := envPrinter.GetEnvVars()
 			if err != nil {
@@ -34,6 +54,9 @@ var execCmd = &cobra.Command{
 			}
 			for k, v := range vars {
 				envVars[k] = v
+			}
+			if err := envPrinter.PostEnvHook(); err != nil {
+				return fmt.Errorf("Error executing PostEnvHook: %w", err)
 			}
 		}
 
@@ -48,11 +71,6 @@ var execCmd = &cobra.Command{
 		shellInstance, err := controller.ResolveShell()
 		if err != nil {
 			return fmt.Errorf("Error resolving shell instance: %w", err)
-		}
-
-		// Initialize the shell instance
-		if err := shellInstance.Initialize(); err != nil {
-			return fmt.Errorf("Error initializing shell: %w", err)
 		}
 
 		// Execute the command using the resolved shell instance
