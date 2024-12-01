@@ -131,6 +131,8 @@ func (m *MockController) CreateServiceComponents() error {
 		return m.CreateServiceComponentsFunc()
 	}
 
+	contextConfig := m.configHandler.GetConfig()
+
 	// Create mock dns service
 	dnsEnabled := m.configHandler.GetBool("dns.enabled")
 	if dnsEnabled {
@@ -153,12 +155,14 @@ func (m *MockController) CreateServiceComponents() error {
 	}
 
 	// Create mock registry services
-	registryServices := m.configHandler.GetConfig().Docker.Registries
-	for _, registry := range registryServices {
-		service := services.NewMockService()
-		service.SetName(registry.Name)
-		serviceName := fmt.Sprintf("registryService.%s", registry.Name)
-		m.injector.Register(serviceName, service)
+	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
+		registryServices := contextConfig.Docker.Registries
+		for _, registry := range registryServices {
+			service := services.NewMockService()
+			service.SetName(registry.Name)
+			serviceName := fmt.Sprintf("registryService.%s", registry.Name)
+			m.injector.Register(serviceName, service)
+		}
 	}
 
 	// Create mock cluster services

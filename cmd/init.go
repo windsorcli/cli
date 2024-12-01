@@ -29,6 +29,17 @@ var initCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Initialize the controller
+		if err := controller.Initialize(); err != nil {
+			return fmt.Errorf("Error initializing controller: %w", err)
+		}
+
+		// Create common components
+		if err := controller.CreateCommonComponents(); err != nil {
+			return fmt.Errorf("Error creating common components: %w", err)
+		}
+
+		// Resolve the context handler
 		contextHandler, err := controller.ResolveContextHandler()
 		if err != nil {
 			return fmt.Errorf("Error getting context handler: %w", err)
@@ -143,17 +154,20 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error saving config file: %w", err)
 		}
 
+		// Create service components
+		if err := controller.CreateServiceComponents(); err != nil {
+			return fmt.Errorf("Error creating service components: %w", err)
+		}
+
+		// Initialize components
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
+		}
+
 		// Resolve all services
 		resolvedServices, err := controller.ResolveAllServices()
 		if err != nil {
 			return fmt.Errorf("Error resolving services: %w", err)
-		}
-
-		// Initialize all services
-		for _, service := range resolvedServices {
-			if err := service.Initialize(); err != nil {
-				return fmt.Errorf("error initializing service: %w", err)
-			}
 		}
 
 		// Write configuration for all services
@@ -163,30 +177,29 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		// Initialize DockerVirt if enabled
-		dockerEnabled := configHandler.GetBool("docker.enabled")
-		if dockerEnabled {
-			dockerVirt, err := controller.ResolveContainerRuntime()
+		// Resolve and write configuration for virtual machine if vm.driver is defined
+		if vmDriver := configHandler.GetString("vm.driver"); vmDriver != "" {
+			resolvedVirt, err := controller.ResolveVirtualMachine()
 			if err != nil {
-				return fmt.Errorf("Error resolving dockerVirt: %w", err)
+				return fmt.Errorf("Error resolving virtual machine: %w", err)
 			}
-			if err := dockerVirt.Initialize(); err != nil {
-				return fmt.Errorf("Error initializing dockerVirt: %w", err)
+			if err := resolvedVirt.WriteConfig(); err != nil {
+				return fmt.Errorf("error writing virtual machine config: %w", err)
 			}
 		}
 
-		// Initialize ColimaVirt if enabled
-		vmType := configHandler.GetString("vm.driver")
-		if vmType == "colima" {
-			colimaVirt, err := controller.ResolveVirtualMachine()
+		// Resolve and write configuration for container runtime if docker.enabled is true
+		if dockerEnabled := configHandler.GetBool("docker.enabled"); dockerEnabled {
+			resolvedContainerRuntime, err := controller.ResolveContainerRuntime()
 			if err != nil {
-				return fmt.Errorf("Error resolving colimaVirt: %w", err)
+				return fmt.Errorf("Error resolving container runtime: %w", err)
 			}
-			if err := colimaVirt.Initialize(); err != nil {
-				return fmt.Errorf("Error initializing colimaVirt: %w", err)
+			if err := resolvedContainerRuntime.WriteConfig(); err != nil {
+				return fmt.Errorf("error writing container runtime config: %w", err)
 			}
 		}
 
+		// Print the success message
 		fmt.Println("Initialization successful")
 		return nil
 	},
