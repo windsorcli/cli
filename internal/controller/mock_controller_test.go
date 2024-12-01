@@ -15,7 +15,8 @@ import (
 
 func TestMockController_Initialize(t *testing.T) {
 	t.Run("Initialize", func(t *testing.T) {
-		mockCtrl := NewMockController()
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.InitializeFunc = func() error {
 			return nil
 		}
@@ -25,7 +26,8 @@ func TestMockController_Initialize(t *testing.T) {
 	})
 
 	t.Run("NoInitializeFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
 		if err := mockCtrl.Initialize(); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -34,7 +36,8 @@ func TestMockController_Initialize(t *testing.T) {
 
 func TestMockController_InitializeComponents(t *testing.T) {
 	t.Run("InitializeComponents", func(t *testing.T) {
-		mockCtrl := NewMockController()
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.InitializeComponentsFunc = func() error {
 			return nil
 		}
@@ -44,7 +47,8 @@ func TestMockController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("NoInitializeComponentsFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
 		if err := mockCtrl.InitializeComponents(); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -53,7 +57,8 @@ func TestMockController_InitializeComponents(t *testing.T) {
 
 func TestMockController_CreateCommonComponents(t *testing.T) {
 	t.Run("CreateCommonComponents", func(t *testing.T) {
-		mockCtrl := NewMockController()
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.CreateCommonComponentsFunc = func() error {
 			return nil
 		}
@@ -63,7 +68,8 @@ func TestMockController_CreateCommonComponents(t *testing.T) {
 	})
 
 	t.Run("NoCreateCommonComponentsFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
 		if err := mockCtrl.CreateCommonComponents(); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -72,7 +78,8 @@ func TestMockController_CreateCommonComponents(t *testing.T) {
 
 func TestMockController_CreateEnvComponents(t *testing.T) {
 	t.Run("CreateEnvComponents", func(t *testing.T) {
-		mockCtrl := NewMockController()
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.CreateEnvComponentsFunc = func() error {
 			return nil
 		}
@@ -82,7 +89,8 @@ func TestMockController_CreateEnvComponents(t *testing.T) {
 	})
 
 	t.Run("NoCreateEnvComponentsFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
 		if err := mockCtrl.CreateEnvComponents(); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -91,7 +99,8 @@ func TestMockController_CreateEnvComponents(t *testing.T) {
 
 func TestMockController_CreateServiceComponents(t *testing.T) {
 	t.Run("CreateServiceComponents", func(t *testing.T) {
-		mockCtrl := NewMockController()
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.CreateServiceComponentsFunc = func() error {
 			return nil
 		}
@@ -101,7 +110,8 @@ func TestMockController_CreateServiceComponents(t *testing.T) {
 	})
 
 	t.Run("NoCreateServiceComponentsFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
 		if err := mockCtrl.CreateServiceComponents(); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -110,7 +120,8 @@ func TestMockController_CreateServiceComponents(t *testing.T) {
 
 func TestMockController_CreateVirtualizationComponents(t *testing.T) {
 	t.Run("CreateVirtualizationComponents", func(t *testing.T) {
-		mockCtrl := NewMockController()
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.CreateVirtualizationComponentsFunc = func() error {
 			return nil
 		}
@@ -120,7 +131,8 @@ func TestMockController_CreateVirtualizationComponents(t *testing.T) {
 	})
 
 	t.Run("NoCreateVirtualizationComponentsFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
 		if err := mockCtrl.CreateVirtualizationComponents(); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -129,8 +141,8 @@ func TestMockController_CreateVirtualizationComponents(t *testing.T) {
 
 func TestMockController_ResolveInjector(t *testing.T) {
 	t.Run("ResolveInjector", func(t *testing.T) {
-		expectedInjector := di.NewInjector()
-		mockCtrl := NewMockController()
+		expectedInjector := di.NewMockInjector()
+		mockCtrl := NewMockController(expectedInjector)
 		mockCtrl.ResolveInjectorFunc = func() di.Injector {
 			return expectedInjector
 		}
@@ -140,9 +152,10 @@ func TestMockController_ResolveInjector(t *testing.T) {
 	})
 
 	t.Run("NoResolveInjectorFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
-		if injector := mockCtrl.ResolveInjector(); injector != nil {
-			t.Fatalf("expected nil, got %v", injector)
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		if injector := mockCtrl.ResolveInjector(); injector != injector {
+			t.Fatalf("expected %v, got %v", injector, injector)
 		}
 	})
 }
@@ -150,7 +163,8 @@ func TestMockController_ResolveInjector(t *testing.T) {
 func TestMockController_ResolveConfigHandler(t *testing.T) {
 	t.Run("ResolveConfigHandler", func(t *testing.T) {
 		expectedConfigHandler := config.NewMockConfigHandler()
-		mockCtrl := NewMockController()
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.ResolveConfigHandlerFunc = func() (config.ConfigHandler, error) {
 			return expectedConfigHandler, nil
 		}
@@ -164,9 +178,10 @@ func TestMockController_ResolveConfigHandler(t *testing.T) {
 	})
 
 	t.Run("NoResolveConfigHandlerFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
-		if _, err := mockCtrl.ResolveConfigHandler(); err == nil {
-			t.Fatalf("expected an error, got nil")
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		if _, err := mockCtrl.ResolveConfigHandler(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
@@ -174,7 +189,8 @@ func TestMockController_ResolveConfigHandler(t *testing.T) {
 func TestMockController_ResolveContextHandler(t *testing.T) {
 	t.Run("ResolveContextHandler", func(t *testing.T) {
 		expectedContextHandler := context.NewMockContext()
-		mockCtrl := NewMockController()
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.ResolveContextHandlerFunc = func() (context.ContextHandler, error) {
 			return expectedContextHandler, nil
 		}
@@ -188,9 +204,10 @@ func TestMockController_ResolveContextHandler(t *testing.T) {
 	})
 
 	t.Run("NoResolveContextHandlerFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
-		if _, err := mockCtrl.ResolveContextHandler(); err == nil {
-			t.Fatalf("expected an error, got nil")
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		if _, err := mockCtrl.ResolveContextHandler(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
@@ -198,7 +215,8 @@ func TestMockController_ResolveContextHandler(t *testing.T) {
 func TestMockController_ResolveEnvPrinter(t *testing.T) {
 	t.Run("ResolveEnvPrinter", func(t *testing.T) {
 		expectedEnvPrinter := &env.MockEnvPrinter{}
-		mockCtrl := NewMockController()
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.ResolveEnvPrinterFunc = func(name string) (env.EnvPrinter, error) {
 			return expectedEnvPrinter, nil
 		}
@@ -212,9 +230,10 @@ func TestMockController_ResolveEnvPrinter(t *testing.T) {
 	})
 
 	t.Run("NoResolveEnvPrinterFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
-		if _, err := mockCtrl.ResolveEnvPrinter("envPrinter"); err == nil {
-			t.Fatalf("expected an error, got nil")
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		if _, err := mockCtrl.ResolveEnvPrinter("envPrinter"); err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
@@ -222,7 +241,8 @@ func TestMockController_ResolveEnvPrinter(t *testing.T) {
 func TestMockController_ResolveAllEnvPrinters(t *testing.T) {
 	t.Run("ResolveAllEnvPrinters", func(t *testing.T) {
 		expectedEnvPrinters := []env.EnvPrinter{&env.MockEnvPrinter{}, &env.MockEnvPrinter{}}
-		mockCtrl := NewMockController()
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.ResolveAllEnvPrintersFunc = func() ([]env.EnvPrinter, error) {
 			return expectedEnvPrinters, nil
 		}
@@ -241,9 +261,10 @@ func TestMockController_ResolveAllEnvPrinters(t *testing.T) {
 	})
 
 	t.Run("NoResolveAllEnvPrintersFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
-		if _, err := mockCtrl.ResolveAllEnvPrinters(); err == nil {
-			t.Fatalf("expected an error, got nil")
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		if _, err := mockCtrl.ResolveAllEnvPrinters(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
@@ -251,7 +272,8 @@ func TestMockController_ResolveAllEnvPrinters(t *testing.T) {
 func TestMockController_ResolveShell(t *testing.T) {
 	t.Run("ResolveShell", func(t *testing.T) {
 		expectedShell := &shell.MockShell{}
-		mockCtrl := NewMockController()
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.ResolveShellFunc = func() (shell.Shell, error) {
 			return expectedShell, nil
 		}
@@ -265,9 +287,10 @@ func TestMockController_ResolveShell(t *testing.T) {
 	})
 
 	t.Run("NoResolveShellFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
-		if _, err := mockCtrl.ResolveShell(); err == nil {
-			t.Fatalf("expected an error, got nil")
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		if _, err := mockCtrl.ResolveShell(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
@@ -275,7 +298,8 @@ func TestMockController_ResolveShell(t *testing.T) {
 func TestMockController_ResolveSecureShell(t *testing.T) {
 	t.Run("ResolveSecureShell", func(t *testing.T) {
 		expectedSecureShell := &shell.MockShell{}
-		mockCtrl := NewMockController()
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.ResolveSecureShellFunc = func() (shell.Shell, error) {
 			return expectedSecureShell, nil
 		}
@@ -289,9 +313,10 @@ func TestMockController_ResolveSecureShell(t *testing.T) {
 	})
 
 	t.Run("NoResolveSecureShellFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
-		if _, err := mockCtrl.ResolveSecureShell(); err == nil {
-			t.Fatalf("expected an error, got nil")
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		if _, err := mockCtrl.ResolveSecureShell(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
@@ -299,7 +324,8 @@ func TestMockController_ResolveSecureShell(t *testing.T) {
 func TestMockController_ResolveNetworkManager(t *testing.T) {
 	t.Run("ResolveNetworkManager", func(t *testing.T) {
 		expectedNetworkManager := &network.MockNetworkManager{}
-		mockCtrl := NewMockController()
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.ResolveNetworkManagerFunc = func() (network.NetworkManager, error) {
 			return expectedNetworkManager, nil
 		}
@@ -313,9 +339,10 @@ func TestMockController_ResolveNetworkManager(t *testing.T) {
 	})
 
 	t.Run("NoResolveNetworkManagerFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
-		if _, err := mockCtrl.ResolveNetworkManager(); err == nil {
-			t.Fatalf("expected an error, got nil")
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		if _, err := mockCtrl.ResolveNetworkManager(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
@@ -323,7 +350,8 @@ func TestMockController_ResolveNetworkManager(t *testing.T) {
 func TestMockController_ResolveService(t *testing.T) {
 	t.Run("ResolveService", func(t *testing.T) {
 		expectedService := &services.MockService{}
-		mockCtrl := NewMockController()
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.ResolveServiceFunc = func(name string) (services.Service, error) {
 			return expectedService, nil
 		}
@@ -337,9 +365,10 @@ func TestMockController_ResolveService(t *testing.T) {
 	})
 
 	t.Run("NoResolveServiceFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
-		if _, err := mockCtrl.ResolveService("service"); err == nil {
-			t.Fatalf("expected an error, got nil")
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		if _, err := mockCtrl.ResolveService("service"); err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
@@ -347,7 +376,8 @@ func TestMockController_ResolveService(t *testing.T) {
 func TestMockController_ResolveAllServices(t *testing.T) {
 	t.Run("ResolveAllServices", func(t *testing.T) {
 		expectedServices := []services.Service{&services.MockService{}, &services.MockService{}}
-		mockCtrl := NewMockController()
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.ResolveAllServicesFunc = func() ([]services.Service, error) {
 			return expectedServices, nil
 		}
@@ -366,9 +396,10 @@ func TestMockController_ResolveAllServices(t *testing.T) {
 	})
 
 	t.Run("NoResolveAllServicesFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
-		if _, err := mockCtrl.ResolveAllServices(); err == nil {
-			t.Fatalf("expected an error, got nil")
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		if _, err := mockCtrl.ResolveAllServices(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
@@ -376,7 +407,8 @@ func TestMockController_ResolveAllServices(t *testing.T) {
 func TestMockController_ResolveVirtualMachine(t *testing.T) {
 	t.Run("ResolveVirtualMachine", func(t *testing.T) {
 		expectedVirtualMachine := &virt.MockVirt{}
-		mockCtrl := NewMockController()
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.ResolveVirtualMachineFunc = func() (virt.VirtualMachine, error) {
 			return expectedVirtualMachine, nil
 		}
@@ -390,9 +422,10 @@ func TestMockController_ResolveVirtualMachine(t *testing.T) {
 	})
 
 	t.Run("NoResolveVirtualMachineFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
-		if _, err := mockCtrl.ResolveVirtualMachine(); err == nil {
-			t.Fatalf("expected an error, got nil")
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		if _, err := mockCtrl.ResolveVirtualMachine(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
@@ -400,7 +433,8 @@ func TestMockController_ResolveVirtualMachine(t *testing.T) {
 func TestMockController_ResolveContainerRuntime(t *testing.T) {
 	t.Run("ResolveContainerRuntime", func(t *testing.T) {
 		expectedContainerRuntime := &virt.MockVirt{}
-		mockCtrl := NewMockController()
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
 		mockCtrl.ResolveContainerRuntimeFunc = func() (virt.ContainerRuntime, error) {
 			return expectedContainerRuntime, nil
 		}
@@ -414,9 +448,10 @@ func TestMockController_ResolveContainerRuntime(t *testing.T) {
 	})
 
 	t.Run("NoResolveContainerRuntimeFunc", func(t *testing.T) {
-		mockCtrl := NewMockController()
-		if _, err := mockCtrl.ResolveContainerRuntime(); err == nil {
-			t.Fatalf("expected an error, got nil")
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		if _, err := mockCtrl.ResolveContainerRuntime(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }

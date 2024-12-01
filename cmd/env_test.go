@@ -70,7 +70,7 @@ func TestEnvCmd(t *testing.T) {
 		output := buf.String()
 
 		// Then the output should indicate the error
-		expectedOutput := "Error: Error resolving environment printers: resolve env error"
+		expectedOutput := "Error: Error initializing components: error initializing env printers: resolve env error\n"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
@@ -156,7 +156,7 @@ func TestEnvCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate the error
-		expectedOutput := "Error executing Initialize: initialize error"
+		expectedOutput := "Error: Error initializing components: error initializing env printer: initialize error\n"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
@@ -176,18 +176,20 @@ func TestEnvCmd(t *testing.T) {
 		}
 
 		// Capture the output
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"env"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
+		var buf bytes.Buffer
+		rootCmd.SetOut(&buf)
+		rootCmd.SetErr(&buf)
 
-		// Then the output should not indicate the error
-		expectedOutput := ""
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		// When the env command is executed without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute(mocks.Controller)
+
+		// Then the error should be nil and no output should be produced
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if buf.Len() != 0 {
+			t.Fatalf("Expected no output, got %s", buf.String())
 		}
 	})
 

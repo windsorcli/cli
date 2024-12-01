@@ -12,6 +12,30 @@ var envCmd = &cobra.Command{
 	Long:         "Output commands to set environment variables for the application.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Initialize the controller
+		if err := controller.Initialize(); err != nil {
+			if verbose {
+				return fmt.Errorf("Error initializing controller: %w", err)
+			}
+			return nil
+		}
+
+		// Create environment components
+		if err := controller.CreateEnvComponents(); err != nil {
+			if verbose {
+				return fmt.Errorf("Error creating environment components: %w", err)
+			}
+			return nil
+		}
+
+		// Initialize components
+		if err := controller.InitializeComponents(); err != nil {
+			if verbose {
+				return fmt.Errorf("Error initializing components: %w", err)
+			}
+			return nil
+		}
+
 		// Resolve all environment printers using the controller
 		envPrinters, err := controller.ResolveAllEnvPrinters()
 		if err != nil {
@@ -21,14 +45,8 @@ var envCmd = &cobra.Command{
 			return nil
 		}
 
-		// Iterate through all environment printers and run their Initialize, Print, and PostEnvHook functions
+		// Iterate through all environment printers and run their Print and PostEnvHook functions
 		for _, envPrinter := range envPrinters {
-			if err := envPrinter.Initialize(); err != nil {
-				if verbose {
-					return fmt.Errorf("Error executing Initialize: %w", err)
-				}
-				return nil
-			}
 			if err := envPrinter.Print(); err != nil {
 				if verbose {
 					return fmt.Errorf("Error executing Print: %w", err)
