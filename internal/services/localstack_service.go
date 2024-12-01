@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -9,14 +10,14 @@ import (
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-// AwsService is a service struct that provides AWS-specific utility functions
-type AwsService struct {
+// LocalstackService is a service struct that provides Localstack-specific utility functions
+type LocalstackService struct {
 	BaseService
 }
 
-// NewAwsService is a constructor for AwsService
-func NewAwsService(injector di.Injector) *AwsService {
-	return &AwsService{
+// NewLocalstackService is a constructor for LocalstackService
+func NewLocalstackService(injector di.Injector) *LocalstackService {
+	return &LocalstackService{
 		BaseService: BaseService{
 			injector: injector,
 		},
@@ -24,15 +25,11 @@ func NewAwsService(injector di.Injector) *AwsService {
 }
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
-func (s *AwsService) GetComposeConfig() (*types.Config, error) {
-	contextConfig := s.configHandler.GetConfig()
+func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
+	// Get the top level domain from the configuration
+	tld := s.configHandler.GetString("dns.name", "test")
 
-	if contextConfig.AWS == nil ||
-		contextConfig.AWS.Localstack == nil ||
-		contextConfig.AWS.Localstack.Create == nil ||
-		!*contextConfig.AWS.Localstack.Create {
-		return nil, nil
-	}
+	contextConfig := s.configHandler.GetConfig()
 
 	localstackAuthToken := os.Getenv("LOCALSTACK_AUTH_TOKEN")
 
@@ -48,15 +45,15 @@ func (s *AwsService) GetComposeConfig() (*types.Config, error) {
 
 	services := []types.ServiceConfig{
 		{
-			Name:    "aws.test",
+			Name:    fmt.Sprintf("localstack.%s", tld),
 			Image:   image,
 			Restart: "always",
 			Environment: map[string]*string{
-				"ENFORCE_IAM":   strPtr("1"),
-				"PERSISTENCE":   strPtr("1"),
-				"IAM_SOFT_MODE": strPtr("0"),
-				"DEBUG":         strPtr("0"),
-				"SERVICES":      strPtr(servicesList),
+				"ENFORCE_IAM":   ptrString("1"),
+				"PERSISTENCE":   ptrString("1"),
+				"IAM_SOFT_MODE": ptrString("0"),
+				"DEBUG":         ptrString("0"),
+				"SERVICES":      ptrString(servicesList),
 			},
 			Labels: map[string]string{
 				"role":       "localstack",
@@ -77,5 +74,5 @@ func (s *AwsService) GetComposeConfig() (*types.Config, error) {
 	return &types.Config{Services: services}, nil
 }
 
-// Ensure AwsService implements Service interface
-var _ Service = (*AwsService)(nil)
+// Ensure LocalstackService implements Service interface
+var _ Service = (*LocalstackService)(nil)

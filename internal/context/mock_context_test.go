@@ -5,6 +5,27 @@ import (
 	"testing"
 )
 
+func TestMockContext_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mockContext := NewMockContext()
+		mockContext.InitializeFunc = func() error {
+			return nil
+		}
+		err := mockContext.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		mockContext := NewMockContext()
+		err := mockContext.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
 func TestMockContext_GetContext(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock context that returns a context

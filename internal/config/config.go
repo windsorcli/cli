@@ -4,6 +4,7 @@ import "github.com/windsor-hotel/cli/internal/constants"
 
 // AWSConfig represents the AWS configuration
 type AWSConfig struct {
+	Enabled        *bool             `yaml:"enabled"`
 	AWSEndpointURL *string           `yaml:"aws_endpoint_url"`
 	AWSProfile     *string           `yaml:"aws_profile"`
 	S3Hostname     *string           `yaml:"s3_hostname"`
@@ -13,7 +14,7 @@ type AWSConfig struct {
 
 // LocalstackConfig represents the Localstack configuration
 type LocalstackConfig struct {
-	Create   *bool    `yaml:"create"`
+	Enabled  *bool    `yaml:"enabled"`
 	Services []string `yaml:"services"`
 }
 
@@ -31,7 +32,7 @@ type GitConfig struct {
 
 // GitLivereloadConfig represents the Git livereload configuration
 type GitLivereloadConfig struct {
-	Create       *bool   `yaml:"create"`
+	Enabled      *bool   `yaml:"enabled"`
 	RsyncExclude *string `yaml:"rsync_exclude"`
 	RsyncProtect *string `yaml:"rsync_protect"`
 	Username     *string `yaml:"username"`
@@ -64,13 +65,14 @@ type VMConfig struct {
 
 // DNSConfig represents the DNS configuration
 type DNSConfig struct {
-	Create  *bool   `yaml:"create"`
+	Enabled *bool   `yaml:"enabled"`
 	Name    *string `yaml:"name"`
 	Address *string `yaml:"address"`
 }
 
 // ClusterConfig represents the cluster configuration
 type ClusterConfig struct {
+	Enabled       *bool   `yaml:"enabled"`
 	Driver        *string `yaml:"driver"`
 	ControlPlanes struct {
 		Count  *int `yaml:"count"`
@@ -106,12 +108,13 @@ type Config struct {
 var DefaultConfig = Context{
 	Environment: map[string]string{},
 	AWS: &AWSConfig{
+		Enabled:        nil,
 		AWSEndpointURL: nil,
 		AWSProfile:     nil,
 		S3Hostname:     nil,
 		MWAAEndpoint:   nil,
 		Localstack: &LocalstackConfig{
-			Create:   nil,
+			Enabled:  nil,
 			Services: nil,
 		},
 	},
@@ -125,7 +128,7 @@ var DefaultConfig = Context{
 	},
 	Cluster: nil,
 	DNS: &DNSConfig{
-		Create:  nil,
+		Enabled: nil,
 		Name:    nil,
 		Address: nil,
 	},
@@ -134,42 +137,32 @@ var DefaultConfig = Context{
 // DefaultLocalConfig returns the default configuration for the "local" context
 var DefaultLocalConfig = Context{
 	Environment: map[string]string{},
-	AWS: &AWSConfig{
-		AWSEndpointURL: ptrString("http://aws.test:4566"),
-		AWSProfile:     ptrString("default"),
-		S3Hostname:     ptrString("http://s3.local.aws.test:4566"),
-		MWAAEndpoint:   ptrString("http://mwaa.local.aws.test:4566"),
-		Localstack: &LocalstackConfig{
-			Create:   ptrBool(true),
-			Services: []string{"iam", "sts", "kms", "s3", "dynamodb"},
-		},
-	},
 	Docker: &DockerConfig{
 		Enabled: ptrBool(true),
 		Registries: []Registry{
 			{
-				Name: "registry.test",
+				Name: "registry",
 			},
 			// RMV: Temporarily disable to work around a short-term bug, to be fixed in subsequent PR
 			// {
-			// 	Name:   "registry-1.docker.test",
+			// 	Name:   "registry-1.docker",
 			// 	Remote: "https://registry-1.docker.io",
 			// 	Local:  "https://docker.io",
 			// },
 			// {
-			// 	Name:   "registry.k8s.test",
+			// 	Name:   "registry.k8s",
 			// 	Remote: "https://registry.k8s.io",
 			// },
 			// {
-			// 	Name:   "gcr.test",
+			// 	Name:   "gcr",
 			// 	Remote: "https://gcr.io",
 			// },
 			// {
-			// 	Name:   "ghcr.test",
+			// 	Name:   "ghcr",
 			// 	Remote: "https://ghcr.io",
 			// },
 			// {
-			// 	Name:   "quay.test",
+			// 	Name:   "quay",
 			// 	Remote: "https://quay.io",
 			// },
 		},
@@ -177,7 +170,7 @@ var DefaultLocalConfig = Context{
 	},
 	Git: &GitConfig{
 		Livereload: &GitLivereloadConfig{
-			Create:       ptrBool(true),
+			Enabled:      ptrBool(true),
 			RsyncExclude: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE),
 			RsyncProtect: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT),
 			Username:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME),
@@ -191,7 +184,8 @@ var DefaultLocalConfig = Context{
 		Backend: ptrString("local"),
 	},
 	Cluster: &ClusterConfig{
-		Driver: ptrString("talos"),
+		Enabled: ptrBool(true),
+		Driver:  ptrString("talos"),
 		ControlPlanes: struct {
 			Count  *int `yaml:"count"`
 			CPU    *int `yaml:"cpu"`
@@ -212,7 +206,7 @@ var DefaultLocalConfig = Context{
 		},
 	},
 	DNS: &DNSConfig{
-		Create:  ptrBool(true),
+		Enabled: ptrBool(true),
 		Name:    ptrString("test"),
 		Address: nil,
 	},

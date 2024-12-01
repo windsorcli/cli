@@ -2,6 +2,7 @@ package context
 
 // MockContext is a mock implementation of the ContextInterface
 type MockContext struct {
+	InitializeFunc    func() error               // Function to mock Initialize
 	GetContextFunc    func() (string, error)     // Function to mock GetContext
 	SetContextFunc    func(context string) error // Function to mock SetContext
 	GetConfigRootFunc func() (string, error)     // Function to mock GetConfigRoot
@@ -10,6 +11,14 @@ type MockContext struct {
 // NewMockContext creates a new instance of MockContext
 func NewMockContext() *MockContext {
 	return &MockContext{}
+}
+
+// Initialize calls the mock InitializeFunc if set, otherwise returns nil
+func (m *MockContext) Initialize() error {
+	if m.InitializeFunc != nil {
+		return m.InitializeFunc()
+	}
+	return nil
 }
 
 // GetContext calls the mock GetContextFunc if set, otherwise returns a reasonable default context and nil error

@@ -178,7 +178,7 @@ func TestDockerVirt_Initialize(t *testing.T) {
 		dockerVirt := NewDockerVirt(mocks.Injector)
 
 		// Simulate an error during service resolution
-		injector.SetResolveAllError(fmt.Errorf("mock resolve services error"))
+		injector.SetResolveAllError((*services.Service)(nil), fmt.Errorf("mock resolve services error"))
 
 		// Call the Initialize method
 		err := dockerVirt.Initialize()

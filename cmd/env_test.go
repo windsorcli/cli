@@ -53,7 +53,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a local injector that returns an error when resolving env
 		mockInjector := di.NewMockInjector()
-		mockInjector.SetResolveAllError(fmt.Errorf("resolve env error"))
+		mockInjector.SetResolveAllError((*env.EnvPrinter)(nil), fmt.Errorf("resolve env error"))
 		mocks := mocks.CreateSuperMocks(mockInjector)
 
 		// Capture stderr
@@ -81,7 +81,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Given a local injector that returns an error when resolving env
 		mockInjector := di.NewMockInjector()
-		mockInjector.SetResolveAllError(fmt.Errorf("resolve env error"))
+		mockInjector.SetResolveAllError((*env.EnvPrinter)(nil), fmt.Errorf("resolve env error"))
 		mocks := mocks.CreateSuperMocks(mockInjector)
 
 		// Capture stderr

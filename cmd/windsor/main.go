@@ -1,8 +1,6 @@
 package main
 
 import (
-	"log"
-
 	"github.com/windsor-hotel/cli/cmd"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
@@ -24,10 +22,7 @@ func main() {
 	controller := controller.NewController(injector)
 
 	// Register CLI Config Handler (to be initialized later)
-	configHandler, err := config.NewYamlConfigHandler("")
-	if err != nil {
-		log.Fatalf("failed to create CLI config handler: %v", err)
-	}
+	configHandler := config.NewYamlConfigHandler()
 	injector.Register("configHandler", configHandler)
 
 	// Register Shell instance
@@ -39,24 +34,24 @@ func main() {
 	injector.Register("secureShell", secureShellInstance)
 
 	// Create and register the Context instance
-	contextHandler := context.NewBaseContextHandler(configHandler, shellInstance)
+	contextHandler := context.NewContextHandler(injector)
 	injector.Register("contextHandler", contextHandler)
 
-	// Create and register the AwsService instance
-	awsService := services.NewAwsService(injector)
-	injector.Register("awsService", awsService)
+	// Create and register the LocalstackService instance
+	localstackService := services.NewLocalstackService(injector)
+	injector.Register("localstackService", localstackService)
 
-	// Create and register the GitService instance
-	gitService := services.NewGitService(injector)
-	injector.Register("gitService", gitService)
+	// Create and register the GitLivereloadService instance
+	gitLivereloadService := services.NewGitLivereloadService(injector)
+	injector.Register("gitLivereloadService", gitLivereloadService)
 
 	// Create and register the DNSService instance
 	dnsService := services.NewDNSService(injector)
 	injector.Register("dnsService", dnsService)
 
-	// Create and register the DockerService instance
-	dockerService := services.NewDockerService(injector)
-	injector.Register("dockerService", dockerService)
+	// Create and register the RegistryService instance
+	registryService := services.NewRegistryService(injector)
+	injector.Register("registryService", registryService)
 
 	// Create and register the TalosControlPlaneService instance
 	talosControlPlaneService := services.NewTalosControlPlaneService(injector)

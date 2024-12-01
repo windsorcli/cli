@@ -113,7 +113,7 @@ func TestMockContainer_ResolveAll(t *testing.T) {
 
 		// And a resolve all error set
 		expectedError := errors.New("resolve all error")
-		injector.SetResolveAllError(expectedError)
+		injector.SetResolveAllError((*MockItem)(nil), expectedError)
 
 		// When resolving all services
 		_, err := injector.ResolveAll((*MockItem)(nil))

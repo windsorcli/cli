@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/env"
 	"github.com/windsor-hotel/cli/internal/mocks"
 )
 
@@ -72,7 +73,7 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock injector
 		mockInjector := di.NewMockInjector()
-		mockInjector.SetResolveAllError(errors.New("resolve env error"))
+		mockInjector.SetResolveAllError((*env.EnvPrinter)(nil), errors.New("resolve env error"))
 
 		// Setup mock components using SuperMocks with the mock injector
 		mocks := mocks.CreateSuperMocks(mockInjector)
@@ -102,7 +103,7 @@ func TestExecCmd(t *testing.T) {
 
 		// Given a injector that returns an error when resolving environments
 		mockInjector := di.NewMockInjector()
-		mockInjector.SetResolveAllError(errors.New("resolve env error")) // Simulate error
+		mockInjector.SetResolveAllError((*env.EnvPrinter)(nil), errors.New("resolve env error")) // Simulate error
 		mocks := mocks.CreateSuperMocks(mockInjector)
 
 		// Capture stderr

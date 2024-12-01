@@ -1,28 +1,139 @@
 package context
 
 import (
-	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
+	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
+
+type MockComponents struct {
+	Injector          di.Injector
+	MockConfigHandler *config.MockConfigHandler
+	MockShell         *shell.MockShell
+}
+
+func setSafeContextMocks(mockInjector ...di.Injector) *MockComponents {
+	var injector di.Injector
+	if len(mockInjector) > 0 {
+		injector = mockInjector[0]
+	} else {
+		injector = di.NewMockInjector()
+	}
+
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockShell := shell.NewMockShell()
+
+	injector.Register("configHandler", mockConfigHandler)
+	injector.Register("shell", mockShell)
+
+	return &MockComponents{
+		Injector:          injector,
+		MockConfigHandler: mockConfigHandler,
+		MockShell:         mockShell,
+	}
+}
+
+func TestContext_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a set of safe context mocks
+		mocks := setSafeContextMocks()
+
+		// When a new ContextHandler is created and initialized
+		contextHandler := NewContextHandler(mocks.Injector)
+		err := contextHandler.Initialize()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		mockInjector := di.NewMockInjector()
+		// Given a mock injector that resolves to an incorrect type for configHandler
+		mockInjector.SetResolveError("configHandler", fmt.Errorf("error resolving configHandler"))
+
+		mocks := setSafeContextMocks(mockInjector)
+
+		// When a new ContextHandler is created and initialized
+		contextHandler := NewContextHandler(mocks.Injector)
+		err := contextHandler.Initialize()
+
+		// Then an error should be returned
+		expectedError := "error resolving configHandler: error resolving configHandler"
+		if err == nil || err.Error() != expectedError {
+			t.Fatalf("expected error resolving configHandler, got %v", err)
+		}
+	})
+
+	t.Run("ResolvedInstanceNotConfigHandler", func(t *testing.T) {
+		// Given a mock injector that resolves to an incorrect type for configHandler
+		mocks := setSafeContextMocks()
+		mocks.Injector.Register("configHandler", "not a config handler")
+
+		// When a new ContextHandler is created and initialized
+		contextHandler := NewContextHandler(mocks.Injector)
+		err := contextHandler.Initialize()
+
+		// Then an error should be returned
+		if err == nil || !strings.Contains(err.Error(), "resolved instance is not a ConfigHandler") {
+			t.Fatalf("expected error for incorrect configHandler type, got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingShell", func(t *testing.T) {
+		mockInjector := di.NewMockInjector()
+		mockInjector.SetResolveError("shell", fmt.Errorf("error resolving shell"))
+
+		mocks := setSafeContextMocks(mockInjector)
+
+		// When a new ContextHandler is created and initialized
+		contextHandler := NewContextHandler(mocks.Injector)
+		err := contextHandler.Initialize()
+
+		// Then an error should be returned
+		if err == nil || !strings.Contains(err.Error(), "error resolving shell") {
+			t.Fatalf("expected error resolving shell, got %v", err)
+		}
+	})
+
+	t.Run("ResolvedInstanceNotShell", func(t *testing.T) {
+		// Given a mock injector that resolves to an incorrect type for shell
+		mocks := setSafeContextMocks()
+		mocks.Injector.Register("shell", "not a shell")
+
+		// When a new ContextHandler is created and initialized
+		contextHandler := NewContextHandler(mocks.Injector)
+		err := contextHandler.Initialize()
+
+		// Then an error should be returned
+		if err == nil || !strings.Contains(err.Error(), "resolved instance is not a Shell") {
+			t.Fatalf("expected error for incorrect shell type, got %v", err)
+		}
+	})
+}
 
 func TestContext_GetContext(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock config handler that returns a context
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+		mocks := setSafeContextMocks()
+		mocks.MockConfigHandler.GetFunc = func(key string) (interface{}, error) {
 			if key == "context" {
 				return "test-context", nil
 			}
 			return nil, nil
 		}
-		mockShell := shell.NewMockShell()
 
-		context := NewBaseContextHandler(mockConfigHandler, mockShell)
+		context := NewContextHandler(mocks.Injector)
+		err := context.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 
 		// When calling GetContext
 		contextValue, err := context.GetContext()
@@ -38,14 +149,17 @@ func TestContext_GetContext(t *testing.T) {
 
 	t.Run("GetContextDefaultsToLocal", func(t *testing.T) {
 		// Given a config handler that returns an empty string
-		mockHandler := config.NewMockConfigHandler()
-		mockHandler.GetFunc = func(key string) (interface{}, error) {
+		mocks := setSafeContextMocks()
+		mocks.MockConfigHandler.GetFunc = func(key string) (interface{}, error) {
 			return nil, nil
 		}
-		mockShell := shell.NewMockShell()
 
 		// Create a new Context instance
-		context := NewBaseContextHandler(mockHandler, mockShell)
+		context := NewContextHandler(mocks.Injector)
+		err := context.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 
 		// When GetContext is called
 		actualContext, err := context.GetContext()
@@ -66,22 +180,25 @@ func TestContext_GetContext(t *testing.T) {
 func TestContext_SetContext(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock config handler that sets and saves the context successfully
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks := setSafeContextMocks()
+		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			if key == "context" && value == "new-context" {
 				return nil
 			}
-			return errors.New("error setting context")
+			return fmt.Errorf("error setting context")
 		}
-		mockConfigHandler.SaveConfigFunc = func(path string) error {
+		mocks.MockConfigHandler.SaveConfigFunc = func(path string) error {
 			return nil
 		}
-		mockShell := shell.NewMockShell()
 
-		context := NewBaseContextHandler(mockConfigHandler, mockShell)
+		context := NewContextHandler(mocks.Injector)
+		err := context.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 
 		// When calling SetContext
-		err := context.SetContext("new-context")
+		err = context.SetContext("new-context")
 
 		// Then no error should be returned
 		if err != nil {
@@ -91,16 +208,19 @@ func TestContext_SetContext(t *testing.T) {
 
 	t.Run("SetConfigValueError", func(t *testing.T) {
 		// Given a mock config handler that returns an error when setting the context
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			return errors.New("error setting context")
+		mocks := setSafeContextMocks()
+		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			return fmt.Errorf("error setting context")
 		}
-		mockShell := shell.NewMockShell()
 
-		context := NewBaseContextHandler(mockConfigHandler, mockShell)
+		context := NewContextHandler(mocks.Injector)
+		err := context.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 
 		// When calling SetContext
-		err := context.SetContext("new-context")
+		err = context.SetContext("new-context")
 
 		// Then an error should be returned
 		if err == nil {
@@ -114,19 +234,22 @@ func TestContext_SetContext(t *testing.T) {
 
 	t.Run("SaveConfigError", func(t *testing.T) {
 		// Given a mock config handler that returns an error when saving the config
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks := setSafeContextMocks()
+		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
 			return nil
 		}
-		mockConfigHandler.SaveConfigFunc = func(path string) error {
-			return errors.New("error saving config")
+		mocks.MockConfigHandler.SaveConfigFunc = func(path string) error {
+			return fmt.Errorf("error saving config")
 		}
-		mockShell := shell.NewMockShell()
 
-		context := NewBaseContextHandler(mockConfigHandler, mockShell)
+		context := NewContextHandler(mocks.Injector)
+		err := context.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 
 		// When calling SetContext
-		err := context.SetContext("new-context")
+		err = context.SetContext("new-context")
 
 		// Then an error should be returned
 		if err == nil {
@@ -142,19 +265,22 @@ func TestContext_SetContext(t *testing.T) {
 func TestContext_GetConfigRoot(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock config handler and shell that return valid values
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+		mocks := setSafeContextMocks()
+		mocks.MockConfigHandler.GetFunc = func(key string) (interface{}, error) {
 			if key == "context" {
 				return "test-context", nil
 			}
 			return nil, nil
 		}
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
 
-		context := NewBaseContextHandler(mockConfigHandler, mockShell)
+		context := NewContextHandler(mocks.Injector)
+		err := context.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 
 		// When calling GetConfigRoot
 		configRoot, err := context.GetConfigRoot()
@@ -171,19 +297,22 @@ func TestContext_GetConfigRoot(t *testing.T) {
 
 	t.Run("GetContextError", func(t *testing.T) {
 		// Given a mock config handler that returns an error for Get
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
-			return nil, errors.New("error retrieving context")
+		mocks := setSafeContextMocks()
+		mocks.MockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+			return nil, fmt.Errorf("error retrieving context")
 		}
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
 
-		context := NewBaseContextHandler(mockConfigHandler, mockShell)
+		context := NewContextHandler(mocks.Injector)
+		err := context.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 
 		// When calling GetConfigRoot
-		_, err := context.GetConfigRoot()
+		_, err = context.GetConfigRoot()
 
 		// Then an error should be returned
 		if err == nil {
@@ -196,19 +325,22 @@ func TestContext_GetConfigRoot(t *testing.T) {
 
 	t.Run("GetProjectRootError", func(t *testing.T) {
 		// Given a mock shell that returns an error when getting the project root
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+		mocks := setSafeContextMocks()
+		mocks.MockConfigHandler.GetFunc = func(key string) (interface{}, error) {
 			return "test-context", nil
 		}
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "", errors.New("error retrieving project root")
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("error retrieving project root")
 		}
 
-		context := NewBaseContextHandler(mockConfigHandler, mockShell)
+		context := NewContextHandler(mocks.Injector)
+		err := context.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 
 		// When calling GetConfigRoot
-		_, err := context.GetConfigRoot()
+		_, err = context.GetConfigRoot()
 
 		// Then an error should be returned
 		if err == nil {

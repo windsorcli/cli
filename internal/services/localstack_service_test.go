@@ -12,14 +12,14 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-type AwsServiceMocks struct {
+type LocalstackServiceMocks struct {
 	Injector      di.Injector
 	ConfigHandler *config.MockConfigHandler
 	Shell         *shell.MockShell
 	Context       *context.MockContext
 }
 
-func createAwsServiceMocks(mockInjector ...di.Injector) *AwsServiceMocks {
+func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServiceMocks {
 	var injector di.Injector
 	if len(mockInjector) > 0 {
 		injector = mockInjector[0]
@@ -30,7 +30,6 @@ func createAwsServiceMocks(mockInjector ...di.Injector) *AwsServiceMocks {
 	// Create mock instances
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string { return "mock-value" }
 	mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int { return 0 }
 	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool { return false }
 	mockConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
@@ -38,6 +37,13 @@ func createAwsServiceMocks(mockInjector ...di.Injector) *AwsServiceMocks {
 	mockConfigHandler.GetFunc = func(key string) (interface{}, error) { return nil, nil }
 	mockConfigHandler.SetDefaultFunc = func(context config.Context) error { return nil }
 	mockConfigHandler.GetConfigFunc = func() *config.Context { return nil }
+
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		if key == "dns.name" {
+			return "test"
+		}
+		return "mock-value"
+	}
 
 	mockShell := shell.NewMockShell()
 	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
@@ -55,7 +61,7 @@ func createAwsServiceMocks(mockInjector ...di.Injector) *AwsServiceMocks {
 	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 
-	return &AwsServiceMocks{
+	return &LocalstackServiceMocks{
 		Injector:      injector,
 		ConfigHandler: mockConfigHandler,
 		Shell:         mockShell,
@@ -63,15 +69,15 @@ func createAwsServiceMocks(mockInjector ...di.Injector) *AwsServiceMocks {
 	}
 }
 
-func TestAwsService_NewAwsService(t *testing.T) {
+func TestLocalstackService_NewLocalstackService(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		// Create mock injector and set resolve error for configHandler
 		mockInjector := di.NewMockInjector()
 		mockInjector.SetResolveError("configHandler", fmt.Errorf("error resolving configHandler"))
 
-		// Attempt to create AwsService
-		awsService := NewAwsService(mockInjector)
-		if awsService == nil {
+		// Attempt to create LocalstackService
+		localstackService := NewLocalstackService(mockInjector)
+		if localstackService == nil {
 			t.Fatalf("expected error resolving configHandler")
 		}
 	})
@@ -83,41 +89,41 @@ func TestAwsService_NewAwsService(t *testing.T) {
 		mockInjector.Register("configHandler", mockConfigHandler)
 		mockInjector.SetResolveError("context", fmt.Errorf("error resolving context"))
 
-		// Attempt to create AwsService
-		awsService := NewAwsService(mockInjector)
-		if awsService == nil {
+		// Attempt to create LocalstackService
+		localstackService := NewLocalstackService(mockInjector)
+		if localstackService == nil {
 			t.Fatalf("expected error resolving context")
 		}
 	})
 }
 
-func TestAwsService_GetComposeConfig(t *testing.T) {
+func TestLocalstackService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create mock injector with necessary mocks
-		mocks := createAwsServiceMocks()
+		mocks := createLocalstackServiceMocks()
 
-		// Mock GetConfig to return a valid AWS configuration
+		// Mock GetConfig to return a valid Localstack configuration
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
-						Create:   ptrBool(true),
+						Enabled:  ptrBool(true),
 						Services: []string{"s3", "dynamodb"},
 					},
 				},
 			}
 		}
 
-		// Create an instance of AwsService
-		awsService := NewAwsService(mocks.Injector)
+		// Create an instance of LocalstackService
+		localstackService := NewLocalstackService(mocks.Injector)
 
 		// Initialize the service
-		if err := awsService.Initialize(); err != nil {
+		if err := localstackService.Initialize(); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
-		composeConfig, err := awsService.GetComposeConfig()
+		composeConfig, err := localstackService.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
@@ -128,52 +134,8 @@ func TestAwsService_GetComposeConfig(t *testing.T) {
 		}
 
 		service := composeConfig.Services[0]
-		if service.Name != "aws.test" {
-			t.Errorf("expected service name 'aws.test', got %v", service.Name)
-		}
-		if service.Environment["SERVICES"] == nil || *service.Environment["SERVICES"] != "s3,dynamodb" {
-			t.Errorf("expected SERVICES environment variable to be 's3,dynamodb', got %v", service.Environment["SERVICES"])
-		}
-	})
-
-	t.Run("LocalstackConfigured", func(t *testing.T) {
-		// Create mock injector with necessary mocks
-		mocks := createAwsServiceMocks()
-
-		// Mock GetConfig to return a valid AWS configuration
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				AWS: &config.AWSConfig{
-					Localstack: &config.LocalstackConfig{
-						Create:   ptrBool(true),
-						Services: []string{"s3", "dynamodb"},
-					},
-				},
-			}
-		}
-
-		// Create an instance of AwsService
-		awsService := NewAwsService(mocks.Injector)
-
-		// Initialize the service
-		if err := awsService.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		composeConfig, err := awsService.GetComposeConfig()
-		if err != nil {
-			t.Fatalf("GetComposeConfig() error = %v", err)
-		}
-
-		// Then: the compose configuration should include the Localstack service
-		if composeConfig == nil || len(composeConfig.Services) == 0 {
-			t.Fatalf("expected non-nil composeConfig with services, got %v", composeConfig)
-		}
-
-		service := composeConfig.Services[0]
-		if service.Name != "aws.test" {
-			t.Errorf("expected service name 'aws.test', got %v", service.Name)
+		if service.Name != "localstack.test" {
+			t.Errorf("expected service name 'localstack.test', got %v", service.Name)
 		}
 		if service.Environment["SERVICES"] == nil || *service.Environment["SERVICES"] != "s3,dynamodb" {
 			t.Errorf("expected SERVICES environment variable to be 's3,dynamodb', got %v", service.Environment["SERVICES"])
@@ -186,30 +148,30 @@ func TestAwsService_GetComposeConfig(t *testing.T) {
 		defer os.Unsetenv("LOCALSTACK_AUTH_TOKEN")
 
 		// Create mock injector with necessary mocks
-		mocks := createAwsServiceMocks()
+		mocks := createLocalstackServiceMocks()
 
-		// Mock GetConfig to return a valid AWS configuration
+		// Mock GetConfig to return a valid Localstack configuration
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
-						Create:   ptrBool(true),
+						Enabled:  ptrBool(true),
 						Services: []string{"s3", "dynamodb"},
 					},
 				},
 			}
 		}
 
-		// Create an instance of AwsService
-		awsService := NewAwsService(mocks.Injector)
+		// Create an instance of LocalstackService
+		localstackService := NewLocalstackService(mocks.Injector)
 
 		// Initialize the service
-		if err := awsService.Initialize(); err != nil {
+		if err := localstackService.Initialize(); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
-		composeConfig, err := awsService.GetComposeConfig()
+		composeConfig, err := localstackService.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
@@ -222,70 +184,6 @@ func TestAwsService_GetComposeConfig(t *testing.T) {
 		service := composeConfig.Services[0]
 		if len(service.Secrets) == 0 || service.Secrets[0].Source != "LOCALSTACK_AUTH_TOKEN" {
 			t.Errorf("expected service to have LOCALSTACK_AUTH_TOKEN secret, got %v", service.Secrets)
-		}
-	})
-
-	t.Run("AWSConfigNil", func(t *testing.T) {
-		// Create mock injector with necessary mocks
-		mocks := createAwsServiceMocks()
-
-		// Mock GetConfig to return a context with nil AWS configuration
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				AWS: nil,
-			}
-		}
-
-		// Create an instance of AwsService
-		awsService := NewAwsService(mocks.Injector)
-
-		// Initialize the service
-		if err := awsService.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		composeConfig, err := awsService.GetComposeConfig()
-		if err != nil {
-			t.Fatalf("GetComposeConfig() error = %v", err)
-		}
-
-		// Then: nil should be returned
-		if composeConfig != nil {
-			t.Fatalf("expected nil composeConfig, got %v", composeConfig)
-		}
-	})
-
-	t.Run("LocalstackConfigNil", func(t *testing.T) {
-		// Create mock injector with necessary mocks
-		mocks := createAwsServiceMocks()
-
-		// Mock GetConfig to return a context with nil Localstack configuration
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				AWS: &config.AWSConfig{
-					Localstack: nil,
-				},
-			}
-		}
-
-		// Create an instance of AwsService
-		awsService := NewAwsService(mocks.Injector)
-
-		// Initialize the service
-		if err := awsService.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		composeConfig, err := awsService.GetComposeConfig()
-		if err != nil {
-			t.Fatalf("GetComposeConfig() error = %v", err)
-		}
-
-		// Then: nil should be returned
-		if composeConfig != nil {
-			t.Fatalf("expected nil composeConfig, got %v", composeConfig)
 		}
 	})
 }

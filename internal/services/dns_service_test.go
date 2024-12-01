@@ -31,8 +31,8 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 				Enabled: &enabled,
 			},
 			DNS: &config.DNSConfig{
-				Create: &enabled,
-				Name:   ptrString("test1"),
+				Enabled: &enabled,
+				Name:    ptrString("test1"),
 			},
 		}
 	}
@@ -127,8 +127,8 @@ func TestDNSService_Initialize(t *testing.T) {
 		mockInjector := di.NewMockInjector()
 		mocks := createDNSServiceMocks(mockInjector)
 
-		// Set the resolve error for services
-		mockInjector.SetResolveAllError(fmt.Errorf("error resolving services"))
+		// Set the resolve error for services using the correct type
+		mockInjector.SetResolveAllError(new(Service), fmt.Errorf("error resolving services"))
 
 		// Given: a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
@@ -152,11 +152,6 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 		// Create a mock injector with necessary mocks
 		mocks := createDNSServiceMocks()
 
-		// Create a mock dockerService using MakeDockerService
-		mockDockerService := NewDockerService(mocks.Injector)
-		mockDockerService.Initialize()
-		mocks.Injector.Register("dockerService", mockDockerService)
-
 		// Given: a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
 
@@ -178,7 +173,7 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 		if len(cfg.Services) != 1 {
 			t.Errorf("Expected 1 service, got %d", len(cfg.Services))
 		}
-		if cfg.Services[0].Name != "dns.test1" {
+		if cfg.Services[0].Name != "dns.test" {
 			t.Errorf("Expected service name to be 'dns.test1', got %s", cfg.Services[0].Name)
 		}
 	})
@@ -209,68 +204,10 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 			t.Errorf("Expected error message to contain 'mock error retrieving context name', got %v", err)
 		}
 	})
-
-	t.Run("DNSDisabled", func(t *testing.T) {
-		// Create a mock config handler that returns DNS disabled
-		mocks := createDNSServiceMocks()
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				DNS: &config.DNSConfig{
-					Create: ptrBool(false),
-				},
-			}
-		}
-
-		// Given: a DNSService with the mock config handler and context instance
-		service := NewDNSService(mocks.Injector)
-
-		// Initialize the service
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		cfg, err := service.GetComposeConfig()
-
-		// Then: no error should be returned, and cfg should be nil
-		if err != nil {
-			t.Fatalf("GetComposeConfig() error = %v", err)
-		}
-		if cfg != nil {
-			t.Errorf("Expected cfg to be nil when DNS is disabled, got %v", cfg)
-		}
-	})
 }
 
 func TestDNSService_WriteConfig(t *testing.T) {
-	t.Run("DockerDisabled", func(t *testing.T) {
-		// Create a mock config handler that returns Docker disabled
-		mocks := createDNSServiceMocks()
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Enabled: ptrBool(false),
-				},
-			}
-		}
-
-		service := NewDNSService(mocks.Injector)
-
-		// Initialize the service
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When: WriteConfig is called
-		err := service.WriteConfig()
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Fatalf("WriteConfig() error = %v", err)
-		}
-	})
-
-	t.Run("DockerEnabled", func(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
 		// Create mocks and set up the mock context
 		mocks := createDNSServiceMocks()
 		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
@@ -279,11 +216,6 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		mocks.MockContext.GetContextFunc = func() (string, error) {
 			return "test", nil
 		}
-
-		// Register a real DockerService instance
-		dockerService := NewDockerService(mocks.Injector)
-		dockerService.Initialize()
-		mocks.Injector.Register("dockerService", dockerService)
 
 		// Configure the mock config handler to return Docker enabled
 		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
@@ -297,7 +229,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 					},
 				},
 				DNS: &config.DNSConfig{
-					Create: ptrBool(true),
+					Enabled: ptrBool(true),
 				},
 			}
 		}
@@ -369,8 +301,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 					Enabled: ptrBool(true),
 				},
 				DNS: &config.DNSConfig{
-					Create: ptrBool(true),
-					Name:   ptrString("test"),
+					Enabled: ptrBool(true),
+					Name:    ptrString("test"),
 				},
 			}
 		}
@@ -430,7 +362,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 					Enabled: ptrBool(true),
 				},
 				DNS: &config.DNSConfig{
-					Create: ptrBool(true),
+					Enabled: ptrBool(true),
 				},
 			}
 		}
@@ -445,8 +377,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
-		// Override the writeFile function to return an error
-		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+		// Mock the writeFile function to return an error
+		writeFile = func(_ string, _ []byte, _ os.FileMode) error {
 			return fmt.Errorf("mock error writing file")
 		}
 
@@ -484,7 +416,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 					Enabled: ptrBool(true),
 				},
 				DNS: &config.DNSConfig{
-					Create: ptrBool(true),
+					Enabled: ptrBool(true),
 				},
 			}
 		}
@@ -496,11 +428,6 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		mocks.MockContext.GetContextFunc = func() (string, error) {
 			return "test-context", nil
 		}
-
-		// Create the DockerService instance
-		dockerService := NewDockerService(mocks.Injector)
-		dockerService.Initialize()
-		mocks.Injector.Register("dockerService", dockerService)
 
 		// Create the DNSService instance
 		service := NewDNSService(mocks.Injector)
@@ -517,72 +444,6 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		expectedError := "error creating parent folders: mock error creating directories"
 		if err == nil || err.Error() != expectedError {
 			t.Fatalf("expected error %v, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("DNSEnabledDockerDisabled", func(t *testing.T) {
-		// Create a mock config handler that returns DNS enabled and Docker disabled
-		mocks := createDNSServiceMocks()
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Enabled: ptrBool(false),
-				},
-				DNS: &config.DNSConfig{
-					Create: ptrBool(true),
-				},
-			}
-		}
-
-		service := NewDNSService(mocks.Injector)
-
-		// Initialize the service
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When: WriteConfig is called
-		err := service.WriteConfig()
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Fatalf("WriteConfig() error = %v", err)
-		}
-	})
-
-	t.Run("DNSEnabledDockerEnabledWithName", func(t *testing.T) {
-		// Create a mock config handler that returns DNS enabled, Docker enabled, and a DNS name defined
-		mocks := createDNSServiceMocks()
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Enabled: ptrBool(true),
-				},
-				DNS: &config.DNSConfig{
-					Create: ptrBool(true),
-					Name:   ptrString("custom-dns"),
-				},
-			}
-		}
-
-		service := NewDNSService(mocks.Injector)
-
-		// Initialize the service
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// Mock the writeFile function to avoid writing to the real file system
-		writeFile = func(_ string, _ []byte, _ os.FileMode) error {
-			return nil
-		}
-
-		// When: WriteConfig is called
-		err := service.WriteConfig()
-
-		// Then: no error should be returned
-		if err != nil {
-			t.Fatalf("WriteConfig() error = %v", err)
 		}
 	})
 }

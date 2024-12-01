@@ -18,16 +18,10 @@ type YamlConfigHandler struct {
 }
 
 // NewYamlConfigHandler is a constructor for YamlConfigHandler that accepts a path
-func NewYamlConfigHandler(path string) (*YamlConfigHandler, error) {
-	handler := &YamlConfigHandler{
-		defaultContextConfig: DefaultConfig, // Initialize with default config
+func NewYamlConfigHandler() *YamlConfigHandler {
+	return &YamlConfigHandler{
+		defaultContextConfig: DefaultConfig,
 	}
-	if path != "" {
-		if err := handler.LoadConfig(path); err != nil {
-			return nil, fmt.Errorf("error loading config: %w", err)
-		}
-	}
-	return handler, nil
 }
 
 // Initialize initializes the configuration handler

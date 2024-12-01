@@ -1,22 +1,24 @@
 package di
 
 import (
+	"fmt"
 	"sync"
 )
 
 // MockInjector extends the RealInjector with additional testing functionality
 type MockInjector struct {
 	*BaseInjector
-	resolveError    map[string]error
-	resolveAllError error
-	mu              sync.RWMutex
+	resolveError     map[string]error
+	resolveAllErrors map[interface{}]error
+	mu               sync.RWMutex
 }
 
 // NewMockInjector creates a new mock DI injector
 func NewMockInjector() *MockInjector {
 	return &MockInjector{
-		BaseInjector: NewInjector(),
-		resolveError: make(map[string]error),
+		BaseInjector:     NewInjector(),
+		resolveError:     make(map[string]error),
+		resolveAllErrors: make(map[interface{}]error),
 	}
 }
 
@@ -27,11 +29,11 @@ func (m *MockInjector) SetResolveError(name string, err error) {
 	m.resolveError[name] = err
 }
 
-// SetResolveAllError sets a specific error to be returned when resolving all instances of a type
-func (m *MockInjector) SetResolveAllError(err error) {
+// SetResolveAllError sets a specific error to be returned when resolving all instances of a specific type
+func (m *MockInjector) SetResolveAllError(targetType interface{}, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.resolveAllError = err
+	m.resolveAllErrors[targetType] = err
 }
 
 // Resolve overrides the RealInjector's Resolve method to add error simulation
@@ -51,8 +53,10 @@ func (m *MockInjector) ResolveAll(targetType interface{}) ([]interface{}, error)
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if m.resolveAllError != nil {
-		return nil, m.resolveAllError
+	for key, err := range m.resolveAllErrors {
+		if fmt.Sprintf("%T", key) == fmt.Sprintf("%T", targetType) {
+			return nil, err
+		}
 	}
 
 	return m.BaseInjector.ResolveAll(targetType)

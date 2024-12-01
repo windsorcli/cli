@@ -565,7 +565,7 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
-						Create: boolPtr(false),
+						Enabled: boolPtr(false),
 					},
 				},
 			}

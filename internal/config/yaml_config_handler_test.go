@@ -38,33 +38,10 @@ func compareYAML(t *testing.T, actualYAML, expectedYAML []byte) {
 }
 
 func TestNewYamlConfigHandler(t *testing.T) {
-	t.Run("ErrorLoadingConfig", func(t *testing.T) {
-		// Create a temporary directory
-		tempDir, err := os.MkdirTemp("", "test")
-		if err != nil {
-			t.Fatalf("failed to create temp dir: %v", err)
-		}
-		defer os.RemoveAll(tempDir)
-
-		// Given a non-existent config path
-		invalidPath := tempDir + "/nonexistent.yaml"
-
-		// Mock osReadFile to return an error
-		originalOsReadFile := osReadFile
-		osReadFile = func(string) ([]byte, error) {
-			return nil, fmt.Errorf("mocked error reading file")
-		}
-		defer func() { osReadFile = originalOsReadFile }()
-
-		// When creating a new YamlConfigHandler
-		handler, err := NewYamlConfigHandler(invalidPath)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if handler != nil {
-			t.Errorf("expected handler to be nil, got %v", handler)
+	t.Run("Success", func(t *testing.T) {
+		handler := NewYamlConfigHandler()
+		if handler == nil {
+			t.Fatal("Expected non-nil YamlConfigHandler")
 		}
 	})
 }
@@ -106,7 +83,7 @@ func TestYamlConfigHandler_LoadConfigUsingMocks(t *testing.T) {
 
 func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 	t.Run("WithPath", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Given a valid config path
 		tempDir := t.TempDir()
 		err := handler.LoadConfig(tempDir + "/config.yaml")
@@ -115,7 +92,7 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 	})
 
 	t.Run("WithInvalidPath", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Given an invalid config path
 		tempDir := t.TempDir()
 		invalidPath := tempDir + "/invalid.yaml"
@@ -165,7 +142,7 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 		defer func() { osReadFile = originalOsReadFile }()
 
 		// Ensure the file is considered created by the mock
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		err := handler.LoadConfig("test_config.yaml")
 		if err != nil {
 			t.Fatalf("LoadConfig() unexpected error: %v", err)
@@ -187,7 +164,7 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 		}
 		defer func() { osWriteFile = originalOsWriteFile }()
 
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		err := handler.LoadConfig("test_config.yaml")
 		if err == nil {
 			t.Fatalf("LoadConfig() expected error, got nil")
@@ -200,7 +177,7 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 	})
 
 	t.Run("UnmarshalError", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 
 		// Mock yamlUnmarshal to return an error
 		originalYamlUnmarshal := yamlUnmarshal
@@ -230,7 +207,7 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 func TestYamlConfigHandler_Get(t *testing.T) {
 	t.Run("KeyExistsInConfig", func(t *testing.T) {
 		// Given a handler with a context and key defined in y.config
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 
 		// Set a value in y.config
 		err := handler.Set("contexts.local.aws.aws_endpoint_url", "http://custom.aws.endpoint")
@@ -253,7 +230,7 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 
 	t.Run("KeyMissingContextMissingInConfig", func(t *testing.T) {
 		// Given a handler without the context defined in y.config
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Set the context in y.config
 		err := handler.Set("context", "local")
 		if err != nil {
@@ -282,7 +259,7 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 
 	t.Run("KeyMissingContextExistsInConfig", func(t *testing.T) {
 		// Given a handler where context exists but key is missing in y.config
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Set the context in y.config without AWSConfig
 		err := handler.Set("context", "local")
 		if err != nil {
@@ -319,7 +296,7 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 
 	t.Run("KeyNotUnderContexts", func(t *testing.T) {
 		// Given a handler with key not under 'contexts'
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Set the context in y.config
 		err := handler.Set("context", "local")
 		if err != nil {
@@ -348,7 +325,7 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 
 	t.Run("ContextExistsButErrorInGetValueByPathFromValue", func(t *testing.T) {
 		// Given a handler where context exists but GetValueByPathFromValue returns an error
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Set the context in y.config
 		err := handler.Set("context", "local")
 		if err != nil {
@@ -382,7 +359,7 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 
 	t.Run("InvalidPath", func(t *testing.T) {
 		// Given a handler
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 
 		// When calling Get with an empty path
 		_, err := handler.Get("")
@@ -396,7 +373,7 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 
 	t.Run("NilValueFallbackToDefaultContext", func(t *testing.T) {
 		// Given a handler with a context where the key is set to nil in y.config
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Set the context in y.config
 		err := handler.Set("context", "local")
 		if err != nil {
@@ -434,7 +411,7 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 
 	t.Run("FallbackToDefaultContextConfig", func(t *testing.T) {
 		// Given a handler with a context where the key is not set in y.config
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Set the context in y.config
 		err := handler.Set("context", "local")
 		if err != nil {
@@ -473,7 +450,7 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 
 func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 	t.Run("WithValidPath", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		handler.Set("saveKey", "saveValue")
 		// Given a valid config path
 		tempDir := t.TempDir()
@@ -490,7 +467,7 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 	})
 
 	t.Run("WithEmptyPath", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		handler.Set("saveKey", "saveValue")
 		// Given an empty config path
 		err := handler.SaveConfig("")
@@ -533,7 +510,7 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 	})
 
 	t.Run("WriteFileError", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		handler.Set("saveKey", "saveValue")
 
 		// Mock osWriteFile to return an error
@@ -581,7 +558,8 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 			return []byte{}, nil
 		}
 
-		handler, _ := NewYamlConfigHandler(expectedPath)
+		handler := NewYamlConfigHandler()
+		handler.path = expectedPath // Ensure the config handler has a path set
 		handler.Set("key", "value")
 
 		err := handler.SaveConfig("")
@@ -866,7 +844,7 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 func TestYamlConfigHandler_GetConfig(t *testing.T) {
 	t.Run("ContextIsSet", func(t *testing.T) {
 		// Given a handler with a context set
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		handler.config.Context = ptrString("local")
 		handler.config.Contexts = map[string]*Context{
 			"local": {
@@ -887,7 +865,7 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 
 	t.Run("ContextIsNotSet", func(t *testing.T) {
 		// Given a handler without a context set
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 
 		// When calling GetConfig
 		config := handler.GetConfig()
@@ -900,7 +878,7 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 
 	t.Run("ContextDoesNotExist", func(t *testing.T) {
 		// Given a handler with a context set that does not exist in contexts
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		handler.config.Context = ptrString("nonexistent")
 
 		// When calling GetConfig
@@ -915,7 +893,7 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 
 func TestYamlConfigHandler_Set(t *testing.T) {
 	t.Run("SetSimpleKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 
 		err := handler.Set("context", "simpleValue")
 		if err != nil {
@@ -934,7 +912,7 @@ func TestYamlConfigHandler_Set(t *testing.T) {
 	})
 
 	t.Run("SetNestedKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		err := handler.Set("contexts.local.aws.aws_endpoint_url", "http://aws.test:4566")
 		if err != nil {
 			t.Fatalf("Set() unexpected error: %v", err)
@@ -949,7 +927,7 @@ func TestYamlConfigHandler_Set(t *testing.T) {
 	})
 
 	t.Run("SetOverwritingExistingKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		err := handler.Set("context", "initialValue")
 		if err != nil {
 			t.Fatalf("Set() unexpected error: %v", err)
@@ -968,7 +946,7 @@ func TestYamlConfigHandler_Set(t *testing.T) {
 	})
 
 	t.Run("SetWithInvalidPath", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 
 		// Attempt to set a value with an empty path
 		err := handler.Set("", "someValue")
@@ -985,7 +963,7 @@ func TestYamlConfigHandler_Set(t *testing.T) {
 	})
 
 	t.Run("SetWithNilMap", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Assuming 'config' has a field 'Contexts' which is a map
 		handler.config = Config{
 			Contexts: nil,
@@ -1005,7 +983,7 @@ func TestYamlConfigHandler_Set(t *testing.T) {
 	})
 
 	t.Run("SetCreatesIntermediateMaps", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		err := handler.Set("contexts.default.environment.someKey", "deepValue")
 		if err != nil {
 			t.Fatalf("Set() unexpected error: %v", err)
@@ -1020,7 +998,7 @@ func TestYamlConfigHandler_Set(t *testing.T) {
 	})
 
 	t.Run("SetWithUnassignableKeyTypeInMap", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Create a context with a map with key type string
 		handler.config = Config{
 			Contexts: map[string]*Context{
@@ -1051,7 +1029,7 @@ func TestYamlConfigHandler_Set(t *testing.T) {
 func TestYamlConfigHandler_SetDefault(t *testing.T) {
 	t.Run("SetDefaultContext", func(t *testing.T) {
 		// Given a YamlConfigHandler and a default context
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		defaultContext := Context{
 			Environment: map[string]string{
 				"ENV_VAR": "value",
@@ -1075,7 +1053,7 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 
 	t.Run("SetDefaultContextWhenNotDefined", func(t *testing.T) {
 		// Given a YamlConfigHandler with no context defined
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		defaultContext := Context{
 			Environment: map[string]string{
 				"ENV_VAR": "default_value",
@@ -1100,7 +1078,7 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 
 	t.Run("SetDefaultContextWhenAlreadyDefined", func(t *testing.T) {
 		// Given a YamlConfigHandler with a context already defined
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		handler.Set("context", "local")
 		handler.Set("contexts.local.environment.ENV_VAR", "existing_value")
 

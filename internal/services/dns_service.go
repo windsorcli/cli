@@ -48,29 +48,18 @@ func (s *DNSService) Initialize() error {
 
 // GetComposeConfig returns the compose configuration
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
+	// Get the top level domain from the configuration
+	tld := s.configHandler.GetString("dns.name", "test")
+
 	// Retrieve the context name
 	contextName, err := s.contextHandler.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context name: %w", err)
 	}
 
-	// Retrieve the context configuration
-	contextConfig := s.configHandler.GetConfig()
-
-	// Check if the DNS is enabled
-	if contextConfig.DNS == nil || contextConfig.DNS.Create == nil || !*contextConfig.DNS.Create {
-		return nil, nil
-	}
-
-	// Get the Name from the configuration
-	name := "test"
-	if contextConfig.DNS.Name != nil && *contextConfig.DNS.Name != "" {
-		name = *contextConfig.DNS.Name
-	}
-
 	// Common configuration for CoreDNS container
 	corednsConfig := types.ServiceConfig{
-		Name:    fmt.Sprintf("dns.%s", name),
+		Name:    fmt.Sprintf("dns.%s", tld),
 		Image:   constants.DEFAULT_DNS_IMAGE,
 		Restart: "always",
 		Command: []string{"-conf", "/etc/coredns/Corefile"},
@@ -94,19 +83,6 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any necessary configuration files needed by the service
 func (s *DNSService) WriteConfig() error {
-	// Retrieve the context configuration
-	contextConfig := s.configHandler.GetConfig()
-
-	// Check if DNS is defined and DNS Create is enabled
-	if contextConfig.DNS == nil || contextConfig.DNS.Create == nil || !*contextConfig.DNS.Create {
-		return nil
-	}
-
-	// Check if Docker is enabled
-	if contextConfig.Docker == nil || contextConfig.Docker.Enabled == nil || !*contextConfig.Docker.Enabled {
-		return nil
-	}
-
 	// Retrieve the configuration directory for the current context
 	configDir, err := s.contextHandler.GetConfigRoot()
 	if err != nil {
@@ -114,10 +90,7 @@ func (s *DNSService) WriteConfig() error {
 	}
 
 	// Get the TLD from the configuration
-	tld := "test"
-	if contextConfig.DNS.Name != nil && *contextConfig.DNS.Name != "" {
-		tld = *contextConfig.DNS.Name
-	}
+	tld := s.configHandler.GetString("dns.name", "test")
 
 	// Gather the IP address of each service using the Address field
 	var hostEntries string

@@ -74,7 +74,7 @@ func TestRoot_Execute(t *testing.T) {
 			t.Fatal("Expected error, got nil")
 		}
 
-		expectedErrorMsg := "error resolving configHandler"
+		expectedErrorMsg := "error resolving config handler: no instance registered with name configHandler"
 		if !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrorMsg, err.Error())
 		}
@@ -90,7 +90,7 @@ func TestRoot_Execute(t *testing.T) {
 		err := Execute(mocks.Controller)
 
 		// Then: the error message should indicate the error
-		expectedError := "error resolving configHandler: error resolving configHandler"
+		expectedError := "error resolving config handler: error resolving configHandler"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
 		}
@@ -107,29 +107,9 @@ func TestRoot_Execute(t *testing.T) {
 		err := Execute(mocks.Controller)
 
 		// Then: the error message should indicate the error
-		expectedError := "error loading CLI config: error loading CLI config"
+		expectedError := "Error loading config file: error loading CLI config"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
-		}
-	})
-}
-
-func TestRoot_getCLIConfigPath(t *testing.T) {
-	t.Run("UserHomeDirError", func(t *testing.T) {
-		// Given osUserHomeDir is mocked to return an error
-		originalUserHomeDir := osUserHomeDir
-		osUserHomeDir = func() (string, error) {
-			return "", errors.New("mock error")
-		}
-		defer func() { osUserHomeDir = originalUserHomeDir }()
-
-		// Execute the function
-		_, err := getCLIConfigPath()
-
-		// Verify the error
-		expectedError := "error retrieving user home directory: mock error"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("expected error %q, got %v", expectedError, err)
 		}
 	})
 }

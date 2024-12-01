@@ -92,7 +92,7 @@ func TestTalosControlPlaneService_GetComposeConfig(t *testing.T) {
 			setName  bool
 			expected string
 		}{
-			{"WithoutSetName", false, "controlplane.test"},
+			{"WithoutSetName", false, "controlplane"},
 			{"WithSetName", true, "custom.controlplane"},
 		}
 
@@ -117,7 +117,7 @@ func TestTalosControlPlaneService_GetComposeConfig(t *testing.T) {
 				expectedConfig := &types.Config{
 					Services: []types.ServiceConfig{
 						{
-							Name:  tc.expected,
+							Name:  tc.expected + ".test",
 							Image: constants.DEFAULT_TALOS_IMAGE,
 						},
 					},
@@ -143,37 +143,6 @@ func TestTalosControlPlaneService_GetComposeConfig(t *testing.T) {
 					t.Fatalf("expected service image %s, got %s", expectedConfig.Services[0].Image, config.Services[0].Image)
 				}
 			})
-		}
-	})
-
-	t.Run("ClusterDriverNotTalos", func(t *testing.T) {
-		// Given: a set of mock components
-		mocks := setupSafeTalosControlPlaneServiceMocks()
-		service := NewTalosControlPlaneService(mocks.Injector)
-
-		// Mock the configHandler to return a non-Talos cluster driver
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "cluster.driver" {
-				return "non-talos"
-			}
-			return ""
-		}
-
-		// Initialize the service
-		err := service.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// When: the GetComposeConfig method is called
-		config, err := service.GetComposeConfig()
-
-		// Then: no error should be returned and the config should be nil
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if config != nil {
-			t.Fatalf("expected nil config, got %v", config)
 		}
 	})
 }

@@ -25,13 +25,8 @@ func NewTalosWorkerService(injector di.Injector) *TalosWorkerService {
 
 // GetComposeConfig returns a list of container data for docker-compose.
 func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
-	// Retrieve the context configuration
-	clusterDriver := s.configHandler.GetString("cluster.driver")
-
-	// Check if the cluster driver is Talos
-	if clusterDriver == "" || clusterDriver != "talos" {
-		return nil, nil
-	}
+	// Get the top level domain from the configuration
+	tld := s.configHandler.GetString("dns.name", "test")
 
 	// Retrieve CPU and RAM settings for workers from the configuration
 	workerCPU := s.configHandler.GetInt("cluster.workers.cpu", constants.DEFAULT_TALOS_WORKER_CPU)
@@ -52,7 +47,7 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 	// Common configuration for Talos containers
 	commonConfig := types.ServiceConfig{
 		Image:       constants.DEFAULT_TALOS_IMAGE,
-		Environment: map[string]*string{"PLATFORM": strPtr("container")},
+		Environment: map[string]*string{"PLATFORM": ptrString("container")},
 		Restart:     "always",
 		ReadOnly:    true,
 		Privileged:  true,
@@ -74,13 +69,13 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 	// Create a single worker service
 	workerConfig := commonConfig
 	if s.GetName() == "" {
-		workerConfig.Name = "worker.test"
+		workerConfig.Name = fmt.Sprintf("worker.%s", tld)
 	} else {
-		workerConfig.Name = s.GetName()
+		workerConfig.Name = fmt.Sprintf("%s.%s", s.GetName(), tld)
 	}
 	workerConfig.Environment = map[string]*string{
-		"PLATFORM": strPtr("container"),
-		"TALOSSKU": strPtr(fmt.Sprintf("%dCPU-%dRAM", workerCPU, workerRAM*1024)),
+		"PLATFORM": ptrString("container"),
+		"TALOSSKU": ptrString(fmt.Sprintf("%dCPU-%dRAM", workerCPU, workerRAM*1024)),
 	}
 
 	// Define volumes

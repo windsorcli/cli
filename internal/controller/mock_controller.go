@@ -15,25 +15,75 @@ import (
 
 // MockController is a mock implementation of the Controller interface
 type MockController struct {
-	InitializeFunc              func() error
-	ResolveInjectorFunc         func() di.Injector
-	ResolveConfigHandlerFunc    func() (config.ConfigHandler, error)
-	ResolveContextHandlerFunc   func() (context.ContextHandler, error)
-	ResolveEnvPrinterFunc       func(name string) (env.EnvPrinter, error)
-	ResolveAllEnvPrintersFunc   func() ([]env.EnvPrinter, error)
-	ResolveShellFunc            func() (shell.Shell, error)
-	ResolveSecureShellFunc      func() (shell.Shell, error)
-	ResolveNetworkManagerFunc   func() (network.NetworkManager, error)
-	ResolveServiceFunc          func(name string) (services.Service, error)
-	ResolveAllServicesFunc      func() ([]services.Service, error)
-	ResolveVirtualMachineFunc   func() (virt.VirtualMachine, error)
-	ResolveContainerRuntimeFunc func() (virt.ContainerRuntime, error)
+	BaseController
+	InitializeFunc                     func() error
+	InitializeComponentsFunc           func() error
+	CreateCommonComponentsFunc         func() error
+	CreateEnvComponentsFunc            func() error
+	CreateServiceComponentsFunc        func() error
+	CreateVirtualizationComponentsFunc func() error
+	ResolveInjectorFunc                func() di.Injector
+	ResolveConfigHandlerFunc           func() (config.ConfigHandler, error)
+	ResolveContextHandlerFunc          func() (context.ContextHandler, error)
+	ResolveEnvPrinterFunc              func(name string) (env.EnvPrinter, error)
+	ResolveAllEnvPrintersFunc          func() ([]env.EnvPrinter, error)
+	ResolveShellFunc                   func() (shell.Shell, error)
+	ResolveSecureShellFunc             func() (shell.Shell, error)
+	ResolveNetworkManagerFunc          func() (network.NetworkManager, error)
+	ResolveServiceFunc                 func(name string) (services.Service, error)
+	ResolveAllServicesFunc             func() ([]services.Service, error)
+	ResolveVirtualMachineFunc          func() (virt.VirtualMachine, error)
+	ResolveContainerRuntimeFunc        func() (virt.ContainerRuntime, error)
+}
+
+func NewMockController() *MockController {
+	return &MockController{}
 }
 
 // Initialize calls the mock InitializeFunc if set, otherwise returns nil
 func (m *MockController) Initialize() error {
 	if m.InitializeFunc != nil {
 		return m.InitializeFunc()
+	}
+	return nil
+}
+
+// InitializeComponents calls the mock InitializeComponentsFunc if set, otherwise returns nil
+func (m *MockController) InitializeComponents() error {
+	if m.InitializeComponentsFunc != nil {
+		return m.InitializeComponentsFunc()
+	}
+	return nil
+}
+
+// CreateCommonComponents calls the mock CreateCommonComponentsFunc if set, otherwise returns nil
+func (m *MockController) CreateCommonComponents() error {
+	if m.CreateCommonComponentsFunc != nil {
+		return m.CreateCommonComponentsFunc()
+	}
+	return nil
+}
+
+// CreateEnvComponents calls the mock CreateEnvComponentsFunc if set, otherwise returns nil
+func (m *MockController) CreateEnvComponents() error {
+	if m.CreateEnvComponentsFunc != nil {
+		return m.CreateEnvComponentsFunc()
+	}
+	return nil
+}
+
+// CreateServiceComponents calls the mock CreateServiceComponentsFunc if set, otherwise returns nil
+func (m *MockController) CreateServiceComponents() error {
+	if m.CreateServiceComponentsFunc != nil {
+		return m.CreateServiceComponentsFunc()
+	}
+	return nil
+}
+
+// CreateVirtualizationComponents calls the mock CreateVirtualizationComponentsFunc if set, otherwise returns nil
+func (m *MockController) CreateVirtualizationComponents() error {
+	if m.CreateVirtualizationComponentsFunc != nil {
+		return m.CreateVirtualizationComponentsFunc()
 	}
 	return nil
 }

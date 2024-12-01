@@ -2,6 +2,8 @@ package controller
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
@@ -16,6 +18,11 @@ import (
 // Controller interface defines the methods for the controller.
 type Controller interface {
 	Initialize() error
+	InitializeComponents() error
+	CreateCommonComponents() error
+	CreateEnvComponents() error
+	CreateServiceComponents() error
+	CreateVirtualizationComponents() error
 	ResolveInjector() di.Injector
 	ResolveConfigHandler() (config.ConfigHandler, error)
 	ResolveContextHandler() (context.ContextHandler, error)
@@ -32,7 +39,8 @@ type Controller interface {
 
 // BaseController struct implements the Controller interface.
 type BaseController struct {
-	injector di.Injector
+	injector      di.Injector
+	configHandler config.ConfigHandler
 }
 
 // NewController creates a new controller.
@@ -42,6 +50,126 @@ func NewController(injector di.Injector) *BaseController {
 
 // Initialize the controller.
 func (c *BaseController) Initialize() error {
+	configHandler, err := c.ResolveConfigHandler()
+	if err != nil {
+		return fmt.Errorf("error initializing controller: %w", err)
+	}
+	c.configHandler = configHandler
+
+	// Load the configuration
+	cliConfigPath, err := getCLIConfigPath()
+	if err != nil {
+		return fmt.Errorf("error getting CLI config path: %w", err)
+	}
+	if err := configHandler.LoadConfig(cliConfigPath); err != nil {
+		return fmt.Errorf("error loading CLI config: %w", err)
+	}
+
+	return nil
+}
+
+// InitializeComponents initializes all components.
+func (c *BaseController) InitializeComponents() error {
+	// Initialize the context handler
+	contextHandler, err := c.ResolveContextHandler()
+	if err != nil {
+		return fmt.Errorf("error initializing context handler: %w", err)
+	}
+	if err := contextHandler.Initialize(); err != nil {
+		return fmt.Errorf("error initializing context handler: %w", err)
+	}
+
+	// Initialize the env printers
+	envPrinters, err := c.ResolveAllEnvPrinters()
+	if err != nil {
+		return fmt.Errorf("error initializing env printers: %w", err)
+	}
+	for _, envPrinter := range envPrinters {
+		if err := envPrinter.Initialize(); err != nil {
+			return fmt.Errorf("error initializing env printer: %w", err)
+		}
+	}
+
+	// Initialize the shell
+	shell, err := c.ResolveShell()
+	if err != nil {
+		return fmt.Errorf("error initializing shell: %w", err)
+	}
+	if err := shell.Initialize(); err != nil {
+		return fmt.Errorf("error initializing shell: %w", err)
+	}
+
+	// Initialize the secure shell
+	secureShell, err := c.ResolveSecureShell()
+	if err != nil {
+		return fmt.Errorf("error initializing secure shell: %w", err)
+	}
+	if err := secureShell.Initialize(); err != nil {
+		return fmt.Errorf("error initializing secure shell: %w", err)
+	}
+
+	// Initialize the network manager
+	networkManager, err := c.ResolveNetworkManager()
+	if err != nil {
+		return fmt.Errorf("error initializing network manager: %w", err)
+	}
+	if err := networkManager.Initialize(); err != nil {
+		return fmt.Errorf("error initializing network manager: %w", err)
+	}
+
+	// Initialize the services
+	services, err := c.ResolveAllServices()
+	if err != nil {
+		return fmt.Errorf("error initializing services: %w", err)
+	}
+	for _, service := range services {
+		if err := service.Initialize(); err != nil {
+			return fmt.Errorf("error initializing service: %w", err)
+		}
+	}
+
+	// Initialize the virtual machine
+	virtualMachine, err := c.ResolveVirtualMachine()
+	if err != nil {
+		return fmt.Errorf("error initializing virtual machine: %w", err)
+	}
+	if err := virtualMachine.Initialize(); err != nil {
+		return fmt.Errorf("error initializing virtual machine: %w", err)
+	}
+
+	// Initialize the container runtime
+	containerRuntime, err := c.ResolveContainerRuntime()
+	if err != nil {
+		return fmt.Errorf("error initializing container runtime: %w", err)
+	}
+	if err := containerRuntime.Initialize(); err != nil {
+		return fmt.Errorf("error initializing container runtime: %w", err)
+	}
+
+	return nil
+}
+
+// CreateCommonComponents creates the common components.
+func (c *BaseController) CreateCommonComponents() error {
+	// no-op
+	return nil
+}
+
+// CreateEnvComponents creates the env components.
+func (c *BaseController) CreateEnvComponents() error {
+	// no-op
+	return nil
+}
+
+// CreateServiceComponents creates the service components.
+func (c *BaseController) CreateServiceComponents() error {
+	// no-op
+	return nil
+}
+
+// CreateVirtualizationComponents creates the virtualization components.
+func (c *BaseController) CreateVirtualizationComponents() error {
+	// no-op
 	return nil
 }
 
@@ -197,3 +325,16 @@ func (c *BaseController) ResolveContainerRuntime() (virt.ContainerRuntime, error
 
 // Ensure BaseController implements the Controller interface
 var _ Controller = (*BaseController)(nil)
+
+// getCLIConfigPath returns the path to the CLI configuration file
+var getCLIConfigPath = func() (string, error) {
+	cliConfigPath := os.Getenv("WINDSORCONFIG")
+	if cliConfigPath == "" {
+		home, err := osUserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("error retrieving user home directory: %w", err)
+		}
+		cliConfigPath = filepath.Join(home, ".config", "windsor", "config.yaml")
+	}
+	return cliConfigPath, nil
+}
