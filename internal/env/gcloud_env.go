@@ -42,7 +42,7 @@ func (e *GCloudEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	// Construct the path to the GCloud configuration file and verify its existence.
 	gcloudConfigPath := filepath.Join(configRoot, ".gcloud", "config")
-	if _, err := os.Stat(gcloudConfigPath); os.IsNotExist(err) {
+	if _, err := stat(gcloudConfigPath); os.IsNotExist(err) {
 		gcloudConfigPath = ""
 	}
 

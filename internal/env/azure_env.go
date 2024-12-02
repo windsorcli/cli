@@ -42,7 +42,7 @@ func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	// Construct the path to the Azure configuration file and verify its existence.
 	azureConfigPath := filepath.Join(configRoot, ".azure", "config")
-	if _, err := os.Stat(azureConfigPath); os.IsNotExist(err) {
+	if _, err := stat(azureConfigPath); os.IsNotExist(err) {
 		azureConfigPath = ""
 	}
 
