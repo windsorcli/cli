@@ -68,7 +68,7 @@ func TestGCloudEnv_GetEnvVars(t *testing.T) {
 
 		// Mock the stat function to simulate the existence of the GCloud config file
 		stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.FromSlash("/mock/config/root/.gcloud/config") {
+			if name == filepath.FromSlash("/mock/config/root/.gcloud/service-account-key.json") {
 				return nil, nil // Simulate that the file exists
 			}
 			return nil, os.ErrNotExist
@@ -84,9 +84,9 @@ func TestGCloudEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// Then the environment variables should be set correctly
-		expectedConfigFile := filepath.FromSlash("/mock/config/root/.gcloud/config")
-		if envVars["GCLOUD_CONFIG_FILE"] != expectedConfigFile {
-			t.Errorf("GCLOUD_CONFIG_FILE = %v, want %v", envVars["GCLOUD_CONFIG_FILE"], expectedConfigFile)
+		expectedConfigFile := filepath.FromSlash("/mock/config/root/.gcloud/service-account-key.json")
+		if envVars["GOOGLE_APPLICATION_CREDENTIALS"] != expectedConfigFile {
+			t.Errorf("GOOGLE_APPLICATION_CREDENTIALS = %v, want %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"], expectedConfigFile)
 		}
 	})
 
@@ -153,7 +153,7 @@ func TestGCloudEnv_GetEnvVars(t *testing.T) {
 			}
 		})
 
-		// Then the output should not include GCLOUD_CONFIG_FILE and should not indicate an error
+		// Then the output should not include GOOGLE_APPLICATION_CREDENTIALS and should not indicate an error
 		if output != "" {
 			t.Errorf("output = %v, want empty output", output)
 		}
@@ -200,7 +200,7 @@ func TestGCloudEnv_Print(t *testing.T) {
 
 		// Mock the stat function to simulate the existence of the GCloud config file
 		stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.FromSlash("/mock/config/root/.gcloud/config") {
+			if name == filepath.FromSlash("/mock/config/root/.gcloud/service-account-key.json") {
 				return nil, nil // Simulate that the file exists
 			}
 			return nil, os.ErrNotExist
@@ -221,9 +221,7 @@ func TestGCloudEnv_Print(t *testing.T) {
 
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{
-			"GCLOUD_CONFIG_FILE":  filepath.FromSlash("/mock/config/root/.gcloud/config"),
-			"GCLOUD_PROJECT_ID":   "my-gcloud-project",
-			"GCLOUD_ENDPOINT_URL": "https://gcloud.endpoint",
+			"GOOGLE_APPLICATION_CREDENTIALS": filepath.FromSlash("/mock/config/root/.gcloud/service-account-key.json"),
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)

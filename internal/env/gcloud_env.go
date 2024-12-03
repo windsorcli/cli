@@ -41,20 +41,14 @@ func (e *GCloudEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Construct the path to the GCloud configuration file and verify its existence.
-	gcloudConfigPath := filepath.Join(configRoot, ".gcloud", "config")
+	gcloudConfigPath := filepath.Join(configRoot, ".gcloud", "service-account-key.json")
 	if _, err := stat(gcloudConfigPath); os.IsNotExist(err) {
 		gcloudConfigPath = ""
 	}
 
 	// Populate environment variables with GCloud configuration data.
 	if gcloudConfigPath != "" {
-		envVars["GCLOUD_CONFIG_FILE"] = gcloudConfigPath
-	}
-	if contextConfigData.GCloud.ProjectID != nil {
-		envVars["GCLOUD_PROJECT_ID"] = *contextConfigData.GCloud.ProjectID
-	}
-	if contextConfigData.GCloud.EndpointURL != nil {
-		envVars["GCLOUD_ENDPOINT_URL"] = *contextConfigData.GCloud.EndpointURL
+		envVars["GOOGLE_APPLICATION_CREDENTIALS"] = gcloudConfigPath
 	}
 
 	return envVars, nil

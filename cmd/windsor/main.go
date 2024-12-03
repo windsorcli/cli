@@ -90,6 +90,14 @@ func main() {
 	awsEnv := env.NewAwsEnvPrinter(injector)
 	injector.Register("awsEnv", awsEnv)
 
+	// Create and register the GcloudEnv instance
+	gcloudEnv := env.NewGCloudEnvPrinter(injector)
+	injector.Register("gcloudEnv", gcloudEnv)
+
+	// Create and register the AzureEnv instance
+	azureEnv := env.NewAzureEnvPrinter(injector)
+	injector.Register("azureEnv", azureEnv)
+
 	// Create and register the DockerEnv instance
 	dockerEnv := env.NewDockerEnvPrinter(injector)
 	injector.Register("dockerEnv", dockerEnv)
