@@ -131,6 +131,16 @@ var DefaultConfig = Context{
 			Services: nil,
 		},
 	},
+	GCloud: &GCloudConfig{
+		ProjectID:   nil,
+		EndpointURL: nil,
+	},
+	Azure: &AzureConfig{
+		AzureProfile:        nil,
+		AzureEndpointURL:    nil,
+		StorageAccountName:  nil,
+		FunctionAppEndpoint: nil,
+	},
 	Docker: &DockerConfig{
 		Enabled:     nil,
 		Registries:  []Registry{},
@@ -159,6 +169,16 @@ var DefaultLocalConfig = Context{
 			Create:   ptrBool(true),
 			Services: []string{"iam", "sts", "kms", "s3", "dynamodb"},
 		},
+	},
+	GCloud: &GCloudConfig{
+		ProjectID:   nil,
+		EndpointURL: nil,
+	},
+	Azure: &AzureConfig{
+		AzureProfile:        nil,
+		AzureEndpointURL:    nil,
+		StorageAccountName:  nil,
+		FunctionAppEndpoint: nil,
 	},
 	Docker: &DockerConfig{
 		Enabled: ptrBool(true),

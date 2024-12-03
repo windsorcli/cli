@@ -26,6 +26,8 @@ type SuperMocks struct {
 	OmniService          *services.MockService
 	TalosService         *services.MockService
 	AwsEnv               *env.MockEnvPrinter
+	GcloudEnv            *env.MockEnvPrinter
+	AzureEnv             *env.MockEnvPrinter
 	DockerEnv            *env.MockEnvPrinter
 	KubeEnv              *env.MockEnvPrinter
 	OmniEnv              *env.MockEnvPrinter
@@ -74,6 +76,8 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 
 	// Create mock environment instances
 	mockAwsEnv := env.NewMockEnvPrinter()
+	mockGcloudEnv := env.NewMockEnvPrinter()
+	mockAzureEnv := env.NewMockEnvPrinter()
 	mockDockerEnv := env.NewMockEnvPrinter()
 	mockKubeEnv := env.NewMockEnvPrinter()
 	mockOmniEnv := env.NewMockEnvPrinter()
@@ -101,6 +105,8 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 	injector.Register("colimaVirt", mockColimaVirt)
 	injector.Register("dockerVirt", mockDockerVirt)
 	injector.Register("awsEnv", mockAwsEnv)
+	injector.Register("gcloudEnv", mockGcloudEnv)
+	injector.Register("azureEnv", mockAzureEnv)
 	injector.Register("dockerEnv", mockDockerEnv)
 	injector.Register("kubeEnv", mockKubeEnv)
 	injector.Register("omniEnv", mockOmniEnv)
@@ -123,6 +129,8 @@ func CreateSuperMocks(mockInjector ...*di.MockInjector) SuperMocks {
 		OmniService:          mockOmniService,
 		TalosService:         mockTalosService,
 		AwsEnv:               mockAwsEnv,
+		GcloudEnv:            mockGcloudEnv,
+		AzureEnv:             mockAzureEnv,
 		DockerEnv:            mockDockerEnv,
 		KubeEnv:              mockKubeEnv,
 		OmniEnv:              mockOmniEnv,

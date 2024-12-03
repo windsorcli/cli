@@ -30,7 +30,9 @@ func (e *GCloudEnvPrinter) GetEnvVars() (map[string]string, error) {
 	contextConfigData := e.configHandler.GetConfig()
 
 	// Ensure the context configuration and GCloud-specific settings are available.
-	if contextConfigData == nil || contextConfigData.GCloud == nil {
+	// if contextConfigData == nil || contextConfigData.GCloud == nil {
+	if contextConfigData == nil {
+		// fmt.Println("EXITTING")
 		return nil, fmt.Errorf("context configuration or GCloud configuration is missing")
 	}
 
@@ -57,6 +59,12 @@ func (e *GCloudEnvPrinter) GetEnvVars() (map[string]string, error) {
 // Print prints the environment variables for the Google Cloud environment.
 func (e *GCloudEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
+
+	// Return nil if envVars is empty
+	if len(envVars) == 0 {
+		return nil
+	}
+
 	if err != nil {
 		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
