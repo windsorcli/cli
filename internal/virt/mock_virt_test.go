@@ -6,7 +6,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/services"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -15,7 +15,7 @@ type MockComponents struct {
 	MockContext       *context.MockContext
 	MockShell         *shell.MockShell
 	MockConfigHandler *config.MockConfigHandler
-	MockHelper        *helpers.MockHelper
+	MockService       *services.MockService
 }
 
 type mockYAMLEncoder struct {

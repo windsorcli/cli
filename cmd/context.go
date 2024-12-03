@@ -86,15 +86,15 @@ func init() {
 	rootCmd.AddCommand(setContextAliasCmd)
 }
 
-// getContextHandler resolves the contextHandler from the injector and returns it as a context.ContextInterface
-var getContextHandler = func() (context.ContextInterface, error) {
+// getContextHandler resolves the contextHandler from the injector and returns it as a context.ContextHandler
+var getContextHandler = func() (context.ContextHandler, error) {
 	instance, err := injector.Resolve("contextHandler")
 	if err != nil {
 		return nil, fmt.Errorf("Error resolving contextHandler: %w", err)
 	}
-	contextHandler, ok := instance.(context.ContextInterface)
+	contextHandler, ok := instance.(context.ContextHandler)
 	if !ok {
-		return nil, fmt.Errorf("Error: resolved instance is not of type context.ContextInterface")
+		return nil, fmt.Errorf("Error: resolved instance is not of type context.ContextHandler")
 	}
 	return contextHandler, nil
 }

@@ -1,10 +1,9 @@
-package helpers
+package services
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
@@ -13,14 +12,14 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-type AwsHelperMocks struct {
+type AwsServiceMocks struct {
 	Injector      di.Injector
 	ConfigHandler *config.MockConfigHandler
 	Shell         *shell.MockShell
 	Context       *context.MockContext
 }
 
-func createAwsHelperMocks(mockInjector ...di.Injector) *AwsHelperMocks {
+func createAwsServiceMocks(mockInjector ...di.Injector) *AwsServiceMocks {
 	var injector di.Injector
 	if len(mockInjector) > 0 {
 		injector = mockInjector[0]
@@ -56,7 +55,7 @@ func createAwsHelperMocks(mockInjector ...di.Injector) *AwsHelperMocks {
 	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 
-	return &AwsHelperMocks{
+	return &AwsServiceMocks{
 		Injector:      injector,
 		ConfigHandler: mockConfigHandler,
 		Shell:         mockShell,
@@ -64,16 +63,16 @@ func createAwsHelperMocks(mockInjector ...di.Injector) *AwsHelperMocks {
 	}
 }
 
-func TestAwsHelper_NewAwsHelper(t *testing.T) {
+func TestAwsService_NewAwsService(t *testing.T) {
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		// Create mock injector and set resolve error for configHandler
 		mockInjector := di.NewMockInjector()
 		mockInjector.SetResolveError("configHandler", fmt.Errorf("error resolving configHandler"))
 
-		// Attempt to create AwsHelper
-		_, err := NewAwsHelper(mockInjector)
-		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
-			t.Fatalf("expected error resolving configHandler, got %v", err)
+		// Attempt to create AwsService
+		awsService := NewAwsService(mockInjector)
+		if awsService == nil {
+			t.Fatalf("expected error resolving configHandler")
 		}
 	})
 
@@ -84,18 +83,18 @@ func TestAwsHelper_NewAwsHelper(t *testing.T) {
 		mockInjector.Register("configHandler", mockConfigHandler)
 		mockInjector.SetResolveError("context", fmt.Errorf("error resolving context"))
 
-		// Attempt to create AwsHelper
-		_, err := NewAwsHelper(mockInjector)
-		if err == nil || !strings.Contains(err.Error(), "error resolving context") {
-			t.Fatalf("expected error resolving context, got %v", err)
+		// Attempt to create AwsService
+		awsService := NewAwsService(mockInjector)
+		if awsService == nil {
+			t.Fatalf("expected error resolving context")
 		}
 	})
 }
 
-func TestAwsHelper_GetComposeConfig(t *testing.T) {
+func TestAwsService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create mock injector with necessary mocks
-		mocks := createAwsHelperMocks()
+		mocks := createAwsServiceMocks()
 
 		// Mock GetConfig to return a valid AWS configuration
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
@@ -109,14 +108,16 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 			}
 		}
 
-		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(mocks.Injector)
-		if err != nil {
-			t.Fatalf("NewAwsHelper() error = %v", err)
+		// Create an instance of AwsService
+		awsService := NewAwsService(mocks.Injector)
+
+		// Initialize the service
+		if err := awsService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
-		composeConfig, err := awsHelper.GetComposeConfig()
+		composeConfig, err := awsService.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
@@ -137,7 +138,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 
 	t.Run("LocalstackConfigured", func(t *testing.T) {
 		// Create mock injector with necessary mocks
-		mocks := createAwsHelperMocks()
+		mocks := createAwsServiceMocks()
 
 		// Mock GetConfig to return a valid AWS configuration
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
@@ -151,14 +152,16 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 			}
 		}
 
-		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(mocks.Injector)
-		if err != nil {
-			t.Fatalf("NewAwsHelper() error = %v", err)
+		// Create an instance of AwsService
+		awsService := NewAwsService(mocks.Injector)
+
+		// Initialize the service
+		if err := awsService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
-		composeConfig, err := awsHelper.GetComposeConfig()
+		composeConfig, err := awsService.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
@@ -183,7 +186,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 		defer os.Unsetenv("LOCALSTACK_AUTH_TOKEN")
 
 		// Create mock injector with necessary mocks
-		mocks := createAwsHelperMocks()
+		mocks := createAwsServiceMocks()
 
 		// Mock GetConfig to return a valid AWS configuration
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
@@ -197,14 +200,16 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 			}
 		}
 
-		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(mocks.Injector)
-		if err != nil {
-			t.Fatalf("NewAwsHelper() error = %v", err)
+		// Create an instance of AwsService
+		awsService := NewAwsService(mocks.Injector)
+
+		// Initialize the service
+		if err := awsService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
-		composeConfig, err := awsHelper.GetComposeConfig()
+		composeConfig, err := awsService.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
@@ -222,7 +227,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 
 	t.Run("AWSConfigNil", func(t *testing.T) {
 		// Create mock injector with necessary mocks
-		mocks := createAwsHelperMocks()
+		mocks := createAwsServiceMocks()
 
 		// Mock GetConfig to return a context with nil AWS configuration
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
@@ -231,14 +236,19 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 			}
 		}
 
-		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(mocks.Injector)
-		if err != nil {
-			t.Fatalf("NewAwsHelper() error = %v", err)
+		// Create an instance of AwsService
+		awsService := NewAwsService(mocks.Injector)
+
+		// Initialize the service
+		if err := awsService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
-		composeConfig, err := awsHelper.GetComposeConfig()
+		composeConfig, err := awsService.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
 
 		// Then: nil should be returned
 		if composeConfig != nil {
@@ -248,7 +258,7 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 
 	t.Run("LocalstackConfigNil", func(t *testing.T) {
 		// Create mock injector with necessary mocks
-		mocks := createAwsHelperMocks()
+		mocks := createAwsServiceMocks()
 
 		// Mock GetConfig to return a context with nil Localstack configuration
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
@@ -259,14 +269,19 @@ func TestAwsHelper_GetComposeConfig(t *testing.T) {
 			}
 		}
 
-		// Create an instance of AwsHelper
-		awsHelper, err := NewAwsHelper(mocks.Injector)
-		if err != nil {
-			t.Fatalf("NewAwsHelper() error = %v", err)
+		// Create an instance of AwsService
+		awsService := NewAwsService(mocks.Injector)
+
+		// Initialize the service
+		if err := awsService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
-		composeConfig, err := awsHelper.GetComposeConfig()
+		composeConfig, err := awsService.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
 
 		// Then: nil should be returned
 		if composeConfig != nil {

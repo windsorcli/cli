@@ -38,7 +38,7 @@ type Virt interface {
 type BaseVirt struct {
 	injector       di.Injector
 	shell          shell.Shell
-	contextHandler context.ContextInterface
+	contextHandler context.ContextHandler
 	configHandler  config.ConfigHandler
 }
 
@@ -75,9 +75,9 @@ func (v *BaseVirt) Initialize() error {
 	if err != nil {
 		return fmt.Errorf("error resolving context handler: %w", err)
 	}
-	contextHandlerInstance, ok := resolvedContextHandler.(context.ContextInterface)
+	contextHandlerInstance, ok := resolvedContextHandler.(context.ContextHandler)
 	if !ok {
-		return fmt.Errorf("resolved context handler is not of type ContextInterface")
+		return fmt.Errorf("resolved context handler is not of type ContextHandler")
 	}
 	v.contextHandler = contextHandlerInstance
 

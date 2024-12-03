@@ -47,7 +47,7 @@ func TestContext_Get(t *testing.T) {
 		originalGetContextHandler := getContextHandler
 
 		// Temporarily replace getContextHandler to return an error
-		getContextHandler = func() (context.ContextInterface, error) {
+		getContextHandler = func() (context.ContextHandler, error) {
 			return nil, errors.New("mock error resolving context handler")
 		}
 		defer func() {
@@ -132,7 +132,7 @@ func TestContext_Set(t *testing.T) {
 
 		// Override the getContextHandler function to simulate an error
 		originalGetContextHandler := getContextHandler
-		getContextHandler = func() (context.ContextInterface, error) {
+		getContextHandler = func() (context.ContextHandler, error) {
 			return nil, errors.New("resolve context handler error")
 		}
 		defer func() { getContextHandler = originalGetContextHandler }()
@@ -336,7 +336,7 @@ func TestContext_getContextHandler(t *testing.T) {
 			t.Fatalf("Expected error, got nil")
 		}
 
-		expectedError := "Error: resolved instance is not of type context.ContextInterface"
+		expectedError := "Error: resolved instance is not of type context.ContextHandler"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}

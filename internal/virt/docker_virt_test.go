@@ -11,7 +11,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsor-hotel/cli/internal/services"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -26,13 +26,19 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockHelper := helpers.NewMockHelper()
+	mockService := services.NewMockService()
 
 	// Register mock instances in the injector
 	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("mockHelper", mockHelper)
+	injector.Register("dockerService", mockService)
+
+	// Register additional mock services
+	mockService1 := services.NewMockService()
+	mockService2 := services.NewMockService()
+	injector.Register("service1", mockService1)
+	injector.Register("service2", mockService2)
 
 	// Implement GetContextFunc on mock context
 	mockContext.GetContextFunc = func() (string, error) {
@@ -85,8 +91,8 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 		return "", fmt.Errorf("unknown command")
 	}
 
-	// Mock the helper's GetComposeConfigFunc to return a default configuration for two services
-	mockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+	// Mock the service's GetComposeConfigFunc to return a default configuration for two services
+	mockService.GetComposeConfigFunc = func() (*types.Config, error) {
 		return &types.Config{
 			Services: []types.ServiceConfig{
 				{Name: "service1"},
@@ -117,7 +123,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
-		MockHelper:        mockHelper,
+		MockService:       mockService,
 	}
 }
 
@@ -135,9 +141,9 @@ func TestDockerVirt_Initialize(t *testing.T) {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		// Verify that the helpers were resolved correctly
-		if len(dockerVirt.helpers) == 0 {
-			t.Errorf("expected helpers to be resolved, but got none")
+		// Verify that the services were resolved correctly
+		if len(dockerVirt.services) == 0 {
+			t.Errorf("expected services to be resolved, but got none")
 		}
 	})
 
@@ -165,14 +171,14 @@ func TestDockerVirt_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingHelpers", func(t *testing.T) {
+	t.Run("ErrorResolvingServices", func(t *testing.T) {
 		// Setup mock components
 		injector := di.NewMockInjector()
 		mocks := setupSafeDockerContainerMocks(injector)
 		dockerVirt := NewDockerVirt(mocks.Injector)
 
-		// Simulate an error during helper resolution
-		injector.SetResolveAllError(fmt.Errorf("mock resolve helpers error"))
+		// Simulate an error during service resolution
+		injector.SetResolveAllError(fmt.Errorf("mock resolve services error"))
 
 		// Call the Initialize method
 		err := dockerVirt.Initialize()
@@ -183,7 +189,35 @@ func TestDockerVirt_Initialize(t *testing.T) {
 		}
 
 		// Verify the error message contains the expected substring
-		expectedErrorSubstring := "error resolving helpers"
+		expectedErrorSubstring := "error resolving services"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+		}
+	})
+
+	t.Run("ErrorAssigningIPAddresses", func(t *testing.T) {
+		// Setup mock components
+		injector := di.NewMockInjector()
+		mocks := setupSafeDockerContainerMocks(injector)
+		dockerVirt := NewDockerVirt(mocks.Injector)
+
+		// Simulate an error during IP address assignment
+		originalAssignIPAddresses := assignIPAddresses
+		defer func() { assignIPAddresses = originalAssignIPAddresses }()
+		assignIPAddresses = func(services []services.Service, networkCIDR *string) error {
+			return fmt.Errorf("mock assign IP addresses error")
+		}
+
+		// Call the Initialize method
+		err := dockerVirt.Initialize()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+
+		// Verify the error message contains the expected substring
+		expectedErrorSubstring := "error assigning IP addresses"
 		if !strings.Contains(err.Error(), expectedErrorSubstring) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
@@ -203,7 +237,7 @@ func TestDockerVirt_Up(t *testing.T) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "", nil // Simulate successful Docker daemon check
 			}
-			if command == "docker-compose" && len(args) > 0 && args[0] == "up" {
+			if command == "docker-compose" && len(args) > 0 && args[2] == "up" {
 				execCalled = true
 				return "", nil
 			}
@@ -236,7 +270,7 @@ func TestDockerVirt_Up(t *testing.T) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "", nil // Simulate successful Docker daemon check
 			}
-			if command == "docker-compose" && len(args) > 0 && args[0] == "up" {
+			if command == "docker-compose" && len(args) > 0 && args[2] == "up" {
 				execCalled = true
 				return "", nil
 			}
@@ -286,6 +320,40 @@ func TestDockerVirt_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorGetConfigRoot", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.Initialize()
+
+		// Mock the GetConfigRoot function to simulate an error
+		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving config root")
+		}
+
+		// Mock the shell Exec function to simulate Docker daemon check
+		mocks.MockShell.ExecFunc = func(verbose bool, description string, command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "info" {
+				return "docker info", nil
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+
+		// Call the Up method
+		err := dockerVirt.Up()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Verify that the error message is as expected
+		expectedErrorMsg := "error retrieving config root"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+	})
+
 	t.Run("RetryDockerComposeUp", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
@@ -300,7 +368,7 @@ func TestDockerVirt_Up(t *testing.T) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
-			if command == "docker-compose" && len(args) > 0 && args[0] == "up" {
+			if command == "docker-compose" && len(args) > 0 && args[2] == "up" {
 				execCallCount++
 				if execCallCount < 3 {
 					return "", fmt.Errorf("temporary error")
@@ -338,8 +406,11 @@ func TestDockerVirt_Up(t *testing.T) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
-			if command == "docker-compose" && len(args) > 0 && args[0] == "up" {
+			if command == "docker-compose" && len(args) > 2 && args[2] == "up" {
 				execCallCount++
+				if execCallCount < 3 {
+					return "", fmt.Errorf("temporary error")
+				}
 				return "", fmt.Errorf("persistent error")
 			}
 			return "", fmt.Errorf("unknown command")
@@ -359,7 +430,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		}
 
 		// Verify that the error message is as expected
-		expectedErrorMsg := "Error executing command docker-compose [up -d]"
+		expectedErrorMsg := "persistent error"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
@@ -368,11 +439,21 @@ func TestDockerVirt_Up(t *testing.T) {
 
 func TestDockerVirt_Down(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Stub test for successful Down
+		dockerVirt := &DockerVirt{}
+		err := dockerVirt.Down()
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
 	})
+}
 
-	t.Run("Error", func(t *testing.T) {
-		// Stub test for error during Down
+func TestDockerVirt_Delete(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		dockerVirt := &DockerVirt{}
+		err := dockerVirt.Delete()
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
 	})
 }
 
@@ -609,16 +690,6 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 		if !strings.Contains(err.Error(), "invalid character") {
 			t.Fatalf("Expected error message containing 'invalid character', got %v", err)
 		}
-	})
-}
-
-func TestDockerVirt_Delete(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Stub test for successful Delete
-	})
-
-	t.Run("Error", func(t *testing.T) {
-		// Stub test for error during Delete
 	})
 }
 
@@ -1055,8 +1126,8 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		dockerVirt := NewDockerVirt(mockInjector)
 		dockerVirt.Initialize()
 
-		// Mock the git helper's GetComposeConfigFunc to return an error
-		mocks.MockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+		// Mock the git service's GetComposeConfigFunc to return an error
+		mocks.MockService.GetComposeConfigFunc = func() (*types.Config, error) {
 			return nil, fmt.Errorf("error getting compose config")
 		}
 
@@ -1087,8 +1158,8 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		dockerVirt := NewDockerVirt(mockInjector)
 		dockerVirt.Initialize()
 
-		// Mock the helper's GetComposeConfigFunc to return empty container configs and no error
-		mocks.MockHelper.GetComposeConfigFunc = func() (*types.Config, error) {
+		// Mock the service's GetComposeConfigFunc to return empty container configs and no error
+		mocks.MockService.GetComposeConfigFunc = func() (*types.Config, error) {
 			return nil, nil
 		}
 
@@ -1117,26 +1188,21 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("NoNetworkCIDRDefined", func(t *testing.T) {
-		// Setup mock components with a config that has no NetworkCIDR
-		mocks := setupSafeDockerContainerMocks()
+	t.Run("NetworkCIDRNotDefined", func(t *testing.T) {
+		// Setup mock components
+		mockInjector := di.NewMockInjector()
+		mocks := setupSafeDockerContainerMocks(mockInjector)
+		dockerVirt := NewDockerVirt(mockInjector)
+		dockerVirt.Initialize()
+
+		// Mock the context configuration to have no NetworkCIDR defined
 		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
-					Enabled: ptrBool(true),
-					Registries: []config.Registry{
-						{
-							Name:   "registry.test",
-							Remote: "https://registry.test",
-							Local:  "https://local.registry.test",
-						},
-					},
-					NetworkCIDR: nil, // No NetworkCIDR defined
+					NetworkCIDR: nil,
 				},
 			}
 		}
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
 
 		// Call the getFullComposeConfig method
 		project, err := dockerVirt.getFullComposeConfig()
@@ -1148,89 +1214,125 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 
 		// Assert the project is not nil
 		if project == nil {
-			t.Fatalf("expected project to be non-nil, got nil")
+			t.Errorf("expected project to be non-nil, got nil")
+		}
+
+		// Assert the project has the expected number of services, volumes, and networks
+		expectedServices := 2
+		expectedVolumes := 2
+		expectedNetworks := 3
+
+		if len(project.Services) != expectedServices {
+			t.Errorf("expected %d services, got %d", expectedServices, len(project.Services))
+		}
+		if len(project.Volumes) != expectedVolumes {
+			t.Errorf("expected %d volumes, got %d", expectedVolumes, len(project.Volumes))
+		}
+		if len(project.Networks) != expectedNetworks {
+			t.Errorf("expected %d networks, got %d", expectedNetworks, len(project.Networks))
+		}
+	})
+}
+
+func TestDockerVirt_assignIPAddresses(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		var setAddressCalls []string
+		services := []services.Service{
+			&services.MockService{
+				SetAddressFunc: func(address string) error {
+					setAddressCalls = append(setAddressCalls, address)
+					return nil
+				},
+			},
+			&services.MockService{
+				SetAddressFunc: func(address string) error {
+					setAddressCalls = append(setAddressCalls, address)
+					return nil
+				},
+			},
+		}
+		networkCIDR := "10.1.0.0/16"
+
+		err := assignIPAddresses(services, &networkCIDR)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		expectedIPs := []string{"10.1.0.2", "10.1.0.3"}
+		for i, expectedIP := range expectedIPs {
+			if setAddressCalls[i] != expectedIP {
+				t.Errorf("expected SetAddress to be called with IP %s, got %s", expectedIP, setAddressCalls[i])
+			}
 		}
 	})
 
-	t.Run("ErrorParsingNetworkCIDR", func(t *testing.T) {
-		// Setup mock components with a config that has an invalid NetworkCIDR
-		mocks := setupSafeDockerContainerMocks()
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Enabled: ptrBool(true),
-					Registries: []config.Registry{
-						{
-							Name:   "registry.test",
-							Remote: "https://registry.test",
-							Local:  "https://local.registry.test",
-						},
-					},
-					NetworkCIDR: ptrString("invalid-cidr"), // Invalid NetworkCIDR
-				},
+	t.Run("NilNetworkCIDR", func(t *testing.T) {
+		services := []services.Service{
+			&services.MockService{},
+			&services.MockService{},
+		}
+
+		err := assignIPAddresses(services, nil)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		for _, service := range services {
+			if service.GetAddress() != "" {
+				t.Errorf("expected empty address, got %s", service.GetAddress())
 			}
 		}
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
+	})
 
-		// Call the getFullComposeConfig method
-		project, err := dockerVirt.getFullComposeConfig()
+	t.Run("InvalidNetworkCIDR", func(t *testing.T) {
+		services := []services.Service{
+			&services.MockService{},
+			&services.MockService{},
+		}
+		networkCIDR := "invalid-cidr"
 
-		// Assert that an error occurred
+		err := assignIPAddresses(services, &networkCIDR)
 		if err == nil {
-			t.Errorf("expected an error, got nil")
+			t.Fatal("expected an error, got none")
 		}
-
-		// Assert the error message is as expected
-		expectedErrorMsg := "error parsing network CIDR"
-		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		if !strings.Contains(err.Error(), "error parsing network CIDR") {
+			t.Fatalf("expected error message to contain 'error parsing network CIDR', got %v", err)
 		}
+	})
 
-		// Assert the project is nil
-		if project != nil {
-			t.Errorf("expected project to be nil, got %v", project)
+	t.Run("ErrorSettingAddress", func(t *testing.T) {
+		services := []services.Service{
+			&services.MockService{
+				SetAddressFunc: func(address string) error {
+					return fmt.Errorf("error setting address")
+				},
+			},
+		}
+		networkCIDR := "10.1.0.0/16"
+
+		err := assignIPAddresses(services, &networkCIDR)
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
+		if !strings.Contains(err.Error(), "error setting address") {
+			t.Fatalf("expected error message to contain 'error setting address', got %v", err)
 		}
 	})
 
 	t.Run("NotEnoughIPAddresses", func(t *testing.T) {
-		// Setup mock components with a config that has a small NetworkCIDR
-		mocks := setupSafeDockerContainerMocks()
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				Docker: &config.DockerConfig{
-					Enabled: ptrBool(true),
-					Registries: []config.Registry{
-						{
-							Name:   "registry.test",
-							Remote: "https://registry.test",
-							Local:  "https://local.registry.test",
-						},
-					},
-					NetworkCIDR: ptrString("192.168.1.0/31"),
-				},
-			}
+		services := []services.Service{
+			&services.MockService{},
+			&services.MockService{},
+			&services.MockService{},
 		}
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
+		networkCIDR := "10.1.0.0/30"
 
-		// Call the getFullComposeConfig method
-		project, err := dockerVirt.getFullComposeConfig()
-
-		// Assert that an error occurred
+		err := assignIPAddresses(services, &networkCIDR)
 		if err == nil {
-			t.Fatalf("expected an error, got nil")
+			t.Fatal("expected an error, got none")
 		}
-
-		// Assert the error message is as expected
-		expectedErrorMsg := "not enough IP addresses in the CIDR range"
-		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
-		}
-
-		// Assert the project is nil
-		if project != nil {
-			t.Fatalf("expected project to be nil, got %v", project)
+		if !strings.Contains(err.Error(), "not enough IP addresses in the CIDR range") {
+			t.Fatalf("expected error message to contain 'not enough IP addresses in the CIDR range', got %v", err)
 		}
 	})
 }

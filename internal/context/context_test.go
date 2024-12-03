@@ -22,7 +22,7 @@ func TestContext_GetContext(t *testing.T) {
 		}
 		mockShell := shell.NewMockShell()
 
-		context := NewContext(mockConfigHandler, mockShell)
+		context := NewBaseContextHandler(mockConfigHandler, mockShell)
 
 		// When calling GetContext
 		contextValue, err := context.GetContext()
@@ -45,7 +45,7 @@ func TestContext_GetContext(t *testing.T) {
 		mockShell := shell.NewMockShell()
 
 		// Create a new Context instance
-		context := NewContext(mockHandler, mockShell)
+		context := NewBaseContextHandler(mockHandler, mockShell)
 
 		// When GetContext is called
 		actualContext, err := context.GetContext()
@@ -78,7 +78,7 @@ func TestContext_SetContext(t *testing.T) {
 		}
 		mockShell := shell.NewMockShell()
 
-		context := NewContext(mockConfigHandler, mockShell)
+		context := NewBaseContextHandler(mockConfigHandler, mockShell)
 
 		// When calling SetContext
 		err := context.SetContext("new-context")
@@ -97,7 +97,7 @@ func TestContext_SetContext(t *testing.T) {
 		}
 		mockShell := shell.NewMockShell()
 
-		context := NewContext(mockConfigHandler, mockShell)
+		context := NewBaseContextHandler(mockConfigHandler, mockShell)
 
 		// When calling SetContext
 		err := context.SetContext("new-context")
@@ -123,7 +123,7 @@ func TestContext_SetContext(t *testing.T) {
 		}
 		mockShell := shell.NewMockShell()
 
-		context := NewContext(mockConfigHandler, mockShell)
+		context := NewBaseContextHandler(mockConfigHandler, mockShell)
 
 		// When calling SetContext
 		err := context.SetContext("new-context")
@@ -154,7 +154,7 @@ func TestContext_GetConfigRoot(t *testing.T) {
 			return "/mock/project/root", nil
 		}
 
-		context := NewContext(mockConfigHandler, mockShell)
+		context := NewBaseContextHandler(mockConfigHandler, mockShell)
 
 		// When calling GetConfigRoot
 		configRoot, err := context.GetConfigRoot()
@@ -180,7 +180,7 @@ func TestContext_GetConfigRoot(t *testing.T) {
 			return "/mock/project/root", nil
 		}
 
-		context := NewContext(mockConfigHandler, mockShell)
+		context := NewBaseContextHandler(mockConfigHandler, mockShell)
 
 		// When calling GetConfigRoot
 		_, err := context.GetConfigRoot()
@@ -205,7 +205,7 @@ func TestContext_GetConfigRoot(t *testing.T) {
 			return "", errors.New("error retrieving project root")
 		}
 
-		context := NewContext(mockConfigHandler, mockShell)
+		context := NewBaseContextHandler(mockConfigHandler, mockShell)
 
 		// When calling GetConfigRoot
 		_, err := context.GetConfigRoot()
