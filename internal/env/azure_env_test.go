@@ -258,7 +258,7 @@ func TestAzureEnv_Print(t *testing.T) {
 		}
 
 		// Verify the error message
-		expectedError := "error getting environment variables: context configuration or Azure configuration is missing"
+		expectedError := "no environment variables: context configuration or Azure configuration is missing"
 		if err.Error() != expectedError {
 			t.Errorf("error = %v, want %v", err.Error(), expectedError)
 		}

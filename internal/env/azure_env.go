@@ -30,8 +30,7 @@ func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 	contextConfigData := e.configHandler.GetConfig()
 
 	// Ensure the context configuration and Azure-specific settings are available.
-	// if contextConfigData == nil || contextConfigData.Azure == nil {
-	if contextConfigData == nil {
+	if contextConfigData == nil || contextConfigData.Azure == nil {
 		return nil, fmt.Errorf("context configuration or Azure configuration is missing")
 	}
 
@@ -73,7 +72,7 @@ func (e *AzureEnvPrinter) Print() error {
 
 	// Return nil if envVars is empty
 	if len(envVars) == 0 {
-		return nil
+		return fmt.Errorf("no environment variables: %w", err)
 	}
 
 	if err != nil {
