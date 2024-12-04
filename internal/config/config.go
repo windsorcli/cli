@@ -11,6 +11,20 @@ type AWSConfig struct {
 	Localstack     *LocalstackConfig `yaml:"localstack"`
 }
 
+// GCloudConfig represents the gcloud configuration
+type GCloudConfig struct {
+	ProjectID   *string
+	EndpointURL *string
+}
+
+// AzureConfig represents the Azure configuration
+type AzureConfig struct {
+	AzureProfile        *string `yaml:"azure_profile"`
+	AzureEndpointURL    *string `yaml:"azure_endpoint_url"`
+	StorageAccountName  *string `yaml:"storage_account_name"`
+	FunctionAppEndpoint *string `yaml:"function_app_endpoint"`
+}
+
 // LocalstackConfig represents the Localstack configuration
 type LocalstackConfig struct {
 	Create   *bool    `yaml:"create"`
@@ -88,6 +102,8 @@ type ClusterConfig struct {
 type Context struct {
 	Environment map[string]string `yaml:"environment"`
 	AWS         *AWSConfig        `yaml:"aws"`
+	GCloud      *GCloudConfig     `yaml:"gcloud"`
+	Azure       *AzureConfig      `yaml:"azure"`
 	Docker      *DockerConfig     `yaml:"docker"`
 	Git         *GitConfig        `yaml:"git"`
 	Terraform   *TerraformConfig  `yaml:"terraform"`
@@ -114,6 +130,16 @@ var DefaultConfig = Context{
 			Create:   nil,
 			Services: nil,
 		},
+	},
+	GCloud: &GCloudConfig{
+		ProjectID:   nil,
+		EndpointURL: nil,
+	},
+	Azure: &AzureConfig{
+		AzureProfile:        nil,
+		AzureEndpointURL:    nil,
+		StorageAccountName:  nil,
+		FunctionAppEndpoint: nil,
 	},
 	Docker: &DockerConfig{
 		Enabled:     nil,
@@ -143,6 +169,16 @@ var DefaultLocalConfig = Context{
 			Create:   ptrBool(true),
 			Services: []string{"iam", "sts", "kms", "s3", "dynamodb"},
 		},
+	},
+	GCloud: &GCloudConfig{
+		ProjectID:   nil,
+		EndpointURL: nil,
+	},
+	Azure: &AzureConfig{
+		AzureProfile:        nil,
+		AzureEndpointURL:    nil,
+		StorageAccountName:  nil,
+		FunctionAppEndpoint: nil,
 	},
 	Docker: &DockerConfig{
 		Enabled: ptrBool(true),
