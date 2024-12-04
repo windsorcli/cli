@@ -10,6 +10,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/network"
 	"github.com/windsor-hotel/cli/internal/services"
 	sh "github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsor-hotel/cli/internal/ssh"
 	"github.com/windsor-hotel/cli/internal/virt"
 )
 
@@ -43,9 +44,15 @@ func (c *RealController) CreateCommonComponents() error {
 	shell := sh.NewDefaultShell(c.injector)
 	c.injector.Register("shell", shell)
 
-	// Create a new secure shell
-	secureShell := sh.NewSecureShell(c.injector)
-	c.injector.Register("secureShell", secureShell)
+	// Initialize the contextHandler
+	if err := contextHandler.Initialize(); err != nil {
+		return fmt.Errorf("error initializing context handler: %w", err)
+	}
+
+	// Initialize the shell
+	if err := shell.Initialize(); err != nil {
+		return fmt.Errorf("error initializing shell: %w", err)
+	}
 
 	return nil
 }
@@ -161,6 +168,20 @@ func (c *RealController) CreateVirtualizationComponents() error {
 
 	vmDriver := configHandler.GetString("vm.driver")
 	dockerEnabled := configHandler.GetBool("docker.enabled")
+
+	if vmDriver != "" {
+		// Create and register the RealNetworkInterfaceProvider instance
+		networkInterfaceProvider := &network.RealNetworkInterfaceProvider{}
+		c.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
+
+		// Create and register the ssh client
+		sshClient := ssh.NewSSHClient()
+		c.injector.Register("sshClient", sshClient)
+
+		// Create and register the secure shell
+		secureShell := sh.NewSecureShell(c.injector)
+		c.injector.Register("secureShell", secureShell)
+	}
 
 	// Create colima components
 	if vmDriver == "colima" {

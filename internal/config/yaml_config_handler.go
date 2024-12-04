@@ -83,10 +83,10 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 // SetDefault sets the default context configuration
 func (y *YamlConfigHandler) SetDefault(context Context) error {
 	y.defaultContextConfig = context
-	currentContext := y.config.Context
+	currentContext := *y.config.Context
 
 	// Check if the context is defined in the config
-	contextKey := fmt.Sprintf("contexts.%s", *currentContext)
+	contextKey := fmt.Sprintf("contexts.%s", currentContext)
 	if _, err := y.Get(contextKey); err != nil {
 		// If the context is not defined, set it to defaultContextConfig
 		if err := y.Set(contextKey, &context); err != nil {

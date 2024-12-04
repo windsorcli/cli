@@ -20,6 +20,7 @@ func NewDNSService(injector di.Injector) *DNSService {
 	return &DNSService{
 		BaseService: BaseService{
 			injector: injector,
+			name:     "dns",
 		},
 	}
 }
@@ -56,9 +57,6 @@ func (s *DNSService) SetAddress(address string) error {
 
 // GetComposeConfig returns the compose configuration
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
-	// Get the top level domain from the configuration
-	tld := s.configHandler.GetString("dns.name", "test")
-
 	// Retrieve the context name
 	contextName, err := s.contextHandler.GetContext()
 	if err != nil {
@@ -67,7 +65,7 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 
 	// Common configuration for CoreDNS container
 	corednsConfig := types.ServiceConfig{
-		Name:    fmt.Sprintf("dns.%s", tld),
+		Name:    s.name,
 		Image:   constants.DEFAULT_DNS_IMAGE,
 		Restart: "always",
 		Command: []string{"-conf", "/etc/coredns/Corefile"},

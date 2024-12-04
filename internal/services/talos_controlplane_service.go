@@ -23,9 +23,6 @@ func NewTalosControlPlaneService(injector di.Injector) *TalosControlPlaneService
 
 // GetComposeConfig returns a list of container data for docker-compose.
 func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
-	// Get the top level domain from the configuration
-	tld := s.configHandler.GetString("dns.name", "test")
-
 	// Retrieve CPU and RAM settings for control planes from the configuration
 	controlPlaneCPU := s.configHandler.GetInt("cluster.controlplanes.cpu", constants.DEFAULT_TALOS_CONTROL_PLANE_CPU)
 	controlPlaneRAM := s.configHandler.GetInt("cluster.controlplanes.memory", constants.DEFAULT_TALOS_CONTROL_PLANE_RAM)
@@ -54,9 +51,9 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 	// Create a single control plane service
 	controlPlaneConfig := commonConfig
 	if s.GetName() == "" {
-		controlPlaneConfig.Name = fmt.Sprintf("controlplane.%s", tld)
+		controlPlaneConfig.Name = "controlplane"
 	} else {
-		controlPlaneConfig.Name = fmt.Sprintf("%s.%s", s.GetName(), tld)
+		controlPlaneConfig.Name = s.GetName()
 	}
 	controlPlaneConfig.Environment = map[string]*string{
 		"PLATFORM": ptrString("container"),

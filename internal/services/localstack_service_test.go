@@ -105,8 +105,8 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		}
 
 		service := composeConfig.Services[0]
-		if service.Name != "localstack.test" {
-			t.Errorf("expected service name 'localstack.test', got %v", service.Name)
+		if service.Name != "aws" {
+			t.Errorf("expected service name 'localstack', got %v", service.Name)
 		}
 		if service.Environment["SERVICES"] == nil || *service.Environment["SERVICES"] != "s3,dynamodb" {
 			t.Errorf("expected SERVICES environment variable to be 's3,dynamodb', got %v", service.Environment["SERVICES"])

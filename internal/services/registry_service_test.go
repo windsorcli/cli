@@ -102,7 +102,7 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		}
 
 		// Then: check for characteristic properties in the configuration
-		expectedName := "registry.test"
+		expectedName := "registry"
 		expectedRemoteURL := "registry.remote"
 		expectedLocalURL := "registry.local"
 		found := false

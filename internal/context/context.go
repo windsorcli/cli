@@ -51,11 +51,14 @@ func (c *BaseContextHandler) Initialize() error {
 // GetContext retrieves the current context from the configuration
 func (c *BaseContextHandler) GetContext() (string, error) {
 	context, err := c.configHandler.Get("context")
-	if err != nil {
-		return "", fmt.Errorf("error retrieving context: %w", err)
-	}
 	if context == nil {
+		if err := c.SetContext("local"); err != nil {
+			return "", fmt.Errorf("error setting default context: %w", err)
+		}
 		return "local", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("error getting context: %w", err)
 	}
 	return context.(string), nil
 }

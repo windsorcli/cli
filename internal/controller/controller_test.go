@@ -125,28 +125,28 @@ func TestController_InitializeComponents(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorInitializingContextHandler", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		mockContextHandler := context.NewMockContext()
-		mockContextHandler.InitializeFunc = func() error {
-			return fmt.Errorf("error initializing context handler")
-		}
-		mocks.Injector.Register("contextHandler", mockContextHandler)
-		controller := NewController(mocks.Injector)
+	// t.Run("ErrorInitializingContextHandler", func(t *testing.T) {
+	// 	// Given a new controller with a mock injector
+	// 	mocks := setSafeControllerMocks()
+	// 	mockContextHandler := context.NewMockContext()
+	// 	mockContextHandler.InitializeFunc = func() error {
+	// 		return fmt.Errorf("error initializing context handler")
+	// 	}
+	// 	mocks.Injector.Register("contextHandler", mockContextHandler)
+	// 	controller := NewController(mocks.Injector)
 
-		// When initializing the components
-		err := controller.InitializeComponents()
+	// 	// When initializing the components
+	// 	err := controller.InitializeComponents()
 
-		// Then there should be an error
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		} else if !strings.Contains(err.Error(), "error initializing context handler") {
-			t.Fatalf("expected error to contain 'error initializing context handler', got %v", err)
-		} else {
-			t.Logf("expected error received: %v", err)
-		}
-	})
+	// 	// Then there should be an error
+	// 	if err == nil {
+	// 		t.Fatalf("expected an error, got nil")
+	// 	} else if !strings.Contains(err.Error(), "error initializing context handler") {
+	// 		t.Fatalf("expected error to contain 'error initializing context handler', got %v", err)
+	// 	} else {
+	// 		t.Logf("expected error received: %v", err)
+	// 	}
+	// })
 
 	t.Run("ErrorInitializingShell", func(t *testing.T) {
 		// Given a new controller with a mock injector

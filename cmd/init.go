@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/config"
 )
 
 var (
@@ -44,24 +43,13 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		// Resolve the config handler
-		configHandler := controller.ResolveConfigHandler()
-
 		// Set the context value
 		if err := contextHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("Error setting context value: %w", err)
 		}
 
-		// If the context is local or starts with "local-", set the defaults to the default local config
-		if contextName == "local" || len(contextName) > 6 && contextName[:6] == "local-" {
-			if err := configHandler.SetDefault(config.DefaultLocalConfig); err != nil {
-				return fmt.Errorf("Error setting default local config: %w", err)
-			}
-		} else {
-			if err := configHandler.SetDefault(config.DefaultConfig); err != nil {
-				return fmt.Errorf("Error setting default config: %w", err)
-			}
-		}
+		// Resolve the config handler
+		configHandler := controller.ResolveConfigHandler()
 
 		// Conditionally set AWS configuration
 		if cmd.Flags().Changed("aws-endpoint-url") {

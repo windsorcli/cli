@@ -59,14 +59,6 @@ func (c *BaseController) Initialize() error {
 
 // InitializeComponents initializes all components.
 func (c *BaseController) InitializeComponents() error {
-	// Initialize the context handler
-	contextHandler := c.ResolveContextHandler()
-	if contextHandler != nil {
-		if err := contextHandler.Initialize(); err != nil {
-			return fmt.Errorf("error initializing context handler: %w", err)
-		}
-	}
-
 	// Initialize the shell
 	shell := c.ResolveShell()
 	if shell != nil {

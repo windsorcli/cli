@@ -25,9 +25,6 @@ func NewTalosWorkerService(injector di.Injector) *TalosWorkerService {
 
 // GetComposeConfig returns a list of container data for docker-compose.
 func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
-	// Get the top level domain from the configuration
-	tld := s.configHandler.GetString("dns.name", "test")
-
 	// Retrieve CPU and RAM settings for workers from the configuration
 	workerCPU := s.configHandler.GetInt("cluster.workers.cpu", constants.DEFAULT_TALOS_WORKER_CPU)
 	workerRAM := s.configHandler.GetInt("cluster.workers.memory", constants.DEFAULT_TALOS_WORKER_RAM)
@@ -69,9 +66,9 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 	// Create a single worker service
 	workerConfig := commonConfig
 	if s.GetName() == "" {
-		workerConfig.Name = fmt.Sprintf("worker.%s", tld)
+		workerConfig.Name = "worker"
 	} else {
-		workerConfig.Name = fmt.Sprintf("%s.%s", s.GetName(), tld)
+		workerConfig.Name = s.GetName()
 	}
 	workerConfig.Environment = map[string]*string{
 		"PLATFORM": ptrString("container"),

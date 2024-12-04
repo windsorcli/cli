@@ -282,8 +282,8 @@ func TestInitCmd(t *testing.T) {
 			t.Fatalf("Expected error, got nil")
 		}
 
-		// Then the error should indicate an error setting the default local config
-		expectedError := "Error setting default local config: set default local config error"
+		// Then the error should indicate an error setting the default config
+		expectedError := "Error setting default config: set default local config error"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}

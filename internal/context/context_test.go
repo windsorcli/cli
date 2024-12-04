@@ -3,7 +3,6 @@ package context
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
@@ -258,34 +257,6 @@ func TestContext_GetConfigRoot(t *testing.T) {
 		expectedConfigRoot := filepath.Join("/mock/project/root", "contexts", "test-context")
 		if configRoot != expectedConfigRoot {
 			t.Fatalf("expected config root %s, got %s", expectedConfigRoot, configRoot)
-		}
-	})
-
-	t.Run("GetContextError", func(t *testing.T) {
-		// Given a mock config handler that returns an error for Get
-		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.GetFunc = func(key string) (interface{}, error) {
-			return nil, fmt.Errorf("error retrieving context")
-		}
-		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project/root", nil
-		}
-
-		context := NewContextHandler(mocks.Injector)
-		err := context.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// When calling GetConfigRoot
-		_, err = context.GetConfigRoot()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected error, got none")
-		}
-		if !strings.Contains(err.Error(), "error retrieving context") {
-			t.Fatalf("expected error to contain 'error retrieving context', got %s", err.Error())
 		}
 	})
 

@@ -13,6 +13,11 @@ var upCmd = &cobra.Command{
 	SilenceUsage: true,
 	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Create service components
+		if err := controller.CreateServiceComponents(); err != nil {
+			return fmt.Errorf("Error creating services components: %w", err)
+		}
+
 		// Create virtualization components
 		if err := controller.CreateVirtualizationComponents(); err != nil {
 			return fmt.Errorf("Error creating virtualization components: %w", err)
@@ -23,15 +28,15 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
+		// Write configuration files
+		if err := controller.WriteConfigurationFiles(); err != nil {
+			return fmt.Errorf("Error writing configuration files: %w", err)
+		}
+
 		// Resolve the config handler
 		configHandler := controller.ResolveConfigHandler()
 		if configHandler == nil {
 			return fmt.Errorf("Error: no config handler found")
-		}
-
-		// Write configuration files
-		if err := controller.WriteConfigurationFiles(); err != nil {
-			return fmt.Errorf("Error writing configuration files: %w", err)
 		}
 
 		// Determine if a virtualization driver is being used

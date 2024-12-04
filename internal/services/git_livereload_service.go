@@ -19,15 +19,14 @@ func NewGitLivereloadService(injector di.Injector) *GitLivereloadService {
 	return &GitLivereloadService{
 		BaseService: BaseService{
 			injector: injector,
+			name:     "git",
 		},
 	}
 }
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
-	// Get the top level domain from the configuration
-	tld := s.configHandler.GetString("dns.name", "test")
-
+	// Get the context name
 	contextName, err := s.contextHandler.GetContext()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving context: %w", err)
@@ -70,7 +69,7 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 
 	// Add the git-livereload service
 	services = append(services, types.ServiceConfig{
-		Name:        fmt.Sprintf("git.%s", tld),
+		Name:        s.name,
 		Image:       image,
 		Restart:     "always",
 		Environment: envVars,

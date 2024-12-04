@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/windsor-hotel/cli/internal/config"
 	ctrl "github.com/windsor-hotel/cli/internal/controller"
 )
 
@@ -49,6 +50,30 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 		return fmt.Errorf("Error creating common components: %w", err)
 	}
 
+	// Resolve the context handler
+	contextHandler := controller.ResolveContextHandler()
+	if contextHandler == nil {
+		return fmt.Errorf("Error: no context handler found")
+	}
+	contextName, err := contextHandler.GetContext()
+
+	// Resolve the config handler
+	configHandler := controller.ResolveConfigHandler()
+	if configHandler == nil {
+		return fmt.Errorf("Error: no config handler found")
+	}
+
+	// If the context is local or starts with "local-", set the defaults to the default local config
+	if contextName == "local" || len(contextName) > 6 && contextName[:6] == "local-" {
+		if err := configHandler.SetDefault(config.DefaultLocalConfig); err != nil {
+			return fmt.Errorf("Error setting default local config: %w", err)
+		}
+	} else {
+		if err := configHandler.SetDefault(config.DefaultConfig); err != nil {
+			return fmt.Errorf("Error setting default config: %w", err)
+		}
+	}
+
 	// Get the cli configuration path
 	cliConfigPath, err := getCliConfigPath()
 	if err != nil {
@@ -56,10 +81,6 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 	}
 
 	// Load the configuration
-	configHandler := controller.ResolveConfigHandler()
-	if configHandler == nil {
-		return fmt.Errorf("Error: no config handler found")
-	}
 	if err := configHandler.LoadConfig(cliConfigPath); err != nil {
 		return fmt.Errorf("Error loading config file: %w", err)
 	}

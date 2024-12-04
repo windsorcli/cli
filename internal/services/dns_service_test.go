@@ -211,8 +211,8 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 		if len(cfg.Services) != 1 {
 			t.Errorf("Expected 1 service, got %d", len(cfg.Services))
 		}
-		if cfg.Services[0].Name != "dns.test" {
-			t.Errorf("Expected service name to be 'dns.test1', got %s", cfg.Services[0].Name)
+		if cfg.Services[0].Name != "dns" {
+			t.Errorf("Expected service name to be 'dns', got %s", cfg.Services[0].Name)
 		}
 	})
 

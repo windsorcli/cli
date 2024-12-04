@@ -143,28 +143,27 @@ var DefaultLocalConfig = Context{
 			{
 				Name: "registry",
 			},
-			// RMV: Temporarily disable to work around a short-term bug, to be fixed in subsequent PR
-			// {
-			// 	Name:   "registry-1.docker",
-			// 	Remote: "https://registry-1.docker.io",
-			// 	Local:  "https://docker.io",
-			// },
-			// {
-			// 	Name:   "registry.k8s",
-			// 	Remote: "https://registry.k8s.io",
-			// },
-			// {
-			// 	Name:   "gcr",
-			// 	Remote: "https://gcr.io",
-			// },
-			// {
-			// 	Name:   "ghcr",
-			// 	Remote: "https://ghcr.io",
-			// },
-			// {
-			// 	Name:   "quay",
-			// 	Remote: "https://quay.io",
-			// },
+			{
+				Name:   "registry-1.docker",
+				Remote: "https://registry-1.docker.io",
+				Local:  "https://docker.io",
+			},
+			{
+				Name:   "registry.k8s",
+				Remote: "https://registry.k8s.io",
+			},
+			{
+				Name:   "gcr",
+				Remote: "https://gcr.io",
+			},
+			{
+				Name:   "ghcr",
+				Remote: "https://ghcr.io",
+			},
+			{
+				Name:   "quay",
+				Remote: "https://quay.io",
+			},
 		},
 		NetworkCIDR: ptrString("10.1.0.0/16"),
 	},

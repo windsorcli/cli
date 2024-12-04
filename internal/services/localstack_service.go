@@ -1,7 +1,6 @@
 package services
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
@@ -20,32 +19,35 @@ func NewLocalstackService(injector di.Injector) *LocalstackService {
 	return &LocalstackService{
 		BaseService: BaseService{
 			injector: injector,
+			name:     "aws",
 		},
 	}
 }
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
-	// Get the top level domain from the configuration
-	tld := s.configHandler.GetString("dns.name", "test")
-
+	// Get the context configuration
 	contextConfig := s.configHandler.GetConfig()
 
+	// Get the localstack auth token
 	localstackAuthToken := os.Getenv("LOCALSTACK_AUTH_TOKEN")
 
+	// Get the image to use
 	image := constants.DEFAULT_AWS_LOCALSTACK_IMAGE
 	if localstackAuthToken != "" {
 		image = constants.DEFAULT_AWS_LOCALSTACK_PRO_IMAGE
 	}
 
+	// Get the localstack services to enable
 	servicesList := ""
 	if contextConfig.AWS.Localstack.Services != nil {
 		servicesList = strings.Join(contextConfig.AWS.Localstack.Services, ",")
 	}
 
+	// Create the service config
 	services := []types.ServiceConfig{
 		{
-			Name:    fmt.Sprintf("localstack.%s", tld),
+			Name:    s.name,
 			Image:   image,
 			Restart: "always",
 			Environment: map[string]*string{
@@ -63,6 +65,7 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
+	// If the localstack auth token is set, add it to the secrets
 	if localstackAuthToken != "" {
 		services[0].Secrets = []types.ServiceSecretConfig{
 			{

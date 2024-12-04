@@ -129,7 +129,7 @@ func TestTalosWorkerService_GetComposeConfig(t *testing.T) {
 				expectedConfig := &types.Config{
 					Services: []types.ServiceConfig{
 						{
-							Name:  tc.expected + ".test",
+							Name:  tc.expected,
 							Image: constants.DEFAULT_TALOS_IMAGE,
 						},
 					},
