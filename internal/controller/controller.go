@@ -24,17 +24,18 @@ type Controller interface {
 	CreateServiceComponents() error
 	CreateVirtualizationComponents() error
 	ResolveInjector() di.Injector
-	ResolveConfigHandler() (config.ConfigHandler, error)
-	ResolveContextHandler() (context.ContextHandler, error)
-	ResolveEnvPrinter(name string) (env.EnvPrinter, error)
-	ResolveAllEnvPrinters() ([]env.EnvPrinter, error)
-	ResolveShell() (shell.Shell, error)
-	ResolveSecureShell() (shell.Shell, error)
-	ResolveNetworkManager() (network.NetworkManager, error)
-	ResolveService(name string) (services.Service, error)
-	ResolveAllServices() ([]services.Service, error)
-	ResolveVirtualMachine() (virt.VirtualMachine, error)
-	ResolveContainerRuntime() (virt.ContainerRuntime, error)
+	ResolveConfigHandler() config.ConfigHandler
+	ResolveContextHandler() context.ContextHandler
+	ResolveEnvPrinter(name string) env.EnvPrinter
+	ResolveAllEnvPrinters() []env.EnvPrinter
+	ResolveShell() shell.Shell
+	ResolveSecureShell() shell.Shell
+	ResolveNetworkManager() network.NetworkManager
+	ResolveService(name string) services.Service
+	ResolveAllServices() []services.Service
+	ResolveVirtualMachine() virt.VirtualMachine
+	ResolveContainerRuntime() virt.ContainerRuntime
+	WriteConfigurationFiles() error
 }
 
 // BaseController struct implements the Controller interface.
@@ -50,20 +51,8 @@ func NewController(injector di.Injector) *BaseController {
 
 // Initialize the controller.
 func (c *BaseController) Initialize() error {
-	configHandler, err := c.ResolveConfigHandler()
-	if err != nil {
-		return fmt.Errorf("error initializing controller: %w", err)
-	}
+	configHandler := c.ResolveConfigHandler()
 	c.configHandler = configHandler
-
-	// Load the configuration
-	cliConfigPath, err := getCLIConfigPath()
-	if err != nil {
-		return fmt.Errorf("error getting CLI config path: %w", err)
-	}
-	if err := configHandler.LoadConfig(cliConfigPath); err != nil {
-		return fmt.Errorf("error loading CLI config: %w", err)
-	}
 
 	return nil
 }
@@ -71,79 +60,71 @@ func (c *BaseController) Initialize() error {
 // InitializeComponents initializes all components.
 func (c *BaseController) InitializeComponents() error {
 	// Initialize the context handler
-	contextHandler, err := c.ResolveContextHandler()
-	if err != nil {
-		return fmt.Errorf("error initializing context handler: %w", err)
-	}
-	if err := contextHandler.Initialize(); err != nil {
-		return fmt.Errorf("error initializing context handler: %w", err)
-	}
-
-	// Initialize the env printers
-	envPrinters, err := c.ResolveAllEnvPrinters()
-	if err != nil {
-		return fmt.Errorf("error initializing env printers: %w", err)
-	}
-	for _, envPrinter := range envPrinters {
-		if err := envPrinter.Initialize(); err != nil {
-			return fmt.Errorf("error initializing env printer: %w", err)
+	contextHandler := c.ResolveContextHandler()
+	if contextHandler != nil {
+		if err := contextHandler.Initialize(); err != nil {
+			return fmt.Errorf("error initializing context handler: %w", err)
 		}
 	}
 
 	// Initialize the shell
-	shell, err := c.ResolveShell()
-	if err != nil {
-		return fmt.Errorf("error initializing shell: %w", err)
-	}
-	if err := shell.Initialize(); err != nil {
-		return fmt.Errorf("error initializing shell: %w", err)
+	shell := c.ResolveShell()
+	if shell != nil {
+		if err := shell.Initialize(); err != nil {
+			return fmt.Errorf("error initializing shell: %w", err)
+		}
 	}
 
 	// Initialize the secure shell
-	secureShell, err := c.ResolveSecureShell()
-	if err != nil {
-		return fmt.Errorf("error initializing secure shell: %w", err)
-	}
-	if err := secureShell.Initialize(); err != nil {
-		return fmt.Errorf("error initializing secure shell: %w", err)
+	secureShell := c.ResolveSecureShell()
+	if secureShell != nil {
+		if err := secureShell.Initialize(); err != nil {
+			return fmt.Errorf("error initializing secure shell: %w", err)
+		}
 	}
 
-	// Initialize the network manager
-	networkManager, err := c.ResolveNetworkManager()
-	if err != nil {
-		return fmt.Errorf("error initializing network manager: %w", err)
-	}
-	if err := networkManager.Initialize(); err != nil {
-		return fmt.Errorf("error initializing network manager: %w", err)
+	// Initialize the env printers
+	envPrinters := c.ResolveAllEnvPrinters()
+	if len(envPrinters) > 0 {
+		for _, envPrinter := range envPrinters {
+			if err := envPrinter.Initialize(); err != nil {
+				return fmt.Errorf("error initializing env printer: %w", err)
+			}
+		}
 	}
 
 	// Initialize the services
-	services, err := c.ResolveAllServices()
-	if err != nil {
-		return fmt.Errorf("error initializing services: %w", err)
-	}
-	for _, service := range services {
-		if err := service.Initialize(); err != nil {
-			return fmt.Errorf("error initializing service: %w", err)
+	services := c.ResolveAllServices()
+	if len(services) > 0 {
+		for _, service := range services {
+			if err := service.Initialize(); err != nil {
+				return fmt.Errorf("error initializing service: %w", err)
+			}
 		}
 	}
 
 	// Initialize the virtual machine
-	virtualMachine, err := c.ResolveVirtualMachine()
-	if err != nil {
-		return fmt.Errorf("error initializing virtual machine: %w", err)
-	}
-	if err := virtualMachine.Initialize(); err != nil {
-		return fmt.Errorf("error initializing virtual machine: %w", err)
+	virtualMachine := c.ResolveVirtualMachine()
+	if virtualMachine != nil {
+		if err := virtualMachine.Initialize(); err != nil {
+			return fmt.Errorf("error initializing virtual machine: %w", err)
+		}
 	}
 
 	// Initialize the container runtime
-	containerRuntime, err := c.ResolveContainerRuntime()
-	if err != nil {
-		return fmt.Errorf("error initializing container runtime: %w", err)
+	containerRuntime := c.ResolveContainerRuntime()
+	if containerRuntime != nil {
+		if err := containerRuntime.Initialize(); err != nil {
+			return fmt.Errorf("error initializing container runtime: %w", err)
+		}
 	}
-	if err := containerRuntime.Initialize(); err != nil {
-		return fmt.Errorf("error initializing container runtime: %w", err)
+
+	// Initialize the network manager
+	networkManager := c.ResolveNetworkManager()
+	if networkManager != nil {
+		if err := networkManager.Initialize(); err != nil {
+			return fmt.Errorf("error initializing network manager: %w", err)
+		}
 	}
 
 	return nil
@@ -173,154 +154,131 @@ func (c *BaseController) CreateVirtualizationComponents() error {
 	return nil
 }
 
+// WriteConfigurationFiles writes the configuration files.
+func (c *BaseController) WriteConfigurationFiles() error {
+	// Resolve all services
+	resolvedServices := c.ResolveAllServices()
+
+	// Write configuration for all services
+	for _, service := range resolvedServices {
+		if service != nil {
+			if err := service.WriteConfig(); err != nil {
+				return fmt.Errorf("error writing service config: %w", err)
+			}
+		}
+	}
+
+	// Resolve and write configuration for virtual machine if vm.driver is defined
+	if vmDriver := c.configHandler.GetString("vm.driver"); vmDriver != "" {
+		resolvedVirt := c.ResolveVirtualMachine()
+		if resolvedVirt != nil {
+			if err := resolvedVirt.WriteConfig(); err != nil {
+				return fmt.Errorf("error writing virtual machine config: %w", err)
+			}
+		}
+	}
+
+	// Resolve and write configuration for container runtime if docker.enabled is true
+	if dockerEnabled := c.configHandler.GetBool("docker.enabled"); dockerEnabled {
+		resolvedContainerRuntime := c.ResolveContainerRuntime()
+		if resolvedContainerRuntime != nil {
+			if err := resolvedContainerRuntime.WriteConfig(); err != nil {
+				return fmt.Errorf("error writing container runtime config: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // ResolveInjector resolves the injector instance.
 func (c *BaseController) ResolveInjector() di.Injector {
 	return c.injector
 }
 
 // ResolveConfigHandler resolves the configHandler instance.
-func (c *BaseController) ResolveConfigHandler() (config.ConfigHandler, error) {
-	instance, err := c.injector.Resolve("configHandler")
-	if err != nil {
-		return nil, err
-	}
-	configHandler, ok := instance.(config.ConfigHandler)
-	if !ok {
-		return nil, fmt.Errorf("resolved instance is not a ConfigHandler")
-	}
-	return configHandler, nil
+func (c *BaseController) ResolveConfigHandler() config.ConfigHandler {
+	instance := c.injector.Resolve("configHandler")
+	configHandler, _ := instance.(config.ConfigHandler)
+	return configHandler
 }
 
 // ResolveContextHandler resolves the contextHandler instance.
-func (c *BaseController) ResolveContextHandler() (context.ContextHandler, error) {
-	instance, err := c.injector.Resolve("contextHandler")
-	if err != nil {
-		return nil, err
-	}
-	contextHandler, ok := instance.(context.ContextHandler)
-	if !ok {
-		return nil, fmt.Errorf("resolved instance is not a ContextHandler")
-	}
-	return contextHandler, nil
+func (c *BaseController) ResolveContextHandler() context.ContextHandler {
+	instance := c.injector.Resolve("contextHandler")
+	contextHandler, _ := instance.(context.ContextHandler)
+	return contextHandler
 }
 
 // ResolveEnvPrinter resolves the envPrinter instance.
-func (c *BaseController) ResolveEnvPrinter(name string) (env.EnvPrinter, error) {
-	instance, err := c.injector.Resolve(name)
-	if err != nil {
-		return nil, err
-	}
-	envPrinter, ok := instance.(env.EnvPrinter)
-	if !ok {
-		return nil, fmt.Errorf("resolved instance is not an EnvPrinter")
-	}
-	return envPrinter, nil
+func (c *BaseController) ResolveEnvPrinter(name string) env.EnvPrinter {
+	instance := c.injector.Resolve(name)
+	envPrinter, _ := instance.(env.EnvPrinter)
+	return envPrinter
 }
 
 // ResolveAllEnvPrinters resolves all envPrinter instances.
-func (c *BaseController) ResolveAllEnvPrinters() ([]env.EnvPrinter, error) {
-	instances, err := c.injector.ResolveAll((*env.EnvPrinter)(nil))
-	if err != nil {
-		return nil, err
-	}
+func (c *BaseController) ResolveAllEnvPrinters() []env.EnvPrinter {
+	instances, _ := c.injector.ResolveAll((*env.EnvPrinter)(nil))
 	envPrinters := make([]env.EnvPrinter, 0, len(instances))
 	for _, instance := range instances {
 		envPrinter, _ := instance.(env.EnvPrinter)
 		envPrinters = append(envPrinters, envPrinter)
 	}
-	return envPrinters, nil
+	return envPrinters
 }
 
 // ResolveShell resolves the shell instance.
-func (c *BaseController) ResolveShell() (shell.Shell, error) {
-	instance, err := c.injector.Resolve("shell")
-	if err != nil {
-		return nil, err
-	}
-	shellInstance, ok := instance.(shell.Shell)
-	if !ok {
-		return nil, fmt.Errorf("resolved instance is not a Shell")
-	}
-	return shellInstance, nil
+func (c *BaseController) ResolveShell() shell.Shell {
+	instance := c.injector.Resolve("shell")
+	shellInstance, _ := instance.(shell.Shell)
+	return shellInstance
 }
 
 // ResolveSecureShell resolves the secureShell instance.
-func (c *BaseController) ResolveSecureShell() (shell.Shell, error) {
-	instance, err := c.injector.Resolve("secureShell")
-	if err != nil {
-		return nil, err
-	}
-	shellInstance, ok := instance.(shell.Shell)
-	if !ok {
-		return nil, fmt.Errorf("resolved instance is not a Shell")
-	}
-	return shellInstance, nil
+func (c *BaseController) ResolveSecureShell() shell.Shell {
+	instance := c.injector.Resolve("secureShell")
+	shellInstance, _ := instance.(shell.Shell)
+	return shellInstance
 }
 
 // ResolveNetworkManager resolves the networkManager instance.
-func (c *BaseController) ResolveNetworkManager() (network.NetworkManager, error) {
-	instance, err := c.injector.Resolve("networkManager")
-	if err != nil {
-		return nil, err
-	}
-	networkManager, ok := instance.(network.NetworkManager)
-	if !ok {
-		return nil, fmt.Errorf("resolved instance is not a NetworkManager")
-	}
-	return networkManager, nil
+func (c *BaseController) ResolveNetworkManager() network.NetworkManager {
+	instance := c.injector.Resolve("networkManager")
+	networkManager, _ := instance.(network.NetworkManager)
+	return networkManager
 }
 
 // ResolveService resolves the requested service instance.
-func (c *BaseController) ResolveService(name string) (services.Service, error) {
-	instance, err := c.injector.Resolve(name)
-	if err != nil {
-		return nil, err
-	}
-	serviceInstance, ok := instance.(services.Service)
-	if !ok {
-		return nil, fmt.Errorf("resolved instance is not a Service")
-	}
-	return serviceInstance, nil
+func (c *BaseController) ResolveService(name string) services.Service {
+	instance := c.injector.Resolve(name)
+	serviceInstance, _ := instance.(services.Service)
+	return serviceInstance
 }
 
 // ResolveAllServices resolves all service instances.
-func (c *BaseController) ResolveAllServices() ([]services.Service, error) {
-	instances, err := c.injector.ResolveAll((*services.Service)(nil))
-	if err != nil {
-		return nil, err
-	}
+func (c *BaseController) ResolveAllServices() []services.Service {
+	instances, _ := c.injector.ResolveAll((*services.Service)(nil))
 	servicesInstances := make([]services.Service, 0, len(instances))
 	for _, instance := range instances {
 		serviceInstance, _ := instance.(services.Service)
 		servicesInstances = append(servicesInstances, serviceInstance)
 	}
-	return servicesInstances, nil
+	return servicesInstances
 }
 
 // ResolveVirtualMachine resolves the requested virtualMachine instance.
-func (c *BaseController) ResolveVirtualMachine() (virt.VirtualMachine, error) {
-	instance, err := c.injector.Resolve("virtualMachine")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving virtual machine: %w", err)
-	}
-	virtualMachine, ok := instance.(virt.VirtualMachine)
-	if !ok {
-		return nil, fmt.Errorf("resolved instance is not a VirtualMachine")
-	}
-	return virtualMachine, nil
+func (c *BaseController) ResolveVirtualMachine() virt.VirtualMachine {
+	instance := c.injector.Resolve("virtualMachine")
+	virtualMachine, _ := instance.(virt.VirtualMachine)
+	return virtualMachine
 }
 
 // ResolveContainerRuntime resolves the requested containerRuntime instance.
-func (c *BaseController) ResolveContainerRuntime() (virt.ContainerRuntime, error) {
-	instance, err := c.injector.Resolve("containerRuntime")
-	if err != nil {
-		return nil, fmt.Errorf("error resolving container runtime: %w", err)
-	}
-	containerRuntime, ok := instance.(virt.ContainerRuntime)
-	if !ok {
-		return nil, fmt.Errorf("resolved instance is not a ContainerRuntime")
-	}
-	return containerRuntime, nil
+func (c *BaseController) ResolveContainerRuntime() virt.ContainerRuntime {
+	instance := c.injector.Resolve("containerRuntime")
+	containerRuntime, _ := instance.(virt.ContainerRuntime)
+	return containerRuntime
 }
 
 // Ensure BaseController implements the Controller interface

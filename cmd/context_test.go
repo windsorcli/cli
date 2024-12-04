@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -44,38 +43,11 @@ func TestContext_Get(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorInitializingController", func(t *testing.T) {
-		// Given a controller with a mocked initializeController that returns an error
-		originalInitializeController := initializeController
-		initializeController = func() error {
-			return fmt.Errorf("Error initializing controller")
-		}
-		defer func() {
-			initializeController = originalInitializeController
-		}()
-
-		// When the get context command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"context", "get"})
-			err := Execute(ctrl.NewMockController(di.NewMockInjector()))
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error initializing controller"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("Error", func(t *testing.T) {
-		// Given a controller with a mocked ResolveContextHandler that returns an error
-		injector := di.NewMockInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveContextHandlerFunc = func() (context.ContextHandler, error) {
-			return nil, errors.New("get context error")
+	t.Run("ErrorInitializingComponents", func(t *testing.T) {
+		// Given an error initializing components
+		mockController := ctrl.NewMockController(di.NewInjector())
+		mockController.InitializeComponentsFunc = func() error {
+			return fmt.Errorf("initialization error")
 		}
 
 		// When the get context command is executed
@@ -88,7 +60,31 @@ func TestContext_Get(t *testing.T) {
 		})
 
 		// Then the output should indicate the error
-		expectedOutput := "get context error"
+		expectedOutput := "Error initializing components: initialization error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
+		// Given a controller with a mocked ResolveContextHandler that returns nil
+		injector := di.NewMockInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
+			return nil
+		}
+
+		// When the get context command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"context", "get"})
+			err := Execute(mockController)
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then the output should indicate the error
+		expectedOutput := "Error: no context handler found"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
@@ -103,8 +99,8 @@ func TestContext_Get(t *testing.T) {
 		injector.Register("contextHandler", mockContextHandler)
 
 		// Ensure the mock controller returns the mock context handler
-		mockController.ResolveContextHandlerFunc = func() (context.ContextHandler, error) {
-			return mockContextHandler, nil
+		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
+			return mockContextHandler
 		}
 
 		// When the get context command is executed
@@ -159,16 +155,14 @@ func TestContext_Set(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorInitializingController", func(t *testing.T) {
-		// Given a controller with a mocked initializeController that returns an error
-		originalInitializeController := initializeController
-		initializeController = func() error {
-			return fmt.Errorf("Error initializing controller")
+	t.Run("ErrorInitializingComponents", func(t *testing.T) {
+		// Given an error initializing components
+		mockController := ctrl.NewMockController(di.NewInjector())
+		mockController.InitializeComponentsFunc = func() error {
+			return fmt.Errorf("initialization error")
 		}
-		defer func() { initializeController = originalInitializeController }()
 
 		// When the set context command is executed
-		mockController := ctrl.NewMockController(di.NewMockInjector())
 		rootCmd.SetArgs([]string{"context", "set", "new-context"})
 		err := Execute(mockController)
 		if err == nil {
@@ -176,20 +170,18 @@ func TestContext_Set(t *testing.T) {
 		}
 
 		// Then the output should indicate the error
-		expectedOutput := "Error initializing controller"
+		expectedOutput := "initialization error"
 		if !strings.Contains(err.Error(), expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
 		}
 	})
 
-	t.Run("ResolveContextHandlerError", func(t *testing.T) {
-		// Given a controller that returns an error on ResolveContextHandler
+	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
+		// Given a controller that returns nil for ResolveContextHandler
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
-
-		// Mock the ResolveContextHandler to return an error
-		mockController.ResolveContextHandlerFunc = func() (context.ContextHandler, error) {
-			return nil, fmt.Errorf("resolve context handler error")
+		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
+			return nil
 		}
 
 		// When the set context command is executed
@@ -200,7 +192,7 @@ func TestContext_Set(t *testing.T) {
 		}
 
 		// Then the output should indicate the error
-		expectedOutput := "resolve context handler error"
+		expectedOutput := "Error: no context handler found"
 		if !strings.Contains(err.Error(), expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
 		}
@@ -217,8 +209,8 @@ func TestContext_Set(t *testing.T) {
 		injector.Register("contextHandler", mockContextHandler)
 
 		// Ensure the mock controller returns the mock context handler
-		mockController.ResolveContextHandlerFunc = func() (context.ContextHandler, error) {
-			return mockContextHandler, nil
+		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
+			return mockContextHandler
 		}
 
 		// When the set context command is executed
@@ -308,8 +300,8 @@ func TestContext_SetAlias(t *testing.T) {
 
 		// Modify MockController to return the mockContextHandler for ResolveContextHandler
 		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveContextHandlerFunc = func() (context.ContextHandler, error) {
-			return mockContextHandler, nil
+		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
+			return mockContextHandler
 		}
 
 		// When the set-context alias command is executed
@@ -323,101 +315,6 @@ func TestContext_SetAlias(t *testing.T) {
 		expectedOutput := "set context error"
 		if !strings.Contains(err.Error(), expectedOutput) {
 			t.Errorf("Expected error to contain %q, got %q", expectedOutput, err.Error())
-		}
-	})
-}
-
-func TestContext_initializeController(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		injector := di.NewMockInjector()
-		originalController := controller
-		controller = ctrl.NewMockController(injector)
-		defer func() { controller = originalController }()
-
-		// When the initializeController function is called
-		err := initializeController()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorInitializingController", func(t *testing.T) {
-		injector := di.NewMockInjector()
-		originalController := controller
-		mockController := ctrl.NewMockController(injector)
-		controller = mockController
-		defer func() { controller = originalController }()
-
-		// Mock the Initialize function to return an error
-		mockController.InitializeFunc = func() error {
-			return fmt.Errorf("Error initializing controller")
-		}
-
-		// When the initializeController function is called
-		err := initializeController()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		expectedError := "Error initializing controller: Error initializing controller"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorCreatingCommonComponents", func(t *testing.T) {
-		injector := di.NewMockInjector()
-		originalController := controller
-		mockController := ctrl.NewMockController(injector)
-		controller = mockController
-		defer func() { controller = originalController }()
-
-		// Mock the CreateCommonComponents function to return an error
-		mockController.CreateCommonComponentsFunc = func() error {
-			return fmt.Errorf("Error creating common components")
-		}
-
-		// When the initializeController function is called
-		err := initializeController()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		expectedError := "Error creating common components: Error creating common components"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorInitializingComponents", func(t *testing.T) {
-		injector := di.NewMockInjector()
-		originalController := controller
-		mockController := ctrl.NewMockController(injector)
-		controller = mockController
-		defer func() { controller = originalController }()
-
-		// Mock the InitializeComponents function to return an error
-		mockController.InitializeComponentsFunc = func() error {
-			return fmt.Errorf("Error initializing components")
-		}
-
-		// When the initializeController function is called
-		err := initializeController()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		expectedError := "Error initializing components: Error initializing components"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 }

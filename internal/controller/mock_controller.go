@@ -23,17 +23,18 @@ type MockController struct {
 	CreateServiceComponentsFunc        func() error
 	CreateVirtualizationComponentsFunc func() error
 	ResolveInjectorFunc                func() di.Injector
-	ResolveConfigHandlerFunc           func() (config.ConfigHandler, error)
-	ResolveContextHandlerFunc          func() (context.ContextHandler, error)
-	ResolveEnvPrinterFunc              func(name string) (env.EnvPrinter, error)
-	ResolveAllEnvPrintersFunc          func() ([]env.EnvPrinter, error)
-	ResolveShellFunc                   func() (shell.Shell, error)
-	ResolveSecureShellFunc             func() (shell.Shell, error)
-	ResolveNetworkManagerFunc          func() (network.NetworkManager, error)
-	ResolveServiceFunc                 func(name string) (services.Service, error)
-	ResolveAllServicesFunc             func() ([]services.Service, error)
-	ResolveVirtualMachineFunc          func() (virt.VirtualMachine, error)
-	ResolveContainerRuntimeFunc        func() (virt.ContainerRuntime, error)
+	ResolveConfigHandlerFunc           func() config.ConfigHandler
+	ResolveContextHandlerFunc          func() context.ContextHandler
+	ResolveEnvPrinterFunc              func(name string) env.EnvPrinter
+	ResolveAllEnvPrintersFunc          func() []env.EnvPrinter
+	ResolveShellFunc                   func() shell.Shell
+	ResolveSecureShellFunc             func() shell.Shell
+	ResolveNetworkManagerFunc          func() network.NetworkManager
+	ResolveServiceFunc                 func(name string) services.Service
+	ResolveAllServicesFunc             func() []services.Service
+	ResolveVirtualMachineFunc          func() virt.VirtualMachine
+	ResolveContainerRuntimeFunc        func() virt.ContainerRuntime
+	WriteConfigurationFilesFunc        func() error
 }
 
 func NewMockController(injector di.Injector) *MockController {
@@ -44,20 +45,20 @@ func NewMockController(injector di.Injector) *MockController {
 	}
 }
 
-// Initialize calls the mock InitializeFunc if set, otherwise returns nil
+// Initialize calls the mock InitializeFunc if set, otherwise calls the parent function
 func (m *MockController) Initialize() error {
 	if m.InitializeFunc != nil {
 		return m.InitializeFunc()
 	}
-	return nil
+	return m.BaseController.Initialize()
 }
 
-// InitializeComponents calls the mock InitializeComponentsFunc if set, otherwise returns nil
+// InitializeComponents calls the mock InitializeComponentsFunc if set, otherwise calls the parent function
 func (m *MockController) InitializeComponents() error {
 	if m.InitializeComponentsFunc != nil {
 		return m.InitializeComponentsFunc()
 	}
-	return nil
+	return m.BaseController.InitializeComponents()
 }
 
 // CreateCommonComponents calls the mock CreateCommonComponentsFunc if set, otherwise creates mock components
@@ -222,100 +223,108 @@ func (m *MockController) CreateVirtualizationComponents() error {
 	return nil
 }
 
+// WriteConfigurationFiles calls the mock WriteConfigurationFilesFunc if set, otherwise calls the parent function
+func (m *MockController) WriteConfigurationFiles() error {
+	if m.WriteConfigurationFilesFunc != nil {
+		return m.WriteConfigurationFilesFunc()
+	}
+	return nil
+}
+
 // ResolveInjector calls the mock ResolveInjectorFunc if set, otherwise returns a mock injector
 func (m *MockController) ResolveInjector() di.Injector {
 	if m.ResolveInjectorFunc != nil {
 		return m.ResolveInjectorFunc()
 	}
-	return m.injector
+	return m.BaseController.ResolveInjector()
 }
 
-// ResolveConfigHandler calls the mock ResolveConfigHandlerFunc if set, otherwise returns a mock config handler
-func (m *MockController) ResolveConfigHandler() (config.ConfigHandler, error) {
+// ResolveConfigHandler calls the mock ResolveConfigHandlerFunc if set, otherwise calls the parent function
+func (m *MockController) ResolveConfigHandler() config.ConfigHandler {
 	if m.ResolveConfigHandlerFunc != nil {
 		return m.ResolveConfigHandlerFunc()
 	}
-	return config.NewMockConfigHandler(), nil
+	return m.BaseController.ResolveConfigHandler()
 }
 
-// ResolveContextHandler calls the mock ResolveContextHandlerFunc if set, otherwise returns a mock context handler
-func (m *MockController) ResolveContextHandler() (context.ContextHandler, error) {
+// ResolveContextHandler calls the mock ResolveContextHandlerFunc if set, otherwise calls the parent function
+func (m *MockController) ResolveContextHandler() context.ContextHandler {
 	if m.ResolveContextHandlerFunc != nil {
 		return m.ResolveContextHandlerFunc()
 	}
-	return context.NewMockContext(), nil
+	return m.BaseController.ResolveContextHandler()
 }
 
-// ResolveEnvPrinter calls the mock ResolveEnvPrinterFunc if set, otherwise returns a mock env printer
-func (m *MockController) ResolveEnvPrinter(name string) (env.EnvPrinter, error) {
+// ResolveEnvPrinter calls the mock ResolveEnvPrinterFunc if set, otherwise calls the parent function
+func (m *MockController) ResolveEnvPrinter(name string) env.EnvPrinter {
 	if m.ResolveEnvPrinterFunc != nil {
 		return m.ResolveEnvPrinterFunc(name)
 	}
-	return env.NewMockEnvPrinter(), nil
+	return m.BaseController.ResolveEnvPrinter(name)
 }
 
-// ResolveAllEnvPrinters calls the mock ResolveAllEnvPrintersFunc if set, otherwise returns a list of mock env printers
-func (m *MockController) ResolveAllEnvPrinters() ([]env.EnvPrinter, error) {
+// ResolveAllEnvPrinters calls the mock ResolveAllEnvPrintersFunc if set, otherwise calls the parent function
+func (m *MockController) ResolveAllEnvPrinters() []env.EnvPrinter {
 	if m.ResolveAllEnvPrintersFunc != nil {
 		return m.ResolveAllEnvPrintersFunc()
 	}
-	return []env.EnvPrinter{env.NewMockEnvPrinter()}, nil
+	return m.BaseController.ResolveAllEnvPrinters()
 }
 
-// ResolveShell calls the mock ResolveShellFunc if set, otherwise returns a mock shell
-func (m *MockController) ResolveShell() (shell.Shell, error) {
+// ResolveShell calls the mock ResolveShellFunc if set, otherwise calls the parent function
+func (m *MockController) ResolveShell() shell.Shell {
 	if m.ResolveShellFunc != nil {
 		return m.ResolveShellFunc()
 	}
-	return shell.NewMockShell(), nil
+	return m.BaseController.ResolveShell()
 }
 
-// ResolveSecureShell calls the mock ResolveSecureShellFunc if set, otherwise returns a mock secure shell
-func (m *MockController) ResolveSecureShell() (shell.Shell, error) {
+// ResolveSecureShell calls the mock ResolveSecureShellFunc if set, otherwise calls the parent function
+func (m *MockController) ResolveSecureShell() shell.Shell {
 	if m.ResolveSecureShellFunc != nil {
 		return m.ResolveSecureShellFunc()
 	}
-	return shell.NewMockShell(), nil
+	return m.BaseController.ResolveSecureShell()
 }
 
-// ResolveNetworkManager calls the mock ResolveNetworkManagerFunc if set, otherwise returns a mock network manager
-func (m *MockController) ResolveNetworkManager() (network.NetworkManager, error) {
+// ResolveNetworkManager calls the mock ResolveNetworkManagerFunc if set, otherwise calls the parent function
+func (m *MockController) ResolveNetworkManager() network.NetworkManager {
 	if m.ResolveNetworkManagerFunc != nil {
 		return m.ResolveNetworkManagerFunc()
 	}
-	return network.NewMockNetworkManager(), nil
+	return m.BaseController.ResolveNetworkManager()
 }
 
-// ResolveService calls the mock ResolveServiceFunc if set, otherwise returns a mock service
-func (m *MockController) ResolveService(name string) (services.Service, error) {
+// ResolveService calls the mock ResolveServiceFunc if set, otherwise calls the parent function
+func (m *MockController) ResolveService(name string) services.Service {
 	if m.ResolveServiceFunc != nil {
 		return m.ResolveServiceFunc(name)
 	}
-	return services.NewMockService(), nil
+	return m.BaseController.ResolveService(name)
 }
 
-// ResolveAllServices calls the mock ResolveAllServicesFunc if set, otherwise returns a list of mock services
-func (m *MockController) ResolveAllServices() ([]services.Service, error) {
+// ResolveAllServices calls the mock ResolveAllServicesFunc if set, otherwise calls the parent function
+func (m *MockController) ResolveAllServices() []services.Service {
 	if m.ResolveAllServicesFunc != nil {
 		return m.ResolveAllServicesFunc()
 	}
-	return []services.Service{services.NewMockService()}, nil
+	return m.BaseController.ResolveAllServices()
 }
 
-// ResolveVirtualMachine calls the mock ResolveVirtualMachineFunc if set, otherwise returns a mock virtual machine
-func (m *MockController) ResolveVirtualMachine() (virt.VirtualMachine, error) {
+// ResolveVirtualMachine calls the mock ResolveVirtualMachineFunc if set, otherwise calls the parent function
+func (m *MockController) ResolveVirtualMachine() virt.VirtualMachine {
 	if m.ResolveVirtualMachineFunc != nil {
 		return m.ResolveVirtualMachineFunc()
 	}
-	return virt.NewMockVirt(), nil
+	return m.BaseController.ResolveVirtualMachine()
 }
 
-// ResolveContainerRuntime calls the mock ResolveContainerRuntimeFunc if set, otherwise returns a mock container runtime
-func (m *MockController) ResolveContainerRuntime() (virt.ContainerRuntime, error) {
+// ResolveContainerRuntime calls the mock ResolveContainerRuntimeFunc if set, otherwise calls the parent function
+func (m *MockController) ResolveContainerRuntime() virt.ContainerRuntime {
 	if m.ResolveContainerRuntimeFunc != nil {
 		return m.ResolveContainerRuntimeFunc()
 	}
-	return virt.NewMockVirt(), nil
+	return m.BaseController.ResolveContainerRuntime()
 }
 
 // Ensure MockController implements Controller

@@ -307,9 +307,6 @@ func (v *ColimaVirt) startColima(verbose bool) (VMInfo, error) {
 		return VMInfo{}, fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 	}
 
-	// Determine if running in CI environment
-	isCI := strings.ToLower(os.Getenv("CI")) == "true"
-
 	// Wait until the Colima VM has an assigned IP address, try three times
 	var info VMInfo
 	for i := 0; i < 3; i++ {
@@ -321,9 +318,7 @@ func (v *ColimaVirt) startColima(verbose bool) (VMInfo, error) {
 			return info, nil
 		}
 
-		if !isCI {
-			time.Sleep(2 * time.Second)
-		}
+		time.Sleep(time.Duration(RETRY_WAIT) * time.Second)
 	}
 
 	return VMInfo{}, fmt.Errorf("Failed to retrieve VM info with a valid address after multiple attempts")

@@ -43,6 +43,10 @@ func (c *RealController) CreateCommonComponents() error {
 	shell := sh.NewDefaultShell(c.injector)
 	c.injector.Register("shell", shell)
 
+	// Create a new secure shell
+	secureShell := sh.NewSecureShell(c.injector)
+	c.injector.Register("secureShell", secureShell)
+
 	return nil
 }
 

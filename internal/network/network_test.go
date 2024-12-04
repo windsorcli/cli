@@ -9,6 +9,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/services"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
 )
@@ -46,7 +47,7 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 		switch key {
-		case "network.cidr":
+		case "docker.network_cidr":
 			return "192.168.1.0/24"
 		case "vm.address":
 			return "192.168.1.10"
@@ -110,6 +111,16 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 	}
 	injector.Register("networkInterfaceProvider", mockNetworkInterfaceProvider)
 
+	// Create mock services
+	mockService1 := services.NewMockService()
+	mockService1.SetName("Service1")
+	injector.Register("service1", mockService1)
+
+	// Create another mock service
+	mockService2 := services.NewMockService()
+	mockService2.SetName("Service2")
+	injector.Register("service2", mockService2)
+
 	// Return a struct containing all mocks
 	return &NetworkManagerMocks{
 		Injector:                     injector,
@@ -141,29 +152,6 @@ func TestNetworkManager_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingSSHClient", func(t *testing.T) {
-		// Setup mocks
-		injector := di.NewMockInjector()
-		setupNetworkManagerMocks(injector)
-
-		// Mock the injector to return an error when resolving sshClient
-		injector.SetResolveError("sshClient", fmt.Errorf("mock error resolving ssh client"))
-
-		// Create a new NetworkManager
-		nm, err := NewBaseNetworkManager(injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
-
-		// Run Initialize on the NetworkManager
-		err = nm.Initialize()
-		if err == nil {
-			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "failed to resolve ssh client instance: mock error resolving ssh client" {
-			t.Fatalf("unexpected error message: got %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingSSHClient", func(t *testing.T) {
 		mocks := setupNetworkManagerMocks()
 
 		// Register the sshClient as "invalid"
@@ -185,28 +173,6 @@ func TestNetworkManager_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		injector := di.NewMockInjector()
-		setupNetworkManagerMocks(injector)
-
-		// Mock the injector to return an error when resolving shell
-		injector.SetResolveError("shell", fmt.Errorf("mock error resolving shell"))
-
-		// Create a new NetworkManager
-		nm, err := NewBaseNetworkManager(injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
-
-		// Run Initialize on the NetworkManager
-		err = nm.Initialize()
-		if err == nil {
-			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "failed to resolve shell instance: mock error resolving shell" {
-			t.Fatalf("unexpected error message: got %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingShell", func(t *testing.T) {
 		mocks := setupNetworkManagerMocks()
 
 		// Register the shell as "invalid"
@@ -227,51 +193,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		injector := di.NewMockInjector()
-		setupNetworkManagerMocks(injector)
-
-		// Mock the injector to return an error when resolving configHandler
-		injector.SetResolveError("configHandler", fmt.Errorf("mock error resolving configHandler"))
-
-		// Create a new NetworkManager
-		nm, err := NewBaseNetworkManager(injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
-
-		// Run Initialize on the NetworkManager
-		err = nm.Initialize()
-		if err == nil {
-			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "failed to resolve CLI config handler: mock error resolving configHandler" {
-			t.Fatalf("unexpected error message: got %v", err)
-		}
-	})
-
 	t.Run("ErrorResolvingSecureShell", func(t *testing.T) {
-		injector := di.NewMockInjector()
-		setupNetworkManagerMocks(injector)
-
-		// Mock the injector to return an error when resolving secureShell
-		injector.SetResolveError("secureShell", fmt.Errorf("mock error resolving secureShell"))
-
-		// Create a new NetworkManager
-		nm, err := NewBaseNetworkManager(injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
-
-		// Run Initialize on the NetworkManager
-		err = nm.Initialize()
-		if err == nil {
-			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "failed to resolve secure shell instance: mock error resolving secureShell" {
-			t.Fatalf("unexpected error message: got %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingSecureShell", func(t *testing.T) {
 		injector := di.NewMockInjector()
 		setupNetworkManagerMocks(injector)
 
@@ -294,28 +216,6 @@ func TestNetworkManager_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		injector := di.NewMockInjector()
-		setupNetworkManagerMocks(injector)
-
-		// Mock the injector to return an error when resolving configHandler
-		injector.SetResolveError("configHandler", fmt.Errorf("mock error resolving configHandler"))
-
-		// Create a new NetworkManager
-		nm, err := NewBaseNetworkManager(injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
-
-		// Run Initialize on the NetworkManager
-		err = nm.Initialize()
-		if err == nil {
-			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "failed to resolve CLI config handler: mock error resolving configHandler" {
-			t.Fatalf("unexpected error message: got %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingConfigHandler", func(t *testing.T) {
 		mocks := setupNetworkManagerMocks()
 
 		// Register the configHandler as "invalid"
@@ -331,36 +231,12 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		err = nm.Initialize()
 		if err == nil {
 			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "resolved CLI config handler instance is not of type config.ConfigHandler" {
+		} else if err.Error() != "error resolving configHandler" {
 			t.Fatalf("unexpected error message: got %v", err)
 		}
 	})
 
 	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		injector := di.NewMockInjector()
-
-		// Mock the injector to return an error when resolving contextHandler
-		injector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving contextHandler"))
-
-		// Setup mocks with the modified injector
-		mocks := setupNetworkManagerMocks(injector)
-
-		// Create a new NetworkManager
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
-
-		// Run Initialize on the NetworkManager
-		err = nm.Initialize()
-		if err == nil {
-			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "failed to resolve context handler: mock error resolving contextHandler" {
-			t.Fatalf("unexpected error message: got %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingContextHandler", func(t *testing.T) {
 		// Setup mocks
 		mocks := setupNetworkManagerMocks()
 
@@ -377,33 +253,12 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		err = nm.Initialize()
 		if err == nil {
 			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "resolved context handler instance is not of type context.ContextHandler" {
+		} else if err.Error() != "failed to resolve context handler" {
 			t.Fatalf("unexpected error message: got %v", err)
 		}
 	})
 
 	t.Run("ErrorResolvingNetworkInterfaceProvider", func(t *testing.T) {
-		// Setup mocks with a new injector
-		injector := di.NewMockInjector()
-		injector.SetResolveError("networkInterfaceProvider", fmt.Errorf("mock error resolving network interface provider"))
-		mocks := setupNetworkManagerMocks(injector)
-
-		// Create a new NetworkManager
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
-
-		// Run Initialize on the NetworkManager
-		err = nm.Initialize()
-		if err == nil {
-			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "failed to resolve network interface provider: mock error resolving network interface provider" {
-			t.Fatalf("unexpected error message: got %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingNetworkInterfaceProvider", func(t *testing.T) {
 		// Setup mocks
 		mocks := setupNetworkManagerMocks()
 
@@ -420,8 +275,66 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		err = nm.Initialize()
 		if err == nil {
 			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "resolved network interface provider instance is not of type NetworkInterfaceProvider" {
+		} else if err.Error() != "failed to resolve network interface provider" {
 			t.Fatalf("unexpected error message: got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingServices", func(t *testing.T) {
+		// Setup mock components
+		injector := di.NewMockInjector()
+		mocks := setupNetworkManagerMocks(injector)
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
+		}
+
+		// Mock ResolveAll to return an error
+		injector.SetResolveAllError(new(services.Service), fmt.Errorf("mock error resolving services"))
+
+		// Call the Initialize method
+		err = nm.Initialize()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+
+		// Verify the error message contains the expected substring
+		expectedErrorSubstring := "error resolving services"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+		}
+	})
+
+	t.Run("ErrorAssigningIPAddresses", func(t *testing.T) {
+		// Setup mock components
+		injector := di.NewMockInjector()
+		mocks := setupNetworkManagerMocks(injector)
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
+		}
+
+		// Simulate an error during IP address assignment
+		originalAssignIPAddresses := assignIPAddresses
+		defer func() { assignIPAddresses = originalAssignIPAddresses }()
+		assignIPAddresses = func(services []services.Service, networkCIDR *string) error {
+			return fmt.Errorf("mock assign IP addresses error")
+		}
+
+		// Call the Initialize method
+		err = nm.Initialize()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+
+		// Verify the error message contains the expected substring
+		expectedErrorSubstring := "error assigning IP addresses"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
 	})
 }
@@ -731,6 +644,109 @@ func TestNetworkManager_getHostIP(t *testing.T) {
 		// Verify the host IP is empty
 		if hostIP != "" {
 			t.Fatalf("expected empty host IP, got %v", hostIP)
+		}
+	})
+}
+
+func TestNetworkManager_assignIPAddresses(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		var setAddressCalls []string
+		services := []services.Service{
+			&services.MockService{
+				SetAddressFunc: func(address string) error {
+					setAddressCalls = append(setAddressCalls, address)
+					return nil
+				},
+			},
+			&services.MockService{
+				SetAddressFunc: func(address string) error {
+					setAddressCalls = append(setAddressCalls, address)
+					return nil
+				},
+			},
+		}
+		networkCIDR := "10.1.0.0/16"
+
+		err := assignIPAddresses(services, &networkCIDR)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		expectedIPs := []string{"10.1.0.2", "10.1.0.3"}
+		for i, expectedIP := range expectedIPs {
+			if setAddressCalls[i] != expectedIP {
+				t.Errorf("expected SetAddress to be called with IP %s, got %s", expectedIP, setAddressCalls[i])
+			}
+		}
+	})
+
+	t.Run("NilNetworkCIDR", func(t *testing.T) {
+		services := []services.Service{
+			&services.MockService{},
+			&services.MockService{},
+		}
+
+		err := assignIPAddresses(services, nil)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		for _, service := range services {
+			if service.GetAddress() != "" {
+				t.Errorf("expected empty address, got %s", service.GetAddress())
+			}
+		}
+	})
+
+	t.Run("InvalidNetworkCIDR", func(t *testing.T) {
+		services := []services.Service{
+			&services.MockService{},
+			&services.MockService{},
+		}
+		networkCIDR := "invalid-cidr"
+
+		err := assignIPAddresses(services, &networkCIDR)
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
+		if !strings.Contains(err.Error(), "error parsing network CIDR") {
+			t.Fatalf("expected error message to contain 'error parsing network CIDR', got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingAddress", func(t *testing.T) {
+		services := []services.Service{
+			&services.MockService{
+				SetAddressFunc: func(address string) error {
+					return fmt.Errorf("error setting address")
+				},
+			},
+		}
+		networkCIDR := "10.1.0.0/16"
+
+		err := assignIPAddresses(services, &networkCIDR)
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
+		if !strings.Contains(err.Error(), "error setting address") {
+			t.Fatalf("expected error message to contain 'error setting address', got %v", err)
+		}
+	})
+
+	t.Run("NotEnoughIPAddresses", func(t *testing.T) {
+		services := []services.Service{
+			&services.MockService{},
+			&services.MockService{},
+			&services.MockService{},
+		}
+		networkCIDR := "10.1.0.0/30"
+
+		err := assignIPAddresses(services, &networkCIDR)
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
+		if !strings.Contains(err.Error(), "not enough IP addresses in the CIDR range") {
+			t.Fatalf("expected error message to contain 'not enough IP addresses in the CIDR range', got %v", err)
 		}
 	})
 }

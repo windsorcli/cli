@@ -9,7 +9,6 @@ import (
 	ctrl "github.com/windsor-hotel/cli/internal/controller"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/mocks"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
@@ -21,16 +20,16 @@ func setupSafeExecCmdMocks() *MockObjects {
 	mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 		return map[string]string{"KEY": "VALUE"}, nil
 	}
-	mockController.ResolveAllEnvPrintersFunc = func() ([]env.EnvPrinter, error) {
-		return []env.EnvPrinter{mockEnvPrinter}, nil
+	mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+		return []env.EnvPrinter{mockEnvPrinter}
 	}
 
 	mockShell := shell.NewMockShell()
 	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
 		return "hello", nil
 	}
-	mockController.ResolveShellFunc = func() (shell.Shell, error) {
-		return mockShell, nil
+	mockController.ResolveShellFunc = func() shell.Shell {
+		return mockShell
 	}
 
 	return &MockObjects{
@@ -72,8 +71,8 @@ func TestExecCmd(t *testing.T) {
 	t.Run("NoCommandProvided", func(t *testing.T) {
 		defer resetRootCmd()
 
-		// Setup mock components using SuperMocks
-		mocks := mocks.CreateSuperMocks()
+		// Setup mock controller
+		mocks := setupSafeExecCmdMocks()
 
 		// Capture stderr
 		var buf bytes.Buffer
@@ -90,54 +89,6 @@ func TestExecCmd(t *testing.T) {
 		expectedOutput := "no command provided"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorInitializingController", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Setup mock controller
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.InitializeFunc = func() error {
-			return fmt.Errorf("initialization error")
-		}
-
-		// When the exec command is executed
-		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mockController)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then the error should indicate the initialization error
-		expectedError := "Error initializing controller: initialization error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error to be %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorCreatingCommonComponents", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Setup mock controller
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.CreateCommonComponentsFunc = func() error {
-			return fmt.Errorf("error creating common components")
-		}
-
-		// When the exec command is executed
-		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mockController)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then the error should indicate the common components creation error
-		expectedError := "Error creating common components: error creating common components"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error to be %q, got %q", expectedError, err.Error())
 		}
 	})
 
@@ -165,7 +116,7 @@ func TestExecCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorInitializing", func(t *testing.T) {
+	t.Run("ErrorInitializingComponents", func(t *testing.T) {
 		defer resetRootCmd()
 
 		// Setup mock controller
@@ -201,8 +152,8 @@ func TestExecCmd(t *testing.T) {
 		// Setup mock controller
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveAllEnvPrintersFunc = func() ([]env.EnvPrinter, error) {
-			return nil, fmt.Errorf("resolve all env printers error")
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return nil
 		}
 
 		// Capture stderr
@@ -219,7 +170,7 @@ func TestExecCmd(t *testing.T) {
 		output := buf.String()
 
 		// Then the output should indicate the error
-		expectedOutput := "Error resolving environment printers: resolve all env printers error"
+		expectedOutput := "Error resolving environment printers: no printers returned"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
@@ -353,8 +304,8 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
-		mocks.Controller.ResolveShellFunc = func() (shell.Shell, error) {
-			return nil, fmt.Errorf("resolve shell error")
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return nil
 		}
 
 		// Capture stderr
@@ -371,7 +322,7 @@ func TestExecCmd(t *testing.T) {
 		output := buf.String()
 
 		// Then the output should indicate the error
-		expectedOutput := "Error resolving shell instance: resolve shell error"
+		expectedOutput := "Error: no shell found"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}

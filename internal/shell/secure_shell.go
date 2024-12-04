@@ -32,11 +32,11 @@ func (s *SecureShell) Initialize() error {
 	}
 
 	// Get the SSH client
-	sshClient, err := s.injector.Resolve("sshClient")
-	if err != nil {
-		return fmt.Errorf("failed to resolve SSH client: %w", err)
+	sshClient, ok := s.injector.Resolve("sshClient").(ssh.Client)
+	if !ok {
+		return fmt.Errorf("failed to resolve SSH client")
 	}
-	s.sshClient = sshClient.(ssh.Client)
+	s.sshClient = sshClient
 
 	return nil
 }

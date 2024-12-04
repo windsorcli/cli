@@ -198,6 +198,9 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 
 		// Override the GetString method to return an empty string for "vm.address"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.5.0/24"
+			}
 			if key == "vm.address" {
 				return ""
 			}

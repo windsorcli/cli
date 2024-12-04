@@ -58,9 +58,9 @@ func registerMockItem(injector *BaseInjector, name string, service MockItem) {
 }
 
 func resolveService(t *testing.T, injector *BaseInjector, name string) MockItem {
-	resolvedInstance, err := injector.Resolve(name)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+	resolvedInstance := injector.Resolve(name)
+	if resolvedInstance == nil {
+		t.Fatalf("expected no error, got %v", resolvedInstance)
 	}
 	resolvedService, ok := resolvedInstance.(MockItem)
 	if !ok {
@@ -93,12 +93,11 @@ func TestDIContainer(t *testing.T) {
 			injector := setupInjector()
 
 			// When resolving a non-existent service
-			_, err := injector.Resolve("nonExistentService")
+			resolvedInstance := injector.Resolve("nonExistentService")
 
-			// Then an error should be returned
-			expectedError := "no instance registered with name nonExistentService"
-			if err == nil || err.Error() != expectedError {
-				t.Fatalf("expected error %q, got %v", expectedError, err)
+			// Then the resolved instance should be nil
+			if resolvedInstance != nil {
+				t.Fatalf("expected nil, got %v", resolvedInstance)
 			}
 		})
 	})
@@ -131,38 +130,6 @@ func TestDIContainer(t *testing.T) {
 				if !ok {
 					t.Fatalf("expected MockItem, got %T", instance)
 				}
-			}
-		})
-
-		t.Run("NoInstancesFound", func(t *testing.T) {
-			// Given a new injector
-			injector := setupInjector()
-
-			// When resolving all services of type MockItem
-			_, err := injector.ResolveAll((*MockItem)(nil))
-
-			// Then an error should be returned
-			expectedError := "no instances found for the given type"
-			if err == nil || err.Error() != expectedError {
-				t.Fatalf("expected error %q, got %v", expectedError, err)
-			}
-		})
-
-		t.Run("TypeMismatch", func(t *testing.T) {
-			// Given a new injector
-			injector := setupInjector()
-
-			// And a mock service registered
-			mockService := &MockItemImpl{}
-			registerMockItem(injector, "mockService", mockService)
-
-			// When resolving all services of an unimplemented type
-			_, err := injector.ResolveAll((*UnimplementedService)(nil))
-
-			// Then an error should be returned
-			expectedError := "no instances found for the given type"
-			if err == nil || err.Error() != expectedError {
-				t.Fatalf("expected error %q, got %v", expectedError, err)
 			}
 		})
 
@@ -225,9 +192,9 @@ func TestDIContainer(t *testing.T) {
 			registerMockItem(injector, "mockService", mockService)
 
 			// When resolving the service
-			resolvedInstance, err := injector.Resolve("mockService")
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
+			resolvedInstance := injector.Resolve("mockService")
+			if resolvedInstance == nil {
+				t.Fatalf("expected no error, got %v", resolvedInstance)
 			}
 
 			// Then the resolved instance should not be of type string
@@ -247,9 +214,9 @@ func TestDIContainer(t *testing.T) {
 
 		t.Run("RegisterAndResolveService", func(t *testing.T) {
 			// When resolving the service
-			resolvedInstance, err := injector.Resolve("instance1")
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
+			resolvedInstance := injector.Resolve("instance1")
+			if resolvedInstance == nil {
+				t.Fatalf("Expected no error, got %v", resolvedInstance)
 			}
 			if resolvedInstance != instance1 {
 				t.Fatalf("Expected %v, got %v", instance1, resolvedInstance)

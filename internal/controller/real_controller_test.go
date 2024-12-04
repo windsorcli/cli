@@ -40,14 +40,14 @@ func TestRealController_CreateCommonComponents(t *testing.T) {
 		}
 
 		// And the components should be registered in the injector
-		if _, err := injector.Resolve("configHandler"); err != nil {
-			t.Fatalf("expected configHandler to be registered, got error: %v", err)
+		if injector.Resolve("configHandler") == nil {
+			t.Fatalf("expected configHandler to be registered, got error")
 		}
-		if _, err := injector.Resolve("contextHandler"); err != nil {
-			t.Fatalf("expected contextHandler to be registered, got error: %v", err)
+		if injector.Resolve("contextHandler") == nil {
+			t.Fatalf("expected contextHandler to be registered, got error")
 		}
-		if _, err := injector.Resolve("shell"); err != nil {
-			t.Fatalf("expected shell to be registered, got error: %v", err)
+		if injector.Resolve("shell") == nil {
+			t.Fatalf("expected shell to be registered, got error")
 		}
 
 		t.Logf("Success: common components created and registered")
@@ -69,28 +69,28 @@ func TestRealController_CreateEnvComponents(t *testing.T) {
 		}
 
 		// And the components should be registered in the injector
-		if _, err := injector.Resolve("awsEnv"); err != nil {
-			t.Fatalf("expected awsEnv to be registered, got error: %v", err)
+		if injector.Resolve("awsEnv") == nil {
+			t.Fatalf("expected awsEnv to be registered, got error")
 		}
-		if _, err := injector.Resolve("dockerEnv"); err != nil {
-			t.Fatalf("expected dockerEnv to be registered, got error: %v", err)
+		if injector.Resolve("dockerEnv") == nil {
+			t.Fatalf("expected dockerEnv to be registered, got error")
 		}
-		if _, err := injector.Resolve("kubeEnv"); err != nil {
+		if injector.Resolve("kubeEnv") == nil {
 			t.Fatalf("expected kubeEnv to be registered, got error: %v", err)
 		}
-		if _, err := injector.Resolve("omniEnv"); err != nil {
-			t.Fatalf("expected omniEnv to be registered, got error: %v", err)
+		if injector.Resolve("omniEnv") == nil {
+			t.Fatalf("expected omniEnv to be registered, got error")
 		}
-		if _, err := injector.Resolve("sopsEnv"); err != nil {
-			t.Fatalf("expected sopsEnv to be registered, got error: %v", err)
+		if injector.Resolve("sopsEnv") == nil {
+			t.Fatalf("expected sopsEnv to be registered, got error")
 		}
-		if _, err := injector.Resolve("talosEnv"); err != nil {
-			t.Fatalf("expected talosEnv to be registered, got error: %v", err)
+		if injector.Resolve("talosEnv") == nil {
+			t.Fatalf("expected talosEnv to be registered, got error")
 		}
-		if _, err := injector.Resolve("terraformEnv"); err != nil {
-			t.Fatalf("expected terraformEnv to be registered, got error: %v", err)
+		if injector.Resolve("terraformEnv") == nil {
+			t.Fatalf("expected terraformEnv to be registered, got error")
 		}
-		if _, err := injector.Resolve("windsorEnv"); err != nil {
+		if injector.Resolve("windsorEnv") == nil {
 			t.Fatalf("expected windsorEnv to be registered, got error: %v", err)
 		}
 
@@ -162,31 +162,31 @@ func TestRealController_CreateServiceComponents(t *testing.T) {
 		}
 
 		// And the services should be registered in the injector
-		if _, err := injector.Resolve("dnsService"); err != nil {
-			t.Fatalf("expected dnsService to be registered, got error: %v", err)
+		if injector.Resolve("dnsService") == nil {
+			t.Fatalf("expected dnsService to be registered, got error")
 		}
-		if _, err := injector.Resolve("gitLivereloadService"); err != nil {
-			t.Fatalf("expected gitLivereloadService to be registered, got error: %v", err)
+		if injector.Resolve("gitLivereloadService") == nil {
+			t.Fatalf("expected gitLivereloadService to be registered, got error")
 		}
-		if _, err := injector.Resolve("localstackService"); err != nil {
+		if injector.Resolve("localstackService") == nil {
 			t.Fatalf("expected localstackService to be registered, got error: %v", err)
 		}
 		for i := 1; i <= 2; i++ {
 			serviceName := fmt.Sprintf("clusterNode.controlplane-%d", i)
-			if _, err := injector.Resolve(serviceName); err != nil {
-				t.Fatalf("expected %s to be registered, got error: %v", serviceName, err)
+			if injector.Resolve(serviceName) == nil {
+				t.Fatalf("expected %s to be registered, got error", serviceName)
 			}
 		}
 		for i := 1; i <= 3; i++ {
 			serviceName := fmt.Sprintf("clusterNode.worker-%d", i)
-			if _, err := injector.Resolve(serviceName); err != nil {
-				t.Fatalf("expected %s to be registered, got error: %v", serviceName, err)
+			if injector.Resolve(serviceName) == nil {
+				t.Fatalf("expected %s to be registered, got error", serviceName)
 			}
 		}
 		for _, registry := range []string{"registry1", "registry2"} {
 			serviceName := fmt.Sprintf("registryService.%s", registry)
-			if _, err := injector.Resolve(serviceName); err != nil {
-				t.Fatalf("expected %s to be registered, got error: %v", serviceName, err)
+			if injector.Resolve(serviceName) == nil {
+				t.Fatalf("expected %s to be registered, got error", serviceName)
 			}
 		}
 
@@ -218,13 +218,13 @@ func TestRealController_CreateServiceComponents(t *testing.T) {
 		}
 
 		// And no services should be registered in the injector
-		if _, err := injector.Resolve("dnsService"); err == nil {
+		if injector.Resolve("dnsService") != nil {
 			t.Fatalf("expected dnsService not to be registered")
 		}
-		if _, err := injector.Resolve("gitLivereloadService"); err == nil {
+		if injector.Resolve("gitLivereloadService") != nil {
 			t.Fatalf("expected gitLivereloadService not to be registered")
 		}
-		if _, err := injector.Resolve("localstackService"); err == nil {
+		if injector.Resolve("localstackService") != nil {
 			t.Fatalf("expected localstackService not to be registered")
 		}
 
@@ -258,13 +258,13 @@ func TestRealController_CreateVirtualizationComponents(t *testing.T) {
 		}
 
 		// And the colima virtual machine should be registered in the injector
-		if _, err := injector.Resolve("virtualMachine"); err != nil {
-			t.Fatalf("expected virtualMachine to be registered, got error: %v", err)
+		if injector.Resolve("virtualMachine") == nil {
+			t.Fatalf("expected virtualMachine to be registered, got error")
 		}
 
 		// And the colima network manager should be registered in the injector
-		if _, err := injector.Resolve("networkManager"); err != nil {
-			t.Fatalf("expected networkManager to be registered, got error: %v", err)
+		if injector.Resolve("networkManager") == nil {
+			t.Fatalf("expected networkManager to be registered, got error")
 		}
 
 		t.Logf("Success: virtualization components created and registered")
@@ -295,12 +295,12 @@ func TestRealController_CreateVirtualizationComponents(t *testing.T) {
 		}
 
 		// And the virtual machine should not be registered in the injector
-		if _, err := injector.Resolve("virtualMachine"); err == nil {
+		if injector.Resolve("virtualMachine") != nil {
 			t.Fatalf("expected virtualMachine not to be registered")
 		}
 
 		// And the network manager should not be registered in the injector
-		if _, err := injector.Resolve("networkManager"); err == nil {
+		if injector.Resolve("networkManager") != nil {
 			t.Fatalf("expected networkManager not to be registered")
 		}
 
@@ -332,7 +332,7 @@ func TestRealController_CreateVirtualizationComponents(t *testing.T) {
 		}
 
 		// And the container runtime should not be registered in the injector
-		if _, err := injector.Resolve("containerRuntime"); err == nil {
+		if injector.Resolve("containerRuntime") != nil {
 			t.Fatalf("expected containerRuntime not to be registered")
 		}
 

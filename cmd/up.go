@@ -11,137 +11,83 @@ var upCmd = &cobra.Command{
 	Short:        "Set up the Windsor environment",
 	Long:         "Set up the Windsor environment by executing necessary shell commands.",
 	SilenceUsage: true,
+	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Resolve configHandler
-		configHandler, err := controller.ResolveConfigHandler()
-		if err != nil {
-			return fmt.Errorf("Error resolving configHandler: %w", err)
+		// Create virtualization components
+		if err := controller.CreateVirtualizationComponents(); err != nil {
+			return fmt.Errorf("Error creating virtualization components: %w", err)
 		}
 
-		// Resolve and initialize shell
-		shellInstance, err := controller.ResolveShell()
-		if err != nil {
-			return fmt.Errorf("Error resolving shell: %w", err)
-		}
-		if err := shellInstance.Initialize(); err != nil {
-			return fmt.Errorf("Error initializing shell: %w", err)
+		// Initialize all components
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
-		// Resolve and initialize secureShell
-		secureShell, err := controller.ResolveSecureShell()
-		if err != nil {
-			return fmt.Errorf("Error resolving secureShell: %w", err)
-		}
-		if err := secureShell.Initialize(); err != nil {
-			return fmt.Errorf("Error initializing secureShell: %w", err)
+		// Resolve the config handler
+		configHandler := controller.ResolveConfigHandler()
+		if configHandler == nil {
+			return fmt.Errorf("Error: no config handler found")
 		}
 
-		// Call the init command
-		if err := initCmd.RunE(cmd, args); err != nil {
-			return fmt.Errorf("Error running init command: %w", err)
+		// Write configuration files
+		if err := controller.WriteConfigurationFiles(); err != nil {
+			return fmt.Errorf("Error writing configuration files: %w", err)
 		}
 
-		// Determine if Colima is being used
-		driver := configHandler.GetString("vm.driver")
+		// Determine if a virtualization driver is being used
+		vmDriver := configHandler.GetString("vm.driver")
 
-		// Determine if Docker is being used
-		dockerEnabled := configHandler.GetBool("docker.enabled")
+		// Start the virtual machine if enabled in configuration
+		if vmDriver != "" {
+			virtualMachine := controller.ResolveVirtualMachine()
+			if virtualMachine == nil {
+				return fmt.Errorf("Error: no virtual machine found")
+			}
+			if err := virtualMachine.Up(verbose); err != nil {
+				return fmt.Errorf("Error running virtual machine Up command: %w", err)
+			}
+		}
 
-		// Get the DNS name
+		// Start the container runtime if enabled in configuration
+		containerRuntimeEnabled := configHandler.GetBool("docker.enabled")
+
+		// Configure container runtime if enabled in configuration
+		if containerRuntimeEnabled {
+			// Resolve container runtime
+			containerRuntime := controller.ResolveContainerRuntime()
+			if containerRuntime == nil {
+				return fmt.Errorf("Error: no container runtime found")
+			}
+
+			// Run the container runtime Up command
+			if err := containerRuntime.Up(verbose); err != nil {
+				return fmt.Errorf("Error running container runtime Up command: %w", err)
+			}
+		}
+
+		// Get the DNS name and address
 		dnsName := configHandler.GetString("dns.name")
+		dnsAddress := configHandler.GetString("dns.address")
 
-		// Initialize the DNS address
-		dnsAddress := ""
-
-		// Get the DNS create flag
-		createDns := configHandler.GetBool("dns.create")
-
-		// Configure ColimaVirt if enabled in configuration
-		if driver == "colima" {
-			// Resolve colimaVirt
-			colimaVirt, err := controller.ResolveVirtualMachine()
-			if err != nil {
-				return fmt.Errorf("Error resolving colimaVirt: %w", err)
-			}
-			if err := colimaVirt.Up(verbose); err != nil {
-				return fmt.Errorf("Error running Colima VM Up command: %w", err)
-			}
+		// Resolve networkManager
+		networkManager := controller.ResolveNetworkManager()
+		if networkManager == nil {
+			return fmt.Errorf("Error: no network manager found")
 		}
 
-		// Configure DockerVirt if enabled in configuration
-		if dockerEnabled {
-			// Resolve dockerVirt
-			dockerVirt, err := controller.ResolveContainerRuntime()
-			if err != nil {
-				return fmt.Errorf("Error resolving dockerVirt: %w", err)
-			}
-
-			// Resolve dnsService
-			dnsService, err := controller.ResolveService("dnsService")
-			if err != nil {
-				return fmt.Errorf("Error resolving dnsService: %w", err)
-			}
-
-			// Write the docker-compose file
-			if err := dockerVirt.WriteConfig(); err != nil {
-				return fmt.Errorf("Error writing docker-compose file: %w", err)
-			}
-
-			// Write the DNS configuration
-			if createDns {
-				if err := dnsService.WriteConfig(); err != nil {
-					return fmt.Errorf("Error writing DNS config: %w", err)
-				}
-			}
-
-			// Run the DockerVirt Up command
-			if err := dockerVirt.Up(verbose); err != nil {
-				return fmt.Errorf("Error running DockerVirt Up command: %w", err)
-			}
-
-			// Get the DNS address
-			if dnsName != "" {
-				dnsServiceInfo, err := dockerVirt.GetContainerInfo("dns.test")
-				if err != nil {
-					return fmt.Errorf("Error getting DNS service: %w", err)
-				}
-				if len(dnsServiceInfo) == 0 {
-					return fmt.Errorf("DNS service not found")
-				}
-				dnsAddress = dnsServiceInfo[0].Address
-			}
+		// Configure the guest network
+		if err := networkManager.ConfigureGuest(); err != nil {
+			return fmt.Errorf("Error configuring guest network: %w", err)
 		}
 
-		// Resolve colimaNetworkManager
-		colimaNetworkManager, err := controller.ResolveNetworkManager()
-		if err != nil {
-			return fmt.Errorf("Error resolving colimaNetworkManager: %w", err)
-		}
-
-		// Initialize the network manager
-		if err := colimaNetworkManager.Initialize(); err != nil {
-			return fmt.Errorf("Error initializing network manager: %w", err)
-		}
-
-		// Configure the network for Colima
-		if driver == "colima" {
-			if err := colimaNetworkManager.ConfigureGuest(); err != nil {
-				return fmt.Errorf("Error configuring guest network: %w", err)
-			}
-			if err := colimaNetworkManager.ConfigureHostRoute(); err != nil {
-				return fmt.Errorf("Error configuring host network: %w", err)
-			}
+		// Configure the host route for the network
+		if err := networkManager.ConfigureHostRoute(); err != nil {
+			return fmt.Errorf("Error configuring host network: %w", err)
 		}
 
 		// Configure DNS if dns.name is set
 		if dnsName != "" && dnsAddress != "" {
-
-			// Begin hack to get the DNS address into the config
-			configData := configHandler.GetConfig()
-			configData.DNS.Address = &dnsAddress
-			// End hack
-
-			if err := colimaNetworkManager.ConfigureDNS(); err != nil {
+			if err := networkManager.ConfigureDNS(); err != nil {
 				return fmt.Errorf("Error configuring DNS: %w", err)
 			}
 		}

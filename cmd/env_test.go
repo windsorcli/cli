@@ -29,8 +29,8 @@ func TestEnvCmd(t *testing.T) {
 			fmt.Println("export VAR=value")
 			return nil
 		}
-		mockController.ResolveAllEnvPrintersFunc = func() ([]env.EnvPrinter, error) {
-			return []env.EnvPrinter{mockEnv}, nil
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnv}
 		}
 
 		// Capture the output using captureStdout
@@ -46,130 +46,6 @@ func TestEnvCmd(t *testing.T) {
 		expectedOutput := "export VAR=value\n"
 		if output != expectedOutput {
 			t.Errorf("Expected output %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorInitializingController", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Save the original controller and restore it after the test
-		originalController := controller
-		defer func() {
-			controller = originalController
-		}()
-
-		// Given a mock controller that returns an error when initializing
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.InitializeFunc = func() error {
-			return fmt.Errorf("initialization error")
-		}
-
-		// Set the global controller to the mock controller
-		controller = mockController
-
-		// When the env command is executed
-		rootCmd.SetArgs([]string{"env", "--verbose"})
-		err := Execute(mockController)
-
-		// Then check the error contents
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		expectedError := "Error initializing controller: initialization error"
-		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorCreatingCommonComponents", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Save the original controller and restore it after the test
-		originalController := controller
-		defer func() {
-			controller = originalController
-		}()
-
-		// Given a mock controller that returns an error when creating common components
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.CreateCommonComponentsFunc = func() error {
-			return fmt.Errorf("error creating common components")
-		}
-
-		// Set the global controller to the mock controller
-		controller = mockController
-
-		// When the env command is executed with verbose flag
-		rootCmd.SetArgs([]string{"env", "--verbose"})
-		err := Execute(mockController)
-
-		// Then check the error contents
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		expectedError := "Error creating common components: error creating common components"
-		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorCreatingCommonComponentsWithoutVerbose", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Save the original controller and restore it after the test
-		originalController := controller
-		defer func() {
-			controller = originalController
-		}()
-
-		// Given a mock controller that returns an error when creating common components
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.CreateCommonComponentsFunc = func() error {
-			return fmt.Errorf("error creating common components")
-		}
-
-		// Set the global controller to the mock controller
-		controller = mockController
-
-		// When the env command is executed without verbose flag
-		rootCmd.SetArgs([]string{"env"})
-		err := Execute(mockController)
-
-		// Then the error should be nil and no output should be produced
-		if err != nil {
-			t.Fatalf("Expected error nil, got %v", err)
-		}
-	})
-
-	t.Run("ErrorInitializingControllerWithoutVerbose", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Save the original controller and restore it after the test
-		originalController := controller
-		defer func() {
-			controller = originalController
-		}()
-
-		// Given a mock controller that returns an error when initializing
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.InitializeFunc = func() error {
-			return fmt.Errorf("initialization error")
-		}
-
-		// Set the global controller to the mock controller
-		controller = mockController
-
-		// When the env command is executed without verbose flag
-		rootCmd.SetArgs([]string{"env"})
-		err := Execute(mockController)
-
-		// Then the error should be nil and no output should be produced
-		if err != nil {
-			t.Fatalf("Expected error nil, got %v", err)
 		}
 	})
 
@@ -279,41 +155,14 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolveAllEnvPrintersError", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Given a mock controller that returns an error when resolving all environment printers
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveAllEnvPrintersFunc = func() ([]env.EnvPrinter, error) {
-			return nil, fmt.Errorf("resolve all env printers error")
-		}
-
-		// Set the global controller to the mock controller
-		controller = mockController
-
-		// When the env command is executed with verbose flag
-		rootCmd.SetArgs([]string{"env", "--verbose"})
-		err := Execute(mockController)
-
-		// Then check the error contents
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		expectedError := "Error resolving environment printers: resolve all env printers error"
-		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
 	t.Run("ResolveAllEnvPrintersErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller that returns an error when resolving all environment printers
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveAllEnvPrintersFunc = func() ([]env.EnvPrinter, error) {
-			return nil, fmt.Errorf("resolve all env printers error")
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return nil
 		}
 
 		// Set the global controller to the mock controller
@@ -329,6 +178,33 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorResolvingAllEnvPrinters", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller that returns an empty list of environment printers
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{}
+		}
+
+		// Set the global controller to the mock controller
+		controller = mockController
+
+		// When the env command is executed with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mockController)
+
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error resolving environment printers: no printers returned"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
 	t.Run("PrintError", func(t *testing.T) {
 		defer resetRootCmd()
 
@@ -339,8 +215,8 @@ func TestEnvCmd(t *testing.T) {
 		mockEnvPrinter.PrintFunc = func() error {
 			return fmt.Errorf("print error")
 		}
-		mockController.ResolveAllEnvPrintersFunc = func() ([]env.EnvPrinter, error) {
-			return []env.EnvPrinter{mockEnvPrinter}, nil
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnvPrinter}
 		}
 
 		// Set the global controller to the mock controller
@@ -370,8 +246,8 @@ func TestEnvCmd(t *testing.T) {
 		mockEnvPrinter.PrintFunc = func() error {
 			return fmt.Errorf("print error")
 		}
-		mockController.ResolveAllEnvPrintersFunc = func() ([]env.EnvPrinter, error) {
-			return []env.EnvPrinter{mockEnvPrinter}, nil
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnvPrinter}
 		}
 
 		// Set the global controller to the mock controller
@@ -397,8 +273,8 @@ func TestEnvCmd(t *testing.T) {
 		mockEnvPrinter.PostEnvHookFunc = func() error {
 			return fmt.Errorf("post env hook error")
 		}
-		mockController.ResolveAllEnvPrintersFunc = func() ([]env.EnvPrinter, error) {
-			return []env.EnvPrinter{mockEnvPrinter}, nil
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnvPrinter}
 		}
 
 		// Set the global controller to the mock controller
@@ -428,8 +304,8 @@ func TestEnvCmd(t *testing.T) {
 		mockEnvPrinter.PostEnvHookFunc = func() error {
 			return fmt.Errorf("post env hook error")
 		}
-		mockController.ResolveAllEnvPrintersFunc = func() ([]env.EnvPrinter, error) {
-			return []env.EnvPrinter{mockEnvPrinter}, nil
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnvPrinter}
 		}
 
 		// Set the global controller to the mock controller

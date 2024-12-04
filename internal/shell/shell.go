@@ -41,11 +41,11 @@ func NewDefaultShell(injector di.Injector) *DefaultShell {
 }
 
 func (s *DefaultShell) Initialize() error {
-	configHandler, err := s.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("failed to resolve config handler: %w", err)
+	configHandler, ok := s.injector.Resolve("configHandler").(config.ConfigHandler)
+	if !ok {
+		return fmt.Errorf("error resolving configHandler")
 	}
-	s.configHandler = configHandler.(config.ConfigHandler)
+	s.configHandler = configHandler
 
 	return nil
 }

@@ -49,28 +49,26 @@ type BaseService struct {
 
 // Initialize is a no-op for the Service interface
 func (s *BaseService) Initialize() error {
-	// Resolve the configHandler from the injector
-	configHandler, err := s.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
+	// Resolve the configHandler dependency
+	configHandler, ok := s.injector.Resolve("configHandler").(config.ConfigHandler)
+	if !ok {
+		return fmt.Errorf("error resolving configHandler")
 	}
+	s.configHandler = configHandler
 
-	// Resolve the shell from the injector
-	resolvedShell, err := s.injector.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
+	// Resolve the shell dependency
+	shell, ok := s.injector.Resolve("shell").(shell.Shell)
+	if !ok {
+		return fmt.Errorf("error resolving shell")
 	}
+	s.shell = shell
 
-	// Resolve the contextHandler from the injector
-	resolvedContext, err := s.injector.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving context: %w", err)
+	// Resolve the contextHandler dependency
+	contextHandler, ok := s.injector.Resolve("contextHandler").(context.ContextHandler)
+	if !ok {
+		return fmt.Errorf("error resolving contextHandler")
 	}
-
-	// Set the resolved dependencies to the GitService fields
-	s.configHandler = configHandler.(config.ConfigHandler)
-	s.shell = resolvedShell.(shell.Shell)
-	s.contextHandler = resolvedContext.(context.ContextHandler)
+	s.contextHandler = contextHandler
 
 	return nil
 }

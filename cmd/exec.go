@@ -11,19 +11,10 @@ var execCmd = &cobra.Command{
 	Short:        "Execute a shell command with environment variables",
 	Long:         "Execute a shell command with environment variables set for the application.",
 	SilenceUsage: true,
+	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return fmt.Errorf("no command provided")
-		}
-
-		// Initialize the controller
-		if err := controller.Initialize(); err != nil {
-			return fmt.Errorf("Error initializing controller: %w", err)
-		}
-
-		// Create common components
-		if err := controller.CreateCommonComponents(); err != nil {
-			return fmt.Errorf("Error creating common components: %w", err)
 		}
 
 		// Create environment components
@@ -37,9 +28,9 @@ var execCmd = &cobra.Command{
 		}
 
 		// Resolve all environment printers using the controller
-		envPrinters, err := controller.ResolveAllEnvPrinters()
-		if err != nil {
-			return fmt.Errorf("Error resolving environment printers: %w", err)
+		envPrinters := controller.ResolveAllEnvPrinters()
+		if len(envPrinters) == 0 {
+			return fmt.Errorf("Error resolving environment printers: no printers returned")
 		}
 
 		// Collect environment variables from all printers
@@ -68,9 +59,9 @@ var execCmd = &cobra.Command{
 		}
 
 		// Resolve the shell instance using the controller
-		shellInstance, err := controller.ResolveShell()
-		if err != nil {
-			return fmt.Errorf("Error resolving shell instance: %w", err)
+		shellInstance := controller.ResolveShell()
+		if shellInstance == nil {
+			return fmt.Errorf("Error: no shell found")
 		}
 
 		// Execute the command using the resolved shell instance

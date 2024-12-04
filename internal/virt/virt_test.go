@@ -1,7 +1,6 @@
 package virt
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -41,26 +40,6 @@ func TestVirt_Initialize(t *testing.T) {
 
 		injector.Register("contextHandler", mockContext)
 		injector.Register("configHandler", mockConfigHandler)
-		injector.SetResolveError("shell", fmt.Errorf("mock error resolving shell"))
-		v := NewBaseVirt(injector)
-
-		// When calling Initialize
-		err := v.Initialize()
-
-		// Then an error should be returned
-		if err == nil || err.Error() != "error resolving shell: mock error resolving shell" {
-			t.Fatalf("Expected 'error resolving shell: mock error resolving shell', got %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingShell", func(t *testing.T) {
-		// Given a Virt with a mock injector
-		injector := di.NewMockInjector()
-		mockContext := context.NewMockContext()
-		mockConfigHandler := config.NewMockConfigHandler()
-
-		injector.Register("contextHandler", mockContext)
-		injector.Register("configHandler", mockConfigHandler)
 		injector.Register("shell", "invalid")
 		v := NewBaseVirt(injector)
 
@@ -68,32 +47,12 @@ func TestVirt_Initialize(t *testing.T) {
 		err := v.Initialize()
 
 		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "not of type Shell") {
-			t.Fatalf("Expected error containing 'not of type Shell', got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error resolving shell") {
+			t.Fatalf("Expected error containing 'error resolving shell', got %v", err)
 		}
 	})
 
 	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		// Given a Virt with a mock injector
-		injector := di.NewMockInjector()
-		mockShell := shell.NewMockShell()
-		mockConfigHandler := config.NewMockConfigHandler()
-
-		injector.Register("shell", mockShell)
-		injector.Register("configHandler", mockConfigHandler)
-		injector.SetResolveError("contextHandler", fmt.Errorf("mock error resolving context handler"))
-		v := NewBaseVirt(injector)
-
-		// When calling Initialize
-		err := v.Initialize()
-
-		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "error resolving context handler") {
-			t.Fatalf("Expected error containing 'error resolving context handler', got %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingContextHandler", func(t *testing.T) {
 		// Given a Virt with a mock injector
 		injector := di.NewMockInjector()
 		mockShell := shell.NewMockShell()
@@ -108,32 +67,12 @@ func TestVirt_Initialize(t *testing.T) {
 		err := v.Initialize()
 
 		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "not of type ContextHandler") {
-			t.Fatalf("Expected error containing 'not of type ContextHandler', got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error resolving context handler") {
+			t.Fatalf("Expected error containing 'error resolving context handler', got %v", err)
 		}
 	})
 
-	t.Run("ErrorResolvingCliConfigHandler", func(t *testing.T) {
-		// Given a Virt with a mock injector
-		injector := di.NewMockInjector()
-		mockShell := shell.NewMockShell()
-		mockContextHandler := context.NewMockContext()
-
-		injector.Register("shell", mockShell)
-		injector.Register("contextHandler", mockContextHandler)
-		injector.SetResolveError("configHandler", fmt.Errorf("mock error resolving configHandler"))
-		v := NewBaseVirt(injector)
-
-		// When calling Initialize
-		err := v.Initialize()
-
-		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
-			t.Fatalf("Expected error containing 'error resolving configHandler', got %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingCliConfigHandler", func(t *testing.T) {
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		// Given a Virt with a mock injector
 		injector := di.NewMockInjector()
 		mockShell := shell.NewMockShell()
@@ -148,8 +87,8 @@ func TestVirt_Initialize(t *testing.T) {
 		err := v.Initialize()
 
 		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "not of type ConfigHandler") {
-			t.Fatalf("Expected error containing 'not of type ConfigHandler', got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error resolving configHandler") {
+			t.Fatalf("Expected error containing 'error resolving configHandler', got %v", err)
 		}
 	})
 }

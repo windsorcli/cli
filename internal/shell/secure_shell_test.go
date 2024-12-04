@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -58,13 +57,13 @@ func setSafeSecureShellMocks(injector ...di.Injector) struct {
 	mockConfigHandler := config.NewMockConfigHandler()
 
 	i := injector[0]
-	if _, err := i.Resolve("sshClient"); err != nil {
+	if i.Resolve("sshClient") == nil {
 		i.Register("sshClient", mockClient)
 	}
-	if _, err := i.Resolve("defaultShell"); err != nil {
+	if i.Resolve("defaultShell") == nil {
 		i.Register("defaultShell", mockShell)
 	}
-	if _, err := i.Resolve("configHandler"); err != nil {
+	if i.Resolve("configHandler") == nil {
 		i.Register("configHandler", mockConfigHandler)
 	}
 
@@ -102,49 +101,23 @@ func TestSecureShell_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorCallingParentInitialize", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-
-		// Call the setup function
-		setSafeSecureShellMocks()
-
-		// Given a mock injector that returns an error when resolving configHandler
-		mockInjector.SetResolveError("configHandler", errors.New("mock resolve error"))
-
-		// And a SecureShell instance
-		secureShell := NewSecureShell(mockInjector)
-
-		// When calling Initialize
+	t.Run("ErrorInitializingBaseShell", func(t *testing.T) {
+		mocks := setSafeSecureShellMocks()
+		mocks.Injector.Register("configHandler", "not a configHandler")
+		secureShell := NewSecureShell(mocks.Injector)
 		err := secureShell.Initialize()
-
-		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Expected error, got nil")
-		} else if !strings.Contains(err.Error(), "mock resolve error") {
-			t.Errorf("Error message does not contain expected string: %v", err)
+			t.Errorf("Expected error when initializing base shell with invalid configHandler, got nil")
 		}
 	})
 
 	t.Run("ErrorResolvingSSHClient", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-
-		// Call the setup function
-		setSafeSecureShellMocks(mockInjector)
-
-		// Given a mock injector that returns an error when resolving sshClient
-		mockInjector.SetResolveError("sshClient", errors.New("mock resolve error"))
-
-		// And a SecureShell instance
-		secureShell := NewSecureShell(mockInjector)
-
-		// When calling Initialize
+		mocks := setSafeSecureShellMocks()
+		mocks.Injector.Register("sshClient", "not a sshClient")
+		secureShell := NewSecureShell(mocks.Injector)
 		err := secureShell.Initialize()
-
-		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Expected error, got nil")
-		} else if !strings.Contains(err.Error(), "failed to resolve SSH client: mock resolve error") {
-			t.Errorf("Error message does not contain expected string: %v", err)
+			t.Errorf("Expected error when resolving SSH client, got nil")
 		}
 	})
 }

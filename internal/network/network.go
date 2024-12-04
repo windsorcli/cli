@@ -3,13 +3,14 @@ package network
 import (
 	"fmt"
 	"net"
+	"sort"
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/services"
 	"github.com/windsor-hotel/cli/internal/shell"
 	"github.com/windsor-hotel/cli/internal/ssh"
-	"github.com/windsor-hotel/cli/internal/virt"
 )
 
 // NetworkManager handles configuring the local development network
@@ -32,9 +33,8 @@ type BaseNetworkManager struct {
 	secureShell              shell.Shell
 	configHandler            config.ConfigHandler
 	contextHandler           context.ContextHandler
-	colimaVirt               virt.Virt
-	dockerVirt               virt.Virt
 	networkInterfaceProvider NetworkInterfaceProvider
+	services                 []services.Service
 }
 
 // NewNetworkManager creates a new NetworkManager
@@ -48,76 +48,81 @@ func NewBaseNetworkManager(injector di.Injector) (*BaseNetworkManager, error) {
 // Initialize the network manager
 func (n *BaseNetworkManager) Initialize() error {
 	// Resolve the sshClient from the injector
-	sshClientInstance, err := n.injector.Resolve("sshClient")
-	if err != nil {
-		return fmt.Errorf("failed to resolve ssh client instance: %w", err)
-	}
-	sshClient, ok := sshClientInstance.(ssh.Client)
+	sshClient, ok := n.injector.Resolve("sshClient").(ssh.Client)
 	if !ok {
 		return fmt.Errorf("resolved ssh client instance is not of type ssh.Client")
 	}
 	n.sshClient = sshClient
 
 	// Get the shell from the injector
-	shellInstance, err := n.injector.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("failed to resolve shell instance: %w", err)
-	}
-	shellInterface, ok := shellInstance.(shell.Shell)
+	shellInterface, ok := n.injector.Resolve("shell").(shell.Shell)
 	if !ok {
 		return fmt.Errorf("resolved shell instance is not of type shell.Shell")
 	}
 	n.shell = shellInterface
 
 	// Get the secure shell from the injector
-	secureShellInstance, err := n.injector.Resolve("secureShell")
-	if err != nil {
-		return fmt.Errorf("failed to resolve secure shell instance: %w", err)
-	}
-	secureShell, ok := secureShellInstance.(shell.Shell)
+	secureShell, ok := n.injector.Resolve("secureShell").(shell.Shell)
 	if !ok {
 		return fmt.Errorf("resolved secure shell instance is not of type shell.Shell")
 	}
 	n.secureShell = secureShell
 
 	// Get the CLI config handler from the injector
-	configHandlerInstance, err := n.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("failed to resolve CLI config handler: %w", err)
-	}
-	configHandler, ok := configHandlerInstance.(config.ConfigHandler)
+	configHandler, ok := n.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
-		return fmt.Errorf("resolved CLI config handler instance is not of type config.ConfigHandler")
+		return fmt.Errorf("error resolving configHandler")
 	}
 	n.configHandler = configHandler
 
 	// Get the context handler from the injector
-	contextHandlerInstance, err := n.injector.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("failed to resolve context handler: %w", err)
-	}
-	contextHandler, ok := contextHandlerInstance.(context.ContextHandler)
+	contextHandler, ok := n.injector.Resolve("contextHandler").(context.ContextHandler)
 	if !ok {
-		return fmt.Errorf("resolved context handler instance is not of type context.ContextHandler")
+		return fmt.Errorf("failed to resolve context handler")
 	}
 	n.contextHandler = contextHandler
 
 	// Get the network interface provider from the injector
-	networkInterfaceProviderInstance, err := n.injector.Resolve("networkInterfaceProvider")
-	if err != nil {
-		return fmt.Errorf("failed to resolve network interface provider: %w", err)
-	}
-	networkInterfaceProvider, ok := networkInterfaceProviderInstance.(NetworkInterfaceProvider)
+	networkInterfaceProvider, ok := n.injector.Resolve("networkInterfaceProvider").(NetworkInterfaceProvider)
 	if !ok {
-		return fmt.Errorf("resolved network interface provider instance is not of type NetworkInterfaceProvider")
+		return fmt.Errorf("failed to resolve network interface provider")
 	}
 	n.networkInterfaceProvider = networkInterfaceProvider
+
+	// Resolve all services from the injector
+	resolvedServices, err := n.injector.ResolveAll(new(services.Service))
+	if err != nil {
+		return fmt.Errorf("error resolving services: %w", err)
+	}
+
+	// Cast all instances to Service type
+	var serviceList []services.Service
+	for _, serviceInterface := range resolvedServices {
+		service, _ := serviceInterface.(services.Service)
+		serviceList = append(serviceList, service)
+	}
+
+	// Sort the services alphabetically by their Name
+	sort.Slice(serviceList, func(i, j int) bool {
+		return serviceList[i].GetName() < serviceList[j].GetName()
+	})
+
+	// Assign IP addresses to services
+	networkCIDR := n.configHandler.GetString("docker.network_cidr")
+	if networkCIDR != "" {
+		if err := assignIPAddresses(serviceList, &networkCIDR); err != nil {
+			return fmt.Errorf("error assigning IP addresses: %w", err)
+		}
+	}
+
+	n.services = serviceList
 
 	return nil
 }
 
 // ConfigureGuest sets up the guest VM network
 func (n *BaseNetworkManager) ConfigureGuest() error {
+	// no-op
 	return nil
 }
 
@@ -170,4 +175,46 @@ func (n *BaseNetworkManager) getHostIP() (string, error) {
 	}
 
 	return "", fmt.Errorf("failed to find host IP in the same subnet as guest IP")
+}
+
+// assignIPAddresses assigns IP addresses to services based on the network CIDR.
+var assignIPAddresses = func(services []services.Service, networkCIDR *string) error {
+	if networkCIDR == nil {
+		return nil
+	}
+
+	ip, ipNet, err := net.ParseCIDR(*networkCIDR)
+	if err != nil {
+		return fmt.Errorf("error parsing network CIDR: %w", err)
+	}
+
+	// Skip the network address
+	ip = incrementIP(ip)
+
+	// Skip the first IP address
+	ip = incrementIP(ip)
+
+	for i := range services {
+		if err := services[i].SetAddress(ip.String()); err != nil {
+			return fmt.Errorf("error setting address for service: %w", err)
+		}
+		ip = incrementIP(ip)
+		if !ipNet.Contains(ip) {
+			return fmt.Errorf("not enough IP addresses in the CIDR range")
+		}
+	}
+
+	return nil
+}
+
+// incrementIP increments an IP address by one
+func incrementIP(ip net.IP) net.IP {
+	ip = ip.To4()
+	for j := len(ip) - 1; j >= 0; j-- {
+		ip[j]++
+		if ip[j] > 0 {
+			break
+		}
+	}
+	return ip
 }

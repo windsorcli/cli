@@ -1,7 +1,6 @@
 package services
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -67,34 +66,6 @@ func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServic
 		Shell:         mockShell,
 		Context:       mockContext,
 	}
-}
-
-func TestLocalstackService_NewLocalstackService(t *testing.T) {
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Create mock injector and set resolve error for configHandler
-		mockInjector := di.NewMockInjector()
-		mockInjector.SetResolveError("configHandler", fmt.Errorf("error resolving configHandler"))
-
-		// Attempt to create LocalstackService
-		localstackService := NewLocalstackService(mockInjector)
-		if localstackService == nil {
-			t.Fatalf("expected error resolving configHandler")
-		}
-	})
-
-	t.Run("ErrorResolvingContext", func(t *testing.T) {
-		// Create mock injector and set resolve error for context
-		mockInjector := di.NewMockInjector()
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("configHandler", mockConfigHandler)
-		mockInjector.SetResolveError("context", fmt.Errorf("error resolving context"))
-
-		// Attempt to create LocalstackService
-		localstackService := NewLocalstackService(mockInjector)
-		if localstackService == nil {
-			t.Fatalf("expected error resolving context")
-		}
-	})
 }
 
 func TestLocalstackService_GetComposeConfig(t *testing.T) {

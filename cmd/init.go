@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
@@ -28,50 +26,26 @@ var initCmd = &cobra.Command{
 	Long:         "Initialize the application by setting up necessary configurations and environment",
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
+	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Initialize the controller
-		if err := controller.Initialize(); err != nil {
-			return fmt.Errorf("Error initializing controller: %w", err)
-		}
-
-		// Create common components
-		if err := controller.CreateCommonComponents(); err != nil {
-			return fmt.Errorf("Error creating common components: %w", err)
-		}
-
 		// Resolve the context handler
-		contextHandler, err := controller.ResolveContextHandler()
-		if err != nil {
-			return fmt.Errorf("Error getting context handler: %w", err)
+		contextHandler := controller.ResolveContextHandler()
+		if contextHandler == nil {
+			return fmt.Errorf("Error: no context handler found")
 		}
 		var contextName string
 		if len(args) == 1 {
 			contextName = args[0]
 		} else {
+			var err error
 			contextName, err = contextHandler.GetContext()
 			if err != nil {
 				return fmt.Errorf("no context provided and no current context set: %w", err)
 			}
 		}
 
-		// Determine the cliConfig path
-		cliConfigPath := os.Getenv("WINDSORCONFIG")
-		if cliConfigPath == "" {
-			homeDir, err := osUserHomeDir()
-			if err != nil {
-				return fmt.Errorf("error retrieving home directory: %w", err)
-			}
-			cliConfigPath = filepath.Join(homeDir, ".config", "windsor", "config.yaml")
-		}
-
-		// Load the configuration
-		configHandler, err := controller.ResolveConfigHandler()
-		if err != nil {
-			return fmt.Errorf("Error resolving config handler: %w", err)
-		}
-		if err := configHandler.LoadConfig(cliConfigPath); err != nil {
-			return fmt.Errorf("Error loading config file: %w", err)
-		}
+		// Resolve the config handler
+		configHandler := controller.ResolveConfigHandler()
 
 		// Set the context value
 		if err := contextHandler.SetContext(contextName); err != nil {
@@ -149,6 +123,12 @@ var initCmd = &cobra.Command{
 			}
 		}
 
+		// Get the cli configuration path
+		cliConfigPath, err := getCliConfigPath()
+		if err != nil {
+			return fmt.Errorf("Error getting cli configuration path: %w", err)
+		}
+
 		// Save the cli configuration
 		if err := configHandler.SaveConfig(cliConfigPath); err != nil {
 			return fmt.Errorf("Error saving config file: %w", err)
@@ -159,44 +139,19 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error creating service components: %w", err)
 		}
 
+		// Create virtualization components
+		if err := controller.CreateVirtualizationComponents(); err != nil {
+			return fmt.Errorf("Error creating virtualization components: %w", err)
+		}
+
 		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
-		// Resolve all services
-		resolvedServices, err := controller.ResolveAllServices()
-		if err != nil {
-			return fmt.Errorf("Error resolving services: %w", err)
-		}
-
-		// Write configuration for all services
-		for _, service := range resolvedServices {
-			if err := service.WriteConfig(); err != nil {
-				return fmt.Errorf("error writing service config: %w", err)
-			}
-		}
-
-		// Resolve and write configuration for virtual machine if vm.driver is defined
-		if vmDriver := configHandler.GetString("vm.driver"); vmDriver != "" {
-			resolvedVirt, err := controller.ResolveVirtualMachine()
-			if err != nil {
-				return fmt.Errorf("Error resolving virtual machine: %w", err)
-			}
-			if err := resolvedVirt.WriteConfig(); err != nil {
-				return fmt.Errorf("error writing virtual machine config: %w", err)
-			}
-		}
-
-		// Resolve and write configuration for container runtime if docker.enabled is true
-		if dockerEnabled := configHandler.GetBool("docker.enabled"); dockerEnabled {
-			resolvedContainerRuntime, err := controller.ResolveContainerRuntime()
-			if err != nil {
-				return fmt.Errorf("Error resolving container runtime: %w", err)
-			}
-			if err := resolvedContainerRuntime.WriteConfig(); err != nil {
-				return fmt.Errorf("error writing container runtime config: %w", err)
-			}
+		// Write configurations to file
+		if err := controller.WriteConfigurationFiles(); err != nil {
+			return fmt.Errorf("Error writing configuration files: %w", err)
 		}
 
 		// Print the success message

@@ -53,24 +53,6 @@ func TestContext_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		// Given a mock injector that resolves to an incorrect type for configHandler
-		mockInjector.SetResolveError("configHandler", fmt.Errorf("error resolving configHandler"))
-
-		mocks := setSafeContextMocks(mockInjector)
-
-		// When a new ContextHandler is created and initialized
-		contextHandler := NewContextHandler(mocks.Injector)
-		err := contextHandler.Initialize()
-
-		// Then an error should be returned
-		expectedError := "error resolving configHandler: error resolving configHandler"
-		if err == nil || err.Error() != expectedError {
-			t.Fatalf("expected error resolving configHandler, got %v", err)
-		}
-	})
-
 	t.Run("ResolvedInstanceNotConfigHandler", func(t *testing.T) {
 		// Given a mock injector that resolves to an incorrect type for configHandler
 		mocks := setSafeContextMocks()
@@ -81,24 +63,8 @@ func TestContext_Initialize(t *testing.T) {
 		err := contextHandler.Initialize()
 
 		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "resolved instance is not a ConfigHandler") {
+		if err == nil || err.Error() != "error resolving configHandler" {
 			t.Fatalf("expected error for incorrect configHandler type, got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		mockInjector.SetResolveError("shell", fmt.Errorf("error resolving shell"))
-
-		mocks := setSafeContextMocks(mockInjector)
-
-		// When a new ContextHandler is created and initialized
-		contextHandler := NewContextHandler(mocks.Injector)
-		err := contextHandler.Initialize()
-
-		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "error resolving shell") {
-			t.Fatalf("expected error resolving shell, got %v", err)
 		}
 	})
 
@@ -112,7 +78,7 @@ func TestContext_Initialize(t *testing.T) {
 		err := contextHandler.Initialize()
 
 		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "resolved instance is not a Shell") {
+		if err == nil || err.Error() != "error resolving shell" {
 			t.Fatalf("expected error for incorrect shell type, got %v", err)
 		}
 	})

@@ -12,19 +12,26 @@ var getContextCmd = &cobra.Command{
 	Short:        "Get the current context",
 	Long:         "Retrieve and display the current context from the configuration",
 	SilenceUsage: true,
+	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := initializeController(); err != nil {
-			return fmt.Errorf("Error initializing controller: %w", err)
+		// Initialize components
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
-		contextHandler, err := controller.ResolveContextHandler()
-		if err != nil {
-			return fmt.Errorf("Error getting context handler: %w", err)
+		// Resolve context handler
+		contextHandler := controller.ResolveContextHandler()
+		if contextHandler == nil {
+			return fmt.Errorf("Error: no context handler found")
 		}
+
+		// Get the current context
 		currentContext, err := contextHandler.GetContext()
 		if err != nil {
 			return fmt.Errorf("Error getting context: %w", err)
 		}
+
+		// Print the current context
 		fmt.Println(currentContext)
 		return nil
 	},
@@ -32,23 +39,30 @@ var getContextCmd = &cobra.Command{
 
 // setContextCmd represents the set command
 var setContextCmd = &cobra.Command{
-	Use:   "set [context]",
-	Short: "Set the current context",
-	Long:  "Set the current context in the configuration and save it",
-	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	Use:     "set [context]",
+	Short:   "Set the current context",
+	Long:    "Set the current context in the configuration and save it",
+	Args:    cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	PreRunE: preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := initializeController(); err != nil {
-			return fmt.Errorf("Error initializing controller: %w", err)
+		// Initialize components
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
-		contextHandler, err := controller.ResolveContextHandler()
-		if err != nil {
-			return fmt.Errorf("Error getting context handler: %w", err)
+		// Resolve context handler
+		contextHandler := controller.ResolveContextHandler()
+		if contextHandler == nil {
+			return fmt.Errorf("Error: no context handler found")
 		}
+
+		// Set the context
 		contextName := args[0]
 		if err := contextHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("Error setting context: %w", err)
 		}
+
+		// Print the context
 		fmt.Println("Context set to:", contextName)
 		return nil
 	},
@@ -91,23 +105,4 @@ func init() {
 	// Add alias commands to rootCmd
 	rootCmd.AddCommand(getContextAliasCmd)
 	rootCmd.AddCommand(setContextAliasCmd)
-}
-
-// initializeController initializes the controller
-var initializeController = func() error {
-	// Initialize the controller
-	if err := controller.Initialize(); err != nil {
-		return fmt.Errorf("Error initializing controller: %w", err)
-	}
-
-	// Create common components
-	if err := controller.CreateCommonComponents(); err != nil {
-		return fmt.Errorf("Error creating common components: %w", err)
-	}
-
-	// Initialize components
-	if err := controller.InitializeComponents(); err != nil {
-		return fmt.Errorf("Error initializing components: %w", err)
-	}
-	return nil
 }

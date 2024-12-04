@@ -33,3 +33,8 @@ const (
 const (
 	DEFAULT_DNS_IMAGE = "coredns/coredns:1.11.3"
 )
+
+// Default Registry settings
+const (
+	REGISTRY_DEFAULT_IMAGE = "registry:2.8.3"
+)

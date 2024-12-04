@@ -31,23 +31,17 @@ func NewContextHandler(injector di.Injector) *BaseContextHandler {
 
 // Initialize initializes the context handler
 func (c *BaseContextHandler) Initialize() error {
-	instance, err := c.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
-	}
-	configHandler, ok := instance.(config.ConfigHandler)
+	// Resolve the config handler
+	configHandler, ok := c.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
-		return fmt.Errorf("resolved instance is not a ConfigHandler")
+		return fmt.Errorf("error resolving configHandler")
 	}
 	c.configHandler = configHandler
 
-	instance, err = c.injector.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-	shell, ok := instance.(shell.Shell)
+	// Resolve the shell
+	shell, ok := c.injector.Resolve("shell").(shell.Shell)
 	if !ok {
-		return fmt.Errorf("resolved instance is not a Shell")
+		return fmt.Errorf("error resolving shell")
 	}
 	c.shell = shell
 

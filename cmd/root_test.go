@@ -2,13 +2,16 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	ctrl "github.com/windsor-hotel/cli/internal/controller"
+	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/env"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
@@ -68,5 +71,243 @@ func TestRoot_Execute(t *testing.T) {
 	exitFunc = mockExit
 	t.Cleanup(func() {
 		exitFunc = originalExitFunc
+	})
+}
+
+func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Mock the injector
+		injector := di.NewInjector()
+
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
+
+		// Mock the controller
+		mockController := ctrl.NewMockController(injector)
+		controller = mockController
+
+		// Create mock config handler
+		mockConfigHandler := config.NewMockConfigHandler()
+		injector.Register("configHandler", mockConfigHandler)
+
+		// Mock getCliConfigPath
+		originalGetCliConfigPath := getCliConfigPath
+		getCliConfigPath = func() (string, error) {
+			return "/mock/path/to/config.yaml", nil
+		}
+		defer func() { getCliConfigPath = originalGetCliConfigPath }()
+
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorInitializingController", func(t *testing.T) {
+		// Mock the injector
+		injector := di.NewInjector()
+
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
+
+		// Mock the controller to return an error on Initialize
+		mockController := ctrl.NewMockController(injector)
+		mockController.InitializeFunc = func() error {
+			return fmt.Errorf("mocked error initializing controller")
+		}
+		controller = mockController
+
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
+
+		// Then an error should be returned
+		expectedError := "mocked error initializing controller"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorCreatingCommonComponents", func(t *testing.T) {
+		// Mock the injector
+		injector := di.NewInjector()
+
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
+
+		// Mock the controller to return an error on CreateCommonComponents
+		mockController := ctrl.NewMockController(injector)
+		mockController.CreateCommonComponentsFunc = func() error {
+			return fmt.Errorf("mocked error creating common components")
+		}
+		controller = mockController
+
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
+
+		// Then an error should be returned
+		expectedError := "mocked error creating common components"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorGettingCliConfigPath", func(t *testing.T) {
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
+
+		// Mock the injector
+		injector := di.NewInjector()
+
+		// Mock the controller
+		mockController := ctrl.NewMockController(injector)
+		controller = mockController
+
+		// Mock getCliConfigPath to return an error
+		originalGetCliConfigPath := getCliConfigPath
+		getCliConfigPath = func() (string, error) {
+			return "", fmt.Errorf("mocked error getting cli configuration path")
+		}
+		defer func() { getCliConfigPath = originalGetCliConfigPath }()
+
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
+
+		// Then an error should be returned
+		expectedError := "mocked error getting cli configuration path"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
+
+		// Mock the injector
+		injector := di.NewInjector()
+
+		// Mock the controller
+		mockController := ctrl.NewMockController(injector)
+		controller = mockController
+
+		// Mock ResolveConfigHandler to return nil
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return nil
+		}
+
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
+
+		// Then an error should be returned
+		expectedError := "Error: no config handler found"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorLoadingConfig", func(t *testing.T) {
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
+
+		// Mock the injector
+		injector := di.NewInjector()
+
+		// Mock the controller
+		mockController := ctrl.NewMockController(injector)
+		controller = mockController
+
+		// Mock ResolveConfigHandler to return a mock config handler
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func(path string) error {
+			return fmt.Errorf("mocked error loading config")
+		}
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return mockConfigHandler
+		}
+
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
+
+		// Then an error should be returned
+		expectedError := "mocked error loading config"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
+	})
+}
+
+func TestRoot_getCliConfigPath(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Unset the WINDSORCONFIG environment variable
+		os.Unsetenv("WINDSORCONFIG")
+
+		// Mock osUserHomeDir to return a specific home directory
+		originalUserHomeDir := osUserHomeDir
+		defer func() { osUserHomeDir = originalUserHomeDir }()
+		osUserHomeDir = func() (string, error) {
+			return "/mock/home", nil
+		}
+
+		// When getCliConfigPath is called
+		cliConfigPath, err := getCliConfigPath()
+
+		// Then the path should be as expected and no error should be returned
+		expectedPath := "/mock/home/.config/windsor/config.yaml"
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if cliConfigPath != expectedPath {
+			t.Errorf("Expected path to be %q, got %q", expectedPath, cliConfigPath)
+		}
+	})
+
+	t.Run("EnvVarSet", func(t *testing.T) {
+		// Set the WINDSORCONFIG environment variable
+		os.Setenv("WINDSORCONFIG", "/mock/env/config.yaml")
+
+		// When getCliConfigPath is called
+		cliConfigPath, err := getCliConfigPath()
+
+		// Then the path should be as expected and no error should be returned
+		expectedPath := "/mock/env/config.yaml"
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if cliConfigPath != expectedPath {
+			t.Errorf("Expected path to be %q, got %q", expectedPath, cliConfigPath)
+		}
+	})
+
+	t.Run("ErrorGettingHomeDir", func(t *testing.T) {
+		// Unset the WINDSORCONFIG environment variable
+		os.Unsetenv("WINDSORCONFIG")
+
+		// Mock osUserHomeDir to return an error
+		originalUserHomeDir := osUserHomeDir
+		defer func() { osUserHomeDir = originalUserHomeDir }()
+		osUserHomeDir = func() (string, error) {
+			return "", fmt.Errorf("mocked error retrieving home directory")
+		}
+
+		// When getCliConfigPath is called
+		cliConfigPath, err := getCliConfigPath()
+
+		// Then an error should be returned and the path should be empty
+		expectedError := "mocked error retrieving home directory"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
+		if cliConfigPath != "" {
+			t.Errorf("Expected path to be empty, got %q", cliConfigPath)
+		}
 	})
 }

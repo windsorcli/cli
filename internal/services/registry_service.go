@@ -4,10 +4,9 @@ import (
 	"fmt"
 
 	"github.com/compose-spec/compose-go/types"
+	"github.com/windsor-hotel/cli/internal/constants"
 	"github.com/windsor-hotel/cli/internal/di"
 )
-
-const REGISTRY_DEFAULT_IMAGE = "registry:2.8.3"
 
 // RegistryService is a service struct that provides Registry-specific utility functions
 type RegistryService struct {
@@ -39,7 +38,7 @@ func (s *RegistryService) generateRegistryService(name, remoteURL, localURL stri
 	// a restart policy, and labels indicating the role and manager.
 	service := types.ServiceConfig{
 		Name:    fmt.Sprintf("%s.%s", name, tld),
-		Image:   REGISTRY_DEFAULT_IMAGE,
+		Image:   constants.REGISTRY_DEFAULT_IMAGE,
 		Restart: "always",
 		Labels: map[string]string{
 			"role":       "registry",

@@ -100,24 +100,24 @@ func TestDNSService_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorInBaseInitialize", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-		mocks := createDNSServiceMocks(mockInjector)
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		// Create a mock injector with necessary mocks
+		mocks := createDNSServiceMocks()
+
+		// Mock the Resolve method for configHandler to return an error
+		mocks.Injector.Register("configHandler", "invalid")
 
 		// Given: a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
-
-		// Set the resolve error for BaseService Initialize
-		mockInjector.SetResolveError("configHandler", fmt.Errorf("mock error in base Initialize"))
 
 		// When: Initialize is called
 		err := service.Initialize()
 
 		// Then: an error should be returned
 		if err == nil {
-			t.Fatalf("Expected error in base Initialize, got nil")
+			t.Fatalf("Expected error resolving configHandler, got nil")
 		}
-		expectedErrorMessage := "error resolving configHandler: mock error in base Initialize"
+		expectedErrorMessage := "error resolving configHandler"
 		if err.Error() != expectedErrorMessage {
 			t.Errorf("Expected error message '%s', got %v", expectedErrorMessage, err)
 		}
@@ -143,6 +143,44 @@ func TestDNSService_Initialize(t *testing.T) {
 		expectedErrorMessage := "error resolving services: error resolving services"
 		if err.Error() != expectedErrorMessage {
 			t.Errorf("Expected error message '%s', got %v", expectedErrorMessage, err)
+		}
+	})
+}
+
+func TestDNSService_SetAddress(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create a mock injector with necessary mocks
+		mocks := createDNSServiceMocks()
+
+		// Mock the Set method of the config handler
+		setCalled := false
+		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "dns.address" && value == "127.0.0.1" {
+				setCalled = true
+			}
+			return nil
+		}
+
+		// Given: a DNSService with the mock injector
+		service := NewDNSService(mocks.Injector)
+
+		// Initialize the service
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: SetAddress is called
+		address := "127.0.0.1"
+		err := service.SetAddress(address)
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Fatalf("SetAddress() error = %v", err)
+		}
+
+		// And: the Set method should be called with the correct parameters
+		if !setCalled {
+			t.Errorf("Expected Set to be called with key 'dns.address' and value '%s'", address)
 		}
 	})
 }

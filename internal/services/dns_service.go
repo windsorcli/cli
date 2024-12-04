@@ -46,6 +46,14 @@ func (s *DNSService) Initialize() error {
 	return nil
 }
 
+// SetAddress sets the address for the DNS service
+func (s *DNSService) SetAddress(address string) error {
+	// Set the value of the DNS address in the configuration
+	s.configHandler.Set("dns.address", address)
+
+	return s.BaseService.SetAddress(address)
+}
+
 // GetComposeConfig returns the compose configuration
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	// Get the top level domain from the configuration

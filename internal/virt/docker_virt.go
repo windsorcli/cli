@@ -2,8 +2,6 @@ package virt
 
 import (
 	"fmt"
-	"net"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -60,11 +58,6 @@ func (v *DockerVirt) Initialize() error {
 		return fmt.Errorf("Docker configuration is not defined")
 	}
 
-	// Set the service IP addresses
-	if err := assignIPAddresses(serviceSlice, contextConfig.Docker.NetworkCIDR); err != nil {
-		return fmt.Errorf("error assigning IP addresses: %w", err)
-	}
-
 	// Set the services
 	v.services = serviceSlice
 	return nil
@@ -87,9 +80,6 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 		if err := v.checkDockerDaemon(); err != nil {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
-
-		// Determine if running in CI environment
-		isCI := strings.ToLower(os.Getenv("CI")) == "true"
 
 		// Get the path to the compose.yaml file
 		configRoot, err := v.contextHandler.GetConfigRoot()
@@ -116,8 +106,8 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 			}
 			lastErr = err
 			lastOutput = output
-			if i < retries-1 && !isCI {
-				time.Sleep(2 * time.Second)
+			if i < retries-1 {
+				time.Sleep(time.Duration(RETRY_WAIT) * time.Second)
 			}
 		}
 		if lastErr != nil {
@@ -207,10 +197,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 			return nil, err
 		}
 
-		serviceName, serviceExists := labels["com.docker.compose.service"]
-		if !serviceExists {
-			continue
-		}
+		serviceName, _ := labels["com.docker.compose.service"]
 
 		// If a name is provided, check if it matches the current serviceName
 		if len(name) > 0 && serviceName != name[0] {
@@ -386,34 +373,4 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	}
 
 	return project, nil
-}
-
-// assignIPAddresses assigns IP addresses to services based on the network CIDR.
-var assignIPAddresses = func(services []services.Service, networkCIDR *string) error {
-	if networkCIDR == nil {
-		return nil
-	}
-
-	ip, ipNet, err := net.ParseCIDR(*networkCIDR)
-	if err != nil {
-		return fmt.Errorf("error parsing network CIDR: %w", err)
-	}
-
-	// Skip the network address
-	ip = incrementIP(ip)
-
-	// Skip the first IP address
-	ip = incrementIP(ip)
-
-	for i := range services {
-		if err := services[i].SetAddress(ip.String()); err != nil {
-			return fmt.Errorf("error setting address for service: %w", err)
-		}
-		ip = incrementIP(ip)
-		if !ipNet.Contains(ip) {
-			return fmt.Errorf("not enough IP addresses in the CIDR range")
-		}
-	}
-
-	return nil
 }

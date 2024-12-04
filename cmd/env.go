@@ -11,23 +11,8 @@ var envCmd = &cobra.Command{
 	Short:        "Output commands to set environment variables",
 	Long:         "Output commands to set environment variables for the application.",
 	SilenceUsage: true,
+	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Initialize the controller
-		if err := controller.Initialize(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error initializing controller: %w", err)
-			}
-			return nil
-		}
-
-		// Create common components
-		if err := controller.CreateCommonComponents(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error creating common components: %w", err)
-			}
-			return nil
-		}
-
 		// Create environment components
 		if err := controller.CreateEnvComponents(); err != nil {
 			if verbose {
@@ -45,12 +30,9 @@ var envCmd = &cobra.Command{
 		}
 
 		// Resolve all environment printers using the controller
-		envPrinters, err := controller.ResolveAllEnvPrinters()
-		if err != nil {
-			if verbose {
-				return fmt.Errorf("Error resolving environment printers: %w", err)
-			}
-			return nil
+		envPrinters := controller.ResolveAllEnvPrinters()
+		if len(envPrinters) == 0 && verbose {
+			return fmt.Errorf("Error resolving environment printers: no printers returned")
 		}
 
 		// Iterate through all environment printers and run their Print and PostEnvHook functions

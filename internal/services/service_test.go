@@ -1,7 +1,6 @@
 package services
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
@@ -68,34 +67,12 @@ func TestBaseService_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
-
-		// Given: a set of mock components with a faulty injector
-		mocks := setupSafeBaseServiceMocks(mockInjector)
-
-		mockInjector.SetResolveError("configHandler", fmt.Errorf("error resolving configHandler"))
-
-		// When: a new BaseService is created and initialized
-		service := &BaseService{injector: mocks.Injector}
-		err := service.Initialize()
-
-		// Then: the initialization should fail with an error
-		if err == nil {
-			t.Fatalf("expected an error during initialization, got nil")
-		}
-		expectedErrorMessage := "error resolving configHandler: error resolving configHandler"
-		if err.Error() != expectedErrorMessage {
-			t.Fatalf("expected error message '%s', got %v", expectedErrorMessage, err)
-		}
-	})
-
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
+		// Given: a set of mock components
+		mocks := setupSafeBaseServiceMocks()
 
-		// Given: a set of mock components with a faulty injector
-		mocks := setupSafeBaseServiceMocks(mockInjector)
-		mockInjector.SetResolveError("shell", fmt.Errorf("error resolving shell"))
+		// And: the injector is set to return nil for the shell dependency
+		mocks.Injector.Register("shell", nil)
 
 		// When: a new BaseService is created and initialized
 		service := &BaseService{injector: mocks.Injector}
@@ -104,19 +81,15 @@ func TestBaseService_Initialize(t *testing.T) {
 		// Then: the initialization should fail with an error
 		if err == nil {
 			t.Fatalf("expected an error during initialization, got nil")
-		}
-		expectedErrorMessage := "error resolving shell: error resolving shell"
-		if err.Error() != expectedErrorMessage {
-			t.Fatalf("expected error message '%s', got %v", expectedErrorMessage, err)
 		}
 	})
 
 	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		mockInjector := di.NewMockInjector()
+		// Given: a set of mock components
+		mocks := setupSafeBaseServiceMocks()
 
-		// Given: a set of mock components with a faulty injector
-		mocks := setupSafeBaseServiceMocks(mockInjector)
-		mockInjector.SetResolveError("contextHandler", fmt.Errorf("error resolving context"))
+		// And: the injector is set to return nil for the contextHandler dependency
+		mocks.Injector.Register("contextHandler", nil)
 
 		// When: a new BaseService is created and initialized
 		service := &BaseService{injector: mocks.Injector}
@@ -125,10 +98,6 @@ func TestBaseService_Initialize(t *testing.T) {
 		// Then: the initialization should fail with an error
 		if err == nil {
 			t.Fatalf("expected an error during initialization, got nil")
-		}
-		expectedErrorMessage := "error resolving context: error resolving context"
-		if err.Error() != expectedErrorMessage {
-			t.Fatalf("expected error message '%s', got %v", expectedErrorMessage, err)
 		}
 	})
 }

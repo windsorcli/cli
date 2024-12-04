@@ -147,14 +147,11 @@ func TestDockerVirt_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorCallingBaseVirtInitialize", func(t *testing.T) {
+	t.Run("ErrorInitializingBaseVirt", func(t *testing.T) {
 		// Setup mock components
-		injector := di.NewMockInjector()
-		mocks := setupSafeDockerContainerMocks(injector)
-		dockerVirt := NewDockerVirt(mocks.Injector)
-
-		// Simulate an error during dependency resolution in BaseVirt's Initialize
-		injector.SetResolveError("shell", fmt.Errorf("mock resolve error"))
+		injector := di.NewInjector()
+		injector.Register("shell", "not a shell")
+		dockerVirt := NewDockerVirt(injector)
 
 		// Call the Initialize method
 		err := dockerVirt.Initialize()
@@ -165,7 +162,7 @@ func TestDockerVirt_Initialize(t *testing.T) {
 		}
 
 		// Verify the error message contains the expected substring
-		expectedErrorSubstring := "error initializing base"
+		expectedErrorSubstring := "error resolving shell"
 		if !strings.Contains(err.Error(), expectedErrorSubstring) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
@@ -190,34 +187,6 @@ func TestDockerVirt_Initialize(t *testing.T) {
 
 		// Verify the error message contains the expected substring
 		expectedErrorSubstring := "error resolving services"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
-		}
-	})
-
-	t.Run("ErrorAssigningIPAddresses", func(t *testing.T) {
-		// Setup mock components
-		injector := di.NewMockInjector()
-		mocks := setupSafeDockerContainerMocks(injector)
-		dockerVirt := NewDockerVirt(mocks.Injector)
-
-		// Simulate an error during IP address assignment
-		originalAssignIPAddresses := assignIPAddresses
-		defer func() { assignIPAddresses = originalAssignIPAddresses }()
-		assignIPAddresses = func(services []services.Service, networkCIDR *string) error {
-			return fmt.Errorf("mock assign IP addresses error")
-		}
-
-		// Call the Initialize method
-		err := dockerVirt.Initialize()
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Errorf("expected error, got none")
-		}
-
-		// Verify the error message contains the expected substring
-		expectedErrorSubstring := "error assigning IP addresses"
 		if !strings.Contains(err.Error(), expectedErrorSubstring) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
@@ -1230,109 +1199,6 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		}
 		if len(project.Networks) != expectedNetworks {
 			t.Errorf("expected %d networks, got %d", expectedNetworks, len(project.Networks))
-		}
-	})
-}
-
-func TestDockerVirt_assignIPAddresses(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		var setAddressCalls []string
-		services := []services.Service{
-			&services.MockService{
-				SetAddressFunc: func(address string) error {
-					setAddressCalls = append(setAddressCalls, address)
-					return nil
-				},
-			},
-			&services.MockService{
-				SetAddressFunc: func(address string) error {
-					setAddressCalls = append(setAddressCalls, address)
-					return nil
-				},
-			},
-		}
-		networkCIDR := "10.1.0.0/16"
-
-		err := assignIPAddresses(services, &networkCIDR)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		expectedIPs := []string{"10.1.0.2", "10.1.0.3"}
-		for i, expectedIP := range expectedIPs {
-			if setAddressCalls[i] != expectedIP {
-				t.Errorf("expected SetAddress to be called with IP %s, got %s", expectedIP, setAddressCalls[i])
-			}
-		}
-	})
-
-	t.Run("NilNetworkCIDR", func(t *testing.T) {
-		services := []services.Service{
-			&services.MockService{},
-			&services.MockService{},
-		}
-
-		err := assignIPAddresses(services, nil)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		for _, service := range services {
-			if service.GetAddress() != "" {
-				t.Errorf("expected empty address, got %s", service.GetAddress())
-			}
-		}
-	})
-
-	t.Run("InvalidNetworkCIDR", func(t *testing.T) {
-		services := []services.Service{
-			&services.MockService{},
-			&services.MockService{},
-		}
-		networkCIDR := "invalid-cidr"
-
-		err := assignIPAddresses(services, &networkCIDR)
-		if err == nil {
-			t.Fatal("expected an error, got none")
-		}
-		if !strings.Contains(err.Error(), "error parsing network CIDR") {
-			t.Fatalf("expected error message to contain 'error parsing network CIDR', got %v", err)
-		}
-	})
-
-	t.Run("ErrorSettingAddress", func(t *testing.T) {
-		services := []services.Service{
-			&services.MockService{
-				SetAddressFunc: func(address string) error {
-					return fmt.Errorf("error setting address")
-				},
-			},
-		}
-		networkCIDR := "10.1.0.0/16"
-
-		err := assignIPAddresses(services, &networkCIDR)
-		if err == nil {
-			t.Fatal("expected an error, got none")
-		}
-		if !strings.Contains(err.Error(), "error setting address") {
-			t.Fatalf("expected error message to contain 'error setting address', got %v", err)
-		}
-	})
-
-	t.Run("NotEnoughIPAddresses", func(t *testing.T) {
-		services := []services.Service{
-			&services.MockService{},
-			&services.MockService{},
-			&services.MockService{},
-		}
-		networkCIDR := "10.1.0.0/30"
-
-		err := assignIPAddresses(services, &networkCIDR)
-		if err == nil {
-			t.Fatal("expected an error, got none")
-		}
-		if !strings.Contains(err.Error(), "not enough IP addresses in the CIDR range") {
-			t.Fatalf("expected error message to contain 'not enough IP addresses in the CIDR range', got %v", err)
 		}
 	})
 }
