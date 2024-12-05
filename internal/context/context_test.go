@@ -3,6 +3,7 @@ package context
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
@@ -87,11 +88,11 @@ func TestContext_GetContext(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock config handler that returns a context
 		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+		mocks.MockConfigHandler.GetFunc = func(key string) interface{} {
 			if key == "context" {
-				return "test-context", nil
+				return "test-context"
 			}
-			return nil, nil
+			return nil
 		}
 
 		context := NewContextHandler(mocks.Injector)
@@ -101,12 +102,9 @@ func TestContext_GetContext(t *testing.T) {
 		}
 
 		// When calling GetContext
-		contextValue, err := context.GetContext()
+		contextValue := context.GetContext()
 
 		// Then the context should be returned without error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
 		if contextValue != "test-context" {
 			t.Fatalf("expected context 'test-context', got %s", contextValue)
 		}
@@ -115,8 +113,8 @@ func TestContext_GetContext(t *testing.T) {
 	t.Run("GetContextDefaultsToLocal", func(t *testing.T) {
 		// Given a config handler that returns an empty string
 		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.GetFunc = func(key string) (interface{}, error) {
-			return nil, nil
+		mocks.MockConfigHandler.GetFunc = func(key string) interface{} {
+			return nil
 		}
 
 		// Create a new Context instance
@@ -127,14 +125,9 @@ func TestContext_GetContext(t *testing.T) {
 		}
 
 		// When GetContext is called
-		actualContext, err := context.GetContext()
+		actualContext := context.GetContext()
 
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// And the context should default to "local"
+		// Then the context should default to "local"
 		expectedContext := "local"
 		if actualContext != expectedContext {
 			t.Errorf("Expected context %q, got %q", expectedContext, actualContext)
@@ -150,7 +143,7 @@ func TestContext_SetContext(t *testing.T) {
 			if key == "context" && value == "new-context" {
 				return nil
 			}
-			return fmt.Errorf("error setting context")
+			return nil
 		}
 		mocks.MockConfigHandler.SaveConfigFunc = func(path string) error {
 			return nil
@@ -171,38 +164,9 @@ func TestContext_SetContext(t *testing.T) {
 		}
 	})
 
-	t.Run("SetConfigValueError", func(t *testing.T) {
-		// Given a mock config handler that returns an error when setting the context
-		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			return fmt.Errorf("error setting context")
-		}
-
-		context := NewContextHandler(mocks.Injector)
-		err := context.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// When calling SetContext
-		err = context.SetContext("new-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected error, got none")
-		}
-		expectedError := "error setting context: error setting context"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
 	t.Run("SaveConfigError", func(t *testing.T) {
 		// Given a mock config handler that returns an error when saving the config
 		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			return nil
-		}
 		mocks.MockConfigHandler.SaveConfigFunc = func(path string) error {
 			return fmt.Errorf("error saving config")
 		}
@@ -225,17 +189,45 @@ func TestContext_SetContext(t *testing.T) {
 			t.Fatalf("expected error %s, got %s", expectedError, err.Error())
 		}
 	})
+
+	t.Run("SetContextError", func(t *testing.T) {
+		// Given a mock config handler that returns an error when setting the context
+		mocks := setSafeContextMocks()
+		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "context" {
+				return fmt.Errorf("error setting context")
+			}
+			return nil
+		}
+
+		context := NewContextHandler(mocks.Injector)
+		err := context.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// When calling SetContext
+		err = context.SetContext("new-context")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected error, got none")
+		}
+		if !strings.Contains(err.Error(), "error setting context") {
+			t.Fatalf("expected error to contain 'error setting context', got %s", err.Error())
+		}
+	})
 }
 
 func TestContext_GetConfigRoot(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock config handler and shell that return valid values
 		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.GetFunc = func(key string) (interface{}, error) {
+		mocks.MockConfigHandler.GetFunc = func(key string) interface{} {
 			if key == "context" {
-				return "test-context", nil
+				return "test-context"
 			}
-			return nil, nil
+			return nil
 		}
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
@@ -261,13 +253,10 @@ func TestContext_GetConfigRoot(t *testing.T) {
 	})
 
 	t.Run("GetProjectRootError", func(t *testing.T) {
-		// Given a mock shell that returns an error when getting the project root
+		// Given a mock shell that returns an error
 		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.GetFunc = func(key string) (interface{}, error) {
-			return "test-context", nil
-		}
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("error retrieving project root")
+			return "", fmt.Errorf("error getting project root")
 		}
 
 		context := NewContextHandler(mocks.Injector)
@@ -283,7 +272,7 @@ func TestContext_GetConfigRoot(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got none")
 		}
-		expectedError := "error retrieving project root: error retrieving project root"
+		expectedError := "error getting project root"
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %s, got %s", expectedError, err.Error())
 		}

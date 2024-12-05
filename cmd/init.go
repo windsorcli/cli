@@ -29,18 +29,12 @@ var initCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Resolve the context handler
 		contextHandler := controller.ResolveContextHandler()
-		if contextHandler == nil {
-			return fmt.Errorf("Error: no context handler found")
-		}
+
 		var contextName string
 		if len(args) == 1 {
 			contextName = args[0]
 		} else {
-			var err error
-			contextName, err = contextHandler.GetContext()
-			if err != nil {
-				return fmt.Errorf("no context provided and no current context set: %w", err)
-			}
+			contextName = contextHandler.GetContext()
 		}
 
 		// Set the context value
@@ -53,61 +47,71 @@ var initCmd = &cobra.Command{
 
 		// Conditionally set AWS configuration
 		if cmd.Flags().Changed("aws-endpoint-url") {
-			if err := configHandler.Set("aws.aws_endpoint_url", awsEndpointURL); err != nil {
-				return fmt.Errorf("Error setting AWS endpoint URL: %w", err)
+			err := configHandler.Set("aws.aws_endpoint_url", awsEndpointURL)
+			if err != nil {
+				return fmt.Errorf("error setting AWS endpoint URL configuration: %w", err)
 			}
 		}
 		if cmd.Flags().Changed("aws-profile") {
-			if err := configHandler.Set("aws.aws_profile", awsProfile); err != nil {
-				return fmt.Errorf("Error setting AWS profile: %w", err)
+			err := configHandler.Set("aws.aws_profile", awsProfile)
+			if err != nil {
+				return fmt.Errorf("error setting AWS profile configuration: %w", err)
 			}
 		}
 
 		// Conditionally set Docker configuration
 		if cmd.Flags().Changed("docker") {
-			if err := configHandler.Set("docker.enabled", docker); err != nil {
-				return fmt.Errorf("Error setting Docker enabled: %w", err)
+			err := configHandler.Set("docker.enabled", docker)
+			if err != nil {
+				return fmt.Errorf("error setting Docker configuration: %w", err)
 			}
 		}
 
 		// Conditionally set Terraform configuration
 		if cmd.Flags().Changed("backend") {
-			if err := configHandler.Set("terraform.backend", backend); err != nil {
-				return fmt.Errorf("Error setting Terraform backend: %w", err)
+			err := configHandler.Set("terraform.backend", backend)
+			if err != nil {
+				return fmt.Errorf("error setting Terraform backend configuration: %w", err)
 			}
 		}
 
 		// Conditionally set VM configuration
 		if cmd.Flags().Changed("vm-driver") {
-			if err := configHandler.Set("vm.driver", vmType); err != nil {
-				return fmt.Errorf("Error setting VM driver: %w", err)
+			err := configHandler.Set("vm.driver", vmType)
+			if err != nil {
+				return fmt.Errorf("error setting VM driver configuration: %w", err)
 			}
 		}
 		if cmd.Flags().Changed("vm-cpu") {
-			if err := configHandler.Set("vm.cpu", cpu); err != nil {
-				return fmt.Errorf("Error setting VM CPU: %w", err)
+			err := configHandler.Set("vm.cpu", cpu)
+			if err != nil {
+				return fmt.Errorf("error setting VM CPU configuration: %w", err)
 			}
 		}
 		if cmd.Flags().Changed("vm-disk") {
-			if err := configHandler.Set("vm.disk", disk); err != nil {
-				return fmt.Errorf("Error setting VM disk: %w", err)
+			err := configHandler.Set("vm.disk", disk)
+			if err != nil {
+				return fmt.Errorf("error setting VM disk configuration: %w", err)
 			}
 		}
 		if cmd.Flags().Changed("vm-memory") {
-			if err := configHandler.Set("vm.memory", memory); err != nil {
-				return fmt.Errorf("Error setting VM memory: %w", err)
+			err := configHandler.Set("vm.memory", memory)
+			if err != nil {
+				return fmt.Errorf("error setting VM memory configuration: %w", err)
 			}
 		}
 		if cmd.Flags().Changed("vm-arch") {
-			if err := configHandler.Set("vm.arch", arch); err != nil {
-				return fmt.Errorf("Error setting VM architecture: %w", err)
+			err := configHandler.Set("vm.arch", arch)
+			if err != nil {
+				return fmt.Errorf("error setting VM architecture configuration: %w", err)
 			}
 		}
 
 		// Conditionally set Git Livereload configuration
 		if cmd.Flags().Changed("git-livereload") {
-			if err := configHandler.Set("git.livereload.enabled", gitLivereload); err != nil {
-				return fmt.Errorf("Error setting Git Livereload enabled: %w", err)
+			err := configHandler.Set("git.livereload.enabled", gitLivereload)
+			if err != nil {
+				return fmt.Errorf("error setting Git Livereload configuration: %w", err)
 			}
 		}
 

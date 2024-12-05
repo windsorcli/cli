@@ -75,47 +75,16 @@ func TestContext_Get(t *testing.T) {
 		}
 
 		// When the get context command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"context", "get"})
-			err := Execute(mockController)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error: no context handler found"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorGettingContext", func(t *testing.T) {
-		// Given a context instance that returns an error on GetContext
-		injector := di.NewMockInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockContextHandler := context.NewMockContext()
-		mockContextHandler.GetContextFunc = func() (string, error) { return "", fmt.Errorf("get context error") }
-		injector.Register("contextHandler", mockContextHandler)
-
-		// Ensure the mock controller returns the mock context handler
-		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
-			return mockContextHandler
+		rootCmd.SetArgs([]string{"context", "get"})
+		err := Execute(mockController)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
 		}
 
-		// When the get context command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"context", "get"})
-			err := Execute(mockController)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "get context error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// Then the error should indicate the issue
+		expectedError := "Error: no context handler found"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
 	})
 }
@@ -132,7 +101,6 @@ func TestContext_Set(t *testing.T) {
 		injector := di.NewMockInjector()
 		mockController := ctrl.NewMockController(injector)
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
 		mockConfigHandler.SaveConfigFunc = func(path string) error { return nil }
 		injector.Register("configHandler", mockConfigHandler)
 		mockContextHandler := context.NewMockContext()
@@ -269,7 +237,6 @@ func TestContext_SetAlias(t *testing.T) {
 		injector := di.NewMockInjector()
 		mockController := ctrl.NewMockController(injector)
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
 		mockConfigHandler.SaveConfigFunc = func(path string) error { return nil }
 		injector.Register("configHandler", mockConfigHandler)
 		mockContextHandler := context.NewMockContext()

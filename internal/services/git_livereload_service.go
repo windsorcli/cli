@@ -27,10 +27,7 @@ func NewGitLivereloadService(injector di.Injector) *GitLivereloadService {
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 	// Get the context name
-	contextName, err := s.contextHandler.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := s.contextHandler.GetContext()
 
 	// Prepare the services slice for docker-compose
 	var services []types.ServiceConfig

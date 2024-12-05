@@ -84,13 +84,20 @@ func (m *MockController) CreateCommonComponents() error {
 	shell := shell.NewMockShell()
 	m.injector.Register("shell", shell)
 
+	// Testing Note: The following is hard to test as these are registered
+	// above and can't be mocked externally. There may be a better way to
+	// organize this in the future but this works for now, so we don't expect
+	// these lines to be covered by tests.
+
 	// Initialize the contextHandler
-	if err := contextHandler.Initialize(); err != nil {
+	resolvedContextHandler := m.injector.Resolve("contextHandler").(*context.MockContext)
+	if err := resolvedContextHandler.Initialize(); err != nil {
 		return fmt.Errorf("error initializing context handler: %w", err)
 	}
 
 	// Initialize the shell
-	if err := shell.Initialize(); err != nil {
+	resolvedShell := m.injector.Resolve("shell").(*sh.MockShell)
+	if err := resolvedShell.Initialize(); err != nil {
 		return fmt.Errorf("error initializing shell: %w", err)
 	}
 

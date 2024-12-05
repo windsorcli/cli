@@ -30,17 +30,14 @@ func TestMockContext_GetContext(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock context that returns a context
 		mockContext := NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
+		mockContext.GetContextFunc = func() string {
+			return "test-context"
 		}
 
 		// When calling GetContext
-		context, err := mockContext.GetContext()
+		context := mockContext.GetContext()
 
 		// Then the context should be returned without error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
 		if context != "test-context" {
 			t.Fatalf("expected context 'test-context', got %s", context)
 		}
@@ -49,19 +46,16 @@ func TestMockContext_GetContext(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		// Given a mock context that returns an error
 		mockContext := NewMockContext()
-		mockContext.GetContextFunc = func() (string, error) {
-			return "", errors.New("error retrieving context")
+		mockContext.GetContextFunc = func() string {
+			return ""
 		}
 
 		// When calling GetContext
-		_, err := mockContext.GetContext()
+		context := mockContext.GetContext()
 
 		// Then an error should be returned
-		if err == nil {
+		if context != "" {
 			t.Fatalf("expected error, got none")
-		}
-		if err.Error() != "error retrieving context" {
-			t.Fatalf("expected error 'error retrieving context', got %v", err)
 		}
 	})
 
@@ -70,12 +64,9 @@ func TestMockContext_GetContext(t *testing.T) {
 		mockContext := NewMockContext()
 
 		// When calling GetContext
-		context, err := mockContext.GetContext()
+		context := mockContext.GetContext()
 
 		// Then no error should be returned and context should be "mock-context"
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
 		if context != "mock-context" {
 			t.Fatalf("expected context 'mock-context', got %s", context)
 		}

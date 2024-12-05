@@ -42,8 +42,8 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 	mockContext.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
 	}
-	mockContext.GetContextFunc = func() (string, error) {
-		return "mock-context", nil
+	mockContext.GetContextFunc = func() string {
+		return "mock-context"
 	}
 
 	// Create a generic mock service
@@ -183,6 +183,40 @@ func TestDNSService_SetAddress(t *testing.T) {
 			t.Errorf("Expected Set to be called with key 'dns.address' and value '%s'", address)
 		}
 	})
+
+	t.Run("ErrorSettingAddress", func(t *testing.T) {
+		// Create a mock injector with necessary mocks
+		mocks := createDNSServiceMocks()
+
+		// Mock the Set method of the config handler to return an error
+		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "dns.address" {
+				return fmt.Errorf("mocked error setting address")
+			}
+			return nil
+		}
+
+		// Given: a DNSService with the mock injector
+		service := NewDNSService(mocks.Injector)
+
+		// Initialize the service
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: SetAddress is called
+		address := "127.0.0.1"
+		err := service.SetAddress(address)
+
+		// Then: an error should be returned
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+		expectedErrorMessage := "error setting DNS address: mocked error setting address"
+		if err.Error() != expectedErrorMessage {
+			t.Errorf("Expected error message '%s', got %v", expectedErrorMessage, err)
+		}
+	})
 }
 
 func TestDNSService_GetComposeConfig(t *testing.T) {
@@ -215,33 +249,6 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 			t.Errorf("Expected service name to be 'dns', got %s", cfg.Services[0].Name)
 		}
 	})
-
-	t.Run("ErrorRetrievingContextName", func(t *testing.T) {
-		// Create a mock injector with necessary mocks
-		mocks := createDNSServiceMocks()
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving context name")
-		}
-
-		// Given: a DNSService initialized with the mock injector
-		service := NewDNSService(mocks.Injector)
-
-		// Initialize the service
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		_, err := service.GetComposeConfig()
-
-		// Then: an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock error retrieving context name") {
-			t.Errorf("Expected error message to contain 'mock error retrieving context name', got %v", err)
-		}
-	})
 }
 
 func TestDNSService_WriteConfig(t *testing.T) {
@@ -251,8 +258,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "test", nil
+		mocks.MockContext.GetContextFunc = func() string {
+			return "test"
 		}
 
 		// Configure the mock config handler to return Docker enabled
@@ -463,8 +470,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
 			return filepath.FromSlash("/invalid/path"), nil
 		}
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "test-context", nil
+		mocks.MockContext.GetContextFunc = func() string {
+			return "test-context"
 		}
 
 		// Create the DNSService instance

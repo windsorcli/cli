@@ -1,7 +1,6 @@
 package services
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -34,8 +33,8 @@ func setupSafeRegistryServiceMocks(optionalInjector ...di.Injector) *MockCompone
 	injector.Register("registryService", mockService)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() (string, error) {
-		return "mock-context", nil
+	mockContext.GetContextFunc = func() string {
+		return "mock-context"
 	}
 
 	// Set up the mock config handler to return a safe default configuration for Registry
@@ -121,30 +120,6 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 
 		if !found {
 			t.Errorf("expected service with name %q and environment variables REGISTRY_PROXY_REMOTEURL=%q and REGISTRY_PROXY_LOCALURL=%q to be in the list of configurations:\n%+v", expectedName, expectedRemoteURL, expectedLocalURL, composeConfig.Services)
-		}
-	})
-
-	t.Run("ErrorGettingContext", func(t *testing.T) {
-		// Given: a mock context that returns an error on GetContext
-		mocks := setupSafeRegistryServiceMocks()
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving context")
-		}
-
-		// When: a new RegistryService is created and initialized
-		registryService := NewRegistryService(mocks.Injector)
-		registryService.SetName("registry")
-		err := registryService.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		_, err = registryService.GetComposeConfig()
-
-		// Then: an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "mock error retrieving context") {
-			t.Fatalf("expected error retrieving context, got %v", err)
 		}
 	})
 

@@ -50,7 +50,10 @@ func (s *DNSService) Initialize() error {
 // SetAddress sets the address for the DNS service
 func (s *DNSService) SetAddress(address string) error {
 	// Set the value of the DNS address in the configuration
-	s.configHandler.Set("dns.address", address)
+	err := s.configHandler.Set("dns.address", address)
+	if err != nil {
+		return fmt.Errorf("error setting DNS address: %w", err)
+	}
 
 	return s.BaseService.SetAddress(address)
 }
@@ -58,10 +61,7 @@ func (s *DNSService) SetAddress(address string) error {
 // GetComposeConfig returns the compose configuration
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name
-	contextName, err := s.contextHandler.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context name: %w", err)
-	}
+	contextName := s.contextHandler.GetContext()
 
 	// Common configuration for CoreDNS container
 	corednsConfig := types.ServiceConfig{

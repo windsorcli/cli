@@ -31,11 +31,7 @@ func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServic
 	mockConfigHandler.LoadConfigFunc = func(path string) error { return nil }
 	mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int { return 0 }
 	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool { return false }
-	mockConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
 	mockConfigHandler.SaveConfigFunc = func(path string) error { return nil }
-	mockConfigHandler.GetFunc = func(key string) (interface{}, error) { return nil, nil }
-	mockConfigHandler.SetDefaultFunc = func(context config.Context) error { return nil }
-	mockConfigHandler.GetConfigFunc = func() *config.Context { return nil }
 
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 		if key == "dns.name" {
@@ -51,7 +47,7 @@ func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServic
 	mockShell.GetProjectRootFunc = func() (string, error) { return filepath.FromSlash("/mock/project/root"), nil }
 
 	mockContext := context.NewMockContext()
-	mockContext.GetContextFunc = func() (string, error) { return "mock-context", nil }
+	mockContext.GetContextFunc = func() string { return "mock-context" }
 	mockContext.SetContextFunc = func(context string) error { return nil }
 	mockContext.GetConfigRootFunc = func() (string, error) { return filepath.FromSlash("/mock/config/root"), nil }
 

@@ -55,7 +55,7 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 	if contextHandler == nil {
 		return fmt.Errorf("Error: no context handler found")
 	}
-	contextName, err := contextHandler.GetContext()
+	contextName := contextHandler.GetContext()
 
 	// Resolve the config handler
 	configHandler := controller.ResolveConfigHandler()
@@ -65,12 +65,14 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 
 	// If the context is local or starts with "local-", set the defaults to the default local config
 	if contextName == "local" || len(contextName) > 6 && contextName[:6] == "local-" {
-		if err := configHandler.SetDefault(config.DefaultLocalConfig); err != nil {
-			return fmt.Errorf("Error setting default local config: %w", err)
+		err := configHandler.SetDefault(config.DefaultLocalConfig)
+		if err != nil {
+			return fmt.Errorf("error setting default local config: %w", err)
 		}
 	} else {
-		if err := configHandler.SetDefault(config.DefaultConfig); err != nil {
-			return fmt.Errorf("Error setting default config: %w", err)
+		err := configHandler.SetDefault(config.DefaultConfig)
+		if err != nil {
+			return fmt.Errorf("error setting default config: %w", err)
 		}
 	}
 

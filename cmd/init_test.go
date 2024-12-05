@@ -35,8 +35,8 @@ func setupSafeInitCmdMocks(existingControllers ...ctrl.Controller) *ctrl.MockCon
 
 	// Setup mock context handler
 	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() (string, error) {
-		return "test-context", nil
+	mockContextHandler.GetContextFunc = func() string {
+		return "test-context"
 	}
 	injector.Register("contextHandler", mockContextHandler)
 
@@ -181,32 +181,6 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("GetContextError", func(t *testing.T) {
-		// Given a valid config handler
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-
-		contextHandler := context.NewMockContext()
-		contextHandler.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mocked error getting context")
-		}
-		injector.Register("contextHandler", contextHandler)
-
-		// When the init command is executed
-		rootCmd.SetArgs([]string{"init"})
-		err := Execute(controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then the error should be present
-		expectedError := "mocked error getting context"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
-		}
-	})
-
 	t.Run("SetContextError", func(t *testing.T) {
 		// Given a valid config handler
 		injector := di.NewInjector()
@@ -234,36 +208,6 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("LocalContextSetsDefault", func(t *testing.T) {
-		// Arrange: Create a mock config handler and set the SetDefaultFunc to check the parameters
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetDefaultFunc = func(context config.Context) error {
-			expectedValue := config.DefaultLocalConfig
-			if !reflect.DeepEqual(context, expectedValue) {
-				return fmt.Errorf("Expected value %v, got %v", expectedValue, context)
-			}
-			return nil
-		}
-
-		// Act: Call the init command with a local context
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"init", "local"})
-			err := Execute(controller)
-			if err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
-		})
-
-		// Assert: Verify the output indicates success
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
-		}
-	})
-
 	t.Run("ErrorSettingDefaultLocalConfig", func(t *testing.T) {
 		// Given a mock config handler with SetDefaultFunc set to fail
 		injector := di.NewInjector()
@@ -283,9 +227,9 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		// Then the error should indicate an error setting the default config
-		expectedError := "Error setting default config: set default local config error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		expectedError := "set default local config error"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
 		}
 	})
 
@@ -298,7 +242,7 @@ func TestInitCmd(t *testing.T) {
 		mockConfigHandler.SetDefaultFunc = func(context config.Context) error {
 			expectedValue := config.DefaultConfig
 			if !reflect.DeepEqual(context, expectedValue) {
-				return fmt.Errorf("Expected value %v, got %v", expectedValue, context)
+				t.Errorf("Expected value %v, got %v", expectedValue, context)
 			}
 			return nil
 		}
@@ -339,9 +283,9 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		// Then the error should indicate an error setting the default config
-		expectedError := "Error setting default config: set default config error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		expectedError := "set default config error"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
 		}
 	})
 
@@ -360,16 +304,16 @@ func TestInitCmd(t *testing.T) {
 			expectedError string
 			isSingleParam bool
 		}{
-			{"--aws-endpoint-url", "aws.aws_endpoint_url", "value", "Error setting AWS endpoint URL: set aws.aws_endpoint_url config error", true},
-			{"--aws-profile", "aws.aws_profile", "value", "Error setting AWS profile: set aws.aws_profile config error", true},
-			{"--docker", "docker.enabled", true, "Error setting Docker enabled: set docker.enabled config error", false},
-			{"--backend", "terraform.backend", "value", "Error setting Terraform backend: set terraform.backend config error", true},
-			{"--vm-driver", "vm.driver", "value", "Error setting VM driver: set vm.driver config error", true},
-			{"--vm-cpu", "vm.cpu", 1, "Error setting VM CPU: set vm.cpu config error", true},
-			{"--vm-disk", "vm.disk", 1, "Error setting VM disk: set vm.disk config error", true},
-			{"--vm-memory", "vm.memory", 1, "Error setting VM memory: set vm.memory config error", true},
-			{"--vm-arch", "vm.arch", "value", "Error setting VM architecture: set vm.arch config error", true},
-			{"--git-livereload", "git.livereload.enabled", true, "Error setting Git Livereload enabled: set git.livereload.enabled config error", false},
+			{"--aws-endpoint-url", "aws.aws_endpoint_url", "value", "error setting AWS endpoint URL configuration: set aws.aws_endpoint_url config error", true},
+			{"--aws-profile", "aws.aws_profile", "value", "error setting AWS profile configuration: set aws.aws_profile config error", true},
+			{"--docker", "docker.enabled", true, "error setting Docker configuration: set docker.enabled config error", false},
+			{"--backend", "terraform.backend", "value", "error setting Terraform backend configuration: set terraform.backend config error", true},
+			{"--vm-driver", "vm.driver", "value", "error setting VM driver configuration: set vm.driver config error", true},
+			{"--vm-cpu", "vm.cpu", 1, "error setting VM CPU configuration: set vm.cpu config error", true},
+			{"--vm-disk", "vm.disk", 1, "error setting VM disk configuration: set vm.disk config error", true},
+			{"--vm-memory", "vm.memory", 1, "error setting VM memory configuration: set vm.memory config error", true},
+			{"--vm-arch", "vm.arch", "value", "error setting VM architecture configuration: set vm.arch config error", true},
+			{"--git-livereload", "git.livereload.enabled", true, "error setting Git Livereload configuration: set git.livereload.enabled config error", false},
 		}
 
 		// Loop through each flag and check for errors

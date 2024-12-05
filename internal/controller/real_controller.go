@@ -44,6 +44,11 @@ func (c *RealController) CreateCommonComponents() error {
 	shell := sh.NewDefaultShell(c.injector)
 	c.injector.Register("shell", shell)
 
+	// Testing Note: The following is hard to test as these are registered
+	// above and can't be mocked externally. There may be a better way to
+	// organize this in the future but this works for now, so we don't expect
+	// these lines to be covered by tests.
+
 	// Initialize the contextHandler
 	if err := contextHandler.Initialize(); err != nil {
 		return fmt.Errorf("error initializing context handler: %w", err)

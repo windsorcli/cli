@@ -12,7 +12,7 @@ import (
 // ContextHandlerInterface defines the interface for context operations
 type ContextHandler interface {
 	Initialize() error
-	GetContext() (string, error)     // Retrieves the current context
+	GetContext() string              // Retrieves the current context
 	SetContext(context string) error // Sets the current context
 	GetConfigRoot() (string, error)  // Retrieves the configuration root path
 }
@@ -49,23 +49,18 @@ func (c *BaseContextHandler) Initialize() error {
 }
 
 // GetContext retrieves the current context from the configuration
-func (c *BaseContextHandler) GetContext() (string, error) {
-	context, err := c.configHandler.Get("context")
+func (c *BaseContextHandler) GetContext() string {
+	context := c.configHandler.Get("context")
 	if context == nil {
-		if err := c.SetContext("local"); err != nil {
-			return "", fmt.Errorf("error setting default context: %w", err)
-		}
-		return "local", nil
+		return "local"
 	}
-	if err != nil {
-		return "", fmt.Errorf("error getting context: %w", err)
-	}
-	return context.(string), nil
+	return context.(string)
 }
 
 // SetContext sets the current context in the configuration and saves it
 func (c *BaseContextHandler) SetContext(context string) error {
-	if err := c.configHandler.Set("context", context); err != nil {
+	err := c.configHandler.Set("context", context)
+	if err != nil {
 		return fmt.Errorf("error setting context: %w", err)
 	}
 	if err := c.configHandler.SaveConfig(""); err != nil {
@@ -76,14 +71,11 @@ func (c *BaseContextHandler) SetContext(context string) error {
 
 // GetConfigRoot retrieves the configuration root path based on the current context
 func (c *BaseContextHandler) GetConfigRoot() (string, error) {
-	context, err := c.GetContext()
-	if err != nil {
-		return "", fmt.Errorf("error retrieving context: %w", err)
-	}
+	context := c.GetContext()
 
 	projectRoot, err := c.shell.GetProjectRoot()
 	if err != nil {
-		return "", fmt.Errorf("error retrieving project root: %w", err)
+		return "", err
 	}
 
 	configRoot := filepath.Join(projectRoot, "contexts", context)

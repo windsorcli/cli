@@ -29,8 +29,8 @@ func setupSafeTalosControlPlaneServiceMocks(optionalInjector ...di.Injector) *Mo
 	injector.Register("configHandler", mockConfigHandler)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() (string, error) {
-		return "mock-context", nil
+	mockContext.GetContextFunc = func() string {
+		return "mock-context"
 	}
 
 	// Mock the functions that are actually called in talos_controlplane_service.go

@@ -21,15 +21,9 @@ var getContextCmd = &cobra.Command{
 
 		// Resolve context handler
 		contextHandler := controller.ResolveContextHandler()
-		if contextHandler == nil {
-			return fmt.Errorf("Error: no context handler found")
-		}
 
 		// Get the current context
-		currentContext, err := contextHandler.GetContext()
-		if err != nil {
-			return fmt.Errorf("Error getting context: %w", err)
-		}
+		currentContext := contextHandler.GetContext()
 
 		// Print the current context
 		fmt.Println(currentContext)
@@ -52,9 +46,6 @@ var setContextCmd = &cobra.Command{
 
 		// Resolve context handler
 		contextHandler := controller.ResolveContextHandler()
-		if contextHandler == nil {
-			return fmt.Errorf("Error: no context handler found")
-		}
 
 		// Set the context
 		contextName := args[0]

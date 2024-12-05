@@ -167,10 +167,7 @@ func (v *DockerVirt) WriteConfig() error {
 // GetContainerInfo returns a list of information about the Docker containers, including their labels
 func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 	// Get the context name
-	contextName, err := v.contextHandler.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := v.contextHandler.GetContext()
 
 	command := "docker"
 	args := []string{"ps", "--filter", "label=managed_by=windsor", "--filter", fmt.Sprintf("label=context=%s", contextName), "--format", "{{.ID}}"}
@@ -275,10 +272,7 @@ func (v *DockerVirt) checkDockerDaemon() error {
 // getFullComposeConfig retrieves the full compose configuration for the DockerVirt.
 func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	// Get the context name
-	contextName, err := v.contextHandler.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := v.contextHandler.GetContext()
 
 	// Get the context configuration
 	contextConfig := v.configHandler.GetConfig()

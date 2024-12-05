@@ -32,8 +32,8 @@ func setupSafeTalosWorkerServiceMocks(optionalInjector ...di.Injector) *MockComp
 	injector.Register("configHandler", mockConfigHandler)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() (string, error) {
-		return "mock-context", nil
+	mockContext.GetContextFunc = func() string {
+		return "mock-context"
 	}
 
 	mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {

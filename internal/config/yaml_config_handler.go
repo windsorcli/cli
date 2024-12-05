@@ -12,6 +12,7 @@ import (
 
 // YamlConfigHandler implements the ConfigHandler interface using goccy/go-yaml
 type YamlConfigHandler struct {
+	ConfigHandler
 	config               Config
 	path                 string
 	defaultContextConfig Context
@@ -22,11 +23,6 @@ func NewYamlConfigHandler() *YamlConfigHandler {
 	return &YamlConfigHandler{
 		defaultContextConfig: DefaultConfig,
 	}
-}
-
-// Initialize initializes the configuration handler
-func (y *YamlConfigHandler) Initialize() error {
-	return nil
 }
 
 // LoadConfig loads the configuration from the specified path
@@ -87,47 +83,42 @@ func (y *YamlConfigHandler) SetDefault(context Context) error {
 
 	// Check if the context is defined in the config
 	contextKey := fmt.Sprintf("contexts.%s", currentContext)
-	if _, err := y.Get(contextKey); err != nil {
+	if y.Get(contextKey) == nil {
 		// If the context is not defined, set it to defaultContextConfig
-		if err := y.Set(contextKey, &context); err != nil {
-			// NOTE: Untestable
-			return fmt.Errorf("error setting default context config: %w", err)
-		}
+		return y.Set(contextKey, &context)
 	}
 	return nil
 }
 
 // Get retrieves the value at the specified path in the configuration
-func (y *YamlConfigHandler) Get(path string) (interface{}, error) {
+func (y *YamlConfigHandler) Get(path string) interface{} {
 	if path == "" {
-		return nil, fmt.Errorf("invalid path")
+		return nil
 	}
 	pathKeys := strings.Split(path, ".")
 
 	// Use getValueByPath to navigate the struct using YAML tags
-	value, err := getValueByPath(y.config, pathKeys)
-	if err != nil || value == nil {
+	value := getValueByPath(y.config, pathKeys)
+	if value == nil {
 		// Value is invalid or nil, proceed to check defaultContextConfig
 		if len(pathKeys) >= 2 && pathKeys[0] == "contexts" {
 			// Attempt to get the value from defaultContextConfig
-			value, err = getValueByPath(y.defaultContextConfig, pathKeys[2:])
-			if err == nil && value != nil {
-				return value, nil
+			value = getValueByPath(y.defaultContextConfig, pathKeys[2:])
+			if value != nil {
+				return value
 			}
 		}
-	} else {
-		return value, nil
 	}
 
 	// Return an error if the key is not found
-	return nil, fmt.Errorf("key %s not found in configuration", path)
+	return nil
 }
 
 // GetString retrieves a string value for the specified key from the configuration
 func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) string {
 	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)
-	value, err := y.Get(contextKey)
-	if err != nil || value == nil {
+	value := y.Get(contextKey)
+	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
@@ -139,8 +130,8 @@ func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) string
 // GetInt retrieves an integer value for the specified key from the configuration
 func (y *YamlConfigHandler) GetInt(key string, defaultValue ...int) int {
 	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)
-	value, err := y.Get(contextKey)
-	if err != nil || value == nil {
+	value := y.Get(contextKey)
+	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
@@ -156,8 +147,8 @@ func (y *YamlConfigHandler) GetInt(key string, defaultValue ...int) int {
 // GetBool retrieves a boolean value for the specified key from the configuration
 func (y *YamlConfigHandler) GetBool(key string, defaultValue ...bool) bool {
 	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)
-	value, err := y.Get(contextKey)
-	if err != nil || value == nil {
+	value := y.Get(contextKey)
+	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
@@ -172,7 +163,7 @@ func (y *YamlConfigHandler) GetBool(key string, defaultValue ...bool) bool {
 // Set updates the value at the specified path in the configuration
 func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 	if path == "" {
-		return fmt.Errorf("invalid path")
+		return nil
 	}
 	pathKeys := strings.Split(path, ".")
 
@@ -184,8 +175,6 @@ func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 	if err != nil {
 		return err
 	}
-
-	// y.config is already modified via the pointer
 	return nil
 }
 
@@ -205,14 +194,14 @@ func (y *YamlConfigHandler) GetConfig() *Context {
 var _ ConfigHandler = (*YamlConfigHandler)(nil)
 
 // getValueByPath is a helper function to get a value by a path from an interface{}
-func getValueByPath(current interface{}, pathKeys []string) (interface{}, error) {
+func getValueByPath(current interface{}, pathKeys []string) interface{} {
 	if len(pathKeys) == 0 {
-		return nil, fmt.Errorf("pathKeys cannot be empty")
+		return nil
 	}
 
 	currValue := reflect.ValueOf(current)
 	if !currValue.IsValid() {
-		return nil, fmt.Errorf("current value is invalid")
+		return nil
 	}
 
 	// Traverse the path to get the value
@@ -221,7 +210,7 @@ func getValueByPath(current interface{}, pathKeys []string) (interface{}, error)
 		if currValue.Kind() == reflect.Ptr {
 			if currValue.IsNil() {
 				// Return nil to indicate the value is not set
-				return nil, nil
+				return nil
 			}
 			currValue = currValue.Elem()
 		}
@@ -234,35 +223,36 @@ func getValueByPath(current interface{}, pathKeys []string) (interface{}, error)
 		case reflect.Map:
 			mapKey := reflect.ValueOf(key)
 			if !mapKey.Type().AssignableTo(currValue.Type().Key()) {
-				return nil, fmt.Errorf("key type mismatch: expected %s, got %s", currValue.Type().Key(), mapKey.Type())
+				return nil
 			}
 			mapValue := currValue.MapIndex(mapKey)
 			if !mapValue.IsValid() {
 				// Return nil to indicate the key is not found
-				return nil, nil
+				return nil
 			}
 			currValue = mapValue
 
 		default:
-			return nil, fmt.Errorf("unsupported kind %s", currValue.Kind())
+			return nil
 		}
 	}
 
 	// Handle final pointer
 	if currValue.Kind() == reflect.Ptr {
 		if currValue.IsNil() {
-			return nil, nil
+			// NOTE: Untestable
+			return nil
 		}
 		currValue = currValue.Elem()
 	}
 
 	// Check if currValue is valid and can interface
 	if currValue.IsValid() && currValue.CanInterface() {
-		return currValue.Interface(), nil
+		return currValue.Interface()
 	}
 
-	// Return an error since we cannot retrieve a valid value
-	return nil, fmt.Errorf("unable to retrieve value at path %s", strings.Join(pathKeys, "."))
+	// Return nil since we cannot retrieve a valid value
+	return nil
 }
 
 // getFieldByYamlTag retrieves a field from a struct by its YAML tag
@@ -548,3 +538,6 @@ var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
 	// Using goccy/go-yaml for marshalling
 	return yaml.Marshal(processed)
 }
+
+// Ensure YamlConfigHandler implements ConfigHandler
+var _ ConfigHandler = (*YamlConfigHandler)(nil)

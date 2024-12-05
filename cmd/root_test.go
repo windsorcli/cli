@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -239,6 +240,49 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 
 		// Then an error should be returned
 		expectedError := "mocked error loading config"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorSettingDefaultLocalConfig", func(t *testing.T) {
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
+
+		// Mock the injector
+		injector := di.NewInjector()
+
+		// Mock the controller
+		mockController := ctrl.NewMockController(injector)
+		controller = mockController
+
+		// Mock ResolveContextHandler to return a mock context handler
+		mockContextHandler := &context.MockContext{}
+		mockContextHandler.GetContextFunc = func() string {
+			return "local"
+		}
+		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
+			return mockContextHandler
+		}
+
+		// Mock ResolveConfigHandler to return a mock config handler
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.SetDefaultFunc = func(cfg config.Context) error {
+			if reflect.DeepEqual(cfg, config.DefaultLocalConfig) {
+				return fmt.Errorf("mocked error setting default local config")
+			}
+			return nil
+		}
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return mockConfigHandler
+		}
+
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
+
+		// Then an error should be returned
+		expectedError := "mocked error setting default local config"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
 		}

@@ -24,12 +24,9 @@ func NewRegistryService(injector di.Injector) *RegistryService {
 
 // generateRegistryService creates a ServiceConfig for a Registry service
 // with the specified name, remote URL, and local URL.
-func (s *RegistryService) generateRegistryService(name, remoteURL, localURL string) (types.ServiceConfig, error) {
+func (s *RegistryService) generateRegistryService(name, remoteURL, localURL string) types.ServiceConfig {
 	// Retrieve the context name
-	contextName, err := s.contextHandler.GetContext()
-	if err != nil {
-		return types.ServiceConfig{}, fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := s.contextHandler.GetContext()
 
 	// Initialize the ServiceConfig with the provided name, a predefined image,
 	// a restart policy, and labels indicating the role and manager.
@@ -63,7 +60,7 @@ func (s *RegistryService) generateRegistryService(name, remoteURL, localURL stri
 	}
 
 	// Return the configured ServiceConfig.
-	return service, nil
+	return service
 }
 
 // GetComposeConfig returns a compose configuration for the registry matching the current s.name value.
@@ -77,10 +74,7 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 	// Find the registry matching the current s.name value
 	for _, registry := range registries {
 		if registry.Name == s.name {
-			service, err := s.generateRegistryService(registry.Name, registry.Remote, registry.Local)
-			if err != nil {
-				return nil, err
-			}
+			service := s.generateRegistryService(registry.Name, registry.Remote, registry.Local)
 			return &types.Config{Services: []types.ServiceConfig{service}}, nil
 		}
 	}

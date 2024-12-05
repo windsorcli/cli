@@ -33,8 +33,8 @@ func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
 	mockContext.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
 	}
-	mockContext.GetContextFunc = func() (string, error) {
-		return "mockContext", nil
+	mockContext.GetContextFunc = func() string {
+		return "mockContext"
 	}
 
 	mockShell := shell.NewMockShell()
@@ -200,8 +200,8 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 
 	t.Run("ErrorListingTfvarsFiles", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "mockContext", nil
+		mocks.ContextHandler.GetContextFunc = func() string {
+			return "mockContext"
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{}
@@ -247,8 +247,8 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 func TestTerraformEnv_PostEnvHook(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "mockContext", nil
+		mocks.ContextHandler.GetContextFunc = func() string {
+			return "mockContext"
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
@@ -531,8 +531,8 @@ func TestTerraformEnv_Print(t *testing.T) {
 func TestTerraformEnv_getAlias(t *testing.T) {
 	t.Run("SuccessLocalstackEnabled", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "local", nil
+		mocks.ContextHandler.GetContextFunc = func() string {
+			return "local"
 		}
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "aws.localstack.create" {
@@ -558,8 +558,8 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 
 	t.Run("SuccessLocalstackDisabled", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "local", nil
+		mocks.ContextHandler.GetContextFunc = func() string {
+			return "local"
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{

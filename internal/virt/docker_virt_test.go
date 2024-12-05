@@ -41,8 +41,8 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	injector.Register("service2", mockService2)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() (string, error) {
-		return "mock-context", nil
+	mockContext.GetContextFunc = func() string {
+		return "mock-context"
 	}
 
 	// Set up the mock config handler to return a safe default configuration for Docker VMs
@@ -492,29 +492,6 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGettingContext", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the necessary methods to simulate an error
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving context")
-		}
-
-		// When calling GetContainerInfo
-		_, err := dockerVirt.GetContainerInfo()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected an error, got none")
-		}
-		if err.Error() != "error retrieving context: mock error retrieving context" {
-			t.Fatalf("Expected error message 'error retrieving context: mock error retrieving context', got %v", err)
-		}
-	})
-
 	t.Run("ErrorInspectingContainer", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
@@ -830,20 +807,21 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 
 	t.Run("ErrorGettingFullComposeConfig", func(t *testing.T) {
 		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
+		mockInjector := di.NewMockInjector()
+		mocks := setupSafeDockerContainerMocks(mockInjector)
+		dockerVirt := NewDockerVirt(mockInjector)
 		dockerVirt.Initialize()
 
-		// Mock the mkdirAll function to simulate an error
+		// Mock the mkdirAll function to prevent actual directory creation
 		originalMkdirAll := mkdirAll
 		defer func() { mkdirAll = originalMkdirAll }()
 		mkdirAll = func(path string, perm os.FileMode) error {
-			return nil // Return nil to bypass the read-only file system error
+			return nil
 		}
 
-		// Mock the GetContext function to simulate a failure
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving context")
+		// Mock the service's GetComposeConfig to return an error
+		mocks.MockService.GetComposeConfigFunc = func() (*types.Config, error) {
+			return nil, fmt.Errorf("error getting compose config from service")
 		}
 
 		// Call the WriteConfig method
@@ -854,9 +832,10 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 			t.Fatal("expected an error, got none")
 		}
 
-		// Check for the presence of an error
-		if err == nil {
-			t.Fatal("expected an error, got none")
+		// Assert the error message is as expected
+		expectedErrorMsg := "error getting compose config from service"
+		if !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
 	})
 
@@ -1029,36 +1008,6 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		}
 		if len(project.Networks) != 3 {
 			t.Errorf("expected 3 networks, got %d", len(project.Networks))
-		}
-	})
-
-	t.Run("ErrorRetrievingContext", func(t *testing.T) {
-		// Setup mock components with a faulty context
-		mockInjector := di.NewMockInjector()
-		mocks := setupSafeDockerContainerMocks(mockInjector)
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("error retrieving context")
-		}
-		dockerVirt := NewDockerVirt(mockInjector)
-		dockerVirt.Initialize()
-
-		// Call the getFullComposeConfig method
-		project, err := dockerVirt.getFullComposeConfig()
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Errorf("expected an error, got nil")
-		}
-
-		// Assert the error message is as expected
-		expectedErrorMsg := "error retrieving context"
-		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
-		}
-
-		// Assert the project is nil
-		if project != nil {
-			t.Errorf("expected project to be nil, got %v", project)
 		}
 	})
 
