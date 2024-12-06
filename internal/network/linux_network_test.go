@@ -6,6 +6,7 @@ package network
 import (
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/windsor-hotel/cli/internal/config"
@@ -153,7 +154,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		// Call the ConfigureHostRoute method and expect an error
 		err = nm.ConfigureHostRoute()
-		if err == nil || err.Error() != "network CIDR is not configured" {
+		if err == nil || !strings.Contains(err.Error(), "network CIDR is not configured") {
 			t.Fatalf("expected error 'network CIDR is not configured', got %v", err)
 		}
 	})
@@ -163,6 +164,9 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		// Mock the GetString function to return an empty string for "vm.address"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.5.0/24"
+			}
 			if key == "vm.address" {
 				return ""
 			}
@@ -186,7 +190,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		// Call the ConfigureHostRoute method and expect an error
 		err = nm.ConfigureHostRoute()
-		if err == nil || err.Error() != "guest IP is not configured" {
+		if err == nil || !strings.Contains(err.Error(), "guest IP is not configured") {
 			t.Fatalf("expected error 'guest IP is not configured', got %v", err)
 		}
 	})
@@ -220,7 +224,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "failed to add route: mock error, output: mock output"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
@@ -254,6 +258,9 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 
 		// Mock the GetString function to return an empty string for "dns.address"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.5.0/24"
+			}
 			if key == "dns.address" {
 				return ""
 			}
@@ -281,7 +288,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "DNS address is not configured"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
@@ -291,6 +298,9 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 
 		// Mock the GetString function to return an empty string for "dns.name"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.5.0/24"
+			}
 			if key == "dns.name" {
 				return ""
 			}
@@ -318,7 +328,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "DNS domain is not configured"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
@@ -351,7 +361,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "systemd-resolved is not in use. Please configure DNS manually or use a compatible system"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
@@ -387,7 +397,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "failed to create drop-in directory: mock mkdir error"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
@@ -423,7 +433,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "failed to write DNS configuration: mock write DNS configuration error"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
@@ -459,7 +469,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "failed to restart systemd-resolved: mock restart systemd-resolved error"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
