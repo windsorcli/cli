@@ -79,7 +79,12 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 // SetDefault sets the default context configuration
 func (y *YamlConfigHandler) SetDefault(context Context) error {
 	y.defaultContextConfig = context
-	currentContext := *y.config.Context
+	currentContext := "local"
+	if y.config.Context != nil {
+		currentContext = *y.config.Context
+	} else {
+		y.Set("context", &currentContext)
+	}
 
 	// Check if the context is defined in the config
 	contextKey := fmt.Sprintf("contexts.%s", currentContext)
@@ -110,8 +115,8 @@ func (y *YamlConfigHandler) Get(path string) interface{} {
 		}
 	}
 
-	// Return an error if the key is not found
-	return nil
+	// Return the value
+	return value
 }
 
 // GetString retrieves a string value for the specified key from the configuration
@@ -171,11 +176,22 @@ func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 	configValue := reflect.ValueOf(&y.config)
 
 	// Set the value in the configuration by reflection
-	err := setValueByPath(configValue, pathKeys, value)
+	err := setValueByPath(configValue, pathKeys, value, path)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+// SetContextValue sets a configuration value within the current context
+func (y *YamlConfigHandler) SetContextValue(path string, value interface{}) error {
+	if y.config.Context == nil {
+		return fmt.Errorf("current context is not set")
+	}
+
+	currentContext := *y.config.Context
+	fullPath := fmt.Sprintf("contexts.%s.%s", currentContext, path)
+	return y.Set(fullPath, value)
 }
 
 // GetConfig returns the context config object for the current context
@@ -210,6 +226,7 @@ func getValueByPath(current interface{}, pathKeys []string) interface{} {
 		if currValue.Kind() == reflect.Ptr {
 			if currValue.IsNil() {
 				// Return nil to indicate the value is not set
+				// NOTE: Untestable
 				return nil
 			}
 			currValue = currValue.Elem()
@@ -270,7 +287,7 @@ func getFieldByYamlTag(v reflect.Value, tag string) reflect.Value {
 }
 
 // setValueByPath is a helper function to set a value by a path
-func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{}) error {
+func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{}, fullPath string) error {
 	if len(pathKeys) == 0 {
 		return fmt.Errorf("pathKeys cannot be empty")
 	}
@@ -310,7 +327,7 @@ func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{
 			fieldValue.Set(newFieldValue)
 		} else {
 			// Recurse into the field
-			err := setValueByPath(fieldValue, pathKeys[1:], value)
+			err := setValueByPath(fieldValue, pathKeys[1:], value, fullPath)
 			if err != nil {
 				// NOTE: Untestable
 				return err
@@ -352,7 +369,7 @@ func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{
 			}
 
 			// Recurse into the next value
-			err := setValueByPath(nextValue, pathKeys[1:], value)
+			err := setValueByPath(nextValue, pathKeys[1:], value, fullPath)
 			if err != nil {
 				return err
 			}
@@ -362,7 +379,7 @@ func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{
 		}
 
 	default:
-		return fmt.Errorf("unsupported kind %s", currValue.Kind())
+		return fmt.Errorf("Invalid path: %s", fullPath)
 	}
 
 	return nil

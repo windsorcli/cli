@@ -139,6 +139,26 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("EmptyContextName", func(t *testing.T) {
+		// Given a valid config handler
+		controller := setupSafeInitCmdMocks()
+
+		// When the init command is executed with an empty context name
+		output := captureStdout(func() {
+			rootCmd.SetArgs([]string{"init", ""})
+			err := Execute(controller)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+		})
+
+		// Then the output should indicate success
+		expectedOutput := "Initialization successful\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+
 	t.Run("ContextNameProvided", func(t *testing.T) {
 		// Given a valid config handler
 		controller := setupSafeInitCmdMocks()
@@ -175,7 +195,7 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		// Then the error should be present
-		expectedError := "Error: no context handler found"
+		expectedError := "No context handler found"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
 		}
@@ -304,21 +324,21 @@ func TestInitCmd(t *testing.T) {
 			expectedError string
 			isSingleParam bool
 		}{
-			{"--aws-endpoint-url", "aws.aws_endpoint_url", "value", "error setting AWS endpoint URL configuration: set aws.aws_endpoint_url config error", true},
-			{"--aws-profile", "aws.aws_profile", "value", "error setting AWS profile configuration: set aws.aws_profile config error", true},
-			{"--docker", "docker.enabled", true, "error setting Docker configuration: set docker.enabled config error", false},
-			{"--backend", "terraform.backend", "value", "error setting Terraform backend configuration: set terraform.backend config error", true},
-			{"--vm-driver", "vm.driver", "value", "error setting VM driver configuration: set vm.driver config error", true},
-			{"--vm-cpu", "vm.cpu", 1, "error setting VM CPU configuration: set vm.cpu config error", true},
-			{"--vm-disk", "vm.disk", 1, "error setting VM disk configuration: set vm.disk config error", true},
-			{"--vm-memory", "vm.memory", 1, "error setting VM memory configuration: set vm.memory config error", true},
-			{"--vm-arch", "vm.arch", "value", "error setting VM architecture configuration: set vm.arch config error", true},
-			{"--git-livereload", "git.livereload.enabled", true, "error setting Git Livereload configuration: set git.livereload.enabled config error", false},
+			{"--aws-endpoint-url", "aws.aws_endpoint_url", "value", "Error setting aws-endpoint-url configuration: set aws.aws_endpoint_url config error", true},
+			{"--aws-profile", "aws.aws_profile", "value", "Error setting aws-profile configuration: set aws.aws_profile config error", true},
+			{"--docker", "docker.enabled", true, "Error setting docker configuration: set docker.enabled config error", false},
+			{"--backend", "terraform.backend", "value", "Error setting backend configuration: set terraform.backend config error", true},
+			{"--vm-driver", "vm.driver", "value", "Error setting vm-driver configuration: set vm.driver config error", true},
+			{"--vm-cpu", "vm.cpu", 1, "Error setting vm-cpu configuration: set vm.cpu config error", true},
+			{"--vm-disk", "vm.disk", 1, "Error setting vm-disk configuration: set vm.disk config error", true},
+			{"--vm-memory", "vm.memory", 1, "Error setting vm-memory configuration: set vm.memory config error", true},
+			{"--vm-arch", "vm.arch", "value", "Error setting vm-arch configuration: set vm.arch config error", true},
+			{"--git-livereload", "git.livereload.enabled", true, "Error setting git-livereload configuration: set git.livereload.enabled config error", false},
 		}
 
 		// Loop through each flag and check for errors
 		for _, flag := range flags {
-			mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
 				if key == flag.key {
 					return fmt.Errorf("set %s config error", key)
 				}

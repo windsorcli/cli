@@ -154,7 +154,7 @@ func TestDNSService_SetAddress(t *testing.T) {
 
 		// Mock the Set method of the config handler
 		setCalled := false
-		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
 			if key == "dns.address" && value == "127.0.0.1" {
 				setCalled = true
 			}
@@ -189,7 +189,7 @@ func TestDNSService_SetAddress(t *testing.T) {
 		mocks := createDNSServiceMocks()
 
 		// Mock the Set method of the config handler to return an error
-		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
 			if key == "dns.address" {
 				return fmt.Errorf("mocked error setting address")
 			}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -92,10 +93,10 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		injector.Register("configHandler", mockConfigHandler)
 
-		// Mock getCliConfigPath
+		// Mock getCliConfigPath to return a consistent path format across OS
 		originalGetCliConfigPath := getCliConfigPath
 		getCliConfigPath = func() (string, error) {
-			return "/mock/path/to/config.yaml", nil
+			return filepath.ToSlash("/mock/home/.config/windsor/config.yaml"), nil
 		}
 		defer func() { getCliConfigPath = originalGetCliConfigPath }()
 
@@ -208,7 +209,7 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 		err := preRunEInitializeCommonComponents(nil, nil)
 
 		// Then an error should be returned
-		expectedError := "Error: no config handler found"
+		expectedError := "No config handler found"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
 		}
@@ -305,12 +306,12 @@ func TestRoot_getCliConfigPath(t *testing.T) {
 		cliConfigPath, err := getCliConfigPath()
 
 		// Then the path should be as expected and no error should be returned
-		expectedPath := "/mock/home/.config/windsor/config.yaml"
+		expectedPath := filepath.ToSlash("/mock/home/.config/windsor/config.yaml")
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if cliConfigPath != expectedPath {
-			t.Errorf("Expected path to be %q, got %q", expectedPath, cliConfigPath)
+		if filepath.ToSlash(cliConfigPath) != expectedPath {
+			t.Errorf("Expected path to be %q, got %q", expectedPath, filepath.ToSlash(cliConfigPath))
 		}
 	})
 

@@ -62,8 +62,8 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 
 	// Create a mock context handler
 	mockContext := context.NewMockContext()
-	mockContext.GetContextFunc = func() (string, error) {
-		return "mocked context", nil
+	mockContext.GetContextFunc = func() string {
+		return "mocked context"
 	}
 
 	// Create a mock SSH client

@@ -36,7 +36,7 @@ var upCmd = &cobra.Command{
 		// Resolve the config handler
 		configHandler := controller.ResolveConfigHandler()
 		if configHandler == nil {
-			return fmt.Errorf("Error: no config handler found")
+			return fmt.Errorf("No config handler found")
 		}
 
 		// Determine if a virtualization driver is being used
@@ -46,7 +46,7 @@ var upCmd = &cobra.Command{
 		if vmDriver != "" {
 			virtualMachine := controller.ResolveVirtualMachine()
 			if virtualMachine == nil {
-				return fmt.Errorf("Error: no virtual machine found")
+				return fmt.Errorf("No virtual machine found")
 			}
 			if err := virtualMachine.Up(verbose); err != nil {
 				return fmt.Errorf("Error running virtual machine Up command: %w", err)
@@ -61,7 +61,7 @@ var upCmd = &cobra.Command{
 			// Resolve container runtime
 			containerRuntime := controller.ResolveContainerRuntime()
 			if containerRuntime == nil {
-				return fmt.Errorf("Error: no container runtime found")
+				return fmt.Errorf("No container runtime found")
 			}
 
 			// Run the container runtime Up command
@@ -70,32 +70,38 @@ var upCmd = &cobra.Command{
 			}
 		}
 
-		// Get the DNS name and address
-		dnsName := configHandler.GetString("dns.name")
-		dnsAddress := configHandler.GetString("dns.address")
+		// Configure networking only if a VM driver is defined
+		if vmDriver != "" {
+			// Get the DNS name and address
+			dnsName := configHandler.GetString("dns.name")
+			dnsAddress := configHandler.GetString("dns.address")
 
-		// Resolve networkManager
-		networkManager := controller.ResolveNetworkManager()
-		if networkManager == nil {
-			return fmt.Errorf("Error: no network manager found")
-		}
+			// Resolve networkManager
+			networkManager := controller.ResolveNetworkManager()
+			if networkManager == nil {
+				return fmt.Errorf("No network manager found")
+			}
 
-		// Configure the guest network
-		if err := networkManager.ConfigureGuest(); err != nil {
-			return fmt.Errorf("Error configuring guest network: %w", err)
-		}
+			// Configure the guest network
+			if err := networkManager.ConfigureGuest(); err != nil {
+				return fmt.Errorf("Error configuring guest network: %w", err)
+			}
 
-		// Configure the host route for the network
-		if err := networkManager.ConfigureHostRoute(); err != nil {
-			return fmt.Errorf("Error configuring host network: %w", err)
-		}
+			// Configure the host route for the network
+			if err := networkManager.ConfigureHostRoute(); err != nil {
+				return fmt.Errorf("Error configuring host network: %w", err)
+			}
 
-		// Configure DNS if dns.name is set
-		if dnsName != "" && dnsAddress != "" {
-			if err := networkManager.ConfigureDNS(); err != nil {
-				return fmt.Errorf("Error configuring DNS: %w", err)
+			// Configure DNS if dns.name is set
+			if dnsName != "" && dnsAddress != "" {
+				if err := networkManager.ConfigureDNS(); err != nil {
+					return fmt.Errorf("Error configuring DNS: %w", err)
+				}
 			}
 		}
+
+		// Print success message
+		fmt.Println("Windsor environment set up successfully.")
 
 		return nil
 	},

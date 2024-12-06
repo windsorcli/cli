@@ -61,7 +61,7 @@ var execCmd = &cobra.Command{
 		// Resolve the shell instance using the controller
 		shellInstance := controller.ResolveShell()
 		if shellInstance == nil {
-			return fmt.Errorf("Error: no shell found")
+			return fmt.Errorf("No shell found")
 		}
 
 		// Execute the command using the resolved shell instance

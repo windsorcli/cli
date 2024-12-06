@@ -126,6 +126,25 @@ func TestMockConfigHandler_Set(t *testing.T) {
 	})
 }
 
+func TestMockConfigHandler_SetContextValue(t *testing.T) {
+	t.Run("WithKeyAndValue", func(t *testing.T) {
+		handler := NewMockConfigHandler()
+		handler.SetContextValueFunc = func(key string, value interface{}) error { return nil }
+		err := handler.SetContextValue("someKey", "someValue")
+		if err != nil {
+			t.Errorf("Expected SetContextValue to return nil, got %v", err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		handler := NewMockConfigHandler()
+		err := handler.SetContextValue("someKey", "someValue")
+		if err != nil {
+			t.Errorf("Expected SetContextValue to return nil, got %v", err)
+		}
+	})
+}
+
 func TestMockConfigHandler_SaveConfig(t *testing.T) {
 	mockSaveErr := fmt.Errorf("mock save config error")
 

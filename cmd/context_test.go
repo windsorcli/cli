@@ -82,7 +82,7 @@ func TestContext_Get(t *testing.T) {
 		}
 
 		// Then the error should indicate the issue
-		expectedError := "Error: no context handler found"
+		expectedError := "No context handler found"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
@@ -160,7 +160,7 @@ func TestContext_Set(t *testing.T) {
 		}
 
 		// Then the output should indicate the error
-		expectedOutput := "Error: no context handler found"
+		expectedOutput := "No context handler found"
 		if !strings.Contains(err.Error(), expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
 		}

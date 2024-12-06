@@ -50,7 +50,7 @@ func (s *DNSService) Initialize() error {
 // SetAddress sets the address for the DNS service
 func (s *DNSService) SetAddress(address string) error {
 	// Set the value of the DNS address in the configuration
-	err := s.configHandler.Set("dns.address", address)
+	err := s.configHandler.SetContextValue("dns.address", address)
 	if err != nil {
 		return fmt.Errorf("error setting DNS address: %w", err)
 	}
@@ -111,7 +111,7 @@ func (s *DNSService) WriteConfig() error {
 					address := addressService.GetAddress()
 					if address != "" {
 						fullName := fmt.Sprintf("%s.%s", svc.Name, tld)
-						hostEntries += fmt.Sprintf("        %s %s\n", fullName, address)
+						hostEntries += fmt.Sprintf("        %s %s\n", address, fullName)
 					}
 				}
 			}
