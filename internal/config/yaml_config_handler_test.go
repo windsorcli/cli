@@ -687,7 +687,7 @@ func TestYamlConfigHandler_SetContextValue(t *testing.T) {
 }
 
 func TestYamlConfigHandler_SetDefault(t *testing.T) {
-	t.Run("SetDefaultContext", func(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
 		// Given a YamlConfigHandler and a default context
 		handler := NewYamlConfigHandler()
 		defaultContext := Context{
@@ -706,6 +706,49 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 		}
 
 		// Then the default context should be set correctly
+		if handler.defaultContextConfig.Environment["ENV_VAR"] != "value" {
+			t.Errorf("SetDefault() = %v, expected %v", handler.defaultContextConfig.Environment["ENV_VAR"], "value")
+		}
+	})
+
+	t.Run("NilContext", func(t *testing.T) {
+		// Given a handler with a nil context
+		handler := NewYamlConfigHandler()
+		handler.config.Context = nil
+
+		// When calling SetDefault
+		defaultContext := Context{
+			Environment: map[string]string{
+				"ENV_VAR": "value",
+			},
+		}
+		err := handler.SetDefault(defaultContext)
+
+		// Then the default context should be set correctly
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if handler.defaultContextConfig.Environment["ENV_VAR"] != "value" {
+			t.Errorf("SetDefault() = %v, expected %v", handler.defaultContextConfig.Environment["ENV_VAR"], "value")
+		}
+	})
+
+	t.Run("ContextNotSet", func(t *testing.T) {
+		// Given a handler without a context set
+		handler := NewYamlConfigHandler()
+
+		// When calling SetDefault
+		defaultContext := Context{
+			Environment: map[string]string{
+				"ENV_VAR": "value",
+			},
+		}
+		err := handler.SetDefault(defaultContext)
+
+		// Then the default context should be set correctly
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
 		if handler.defaultContextConfig.Environment["ENV_VAR"] != "value" {
 			t.Errorf("SetDefault() = %v, expected %v", handler.defaultContextConfig.Environment["ENV_VAR"], "value")
 		}

@@ -83,7 +83,9 @@ func (y *YamlConfigHandler) SetDefault(context Context) error {
 	if y.config.Context != nil {
 		currentContext = *y.config.Context
 	} else {
-		y.Set("context", &currentContext)
+		if err := y.Set("context", currentContext); err != nil {
+			return err
+		}
 	}
 
 	// Check if the context is defined in the config
