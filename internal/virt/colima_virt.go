@@ -59,10 +59,7 @@ func (v *ColimaVirt) Down(verbose ...bool) error {
 
 // GetVMInfo returns the information about the Colima VM
 func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
-	contextName, err := v.contextHandler.GetContext()
-	if err != nil {
-		return VMInfo{}, fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := v.contextHandler.GetContext()
 
 	command := "colima"
 	args := []string{"ls", "--profile", fmt.Sprintf("windsor-%s", contextName), "--json"}
@@ -103,10 +100,7 @@ func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
 
 // WriteConfig writes the Colima configuration file
 func (v *ColimaVirt) WriteConfig() error {
-	context, err := v.contextHandler.GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
+	context := v.contextHandler.GetContext()
 
 	config := v.configHandler.GetConfig()
 
@@ -276,10 +270,7 @@ func getDefaultValues(context string) (int, int, int, string, string) {
 // executeColimaCommand executes a Colima command with the given action
 func (v *ColimaVirt) executeColimaCommand(action string, verbose bool) error {
 	// Get the context name
-	contextName, err := v.contextHandler.GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := v.contextHandler.GetContext()
 
 	command := "colima"
 	args := []string{action, fmt.Sprintf("windsor-%s", contextName)}
@@ -295,10 +286,7 @@ func (v *ColimaVirt) executeColimaCommand(action string, verbose bool) error {
 // startColima starts the Colima VM and waits for it to have an assigned IP address
 func (v *ColimaVirt) startColima(verbose bool) (VMInfo, error) {
 	// Get the context name
-	contextName, err := v.contextHandler.GetContext()
-	if err != nil {
-		return VMInfo{}, fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := v.contextHandler.GetContext()
 
 	command := "colima"
 	args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
@@ -306,9 +294,6 @@ func (v *ColimaVirt) startColima(verbose bool) (VMInfo, error) {
 	if err != nil {
 		return VMInfo{}, fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 	}
-
-	// Determine if running in CI environment
-	isCI := strings.ToLower(os.Getenv("CI")) == "true"
 
 	// Wait until the Colima VM has an assigned IP address, try three times
 	var info VMInfo
@@ -321,9 +306,7 @@ func (v *ColimaVirt) startColima(verbose bool) (VMInfo, error) {
 			return info, nil
 		}
 
-		if !isCI {
-			time.Sleep(2 * time.Second)
-		}
+		time.Sleep(time.Duration(RETRY_WAIT) * time.Second)
 	}
 
 	return VMInfo{}, fmt.Errorf("Failed to retrieve VM info with a valid address after multiple attempts")

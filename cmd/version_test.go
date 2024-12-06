@@ -5,7 +5,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/mocks"
+	ctrl "github.com/windsor-hotel/cli/internal/controller"
+	"github.com/windsor-hotel/cli/internal/di"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -16,13 +17,14 @@ func TestVersionCommand(t *testing.T) {
 	})
 
 	t.Run("VersionOutput", func(t *testing.T) {
-		// Setup injector with mock dependencies
-		mocks := mocks.CreateSuperMocks()
+		// Create a mock controller
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
 
 		// When: the version command is executed
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"version"})
-			err := Execute(mocks.Injector)
+			err := Execute(mockController)
 			if err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}

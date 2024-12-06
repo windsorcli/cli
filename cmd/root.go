@@ -7,44 +7,22 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/di"
+	ctrl "github.com/windsor-hotel/cli/internal/controller"
 )
 
-// Injector is the global injector
-var injector di.Injector
-
-// configHandler is the global config handler
-var configHandler config.ConfigHandler
+// controller is the global controller
+var controller ctrl.Controller
 
 // This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute(inj di.Injector) error {
-	// Set the injector
-	injector = inj
+func Execute(controllerInstance ctrl.Controller) error {
+	// Set the controller
+	controller = controllerInstance
 
-	configHandlerInstance, err := injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
-	}
-
-	var ok bool
-	configHandler, ok = configHandlerInstance.(config.ConfigHandler)
-	if !ok {
-		return fmt.Errorf("resolved instance is not of type config.ConfigHandler")
-	}
-
-	// Load CLI configuration
-	cliConfigPath, err := getCLIConfigPath()
-	if err != nil {
-		return fmt.Errorf("error getting CLI config path: %w", err)
-	}
-
-	if err := configHandler.LoadConfig(cliConfigPath); err != nil {
-		return fmt.Errorf("error loading CLI config: %w", err)
-	}
-
+	// Execute the root command
 	if err := rootCmd.Execute(); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -60,15 +38,69 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 }
 
-// getCLIConfigPath returns the path to the CLI configuration file
-var getCLIConfigPath = func() (string, error) {
-	cliConfigPath := os.Getenv("WINDSORCONFIG")
-	if cliConfigPath == "" {
-		home, err := osUserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("error retrieving user home directory: %w", err)
-		}
-		cliConfigPath = filepath.Join(home, ".config", "windsor", "config.yaml")
+// initializeCommonComponents initializes the controller and creates common components
+func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error {
+	// Initialize the controller
+	if err := controller.Initialize(); err != nil {
+		return fmt.Errorf("Error initializing controller: %w", err)
 	}
+
+	// Create common components
+	if err := controller.CreateCommonComponents(); err != nil {
+		return fmt.Errorf("Error creating common components: %w", err)
+	}
+
+	// Resolve the context handler
+	contextHandler := controller.ResolveContextHandler()
+	if contextHandler == nil {
+		return fmt.Errorf("No context handler found")
+	}
+	contextName := contextHandler.GetContext()
+
+	// Resolve the config handler
+	configHandler := controller.ResolveConfigHandler()
+	if configHandler == nil {
+		return fmt.Errorf("No config handler found")
+	}
+
+	// If the context is local or starts with "local-", set the defaults to the default local config
+	if contextName == "local" || len(contextName) > 6 && contextName[:6] == "local-" {
+		err := configHandler.SetDefault(config.DefaultLocalConfig)
+		if err != nil {
+			return fmt.Errorf("error setting default local config: %w", err)
+		}
+	} else {
+		err := configHandler.SetDefault(config.DefaultConfig)
+		if err != nil {
+			return fmt.Errorf("error setting default config: %w", err)
+		}
+	}
+
+	// Get the cli configuration path
+	cliConfigPath, err := getCliConfigPath()
+	if err != nil {
+		return fmt.Errorf("Error getting cli configuration path: %w", err)
+	}
+
+	// Load the configuration
+	if err := configHandler.LoadConfig(cliConfigPath); err != nil {
+		return fmt.Errorf("Error loading config file: %w", err)
+	}
+	return nil
+}
+
+// getCliConfigPath returns the path to the cli configuration file
+var getCliConfigPath = func() (string, error) {
+	// Determine the cliConfig path
+	if cliConfigPath := os.Getenv("WINDSORCONFIG"); cliConfigPath != "" {
+		return cliConfigPath, nil
+	}
+
+	homeDir, err := osUserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("error retrieving home directory: %w", err)
+	}
+	cliConfigPath := filepath.Join(homeDir, ".config", "windsor", "config.yaml")
+
 	return cliConfigPath, nil
 }

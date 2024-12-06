@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/context"
 )
 
 // getContextCmd represents the get command
@@ -13,15 +12,20 @@ var getContextCmd = &cobra.Command{
 	Short:        "Get the current context",
 	Long:         "Retrieve and display the current context from the configuration",
 	SilenceUsage: true,
+	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		contextHandler, err := getContextHandler()
-		if err != nil {
-			return fmt.Errorf("Error getting context handler: %w", err)
+		// Initialize components
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
 		}
-		currentContext, err := contextHandler.GetContext()
-		if err != nil {
-			return fmt.Errorf("Error getting context: %w", err)
-		}
+
+		// Resolve context handler
+		contextHandler := controller.ResolveContextHandler()
+
+		// Get the current context
+		currentContext := contextHandler.GetContext()
+
+		// Print the current context
 		fmt.Println(currentContext)
 		return nil
 	},
@@ -29,19 +33,27 @@ var getContextCmd = &cobra.Command{
 
 // setContextCmd represents the set command
 var setContextCmd = &cobra.Command{
-	Use:   "set [context]",
-	Short: "Set the current context",
-	Long:  "Set the current context in the configuration and save it",
-	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	Use:     "set [context]",
+	Short:   "Set the current context",
+	Long:    "Set the current context in the configuration and save it",
+	Args:    cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	PreRunE: preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		contextHandler, err := getContextHandler()
-		if err != nil {
-			return fmt.Errorf("Error getting context handler: %w", err)
+		// Initialize components
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
 		}
+
+		// Resolve context handler
+		contextHandler := controller.ResolveContextHandler()
+
+		// Set the context
 		contextName := args[0]
 		if err := contextHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("Error setting context: %w", err)
 		}
+
+		// Print the context
 		fmt.Println("Context set to:", contextName)
 		return nil
 	},
@@ -84,17 +96,4 @@ func init() {
 	// Add alias commands to rootCmd
 	rootCmd.AddCommand(getContextAliasCmd)
 	rootCmd.AddCommand(setContextAliasCmd)
-}
-
-// getContextHandler resolves the contextHandler from the injector and returns it as a context.ContextHandler
-var getContextHandler = func() (context.ContextHandler, error) {
-	instance, err := injector.Resolve("contextHandler")
-	if err != nil {
-		return nil, fmt.Errorf("Error resolving contextHandler: %w", err)
-	}
-	contextHandler, ok := instance.(context.ContextHandler)
-	if !ok {
-		return nil, fmt.Errorf("Error: resolved instance is not of type context.ContextHandler")
-	}
-	return contextHandler, nil
 }

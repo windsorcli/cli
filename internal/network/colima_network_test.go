@@ -198,6 +198,9 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 
 		// Override the GetString method to return an empty string for "vm.address"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.5.0/24"
+			}
 			if key == "vm.address" {
 				return ""
 			}
@@ -222,35 +225,6 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "guest IP is not configured"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorGettingContext", func(t *testing.T) {
-		// Setup mocks using setupColimaNetworkManagerMocks
-		mocks := setupColimaNetworkManagerMocks()
-
-		// Override the GetContext method to return an error
-		mocks.MockContextHandler.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error getting context")
-		}
-
-		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
-		nm := NewColimaNetworkManager(mocks.Injector)
-
-		// Initialize the network manager
-		err := nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// Call the ConfigureGuest method and expect an error due to failed context retrieval
-		err = nm.ConfigureGuest()
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "error retrieving context: mock error getting context"
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}

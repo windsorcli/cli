@@ -4,39 +4,35 @@ import (
 	"fmt"
 
 	"github.com/compose-spec/compose-go/types"
+	"github.com/windsor-hotel/cli/internal/constants"
 	"github.com/windsor-hotel/cli/internal/di"
 )
 
-// DockerService is a service struct that provides Docker-specific utility functions
-type DockerService struct {
+// RegistryService is a service struct that provides Registry-specific utility functions
+type RegistryService struct {
 	BaseService
 }
 
-const registryImage = "registry:2.8.3"
-
-// NewDockerService is a constructor for DockerService
-func NewDockerService(injector di.Injector) *DockerService {
-	return &DockerService{
+// NewRegistryService is a constructor for RegistryService
+func NewRegistryService(injector di.Injector) *RegistryService {
+	return &RegistryService{
 		BaseService: BaseService{
 			injector: injector,
 		},
 	}
 }
 
-// generateRegistryService creates a ServiceConfig for a Docker registry service
+// generateRegistryService creates a ServiceConfig for a Registry service
 // with the specified name, remote URL, and local URL.
-func (s *DockerService) generateRegistryService(name, remoteURL, localURL string) (types.ServiceConfig, error) {
+func (s *RegistryService) generateRegistryService(name, remoteURL, localURL string) types.ServiceConfig {
 	// Retrieve the context name
-	contextName, err := s.contextHandler.GetContext()
-	if err != nil {
-		return types.ServiceConfig{}, fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := s.contextHandler.GetContext()
 
 	// Initialize the ServiceConfig with the provided name, a predefined image,
 	// a restart policy, and labels indicating the role and manager.
 	service := types.ServiceConfig{
 		Name:    name,
-		Image:   registryImage,
+		Image:   constants.REGISTRY_DEFAULT_IMAGE,
 		Restart: "always",
 		Labels: map[string]string{
 			"role":       "registry",
@@ -64,30 +60,27 @@ func (s *DockerService) generateRegistryService(name, remoteURL, localURL string
 	}
 
 	// Return the configured ServiceConfig.
-	return service, nil
+	return service
 }
 
-// GetComposeConfig returns a list of container data for docker-compose.
-func (s *DockerService) GetComposeConfig() (*types.Config, error) {
-	var services []types.ServiceConfig
-
+// GetComposeConfig returns a compose configuration for the registry matching the current s.name value.
+func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context configuration using GetConfig
 	contextConfig := s.configHandler.GetConfig()
 
 	// Retrieve the list of registries from the context configuration
 	registries := contextConfig.Docker.Registries
 
-	// Convert registries to service definitions
+	// Find the registry matching the current s.name value
 	for _, registry := range registries {
-		service, err := s.generateRegistryService(registry.Name, registry.Remote, registry.Local)
-		if err != nil {
-			return nil, err
+		if registry.Name == s.name {
+			service := s.generateRegistryService(registry.Name, registry.Remote, registry.Local)
+			return &types.Config{Services: []types.ServiceConfig{service}}, nil
 		}
-		services = append(services, service)
 	}
 
-	return &types.Config{Services: services}, nil
+	return nil, fmt.Errorf("no registry found with name: %s", s.name)
 }
 
-// Ensure DockerService implements Service interface
-var _ Service = (*DockerService)(nil)
+// Ensure RegistryService implements Service interface
+var _ Service = (*RegistryService)(nil)

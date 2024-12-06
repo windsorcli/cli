@@ -6,20 +6,39 @@ import (
 	"strings"
 
 	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsor-hotel/cli/internal/ssh"
 )
 
 // SecureShell implements the Shell interface using SSH.
 type SecureShell struct {
 	DefaultShell
+	sshClient ssh.Client
 }
 
 // NewSecureShell creates a new instance of SecureShell.
-func NewSecureShell(injector di.Injector) (*SecureShell, error) {
+func NewSecureShell(injector di.Injector) *SecureShell {
 	return &SecureShell{
 		DefaultShell: DefaultShell{
 			injector: injector,
 		},
-	}, nil
+	}
+}
+
+// Initialize initializes the SecureShell instance.
+func (s *SecureShell) Initialize() error {
+	// Call the base Initialize method
+	if err := s.DefaultShell.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize default shell: %w", err)
+	}
+
+	// Get the SSH client
+	sshClient, ok := s.injector.Resolve("sshClient").(ssh.Client)
+	if !ok {
+		return fmt.Errorf("failed to resolve SSH client")
+	}
+	s.sshClient = sshClient
+
+	return nil
 }
 
 // Exec executes a command on the remote host via SSH and returns its output as a string.

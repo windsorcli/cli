@@ -1,7 +1,7 @@
 package di
 
 import (
-	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 )
@@ -9,7 +9,7 @@ import (
 // Injector defines the methods for the injector.
 type Injector interface {
 	Register(name string, instance interface{})
-	Resolve(name string) (interface{}, error)
+	Resolve(name string) interface{}
 	ResolveAll(targetType interface{}) ([]interface{}, error)
 }
 
@@ -34,16 +34,11 @@ func (i *BaseInjector) Register(name string, instance interface{}) {
 }
 
 // Resolve resolves an instance from the injector.
-func (i *BaseInjector) Resolve(name string) (interface{}, error) {
+func (i *BaseInjector) Resolve(name string) interface{} {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
-	instance, found := i.items[name]
-	if !found {
-		return nil, errors.New("no instance registered with name " + name)
-	}
-
-	return instance, nil
+	return i.items[name]
 }
 
 // ResolveAll resolves all instances that match the given interface.
@@ -54,7 +49,7 @@ func (i *BaseInjector) ResolveAll(targetType interface{}) ([]interface{}, error)
 	var results []interface{}
 	targetTypeValue := reflect.TypeOf(targetType)
 	if targetTypeValue.Kind() != reflect.Ptr || targetTypeValue.Elem().Kind() != reflect.Interface {
-		return nil, errors.New("targetType must be a pointer to an interface")
+		return nil, fmt.Errorf("targetType must be a pointer to an interface")
 	}
 	targetTypeValue = targetTypeValue.Elem()
 
@@ -66,10 +61,6 @@ func (i *BaseInjector) ResolveAll(targetType interface{}) ([]interface{}, error)
 		if instanceType.Implements(targetTypeValue) {
 			results = append(results, instance)
 		}
-	}
-
-	if len(results) == 0 {
-		return nil, errors.New("no instances found for the given type")
 	}
 
 	return results, nil

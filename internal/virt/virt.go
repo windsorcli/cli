@@ -3,11 +3,19 @@ package virt
 import (
 	"fmt"
 
+	"os"
+
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
 	"github.com/windsor-hotel/cli/internal/shell"
 )
+
+// RETRY_WAIT is the number of seconds to wait between retries when starting or stopping a VM
+// If running in CI, no wait is performed
+var RETRY_WAIT = func() int {
+	return map[bool]int{true: 0, false: 2}[os.Getenv("CI") == "true"]
+}()
 
 // VMInfo is a struct that holds the information about the VM
 type VMInfo struct {
@@ -61,33 +69,21 @@ func NewBaseVirt(injector di.Injector) *BaseVirt {
 
 // Initialize is a method that initializes the virt environment
 func (v *BaseVirt) Initialize() error {
-	resolvedShell, err := v.injector.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-	shellInstance, ok := resolvedShell.(shell.Shell)
+	shellInstance, ok := v.injector.Resolve("shell").(shell.Shell)
 	if !ok {
-		return fmt.Errorf("resolved shell is not of type Shell")
+		return fmt.Errorf("error resolving shell")
 	}
 	v.shell = shellInstance
 
-	resolvedContextHandler, err := v.injector.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving context handler: %w", err)
-	}
-	contextHandlerInstance, ok := resolvedContextHandler.(context.ContextHandler)
+	contextHandlerInstance, ok := v.injector.Resolve("contextHandler").(context.ContextHandler)
 	if !ok {
-		return fmt.Errorf("resolved context handler is not of type ContextHandler")
+		return fmt.Errorf("error resolving context handler")
 	}
 	v.contextHandler = contextHandlerInstance
 
-	resolvedConfigHandler, err := v.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
-	}
-	configHandler, ok := resolvedConfigHandler.(config.ConfigHandler)
+	configHandler, ok := v.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
-		return fmt.Errorf("resolved configHandler is not of type ConfigHandler")
+		return fmt.Errorf("error resolving configHandler")
 	}
 	v.configHandler = configHandler
 

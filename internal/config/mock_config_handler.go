@@ -2,15 +2,16 @@ package config
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
-	LoadConfigFunc func(path string) error
-	GetStringFunc  func(key string, defaultValue ...string) string
-	GetIntFunc     func(key string, defaultValue ...int) int
-	GetBoolFunc    func(key string, defaultValue ...bool) bool
-	SetFunc        func(key string, value interface{}) error
-	SaveConfigFunc func(path string) error
-	GetFunc        func(key string) (interface{}, error)
-	SetDefaultFunc func(context Context) error
-	GetConfigFunc  func() *Context
+	LoadConfigFunc      func(path string) error
+	GetStringFunc       func(key string, defaultValue ...string) string
+	GetIntFunc          func(key string, defaultValue ...int) int
+	GetBoolFunc         func(key string, defaultValue ...bool) bool
+	SetFunc             func(key string, value interface{}) error
+	SetContextValueFunc func(key string, value interface{}) error
+	SaveConfigFunc      func(path string) error
+	GetFunc             func(key string) interface{}
+	SetDefaultFunc      func(context Context) error
+	GetConfigFunc       func() *Context
 }
 
 // NewMockConfigHandler is a constructor for MockConfigHandler
@@ -67,12 +68,20 @@ func (m *MockConfigHandler) Set(key string, value interface{}) error {
 	return nil
 }
 
-// Get calls the mock GetFunc if set, otherwise returns a reasonable default value and nil error
-func (m *MockConfigHandler) Get(key string) (interface{}, error) {
+// SetContextValue calls the mock SetContextValueFunc if set, otherwise returns nil
+func (m *MockConfigHandler) SetContextValue(key string, value interface{}) error {
+	if m.SetContextValueFunc != nil {
+		return m.SetContextValueFunc(key, value)
+	}
+	return nil
+}
+
+// Get calls the mock GetFunc if set, otherwise returns a reasonable default value
+func (m *MockConfigHandler) Get(key string) interface{} {
 	if m.GetFunc != nil {
 		return m.GetFunc(key)
 	}
-	return "mock-value", nil
+	return "mock-value"
 }
 
 // SaveConfig calls the mock SaveConfigFunc if set, otherwise returns nil

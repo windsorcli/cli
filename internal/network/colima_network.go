@@ -37,10 +37,7 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 	}
 
 	// Get the context name
-	contextName, err := n.contextHandler.GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := n.contextHandler.GetContext()
 
 	sshConfigOutput, err := n.shell.Exec(
 		false,

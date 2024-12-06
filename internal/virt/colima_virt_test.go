@@ -35,8 +35,8 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 	injector.Register("configHandler", mockConfigHandler)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() (string, error) {
-		return "mock-context", nil
+	mockContext.GetContextFunc = func() string {
+		return "mock-context"
 	}
 
 	// Set up the mock config handler to return a safe default configuration for Colima VMs
@@ -220,26 +220,26 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingContext", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeColimaVmMocks()
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock context retrieval error")
-		}
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
+	// t.Run("ErrorRetrievingContext", func(t *testing.T) {
+	// 	// Setup mock components
+	// 	mocks := setupSafeColimaVmMocks()
+	// 	mocks.MockContext.GetContextFunc = func() string {
+	// 		return ""
+	// 	}
+	// 	colimaVirt := NewColimaVirt(mocks.Injector)
+	// 	colimaVirt.Initialize()
 
-		// When calling GetVMInfo
-		_, err := colimaVirt.GetVMInfo()
+	// 	// When calling GetVMInfo
+	// 	_, err := colimaVirt.GetVMInfo()
 
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if err.Error() != "error retrieving context: mock context retrieval error" {
-			t.Errorf("Expected error message 'error retrieving context: mock context retrieval error', got %v", err)
-		}
-	})
+	// 	// Then an error should be returned
+	// 	if err == nil {
+	// 		t.Fatalf("Expected an error, got nil")
+	// 	}
+	// 	if err.Error() != "error retrieving context: mock context retrieval error" {
+	// 		t.Errorf("Expected error message 'error retrieving context: mock context retrieval error', got %v", err)
+	// 	}
+	// })
 
 	t.Run("ErrorUnmarshallingColimaInfo", func(t *testing.T) {
 		// Setup mock components
@@ -454,29 +454,6 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "mock write file error") {
 			t.Errorf("Expected error to contain 'mock write file error', got %v", err)
-		}
-	})
-
-	t.Run("ErrorRetrievingContext", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// And a mock context that simulates an error when retrieving context
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock context retrieval error")
-		}
-
-		// When calling WriteConfig
-		err := colimaVirt.WriteConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock context retrieval error") {
-			t.Errorf("Expected error to contain 'mock context retrieval error', got %v", err)
 		}
 	})
 
@@ -833,24 +810,6 @@ func TestColimaVirt_executeColimaCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGettingContext", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// Mock the necessary methods to simulate an error when getting context
-		mocks.MockContext.GetContextFunc = func() (string, error) { return "", fmt.Errorf("mock context error") }
-
-		// When calling executeColimaCommand
-		err := colimaVirt.executeColimaCommand("delete", false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-	})
-
 	t.Run("ErrorExecutingCommand", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
@@ -936,7 +895,9 @@ func TestColimaVirt_startColima(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods
-		mocks.MockContext.GetContextFunc = func() (string, error) { return "", fmt.Errorf("mock context error") }
+		mocks.MockContext.GetContextFunc = func() string {
+			return ""
+		}
 
 		// When calling startColima
 		_, err := colimaVirt.startColima(false)

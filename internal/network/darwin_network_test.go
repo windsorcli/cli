@@ -167,8 +167,11 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("NoGuestIPConfigured", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
-		// Mock the GetString function to return an empty string for "vm.address"
+		// Mock the GetString function to return valid CIDR but an empty string for "vm.address"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.1.0/24"
+			}
 			if key == "vm.address" {
 				return ""
 			}

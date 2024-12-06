@@ -12,7 +12,7 @@ import (
 	"github.com/windsor-hotel/cli/internal/shell"
 )
 
-func setupSafeGitServiceMocks(optionalInjector ...di.Injector) *MockComponents {
+func setupSafeGitLivereloadServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 	var injector di.Injector
 	if len(optionalInjector) > 0 {
 		injector = optionalInjector[0]
@@ -32,8 +32,8 @@ func setupSafeGitServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 	injector.Register("gitService", mockService)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() (string, error) {
-		return "mock-context", nil
+	mockContext.GetContextFunc = func() string {
+		return "mock-context"
 	}
 
 	// Set up the mock config handler to return minimal configuration for Git
@@ -41,7 +41,7 @@ func setupSafeGitServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 		return &config.Context{
 			Git: &config.GitConfig{
 				Livereload: &config.GitLivereloadConfig{
-					Create: ptrBool(true),
+					Enabled: ptrBool(true),
 				},
 			},
 		}
@@ -56,46 +56,46 @@ func setupSafeGitServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 	}
 }
 
-func TestGitService_NewGitService(t *testing.T) {
+func TestGitLivereloadService_NewGitLivereloadService(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a set of mock components
-		mocks := setupSafeGitServiceMocks()
+		mocks := setupSafeGitLivereloadServiceMocks()
 
-		// When: a new GitService is created
-		gitService := NewGitService(mocks.Injector)
-		if gitService == nil {
+		// When: a new GitLivereloadService is created
+		gitLivereloadService := NewGitLivereloadService(mocks.Injector)
+		if gitLivereloadService == nil {
 		}
 
 		// Then: the GitService should not be nil
-		if gitService == nil {
-			t.Fatalf("expected GitService, got nil")
+		if gitLivereloadService == nil {
+			t.Fatalf("expected GitLivereloadService, got nil")
 		}
 
 		// And: the GitService should have the correct injector
-		if gitService.injector != mocks.Injector {
-			t.Errorf("expected injector %v, got %v", mocks.Injector, gitService.injector)
+		if gitLivereloadService.injector != mocks.Injector {
+			t.Errorf("expected injector %v, got %v", mocks.Injector, gitLivereloadService.injector)
 		}
 	})
 }
 
-func TestGitService_GetComposeConfig(t *testing.T) {
+func TestGitLivereloadService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, shell, context, and service
-		mocks := setupSafeGitServiceMocks()
-		gitService := NewGitService(mocks.Injector)
-		err := gitService.Initialize()
+		mocks := setupSafeGitLivereloadServiceMocks()
+		gitLivereloadService := NewGitLivereloadService(mocks.Injector)
+		err := gitLivereloadService.Initialize()
 		if err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
-		composeConfig, err := gitService.GetComposeConfig()
+		composeConfig, err := gitLivereloadService.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
 
 		// Then: verify the configuration contains the expected service
-		expectedName := "git.test"
+		expectedName := "git"
 		expectedImage := constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE
 		serviceFound := false
 
@@ -111,68 +111,21 @@ func TestGitService_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGettingContext", func(t *testing.T) {
-		mocks := setupSafeGitServiceMocks()
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving context")
-		}
-
-		// When: a new GitService is created and initialized
-		gitService := NewGitService(mocks.Injector)
-		err := gitService.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		_, err = gitService.GetComposeConfig()
-
-		// Then: an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "mock error retrieving context") {
-			t.Fatalf("expected error retrieving context, got %v", err)
-		}
-	})
-
-	t.Run("GitNotEnabled", func(t *testing.T) {
-		mocks := setupSafeGitServiceMocks()
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				Git: nil,
-			}
-		}
-		gitService := NewGitService(mocks.Injector)
-		err := gitService.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		composeConfig, err := gitService.GetComposeConfig()
-		if err != nil {
-			t.Fatalf("GetComposeConfig() error = %v", err)
-		}
-
-		// Then: verify the configuration is nil
-		if composeConfig != nil {
-			t.Errorf("expected nil configuration, got %+v", composeConfig)
-		}
-	})
-
 	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
-		mocks := setupSafeGitServiceMocks()
+		mocks := setupSafeGitLivereloadServiceMocks()
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error retrieving project root")
 		}
 
 		// When: a new GitService is created and initialized
-		gitService := NewGitService(mocks.Injector)
-		err := gitService.Initialize()
+		gitLivereloadService := NewGitLivereloadService(mocks.Injector)
+		err := gitLivereloadService.Initialize()
 		if err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
-		composeConfig, err := gitService.GetComposeConfig()
+		composeConfig, err := gitLivereloadService.GetComposeConfig()
 
 		// Then: verify the configuration is empty and an error should be returned
 		if composeConfig != nil && len(composeConfig.Services) > 0 {

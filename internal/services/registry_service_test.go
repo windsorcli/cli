@@ -1,7 +1,6 @@
 package services
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -14,7 +13,7 @@ import (
 // Mock function for yamlMarshal to simulate an error
 var originalYamlMarshal = yamlMarshal
 
-func setupSafeDockerServiceMocks(optionalInjector ...di.Injector) *MockComponents {
+func setupSafeRegistryServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 	var injector di.Injector
 	if len(optionalInjector) > 0 {
 		injector = optionalInjector[0]
@@ -31,21 +30,21 @@ func setupSafeDockerServiceMocks(optionalInjector ...di.Injector) *MockComponent
 	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("dockerService", mockService)
+	injector.Register("registryService", mockService)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() (string, error) {
-		return "mock-context", nil
+	mockContext.GetContextFunc = func() string {
+		return "mock-context"
 	}
 
-	// Set up the mock config handler to return a safe default configuration for Docker
+	// Set up the mock config handler to return a safe default configuration for Registry
 	mockConfigHandler.GetConfigFunc = func() *config.Context {
 		return &config.Context{
 			Docker: &config.DockerConfig{
 				Enabled: ptrBool(true),
 				Registries: []config.Registry{
 					{
-						Name:   "registry.test",
+						Name:   "registry",
 						Remote: "registry.remote",
 						Local:  "registry.local",
 					},
@@ -64,44 +63,45 @@ func setupSafeDockerServiceMocks(optionalInjector ...di.Injector) *MockComponent
 	}
 }
 
-func TestDockerService_NewDockerService(t *testing.T) {
+func TestRegistryService_NewRegistryService(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a set of mock components
-		mocks := setupSafeDockerServiceMocks()
+		mocks := setupSafeRegistryServiceMocks()
 
-		// When: a new DockerService is created
-		dockerService := NewDockerService(mocks.Injector)
+		// When: a new RegistryService is created
+		registryService := NewRegistryService(mocks.Injector)
 
-		// Then: the DockerService should not be nil
-		if dockerService == nil {
-			t.Fatalf("expected DockerService, got nil")
+		// Then: the RegistryService should not be nil
+		if registryService == nil {
+			t.Fatalf("expected RegistryService, got nil")
 		}
 
-		// And: the DockerService should have the correct injector
-		if dockerService.injector != mocks.Injector {
-			t.Errorf("expected injector %v, got %v", mocks.Injector, dockerService.injector)
+		// And: the RegistryService should have the correct injector
+		if registryService.injector != mocks.Injector {
+			t.Errorf("expected injector %v, got %v", mocks.Injector, registryService.injector)
 		}
 	})
 }
 
-func TestDockerService_GetComposeConfig(t *testing.T) {
+func TestRegistryService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given: a mock config handler, shell, context, and service
-		mocks := setupSafeDockerServiceMocks()
-		dockerService := NewDockerService(mocks.Injector)
-		err := dockerService.Initialize()
+		mocks := setupSafeRegistryServiceMocks()
+		registryService := NewRegistryService(mocks.Injector)
+		registryService.SetName("registry")
+		err := registryService.Initialize()
 		if err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
-		composeConfig, err := dockerService.GetComposeConfig()
+		composeConfig, err := registryService.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
 
 		// Then: check for characteristic properties in the configuration
-		expectedName := "registry.test"
+		expectedName := "registry"
 		expectedRemoteURL := "registry.remote"
 		expectedLocalURL := "registry.local"
 		found := false
@@ -123,26 +123,24 @@ func TestDockerService_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGettingContext", func(t *testing.T) {
-		// Given: a mock context that returns an error on GetContext
-		mocks := setupSafeDockerServiceMocks()
-		mocks.MockContext.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving context")
-		}
+	t.Run("NoRegistryFound", func(t *testing.T) {
+		// Given: a mock config handler, shell, context, and service
+		mocks := setupSafeRegistryServiceMocks()
 
-		// When: a new DockerService is created and initialized
-		dockerService := NewDockerService(mocks.Injector)
-		err := dockerService.Initialize()
+		// When: a new RegistryService is created and initialized
+		registryService := NewRegistryService(mocks.Injector)
+		registryService.SetName("nonexistent-registry")
+		err := registryService.Initialize()
 		if err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
 		// When: GetComposeConfig is called
-		_, err = dockerService.GetComposeConfig()
+		_, err = registryService.GetComposeConfig()
 
-		// Then: an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "mock error retrieving context") {
-			t.Fatalf("expected error retrieving context, got %v", err)
+		// Then: an error should be returned indicating no registry was found
+		if err == nil || !strings.Contains(err.Error(), "no registry found with name") {
+			t.Fatalf("expected error indicating no registry found, got %v", err)
 		}
 	})
 }

@@ -17,8 +17,11 @@ type ConfigHandler interface {
 	// Set sets the value for the specified key in the configuration
 	Set(key string, value interface{}) error
 
+	// SetContextValue sets the value for the specified key in the configuration
+	SetContextValue(key string, value interface{}) error
+
 	// Get retrieves a value for the specified key from the configuration
-	Get(key string) (interface{}, error)
+	Get(key string) interface{}
 
 	// SaveConfig saves the current configuration to the specified path
 	SaveConfig(path string) error
@@ -28,4 +31,9 @@ type ConfigHandler interface {
 
 	// GetConfig returns the context config object
 	GetConfig() *Context
+}
+
+// BaseConfigHandler is a base implementation of the ConfigHandler interface
+type BaseConfigHandler struct {
+	ConfigHandler
 }

@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/shell"
 )
 
 var execCmd = &cobra.Command{
@@ -13,23 +11,33 @@ var execCmd = &cobra.Command{
 	Short:        "Execute a shell command with environment variables",
 	Long:         "Execute a shell command with environment variables set for the application.",
 	SilenceUsage: true,
+	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return fmt.Errorf("no command provided")
 		}
 
-		// Resolve all environments from the DI injector
-		envInstances, err := injector.ResolveAll((*env.EnvPrinter)(nil))
-		if err != nil {
-			return fmt.Errorf("Error resolving environments: %w", err)
+		// Create environment components
+		if err := controller.CreateEnvComponents(); err != nil {
+			return fmt.Errorf("Error creating environment components: %w", err)
 		}
 
-		// Collect and initialize environment variables from all environments
+		// Initialize components
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
+		}
+
+		// Resolve all environment printers using the controller
+		envPrinters := controller.ResolveAllEnvPrinters()
+		if len(envPrinters) == 0 {
+			return fmt.Errorf("Error resolving environment printers: no printers returned")
+		}
+
+		// Collect environment variables from all printers
 		envVars := make(map[string]string)
-		for _, instance := range envInstances {
-			envPrinter := instance.(env.EnvPrinter)
-			if err := envPrinter.Initialize(); err != nil {
-				return fmt.Errorf("Error initializing environment: %w", err)
+		for _, envPrinter := range envPrinters {
+			if err := envPrinter.Print(); err != nil {
+				return fmt.Errorf("Error executing Print: %w", err)
 			}
 			vars, err := envPrinter.GetEnvVars()
 			if err != nil {
@@ -37,6 +45,9 @@ var execCmd = &cobra.Command{
 			}
 			for k, v := range vars {
 				envVars[k] = v
+			}
+			if err := envPrinter.PostEnvHook(); err != nil {
+				return fmt.Errorf("Error executing PostEnvHook: %w", err)
 			}
 		}
 
@@ -47,19 +58,10 @@ var execCmd = &cobra.Command{
 			}
 		}
 
-		// Resolve the shell instance
-		instance, err := injector.Resolve("shell")
-		if err != nil {
-			return fmt.Errorf("Error resolving shell instance: %w", err)
-		}
-		shellInstance, ok := instance.(shell.Shell)
-		if !ok {
-			return fmt.Errorf("Resolved instance is not of type shell.Shell")
-		}
-
-		// Initialize the shell instance
-		if err := shellInstance.Initialize(); err != nil {
-			return fmt.Errorf("Error initializing shell: %w", err)
+		// Resolve the shell instance using the controller
+		shellInstance := controller.ResolveShell()
+		if shellInstance == nil {
+			return fmt.Errorf("No shell found")
 		}
 
 		// Execute the command using the resolved shell instance

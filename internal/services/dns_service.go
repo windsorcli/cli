@@ -20,6 +20,7 @@ func NewDNSService(injector di.Injector) *DNSService {
 	return &DNSService{
 		BaseService: BaseService{
 			injector: injector,
+			name:     "dns",
 		},
 	}
 }
@@ -46,31 +47,25 @@ func (s *DNSService) Initialize() error {
 	return nil
 }
 
+// SetAddress sets the address for the DNS service
+func (s *DNSService) SetAddress(address string) error {
+	// Set the value of the DNS address in the configuration
+	err := s.configHandler.SetContextValue("dns.address", address)
+	if err != nil {
+		return fmt.Errorf("error setting DNS address: %w", err)
+	}
+
+	return s.BaseService.SetAddress(address)
+}
+
 // GetComposeConfig returns the compose configuration
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name
-	contextName, err := s.contextHandler.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context name: %w", err)
-	}
-
-	// Retrieve the context configuration
-	contextConfig := s.configHandler.GetConfig()
-
-	// Check if the DNS is enabled
-	if contextConfig.DNS == nil || contextConfig.DNS.Create == nil || !*contextConfig.DNS.Create {
-		return nil, nil
-	}
-
-	// Get the Name from the configuration
-	name := "test"
-	if contextConfig.DNS.Name != nil && *contextConfig.DNS.Name != "" {
-		name = *contextConfig.DNS.Name
-	}
+	contextName := s.contextHandler.GetContext()
 
 	// Common configuration for CoreDNS container
 	corednsConfig := types.ServiceConfig{
-		Name:    fmt.Sprintf("dns.%s", name),
+		Name:    s.name,
 		Image:   constants.DEFAULT_DNS_IMAGE,
 		Restart: "always",
 		Command: []string{"-conf", "/etc/coredns/Corefile"},
@@ -94,19 +89,6 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any necessary configuration files needed by the service
 func (s *DNSService) WriteConfig() error {
-	// Retrieve the context configuration
-	contextConfig := s.configHandler.GetConfig()
-
-	// Check if DNS is defined and DNS Create is enabled
-	if contextConfig.DNS == nil || contextConfig.DNS.Create == nil || !*contextConfig.DNS.Create {
-		return nil
-	}
-
-	// Check if Docker is enabled
-	if contextConfig.Docker == nil || contextConfig.Docker.Enabled == nil || !*contextConfig.Docker.Enabled {
-		return nil
-	}
-
 	// Retrieve the configuration directory for the current context
 	configDir, err := s.contextHandler.GetConfigRoot()
 	if err != nil {
@@ -114,10 +96,7 @@ func (s *DNSService) WriteConfig() error {
 	}
 
 	// Get the TLD from the configuration
-	tld := "test"
-	if contextConfig.DNS.Name != nil && *contextConfig.DNS.Name != "" {
-		tld = *contextConfig.DNS.Name
-	}
+	tld := s.configHandler.GetString("dns.name", "test")
 
 	// Gather the IP address of each service using the Address field
 	var hostEntries string
@@ -132,7 +111,7 @@ func (s *DNSService) WriteConfig() error {
 					address := addressService.GetAddress()
 					if address != "" {
 						fullName := fmt.Sprintf("%s.%s", svc.Name, tld)
-						hostEntries += fmt.Sprintf("        %s %s\n", fullName, address)
+						hostEntries += fmt.Sprintf("        %s %s\n", address, fullName)
 					}
 				}
 			}

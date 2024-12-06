@@ -23,14 +23,6 @@ func NewTalosControlPlaneService(injector di.Injector) *TalosControlPlaneService
 
 // GetComposeConfig returns a list of container data for docker-compose.
 func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
-	// Retrieve the context configuration
-	clusterDriver := s.configHandler.GetString("cluster.driver")
-
-	// Check if the cluster driver is Talos
-	if clusterDriver == "" || clusterDriver != "talos" {
-		return nil, nil
-	}
-
 	// Retrieve CPU and RAM settings for control planes from the configuration
 	controlPlaneCPU := s.configHandler.GetInt("cluster.controlplanes.cpu", constants.DEFAULT_TALOS_CONTROL_PLANE_CPU)
 	controlPlaneRAM := s.configHandler.GetInt("cluster.controlplanes.memory", constants.DEFAULT_TALOS_CONTROL_PLANE_RAM)
@@ -38,7 +30,7 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 	// Common configuration for Talos containers
 	commonConfig := types.ServiceConfig{
 		Image:       constants.DEFAULT_TALOS_IMAGE,
-		Environment: map[string]*string{"PLATFORM": strPtr("container")},
+		Environment: map[string]*string{"PLATFORM": ptrString("container")},
 		Restart:     "always",
 		ReadOnly:    true,
 		Privileged:  true,
@@ -59,13 +51,13 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 	// Create a single control plane service
 	controlPlaneConfig := commonConfig
 	if s.GetName() == "" {
-		controlPlaneConfig.Name = "controlplane.test"
+		controlPlaneConfig.Name = "controlplane"
 	} else {
 		controlPlaneConfig.Name = s.GetName()
 	}
 	controlPlaneConfig.Environment = map[string]*string{
-		"PLATFORM": strPtr("container"),
-		"TALOSSKU": strPtr(fmt.Sprintf("%dCPU-%dRAM", controlPlaneCPU, controlPlaneRAM*1024)),
+		"PLATFORM": ptrString("container"),
+		"TALOSSKU": ptrString(fmt.Sprintf("%dCPU-%dRAM", controlPlaneCPU, controlPlaneRAM*1024)),
 	}
 
 	// Define volumes
