@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"testing"
 
-	ctrl "github.com/windsor-hotel/cli/internal/controller"
-	"github.com/windsor-hotel/cli/internal/di"
+	ctrl "github.com/windsorcli/cli/internal/controller"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 func TestVersionCommand(t *testing.T) {

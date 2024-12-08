@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/network"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/network"
 
-	ctrl "github.com/windsor-hotel/cli/internal/controller"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
-	"github.com/windsor-hotel/cli/internal/virt"
+	ctrl "github.com/windsorcli/cli/internal/controller"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/virt"
 )
 
 // setupSafeUpCmdMocks returns a mock controller with safe mocks for the up command

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // DockerEnvPrinter is a struct that simulates a Docker environment for testing purposes.

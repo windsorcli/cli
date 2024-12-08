@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // TerraformEnvPrinter is a struct that simulates a Terraform environment for testing purposes.

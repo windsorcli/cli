@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	ctrl "github.com/windsor-hotel/cli/internal/controller"
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	ctrl "github.com/windsorcli/cli/internal/controller"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 func TestContext_Get(t *testing.T) {

@@ -23,7 +23,7 @@ Windsor CLI is a powerful command-line interface designed to streamline and enha
 To install Windsor CLI, you need to have Go installed on your system. You can then install Windsor CLI using the following command:
 
 ```sh
-go install github.com/windsor-hotel/cli@latest
+go install github.com/windsorcli/cli@latest
 ```
 
 ## Usage

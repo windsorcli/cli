@@ -12,8 +12,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 func TestShell_Initialize(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/constants"
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/constants"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // RegistryService is a service struct that provides Registry-specific utility functions

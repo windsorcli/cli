@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/constants"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/constants"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 func setupSafeTalosWorkerServiceMocks(optionalInjector ...di.Injector) *MockComponents {

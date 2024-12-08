@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 // ContextHandlerInterface defines the interface for context operations

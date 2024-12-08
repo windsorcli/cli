@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // AwsEnvPrinter is a struct that simulates an AWS environment for testing purposes.

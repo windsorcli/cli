@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // OmniEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.

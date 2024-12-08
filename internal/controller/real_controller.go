@@ -3,15 +3,16 @@ package controller
 import (
 	"fmt"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/network"
-	"github.com/windsor-hotel/cli/internal/services"
-	sh "github.com/windsor-hotel/cli/internal/shell"
-	"github.com/windsor-hotel/cli/internal/ssh"
-	"github.com/windsor-hotel/cli/internal/virt"
+	"github.com/windsorcli/cli/internal/blueprint"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/network"
+	"github.com/windsorcli/cli/internal/services"
+	sh "github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/ssh"
+	"github.com/windsorcli/cli/internal/virt"
 )
 
 // RealController struct implements the RealController interface.
@@ -207,3 +208,15 @@ func (c *RealController) CreateVirtualizationComponents() error {
 
 	return nil
 }
+
+// CreateBlueprintComponents creates blueprint components
+func (c *RealController) CreateBlueprintComponents() error {
+	// Create a new blueprint handler
+	blueprintHandler := blueprint.NewBlueprintHandler(c.injector)
+	c.injector.Register("blueprintHandler", blueprintHandler)
+
+	return nil
+}
+
+// Ensure RealController implements the Controller interface
+var _ Controller = (*RealController)(nil)

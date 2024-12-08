@@ -1,13 +1,13 @@
 package main
 
 import (
-	"github.com/windsor-hotel/cli/cmd"
-	"github.com/windsor-hotel/cli/internal/controller"
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/cmd"
+	"github.com/windsorcli/cli/internal/controller"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 func main() {
-	// Create a new DI injector
+	// Create a new dependency injector
 	injector := di.NewInjector()
 
 	// Create a new controller

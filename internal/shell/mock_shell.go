@@ -1,7 +1,7 @@
 package shell
 
 import (
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // MockShell is a struct that simulates a shell environment for testing purposes.

@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	ctrl "github.com/windsor-hotel/cli/internal/controller"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	ctrl "github.com/windsorcli/cli/internal/controller"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 // Helper functions to create pointers for basic types

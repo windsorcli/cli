@@ -3,14 +3,14 @@ package controller
 import (
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/network"
-	"github.com/windsor-hotel/cli/internal/services"
-	"github.com/windsor-hotel/cli/internal/shell"
-	"github.com/windsor-hotel/cli/internal/virt"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/network"
+	"github.com/windsorcli/cli/internal/services"
+	"github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/virt"
 )
 
 func TestMockController_Initialize(t *testing.T) {
@@ -201,6 +201,27 @@ func TestMockController_CreateVirtualizationComponents(t *testing.T) {
 			return ""
 		}
 		if err := mockCtrl.CreateVirtualizationComponents(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestMockController_CreateBlueprintComponents(t *testing.T) {
+	t.Run("CreateBlueprintComponents", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
+		mockCtrl.CreateBlueprintComponentsFunc = func() error {
+			return nil
+		}
+		if err := mockCtrl.CreateBlueprintComponents(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NoCreateBlueprintComponentsFunc", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
+		if err := mockCtrl.CreateBlueprintComponents(); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})

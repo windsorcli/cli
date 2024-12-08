@@ -5,14 +5,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/network"
-	"github.com/windsor-hotel/cli/internal/services"
-	"github.com/windsor-hotel/cli/internal/shell"
-	"github.com/windsor-hotel/cli/internal/virt"
+	"github.com/windsorcli/cli/internal/blueprint"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/network"
+	"github.com/windsorcli/cli/internal/services"
+	"github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/virt"
 )
 
 // Controller interface defines the methods for the controller.
@@ -23,6 +24,7 @@ type Controller interface {
 	CreateEnvComponents() error
 	CreateServiceComponents() error
 	CreateVirtualizationComponents() error
+	CreateBlueprintComponents() error
 	ResolveInjector() di.Injector
 	ResolveConfigHandler() config.ConfigHandler
 	ResolveContextHandler() context.ContextHandler
@@ -31,6 +33,7 @@ type Controller interface {
 	ResolveShell() shell.Shell
 	ResolveSecureShell() shell.Shell
 	ResolveNetworkManager() network.NetworkManager
+	ResolveBlueprintHandler() blueprint.BlueprintHandler
 	ResolveService(name string) services.Service
 	ResolveAllServices() []services.Service
 	ResolveVirtualMachine() virt.VirtualMachine
@@ -119,6 +122,17 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
+	// Initialize the blueprint handler
+	blueprintHandler := c.ResolveBlueprintHandler()
+	if blueprintHandler != nil {
+		if err := blueprintHandler.Initialize(); err != nil {
+			return fmt.Errorf("error initializing blueprint handler: %w", err)
+		}
+		if err := blueprintHandler.LoadConfig(); err != nil {
+			return fmt.Errorf("error loading blueprint config: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -146,10 +160,24 @@ func (c *BaseController) CreateVirtualizationComponents() error {
 	return nil
 }
 
+// CreateBlueprintComponents creates the blueprint components.
+func (c *BaseController) CreateBlueprintComponents() error {
+	// no-op
+	return nil
+}
+
 // WriteConfigurationFiles writes the configuration files.
 func (c *BaseController) WriteConfigurationFiles() error {
 	// Resolve all services
 	resolvedServices := c.ResolveAllServices()
+
+	// Write blueprint
+	blueprintHandler := c.ResolveBlueprintHandler()
+	if blueprintHandler != nil {
+		if err := blueprintHandler.WriteConfig(); err != nil {
+			return fmt.Errorf("error writing blueprint config: %w", err)
+		}
+	}
 
 	// Write configuration for all services
 	for _, service := range resolvedServices {
@@ -239,6 +267,13 @@ func (c *BaseController) ResolveNetworkManager() network.NetworkManager {
 	instance := c.injector.Resolve("networkManager")
 	networkManager, _ := instance.(network.NetworkManager)
 	return networkManager
+}
+
+// ResolveBlueprintHandler resolves the blueprintHandler instance.
+func (c *BaseController) ResolveBlueprintHandler() blueprint.BlueprintHandler {
+	instance := c.injector.Resolve("blueprintHandler")
+	blueprintHandler, _ := instance.(blueprint.BlueprintHandler)
+	return blueprintHandler
 }
 
 // ResolveService resolves the requested service instance.

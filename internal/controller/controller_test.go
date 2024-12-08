@@ -7,14 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/network"
-	"github.com/windsor-hotel/cli/internal/services"
-	"github.com/windsor-hotel/cli/internal/shell"
-	"github.com/windsor-hotel/cli/internal/virt"
+	"github.com/windsorcli/cli/internal/blueprint"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/network"
+	"github.com/windsorcli/cli/internal/services"
+	"github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/virt"
 )
 
 type MockObjects struct {
@@ -28,6 +29,7 @@ type MockObjects struct {
 	Service          *services.MockService
 	VirtualMachine   *virt.MockVirt
 	ContainerRuntime *virt.MockVirt
+	BlueprintHandler *blueprint.MockBlueprintHandler
 }
 
 func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
@@ -50,6 +52,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	mockService2 := &services.MockService{}
 	mockVirtualMachine := &virt.MockVirt{}
 	mockContainerRuntime := &virt.MockVirt{}
+	mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
 
 	// Register mocks in the injector
 	injector.Register("configHandler", mockConfigHandler)
@@ -59,6 +62,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("networkManager", mockNetworkManager)
+	injector.Register("blueprintHandler", mockBlueprintHandler)
 	injector.Register("service1", mockService1)
 	injector.Register("service2", mockService2)
 	injector.Register("virtualMachine", mockVirtualMachine)
@@ -72,6 +76,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 		Shell:            mockShell,
 		SecureShell:      mockSecureShell,
 		NetworkManager:   mockNetworkManager,
+		BlueprintHandler: mockBlueprintHandler,
 		Service:          mockService1, // Assuming the first service is the primary one
 		VirtualMachine:   mockVirtualMachine,
 		ContainerRuntime: mockContainerRuntime,
@@ -124,29 +129,6 @@ func TestController_InitializeComponents(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
-
-	// t.Run("ErrorInitializingContextHandler", func(t *testing.T) {
-	// 	// Given a new controller with a mock injector
-	// 	mocks := setSafeControllerMocks()
-	// 	mockContextHandler := context.NewMockContext()
-	// 	mockContextHandler.InitializeFunc = func() error {
-	// 		return fmt.Errorf("error initializing context handler")
-	// 	}
-	// 	mocks.Injector.Register("contextHandler", mockContextHandler)
-	// 	controller := NewController(mocks.Injector)
-
-	// 	// When initializing the components
-	// 	err := controller.InitializeComponents()
-
-	// 	// Then there should be an error
-	// 	if err == nil {
-	// 		t.Fatalf("expected an error, got nil")
-	// 	} else if !strings.Contains(err.Error(), "error initializing context handler") {
-	// 		t.Fatalf("expected error to contain 'error initializing context handler', got %v", err)
-	// 	} else {
-	// 		t.Logf("expected error received: %v", err)
-	// 	}
-	// })
 
 	t.Run("ErrorInitializingShell", func(t *testing.T) {
 		// Given a new controller with a mock injector
@@ -308,6 +290,52 @@ func TestController_InitializeComponents(t *testing.T) {
 			t.Logf("expected error received: %v", err)
 		}
 	})
+
+	t.Run("ErrorInitializingBlueprintHandler", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
+		mockBlueprintHandler.InitializeFunc = func() error {
+			return fmt.Errorf("error initializing blueprint handler")
+		}
+		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// When initializing the components
+		err := controller.InitializeComponents()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error initializing blueprint handler") {
+			t.Fatalf("expected error to contain 'error initializing blueprint handler', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
+		}
+	})
+
+	t.Run("ErrorLoadingBlueprintConfig", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
+		mockBlueprintHandler.LoadConfigFunc = func(path ...string) error {
+			return fmt.Errorf("error loading blueprint config")
+		}
+		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// When initializing the components
+		err := controller.InitializeComponents()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error loading blueprint config") {
+			t.Fatalf("expected error to contain 'error loading blueprint config', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
+		}
+	})
 }
 
 func TestController_CreateCommonComponents(t *testing.T) {
@@ -374,6 +402,22 @@ func TestController_CreateVirtualizationComponents(t *testing.T) {
 	})
 }
 
+func TestController_CreateBlueprintComponents(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new controller
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+
+		// When creating blueprint components
+		err := controller.CreateBlueprintComponents()
+
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
 func TestController_WriteConfigurationFiles(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller
@@ -387,6 +431,30 @@ func TestController_WriteConfigurationFiles(t *testing.T) {
 		// Then there should be no error
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWritingBlueprintConfig", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
+		mockBlueprintHandler.WriteConfigFunc = func(path ...string) error {
+			return fmt.Errorf("error writing blueprint config")
+		}
+		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// When writing configuration files
+		err := controller.WriteConfigurationFiles()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error writing blueprint config") {
+			t.Fatalf("expected error to contain 'error writing blueprint config', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
 		}
 	})
 
@@ -610,6 +678,28 @@ func TestController_ResolveSecureShell(t *testing.T) {
 		// And the resolved secure shell should not be nil
 		if secureShell == nil {
 			t.Fatalf("expected a valid secure shell, got nil")
+		}
+	})
+}
+
+func TestController_ResolveBlueprintHandler(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new controller and injector
+		mockInjector := di.NewMockInjector()
+		mocks := setSafeControllerMocks(mockInjector)
+		controller := NewController(mocks.Injector)
+
+		// When resolving the blueprint handler
+		blueprintHandler := controller.ResolveBlueprintHandler()
+
+		// Then a blueprint handler should be returned
+		if blueprintHandler == nil {
+			t.Fatalf("expected a blueprint handler, got nil")
+		}
+
+		// And the resolved blueprint handler should match the expected blueprint handler
+		if blueprintHandler != mocks.BlueprintHandler {
+			t.Fatalf("expected %v, got %v", mocks.BlueprintHandler, blueprintHandler)
 		}
 	})
 }
