@@ -1,0 +1,22 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: core
+sources:
+  - name: core
+    url: github.com/windsor-hotel/core
+    version: v0.0.1
+terraform:
+  - source: core
+    path: blueprint/windsor
+    values: 
+  - source: core
+    path: cluster/talos
+    values:
+kustomize:
+  - source: core
+    path: csi/longhorn
+    values:
+  - source: core
+    path: csi/aws
+    values:
