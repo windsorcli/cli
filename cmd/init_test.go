@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	ctrl "github.com/windsor-hotel/cli/internal/controller"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	ctrl "github.com/windsorcli/cli/internal/controller"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 // setupSafeInitCmdMocks returns a mock controller with safe mocks for the init command
@@ -459,6 +459,29 @@ func TestInitCmd(t *testing.T) {
 
 		// Then the output should indicate the error
 		expectedOutput := "Error creating virtualization components: create virtualization components error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorCreatingBlueprintComponents", func(t *testing.T) {
+		// Given a mock controller with CreateBlueprintComponents set to fail
+		injector := di.NewInjector()
+		controller := ctrl.NewMockController(injector)
+		setupSafeInitCmdMocks(controller)
+		controller.CreateBlueprintComponentsFunc = func() error { return fmt.Errorf("create blueprint components error") }
+
+		// When the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := Execute(controller)
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then the output should indicate the error
+		expectedOutput := "Error creating blueprint components: create blueprint components error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}

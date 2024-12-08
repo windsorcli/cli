@@ -19,3 +19,9 @@ var osWriteFile = os.WriteFile
 
 // osReadFile is a wrapper around os.ReadFile
 var osReadFile = os.ReadFile
+
+// osStat is a wrapper around os.Stat
+var osStat = os.Stat
+
+// osMkdirAll is a wrapper around os.MkdirAll
+var osMkdirAll = os.MkdirAll

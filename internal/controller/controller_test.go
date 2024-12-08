@@ -290,6 +290,52 @@ func TestController_InitializeComponents(t *testing.T) {
 			t.Logf("expected error received: %v", err)
 		}
 	})
+
+	t.Run("ErrorInitializingBlueprintHandler", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
+		mockBlueprintHandler.InitializeFunc = func() error {
+			return fmt.Errorf("error initializing blueprint handler")
+		}
+		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// When initializing the components
+		err := controller.InitializeComponents()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error initializing blueprint handler") {
+			t.Fatalf("expected error to contain 'error initializing blueprint handler', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
+		}
+	})
+
+	t.Run("ErrorLoadingBlueprintConfig", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
+		mockBlueprintHandler.LoadConfigFunc = func(path ...string) error {
+			return fmt.Errorf("error loading blueprint config")
+		}
+		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// When initializing the components
+		err := controller.InitializeComponents()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error loading blueprint config") {
+			t.Fatalf("expected error to contain 'error loading blueprint config', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
+		}
+	})
 }
 
 func TestController_CreateCommonComponents(t *testing.T) {

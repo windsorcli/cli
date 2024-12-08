@@ -68,6 +68,12 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 	osWriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
 		return nil
 	}
+	osStat = func(_ string) (fs.FileInfo, error) {
+		return nil, nil
+	}
+	osMkdirAll = func(_ string, _ fs.FileMode) error {
+		return nil
+	}
 
 	return MockSafeComponents{
 		Injector:           mockInjector,
@@ -141,7 +147,7 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 	})
 }
 
-func TestBlueprintHandler_Load(t *testing.T) {
+func TestBlueprintHandler_LoadConfig(t *testing.T) {
 	// validateBlueprint is a helper function to validate the blueprint metadata, sources, and Terraform components
 	validateBlueprint := func(t *testing.T, blueprintHandler *BaseBlueprintHandler) {
 		metadata := blueprintHandler.GetMetadata()
@@ -210,6 +216,31 @@ func TestBlueprintHandler_Load(t *testing.T) {
 		validateBlueprint(t, blueprintHandler)
 	})
 
+	t.Run("PathSetFileDoesNotExist", func(t *testing.T) {
+		// Given a mock injector and a path that does not exist
+		mocks := setupSafeMocks()
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+
+		// When the osStat function is overridden to simulate a file not existing
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(string) (fs.FileInfo, error) {
+			return nil, fmt.Errorf("mock error file does not exist")
+		}
+
+		// And the BlueprintHandler is initialized
+		err := blueprintHandler.Initialize()
+		if err != nil {
+			t.Fatalf("Expected Initialize to succeed, but got error: %v", err)
+		}
+
+		// Then loading the blueprint should fail
+		err = blueprintHandler.LoadConfig("/mock/config/root/nonexistent.yaml")
+		if err == nil {
+			t.Errorf("Expected LoadConfig to fail, but got no error")
+		}
+	})
+
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
 		// Given a mock injector and a context handler that returns an error
 		mocks := setupSafeMocks()
@@ -230,6 +261,31 @@ func TestBlueprintHandler_Load(t *testing.T) {
 		err = blueprintHandler.LoadConfig()
 		if err == nil {
 			t.Errorf("Expected LoadConfig to fail, but got no error")
+		}
+	})
+
+	t.Run("PathNotSetFileDoesNotExist", func(t *testing.T) {
+		// Given a mock injector and a path that does not exist
+		mocks := setupSafeMocks()
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+
+		// When the osStat function is overridden to simulate a file not existing
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(string) (fs.FileInfo, error) {
+			return nil, fmt.Errorf("mock error file does not exist")
+		}
+
+		// And the BlueprintHandler is initialized
+		err := blueprintHandler.Initialize()
+		if err != nil {
+			t.Fatalf("Expected Initialize to succeed, but got error: %v", err)
+		}
+
+		// Then loading the blueprint should not return an error
+		err = blueprintHandler.LoadConfig()
+		if err != nil {
+			t.Errorf("Expected LoadConfig to succeed, but got error: %v", err)
 		}
 	})
 
@@ -286,7 +342,7 @@ func TestBlueprintHandler_Load(t *testing.T) {
 	})
 }
 
-func TestBlueprintHandler_Save(t *testing.T) {
+func TestBlueprintHandler_WriteConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock injector and a valid path
 		mocks := setupSafeMocks()
@@ -344,6 +400,32 @@ func TestBlueprintHandler_Save(t *testing.T) {
 
 		// And the blueprint is saved with an empty path
 		err = blueprintHandler.WriteConfig()
+		// Then the save operation should fail
+		if err == nil {
+			t.Errorf("Expected Save to fail, but got no error")
+		}
+	})
+
+	t.Run("ErrorCreatingDirectory", func(t *testing.T) {
+		// Given a mock injector and a failure in creating a directory
+		mocks := setupSafeMocks()
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+
+		// When the BlueprintHandler is initialized
+		err := blueprintHandler.Initialize()
+		if err != nil {
+			t.Fatalf("Expected Initialize to succeed, but got error: %v", err)
+		}
+
+		// And the osMkdirAll function is overridden to simulate an error
+		originalOsMkdirAll := osMkdirAll
+		defer func() { osMkdirAll = originalOsMkdirAll }()
+		osMkdirAll = func(string, os.FileMode) error {
+			return fmt.Errorf("mock error creating directory")
+		}
+
+		// And the blueprint is saved
+		err = blueprintHandler.WriteConfig("/mock/config/root/blueprint.yaml")
 		// Then the save operation should fail
 		if err == nil {
 			t.Errorf("Expected Save to fail, but got no error")

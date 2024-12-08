@@ -2,6 +2,8 @@ package blueprint
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/windsorcli/cli/internal/context"
 	"github.com/windsorcli/cli/internal/di"
@@ -78,6 +80,10 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	// Check if a path is provided
 	if len(path) > 0 && path[0] != "" {
 		finalPath = path[0]
+		// Check if the file exists at the provided path
+		if _, err := osStat(finalPath); err != nil {
+			return fmt.Errorf("specified path not found: %w", err)
+		}
 	} else {
 		// Get the config root from the context handler
 		configRoot, err := b.contextHandler.GetConfigRoot()
@@ -86,6 +92,11 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 		}
 		// Set the final path to the default blueprint.yaml file
 		finalPath = configRoot + "/blueprint.yaml"
+		// Check if the file exists at the default path
+		if _, err := osStat(finalPath); err != nil {
+			// Do nothing if the default path does not exist
+			return nil
+		}
 	}
 
 	// Read the file from the final path
@@ -118,6 +129,12 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 		}
 		// Set the final path to the default blueprint.yaml file
 		finalPath = configRoot + "/blueprint.yaml"
+	}
+
+	// Ensure the parent directory exists
+	dir := filepath.Dir(finalPath)
+	if err := osMkdirAll(dir, os.ModePerm); err != nil {
+		return fmt.Errorf("error creating directory: %w", err)
 	}
 
 	// Convert the blueprint struct into YAML format, omitting null values
