@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	// Create a new DI injector
+	// Create a new dependency injector
 	injector := di.NewInjector()
 
 	// Create a new controller

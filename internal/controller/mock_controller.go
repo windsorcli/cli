@@ -224,7 +224,7 @@ func (c *MockController) CreateVirtualizationComponents() error {
 
 	if vmDriver != "" {
 		// Create and register the RealNetworkInterfaceProvider instance
-		networkInterfaceProvider := &network.RealNetworkInterfaceProvider{}
+		networkInterfaceProvider := &network.MockNetworkInterfaceProvider{}
 		c.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
 
 		// Create and register the ssh client
