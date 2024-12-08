@@ -61,21 +61,26 @@ func (b *BaseBlueprintHandler) Initialize() error {
 // Load loads the blueprint from the specified path
 func (b *BaseBlueprintHandler) Load(path ...string) error {
 	finalPath := ""
+	// Check if a path is provided
 	if len(path) > 0 && path[0] != "" {
 		finalPath = path[0]
 	} else {
+		// Get the config root from the context handler
 		configRoot, err := b.contextHandler.GetConfigRoot()
 		if err != nil {
 			return fmt.Errorf("error getting config root: %w", err)
 		}
+		// Set the final path to the default blueprint.yaml file
 		finalPath = configRoot + "/blueprint.yaml"
 	}
 
+	// Read the file from the final path
 	data, err := osReadFile(finalPath)
 	if err != nil {
 		return fmt.Errorf("error reading file: %w", err)
 	}
 
+	// Unmarshal the YAML data into the blueprint struct
 	if err := yamlUnmarshal(data, &b.blueprint); err != nil {
 		return fmt.Errorf("error unmarshalling yaml: %w", err)
 	}
@@ -84,26 +89,34 @@ func (b *BaseBlueprintHandler) Load(path ...string) error {
 }
 
 // Save saves the current blueprint to the specified path
+// Save writes the current blueprint to a specified path or a default location
 func (b *BaseBlueprintHandler) Save(path ...string) error {
 	finalPath := ""
+	// Determine the final path to save the blueprint
 	if len(path) > 0 && path[0] != "" {
+		// Use the provided path if available
 		finalPath = path[0]
 	} else {
+		// Otherwise, get the default config root path
 		configRoot, err := b.contextHandler.GetConfigRoot()
 		if err != nil {
+			// Return an error if unable to get the config root
 			return fmt.Errorf("error getting config root: %w", err)
 		}
+		// Set the final path to the default blueprint.yaml file
 		finalPath = configRoot + "/blueprint.yaml"
 	}
 
-	// Marshal the blueprint struct into YAML data, omitting null values
+	// Convert the blueprint struct into YAML format, omitting null values
 	data, err := yamlMarshalNonNull(b.blueprint)
 	if err != nil {
+		// Return an error if marshalling fails
 		return fmt.Errorf("error marshalling yaml: %w", err)
 	}
 
-	// Write the YAML data to the specified path
+	// Write the YAML data to the determined path with appropriate permissions
 	if err := osWriteFile(finalPath, data, 0644); err != nil {
+		// Return an error if writing the file fails
 		return fmt.Errorf("error writing blueprint file: %w", err)
 	}
 	return nil
