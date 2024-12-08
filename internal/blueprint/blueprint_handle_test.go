@@ -111,6 +111,16 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected Initialize to succeed, but got error: %v", err)
 		}
+
+		// And the default blueprint name and description should be correct
+		metadata := blueprintHandler.GetMetadata()
+		if metadata.Name != "mock-context" {
+			t.Errorf("Expected default blueprint name to be 'mock-context', but got '%s'", metadata.Name)
+		}
+		expectedDescription := fmt.Sprintf("This blueprint outlines resources in the %s context", metadata.Name)
+		if metadata.Description != expectedDescription {
+			t.Errorf("Expected default blueprint description to be '%s', but got '%s'", expectedDescription, metadata.Description)
+		}
 	})
 
 	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
@@ -169,9 +179,9 @@ func TestBlueprintHandler_Load(t *testing.T) {
 		}
 
 		// And the blueprint is loaded
-		err = blueprintHandler.Load(path)
+		err = blueprintHandler.LoadConfig(path)
 		if err != nil {
-			t.Fatalf("Expected Load to succeed, but got error: %v", err)
+			t.Fatalf("Expected LoadConfig to succeed, but got error: %v", err)
 		}
 
 		// Then the blueprint should be validated successfully
@@ -191,9 +201,9 @@ func TestBlueprintHandler_Load(t *testing.T) {
 		}
 
 		// And the blueprint is loaded with an empty path
-		err = blueprintHandler.Load(path)
+		err = blueprintHandler.LoadConfig(path)
 		if err != nil {
-			t.Fatalf("Expected Load to succeed, but got error: %v", err)
+			t.Fatalf("Expected LoadConfig to succeed, but got error: %v", err)
 		}
 
 		// Then the blueprint should be validated successfully
@@ -217,9 +227,9 @@ func TestBlueprintHandler_Load(t *testing.T) {
 		}
 
 		// Then loading the blueprint should fail
-		err = blueprintHandler.Load()
+		err = blueprintHandler.LoadConfig()
 		if err == nil {
-			t.Errorf("Expected Load to fail, but got no error")
+			t.Errorf("Expected LoadConfig to fail, but got no error")
 		}
 	})
 
@@ -243,9 +253,9 @@ func TestBlueprintHandler_Load(t *testing.T) {
 		}
 
 		// Then loading the blueprint should fail
-		err = blueprintHandler.Load(path)
+		err = blueprintHandler.LoadConfig(path)
 		if err == nil {
-			t.Errorf("Expected Load to fail, but got no error")
+			t.Errorf("Expected LoadConfig to fail, but got no error")
 		}
 	})
 
@@ -269,9 +279,9 @@ func TestBlueprintHandler_Load(t *testing.T) {
 		}
 
 		// Then loading the blueprint should fail
-		err = blueprintHandler.Load(path)
+		err = blueprintHandler.LoadConfig(path)
 		if err == nil {
-			t.Errorf("Expected Load to fail, but got no error")
+			t.Errorf("Expected LoadConfig to fail, but got no error")
 		}
 	})
 }
@@ -290,7 +300,7 @@ func TestBlueprintHandler_Save(t *testing.T) {
 		}
 
 		// And the blueprint is saved
-		err = blueprintHandler.Save(path)
+		err = blueprintHandler.WriteConfig(path)
 		// Then the save operation should succeed
 		if err != nil {
 			t.Errorf("Expected Save to succeed, but got error: %v", err)
@@ -309,7 +319,7 @@ func TestBlueprintHandler_Save(t *testing.T) {
 		}
 
 		// And the blueprint is saved with an empty path
-		err = blueprintHandler.Save()
+		err = blueprintHandler.WriteConfig()
 		// Then the save operation should succeed
 		if err != nil {
 			t.Errorf("Expected Save to succeed with empty path, but got error: %v", err)
@@ -333,7 +343,7 @@ func TestBlueprintHandler_Save(t *testing.T) {
 		}
 
 		// And the blueprint is saved with an empty path
-		err = blueprintHandler.Save()
+		err = blueprintHandler.WriteConfig()
 		// Then the save operation should fail
 		if err == nil {
 			t.Errorf("Expected Save to fail, but got no error")
@@ -360,7 +370,7 @@ func TestBlueprintHandler_Save(t *testing.T) {
 		}
 
 		// And the blueprint is saved
-		err = blueprintHandler.Save(path)
+		err = blueprintHandler.WriteConfig(path)
 		// Then the save operation should fail
 		if err == nil {
 			t.Errorf("Expected Save to fail, but got no error")
@@ -387,7 +397,7 @@ func TestBlueprintHandler_Save(t *testing.T) {
 		}
 
 		// And the blueprint is saved
-		err = blueprintHandler.Save(path)
+		err = blueprintHandler.WriteConfig(path)
 		// Then the save operation should fail
 		if err == nil {
 			t.Errorf("Expected Save to fail, but got no error")
@@ -414,7 +424,7 @@ func TestBlueprintHandler_GetMetadata(t *testing.T) {
 			Authors:     []string{"John Doe"},
 		}
 
-		blueprintHandler.Load()
+		blueprintHandler.LoadConfig()
 
 		// Then the metadata should be retrieved successfully
 		retrievedMetadata := blueprintHandler.GetMetadata()
@@ -445,9 +455,9 @@ func TestBlueprintHandler_GetSources(t *testing.T) {
 			},
 		}
 
-		err = blueprintHandler.Load()
+		err = blueprintHandler.LoadConfig()
 		if err != nil {
-			t.Fatalf("Expected Load to succeed, but got error: %v", err)
+			t.Fatalf("Expected LoadConfig to succeed, but got error: %v", err)
 		}
 
 		// Then the sources should be retrieved successfully
@@ -490,9 +500,9 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 			},
 		}
 
-		err = blueprintHandler.Load()
+		err = blueprintHandler.LoadConfig()
 		if err != nil {
-			t.Fatalf("Expected Load to succeed, but got error: %v", err)
+			t.Fatalf("Expected LoadConfig to succeed, but got error: %v", err)
 		}
 
 		// Then the Terraform components should be retrieved successfully

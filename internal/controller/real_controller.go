@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 
+	"github.com/windsor-hotel/cli/internal/blueprint"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
@@ -207,3 +208,15 @@ func (c *RealController) CreateVirtualizationComponents() error {
 
 	return nil
 }
+
+// CreateBlueprintComponents creates blueprint components
+func (c *RealController) CreateBlueprintComponents() error {
+	// Create a new blueprint handler
+	blueprintHandler := blueprint.NewBlueprintHandler(c.injector)
+	c.injector.Register("blueprintHandler", blueprintHandler)
+
+	return nil
+}
+
+// Ensure RealController implements the Controller interface
+var _ Controller = (*RealController)(nil)

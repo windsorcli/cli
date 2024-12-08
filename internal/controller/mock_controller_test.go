@@ -206,6 +206,27 @@ func TestMockController_CreateVirtualizationComponents(t *testing.T) {
 	})
 }
 
+func TestMockController_CreateBlueprintComponents(t *testing.T) {
+	t.Run("CreateBlueprintComponents", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
+		mockCtrl.CreateBlueprintComponentsFunc = func() error {
+			return nil
+		}
+		if err := mockCtrl.CreateBlueprintComponents(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NoCreateBlueprintComponentsFunc", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
+		if err := mockCtrl.CreateBlueprintComponents(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
 func TestMockController_WriteConfigurationFiles(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		injector := di.NewInjector()

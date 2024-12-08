@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 
+	"github.com/windsor-hotel/cli/internal/blueprint"
 	"github.com/windsor-hotel/cli/internal/config"
 	"github.com/windsor-hotel/cli/internal/context"
 	"github.com/windsor-hotel/cli/internal/di"
@@ -24,6 +25,7 @@ type MockController struct {
 	CreateEnvComponentsFunc            func() error
 	CreateServiceComponentsFunc        func() error
 	CreateVirtualizationComponentsFunc func() error
+	CreateBlueprintComponentsFunc      func() error
 	ResolveInjectorFunc                func() di.Injector
 	ResolveConfigHandlerFunc           func() config.ConfigHandler
 	ResolveContextHandlerFunc          func() context.ContextHandler
@@ -252,6 +254,19 @@ func (c *MockController) CreateVirtualizationComponents() error {
 		containerRuntime := virt.NewMockVirt()
 		c.injector.Register("containerRuntime", containerRuntime)
 	}
+
+	return nil
+}
+
+// CreateBlueprintComponents calls the mock CreateBlueprintComponentsFunc if set, otherwise creates mock components
+func (c *MockController) CreateBlueprintComponents() error {
+	if c.CreateBlueprintComponentsFunc != nil {
+		return c.CreateBlueprintComponentsFunc()
+	}
+
+	// Create a new blueprint handler
+	blueprintHandler := blueprint.NewMockBlueprintHandler(c.injector)
+	c.injector.Register("blueprintHandler", blueprintHandler)
 
 	return nil
 }

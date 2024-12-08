@@ -9,8 +9,8 @@ import (
 
 // BlueprintHandler defines the interface for handling blueprint operations
 type BlueprintHandler interface {
-	// Load loads the blueprint from the specified path
-	Load(path ...string) error
+	// LoadConfig loads the blueprint from the specified path
+	LoadConfig(path ...string) error
 
 	// GetMetadata retrieves the metadata for the blueprint
 	GetMetadata() MetadataV1Alpha1
@@ -30,8 +30,8 @@ type BlueprintHandler interface {
 	// SetTerraformComponents sets the Terraform components for the blueprint
 	SetTerraformComponents(terraformComponents []TerraformComponentV1Alpha1) error
 
-	// Save saves the current blueprint to the specified path
-	Save(path ...string) error
+	// WriteConfig writes the current blueprint to the specified path
+	WriteConfig(path ...string) error
 }
 
 // BaseBlueprintHandler is a base implementation of the BlueprintHandler interface
@@ -55,11 +55,22 @@ func (b *BaseBlueprintHandler) Initialize() error {
 		return fmt.Errorf("error resolving contextHandler")
 	}
 	b.contextHandler = contextHandler
+
+	// Initialize with a default blueprint
+	b.blueprint = DefaultBlueprint
+
+	// Set the blueprint name to match the context name
+	context := b.contextHandler.GetContext()
+	b.blueprint.Metadata.Name = context
+
+	// Set the default description
+	b.blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", context)
+
 	return nil
 }
 
-// Load loads the blueprint from the specified path
-func (b *BaseBlueprintHandler) Load(path ...string) error {
+// LoadConfig LoadConfigs the blueprint from the specified path
+func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	finalPath := ""
 	// Check if a path is provided
 	if len(path) > 0 && path[0] != "" {
@@ -88,9 +99,8 @@ func (b *BaseBlueprintHandler) Load(path ...string) error {
 	return nil
 }
 
-// Save saves the current blueprint to the specified path
-// Save writes the current blueprint to a specified path or a default location
-func (b *BaseBlueprintHandler) Save(path ...string) error {
+// WriteConfig writes the current blueprint to a specified path or a default location
+func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 	finalPath := ""
 	// Determine the final path to save the blueprint
 	if len(path) > 0 && path[0] != "" {

@@ -339,3 +339,26 @@ func TestRealController_CreateVirtualizationComponents(t *testing.T) {
 		t.Logf("Success: no container runtime created or registered")
 	})
 }
+
+func TestRealController_CreateBlueprintComponents(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new injector and a new real controller
+		injector := di.NewInjector()
+		controller := NewRealController(injector)
+
+		// When creating blueprint components
+		err := controller.CreateBlueprintComponents()
+
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the blueprint handler should be registered in the injector
+		if injector.Resolve("blueprintHandler") == nil {
+			t.Fatalf("expected blueprintHandler to be registered, got error")
+		}
+
+		t.Logf("Success: blueprint components created and registered")
+	})
+}
