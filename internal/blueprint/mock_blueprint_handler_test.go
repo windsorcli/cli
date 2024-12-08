@@ -5,8 +5,31 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
+
+func TestMockBlueprintHandler_Initialize(t *testing.T) {
+	t.Run("Initialize", func(t *testing.T) {
+		injector := di.NewInjector()
+		handler := NewMockBlueprintHandler(injector)
+		handler.InitializeFunc = func() error {
+			return nil
+		}
+		err := handler.Initialize()
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+
+	t.Run("NoInitializeFunc", func(t *testing.T) {
+		injector := di.NewInjector()
+		handler := NewMockBlueprintHandler(injector)
+		err := handler.Initialize()
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+}
 
 func TestMockBlueprintHandler_LoadConfig(t *testing.T) {
 	mockLoadErr := fmt.Errorf("mock load config error")

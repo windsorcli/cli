@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 func TestDefaultShell_PrintEnvVars(t *testing.T) {

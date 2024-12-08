@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/ssh"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/ssh"
 )
 
 // MockSpinner is used to override the spinner in tests

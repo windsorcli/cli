@@ -3,12 +3,15 @@ package blueprint
 import (
 	"fmt"
 
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // BlueprintHandler defines the interface for handling blueprint operations
 type BlueprintHandler interface {
+	// Initialize initializes the blueprint handler
+	Initialize() error
+
 	// LoadConfig loads the blueprint from the specified path
 	LoadConfig(path ...string) error
 

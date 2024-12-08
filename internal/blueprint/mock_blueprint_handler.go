@@ -1,9 +1,10 @@
 package blueprint
 
-import "github.com/windsor-hotel/cli/internal/di"
+import "github.com/windsorcli/cli/internal/di"
 
 // MockBlueprintHandler is a mock implementation of the BlueprintHandler interface for testing purposes
 type MockBlueprintHandler struct {
+	InitializeFunc             func() error
 	LoadConfigFunc             func(path ...string) error
 	GetMetadataFunc            func() MetadataV1Alpha1
 	GetSourcesFunc             func() []SourceV1Alpha1
@@ -17,6 +18,14 @@ type MockBlueprintHandler struct {
 // NewMockBlueprintHandler creates a new instance of MockBlueprintHandler
 func NewMockBlueprintHandler(injector di.Injector) *MockBlueprintHandler {
 	return &MockBlueprintHandler{}
+}
+
+// Initialize initializes the blueprint handler
+func (m *MockBlueprintHandler) Initialize() error {
+	if m.InitializeFunc != nil {
+		return m.InitializeFunc()
+	}
+	return nil
 }
 
 // LoadConfig calls the mock LoadConfigFunc if set, otherwise returns nil

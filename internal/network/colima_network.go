@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // colimaNetworkManager is a concrete implementation of NetworkManager

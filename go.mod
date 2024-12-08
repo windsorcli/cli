@@ -1,4 +1,4 @@
-module github.com/windsor-hotel/cli
+module github.com/windsorcli/cli
 
 go 1.22.7
 

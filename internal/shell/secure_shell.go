@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/ssh"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/ssh"
 )
 
 // SecureShell implements the Shell interface using SSH.

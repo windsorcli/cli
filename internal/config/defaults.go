@@ -1,6 +1,6 @@
 package config
 
-import "github.com/windsor-hotel/cli/internal/constants"
+import "github.com/windsorcli/cli/internal/constants"
 
 // DefaultConfig returns the default configuration
 var DefaultConfig = Context{

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/services"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/services"
 )
 
 // DockerVirt implements the ContainerInterface for Docker

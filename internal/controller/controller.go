@@ -5,15 +5,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/windsor-hotel/cli/internal/blueprint"
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/network"
-	"github.com/windsor-hotel/cli/internal/services"
-	"github.com/windsor-hotel/cli/internal/shell"
-	"github.com/windsor-hotel/cli/internal/virt"
+	"github.com/windsorcli/cli/internal/blueprint"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/network"
+	"github.com/windsorcli/cli/internal/services"
+	"github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/virt"
 )
 
 // Controller interface defines the methods for the controller.
@@ -119,6 +119,17 @@ func (c *BaseController) InitializeComponents() error {
 	if networkManager != nil {
 		if err := networkManager.Initialize(); err != nil {
 			return fmt.Errorf("error initializing network manager: %w", err)
+		}
+	}
+
+	// Initialize the blueprint handler
+	blueprintHandler := c.ResolveBlueprintHandler()
+	if blueprintHandler != nil {
+		if err := blueprintHandler.Initialize(); err != nil {
+			return fmt.Errorf("error initializing blueprint handler: %w", err)
+		}
+		if err := blueprintHandler.LoadConfig(); err != nil {
+			return fmt.Errorf("error loading blueprint config: %w", err)
 		}
 	}
 

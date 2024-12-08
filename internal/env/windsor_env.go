@@ -3,7 +3,7 @@ package env
 import (
 	"fmt"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // WindsorEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.

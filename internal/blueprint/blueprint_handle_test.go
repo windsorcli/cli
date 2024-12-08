@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // safeBlueprintYAML holds the "safe" blueprint yaml string

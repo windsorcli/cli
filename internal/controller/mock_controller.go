@@ -3,17 +3,17 @@ package controller
 import (
 	"fmt"
 
-	"github.com/windsor-hotel/cli/internal/blueprint"
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/network"
-	"github.com/windsor-hotel/cli/internal/services"
-	"github.com/windsor-hotel/cli/internal/shell"
-	sh "github.com/windsor-hotel/cli/internal/shell"
-	"github.com/windsor-hotel/cli/internal/ssh"
-	"github.com/windsor-hotel/cli/internal/virt"
+	"github.com/windsorcli/cli/internal/blueprint"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/network"
+	"github.com/windsorcli/cli/internal/services"
+	"github.com/windsorcli/cli/internal/shell"
+	sh "github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/ssh"
+	"github.com/windsorcli/cli/internal/virt"
 )
 
 // MockController is a mock implementation of the Controller interface

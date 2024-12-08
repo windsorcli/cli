@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // Test hook to force memory overflow
