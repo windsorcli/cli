@@ -3,7 +3,6 @@ package generators
 import (
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -38,8 +37,7 @@ func (g *TerraformGenerator) Write() error {
 	for _, component := range components {
 		if isValidTerraformRemoteSource(component.Source) {
 			// Parse the component source to create the directory path
-			parsedSource := parseSourcePath(component.Source)
-			dirPath := filepath.Join(projectRoot, ".tf_modules", parsedSource)
+			dirPath := filepath.Join(projectRoot, ".tf_modules", "terraform", component.Path)
 
 			// Ensure the parent directories exist
 			if err := osMkdirAll(dirPath, os.ModePerm); err != nil {
@@ -118,19 +116,6 @@ func (g *TerraformGenerator) writeVariableFile(dirPath string, component bluepri
 
 // Ensure TerraformGenerator implements Generator
 var _ Generator = (*TerraformGenerator)(nil)
-
-// parseSourcePath parses the source path to remove version and handle double slashes
-func parseSourcePath(source string) string {
-	// Remove the version part if present
-	if atIndex := strings.LastIndex(source, "@"); atIndex != -1 {
-		source = source[:atIndex]
-	}
-	// Handle double slashes by replacing them with a single slash
-	source = strings.ReplaceAll(source, "//", "/")
-	// Remove any leading slashes
-	source = strings.TrimPrefix(source, "/")
-	return source
-}
 
 // isValidTerraformRemoteSource checks if the source is a valid Terraform module reference
 func isValidTerraformRemoteSource(source string) bool {

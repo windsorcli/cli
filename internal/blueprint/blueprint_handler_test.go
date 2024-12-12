@@ -22,7 +22,7 @@ metadata:
     - John Doe
 sources:
   - name: source1
-    url: https://example.com/source1//terraform
+    url: https://example.com/source1
     ref: v1.0.0
 terraform:
   - source: source1
@@ -538,7 +538,7 @@ func TestBlueprintHandler_GetSources(t *testing.T) {
 		expectedSources := []SourceV1Alpha1{
 			{
 				Name: "source1",
-				Url:  "https://example.com/source1//terraform",
+				Url:  "https://example.com/source1",
 				Ref:  "v1.0.0",
 			},
 		}

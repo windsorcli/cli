@@ -199,7 +199,11 @@ func resolveComponentSources(blueprint *BlueprintV1Alpha1) {
 	for i, component := range blueprint.TerraformComponents {
 		for _, source := range blueprint.Sources {
 			if component.Source == source.Name {
-				blueprint.TerraformComponents[i].Source = source.Url + "/" + component.Path + "@" + source.Ref
+				pathPrefix := source.PathPrefix
+				if pathPrefix == "" {
+					pathPrefix = "terraform"
+				}
+				blueprint.TerraformComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "@" + source.Ref
 				break
 			}
 		}

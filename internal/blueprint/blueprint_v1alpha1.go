@@ -18,9 +18,10 @@ type MetadataV1Alpha1 struct {
 
 // Source describes a source for a blueprint
 type SourceV1Alpha1 struct {
-	Name string `yaml:"name"` // The Name of the source
-	Url  string `yaml:"url"`  // The URL of the source
-	Ref  string `yaml:"ref"`  // The Ref of the source
+	Name       string `yaml:"name"`                 // The Name of the source
+	Url        string `yaml:"url"`                  // The URL of the source
+	PathPrefix string `yaml:"pathPrefix,omitempty"` // The Path Prefix of the source
+	Ref        string `yaml:"ref"`                  // The Ref of the source
 }
 
 // TerraformComponent describes a Terraform component for a blueprint
