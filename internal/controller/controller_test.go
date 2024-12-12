@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/internal/context"
 	"github.com/windsorcli/cli/internal/di"
 	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/generators"
 	"github.com/windsorcli/cli/internal/network"
 	"github.com/windsorcli/cli/internal/services"
 	"github.com/windsorcli/cli/internal/shell"
@@ -332,6 +333,29 @@ func TestController_InitializeComponents(t *testing.T) {
 			t.Fatalf("expected an error, got nil")
 		} else if !strings.Contains(err.Error(), "error loading blueprint config") {
 			t.Fatalf("expected error to contain 'error loading blueprint config', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
+		}
+	})
+
+	t.Run("ErrorInitializingGenerators", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		mockGenerator := generators.NewMockGenerator()
+		mockGenerator.InitializeFunc = func() error {
+			return fmt.Errorf("error initializing generator")
+		}
+		mocks.Injector.Register("generator", mockGenerator)
+
+		// When initializing the components
+		err := controller.InitializeComponents()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error initializing generator") {
+			t.Fatalf("expected error to contain 'error initializing generator', got %v", err)
 		} else {
 			t.Logf("expected error received: %v", err)
 		}

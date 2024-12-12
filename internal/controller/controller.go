@@ -10,6 +10,7 @@ import (
 	"github.com/windsorcli/cli/internal/context"
 	"github.com/windsorcli/cli/internal/di"
 	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/generators"
 	"github.com/windsorcli/cli/internal/network"
 	"github.com/windsorcli/cli/internal/services"
 	"github.com/windsorcli/cli/internal/shell"
@@ -38,6 +39,7 @@ type Controller interface {
 	ResolveAllServices() []services.Service
 	ResolveVirtualMachine() virt.VirtualMachine
 	ResolveContainerRuntime() virt.ContainerRuntime
+	ResolveAllGenerators() []generators.Generator
 	WriteConfigurationFiles() error
 }
 
@@ -133,6 +135,16 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
+	// Initialize the generators
+	generators := c.ResolveAllGenerators()
+	if len(generators) > 0 {
+		for _, generator := range generators {
+			if err := generator.Initialize(); err != nil {
+				return fmt.Errorf("error initializing generator: %w", err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -204,6 +216,16 @@ func (c *BaseController) WriteConfigurationFiles() error {
 		if resolvedContainerRuntime != nil {
 			if err := resolvedContainerRuntime.WriteConfig(); err != nil {
 				return fmt.Errorf("error writing container runtime config: %w", err)
+			}
+		}
+	}
+
+	// Resolve and write configuration for all generators
+	generators := c.ResolveAllGenerators()
+	for _, generator := range generators {
+		if generator != nil {
+			if err := generator.Write(); err != nil {
+				return fmt.Errorf("error writing generator config: %w", err)
 			}
 		}
 	}
@@ -306,6 +328,17 @@ func (c *BaseController) ResolveContainerRuntime() virt.ContainerRuntime {
 	instance := c.injector.Resolve("containerRuntime")
 	containerRuntime, _ := instance.(virt.ContainerRuntime)
 	return containerRuntime
+}
+
+// ResolveAllGenerators resolves all generator instances.
+func (c *BaseController) ResolveAllGenerators() []generators.Generator {
+	instances, _ := c.injector.ResolveAll((*generators.Generator)(nil))
+	generatorsInstances := make([]generators.Generator, 0, len(instances))
+	for _, instance := range instances {
+		generatorInstance, _ := instance.(generators.Generator)
+		generatorsInstances = append(generatorsInstances, generatorInstance)
+	}
+	return generatorsInstances
 }
 
 // Ensure BaseController implements the Controller interface

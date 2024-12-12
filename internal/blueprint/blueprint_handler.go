@@ -137,7 +137,7 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
-	// Convert the blueprint struct into YAML format, omitting null values
+	// Convert the copied blueprint struct into YAML format, omitting null values
 	data, err := yamlMarshalNonNull(b.blueprint)
 	if err != nil {
 		// Return an error if marshalling fails
@@ -164,7 +164,13 @@ func (b *BaseBlueprintHandler) GetSources() []SourceV1Alpha1 {
 
 // GetTerraformComponents retrieves the Terraform components for the blueprint
 func (b *BaseBlueprintHandler) GetTerraformComponents() []TerraformComponentV1Alpha1 {
-	return b.blueprint.TerraformComponents
+	// Create a copy of the blueprint to avoid modifying the original
+	resolvedBlueprint := b.blueprint
+
+	// Resolve the component sources
+	resolveComponentSources(&resolvedBlueprint)
+
+	return resolvedBlueprint.TerraformComponents
 }
 
 // SetMetadata sets the metadata for the blueprint
@@ -187,3 +193,19 @@ func (b *BaseBlueprintHandler) SetTerraformComponents(terraformComponents []Terr
 
 // Ensure that BaseBlueprintHandler implements the BlueprintHandler interface
 var _ BlueprintHandler = &BaseBlueprintHandler{}
+
+// resolveComponentSources resolves the source for each Terraform component
+func resolveComponentSources(blueprint *BlueprintV1Alpha1) {
+	for i, component := range blueprint.TerraformComponents {
+		for _, source := range blueprint.Sources {
+			if component.Source == source.Name {
+				pathPrefix := source.PathPrefix
+				if pathPrefix == "" {
+					pathPrefix = "terraform"
+				}
+				blueprint.TerraformComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "@" + source.Ref
+				break
+			}
+		}
+	}
+}

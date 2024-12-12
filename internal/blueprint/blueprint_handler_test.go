@@ -23,16 +23,10 @@ metadata:
 sources:
   - name: source1
     url: https://example.com/source1
-    version: v1.0.0
+    ref: v1.0.0
 terraform:
-  - name: terraform1
-    source: https://example.com/terraform1
-    version: v1.0.0
-    variables:
-      - name: var1
-        type: string
-        default: default1
-        description: A test variable
+  - source: source1
+    path: path/to/code
     values:
       key1: value1
 `
@@ -167,8 +161,20 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 
 		terraformComponents := blueprintHandler.GetTerraformComponents()
-		if len(terraformComponents) != 1 || terraformComponents[0].Name != "terraform1" {
-			t.Errorf("Expected Terraform components to contain one component with name 'terraform1', but got %v", terraformComponents)
+		if len(terraformComponents) != 1 {
+			t.Errorf("Expected Terraform components to contain one component, but got %v", terraformComponents)
+		} else {
+			component := terraformComponents[0]
+			if component.Source != "https://example.com/source1//terraform/path/to/code@v1.0.0" {
+				t.Errorf("Expected Terraform component source to be 'https://example.com/source1//terraform/path/to/code@v1.0.0', but got '%s'", component.Source)
+			}
+			if component.Path != "path/to/code" {
+				t.Errorf("Expected Terraform component path to be 'path/to/code', but got '%s'", component.Path)
+			}
+			expectedValues := map[string]interface{}{"key1": "value1"}
+			if !reflect.DeepEqual(component.Values, expectedValues) {
+				t.Errorf("Expected Terraform component values to be %v, but got %v", expectedValues, component.Values)
+			}
 		}
 	}
 
@@ -531,9 +537,9 @@ func TestBlueprintHandler_GetSources(t *testing.T) {
 		// And the sources are set
 		expectedSources := []SourceV1Alpha1{
 			{
-				Name:    "source1",
-				Url:     "https://example.com/source1",
-				Version: "v1.0.0",
+				Name: "source1",
+				Url:  "https://example.com/source1",
+				Ref:  "v1.0.0",
 			},
 		}
 
@@ -565,17 +571,8 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		// And the Terraform components are set
 		expectedTerraformComponents := []TerraformComponentV1Alpha1{
 			{
-				Name:    "terraform1",
-				Source:  "https://example.com/terraform1",
-				Version: "v1.0.0",
-				Variables: []TerraformVariableV1Alpha1{
-					{
-						Name:        "var1",
-						Type:        "string",
-						Default:     "default1",
-						Description: "A test variable",
-					},
-				},
+				Source: "https://example.com/source1//terraform/path/to/code@v1.0.0",
+				Path:   "path/to/code",
 				Values: map[string]interface{}{
 					"key1": "value1",
 				},
@@ -588,9 +585,9 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		}
 
 		// Then the Terraform components should be retrieved successfully
-		retrievedTerraformComponents := blueprintHandler.GetTerraformComponents()
-		if !reflect.DeepEqual(retrievedTerraformComponents, expectedTerraformComponents) {
-			t.Errorf("Expected Terraform components to be %v, but got %v", expectedTerraformComponents, retrievedTerraformComponents)
+		retrievedComponents := blueprintHandler.GetTerraformComponents()
+		if !reflect.DeepEqual(retrievedComponents, expectedTerraformComponents) {
+			t.Errorf("Expected Terraform components to be %v, but got %v", expectedTerraformComponents, retrievedComponents)
 		}
 	})
 }
@@ -642,9 +639,9 @@ func TestBlueprintHandler_SetSources(t *testing.T) {
 		// And the sources are set
 		expectedSources := []SourceV1Alpha1{
 			{
-				Name:    "source1",
-				Url:     "https://example.com/source1",
-				Version: "v1.0.0",
+				Name: "source1",
+				Url:  "https://example.com/source1",
+				Ref:  "v1.0.0",
 			},
 		}
 
@@ -676,17 +673,8 @@ func TestBlueprintHandler_SetTerraformComponents(t *testing.T) {
 		// And the Terraform components are set
 		expectedTerraformComponents := []TerraformComponentV1Alpha1{
 			{
-				Name:    "terraform1",
-				Source:  "https://example.com/terraform1",
-				Version: "v1.0.0",
-				Variables: []TerraformVariableV1Alpha1{
-					{
-						Name:        "var1",
-						Type:        "string",
-						Default:     "default1",
-						Description: "A test variable",
-					},
-				},
+				Source: "https://example.com/terraform1",
+				Path:   "path/to/code",
 				Values: map[string]interface{}{
 					"key1": "value1",
 				},

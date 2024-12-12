@@ -18,18 +18,17 @@ type MetadataV1Alpha1 struct {
 
 // Source describes a source for a blueprint
 type SourceV1Alpha1 struct {
-	Name    string `yaml:"name"`    // The Name of the source
-	Url     string `yaml:"url"`     // The URL of the source
-	Version string `yaml:"version"` // The Version of the source
+	Name       string `yaml:"name"`                 // The Name of the source
+	Url        string `yaml:"url"`                  // The URL of the source
+	PathPrefix string `yaml:"pathPrefix,omitempty"` // The Path Prefix of the source
+	Ref        string `yaml:"ref"`                  // The Ref of the source
 }
 
 // TerraformComponent describes a Terraform component for a blueprint
 type TerraformComponentV1Alpha1 struct {
-	Name      string                      `yaml:"name"`      // The Name of the module
-	Source    string                      `yaml:"source"`    // The Source of the module
-	Version   string                      `yaml:"version"`   // The Version of the module
-	Variables []TerraformVariableV1Alpha1 `yaml:"variables"` // The Variables for the module
-	Values    map[string]interface{}      `yaml:"values"`    // The Values for the module
+	Source string                 `yaml:"source"` // The Source of the module
+	Path   string                 `yaml:"path"`   // The Path of the module
+	Values map[string]interface{} `yaml:"values"` // The Values for the module
 }
 
 // TerraformVariable describes a Terraform variable for a Terraform component

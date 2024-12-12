@@ -8,6 +8,7 @@ import (
 	"github.com/windsorcli/cli/internal/context"
 	"github.com/windsorcli/cli/internal/di"
 	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/generators"
 	"github.com/windsorcli/cli/internal/network"
 	"github.com/windsorcli/cli/internal/services"
 	"github.com/windsorcli/cli/internal/shell"
@@ -38,6 +39,7 @@ type MockController struct {
 	ResolveAllServicesFunc             func() []services.Service
 	ResolveVirtualMachineFunc          func() virt.VirtualMachine
 	ResolveContainerRuntimeFunc        func() virt.ContainerRuntime
+	ResolveAllGeneratorsFunc           func() []generators.Generator
 	WriteConfigurationFilesFunc        func() error
 }
 
@@ -268,6 +270,10 @@ func (c *MockController) CreateBlueprintComponents() error {
 	blueprintHandler := blueprint.NewMockBlueprintHandler(c.injector)
 	c.injector.Register("blueprintHandler", blueprintHandler)
 
+	// Create a new terraform generator
+	terraformGenerator := generators.NewMockGenerator()
+	c.injector.Register("terraformGenerator", terraformGenerator)
+
 	return nil
 }
 
@@ -373,6 +379,14 @@ func (c *MockController) ResolveContainerRuntime() virt.ContainerRuntime {
 		return c.ResolveContainerRuntimeFunc()
 	}
 	return c.BaseController.ResolveContainerRuntime()
+}
+
+// ResolveAllGenerators calls the mock ResolveAllGeneratorsFunc if set, otherwise calls the parent function
+func (c *MockController) ResolveAllGenerators() []generators.Generator {
+	if c.ResolveAllGeneratorsFunc != nil {
+		return c.ResolveAllGeneratorsFunc()
+	}
+	return c.BaseController.ResolveAllGenerators()
 }
 
 // Ensure MockController implements Controller
