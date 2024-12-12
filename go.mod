@@ -1,6 +1,6 @@
 module github.com/windsorcli/cli
 
-go 1.23.2
+go 1.23.1
 
 require (
 	github.com/compose-spec/compose-go v1.20.2

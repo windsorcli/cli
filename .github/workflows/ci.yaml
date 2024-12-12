@@ -28,7 +28,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
         with:
-          go-version: '1.23.2'
+          go-version: '1.23.1'
           check-latest: true
 
       - name: Cache Go modules
@@ -119,7 +119,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
         with:
-          go-version: '1.23.2'
+          go-version: '1.23.1'
           check-latest: true
 
       - name: Run Gosec Security Scanner
