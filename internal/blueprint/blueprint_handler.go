@@ -137,7 +137,7 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
-	// Convert the blueprint struct into YAML format, omitting null values
+	// Convert the copied blueprint struct into YAML format, omitting null values
 	data, err := yamlMarshalNonNull(b.blueprint)
 	if err != nil {
 		// Return an error if marshalling fails

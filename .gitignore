@@ -28,3 +28,6 @@ python_old
 age.key
 age.public.key
 
+# Temporary development folders
+contexts/
+.tf_modules/

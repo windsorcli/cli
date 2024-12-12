@@ -8,6 +8,7 @@ import (
 	"github.com/windsorcli/cli/internal/context"
 	"github.com/windsorcli/cli/internal/di"
 	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/generators"
 	"github.com/windsorcli/cli/internal/network"
 	"github.com/windsorcli/cli/internal/services"
 	sh "github.com/windsorcli/cli/internal/shell"
@@ -214,6 +215,10 @@ func (c *RealController) CreateBlueprintComponents() error {
 	// Create a new blueprint handler
 	blueprintHandler := blueprint.NewBlueprintHandler(c.injector)
 	c.injector.Register("blueprintHandler", blueprintHandler)
+
+	// Create a new terraform generator
+	terraformGenerator := generators.NewTerraformGenerator(c.injector)
+	c.injector.Register("terraformGenerator", terraformGenerator)
 
 	return nil
 }

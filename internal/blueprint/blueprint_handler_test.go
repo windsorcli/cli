@@ -568,14 +568,6 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 				Name:    "terraform1",
 				Source:  "https://example.com/terraform1",
 				Version: "v1.0.0",
-				Variables: []TerraformVariableV1Alpha1{
-					{
-						Name:        "var1",
-						Type:        "string",
-						Default:     "default1",
-						Description: "A test variable",
-					},
-				},
 				Values: map[string]interface{}{
 					"key1": "value1",
 				},
@@ -679,14 +671,6 @@ func TestBlueprintHandler_SetTerraformComponents(t *testing.T) {
 				Name:    "terraform1",
 				Source:  "https://example.com/terraform1",
 				Version: "v1.0.0",
-				Variables: []TerraformVariableV1Alpha1{
-					{
-						Name:        "var1",
-						Type:        "string",
-						Default:     "default1",
-						Description: "A test variable",
-					},
-				},
 				Values: map[string]interface{}{
 					"key1": "value1",
 				},

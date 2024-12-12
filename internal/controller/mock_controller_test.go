@@ -7,6 +7,7 @@ import (
 	"github.com/windsorcli/cli/internal/context"
 	"github.com/windsorcli/cli/internal/di"
 	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/generators"
 	"github.com/windsorcli/cli/internal/network"
 	"github.com/windsorcli/cli/internal/services"
 	"github.com/windsorcli/cli/internal/shell"
@@ -543,6 +544,29 @@ func TestMockController_ResolveContainerRuntime(t *testing.T) {
 		containerRuntime := mockCtrl.ResolveContainerRuntime()
 		if containerRuntime != containerRuntime {
 			t.Fatalf("expected %v, got %v", containerRuntime, containerRuntime)
+		}
+	})
+}
+
+func TestMockController_ResolveAllGenerators(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		mockCtrl.ResolveAllGeneratorsFunc = func() []generators.Generator {
+			return []generators.Generator{&generators.MockGenerator{}, &generators.MockGenerator{}}
+		}
+		generators := mockCtrl.ResolveAllGenerators()
+		if len(generators) != 2 {
+			t.Fatalf("expected %v, got %v", 2, len(generators))
+		}
+	})
+
+	t.Run("NoResolveAllGeneratorsFunc", func(t *testing.T) {
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		generators := mockCtrl.ResolveAllGenerators()
+		if len(generators) != 0 {
+			t.Fatalf("expected %v, got %v", 0, len(generators))
 		}
 	})
 }
