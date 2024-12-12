@@ -28,7 +28,6 @@ func TestNewTerraformGenerator(t *testing.T) {
 func TestTerraformGenerator_Write(t *testing.T) {
 	// Common components setup
 	remoteComponent := blueprint.TerraformComponentV1Alpha1{
-		Name:   "remote_component",
 		Source: "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git@v1.0.0",
 		Values: map[string]interface{}{
 			"remote_variable1": "default_value",
@@ -36,7 +35,6 @@ func TestTerraformGenerator_Write(t *testing.T) {
 	}
 
 	localComponent := blueprint.TerraformComponentV1Alpha1{
-		Name:   "local_component",
 		Source: "local/path",
 		Values: map[string]interface{}{
 			"local_variable1": "default_value",
@@ -117,7 +115,7 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		}
 
 		// Validate that the expected module content was written the first time
-		expectedModuleContent := `module "remote_component" {
+		expectedModuleContent := `module "main" {
   source           = "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git@v1.0.0"
   remote_variable1 = var.remote_variable1
 }

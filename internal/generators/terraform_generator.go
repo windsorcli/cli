@@ -67,7 +67,7 @@ func (g *TerraformGenerator) writeModuleFile(dirPath string, component blueprint
 	moduleContent := hclwrite.NewEmptyFile()
 
 	// Append a new block for the module with the component's name
-	block := moduleContent.Body().AppendNewBlock("module", []string{component.Name})
+	block := moduleContent.Body().AppendNewBlock("module", []string{"main"})
 	body := block.Body()
 
 	// Set the source attribute
@@ -119,13 +119,13 @@ func (g *TerraformGenerator) writeVariableFile(dirPath string, component bluepri
 // Ensure TerraformGenerator implements Generator
 var _ Generator = (*TerraformGenerator)(nil)
 
-// parseSourcePath parses the source path to remove version and double slashes
+// parseSourcePath parses the source path to remove version and handle double slashes
 func parseSourcePath(source string) string {
 	// Remove the version part if present
 	if atIndex := strings.LastIndex(source, "@"); atIndex != -1 {
 		source = source[:atIndex]
 	}
-	// Remove any double slashes
+	// Handle double slashes by replacing them with a single slash
 	source = strings.ReplaceAll(source, "//", "/")
 	// Remove any leading slashes
 	source = strings.TrimPrefix(source, "/")
