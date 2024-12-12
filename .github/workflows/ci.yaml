@@ -128,3 +128,4 @@ jobs:
           args: ./...
         env:
           GOTOOLCHAIN: 'local'
+          GOFLAGS: '-buildvcs=false'
