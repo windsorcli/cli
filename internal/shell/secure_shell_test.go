@@ -148,7 +148,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		secureShell := NewSecureShell(mocks.Injector)
 		secureShell.Initialize()
 
-		output, err := secureShell.Exec(false, message, command, args...)
+		output, err := secureShell.Exec(message, command, args...)
 		if err != nil {
 			t.Fatalf("Failed to execute command: %v", err)
 		}
@@ -178,7 +178,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		secureShell := NewSecureShell(mocks.Injector)
 		secureShell.Initialize()
 
-		output, err := secureShell.Exec(false, message, command, args...)
+		output, err := secureShell.Exec(message, command, args...)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -196,7 +196,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		secureShell := NewSecureShell(mocks.Injector)
 		secureShell.Initialize()
 
-		_, err := secureShell.Exec(false, "Running command", "echo", "hello")
+		_, err := secureShell.Exec("Running command", "echo", "hello")
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -215,7 +215,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		secureShell := NewSecureShell(mocks.Injector)
 		secureShell.Initialize()
 
-		_, err := secureShell.Exec(false, "Running command", "echo", "hello")
+		_, err := secureShell.Exec("Running command", "echo", "hello")
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -250,7 +250,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		secureShell := NewSecureShell(mocks.Injector)
 		secureShell.Initialize()
 
-		output, err := secureShell.Exec(true, message, command, args...)
+		output, err := secureShell.Exec(message, command, args...)
 		if err != nil {
 			t.Fatalf("Failed to execute command: %v", err)
 		}

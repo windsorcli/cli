@@ -9,6 +9,7 @@ import (
 
 	"github.com/windsorcli/cli/internal/context"
 	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 // safeBlueprintYAML holds the "safe" blueprint yaml string
@@ -22,7 +23,7 @@ metadata:
     - John Doe
 sources:
   - name: source1
-    url: https://example.com/source1
+    url: git::https://example.com/source1.git
     ref: v1.0.0
 terraform:
   - source: source1
@@ -34,6 +35,7 @@ terraform:
 type MockSafeComponents struct {
 	Injector           di.Injector
 	MockContextHandler *context.MockContext
+	MockShell          *shell.MockShell
 }
 
 // setupSafeMocks function creates safe mocks for the blueprint handler
@@ -50,9 +52,18 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 	mockContextHandler := context.NewMockContext()
 	mockInjector.Register("contextHandler", mockContextHandler)
 
+	// Create a new mock shell
+	mockShell := shell.NewMockShell()
+	mockInjector.Register("shell", mockShell)
+
 	// Mock the context handler methods
 	mockContextHandler.GetConfigRootFunc = func() (string, error) {
 		return "/mock/config/root", nil
+	}
+
+	// Mock the shell method to return a mock project root
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return "/mock/project/root", nil
 	}
 
 	// Mock the osReadFile and osWriteFile functions
@@ -72,6 +83,7 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 	return MockSafeComponents{
 		Injector:           mockInjector,
 		MockContextHandler: mockContextHandler,
+		MockShell:          mockShell,
 	}
 }
 
@@ -139,6 +151,40 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 			t.Errorf("Expected Initialize to fail, but got no error")
 		}
 	})
+
+	t.Run("ErrorResolvingShell", func(t *testing.T) {
+		// Given a mock injector that does not resolve shell
+		mocks := setupSafeMocks()
+		mocks.Injector.Register("shell", nil)
+
+		// When a new BlueprintHandler is created
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+
+		// And the BlueprintHandler is initialized
+		err := blueprintHandler.Initialize()
+
+		// Then the initialization should fail with an error
+		if err == nil {
+			t.Errorf("Expected Initialize to fail, but got no error")
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		// Given a mock injector and a mock shell that returns an error for GetProjectRoot
+		mocks := setupSafeMocks()
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error getting project root")
+		}
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+
+		// When the BlueprintHandler is initialized
+		err := blueprintHandler.Initialize()
+
+		// Then the initialization should fail with an error
+		if err == nil {
+			t.Errorf("Expected Initialize to fail, but got no error")
+		}
+	})
 }
 
 func TestBlueprintHandler_LoadConfig(t *testing.T) {
@@ -165,11 +211,11 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 			t.Errorf("Expected Terraform components to contain one component, but got %v", terraformComponents)
 		} else {
 			component := terraformComponents[0]
-			if component.Source != "https://example.com/source1//terraform/path/to/code@v1.0.0" {
-				t.Errorf("Expected Terraform component source to be 'https://example.com/source1//terraform/path/to/code@v1.0.0', but got '%s'", component.Source)
+			if component.Source != "git::https://example.com/source1.git//terraform/path/to/code@v1.0.0" {
+				t.Errorf("Expected Terraform component source to be 'git::https://example.com/source1.git//terraform/path/to/code@v1.0.0', but got '%s'", component.Source)
 			}
-			if component.Path != "path/to/code" {
-				t.Errorf("Expected Terraform component path to be 'path/to/code', but got '%s'", component.Path)
+			if component.Path != "/mock/project/root/terraform/path/to/code" {
+				t.Errorf("Expected Terraform component path to be '/mock/project/root/terraform/path/to/code', but got '%s'", component.Path)
 			}
 			expectedValues := map[string]interface{}{"key1": "value1"}
 			if !reflect.DeepEqual(component.Values, expectedValues) {
@@ -538,7 +584,7 @@ func TestBlueprintHandler_GetSources(t *testing.T) {
 		expectedSources := []SourceV1Alpha1{
 			{
 				Name: "source1",
-				Url:  "https://example.com/source1",
+				Url:  "git::https://example.com/source1.git",
 				Ref:  "v1.0.0",
 			},
 		}
@@ -571,8 +617,8 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		// And the Terraform components are set
 		expectedTerraformComponents := []TerraformComponentV1Alpha1{
 			{
-				Source: "https://example.com/source1//terraform/path/to/code@v1.0.0",
-				Path:   "path/to/code",
+				Source: "git::https://example.com/source1.git//terraform/path/to/code@v1.0.0",
+				Path:   "/mock/project/root/terraform/path/to/code",
 				Values: map[string]interface{}{
 					"key1": "value1",
 				},
@@ -690,6 +736,229 @@ func TestBlueprintHandler_SetTerraformComponents(t *testing.T) {
 		retrievedTerraformComponents := blueprintHandler.GetTerraformComponents()
 		if !reflect.DeepEqual(retrievedTerraformComponents, expectedTerraformComponents) {
 			t.Errorf("Expected Terraform components to be %v, but got %v", expectedTerraformComponents, retrievedTerraformComponents)
+		}
+	})
+}
+
+func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a valid blueprint handler
+		mocks := setupSafeMocks()
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+
+		// When the BlueprintHandler is initialized
+		err := blueprintHandler.Initialize()
+		if err != nil {
+			t.Fatalf("Expected Initialize to succeed, but got error: %v", err)
+		}
+
+		// And the component sources are resolved
+		blueprint := &BlueprintV1Alpha1{
+			Sources: []SourceV1Alpha1{
+				{
+					Name:       "source1",
+					Url:        "https://example.com/source1.git",
+					PathPrefix: "terraform",
+					Ref:        "v1.0.0",
+				},
+			},
+			TerraformComponents: []TerraformComponentV1Alpha1{
+				{
+					Source: "source1",
+					Path:   "path/to/code",
+				},
+			},
+		}
+		blueprintHandler.resolveComponentSources(blueprint)
+
+		// Then the component sources should be resolved correctly
+		expectedSource := "https://example.com/source1.git//terraform/path/to/code@v1.0.0"
+		if blueprint.TerraformComponents[0].Source != expectedSource {
+			t.Errorf("Expected component source to be '%s', but got '%s'", expectedSource, blueprint.TerraformComponents[0].Source)
+		}
+	})
+}
+
+func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
+	t.Run("SuccessRemoteSource", func(t *testing.T) {
+		// Given a valid blueprint handler
+		mocks := setupSafeMocks()
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+
+		// When the BlueprintHandler is initialized
+		err := blueprintHandler.Initialize()
+		if err != nil {
+			t.Fatalf("Expected Initialize to succeed, but got error: %v", err)
+		}
+
+		// And the component paths are resolved for a remote source
+		blueprint := &BlueprintV1Alpha1{
+			TerraformComponents: []TerraformComponentV1Alpha1{
+				{
+					Source: "https://example.com/source1.git//terraform/path/to/code@v1.0.0",
+					Path:   "path/to/code",
+				},
+			},
+		}
+		blueprintHandler.resolveComponentPaths(blueprint)
+
+		// Then the component paths should be resolved correctly for a remote source
+		expectedRemotePath := "/mock/project/root/.tf_modules/path/to/code"
+		if blueprint.TerraformComponents[0].Path != expectedRemotePath {
+			t.Errorf("Expected component path to be '%s', but got '%s'", expectedRemotePath, blueprint.TerraformComponents[0].Path)
+		}
+	})
+
+	t.Run("ResolveLocalSourcePath", func(t *testing.T) {
+		// Arrange: Set up a valid blueprint handler
+		mocks := setupSafeMocks()
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+
+		// Act: Initialize the BlueprintHandler
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Initialization failed with error: %v", err)
+		}
+
+		// Arrange: Define a blueprint with a local source
+		blueprint := &BlueprintV1Alpha1{
+			Sources: []SourceV1Alpha1{
+				{
+					Name:       "source2",
+					Url:        "/local/path/to/source2",
+					PathPrefix: "terraform",
+					Ref:        "",
+				},
+			},
+			TerraformComponents: []TerraformComponentV1Alpha1{
+				{
+					Source: "source2",
+					Path:   "path/to/local/code",
+				},
+			},
+		}
+
+		// Act: Resolve component paths for the local source
+		blueprintHandler.resolveComponentPaths(blueprint)
+
+		// Assert: Verify the component path is resolved correctly
+		expectedLocalPath := "/mock/project/root/terraform/path/to/local/code"
+		if blueprint.TerraformComponents[0].Path != expectedLocalPath {
+			t.Errorf("Expected path: '%s', but got: '%s'", expectedLocalPath, blueprint.TerraformComponents[0].Path)
+		}
+	})
+}
+
+func TestBlueprintHandler_isValidTerraformRemoteSource(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   bool
+	}{
+		{
+			name:   "ValidLocalPath",
+			source: "/absolute/path/to/module",
+			want:   false,
+		},
+		{
+			name:   "ValidRelativePath",
+			source: "./relative/path/to/module",
+			want:   false,
+		},
+		{
+			name:   "InvalidLocalPath",
+			source: "/invalid/path/to/module",
+			want:   false,
+		},
+		{
+			name:   "ValidGitURL",
+			source: "git::https://github.com/user/repo.git",
+			want:   true,
+		},
+		{
+			name:   "ValidSSHGitURL",
+			source: "git@github.com:user/repo.git",
+			want:   true,
+		},
+		{
+			name:   "ValidHTTPURL",
+			source: "https://github.com/user/repo.git",
+			want:   true,
+		},
+		{
+			name:   "ValidHTTPZipURL",
+			source: "https://example.com/archive.zip",
+			want:   true,
+		},
+		{
+			name:   "InvalidHTTPURL",
+			source: "https://example.com/not-a-zip",
+			want:   false,
+		},
+		{
+			name:   "ValidTerraformRegistry",
+			source: "registry.terraform.io/hashicorp/consul/aws",
+			want:   true,
+		},
+		{
+			name:   "ValidGitHubReference",
+			source: "github.com/hashicorp/terraform-aws-consul",
+			want:   true,
+		},
+		{
+			name:   "InvalidSource",
+			source: "invalid-source",
+			want:   false,
+		},
+		{
+			name:   "VersionFileGitAtURL",
+			source: "git@github.com:user/version.git",
+			want:   true,
+		},
+		{
+			name:   "VersionFileGitAtURLWithPath",
+			source: "git@github.com:user/version.git@v1.0.0",
+			want:   true,
+		},
+		{
+			name:   "ValidGitLabURL",
+			source: "git::https://gitlab.com/user/repo.git",
+			want:   true,
+		},
+		{
+			name:   "ValidSSHGitLabURL",
+			source: "git@gitlab.com:user/repo.git",
+			want:   true,
+		},
+		{
+			name:   "ErrorCausingPattern",
+			source: "[invalid-regex",
+			want:   false,
+		},
+	}
+
+	t.Run("ValidSources", func(t *testing.T) {
+		for _, tt := range tests {
+			if tt.name == "RegexpMatchStringError" {
+				continue
+			}
+			t.Run(tt.name, func(t *testing.T) {
+				if got := isValidTerraformRemoteSource(tt.source); got != tt.want {
+					t.Errorf("isValidTerraformRemoteSource(%s) = %v, want %v", tt.source, got, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("RegexpMatchStringError", func(t *testing.T) {
+		// Mock the regexpMatchString function to simulate an error for the specific test case
+		originalRegexpMatchString := regexpMatchString
+		defer func() { regexpMatchString = originalRegexpMatchString }()
+		regexpMatchString = func(pattern, s string) (bool, error) {
+			return false, fmt.Errorf("mocked error in regexpMatchString")
+		}
+
+		if got := isValidTerraformRemoteSource("[invalid-regex"); got != false {
+			t.Errorf("isValidTerraformRemoteSource([invalid-regex) = %v, want %v", got, false)
 		}
 	})
 }

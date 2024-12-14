@@ -42,7 +42,7 @@ func (s *SecureShell) Initialize() error {
 }
 
 // Exec executes a command on the remote host via SSH and returns its output as a string.
-func (s *SecureShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
+func (s *SecureShell) Exec(message string, command string, args ...string) (string, error) {
 	clientConn, err := s.sshClient.Connect()
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to SSH client: %w", err)
@@ -89,10 +89,6 @@ func (s *SecureShell) Exec(verbose bool, message string, command string, args ..
 	}
 
 	output := stdoutBuf.String()
-
-	if verbose {
-		fmt.Print(output)
-	}
 
 	return output, nil
 }

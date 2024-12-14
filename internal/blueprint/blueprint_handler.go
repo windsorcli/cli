@@ -7,6 +7,7 @@ import (
 
 	"github.com/windsorcli/cli/internal/context"
 	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 // BlueprintHandler defines the interface for handling blueprint operations
@@ -43,8 +44,10 @@ type BlueprintHandler interface {
 type BaseBlueprintHandler struct {
 	BlueprintHandler
 	injector       di.Injector
-	blueprint      BlueprintV1Alpha1
 	contextHandler context.ContextHandler
+	shell          shell.Shell
+	blueprint      BlueprintV1Alpha1
+	projectRoot    string
 }
 
 // Create a new blueprint handler
@@ -61,6 +64,20 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	}
 	b.contextHandler = contextHandler
 
+	// Resolve the shell
+	shell, ok := b.injector.Resolve("shell").(shell.Shell)
+	if !ok {
+		return fmt.Errorf("error resolving shell")
+	}
+	b.shell = shell
+
+	// Get the project root
+	projectRoot, err := b.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error getting project root: %w", err)
+	}
+	b.projectRoot = projectRoot
+
 	// Initialize with a default blueprint
 	b.blueprint = DefaultBlueprint
 
@@ -74,7 +91,7 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	return nil
 }
 
-// LoadConfig LoadConfigs the blueprint from the specified path
+// LoadConfig Loads the blueprint from the specified path
 func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	finalPath := ""
 	// Check if a path is provided
@@ -168,7 +185,10 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []TerraformComponentV1Al
 	resolvedBlueprint := b.blueprint
 
 	// Resolve the component sources
-	resolveComponentSources(&resolvedBlueprint)
+	b.resolveComponentSources(&resolvedBlueprint)
+
+	// Resolve the component paths
+	b.resolveComponentPaths(&resolvedBlueprint)
 
 	return resolvedBlueprint.TerraformComponents
 }
@@ -191,11 +211,8 @@ func (b *BaseBlueprintHandler) SetTerraformComponents(terraformComponents []Terr
 	return nil
 }
 
-// Ensure that BaseBlueprintHandler implements the BlueprintHandler interface
-var _ BlueprintHandler = &BaseBlueprintHandler{}
-
 // resolveComponentSources resolves the source for each Terraform component
-func resolveComponentSources(blueprint *BlueprintV1Alpha1) {
+func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *BlueprintV1Alpha1) {
 	for i, component := range blueprint.TerraformComponents {
 		for _, source := range blueprint.Sources {
 			if component.Source == source.Name {
@@ -208,4 +225,46 @@ func resolveComponentSources(blueprint *BlueprintV1Alpha1) {
 			}
 		}
 	}
+}
+
+// resolveComponentPaths resolves the path for each Terraform component
+func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *BlueprintV1Alpha1) {
+	projectRoot := b.projectRoot
+	for i, component := range blueprint.TerraformComponents {
+		if isValidTerraformRemoteSource(component.Source) {
+			blueprint.TerraformComponents[i].Path = filepath.Join(projectRoot, ".tf_modules", component.Path)
+		} else {
+			blueprint.TerraformComponents[i].Path = filepath.Join(projectRoot, "terraform", component.Path)
+		}
+	}
+}
+
+// Ensure that BaseBlueprintHandler implements the BlueprintHandler interface
+var _ BlueprintHandler = &BaseBlueprintHandler{}
+
+// isValidTerraformRemoteSource checks if the source is a valid Terraform module reference
+func isValidTerraformRemoteSource(source string) bool {
+	// Define patterns for different valid source types
+	patterns := []string{
+		`^git::https://[^/]+/.*\.git(?:@.*)?$`, // Generic Git URL with .git suffix
+		`^git@[^:]+:.*\.git(?:@.*)?$`,          // Generic SSH Git URL with .git suffix
+		`^https?://[^/]+/.*\.git(?:@.*)?$`,     // HTTP URL with .git suffix
+		`^https?://[^/]+/.*\.zip(?:@.*)?$`,     // HTTP URL pointing to a .zip archive
+		`^https?://[^/]+/.*//.*(?:@.*)?$`,      // HTTP URL with double slashes and optional ref
+		`^registry\.terraform\.io/.*`,          // Terraform Registry
+		`^[^/]+\.com/.*`,                       // Generic domain reference
+	}
+
+	// Check if the source matches any of the valid patterns
+	for _, pattern := range patterns {
+		matched, err := regexpMatchString(pattern, source)
+		if err != nil {
+			return false
+		}
+		if matched {
+			return true
+		}
+	}
+
+	return false
 }

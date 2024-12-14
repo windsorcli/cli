@@ -6,7 +6,6 @@ import (
 	"github.com/windsorcli/cli/internal/blueprint"
 	"github.com/windsorcli/cli/internal/context"
 	"github.com/windsorcli/cli/internal/di"
-	sh "github.com/windsorcli/cli/internal/shell"
 )
 
 // Generator is the interface that wraps the Write method
@@ -19,7 +18,6 @@ type Generator interface {
 type BaseGenerator struct {
 	injector         di.Injector
 	contextHandler   context.ContextHandler
-	shell            sh.Shell
 	blueprintHandler blueprint.BlueprintHandler
 }
 
@@ -38,13 +36,6 @@ func (g *BaseGenerator) Initialize() error {
 		return fmt.Errorf("failed to resolve context handler")
 	}
 	g.contextHandler = contextHandler
-
-	// Resolve the shell
-	shell, ok := g.injector.Resolve("shell").(sh.Shell)
-	if !ok {
-		return fmt.Errorf("failed to resolve shell")
-	}
-	g.shell = shell
 
 	// Resolve the blueprint handler
 	blueprintHandler, ok := g.injector.Resolve("blueprintHandler").(blueprint.BlueprintHandler)

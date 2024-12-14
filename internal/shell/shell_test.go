@@ -219,7 +219,7 @@ func TestShell_Exec(t *testing.T) {
 
 		// When executing a command that succeeds
 		shell := NewDefaultShell(injector)
-		result, err := shell.Exec(false, "Executing echo command", "echo", "hello")
+		result, err := shell.Exec("Executing echo command", "echo", "hello")
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
@@ -247,7 +247,7 @@ func TestShell_Exec(t *testing.T) {
 
 		// When executing a command that fails to start
 		shell := NewDefaultShell(injector)
-		_, err := shell.Exec(false, "Attempting to start command", "somecommand")
+		_, err := shell.Exec("Attempting to start command", "somecommand")
 
 		// Then an error should be returned
 		if err == nil {
@@ -283,7 +283,7 @@ func TestShell_Exec(t *testing.T) {
 
 		// When executing a command that fails to wait
 		shell := NewDefaultShell(injector)
-		_, err := shell.Exec(false, "Attempting to wait for command", "somecommand")
+		_, err := shell.Exec("Attempting to wait for command", "somecommand")
 
 		// Then an error should be returned
 		if err == nil {

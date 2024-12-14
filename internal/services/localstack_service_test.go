@@ -41,7 +41,7 @@ func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServic
 	}
 
 	mockShell := shell.NewMockShell()
-	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+	mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 		return "mock-exec-output", nil
 	}
 	mockShell.GetProjectRootFunc = func() (string, error) { return filepath.FromSlash("/mock/project/root"), nil }

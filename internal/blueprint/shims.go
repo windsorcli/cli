@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"os"
+	"regexp"
 
 	"github.com/goccy/go-yaml"
 )
@@ -25,3 +26,6 @@ var osStat = os.Stat
 
 // osMkdirAll is a wrapper around os.MkdirAll
 var osMkdirAll = os.MkdirAll
+
+// regexpMatchString is a shim for regexp.MatchString
+var regexpMatchString = regexp.MatchString

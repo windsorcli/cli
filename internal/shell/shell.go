@@ -23,7 +23,7 @@ type Shell interface {
 	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
 	// Exec executes a command with optional privilege elevation
-	Exec(verbose bool, message string, command string, args ...string) (string, error)
+	Exec(message string, command string, args ...string) (string, error)
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -103,7 +103,7 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 }
 
 // Exec executes a command and returns its output as a string
-func (s *DefaultShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
+func (s *DefaultShell) Exec(message string, command string, args ...string) (string, error) {
 	cmd := execCommand(command, args...)
 
 	var outputBuffer, errorBuffer strings.Builder

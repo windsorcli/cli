@@ -1,17 +1,25 @@
 package stack
 
 import (
+	"fmt"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/internal/blueprint"
 	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 type MockSafeComponents struct {
-	Injector di.Injector
+	Injector         di.Injector
+	BlueprintHandler *blueprint.MockBlueprintHandler
+	EnvPrinter       *env.MockEnvPrinter
+	Shell            *shell.MockShell
 }
 
-// setupSafeMocks function creates safe mocks for the stack
+// setupSafeMocks creates mock components for testing the stack
 func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 	var mockInjector di.Injector
 	if len(injector) > 0 {
@@ -22,15 +30,65 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 
 	// Create a mock blueprint handler
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mockInjector)
+	mockBlueprintHandler.GetTerraformComponentsFunc = func() []blueprint.TerraformComponentV1Alpha1 {
+		// Define common components
+		remoteComponent := blueprint.TerraformComponentV1Alpha1{
+			Source: "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
+			Path:   "/mock/project/root/.tf_modules/remote/path",
+			Values: map[string]interface{}{
+				"remote_variable1": "default_value",
+			},
+		}
+		localComponent := blueprint.TerraformComponentV1Alpha1{
+			Source: "local/path",
+			Path:   "/mock/project/root/terraform/local/path",
+			Values: map[string]interface{}{
+				"local_variable1": "default_value",
+			},
+		}
+
+		return []blueprint.TerraformComponentV1Alpha1{remoteComponent, localComponent}
+	}
 	mockInjector.Register("blueprintHandler", mockBlueprintHandler)
 
-	return MockSafeComponents{Injector: mockInjector}
+	// Create a mock env printer
+	mockEnvPrinter := env.NewMockEnvPrinter()
+	mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+		return map[string]string{
+			"MOCK_ENV_VAR": "mock_value",
+		}, nil
+	}
+	mockInjector.Register("envPrinter", mockEnvPrinter)
+
+	// Create a mock shell
+	mockShell := shell.NewMockShell()
+	mockInjector.Register("shell", mockShell)
+
+	// Mock osStat and osChdir functions
+	osStat = func(_ string) (os.FileInfo, error) {
+		return nil, nil
+	}
+	osChdir = func(_ string) error {
+		return nil
+	}
+
+	return MockSafeComponents{
+		Injector:         mockInjector,
+		BlueprintHandler: mockBlueprintHandler,
+		EnvPrinter:       mockEnvPrinter,
+		Shell:            mockShell,
+	}
 }
 
 func TestStack_NewStack(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Given a new injector
 		injector := di.NewInjector()
+
+		// When a new BaseStack is created
 		stack := NewBaseStack(injector)
+
+		// Then the stack should be non-nil
 		if stack == nil {
 			t.Errorf("Expected stack to be non-nil")
 		}
@@ -39,29 +97,86 @@ func TestStack_NewStack(t *testing.T) {
 
 func TestStack_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mockComponents := setupSafeMocks()
-		stack := NewBaseStack(mockComponents.Injector)
+		// Given safe mock components
+		mocks := setupSafeMocks()
+
+		// When a new BaseStack is initialized
+		stack := NewBaseStack(mocks.Injector)
 		if err := stack.Initialize(); err != nil {
+			// Then no error should occur
 			t.Errorf("Expected Initialize to return nil, got %v", err)
 		}
 	})
 
+	t.Run("ErrorResolvingShell", func(t *testing.T) {
+		// Given safe mock components
+		mocks := setupSafeMocks()
+
+		// And the shell is unregistered to simulate an error
+		mocks.Injector.Register("shell", nil)
+
+		// When a new BaseStack is initialized
+		stack := NewBaseStack(mocks.Injector)
+		err := stack.Initialize()
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected Initialize to return an error")
+		} else {
+			expectedError := "error resolving shell"
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
+			}
+		}
+	})
+
 	t.Run("ErrorResolvingBlueprintHandler", func(t *testing.T) {
-		mockComponents := setupSafeMocks()
-		// Unregister the blueprintHandler to simulate the error
-		mockComponents.Injector.Register("blueprintHandler", nil)
-		stack := NewBaseStack(mockComponents.Injector)
+		// Given safe mock components
+		mocks := setupSafeMocks()
+
+		// And the blueprintHandler is unregistered to simulate an error
+		mocks.Injector.Register("blueprintHandler", nil)
+
+		// When a new BaseStack is initialized
+		stack := NewBaseStack(mocks.Injector)
+
+		// Then an error should occur
 		if err := stack.Initialize(); err == nil {
 			t.Errorf("Expected Initialize to return an error")
+		}
+	})
+
+	t.Run("ErrorResolvingEnvPrinters", func(t *testing.T) {
+		// Given safe mock components
+		mockInjector := di.NewMockInjector()
+		mockInjector.SetResolveAllError((*env.EnvPrinter)(nil), fmt.Errorf("mock error resolving envPrinters"))
+		mocks := setupSafeMocks(mockInjector)
+
+		// When a new BaseStack is initialized
+		stack := NewBaseStack(mocks.Injector)
+		err := stack.Initialize()
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected Initialize to return an error")
+		} else {
+			expectedError := "error resolving envPrinters"
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
+			}
 		}
 	})
 }
 
 func TestStack_Up(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mockComponents := setupSafeMocks()
-		stack := NewBaseStack(mockComponents.Injector)
+		// Given safe mock components
+		mocks := setupSafeMocks()
+
+		// When a new BaseStack is brought up
+		stack := NewBaseStack(mocks.Injector)
 		if err := stack.Up(); err != nil {
+			// Then no error should occur
 			t.Errorf("Expected Up to return nil, got %v", err)
 		}
 	})

@@ -65,12 +65,6 @@ func (v *DockerVirt) Initialize() error {
 
 // Up starts docker-compose
 func (v *DockerVirt) Up(verbose ...bool) error {
-	// Set verbose to false if not defined
-	verboseFlag := false
-	if len(verbose) > 0 {
-		verboseFlag = verbose[0]
-	}
-
 	// Get the context configuration
 	contextConfig := v.configHandler.GetConfig()
 
@@ -99,7 +93,7 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 			if i == 0 {
 				message = "Running docker-compose up..."
 			}
-			output, err := v.shell.Exec(verboseFlag, message, command, args...)
+			output, err := v.shell.Exec(message, command, args...)
 			if err == nil {
 				lastErr = nil
 				break
@@ -171,7 +165,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 
 	command := "docker"
 	args := []string{"ps", "--filter", "label=managed_by=windsor", "--filter", fmt.Sprintf("label=context=%s", contextName), "--format", "{{.ID}}"}
-	out, err := v.shell.Exec(false, "", command, args...)
+	out, err := v.shell.Exec("", command, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +178,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 			continue
 		}
 		inspectArgs := []string{"inspect", containerID, "--format", "{{json .Config.Labels}}"}
-		inspectOut, err := v.shell.Exec(false, "", command, inspectArgs...)
+		inspectOut, err := v.shell.Exec("", command, inspectArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -202,7 +196,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 		}
 
 		networkInspectArgs := []string{"inspect", containerID, "--format", "{{json .NetworkSettings.Networks}}"}
-		networkInspectOut, err := v.shell.Exec(false, "", command, networkInspectArgs...)
+		networkInspectOut, err := v.shell.Exec("", command, networkInspectArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -265,7 +259,7 @@ var _ ContainerRuntime = (*DockerVirt)(nil)
 func (v *DockerVirt) checkDockerDaemon() error {
 	command := "docker"
 	args := []string{"info"}
-	_, err := v.shell.Exec(false, "", command, args...)
+	_, err := v.shell.Exec("", command, args...)
 	return err
 }
 

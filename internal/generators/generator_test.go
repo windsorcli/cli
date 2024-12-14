@@ -50,6 +50,28 @@ func setupSafeMocks(injector ...di.Injector) MockComponents {
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mockInjector)
 	mockInjector.Register("blueprintHandler", mockBlueprintHandler)
 
+	// Mock the GetTerraformComponents method
+	mockBlueprintHandler.GetTerraformComponentsFunc = func() []blueprint.TerraformComponentV1Alpha1 {
+		// Common components setup
+		remoteComponent := blueprint.TerraformComponentV1Alpha1{
+			Source: "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
+			Path:   "/mock/project/root/.tf_modules/remote/path",
+			Values: map[string]interface{}{
+				"remote_variable1": "default_value",
+			},
+		}
+
+		localComponent := blueprint.TerraformComponentV1Alpha1{
+			Source: "local/path",
+			Path:   "/mock/project/root/terraform/local/path",
+			Values: map[string]interface{}{
+				"local_variable1": "default_value",
+			},
+		}
+
+		return []blueprint.TerraformComponentV1Alpha1{remoteComponent, localComponent}
+	}
+
 	// Create a new mock shell
 	mockShell := sh.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
@@ -100,24 +122,6 @@ func TestGenerator_Initialize(t *testing.T) {
 
 		// Given a mock injector with a nil context handler
 		mocks.Injector.Register("contextHandler", nil)
-
-		// When a new BaseGenerator is created
-		generator := NewGenerator(mocks.Injector)
-
-		// And the BaseGenerator is initialized
-		err := generator.Initialize()
-
-		// Then the initialization should fail
-		if err == nil {
-			t.Errorf("Expected Initialize to fail, but it succeeded")
-		}
-	})
-
-	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		mocks := setupSafeMocks()
-
-		// Given a mock injector with a nil shell
-		mocks.Injector.Register("shell", nil)
 
 		// When a new BaseGenerator is created
 		generator := NewGenerator(mocks.Injector)
