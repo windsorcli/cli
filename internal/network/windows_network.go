@@ -21,9 +21,20 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
+	// Check if the route already exists
+	checkOutput, err := n.shell.Exec(
+		"Checking existing host route",
+		"powershell",
+		"-Command",
+		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s", networkCIDR),
+	)
+	if err == nil && checkOutput != "" {
+		// Route already exists, no need to add it again
+		return nil
+	}
+
 	// Add route on the host to VM guest
 	output, err := n.shell.Exec(
-		true,
 		"Adding route on the host to VM guest",
 		"powershell",
 		"-Command",
@@ -48,9 +59,24 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("DNS address is not configured")
 	}
 
+	// Check the current DNS server configuration
+	currentDNSOutput, err := n.shell.Exec(
+		"Checking current DNS server",
+		"powershell",
+		"-Command",
+		"Get-DnsClientServerAddress -InterfaceAlias 'Ethernet' | Select-Object -ExpandProperty ServerAddresses",
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get current DNS server: %w", err)
+	}
+
+	// If the current DNS server is already set to the desired IP, do nothing
+	if currentDNSOutput == dnsIP {
+		return nil
+	}
+
 	// Execute PowerShell command to set DNS server
 	output, err := n.shell.Exec(
-		true,
 		"Setting DNS server",
 		"powershell",
 		"-Command",

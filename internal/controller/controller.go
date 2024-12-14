@@ -14,6 +14,7 @@ import (
 	"github.com/windsorcli/cli/internal/network"
 	"github.com/windsorcli/cli/internal/services"
 	"github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/stack"
 	"github.com/windsorcli/cli/internal/virt"
 )
 
@@ -25,7 +26,7 @@ type Controller interface {
 	CreateEnvComponents() error
 	CreateServiceComponents() error
 	CreateVirtualizationComponents() error
-	CreateBlueprintComponents() error
+	CreateStackComponents() error
 	ResolveInjector() di.Injector
 	ResolveConfigHandler() config.ConfigHandler
 	ResolveContextHandler() context.ContextHandler
@@ -39,6 +40,7 @@ type Controller interface {
 	ResolveAllServices() []services.Service
 	ResolveVirtualMachine() virt.VirtualMachine
 	ResolveContainerRuntime() virt.ContainerRuntime
+	ResolveStack() stack.Stack
 	ResolveAllGenerators() []generators.Generator
 	WriteConfigurationFiles() error
 }
@@ -145,6 +147,14 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
+	// Initialize the stack
+	stack := c.ResolveStack()
+	if stack != nil {
+		if err := stack.Initialize(); err != nil {
+			return fmt.Errorf("error initializing stack: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -172,8 +182,8 @@ func (c *BaseController) CreateVirtualizationComponents() error {
 	return nil
 }
 
-// CreateBlueprintComponents creates the blueprint components.
-func (c *BaseController) CreateBlueprintComponents() error {
+// CreateStackComponents creates the stack components.
+func (c *BaseController) CreateStackComponents() error {
 	// no-op
 	return nil
 }
@@ -328,6 +338,13 @@ func (c *BaseController) ResolveContainerRuntime() virt.ContainerRuntime {
 	instance := c.injector.Resolve("containerRuntime")
 	containerRuntime, _ := instance.(virt.ContainerRuntime)
 	return containerRuntime
+}
+
+// ResolveStack resolves the requested stack instance.
+func (c *BaseController) ResolveStack() stack.Stack {
+	instance := c.injector.Resolve("stack")
+	stackInstance, _ := instance.(stack.Stack)
+	return stackInstance
 }
 
 // ResolveAllGenerators resolves all generator instances.

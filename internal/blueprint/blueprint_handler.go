@@ -171,12 +171,16 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 
 // GetMetadata retrieves the metadata for the blueprint
 func (b *BaseBlueprintHandler) GetMetadata() MetadataV1Alpha1 {
-	return b.blueprint.Metadata
+	// Create a copy of the blueprint to avoid modifying the original
+	resolvedBlueprint := b.blueprint
+	return resolvedBlueprint.Metadata
 }
 
 // GetSources retrieves the sources for the blueprint
 func (b *BaseBlueprintHandler) GetSources() []SourceV1Alpha1 {
-	return b.blueprint.Sources
+	// Create a copy of the blueprint to avoid modifying the original
+	resolvedBlueprint := b.blueprint
+	return resolvedBlueprint.Sources
 }
 
 // GetTerraformComponents retrieves the Terraform components for the blueprint
@@ -213,30 +217,51 @@ func (b *BaseBlueprintHandler) SetTerraformComponents(terraformComponents []Terr
 
 // resolveComponentSources resolves the source for each Terraform component
 func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *BlueprintV1Alpha1) {
-	for i, component := range blueprint.TerraformComponents {
+	// Create a copy of the TerraformComponents to avoid modifying the original components
+	resolvedComponents := make([]TerraformComponentV1Alpha1, len(blueprint.TerraformComponents))
+	copy(resolvedComponents, blueprint.TerraformComponents)
+
+	for i, component := range resolvedComponents {
 		for _, source := range blueprint.Sources {
 			if component.Source == source.Name {
 				pathPrefix := source.PathPrefix
 				if pathPrefix == "" {
 					pathPrefix = "terraform"
 				}
-				blueprint.TerraformComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "@" + source.Ref
+				resolvedComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "@" + source.Ref
 				break
 			}
 		}
 	}
+
+	// Replace the original components with the resolved ones
+	blueprint.TerraformComponents = resolvedComponents
 }
 
 // resolveComponentPaths resolves the path for each Terraform component
 func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *BlueprintV1Alpha1) {
 	projectRoot := b.projectRoot
-	for i, component := range blueprint.TerraformComponents {
-		if isValidTerraformRemoteSource(component.Source) {
-			blueprint.TerraformComponents[i].Path = filepath.Join(projectRoot, ".tf_modules", component.Path)
+
+	// Create a copy of the TerraformComponents to avoid modifying the original components
+	resolvedComponents := make([]TerraformComponentV1Alpha1, len(blueprint.TerraformComponents))
+	copy(resolvedComponents, blueprint.TerraformComponents)
+
+	for i, component := range resolvedComponents {
+		// Create a copy of the component to avoid modifying the original component
+		componentCopy := component
+
+		if isValidTerraformRemoteSource(componentCopy.Source) {
+			componentCopy.Path = filepath.Join(projectRoot, ".tf_modules", componentCopy.Path)
 		} else {
-			blueprint.TerraformComponents[i].Path = filepath.Join(projectRoot, "terraform", component.Path)
+			componentCopy.Path = filepath.Join(projectRoot, "terraform", componentCopy.Path)
 		}
+
+		// Update the resolved component in the slice
+		resolvedComponents[i] = componentCopy
 	}
+
+	// Replace the original components with the resolved ones
+	blueprint.TerraformComponents = resolvedComponents
 }
 
 // Ensure that BaseBlueprintHandler implements the BlueprintHandler interface

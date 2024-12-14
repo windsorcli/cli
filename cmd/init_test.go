@@ -464,12 +464,12 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorCreatingBlueprintComponents", func(t *testing.T) {
-		// Given a mock controller with CreateBlueprintComponents set to fail
+	t.Run("ErrorCreatingStackComponents", func(t *testing.T) {
+		// Given a mock controller with CreateStackComponents set to fail
 		injector := di.NewInjector()
 		controller := ctrl.NewMockController(injector)
 		setupSafeInitCmdMocks(controller)
-		controller.CreateBlueprintComponentsFunc = func() error { return fmt.Errorf("create blueprint components error") }
+		controller.CreateStackComponentsFunc = func() error { return fmt.Errorf("create stack components error") }
 
 		// When the init command is executed
 		output := captureStderr(func() {
@@ -481,7 +481,7 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate the error
-		expectedOutput := "Error creating blueprint components: create blueprint components error"
+		expectedOutput := "Error creating stack components: create stack components error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}

@@ -97,9 +97,9 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error creating virtualization components: %w", err)
 		}
 
-		// Create blueprint components
-		if err := controller.CreateBlueprintComponents(); err != nil {
-			return fmt.Errorf("Error creating blueprint components: %w", err)
+		// Create stack components
+		if err := controller.CreateStackComponents(); err != nil {
+			return fmt.Errorf("Error creating stack components: %w", err)
 		}
 
 		// Initialize components

@@ -22,6 +22,21 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
+	// Check if the route already exists
+	checkOutput, err := n.shell.Exec(
+		"Checking existing host route",
+		"sh",
+		"-c",
+		fmt.Sprintf("route -nv get %s || true", networkCIDR),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to check existing host route: %w", err)
+	}
+	if checkOutput != "" {
+		// Route already exists, no need to add it again
+		return nil
+	}
+
 	// Add route on the host to VM guest
 	output, err := n.shell.Exec(
 		"Configuring host route",
@@ -65,6 +80,14 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		}
 	}
 
+	// Check if the resolver file already exists with the correct content
+	resolverFile := fmt.Sprintf("%s/%s", resolverDir, dnsDomain)
+	existingContent, err := readFile(resolverFile)
+	if err == nil && string(existingContent) == fmt.Sprintf("nameserver %s\n", dnsIP) {
+		// The resolver file already exists with the correct content, no need to update
+		return nil
+	}
+
 	// Write the DNS server to a temporary file
 	tempResolverFile := fmt.Sprintf("/tmp/%s", dnsDomain)
 	content := fmt.Sprintf("nameserver %s\n", dnsIP)
@@ -74,7 +97,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	// Move the temporary file to the /etc/resolver/<tld> file
-	resolverFile := fmt.Sprintf("%s/%s", resolverDir, dnsDomain)
 	if _, err := n.shell.Exec(
 		"Configuring DNS resolver at "+resolverFile,
 		"sudo",

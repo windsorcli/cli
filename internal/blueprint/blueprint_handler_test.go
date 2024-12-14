@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -214,8 +215,9 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 			if component.Source != "git::https://example.com/source1.git//terraform/path/to/code@v1.0.0" {
 				t.Errorf("Expected Terraform component source to be 'git::https://example.com/source1.git//terraform/path/to/code@v1.0.0', but got '%s'", component.Source)
 			}
-			if component.Path != "/mock/project/root/terraform/path/to/code" {
-				t.Errorf("Expected Terraform component path to be '/mock/project/root/terraform/path/to/code', but got '%s'", component.Path)
+			expectedPath := filepath.FromSlash("/mock/project/root/terraform/path/to/code")
+			if component.Path != expectedPath {
+				t.Errorf("Expected Terraform component path to be '%s', but got '%s'", expectedPath, component.Path)
 			}
 			expectedValues := map[string]interface{}{"key1": "value1"}
 			if !reflect.DeepEqual(component.Values, expectedValues) {
@@ -227,7 +229,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock injector and a valid blueprint path
 		mocks := setupSafeMocks()
-		path := "/mock/config/root/blueprint.yaml"
+		path := filepath.Join("C:", "mock", "config", "root", "blueprint.yaml")
 		blueprintHandler := NewBlueprintHandler(mocks.Injector)
 
 		// When the BlueprintHandler is initialized
@@ -287,7 +289,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 
 		// Then loading the blueprint should fail
-		err = blueprintHandler.LoadConfig("/mock/config/root/nonexistent.yaml")
+		err = blueprintHandler.LoadConfig(filepath.Join("C:", "mock", "config", "root", "nonexistent.yaml"))
 		if err == nil {
 			t.Errorf("Expected LoadConfig to fail, but got no error")
 		}
@@ -344,7 +346,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 	t.Run("ErrorReadingFile", func(t *testing.T) {
 		// Given a mock injector and an invalid file path
 		mocks := setupSafeMocks()
-		path := "/invalid/path/blueprint.yaml"
+		path := filepath.Join("C:", "invalid", "path", "blueprint.yaml")
 		blueprintHandler := NewBlueprintHandler(mocks.Injector)
 
 		// When the osReadFile function is overridden to simulate an error
@@ -370,7 +372,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 	t.Run("ErrorUnmarshallingYAML", func(t *testing.T) {
 		// Given a mock injector and a path to an invalid YAML file
 		mocks := setupSafeMocks()
-		path := "/mock/config/root/invalid.yaml"
+		path := filepath.Join("C:", "mock", "config", "root", "invalid.yaml")
 		blueprintHandler := NewBlueprintHandler(mocks.Injector)
 
 		// When the yamlUnmarshal function is overridden to simulate an error
@@ -618,7 +620,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		expectedTerraformComponents := []TerraformComponentV1Alpha1{
 			{
 				Source: "git::https://example.com/source1.git//terraform/path/to/code@v1.0.0",
-				Path:   "/mock/project/root/terraform/path/to/code",
+				Path:   filepath.FromSlash("/mock/project/root/terraform/path/to/code"),
 				Values: map[string]interface{}{
 					"key1": "value1",
 				},
@@ -632,6 +634,10 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 
 		// Then the Terraform components should be retrieved successfully
 		retrievedComponents := blueprintHandler.GetTerraformComponents()
+		for i, component := range retrievedComponents {
+			component.Path = filepath.FromSlash(component.Path)
+			retrievedComponents[i] = component
+		}
 		if !reflect.DeepEqual(retrievedComponents, expectedTerraformComponents) {
 			t.Errorf("Expected Terraform components to be %v, but got %v", expectedTerraformComponents, retrievedComponents)
 		}
@@ -720,7 +726,7 @@ func TestBlueprintHandler_SetTerraformComponents(t *testing.T) {
 		expectedTerraformComponents := []TerraformComponentV1Alpha1{
 			{
 				Source: "https://example.com/terraform1",
-				Path:   "path/to/code",
+				Path:   "path/to/code", // Adjusted path to match expected format
 				Values: map[string]interface{}{
 					"key1": "value1",
 				},
@@ -734,8 +740,18 @@ func TestBlueprintHandler_SetTerraformComponents(t *testing.T) {
 
 		// Then the Terraform components should be retrieved successfully
 		retrievedTerraformComponents := blueprintHandler.GetTerraformComponents()
-		if !reflect.DeepEqual(retrievedTerraformComponents, expectedTerraformComponents) {
-			t.Errorf("Expected Terraform components to be %v, but got %v", expectedTerraformComponents, retrievedTerraformComponents)
+		// Adjust the expected path to include the project root as it would be resolved
+		expectedResolvedComponents := []TerraformComponentV1Alpha1{
+			{
+				Source: "https://example.com/terraform1",
+				Path:   "/mock/project/root/terraform/path/to/code",
+				Values: map[string]interface{}{
+					"key1": "value1",
+				},
+			},
+		}
+		if !reflect.DeepEqual(retrievedTerraformComponents, expectedResolvedComponents) {
+			t.Errorf("Expected Terraform components to be %v, but got %v", expectedResolvedComponents, retrievedTerraformComponents)
 		}
 	})
 }
@@ -803,7 +819,7 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 		blueprintHandler.resolveComponentPaths(blueprint)
 
 		// Then the component paths should be resolved correctly for a remote source
-		expectedRemotePath := "/mock/project/root/.tf_modules/path/to/code"
+		expectedRemotePath := filepath.FromSlash("/mock/project/root/.tf_modules/path/to/code")
 		if blueprint.TerraformComponents[0].Path != expectedRemotePath {
 			t.Errorf("Expected component path to be '%s', but got '%s'", expectedRemotePath, blueprint.TerraformComponents[0].Path)
 		}
@@ -841,7 +857,7 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 		blueprintHandler.resolveComponentPaths(blueprint)
 
 		// Assert: Verify the component path is resolved correctly
-		expectedLocalPath := "/mock/project/root/terraform/path/to/local/code"
+		expectedLocalPath := filepath.FromSlash("/mock/project/root/terraform/path/to/local/code")
 		if blueprint.TerraformComponents[0].Path != expectedLocalPath {
 			t.Errorf("Expected path: '%s', but got: '%s'", expectedLocalPath, blueprint.TerraformComponents[0].Path)
 		}

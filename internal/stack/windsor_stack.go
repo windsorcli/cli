@@ -49,25 +49,27 @@ func (s *WindsorStack) Up() error {
 			return fmt.Errorf("error changing to directory %s: %v", component.Path, err)
 		}
 
-		// Load the environment variables
-		envVars, err := s.envPrinters[0].GetEnvVars()
-		if err != nil {
-			return fmt.Errorf("error getting environment variables: %v", err)
-		}
-		for key, value := range envVars {
-			if err := osSetenv(key, value); err != nil {
-				return fmt.Errorf("error setting environment variable %s: %v", key, err)
+		// Iterate over all envPrinters and load the environment variables
+		for _, envPrinter := range s.envPrinters {
+			envVars, err := envPrinter.GetEnvVars()
+			if err != nil {
+				return fmt.Errorf("error getting environment variables: %v", err)
+			}
+			for key, value := range envVars {
+				if err := osSetenv(key, value); err != nil {
+					return fmt.Errorf("error setting environment variable %s: %v", key, err)
+				}
 			}
 		}
 
 		// Execute 'terraform init' in the dirPath
-		_, err = s.shell.Exec("", "terraform", "init")
+		_, err = s.shell.Exec("", "terraform", "init", "-migrate-state")
 		if err != nil {
 			return fmt.Errorf("error running 'terraform init' in %s: %v", component.Path, err)
 		}
 
 		// Execute 'terraform plan' in the dirPath
-		_, err = s.shell.Exec("", "terraform", "plan")
+		_, err = s.shell.Exec("", "terraform", "plan", "-lock=false")
 		if err != nil {
 			return fmt.Errorf("error running 'terraform plan' in %s: %v", component.Path, err)
 		}

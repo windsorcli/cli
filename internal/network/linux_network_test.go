@@ -30,7 +30,7 @@ func setupLinuxNetworkManagerMocks() *LinuxNetworkManagerMocks {
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell(injector)
-	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+	mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 		if command == "sudo" && args[0] == "ip" && args[1] == "route" && args[2] == "add" {
 			return "", nil
 		}
@@ -199,7 +199,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupLinuxNetworkManagerMocks()
 
 		// Mock an error in the Exec function to simulate a route addition failure
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "ip" && args[1] == "route" && args[2] == "add" {
 				return "mock output", fmt.Errorf("mock error")
 			}
@@ -372,11 +372,11 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Mock the shell.Exec function to simulate an error when creating the drop-in directory
 		originalExec := mocks.MockShell.ExecFunc
 		defer func() { mocks.MockShell.ExecFunc = originalExec }()
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "mkdir" {
 				return "", fmt.Errorf("mock mkdir error")
 			}
-			return originalExec(verbose, message, command, args...)
+			return originalExec(message, command, args...)
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
@@ -408,11 +408,11 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Mock the shell.Exec function to simulate an error when writing the DNS configuration
 		originalExec := mocks.MockShell.ExecFunc
 		defer func() { mocks.MockShell.ExecFunc = originalExec }()
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "bash" && args[1] == "-c" {
 				return "", fmt.Errorf("mock write DNS configuration error")
 			}
-			return originalExec(verbose, message, command, args...)
+			return originalExec(message, command, args...)
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
@@ -444,11 +444,11 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Mock the shell.Exec function to simulate an error when restarting systemd-resolved
 		originalExec := mocks.MockShell.ExecFunc
 		defer func() { mocks.MockShell.ExecFunc = originalExec }()
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "systemctl" && args[1] == "restart" && args[2] == "systemd-resolved" {
 				return "", fmt.Errorf("mock restart systemd-resolved error")
 			}
-			return originalExec(verbose, message, command, args...)
+			return originalExec(message, command, args...)
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container

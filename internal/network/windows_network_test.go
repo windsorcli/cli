@@ -34,7 +34,7 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell()
-	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+	mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 		if command == "powershell" && args[0] == "-Command" {
 			return "Route added successfully", nil
 		}
@@ -199,7 +199,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			return "", fmt.Errorf("mocked shell execution error")
 		}
 
@@ -228,7 +228,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "powershell" && args[0] == "-Command" && args[1] == "Set-DnsClientServerAddress -InterfaceAlias 'Ethernet' -ServerAddresses 8.8.8.8" {
 				return "DNS server set successfully", nil
 			}
@@ -265,7 +265,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			return "", fmt.Errorf("unexpected command")
 		}
 
@@ -299,7 +299,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			return "", fmt.Errorf("unexpected command")
 		}
 
@@ -336,7 +336,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			return "", fmt.Errorf("failed to set DNS server")
 		}
 
