@@ -149,7 +149,9 @@ func (s *DefaultShell) Exec(message string, command string, args ...string) (str
 		if passthrough {
 			fmt.Println("\nInterrupt received, stopping command...")
 		}
-		cmd.Process.Kill() // Terminate the command process
+		if err := cmd.Process.Kill(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to kill process: %v\n", err)
+		}
 	}()
 
 	// Goroutine to read stdout
