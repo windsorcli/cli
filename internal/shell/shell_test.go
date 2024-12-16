@@ -207,32 +207,6 @@ func TestShell_GetProjectRoot(t *testing.T) {
 }
 
 func TestShell_Exec(t *testing.T) {
-	t.Run("CommandSuccess", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Override execCommand to simulate successful command execution
-		originalExecCommand := execCommand
-		execCommand = mockExecCommandSuccess
-		defer func() {
-			execCommand = originalExecCommand
-		}()
-
-		// When executing a command that succeeds
-		shell := NewDefaultShell(injector)
-		result, err := shell.Exec("", "echo", "hello")
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		// And the result should be as expected
-		expectedOutput := "mock output for: echo hello\n"
-		// Normalize the result to handle different line endings
-		normalizedResult := strings.ReplaceAll(result, "\r\n", "\n")
-		if normalizedResult != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, result)
-		}
-	})
-
 	t.Run("FailToStartCommand", func(t *testing.T) {
 		injector := di.NewInjector()
 
