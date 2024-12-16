@@ -104,8 +104,8 @@ func TestTalosWorkerService_GetComposeConfig(t *testing.T) {
 			setName  bool
 			expected string
 		}{
-			{"WithoutSetName", false, "worker"},
-			{"WithSetName", true, "custom.worker"},
+			{"WithoutSetName", false, "worker.test"},
+			{"WithSetName", true, "custom.worker.test"},
 		}
 
 		for _, tc := range testCases {
@@ -116,7 +116,7 @@ func TestTalosWorkerService_GetComposeConfig(t *testing.T) {
 
 				// Optionally set the name
 				if tc.setName {
-					service.SetName(tc.expected)
+					service.SetName("custom.worker")
 				}
 
 				// Initialize the service

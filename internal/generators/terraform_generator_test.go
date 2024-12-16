@@ -3,6 +3,7 @@ package generators
 import (
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"testing"
 )
 
@@ -29,8 +30,8 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		// Mock osWriteFile to validate the calls
 		writeFileCalls := 0
 		expectedFiles := []string{
-			"/mock/project/root/.tf_modules/remote/path/main.tf",
-			"/mock/project/root/.tf_modules/remote/path/variables.tf",
+			filepath.FromSlash("/mock/project/root/.tf_modules/remote/path/main.tf"),
+			filepath.FromSlash("/mock/project/root/.tf_modules/remote/path/variables.tf"),
 		}
 		originalOsWriteFile := osWriteFile
 		defer func() { osWriteFile = originalOsWriteFile }()

@@ -115,6 +115,21 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		mocks.MockController.CreateEnvComponentsFunc = func() error {
+			return fmt.Errorf("Error creating environment components: %w", fmt.Errorf("error creating environment components"))
+		}
+
+		// Given a mock controller that returns an error when creating environment components
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error creating environment components: error creating environment components") {
+			t.Fatalf("Expected error containing 'Error creating environment components: error creating environment components', got %v", err)
+		}
+	})
+
 	t.Run("ErrorCreatingServiceComponents", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
 		mocks.MockController.CreateServiceComponentsFunc = func() error {

@@ -63,12 +63,15 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
+	// Get the TLD from the configuration
+	tld := s.configHandler.GetString("dns.name", "test")
+
 	// Create a single worker service
 	workerConfig := commonConfig
 	if s.GetName() == "" {
-		workerConfig.Name = "worker"
+		workerConfig.Name = "worker" + "." + tld
 	} else {
-		workerConfig.Name = s.GetName()
+		workerConfig.Name = s.GetName() + "." + tld
 	}
 	workerConfig.Environment = map[string]*string{
 		"PLATFORM": ptrString("container"),

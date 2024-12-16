@@ -57,7 +57,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 						Local:  "https://local.registry.test",
 					},
 				},
-				NetworkCIDR: ptrString("10.1.0.0/16"),
+				NetworkCIDR: ptrString("10.5.0.0/16"),
 			},
 		}
 	}

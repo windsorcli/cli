@@ -48,12 +48,15 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
+	// Get the TLD from the configuration
+	tld := s.configHandler.GetString("dns.name", "test")
+
 	// Create a single control plane service
 	controlPlaneConfig := commonConfig
 	if s.GetName() == "" {
-		controlPlaneConfig.Name = "controlplane"
+		controlPlaneConfig.Name = "controlplane" + "." + tld
 	} else {
-		controlPlaneConfig.Name = s.GetName()
+		controlPlaneConfig.Name = s.GetName() + "." + tld
 	}
 	controlPlaneConfig.Environment = map[string]*string{
 		"PLATFORM": ptrString("container"),

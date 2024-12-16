@@ -744,7 +744,7 @@ func TestBlueprintHandler_SetTerraformComponents(t *testing.T) {
 		expectedResolvedComponents := []TerraformComponentV1Alpha1{
 			{
 				Source: "https://example.com/terraform1",
-				Path:   "/mock/project/root/terraform/path/to/code",
+				Path:   filepath.FromSlash("/mock/project/root/terraform/path/to/code"),
 				Values: map[string]interface{}{
 					"key1": "value1",
 				},

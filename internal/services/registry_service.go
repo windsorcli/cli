@@ -28,10 +28,13 @@ func (s *RegistryService) generateRegistryService(name, remoteURL, localURL stri
 	// Retrieve the context name
 	contextName := s.contextHandler.GetContext()
 
+	// Get the TLD from the configuration
+	tld := s.configHandler.GetString("dns.name", "test")
+
 	// Initialize the ServiceConfig with the provided name, a predefined image,
 	// a restart policy, and labels indicating the role and manager.
 	service := types.ServiceConfig{
-		Name:    name,
+		Name:    name + "." + tld,
 		Image:   constants.REGISTRY_DEFAULT_IMAGE,
 		Restart: "always",
 		Labels: map[string]string{

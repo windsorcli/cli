@@ -119,9 +119,17 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureHostRoute method and expect no error
+		// Mock the shell.Exec function to simulate a successful route check
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if message == "Checking if route exists" {
+				return "", fmt.Errorf("mock error")
+			}
+			return "", nil
+		}
+
+		// Call the ConfigureHostRoute method and expect an error
 		err = nm.ConfigureHostRoute()
-		if err != nil {
+		if err == nil || !strings.Contains(err.Error(), "failed to check if route exists: mock error") {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
@@ -192,6 +200,51 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		err = nm.ConfigureHostRoute()
 		if err == nil || !strings.Contains(err.Error(), "guest IP is not configured") {
 			t.Fatalf("expected error 'guest IP is not configured', got %v", err)
+		}
+	})
+
+	t.Run("RouteExists", func(t *testing.T) {
+		mocks := setupLinuxNetworkManagerMocks()
+
+		// Mock the Exec function to simulate an existing route with the guest IP
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "ip" && args[0] == "route" && args[1] == "show" {
+				// Simulate output that includes the guest IP to trigger routeExists = true
+				return "192.168.5.0/24 via 192.168.1.2 dev eth0", nil
+			}
+			return "", nil
+		}
+
+		// Mock the GetString function to return specific values for testing
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.5.0/24"
+			}
+			if key == "vm.address" {
+				return "192.168.1.2"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// Create a networkManager using NewBaseNetworkManager with the mock DI container
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Initialize the network manager
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Call the ConfigureHostRoute method and expect no error since the route exists
+		err = nm.ConfigureHostRoute()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
@@ -363,6 +416,42 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		expectedError := "systemd-resolved is not in use. Please configure DNS manually or use a compatible system"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("DropInFileAlreadyExistsWithCorrectContent", func(t *testing.T) {
+		mocks := setupLinuxNetworkManagerMocks()
+
+		// Mock the readFile function to simulate that the drop-in file already exists with the correct content
+		originalReadFile := readFile
+		defer func() { readFile = originalReadFile }()
+		readFile = func(_ string) ([]byte, error) {
+			return []byte("[Resolve]\nDNS=1.2.3.4\n"), nil
+		}
+
+		// Mock the readLink function to simulate that /etc/resolv.conf is a symlink to systemd-resolved
+		originalReadLink := readLink
+		defer func() { readLink = originalReadLink }()
+		readLink = func(_ string) (string, error) {
+			return "../run/systemd/resolve/stub-resolv.conf", nil
+		}
+
+		// Create a networkManager using NewBaseNetworkManager with the mock DI container
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Initialize the network manager
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Call the ConfigureDNS method and expect no error since the drop-in file already exists with correct content
+		err = nm.ConfigureDNS()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 

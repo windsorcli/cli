@@ -5,6 +5,7 @@ package network
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ConfigureHostRoute sets up the local development network for Linux
@@ -21,21 +22,34 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	// Check if the route already exists
-	checkOutput, err := n.shell.Exec(
-		"Checking existing host route",
+	// Use the shell to execute a command that checks the routing table for the specific route
+	output, err := n.shell.Exec(
+		"Checking if route exists",
 		"ip",
 		"route",
 		"show",
 		networkCIDR,
 	)
-	if err == nil && checkOutput != "" {
-		// Route already exists, no need to add it again
+	if err != nil {
+		return fmt.Errorf("failed to check if route exists: %w", err)
+	}
+
+	// Check if the output contains the guest IP, indicating the route exists
+	routeExists := false
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, guestIP) {
+			routeExists = true
+			break
+		}
+	}
+
+	if routeExists {
 		return nil
 	}
 
 	// Add route on the host to VM guest
-	output, err := n.shell.Exec(
+	output, err = n.shell.Exec(
 		"Configuring host route",
 		"sudo",
 		"ip",
@@ -48,6 +62,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	if err != nil {
 		return fmt.Errorf("failed to add route: %w, output: %s", err, output)
 	}
+
 	return nil
 }
 

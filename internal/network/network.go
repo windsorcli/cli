@@ -126,9 +126,6 @@ func (n *BaseNetworkManager) ConfigureGuest() error {
 	return nil
 }
 
-// Ensure BaseNetworkManager implements NetworkManager
-var _ NetworkManager = (*BaseNetworkManager)(nil)
-
 // getHostIP gets the host IP address
 func (n *BaseNetworkManager) getHostIP() (string, error) {
 	// Get the guest IP address
@@ -176,6 +173,9 @@ func (n *BaseNetworkManager) getHostIP() (string, error) {
 
 	return "", fmt.Errorf("failed to find host IP in the same subnet as guest IP")
 }
+
+// Ensure BaseNetworkManager implements NetworkManager
+var _ NetworkManager = (*BaseNetworkManager)(nil)
 
 // assignIPAddresses assigns IP addresses to services based on the network CIDR.
 var assignIPAddresses = func(services []services.Service, networkCIDR *string) error {

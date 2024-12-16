@@ -165,7 +165,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 
 	command := "docker"
 	args := []string{"ps", "--filter", "label=managed_by=windsor", "--filter", fmt.Sprintf("label=context=%s", contextName), "--format", "{{.ID}}"}
-	out, err := v.shell.Exec("", command, args...)
+	out, err := v.shell.Exec(".", command, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 			continue
 		}
 		inspectArgs := []string{"inspect", containerID, "--format", "{{json .Config.Labels}}"}
-		inspectOut, err := v.shell.Exec("", command, inspectArgs...)
+		inspectOut, err := v.shell.Exec(".", command, inspectArgs...)
 		if err != nil {
 			return nil, err
 		}

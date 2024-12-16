@@ -665,14 +665,14 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 				},
 			},
 		}
-		networkCIDR := "10.1.0.0/16"
+		networkCIDR := "10.5.0.0/16"
 
 		err := assignIPAddresses(services, &networkCIDR)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		expectedIPs := []string{"10.1.0.2", "10.1.0.3"}
+		expectedIPs := []string{"10.5.0.2", "10.5.0.3"}
 		for i, expectedIP := range expectedIPs {
 			if setAddressCalls[i] != expectedIP {
 				t.Errorf("expected SetAddress to be called with IP %s, got %s", expectedIP, setAddressCalls[i])
@@ -722,7 +722,7 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 				},
 			},
 		}
-		networkCIDR := "10.1.0.0/16"
+		networkCIDR := "10.5.0.0/16"
 
 		err := assignIPAddresses(services, &networkCIDR)
 		if err == nil {
@@ -739,7 +739,7 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 			&services.MockService{},
 			&services.MockService{},
 		}
-		networkCIDR := "10.1.0.0/30"
+		networkCIDR := "10.5.0.0/30"
 
 		err := assignIPAddresses(services, &networkCIDR)
 		if err == nil {

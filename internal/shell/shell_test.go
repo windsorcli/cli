@@ -219,7 +219,7 @@ func TestShell_Exec(t *testing.T) {
 
 		// When executing a command that succeeds
 		shell := NewDefaultShell(injector)
-		result, err := shell.Exec("Executing echo command", "echo", "hello")
+		result, err := shell.Exec("", "echo", "hello")
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)

@@ -89,8 +89,9 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		if envVars["KUBECONFIG"] != "" || envVars["KUBE_CONFIG_PATH"] != "" {
-			t.Errorf("KUBECONFIG = %v, KUBE_CONFIG_PATH = %v, want both to be empty", envVars["KUBECONFIG"], envVars["KUBE_CONFIG_PATH"])
+		expectedPath := filepath.FromSlash("/mock/config/root/.kube/config")
+		if envVars["KUBECONFIG"] != expectedPath || envVars["KUBE_CONFIG_PATH"] != expectedPath {
+			t.Errorf("KUBECONFIG = %v, KUBE_CONFIG_PATH = %v, want both to be %v", envVars["KUBECONFIG"], envVars["KUBE_CONFIG_PATH"], expectedPath)
 		}
 	})
 

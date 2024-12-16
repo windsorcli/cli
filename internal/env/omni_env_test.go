@@ -59,7 +59,6 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 
 		omniEnvPrinter := NewOmniEnvPrinter(mocks.Injector)
 		omniEnvPrinter.Initialize()
-		omniEnvPrinter.Initialize()
 
 		envVars, err := omniEnvPrinter.GetEnvVars()
 		if err != nil {
@@ -88,8 +87,9 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		if envVars["OMNICONFIG"] != "" {
-			t.Errorf("OMNICONFIG = %v, want empty", envVars["OMNICONFIG"])
+		expectedPath := filepath.FromSlash("/mock/config/root/.omni/config")
+		if envVars["OMNICONFIG"] != expectedPath {
+			t.Errorf("OMNICONFIG = %v, want %v", envVars["OMNICONFIG"], expectedPath)
 		}
 	})
 

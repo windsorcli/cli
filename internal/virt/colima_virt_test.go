@@ -904,7 +904,7 @@ func TestColimaVirt_startColima(t *testing.T) {
 				if callCount == 1 {
 					return `{"address": ""}`, nil // Simulate no IP address on first call
 				}
-				return "", fmt.Errorf("mock execution error") // Simulate failure in Info() on second call
+				return "", fmt.Errorf("Error executing command %s %v", command, args) // Mock an error on second call
 			}
 			return "", fmt.Errorf("unexpected command")
 		}

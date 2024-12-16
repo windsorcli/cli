@@ -2,7 +2,6 @@ package env
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/windsorcli/cli/internal/di"
@@ -34,9 +33,6 @@ func (e *OmniEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	// Construct the path to the omni config file and verify its existence.
 	omniConfigPath := filepath.Join(configRoot, ".omni", "config")
-	if _, err := stat(omniConfigPath); os.IsNotExist(err) {
-		omniConfigPath = ""
-	}
 
 	// Populate environment variables with Omni configuration data.
 	envVars["OMNICONFIG"] = omniConfigPath

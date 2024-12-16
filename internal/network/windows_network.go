@@ -21,20 +21,24 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	// Check if the route already exists
-	checkOutput, err := n.shell.Exec(
-		"Checking existing host route",
+	// Check if the route already exists using PowerShell command
+	output, err := n.shell.Exec(
+		"Checking if route exists",
 		"powershell",
 		"-Command",
-		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s", networkCIDR),
+		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s | Where-Object { $_.NextHop -eq '%s' }", networkCIDR, guestIP),
 	)
-	if err == nil && checkOutput != "" {
-		// Route already exists, no need to add it again
+	if err != nil {
+		return fmt.Errorf("failed to check if route exists: %w", err)
+	}
+
+	// If the output is not empty, the route exists
+	if output != "" {
 		return nil
 	}
 
-	// Add route on the host to VM guest
-	output, err := n.shell.Exec(
+	// Add route on the host to VM guest using PowerShell command
+	output, err = n.shell.Exec(
 		"Adding route on the host to VM guest",
 		"powershell",
 		"-Command",

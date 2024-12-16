@@ -3,7 +3,6 @@ package services
 import (
 	"testing"
 
-	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/internal/config"
 	"github.com/windsorcli/cli/internal/constants"
 	"github.com/windsorcli/cli/internal/context"
@@ -92,8 +91,8 @@ func TestTalosControlPlaneService_GetComposeConfig(t *testing.T) {
 			setName  bool
 			expected string
 		}{
-			{"WithoutSetName", false, "controlplane"},
-			{"WithSetName", true, "custom.controlplane"},
+			{"WithoutSetName", false, "controlplane.test"},
+			{"WithSetName", true, "custom.test"},
 		}
 
 		for _, tc := range testCases {
@@ -104,23 +103,13 @@ func TestTalosControlPlaneService_GetComposeConfig(t *testing.T) {
 
 				// Optionally set the name
 				if tc.setName {
-					service.SetName(tc.expected)
+					service.SetName("custom")
 				}
 
 				// Initialize the service
 				err := service.Initialize()
 				if err != nil {
 					t.Fatalf("expected no error during initialization, got %v", err)
-				}
-
-				// Mock the GetComposeConfig method to return a valid config
-				expectedConfig := &types.Config{
-					Services: []types.ServiceConfig{
-						{
-							Name:  tc.expected,
-							Image: constants.DEFAULT_TALOS_IMAGE,
-						},
-					},
 				}
 
 				// When: the GetComposeConfig method is called
@@ -134,13 +123,13 @@ func TestTalosControlPlaneService_GetComposeConfig(t *testing.T) {
 					t.Fatalf("expected config, got nil")
 				}
 				if len(config.Services) != 1 {
-					t.Fatalf("expected 1 services, got %d", len(config.Services))
+					t.Fatalf("expected 1 service, got %d", len(config.Services))
 				}
-				if config.Services[0].Name != expectedConfig.Services[0].Name {
-					t.Fatalf("expected service name %s, got %s", expectedConfig.Services[0].Name, config.Services[0].Name)
+				if config.Services[0].Name != tc.expected {
+					t.Fatalf("expected service name %s, got %s", tc.expected, config.Services[0].Name)
 				}
-				if config.Services[0].Image != expectedConfig.Services[0].Image {
-					t.Fatalf("expected service image %s, got %s", expectedConfig.Services[0].Image, config.Services[0].Image)
+				if config.Services[0].Image != constants.DEFAULT_TALOS_IMAGE {
+					t.Fatalf("expected service image %s, got %s", constants.DEFAULT_TALOS_IMAGE, config.Services[0].Image)
 				}
 			})
 		}
