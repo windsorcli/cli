@@ -71,6 +71,9 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 	osChdir = func(_ string) error {
 		return nil
 	}
+	osRemove = func(_ string) error {
+		return nil
+	}
 
 	return MockSafeComponents{
 		Injector:         mockInjector,

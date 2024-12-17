@@ -3,6 +3,7 @@ package stack
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/windsorcli/cli/internal/di"
 )
@@ -60,6 +61,10 @@ func (s *WindsorStack) Up() error {
 					return fmt.Errorf("error setting environment variable %s: %v", key, err)
 				}
 			}
+			// Run the post environment hook
+			if err := envPrinter.PostEnvHook(); err != nil {
+				return fmt.Errorf("error running post environment hook: %v", err)
+			}
 		}
 
 		// Execute 'terraform init' in the dirPath
@@ -78,6 +83,14 @@ func (s *WindsorStack) Up() error {
 		_, err = s.shell.Exec("", "terraform", "apply")
 		if err != nil {
 			return fmt.Errorf("error running 'terraform apply' in %s: %v", component.Path, err)
+		}
+
+		// Attempt to clean up 'backend_override.tf' if it exists
+		backendOverridePath := filepath.Join(component.Path, "backend_override.tf")
+		if _, err := osStat(backendOverridePath); err == nil {
+			if err := osRemove(backendOverridePath); err != nil {
+				return fmt.Errorf("error removing backend_override.tf in %s: %v", component.Path, err)
+			}
 		}
 	}
 

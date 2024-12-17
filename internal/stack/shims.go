@@ -13,3 +13,6 @@ var osGetwd = os.Getwd
 
 // osSetenv is a shim for os.Setenv that allows us to mock the function in tests
 var osSetenv = os.Setenv
+
+// osRemove is a shim for os.Remove that allows us to mock the function in tests
+var osRemove = os.Remove
