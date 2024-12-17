@@ -63,7 +63,7 @@ func (s *WindsorStack) Up() error {
 		}
 
 		// Execute 'terraform init' in the dirPath
-		_, err = s.shell.Exec("", "terraform", "init", "-migrate-state")
+		_, err = s.shell.Exec("", "terraform", "init", "-migrate-state", "-upgrade")
 		if err != nil {
 			return fmt.Errorf("error running 'terraform init' in %s: %v", component.Path, err)
 		}
