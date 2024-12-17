@@ -37,13 +37,11 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 		SecurityOpt: []string{"seccomp=unconfined"},
 		Tmpfs:       []string{"/run", "/system", "/tmp"},
 		Volumes: []types.ServiceVolumeConfig{
-			{Type: "bind", Source: "/run/udev", Target: "/run/udev"},
 			{Type: "volume", Source: "system_state", Target: "/system/state"},
 			{Type: "volume", Source: "var", Target: "/var"},
 			{Type: "volume", Source: "etc_cni", Target: "/etc/cni"},
 			{Type: "volume", Source: "etc_kubernetes", Target: "/etc/kubernetes"},
 			{Type: "volume", Source: "usr_libexec_kubernetes", Target: "/usr/libexec/kubernetes"},
-			{Type: "volume", Source: "usr_etc_udev", Target: "/usr/etc/udev"},
 			{Type: "volume", Source: "opt", Target: "/opt"},
 		},
 	}
@@ -58,6 +56,7 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 	} else {
 		controlPlaneConfig.Name = s.GetName() + "." + tld
 	}
+	controlPlaneConfig.Hostname = controlPlaneConfig.Name
 	controlPlaneConfig.Environment = map[string]*string{
 		"PLATFORM": ptrString("container"),
 		"TALOSSKU": ptrString(fmt.Sprintf("%dCPU-%dRAM", controlPlaneCPU, controlPlaneRAM*1024)),
@@ -70,7 +69,6 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 		"etc_cni":                {},
 		"etc_kubernetes":         {},
 		"usr_libexec_kubernetes": {},
-		"usr_etc_udev":           {},
 		"opt":                    {},
 	}
 

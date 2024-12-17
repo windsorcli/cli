@@ -73,6 +73,7 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 	} else {
 		workerConfig.Name = s.GetName() + "." + tld
 	}
+	workerConfig.Hostname = workerConfig.Name
 	workerConfig.Environment = map[string]*string{
 		"PLATFORM": ptrString("container"),
 		"TALOSSKU": ptrString(fmt.Sprintf("%dCPU-%dRAM", workerCPU, workerRAM*1024)),
