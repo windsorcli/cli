@@ -12,8 +12,8 @@ import (
 	"github.com/windsorcli/cli/internal/network"
 	"github.com/windsorcli/cli/internal/services"
 	"github.com/windsorcli/cli/internal/shell"
-	sh "github.com/windsorcli/cli/internal/shell"
 	"github.com/windsorcli/cli/internal/ssh"
+	"github.com/windsorcli/cli/internal/stack"
 	"github.com/windsorcli/cli/internal/virt"
 )
 
@@ -26,7 +26,7 @@ type MockController struct {
 	CreateEnvComponentsFunc            func() error
 	CreateServiceComponentsFunc        func() error
 	CreateVirtualizationComponentsFunc func() error
-	CreateBlueprintComponentsFunc      func() error
+	CreateStackComponentsFunc          func() error
 	ResolveInjectorFunc                func() di.Injector
 	ResolveConfigHandlerFunc           func() config.ConfigHandler
 	ResolveContextHandlerFunc          func() context.ContextHandler
@@ -40,6 +40,7 @@ type MockController struct {
 	ResolveVirtualMachineFunc          func() virt.VirtualMachine
 	ResolveContainerRuntimeFunc        func() virt.ContainerRuntime
 	ResolveAllGeneratorsFunc           func() []generators.Generator
+	ResolveStackFunc                   func() stack.Stack
 	WriteConfigurationFilesFunc        func() error
 }
 
@@ -85,8 +86,8 @@ func (m *MockController) CreateCommonComponents() error {
 	m.injector.Register("contextHandler", contextHandler)
 
 	// Create a new mock shell
-	shell := shell.NewMockShell()
-	m.injector.Register("shell", shell)
+	shellInstance := shell.NewMockShell()
+	m.injector.Register("shell", shellInstance)
 
 	// Testing Note: The following is hard to test as these are registered
 	// above and can't be mocked externally. There may be a better way to
@@ -100,7 +101,7 @@ func (m *MockController) CreateCommonComponents() error {
 	}
 
 	// Initialize the shell
-	resolvedShell := m.injector.Resolve("shell").(*sh.MockShell)
+	resolvedShell := m.injector.Resolve("shell").(*shell.MockShell)
 	if err := resolvedShell.Initialize(); err != nil {
 		return fmt.Errorf("error initializing shell: %w", err)
 	}
@@ -236,7 +237,7 @@ func (c *MockController) CreateVirtualizationComponents() error {
 		c.injector.Register("sshClient", sshClient)
 
 		// Create and register the secure shell
-		secureShell := sh.NewSecureShell(c.injector)
+		secureShell := shell.NewSecureShell(c.injector)
 		c.injector.Register("secureShell", secureShell)
 	}
 
@@ -260,10 +261,10 @@ func (c *MockController) CreateVirtualizationComponents() error {
 	return nil
 }
 
-// CreateBlueprintComponents calls the mock CreateBlueprintComponentsFunc if set, otherwise creates mock components
-func (c *MockController) CreateBlueprintComponents() error {
-	if c.CreateBlueprintComponentsFunc != nil {
-		return c.CreateBlueprintComponentsFunc()
+// CreateStackComponents calls the mock CreateStackComponentsFunc if set, otherwise creates mock components
+func (c *MockController) CreateStackComponents() error {
+	if c.CreateStackComponentsFunc != nil {
+		return c.CreateStackComponentsFunc()
 	}
 
 	// Create a new blueprint handler
@@ -273,6 +274,10 @@ func (c *MockController) CreateBlueprintComponents() error {
 	// Create a new terraform generator
 	terraformGenerator := generators.NewMockGenerator()
 	c.injector.Register("terraformGenerator", terraformGenerator)
+
+	// Create a new stack
+	stackInstance := stack.NewMockStack(c.injector)
+	c.injector.Register("stack", stackInstance)
 
 	return nil
 }
@@ -387,6 +392,14 @@ func (c *MockController) ResolveAllGenerators() []generators.Generator {
 		return c.ResolveAllGeneratorsFunc()
 	}
 	return c.BaseController.ResolveAllGenerators()
+}
+
+// ResolveStack calls the mock ResolveStackFunc if set, otherwise calls the parent function
+func (c *MockController) ResolveStack() stack.Stack {
+	if c.ResolveStackFunc != nil {
+		return c.ResolveStackFunc()
+	}
+	return c.BaseController.ResolveStack()
 }
 
 // Ensure MockController implements Controller

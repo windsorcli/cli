@@ -11,8 +11,9 @@ import (
 	"github.com/windsorcli/cli/internal/generators"
 	"github.com/windsorcli/cli/internal/network"
 	"github.com/windsorcli/cli/internal/services"
-	sh "github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/shell"
 	"github.com/windsorcli/cli/internal/ssh"
+	"github.com/windsorcli/cli/internal/stack"
 	"github.com/windsorcli/cli/internal/virt"
 )
 
@@ -43,7 +44,7 @@ func (c *RealController) CreateCommonComponents() error {
 	c.injector.Register("contextHandler", contextHandler)
 
 	// Create a new shell
-	shell := sh.NewDefaultShell(c.injector)
+	shell := shell.NewDefaultShell(c.injector)
 	c.injector.Register("shell", shell)
 
 	// Testing Note: The following is hard to test as these are registered
@@ -186,7 +187,7 @@ func (c *RealController) CreateVirtualizationComponents() error {
 		c.injector.Register("sshClient", sshClient)
 
 		// Create and register the secure shell
-		secureShell := sh.NewSecureShell(c.injector)
+		secureShell := shell.NewSecureShell(c.injector)
 		c.injector.Register("secureShell", secureShell)
 	}
 
@@ -210,8 +211,8 @@ func (c *RealController) CreateVirtualizationComponents() error {
 	return nil
 }
 
-// CreateBlueprintComponents creates blueprint components
-func (c *RealController) CreateBlueprintComponents() error {
+// CreateStackComponents creates stack components
+func (c *RealController) CreateStackComponents() error {
 	// Create a new blueprint handler
 	blueprintHandler := blueprint.NewBlueprintHandler(c.injector)
 	c.injector.Register("blueprintHandler", blueprintHandler)
@@ -219,6 +220,10 @@ func (c *RealController) CreateBlueprintComponents() error {
 	// Create a new terraform generator
 	terraformGenerator := generators.NewTerraformGenerator(c.injector)
 	c.injector.Register("terraformGenerator", terraformGenerator)
+
+	// Create a new stack
+	stackInstance := stack.NewWindsorStack(c.injector)
+	c.injector.Register("stack", stackInstance)
 
 	return nil
 }

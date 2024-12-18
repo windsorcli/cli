@@ -3,6 +3,7 @@ package generators
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -27,30 +28,22 @@ func NewTerraformGenerator(injector di.Injector) *TerraformGenerator {
 func (g *TerraformGenerator) Write() error {
 	components := g.blueprintHandler.GetTerraformComponents()
 
-	// Get the project root from the shell
-	projectRoot, err := g.shell.GetProjectRoot()
-	if err != nil {
-		return err
-	}
-
 	// Write the Terraform files
 	for _, component := range components {
-		if isValidTerraformRemoteSource(component.Source) {
-			// Parse the component source to create the directory path
-			dirPath := filepath.Join(projectRoot, ".tf_modules", "terraform", component.Path)
-
+		// Check if the component path is within the .tf_modules folder
+		if strings.Contains(component.Path, ".tf_modules") {
 			// Ensure the parent directories exist
-			if err := osMkdirAll(dirPath, os.ModePerm); err != nil {
+			if err := osMkdirAll(component.Path, os.ModePerm); err != nil {
 				return err
 			}
 
 			// Write the module file
-			if err := g.writeModuleFile(dirPath, component); err != nil {
+			if err := g.writeModuleFile(component.Path, component); err != nil {
 				return err
 			}
 
 			// Write the variables file
-			if err := g.writeVariableFile(dirPath, component); err != nil {
+			if err := g.writeVariableFile(component.Path, component); err != nil {
 				return err
 			}
 		}
@@ -116,29 +109,3 @@ func (g *TerraformGenerator) writeVariableFile(dirPath string, component bluepri
 
 // Ensure TerraformGenerator implements Generator
 var _ Generator = (*TerraformGenerator)(nil)
-
-// isValidTerraformRemoteSource checks if the source is a valid Terraform module reference
-func isValidTerraformRemoteSource(source string) bool {
-	// Define patterns for different valid source types
-	patterns := []string{
-		`^git::https://[^/]+/.*\.git(?:@.*)?$`, // Generic Git URL with .git suffix
-		`^git@[^:]+:.*\.git(?:@.*)?$`,          // Generic SSH Git URL with .git suffix
-		`^https?://.*\.git(?:@.*)?$`,           // HTTP URL with .git suffix
-		`^https?://.*\.zip(?:@.*)?$`,           // HTTP URL pointing to a .zip archive
-		`^registry\.terraform\.io/.*`,          // Terraform Registry
-		`^[^/]+\.com/.*`,                       // Generic domain reference
-	}
-
-	// Check if the source matches any of the valid patterns
-	for _, pattern := range patterns {
-		matched, err := regexpMatchString(pattern, source)
-		if err != nil {
-			return false
-		}
-		if matched {
-			return true
-		}
-	}
-
-	return false
-}

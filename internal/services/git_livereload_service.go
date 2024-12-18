@@ -64,12 +64,17 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 	// Get the git folder name
 	gitFolderName := filepath.Base(projectRoot)
 
+	// Get the TLD from the configuration
+	tld := s.configHandler.GetString("dns.name", "test")
+	fullName := s.name + "." + tld
+
 	// Add the git-livereload service
 	services = append(services, types.ServiceConfig{
-		Name:        s.name,
-		Image:       image,
-		Restart:     "always",
-		Environment: envVars,
+		Name:          fullName,
+		ContainerName: fullName,
+		Image:         image,
+		Restart:       "always",
+		Environment:   envVars,
 		Labels: map[string]string{
 			"role":       "git-repository",
 			"managed_by": "windsor",

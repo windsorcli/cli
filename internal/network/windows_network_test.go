@@ -34,7 +34,7 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell()
-	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+	mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 		if command == "powershell" && args[0] == "-Command" {
 			return "Route added successfully", nil
 		}
@@ -199,8 +199,50 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
-			return "", fmt.Errorf("mocked shell execution error")
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if message == "Checking if route exists" {
+				return "", fmt.Errorf("mocked shell execution error")
+			}
+			return "", nil
+		}
+
+		err = nm.ConfigureHostRoute()
+
+		if err == nil || err.Error() != "failed to check if route exists: mocked shell execution error" {
+			t.Errorf("expected error 'failed to check if route exists: mocked shell execution error', got %v", err)
+		}
+	})
+
+	t.Run("AddRouteError", func(t *testing.T) {
+		// Setup mocks using setupWindowsNetworkManagerMocks
+		mocks := setupWindowsNetworkManagerMocks()
+
+		// Create a network manager using NewBaseNetworkManager with the mock injector
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.1.0/24"
+			}
+			if key == "vm.address" {
+				return "192.168.1.2"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if message == "Adding route on the host to VM guest" {
+				return "", fmt.Errorf("mocked shell execution error")
+			}
+			return "", nil
 		}
 
 		err = nm.ConfigureHostRoute()
@@ -228,9 +270,14 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
-			if command == "powershell" && args[0] == "-Command" && args[1] == "Set-DnsClientServerAddress -InterfaceAlias 'Ethernet' -ServerAddresses 8.8.8.8" {
-				return "DNS server set successfully", nil
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "powershell" && args[0] == "-Command" {
+				if args[1] == "Get-DnsClientServerAddress -InterfaceAlias 'Ethernet' | Select-Object -ExpandProperty ServerAddresses" {
+					return "8.8.8.8", nil
+				}
+				if args[1] == "Set-DnsClientServerAddress -InterfaceAlias 'Ethernet' -ServerAddresses 8.8.8.8" {
+					return "DNS server set successfully", nil
+				}
 			}
 			return "", fmt.Errorf("unexpected command")
 		}
@@ -265,7 +312,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			return "", fmt.Errorf("unexpected command")
 		}
 
@@ -299,7 +346,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			return "", fmt.Errorf("unexpected command")
 		}
 
@@ -336,8 +383,93 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			return "", fmt.Errorf("failed to set DNS server")
+		}
+
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Errorf("expected no error during initialization, got %v", err)
+		}
+
+		err = nm.ConfigureDNS()
+
+		if err == nil || !strings.Contains(err.Error(), "failed to set DNS server") {
+			t.Errorf("expected error containing 'failed to set DNS server', got %v", err)
+		}
+	})
+
+	t.Run("ResolverFileAlreadyExists", func(t *testing.T) {
+		mocks := setupWindowsNetworkManagerMocks()
+
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.name" {
+				return "example.com"
+			}
+			if key == "dns.address" {
+				return "8.8.8.8"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "powershell" && args[0] == "-Command" {
+				if args[1] == "Get-DnsClientServerAddress -InterfaceAlias 'Ethernet' | Select-Object -ExpandProperty ServerAddresses" {
+					return "8.8.8.8", nil
+				}
+				if args[1] == "Test-Path -Path 'C:\\Windows\\System32\\drivers\\etc\\resolv.conf'" {
+					return "True", nil
+				}
+			}
+			return "", fmt.Errorf("unexpected command")
+		}
+
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Errorf("expected no error during initialization, got %v", err)
+		}
+
+		err = nm.ConfigureDNS()
+
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("SetDNSServerError", func(t *testing.T) {
+		mocks := setupWindowsNetworkManagerMocks()
+
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.name" {
+				return "example.com"
+			}
+			if key == "dns.address" {
+				return "8.8.8.8"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "powershell" && args[0] == "-Command" {
+				if args[1] == fmt.Sprintf("Set-DnsClientServerAddress -InterfaceAlias 'Ethernet' -ServerAddresses %s", "8.8.8.8") {
+					return "", fmt.Errorf("mocked shell execution error")
+				}
+			}
+			return "", nil
 		}
 
 		nm, err := NewBaseNetworkManager(mocks.Injector)

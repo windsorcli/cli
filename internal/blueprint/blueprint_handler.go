@@ -7,6 +7,7 @@ import (
 
 	"github.com/windsorcli/cli/internal/context"
 	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 // BlueprintHandler defines the interface for handling blueprint operations
@@ -43,8 +44,10 @@ type BlueprintHandler interface {
 type BaseBlueprintHandler struct {
 	BlueprintHandler
 	injector       di.Injector
-	blueprint      BlueprintV1Alpha1
 	contextHandler context.ContextHandler
+	shell          shell.Shell
+	blueprint      BlueprintV1Alpha1
+	projectRoot    string
 }
 
 // Create a new blueprint handler
@@ -61,6 +64,20 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	}
 	b.contextHandler = contextHandler
 
+	// Resolve the shell
+	shell, ok := b.injector.Resolve("shell").(shell.Shell)
+	if !ok {
+		return fmt.Errorf("error resolving shell")
+	}
+	b.shell = shell
+
+	// Get the project root
+	projectRoot, err := b.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error getting project root: %w", err)
+	}
+	b.projectRoot = projectRoot
+
 	// Initialize with a default blueprint
 	b.blueprint = DefaultBlueprint
 
@@ -74,7 +91,7 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	return nil
 }
 
-// LoadConfig LoadConfigs the blueprint from the specified path
+// LoadConfig Loads the blueprint from the specified path
 func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	finalPath := ""
 	// Check if a path is provided
@@ -154,12 +171,16 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 
 // GetMetadata retrieves the metadata for the blueprint
 func (b *BaseBlueprintHandler) GetMetadata() MetadataV1Alpha1 {
-	return b.blueprint.Metadata
+	// Create a copy of the blueprint to avoid modifying the original
+	resolvedBlueprint := b.blueprint
+	return resolvedBlueprint.Metadata
 }
 
 // GetSources retrieves the sources for the blueprint
 func (b *BaseBlueprintHandler) GetSources() []SourceV1Alpha1 {
-	return b.blueprint.Sources
+	// Create a copy of the blueprint to avoid modifying the original
+	resolvedBlueprint := b.blueprint
+	return resolvedBlueprint.Sources
 }
 
 // GetTerraformComponents retrieves the Terraform components for the blueprint
@@ -168,7 +189,10 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []TerraformComponentV1Al
 	resolvedBlueprint := b.blueprint
 
 	// Resolve the component sources
-	resolveComponentSources(&resolvedBlueprint)
+	b.resolveComponentSources(&resolvedBlueprint)
+
+	// Resolve the component paths
+	b.resolveComponentPaths(&resolvedBlueprint)
 
 	return resolvedBlueprint.TerraformComponents
 }
@@ -191,21 +215,81 @@ func (b *BaseBlueprintHandler) SetTerraformComponents(terraformComponents []Terr
 	return nil
 }
 
-// Ensure that BaseBlueprintHandler implements the BlueprintHandler interface
-var _ BlueprintHandler = &BaseBlueprintHandler{}
-
 // resolveComponentSources resolves the source for each Terraform component
-func resolveComponentSources(blueprint *BlueprintV1Alpha1) {
-	for i, component := range blueprint.TerraformComponents {
+func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *BlueprintV1Alpha1) {
+	// Create a copy of the TerraformComponents to avoid modifying the original components
+	resolvedComponents := make([]TerraformComponentV1Alpha1, len(blueprint.TerraformComponents))
+	copy(resolvedComponents, blueprint.TerraformComponents)
+
+	for i, component := range resolvedComponents {
 		for _, source := range blueprint.Sources {
 			if component.Source == source.Name {
 				pathPrefix := source.PathPrefix
 				if pathPrefix == "" {
 					pathPrefix = "terraform"
 				}
-				blueprint.TerraformComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "@" + source.Ref
+				resolvedComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "@" + source.Ref
 				break
 			}
 		}
 	}
+
+	// Replace the original components with the resolved ones
+	blueprint.TerraformComponents = resolvedComponents
+}
+
+// resolveComponentPaths resolves the path for each Terraform component
+func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *BlueprintV1Alpha1) {
+	projectRoot := b.projectRoot
+
+	// Create a copy of the TerraformComponents to avoid modifying the original components
+	resolvedComponents := make([]TerraformComponentV1Alpha1, len(blueprint.TerraformComponents))
+	copy(resolvedComponents, blueprint.TerraformComponents)
+
+	for i, component := range resolvedComponents {
+		// Create a copy of the component to avoid modifying the original component
+		componentCopy := component
+
+		if isValidTerraformRemoteSource(componentCopy.Source) {
+			componentCopy.Path = filepath.Join(projectRoot, ".tf_modules", componentCopy.Path)
+		} else {
+			componentCopy.Path = filepath.Join(projectRoot, "terraform", componentCopy.Path)
+		}
+
+		// Update the resolved component in the slice
+		resolvedComponents[i] = componentCopy
+	}
+
+	// Replace the original components with the resolved ones
+	blueprint.TerraformComponents = resolvedComponents
+}
+
+// Ensure that BaseBlueprintHandler implements the BlueprintHandler interface
+var _ BlueprintHandler = &BaseBlueprintHandler{}
+
+// isValidTerraformRemoteSource checks if the source is a valid Terraform module reference
+func isValidTerraformRemoteSource(source string) bool {
+	// Define patterns for different valid source types
+	patterns := []string{
+		`^git::https://[^/]+/.*\.git(?:@.*)?$`, // Generic Git URL with .git suffix
+		`^git@[^:]+:.*\.git(?:@.*)?$`,          // Generic SSH Git URL with .git suffix
+		`^https?://[^/]+/.*\.git(?:@.*)?$`,     // HTTP URL with .git suffix
+		`^https?://[^/]+/.*\.zip(?:@.*)?$`,     // HTTP URL pointing to a .zip archive
+		`^https?://[^/]+/.*//.*(?:@.*)?$`,      // HTTP URL with double slashes and optional ref
+		`^registry\.terraform\.io/.*`,          // Terraform Registry
+		`^[^/]+\.com/.*`,                       // Generic domain reference
+	}
+
+	// Check if the source matches any of the valid patterns
+	for _, pattern := range patterns {
+		matched, err := regexpMatchString(pattern, source)
+		if err != nil {
+			return false
+		}
+		if matched {
+			return true
+		}
+	}
+
+	return false
 }

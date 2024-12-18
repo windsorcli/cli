@@ -16,6 +16,7 @@ import (
 	"github.com/windsorcli/cli/internal/network"
 	"github.com/windsorcli/cli/internal/services"
 	"github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/stack"
 	"github.com/windsorcli/cli/internal/virt"
 )
 
@@ -31,6 +32,8 @@ type MockObjects struct {
 	VirtualMachine   *virt.MockVirt
 	ContainerRuntime *virt.MockVirt
 	BlueprintHandler *blueprint.MockBlueprintHandler
+	Stack            *stack.MockStack
+	Generator        *generators.MockGenerator
 }
 
 func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
@@ -54,6 +57,8 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	mockVirtualMachine := &virt.MockVirt{}
 	mockContainerRuntime := &virt.MockVirt{}
 	mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
+	mockGenerator := &generators.MockGenerator{}
+	mockStack := &stack.MockStack{}
 
 	// Register mocks in the injector
 	injector.Register("configHandler", mockConfigHandler)
@@ -68,6 +73,8 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	injector.Register("service2", mockService2)
 	injector.Register("virtualMachine", mockVirtualMachine)
 	injector.Register("containerRuntime", mockContainerRuntime)
+	injector.Register("generator", mockGenerator)
+	injector.Register("stack", mockStack)
 
 	return &MockObjects{
 		Injector:         injector,
@@ -81,6 +88,8 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 		Service:          mockService1, // Assuming the first service is the primary one
 		VirtualMachine:   mockVirtualMachine,
 		ContainerRuntime: mockContainerRuntime,
+		Stack:            mockStack,
+		Generator:        mockGenerator,
 	}
 }
 
@@ -360,6 +369,29 @@ func TestController_InitializeComponents(t *testing.T) {
 			t.Logf("expected error received: %v", err)
 		}
 	})
+
+	t.Run("ErrorInitializingStack", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		mockStack := stack.NewMockStack(mocks.Injector)
+		mockStack.InitializeFunc = func() error {
+			return fmt.Errorf("error initializing stack")
+		}
+		mocks.Injector.Register("stack", mockStack)
+
+		// When initializing the components
+		err := controller.InitializeComponents()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error initializing stack") {
+			t.Fatalf("expected error to contain 'error initializing stack', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
+		}
+	})
 }
 
 func TestController_CreateCommonComponents(t *testing.T) {
@@ -426,14 +458,14 @@ func TestController_CreateVirtualizationComponents(t *testing.T) {
 	})
 }
 
-func TestController_CreateBlueprintComponents(t *testing.T) {
+func TestController_CreateStackComponents(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
 
-		// When creating blueprint components
-		err := controller.CreateBlueprintComponents()
+		// When creating stack components
+		err := controller.CreateStackComponents()
 
 		// Then there should be no error
 		if err != nil {
@@ -549,6 +581,29 @@ func TestController_WriteConfigurationFiles(t *testing.T) {
 			t.Fatalf("expected an error, got nil")
 		} else if !strings.Contains(err.Error(), "error writing container runtime config") {
 			t.Fatalf("expected error to contain 'error writing container runtime config', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
+		}
+	})
+
+	t.Run("ErrorWritingGeneratorConfig", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		mocks.Generator.WriteFunc = func() error {
+			return fmt.Errorf("error writing generator config")
+		}
+		mocks.Injector.Register("generator", mocks.Generator)
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// When writing configuration files
+		err := controller.WriteConfigurationFiles()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error writing generator config") {
+			t.Fatalf("expected error to contain 'error writing generator config', got %v", err)
 		} else {
 			t.Logf("expected error received: %v", err)
 		}

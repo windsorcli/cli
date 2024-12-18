@@ -49,7 +49,7 @@ func setupSafeRegistryServiceMocks(optionalInjector ...di.Injector) *MockCompone
 						Local:  "registry.local",
 					},
 				},
-				NetworkCIDR: ptrString("10.1.0.0/16"),
+				NetworkCIDR: ptrString("10.5.0.0/16"),
 			},
 		}
 	}
@@ -101,7 +101,7 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		}
 
 		// Then: check for characteristic properties in the configuration
-		expectedName := "registry"
+		expectedName := "registry.test"
 		expectedRemoteURL := "registry.remote"
 		expectedLocalURL := "registry.local"
 		found := false

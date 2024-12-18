@@ -41,7 +41,7 @@ func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServic
 	}
 
 	mockShell := shell.NewMockShell()
-	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+	mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 		return "mock-exec-output", nil
 	}
 	mockShell.GetProjectRootFunc = func() (string, error) { return filepath.FromSlash("/mock/project/root"), nil }
@@ -101,7 +101,7 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		}
 
 		service := composeConfig.Services[0]
-		if service.Name != "aws" {
+		if service.Name != "aws.test" {
 			t.Errorf("expected service name 'localstack', got %v", service.Name)
 		}
 		if service.Environment["SERVICES"] == nil || *service.Environment["SERVICES"] != "s3,dynamodb" {

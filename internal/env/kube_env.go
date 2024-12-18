@@ -2,7 +2,6 @@ package env
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/windsorcli/cli/internal/di"
@@ -32,11 +31,8 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 	}
 
-	// Construct the path to the kubeconfig file and verify its existence.
+	// Construct the path to the kubeconfig file.
 	kubeConfigPath := filepath.Join(configRoot, ".kube", "config")
-	if _, err := stat(kubeConfigPath); os.IsNotExist(err) {
-		kubeConfigPath = ""
-	}
 
 	// Populate environment variables with Kubernetes configuration data.
 	envVars["KUBECONFIG"] = kubeConfigPath

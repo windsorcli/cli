@@ -131,11 +131,10 @@ func findRelativeTerraformProjectPath() (string, error) {
 
 	// Split the current path into its components
 	pathParts := strings.Split(currentPath, string(os.PathSeparator))
-
-	// Iterate through the path components to find the "terraform" directory
+	// Iterate through the path components to find the "terraform" or ".tf_modules" directory
 	for i := len(pathParts) - 1; i >= 0; i-- {
-		if strings.EqualFold(pathParts[i], "terraform") { // Use case-insensitive comparison for Windows
-			// Join the path components after the "terraform" directory
+		if strings.EqualFold(pathParts[i], "terraform") || strings.EqualFold(pathParts[i], ".tf_modules") { // Use case-insensitive comparison for Windows
+			// Join the path components after the "terraform" or ".tf_modules" directory
 			relativePath := filepath.Join(pathParts[i+1:]...)
 			return relativePath, nil
 		}

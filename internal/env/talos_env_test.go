@@ -88,8 +88,9 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		if envVars["TALOSCONFIG"] != "" {
-			t.Errorf("TALOSCONFIG = %v, want empty", envVars["TALOSCONFIG"])
+		expectedPath := filepath.FromSlash("/mock/config/root/.talos/config")
+		if envVars["TALOSCONFIG"] != expectedPath {
+			t.Errorf("TALOSCONFIG = %v, want %v", envVars["TALOSCONFIG"], expectedPath)
 		}
 	})
 

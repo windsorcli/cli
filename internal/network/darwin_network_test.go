@@ -17,11 +17,12 @@ import (
 )
 
 type DarwinNetworkManagerMocks struct {
-	Injector          di.Injector
-	MockConfigHandler *config.MockConfigHandler
-	MockShell         *shell.MockShell
-	MockSecureShell   *shell.MockShell
-	MockSSHClient     *ssh.MockClient
+	Injector                     di.Injector
+	MockConfigHandler            *config.MockConfigHandler
+	MockShell                    *shell.MockShell
+	MockSecureShell              *shell.MockShell
+	MockSSHClient                *ssh.MockClient
+	MockNetworkInterfaceProvider *MockNetworkInterfaceProvider
 }
 
 func setupDarwinNetworkManagerMocks() *DarwinNetworkManagerMocks {
@@ -30,8 +31,11 @@ func setupDarwinNetworkManagerMocks() *DarwinNetworkManagerMocks {
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell(injector)
-	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+	mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 		if command == "sudo" && args[0] == "route" && args[1] == "-nv" && args[2] == "add" {
+			return "", nil
+		}
+		if command == "route" && args[0] == "get" {
 			return "", nil
 		}
 		if command == "sudo" && args[0] == "dscacheutil" && args[1] == "-flushcache" {
@@ -75,13 +79,41 @@ func setupDarwinNetworkManagerMocks() *DarwinNetworkManagerMocks {
 	// Create a mock SSH client
 	mockSSHClient := &ssh.MockClient{}
 
-	// Introduce a simple mock network interface
-	mockNetworkInterface := &MockNetworkInterfaceProvider{
+	// Create a mock network interface provider
+	mockNetworkInterfaceProvider := &MockNetworkInterfaceProvider{
 		InterfacesFunc: func() ([]net.Interface, error) {
-			return []net.Interface{}, nil
+			return []net.Interface{
+				{Name: "eth0"},
+				{Name: "lo"},
+				{Name: "br-bridge0"},
+			}, nil
 		},
 		InterfaceAddrsFunc: func(iface net.Interface) ([]net.Addr, error) {
-			return []net.Addr{}, nil
+			switch iface.Name {
+			case "br-bridge0":
+				return []net.Addr{
+					&net.IPNet{
+						IP:   net.ParseIP("192.168.5.1"),
+						Mask: net.CIDRMask(24, 32),
+					},
+				}, nil
+			case "eth0":
+				return []net.Addr{
+					&net.IPNet{
+						IP:   net.ParseIP("10.0.0.2"),
+						Mask: net.CIDRMask(24, 32),
+					},
+				}, nil
+			case "lo":
+				return []net.Addr{
+					&net.IPNet{
+						IP:   net.ParseIP("127.0.0.1"),
+						Mask: net.CIDRMask(8, 32),
+					},
+				}, nil
+			default:
+				return nil, fmt.Errorf("unknown interface")
+			}
 		},
 	}
 
@@ -91,15 +123,16 @@ func setupDarwinNetworkManagerMocks() *DarwinNetworkManagerMocks {
 	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("contextHandler", mockContext)
 	injector.Register("sshClient", mockSSHClient)
-	injector.Register("networkInterfaceProvider", mockNetworkInterface)
+	injector.Register("networkInterfaceProvider", mockNetworkInterfaceProvider)
 
 	// Return a struct containing all mocks
 	return &DarwinNetworkManagerMocks{
-		Injector:          injector,
-		MockConfigHandler: mockConfigHandler,
-		MockShell:         mockShell,
-		MockSecureShell:   mockSecureShell,
-		MockSSHClient:     mockSSHClient,
+		Injector:                     injector,
+		MockConfigHandler:            mockConfigHandler,
+		MockShell:                    mockShell,
+		MockSecureShell:              mockSecureShell,
+		MockSSHClient:                mockSSHClient,
+		MockNetworkInterfaceProvider: mockNetworkInterfaceProvider,
 	}
 }
 
@@ -204,11 +237,75 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 	})
 
+	t.Run("RouteAlreadyExists", func(t *testing.T) {
+		mocks := setupDarwinNetworkManagerMocks()
+
+		// Mock the Exec function to simulate the route already existing
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "route" && args[0] == "get" {
+				return "gateway: " + mocks.MockConfigHandler.GetStringFunc("vm.address"), nil
+			}
+			return "", fmt.Errorf("mock error")
+		}
+
+		// Create a networkManager using NewBaseNetworkManager with the mock DI container
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Initialize the network manager
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Call the ConfigureHostRoute method and expect no error since the route already exists
+		err = nm.ConfigureHostRoute()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("CheckRouteExistsError", func(t *testing.T) {
+		mocks := setupDarwinNetworkManagerMocks()
+
+		// Mock an error in the Exec function to simulate a route check failure
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "route" && args[0] == "get" {
+				return "", fmt.Errorf("mock error")
+			}
+			return "", nil
+		}
+
+		// Create a networkManager using NewBaseNetworkManager with the mock DI container
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Initialize the network manager
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Call the ConfigureHostRoute method and expect an error due to failed route check
+		err = nm.ConfigureHostRoute()
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "failed to check if route exists: mock error"
+		if err.Error() != expectedError {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
 	t.Run("AddRouteError", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
 		// Mock an error in the Exec function to simulate a route addition failure
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "route" && args[1] == "-nv" && args[2] == "add" {
 				return "mock output", fmt.Errorf("mock error")
 			}
@@ -345,6 +442,38 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
+	t.Run("ResolverFileAlreadyExists", func(t *testing.T) {
+		mocks := setupDarwinNetworkManagerMocks()
+
+		// Create a networkManager using NewBaseNetworkManager with the mock DI container
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Initialize the network manager
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Mock the readFile function to simulate the resolver file already existing with the correct content
+		originalReadFile := readFile
+		defer func() { readFile = originalReadFile }()
+		readFile = func(filename string) ([]byte, error) {
+			if filename == fmt.Sprintf("/etc/resolver/%s", mocks.MockConfigHandler.GetStringFunc("dns.name")) {
+				return []byte(fmt.Sprintf("nameserver %s\n", mocks.MockConfigHandler.GetStringFunc("dns.address"))), nil
+			}
+			return nil, fmt.Errorf("mock error")
+		}
+
+		// Call the ConfigureDNS method and expect no error
+		err = nm.ConfigureDNS()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
 	t.Run("CreateResolverDirectoryError", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
@@ -371,7 +500,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// Simulate an error when trying to create the resolver directory
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "mkdir" && args[1] == "-p" {
 				return "", fmt.Errorf("mock error creating resolver directory")
 			}
@@ -441,7 +570,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// Simulate an error when trying to move the temporary resolver file
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "mv" {
 				return "", fmt.Errorf("mock error moving resolver file")
 			}
@@ -475,7 +604,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// Simulate an error when trying to flush the DNS cache
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "dscacheutil" && args[1] == "-flushcache" {
 				return "", fmt.Errorf("mock error flushing DNS cache")
 			}
@@ -509,7 +638,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// Simulate an error when trying to restart the mDNSResponder
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "killall" && args[1] == "-HUP" {
 				return "", fmt.Errorf("mock error restarting mDNSResponder")
 			}

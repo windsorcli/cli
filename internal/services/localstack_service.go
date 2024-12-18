@@ -44,12 +44,17 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 		servicesList = strings.Join(contextConfig.AWS.Localstack.Services, ",")
 	}
 
+	// Get the TLD from the configuration
+	tld := s.configHandler.GetString("dns.name", "test")
+	fullName := s.name + "." + tld
+
 	// Create the service config
 	services := []types.ServiceConfig{
 		{
-			Name:    s.name,
-			Image:   image,
-			Restart: "always",
+			Name:          fullName,
+			ContainerName: fullName,
+			Image:         image,
+			Restart:       "always",
 			Environment: map[string]*string{
 				"ENFORCE_IAM":   ptrString("1"),
 				"PERSISTENCE":   ptrString("1"),

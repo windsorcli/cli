@@ -63,12 +63,17 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name
 	contextName := s.contextHandler.GetContext()
 
+	// Get the TLD from the configuration
+	tld := s.configHandler.GetString("dns.name", "test")
+	fullName := s.name + "." + tld
+
 	// Common configuration for CoreDNS container
 	corednsConfig := types.ServiceConfig{
-		Name:    s.name,
-		Image:   constants.DEFAULT_DNS_IMAGE,
-		Restart: "always",
-		Command: []string{"-conf", "/etc/coredns/Corefile"},
+		Name:          fullName,
+		ContainerName: fullName,
+		Image:         constants.DEFAULT_DNS_IMAGE,
+		Restart:       "always",
+		Command:       []string{"-conf", "/etc/coredns/Corefile"},
 		Volumes: []types.ServiceVolumeConfig{
 			{Type: "bind", Source: "./Corefile", Target: "/etc/coredns/Corefile"},
 		},
@@ -110,7 +115,7 @@ func (s *DNSService) WriteConfig() error {
 				if addressService, ok := service.(interface{ GetAddress() string }); ok {
 					address := addressService.GetAddress()
 					if address != "" {
-						fullName := fmt.Sprintf("%s.%s", svc.Name, tld)
+						fullName := svc.Name
 						hostEntries += fmt.Sprintf("        %s %s\n", address, fullName)
 					}
 				}

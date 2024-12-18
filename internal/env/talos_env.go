@@ -2,7 +2,6 @@ package env
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/windsorcli/cli/internal/di"
@@ -34,9 +33,6 @@ func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	// Construct the path to the talos config file and verify its existence.
 	talosConfigPath := filepath.Join(configRoot, ".talos", "config")
-	if _, err := stat(talosConfigPath); os.IsNotExist(err) {
-		talosConfigPath = ""
-	}
 
 	// Populate environment variables with Talos configuration data.
 	envVars["TALOSCONFIG"] = talosConfigPath

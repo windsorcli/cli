@@ -13,14 +13,24 @@ var upCmd = &cobra.Command{
 	SilenceUsage: true,
 	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Create service components
-		if err := controller.CreateServiceComponents(); err != nil {
-			return fmt.Errorf("Error creating services components: %w", err)
+		// Create environment components
+		if err := controller.CreateEnvComponents(); err != nil {
+			return fmt.Errorf("Error creating environment components: %w", err)
 		}
 
 		// Create virtualization components
 		if err := controller.CreateVirtualizationComponents(); err != nil {
 			return fmt.Errorf("Error creating virtualization components: %w", err)
+		}
+
+		// Create service components
+		if err := controller.CreateServiceComponents(); err != nil {
+			return fmt.Errorf("Error creating services components: %w", err)
+		}
+
+		// Create stack components
+		if err := controller.CreateStackComponents(); err != nil {
+			return fmt.Errorf("Error creating stack components: %w", err)
 		}
 
 		// Initialize all components
@@ -98,6 +108,15 @@ var upCmd = &cobra.Command{
 					return fmt.Errorf("Error configuring DNS: %w", err)
 				}
 			}
+		}
+
+		// Stack up
+		stack := controller.ResolveStack()
+		if stack == nil {
+			return fmt.Errorf("No stack found")
+		}
+		if err := stack.Up(); err != nil {
+			return fmt.Errorf("Error running stack Up command: %w", err)
 		}
 
 		// Print success message

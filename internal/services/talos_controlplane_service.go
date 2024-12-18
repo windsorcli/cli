@@ -37,39 +37,33 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 		SecurityOpt: []string{"seccomp=unconfined"},
 		Tmpfs:       []string{"/run", "/system", "/tmp"},
 		Volumes: []types.ServiceVolumeConfig{
-			{Type: "bind", Source: "/run/udev", Target: "/run/udev"},
-			{Type: "volume", Source: "system_state", Target: "/system/state"},
-			{Type: "volume", Source: "var", Target: "/var"},
-			{Type: "volume", Source: "etc_cni", Target: "/etc/cni"},
-			{Type: "volume", Source: "etc_kubernetes", Target: "/etc/kubernetes"},
-			{Type: "volume", Source: "usr_libexec_kubernetes", Target: "/usr/libexec/kubernetes"},
-			{Type: "volume", Source: "usr_etc_udev", Target: "/usr/etc/udev"},
-			{Type: "volume", Source: "opt", Target: "/opt"},
+			{Type: "volume", Target: "/system/state"},
+			{Type: "volume", Target: "/var"},
+			{Type: "volume", Target: "/etc/cni"},
+			{Type: "volume", Target: "/etc/kubernetes"},
+			{Type: "volume", Target: "/usr/libexec/kubernetes"},
+			{Type: "volume", Target: "/opt"},
 		},
+	}
+
+	// Get the TLD from the configuration
+	tld := s.configHandler.GetString("dns.name", "test")
+	fullName := s.name + "." + tld
+	if s.name == "" {
+		fullName = "controlplane" + "." + tld
+	} else {
+		fullName = s.name + "." + tld
 	}
 
 	// Create a single control plane service
 	controlPlaneConfig := commonConfig
-	if s.GetName() == "" {
-		controlPlaneConfig.Name = "controlplane"
-	} else {
-		controlPlaneConfig.Name = s.GetName()
-	}
+	controlPlaneConfig.Name = fullName
+	controlPlaneConfig.ContainerName = fullName
+	controlPlaneConfig.Hostname = fullName
 	controlPlaneConfig.Environment = map[string]*string{
 		"PLATFORM": ptrString("container"),
 		"TALOSSKU": ptrString(fmt.Sprintf("%dCPU-%dRAM", controlPlaneCPU, controlPlaneRAM*1024)),
 	}
 
-	// Define volumes
-	volumes := map[string]types.VolumeConfig{
-		"system_state":           {},
-		"var":                    {},
-		"etc_cni":                {},
-		"etc_kubernetes":         {},
-		"usr_libexec_kubernetes": {},
-		"usr_etc_udev":           {},
-		"opt":                    {},
-	}
-
-	return &types.Config{Services: []types.ServiceConfig{controlPlaneConfig}, Volumes: volumes}, nil
+	return &types.Config{Services: []types.ServiceConfig{controlPlaneConfig}}, nil
 }

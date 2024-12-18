@@ -11,6 +11,9 @@ var stat = os.Stat
 // writeFile is a wrapper around os.WriteFile
 var writeFile = os.WriteFile
 
+// readFile is a wrapper around os.ReadFile
+var readFile = os.ReadFile
+
 // readLink is a wrapper around os.Readlink
 var readLink = os.Readlink
 
