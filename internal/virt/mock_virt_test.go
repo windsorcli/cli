@@ -100,7 +100,7 @@ func TestMockVirt_Down(t *testing.T) {
 	t.Run("DownFuncImplemented", func(t *testing.T) {
 		// Given a MockVirt with a custom DownFunc
 		mockVirt := NewMockVirt()
-		mockVirt.DownFunc = func(verbose ...bool) error {
+		mockVirt.DownFunc = func() error {
 			return nil
 		}
 
@@ -119,38 +119,6 @@ func TestMockVirt_Down(t *testing.T) {
 
 		// When calling Down
 		err := mockVirt.Down()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-}
-
-// TestMockVirt_Delete tests the Delete method of MockVirt.
-func TestMockVirt_Delete(t *testing.T) {
-	t.Run("DeleteFuncImplemented", func(t *testing.T) {
-		// Given a MockVirt with a custom DeleteFunc
-		mockVirt := NewMockVirt()
-		mockVirt.DeleteFunc = func(verbose ...bool) error {
-			return nil
-		}
-
-		// When calling Delete
-		err := mockVirt.Delete()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("DeleteFuncNotImplemented", func(t *testing.T) {
-		// Given a MockVirt without a custom DeleteFunc
-		mockVirt := NewMockVirt()
-
-		// When calling Delete
-		err := mockVirt.Delete()
 
 		// Then no error should be returned
 		if err != nil {

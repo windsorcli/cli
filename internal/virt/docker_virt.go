@@ -64,7 +64,7 @@ func (v *DockerVirt) Initialize() error {
 }
 
 // Up starts docker-compose
-func (v *DockerVirt) Up(verbose ...bool) error {
+func (v *DockerVirt) Up() error {
 	// Get the context configuration
 	contextConfig := v.configHandler.GetConfig()
 
@@ -112,14 +112,27 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 }
 
 // Down stops the Docker container
-func (v *DockerVirt) Down(verbose ...bool) error {
-	// Placeholder implementation
-	return nil
-}
+func (v *DockerVirt) Down() error {
+	// Check if Docker is enabled and run "docker-compose down" if necessary
+	if v.configHandler.GetBool("docker.enabled") {
+		// Ensure Docker daemon is running
+		if err := v.checkDockerDaemon(); err != nil {
+			return fmt.Errorf("Docker daemon is not running: %w", err)
+		}
 
-// Delete removes the Docker container
-func (v *DockerVirt) Delete(verbose ...bool) error {
-	// Placeholder implementation
+		// Get the path to the compose.yaml file
+		configRoot, err := v.contextHandler.GetConfigRoot()
+		if err != nil {
+			return fmt.Errorf("error retrieving config root: %w", err)
+		}
+		composeFilePath := filepath.Join(configRoot, "compose.yaml")
+
+		// Run docker-compose down with clean flags using the Exec function from shell.go
+		output, err := v.shell.Exec("Running docker-compose down...", "docker-compose", "-f", composeFilePath, "down", "--remove-orphans", "--volumes")
+		if err != nil {
+			return fmt.Errorf("Error executing command docker-compose down: %w\n%s", err, output)
+		}
+	}
 	return nil
 }
 

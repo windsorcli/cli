@@ -30,11 +30,8 @@ func NewColimaVirt(injector di.Injector) *ColimaVirt {
 }
 
 // Up starts the Colima VM
-func (v *ColimaVirt) Up(verbose ...bool) error {
-	if len(verbose) == 0 {
-		verbose = append(verbose, false)
-	}
-
+func (v *ColimaVirt) Up() error {
+	// Start the Colima VM
 	info, err := v.startColima()
 	if err != nil {
 		return err
@@ -48,13 +45,15 @@ func (v *ColimaVirt) Up(verbose ...bool) error {
 	return nil
 }
 
-// Down stops the Colima VM
-func (v *ColimaVirt) Down(verbose ...bool) error {
-	if len(verbose) == 0 {
-		verbose = append(verbose, false)
+// Down stops and deletes the Colima VM
+func (v *ColimaVirt) Down() error {
+	// Stop the Colima VM
+	if err := v.executeColimaCommand("stop"); err != nil {
+		return err
 	}
 
-	return v.executeColimaCommand("stop")
+	// Delete the Colima VM
+	return v.executeColimaCommand("delete")
 }
 
 // GetVMInfo returns the information about the Colima VM
@@ -212,15 +211,6 @@ func (v *ColimaVirt) PrintInfo() error {
 	fmt.Println()
 
 	return nil
-}
-
-// Delete removes the Colima VM
-func (v *ColimaVirt) Delete(verbose ...bool) error {
-	if len(verbose) == 0 {
-		verbose = append(verbose, false)
-	}
-
-	return v.executeColimaCommand("delete")
 }
 
 // Ensure ColimaVirt implements Virt and VirtualMachine

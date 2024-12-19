@@ -6,6 +6,7 @@ type MockContext struct {
 	GetContextFunc    func() string              // Function to mock GetContext
 	SetContextFunc    func(context string) error // Function to mock SetContext
 	GetConfigRootFunc func() (string, error)     // Function to mock GetConfigRoot
+	CleanFunc         func() error               // Function to mock Clean
 }
 
 // NewMockContext creates a new instance of MockContext
@@ -43,6 +44,14 @@ func (m *MockContext) GetConfigRoot() (string, error) {
 		return m.GetConfigRootFunc()
 	}
 	return "/mock/config/root", nil
+}
+
+// Clean calls the mock CleanFunc if set, otherwise returns nil
+func (m *MockContext) Clean() error {
+	if m.CleanFunc != nil {
+		return m.CleanFunc()
+	}
+	return nil
 }
 
 // Ensure MockContext implements the ContextHandler interface

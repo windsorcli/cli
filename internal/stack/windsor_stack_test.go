@@ -166,6 +166,30 @@ func TestWindsorStack_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorRunningPostEnvHook", func(t *testing.T) {
+		// Given envPrinter is mocked to return an error
+		mocks := setupSafeMocks()
+		mocks.EnvPrinter.PostEnvHookFunc = func() error {
+			return fmt.Errorf("mock error running post environment hook")
+		}
+
+		// When a new WindsorStack is created, initialized, and Up is called
+		stack := NewWindsorStack(mocks.Injector)
+		err := stack.Initialize()
+		// Then no error should occur during initialization
+		if err != nil {
+			t.Fatalf("Expected no error during initialization, got %v", err)
+		}
+
+		// And when Up is called
+		err = stack.Up()
+		// Then the expected error is contained in err
+		expectedError := "error running post environment hook"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
 	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
 		// Given shell.Exec is mocked to return an error
 		mocks := setupSafeMocks()
@@ -242,6 +266,34 @@ func TestWindsorStack_Up(t *testing.T) {
 		err = stack.Up()
 		// Then the expected error is contained in err
 		expectedError := "error running 'terraform apply'"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorRemovingBackendOverride", func(t *testing.T) {
+		// Given osStat is mocked to return nil (indicating the file exists)
+		mocks := setupSafeMocks()
+
+		// And osRemove is mocked to return an error
+		originalOsRemove := osRemove
+		defer func() { osRemove = originalOsRemove }()
+		osRemove = func(_ string) error {
+			return fmt.Errorf("mock error removing backend_override.tf")
+		}
+
+		// When a new WindsorStack is created, initialized, and Up is called
+		stack := NewWindsorStack(mocks.Injector)
+		err := stack.Initialize()
+		// Then no error should occur during initialization
+		if err != nil {
+			t.Fatalf("Expected no error during initialization, got %v", err)
+		}
+
+		// And when Up is called
+		err = stack.Up()
+		// Then the expected error is contained in err
+		expectedError := "error removing backend_override.tf"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
