@@ -544,6 +544,12 @@ func TestTerraformEnv_Print(t *testing.T) {
 			t.Errorf("unexpected error: %v", err)
 		}
 
+		// Determine the expected OS type
+		expectedOSType := "unix"
+		if goos() == "windows" {
+			expectedOSType = "windows"
+		}
+
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":         filepath.FromSlash("/mock/config/root/.terraform/project/path"),
@@ -553,7 +559,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 			"TF_CLI_ARGS_import":  "",
 			"TF_CLI_ARGS_destroy": "",
 			"TF_VAR_context_path": filepath.FromSlash("/mock/config/root"),
-			"TF_VAR_os_type":      "unix",
+			"TF_VAR_os_type":      expectedOSType,
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
