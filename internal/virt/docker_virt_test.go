@@ -247,7 +247,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		}
 
 		// Call the Up method with verbose mode enabled
-		err := dockerVirt.Up(true)
+		err := dockerVirt.Up()
 
 		// Assert no error occurred
 		if err != nil {
@@ -408,20 +408,123 @@ func TestDockerVirt_Up(t *testing.T) {
 
 func TestDockerVirt_Down(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		dockerVirt := &DockerVirt{}
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.Initialize()
+
+		// Mock the shell Exec function to simulate successful docker info and docker-compose down commands
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "info" {
+				return "docker info", nil
+			}
+			if command == "docker-compose" && len(args) > 2 && args[2] == "down" {
+				return "docker-compose down", nil
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+
+		// Call the Down method
 		err := dockerVirt.Down()
+
+		// Assert no error occurred
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
 	})
-}
 
-func TestDockerVirt_Delete(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		dockerVirt := &DockerVirt{}
-		err := dockerVirt.Delete()
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
+	t.Run("DockerDaemonNotRunning", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.Initialize()
+
+		// Mock the shell Exec function to simulate Docker daemon not running
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "info" {
+				return "", fmt.Errorf("Docker daemon is not running")
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+
+		// Call the Down method
+		err := dockerVirt.Down()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Verify that the error message is as expected
+		expectedErrorMsg := "Docker daemon is not running"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+	})
+
+	t.Run("ErrorGetConfigRoot", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.Initialize()
+
+		// Mock the GetConfigRootFunc to return an error
+		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("error retrieving config root")
+		}
+
+		// Mock the shell Exec function to simulate successful docker info command
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "info" {
+				return "docker info", nil
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+
+		// Call the Down method
+		err := dockerVirt.Down()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Verify that the error message is as expected
+		expectedErrorMsg := "error retrieving config root"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+	})
+
+	t.Run("ErrorDockerComposeDown", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.Initialize()
+
+		// Mock the shell Exec function to simulate successful docker info command
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "info" {
+				return "docker info", nil
+			}
+			if command == "docker-compose" && len(args) > 0 && args[0] == "-f" && args[2] == "down" {
+				return "", fmt.Errorf("error executing docker-compose down")
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+
+		// Call the Down method
+		err := dockerVirt.Down()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Verify that the error message is as expected
+		expectedErrorMsg := "error executing docker-compose down"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
 	})
 }

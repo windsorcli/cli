@@ -250,49 +250,6 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 	})
 }
 
-// TestColimaVirt_Delete tests the Delete method of ColimaVirt.
-func TestColimaVirt_Delete(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// Mock the necessary methods to simulate a successful delete
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
-			return "VM deleted successfully", nil
-		}
-
-		// When calling Delete
-		err := colimaVirt.Delete()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("Error", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// Mock the necessary methods to return an error
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
-			return "", fmt.Errorf("mock error")
-		}
-
-		// When calling Delete
-		err := colimaVirt.Delete()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-	})
-}
-
 func TestColimaVirt_PrintInfo(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mock components

@@ -36,9 +36,8 @@ type ContainerInfo struct {
 // Virt defines methods for the virt operations
 type Virt interface {
 	Initialize() error
-	Up(verbose ...bool) error
-	Down(verbose ...bool) error
-	Delete(verbose ...bool) error
+	Up() error
+	Down() error
 	PrintInfo() error
 	WriteConfig() error
 }

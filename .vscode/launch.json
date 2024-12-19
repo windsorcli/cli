@@ -37,5 +37,18 @@
         "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
       }
     },
+    {
+      "name": "Windsor Down",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/windsor/main.go",
+      "args": ["down", "--verbose"],
+      "env": {
+        "COMPOSE_FILE": "${workspaceFolder}/contexts/local/compose.yaml",
+        "WINDSOR_CONTEXT": "local",
+        "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
+      }
+    },
   ]
 }
