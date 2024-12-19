@@ -74,6 +74,13 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(strings.Join(varFileArgs, " "))
 	envVars["TF_VAR_context_path"] = strings.TrimSpace(configRoot)
 
+	// Set TF_VAR_os_type based on the operating system
+	if goos() == "windows" {
+		envVars["TF_VAR_os_type"] = "windows"
+	} else {
+		envVars["TF_VAR_os_type"] = "unix"
+	}
+
 	return envVars, nil
 }
 
