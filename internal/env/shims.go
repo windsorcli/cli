@@ -3,6 +3,7 @@ package env
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/goccy/go-yaml"
 )
@@ -25,4 +26,9 @@ var yamlUnmarshal = yaml.Unmarshal
 // stringPtr returns a pointer to a string value
 func stringPtr(s string) *string {
 	return &s
+}
+
+// Define a variable for runtime.GOOS for easier testing
+var goos = func() string {
+	return runtime.GOOS
 }

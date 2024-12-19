@@ -242,6 +242,61 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
 	})
+
+	t.Run("TestWindows", func(t *testing.T) {
+		originalGoos := goos
+		defer func() { goos = originalGoos }()
+		goos = func() string {
+			return "windows"
+		}
+
+		mocks := setupSafeTerraformEnvMocks()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+
+		// Mock the getwd function to simulate being in a terraform project path
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+		getwd = func() (string, error) {
+			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
+		}
+
+		// Mock the glob function to simulate the presence of *.tf files
+		originalGlob := glob
+		defer func() { glob = originalGlob }()
+		glob = func(pattern string) ([]string, error) {
+			if strings.Contains(pattern, "*.tf") {
+				return []string{"main.tf"}, nil
+			}
+			return nil, nil
+		}
+
+		// Mock the stat function to simulate the existence of tfvars files
+		originalStat := stat
+		defer func() { stat = originalStat }()
+		stat = func(name string) (os.FileInfo, error) {
+			if name == filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars") {
+				return nil, nil // Simulate file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock the GetEnvVars function to verify it returns the correct envVars
+		envVars, err := terraformEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that GetEnvVars returns the correct envVars
+		expectedEnvVars := map[string]string{
+			"TF_VAR_os_type": "windows",
+		}
+		if envVars == nil {
+			t.Errorf("envVars is nil, expected %v", expectedEnvVars)
+		} else if value, exists := envVars["TF_VAR_os_type"]; !exists || value != expectedEnvVars["TF_VAR_os_type"] {
+			t.Errorf("envVars[TF_VAR_os_type] = %v, want %v", value, expectedEnvVars["TF_VAR_os_type"])
+		}
+	})
 }
 
 func TestTerraformEnv_PostEnvHook(t *testing.T) {
@@ -498,6 +553,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 			"TF_CLI_ARGS_import":  "",
 			"TF_CLI_ARGS_destroy": "",
 			"TF_VAR_context_path": filepath.FromSlash("/mock/config/root"),
+			"TF_VAR_os_type":      "unix",
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
