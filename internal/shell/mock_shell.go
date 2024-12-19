@@ -12,6 +12,8 @@ type MockShell struct {
 	PrintAliasFunc     func(envVars map[string]string) error
 	GetProjectRootFunc func() (string, error)
 	ExecFunc           func(message string, command string, args ...string) (string, error)
+	ExecSilentFunc     func(command string, args ...string) (string, error)
+	ExecProgressFunc   func(message string, command string, args ...string) (string, error)
 }
 
 // NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
@@ -63,6 +65,22 @@ func (s *MockShell) GetProjectRoot() (string, error) {
 func (s *MockShell) Exec(message string, command string, args ...string) (string, error) {
 	if s.ExecFunc != nil {
 		return s.ExecFunc(message, command, args...)
+	}
+	return "", nil
+}
+
+// ExecSilent calls the custom ExecSilentFunc if provided.
+func (s *MockShell) ExecSilent(command string, args ...string) (string, error) {
+	if s.ExecSilentFunc != nil {
+		return s.ExecSilentFunc(command, args...)
+	}
+	return "", nil
+}
+
+// ExecProgress calls the custom ExecProgressFunc if provided.
+func (s *MockShell) ExecProgress(message string, command string, args ...string) (string, error) {
+	if s.ExecProgressFunc != nil {
+		return s.ExecProgressFunc(message, command, args...)
 	}
 	return "", nil
 }

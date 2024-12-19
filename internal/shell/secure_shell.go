@@ -93,5 +93,17 @@ func (s *SecureShell) Exec(message string, command string, args ...string) (stri
 	return output, nil
 }
 
+// ExecProgress executes a command and returns its output as a string
+func (s *SecureShell) ExecProgress(message string, command string, args ...string) (string, error) {
+	// Not yet implemented for SecureShell
+	return s.Exec(message, command, args...)
+}
+
+// ExecSilent executes a command and returns its output as a string without printing to stdout or stderr
+func (s *SecureShell) ExecSilent(command string, args ...string) (string, error) {
+	// Not yet implemented for SecureShell
+	return s.Exec("", command, args...)
+}
+
 // Ensure SecureShell implements the Shell interface
 var _ Shell = (*SecureShell)(nil)

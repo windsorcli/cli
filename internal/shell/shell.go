@@ -28,6 +28,10 @@ type Shell interface {
 	GetProjectRoot() (string, error)
 	// Exec executes a command with optional privilege elevation
 	Exec(message string, command string, args ...string) (string, error)
+	// ExecSilent executes a command and returns its output as a string without printing to stdout or stderr
+	ExecSilent(command string, args ...string) (string, error)
+	// ExecProgress executes a command and returns its output as a string while displaying progress status
+	ExecProgress(message string, command string, args ...string) (string, error)
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -121,11 +125,8 @@ func (s *DefaultShell) Exec(message string, command string, args ...string) (str
 		return "", fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
-	// Determine if passthrough should be enabled
-	passthrough := command == "sudo" || message == ""
-
-	// Print the message if it is not empty and passthrough is not enabled
-	if message != "" && !passthrough {
+	// Print the message if it is not empty
+	if message != "" {
 		fmt.Println(message)
 	}
 
@@ -146,9 +147,7 @@ func (s *DefaultShell) Exec(message string, command string, args ...string) (str
 
 	go func() {
 		<-signalChan
-		if passthrough {
-			fmt.Println("\nInterrupt received, stopping command...")
-		}
+		fmt.Println("\nInterrupt received, stopping command...")
 		if err := cmd.Process.Kill(); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to kill process: %v\n", err)
 		}
@@ -159,9 +158,7 @@ func (s *DefaultShell) Exec(message string, command string, args ...string) (str
 		scanner := bufio.NewScanner(stdoutPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
-			if passthrough {
-				fmt.Println(line) // Directly print each line
-			}
+			fmt.Println(line) // Directly print each line
 			stdoutBuf.WriteString(line + "\n")
 		}
 		if err := scanner.Err(); err != nil {
@@ -176,9 +173,7 @@ func (s *DefaultShell) Exec(message string, command string, args ...string) (str
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
-			if passthrough {
-				fmt.Fprintln(os.Stderr, line) // Print each line of stderr
-			}
+			fmt.Fprintln(os.Stderr, line) // Print each line of stderr
 			stderrBuf.WriteString(line + "\n")
 		}
 		if err := scanner.Err(); err != nil {
@@ -206,4 +201,93 @@ func (s *DefaultShell) Exec(message string, command string, args ...string) (str
 	}
 
 	return stdoutBuf.String(), nil
+}
+
+// ExecSilent executes a command and returns its output as a string without printing to stdout or stderr
+func ExecSilent(command string, args ...string) (string, error) {
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd := execCommand(command, args...)
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	// Handle sudo commands
+	if command == "sudo" {
+		cmd.Stdin = os.Stdin // Allow password input for sudo
+	}
+
+	// Wait for the command to finish
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+	}
+
+	return stdoutBuf.String(), nil
+}
+
+// ExecProgress executes a command and returns its output as a string while displaying progress status
+func ExecProgress(message string, command string, args ...string) (string, error) {
+	cmd := execCommand(command, args...)
+
+	// Set up pipes to capture stdout and stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return "", err
+	}
+
+	// Start the command execution
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+
+	var stdoutBuf, stderrBuf bytes.Buffer
+	errChan := make(chan error, 2) // Channel to capture errors from goroutines
+
+	// Goroutine to read and process stdout
+	go func() {
+		scanner := bufio.NewScanner(stdoutPipe)
+		progress := "" // Initialize progress string
+		for scanner.Scan() {
+			line := scanner.Text()
+			stdoutBuf.WriteString(line + "\n")   // Append line to stdout buffer
+			progress += "."                      // Append a dot to the progress string
+			fmt.Print("\r" + message + progress) // Print progress message with accumulated dots
+		}
+		if err := scanner.Err(); err != nil {
+			errChan <- fmt.Errorf("error reading stdout: %w", err)
+		} else {
+			errChan <- nil
+		}
+	}()
+
+	// Goroutine to read and process stderr
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			stderrBuf.WriteString(line + "\n") // Append line to stderr buffer
+		}
+		if err := scanner.Err(); err != nil {
+			errChan <- fmt.Errorf("error reading stderr: %w", err)
+		} else {
+			errChan <- nil
+		}
+	}()
+
+	// Wait for the command to complete
+	if err := cmdWait(cmd); err != nil {
+		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+	}
+
+	// Check for errors from the stdout and stderr goroutines
+	for i := 0; i < 2; i++ {
+		if err := <-errChan; err != nil {
+			return "", err
+		}
+	}
+
+	return stdoutBuf.String(), nil // Return the captured stdout as a string
 }

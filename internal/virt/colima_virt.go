@@ -280,7 +280,7 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 
 	command := "colima"
 	args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
-	output, err := v.shell.Exec(fmt.Sprintf("Running %s %s", command, strings.Join(args, " ")), command, args...)
+	output, err := v.shell.ExecProgress(fmt.Sprintf("Running %s %s", command, strings.Join(args, " ")), command, args...)
 	if err != nil {
 		return VMInfo{}, fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 	}
