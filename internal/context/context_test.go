@@ -2,6 +2,7 @@ package context
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -275,6 +276,94 @@ func TestContext_GetConfigRoot(t *testing.T) {
 		expectedError := "error getting project root"
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %s, got %s", expectedError, err.Error())
+		}
+	})
+}
+
+func TestContext_Clean(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock context handler
+		mocks := setSafeContextMocks()
+
+		// When calling Clean
+		contextHandler := NewContextHandler(mocks.Injector)
+		err := contextHandler.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		mocks.MockConfigHandler.Set("context", "test-context")
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+
+		err = contextHandler.Clean()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
+		// Given a mock context handler that returns an error when getting the config root
+		mocks := setSafeContextMocks()
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("error getting project root")
+		}
+
+		contextHandler := NewContextHandler(mocks.Injector)
+		err := contextHandler.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// When calling Clean
+		err = contextHandler.Clean()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected error, got none")
+		}
+		expectedError := "error getting config root: error getting project root"
+		if err.Error() != expectedError {
+			t.Fatalf("expected error %s, got %s", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorDeletingDirectory", func(t *testing.T) {
+		// Given a mock context handler
+		mocks := setSafeContextMocks()
+
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+
+		// Mock osStat to simulate the directory exists
+		osStat = func(_ string) (os.FileInfo, error) {
+			return nil, nil
+		}
+
+		// Mock osRemoveAll to return an error
+		osRemoveAll = func(path string) error {
+			return fmt.Errorf("error deleting %s", path)
+		}
+
+		contextHandler := NewContextHandler(mocks.Injector)
+		err := contextHandler.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// When calling Clean
+		err = contextHandler.Clean()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected error, got none")
+		}
+		if !strings.Contains(err.Error(), "error deleting") {
+			t.Fatalf("expected error containing 'error deleting', got %s", err.Error())
 		}
 	})
 }

@@ -15,6 +15,7 @@ type ContextHandler interface {
 	GetContext() string              // Retrieves the current context
 	SetContext(context string) error // Sets the current context
 	GetConfigRoot() (string, error)  // Retrieves the configuration root path
+	Clean() error                    // Cleans up context specific artifacts
 }
 
 // BaseContextHandler implements the ContextHandlerInterface
@@ -80,4 +81,25 @@ func (c *BaseContextHandler) GetConfigRoot() (string, error) {
 
 	configRoot := filepath.Join(projectRoot, "contexts", context)
 	return configRoot, nil
+}
+
+// Clean cleans up context specific artifacts
+func (c *BaseContextHandler) Clean() error {
+	configRoot, err := c.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error getting config root: %w", err)
+	}
+
+	dirsToDelete := []string{".kube", ".talos", ".omni", ".aws", ".terraform", ".tfstate"}
+
+	for _, dir := range dirsToDelete {
+		path := filepath.Join(configRoot, dir)
+		if _, err := osStat(path); err == nil {
+			if err := osRemoveAll(path); err != nil {
+				return fmt.Errorf("error deleting %s: %w", path, err)
+			}
+		}
+	}
+
+	return nil
 }

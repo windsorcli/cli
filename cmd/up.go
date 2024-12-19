@@ -58,7 +58,7 @@ var upCmd = &cobra.Command{
 			if virtualMachine == nil {
 				return fmt.Errorf("No virtual machine found")
 			}
-			if err := virtualMachine.Up(verbose); err != nil {
+			if err := virtualMachine.Up(); err != nil {
 				return fmt.Errorf("Error running virtual machine Up command: %w", err)
 			}
 		}
@@ -75,7 +75,7 @@ var upCmd = &cobra.Command{
 			}
 
 			// Run the container runtime Up command
-			if err := containerRuntime.Up(verbose); err != nil {
+			if err := containerRuntime.Up(); err != nil {
 				return fmt.Errorf("Error running container runtime Up command: %w", err)
 			}
 		}
