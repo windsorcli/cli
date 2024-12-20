@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 type TalosEnvMocks struct {
@@ -88,8 +88,9 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		if envVars["TALOSCONFIG"] != "" {
-			t.Errorf("TALOSCONFIG = %v, want empty", envVars["TALOSCONFIG"])
+		expectedPath := filepath.FromSlash("/mock/config/root/.talos/config")
+		if envVars["TALOSCONFIG"] != expectedPath {
+			t.Errorf("TALOSCONFIG = %v, want %v", envVars["TALOSCONFIG"], expectedPath)
 		}
 	})
 

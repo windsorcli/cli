@@ -1,21 +1,17 @@
 package cmd
 
 import (
-	"bytes"
 	"fmt"
-	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/env"
-	"github.com/windsor-hotel/cli/internal/mocks"
+	ctrl "github.com/windsorcli/cli/internal/controller"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/env"
 )
 
 func TestEnvCmd(t *testing.T) {
 	originalExitFunc := exitFunc
-	exitFunc = func(code int) {
-		mockExit(code, "")
-	}
+	exitFunc = mockExit
 	t.Cleanup(func() {
 		exitFunc = originalExitFunc
 	})
@@ -24,22 +20,23 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Initialize mocks and set the injector
-		mocks := mocks.CreateSuperMocks()
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
 
-		// Create a mock WindsorEnv
+		// Mock the GetEnvPrinters method to return the mockEnv
 		mockEnv := env.NewMockEnvPrinter()
 		mockEnv.PrintFunc = func() error {
 			fmt.Println("export VAR=value")
 			return nil
 		}
-		mocks.Injector.Register("windsorEnv", mockEnv)
-
-		Initialize(mocks.Injector)
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnv}
+		}
 
 		// Capture the output using captureStdout
 		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"env"})
-			err := rootCmd.Execute()
+			rootCmd.SetArgs([]string{"env", "--verbose"})
+			err := Execute(mockController)
 			if err != nil {
 				t.Fatalf("Expected no error, got %v", err)
 			}
@@ -52,220 +49,275 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolveEnvError", func(t *testing.T) {
+	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
 		defer resetRootCmd()
 
-		// Given a local injector that returns an error when resolving env
-		mockInjector := di.NewMockInjector()
-		mockInjector.SetResolveAllError(fmt.Errorf("resolve env error"))
-		mocks := mocks.CreateSuperMocks(mockInjector)
+		// Save the original controller and restore it after the test
+		originalController := controller
+		defer func() {
+			controller = originalController
+		}()
 
-		Initialize(mocks.Injector)
+		// Given a mock controller that returns an error when creating environment components
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockController.CreateEnvComponentsFunc = func() error {
+			return fmt.Errorf("error creating environment components")
+		}
 
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
+		// Set the global controller to the mock controller
+		controller = mockController
 
 		// When the env command is executed with verbose flag
 		rootCmd.SetArgs([]string{"env", "--verbose"})
-		err := rootCmd.Execute()
+		err := Execute(mockController)
+
+		// Then check the error contents
 		if err == nil {
-			t.Fatalf("Expected error, got nil")
+			t.Fatalf("Expected an error, got nil")
 		}
-
-		output := buf.String()
-
-		// Then the output should indicate the error
-		expectedOutput := "Error resolving environments: resolve env error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		expectedError := "Error creating environment components: error creating environment components"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("ResolveEnvErrorWithoutVerbose", func(t *testing.T) {
+	t.Run("ErrorCreatingEnvComponentsWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
 
-		// Given a local injector that returns an error when resolving env
-		mockInjector := di.NewMockInjector()
-		mockInjector.SetResolveAllError(fmt.Errorf("resolve env error"))
-		mocks := mocks.CreateSuperMocks(mockInjector)
+		// Given a mock controller that returns an error when creating environment components
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockController.CreateEnvComponentsFunc = func() error {
+			return fmt.Errorf("error creating environment components")
+		}
 
-		Initialize(mocks.Injector)
-
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
+		// Set the global controller to the mock controller
+		controller = mockController
 
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
-		err := rootCmd.Execute()
-		// Then the error should be nil and no output should be produced
-		if err != nil {
-			t.Fatalf("Expected error nil, got %v", err)
-		}
-
-		// Then there should be no output
-		if buf.Len() != 0 {
-			t.Fatalf("Expected no output, got %s", buf.String())
-		}
-	})
-
-	t.Run("GetEnvVarsErrorWithoutVerbose", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Given a mock environment that returns an error when getting environment variables
-		mocks := mocks.CreateSuperMocks()
-		mockEnv := mocks.WindsorEnv
-		mockEnv.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, fmt.Errorf("get env vars error")
-		}
-		mockEnv.PostEnvHookFunc = func() error {
-			return nil
-		}
-
-		Initialize(mocks.Injector)
-
-		// Capture the output
-		var buf bytes.Buffer
-		rootCmd.SetOut(&buf)
-		rootCmd.SetErr(&buf)
-
-		// When the env command is executed without verbose flag
-		rootCmd.SetArgs([]string{"env"})
-		err := rootCmd.Execute()
+		err := Execute(mockController)
 
 		// Then the error should be nil and no output should be produced
 		if err != nil {
 			t.Fatalf("Expected error nil, got %v", err)
 		}
-		if buf.Len() != 0 {
-			t.Fatalf("Expected no output, got %s", buf.String())
-		}
 	})
 
-	t.Run("ErrorPrinting", func(t *testing.T) {
+	t.Run("ErrorInitializingComponents", func(t *testing.T) {
 		defer resetRootCmd()
 
-		// Given an env that returns an error when executing Print
-		mocks := mocks.CreateSuperMocks()
-		mockEnv := mocks.WindsorEnv
-		mockEnv.PrintFunc = func() error {
-			return fmt.Errorf("print error")
-		}
-		mockEnv.PostEnvHookFunc = func() error {
-			return nil
+		// Given a mock controller that returns an error when initializing components
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockController.InitializeComponentsFunc = func() error {
+			return fmt.Errorf("error initializing components")
 		}
 
-		Initialize(mocks.Injector)
+		// Set the global controller to the mock controller
+		controller = mockController
 
 		// When the env command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mockController)
 
-		// Then the output should indicate the error
-		expectedOutput := "Error executing Print: print error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error initializing components: error initializing components"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("ErrorPrintingWithoutVerbose", func(t *testing.T) {
+	t.Run("ErrorInitializingComponentsWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
 
-		// Given an env that returns an error when executing Print
-		mocks := mocks.CreateSuperMocks()
-		mockEnv := mocks.WindsorEnv
-		mockEnv.PrintFunc = func() error {
-			return fmt.Errorf("print error")
+		// Given a mock controller that returns an error when initializing components
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockController.InitializeComponentsFunc = func() error {
+			return fmt.Errorf("error initializing components")
 		}
-		mockEnv.PostEnvHookFunc = func() error {
+
+		// Set the global controller to the mock controller
+		controller = mockController
+
+		// When the env command is executed without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute(mockController)
+
+		// Then the error should be nil and no output should be produced
+		if err != nil {
+			t.Fatalf("Expected error nil, got %v", err)
+		}
+	})
+
+	t.Run("ResolveAllEnvPrintersErrorWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller that returns an error when resolving all environment printers
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
 			return nil
 		}
 
-		Initialize(mocks.Injector)
+		// Set the global controller to the mock controller
+		controller = mockController
 
-		// Capture the output
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"env"})
-			err := rootCmd.Execute()
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
+		// When the env command is executed without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute(mockController)
 
-		// Then the output should not indicate the error
-		unexpectedOutput := "Error executing Print: print error"
-		if strings.Contains(output, unexpectedOutput) {
-			t.Errorf("Did not expect output to contain %q, got %q", unexpectedOutput, output)
+		// Then the error should be nil and no output should be produced
+		if err != nil {
+			t.Fatalf("Expected error nil, got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingAllEnvPrinters", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller that returns an empty list of environment printers
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{}
+		}
+
+		// Set the global controller to the mock controller
+		controller = mockController
+
+		// When the env command is executed with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mockController)
+
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error resolving environment printers: no printers returned"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("PrintError", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller that returns a valid list of environment printers
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.PrintFunc = func() error {
+			return fmt.Errorf("print error")
+		}
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnvPrinter}
+		}
+
+		// Set the global controller to the mock controller
+		controller = mockController
+
+		// When the env command is executed with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mockController)
+
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error executing Print: print error"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("PrintErrorWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller that returns a valid list of environment printers
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.PrintFunc = func() error {
+			return fmt.Errorf("print error")
+		}
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnvPrinter}
+		}
+
+		// Set the global controller to the mock controller
+		controller = mockController
+
+		// When the env command is executed without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute(mockController)
+
+		// Then the error should be nil and no output should be produced
+		if err != nil {
+			t.Fatalf("Expected error nil, got %v", err)
 		}
 	})
 
 	t.Run("PostEnvHookError", func(t *testing.T) {
 		defer resetRootCmd()
 
-		// Given an env that returns an error when executing PostEnvHook
-		mocks := mocks.CreateSuperMocks()
-		mockEnv := mocks.WindsorEnv
-		mockEnv.PrintFunc = func() error {
-			return nil
-		}
-		mockEnv.PostEnvHookFunc = func() error {
+		// Given a mock controller that returns a valid list of environment printers
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.PostEnvHookFunc = func() error {
 			return fmt.Errorf("post env hook error")
 		}
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnvPrinter}
+		}
 
-		Initialize(mocks.Injector)
+		// Set the global controller to the mock controller
+		controller = mockController
 
 		// When the env command is executed with verbose flag
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := rootCmd.Execute()
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mockController)
 
-		// Then the output should indicate the error
-		expectedOutput := "Error executing PostEnvHook: post env hook error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error executing PostEnvHook: post env hook error"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
 	t.Run("PostEnvHookErrorWithoutVerbose", func(t *testing.T) {
 		defer resetRootCmd()
 
-		// Given an env that returns an error when executing PostEnvHook
-		mocks := mocks.CreateSuperMocks()
-		mockEnv := mocks.WindsorEnv
-		mockEnv.PrintFunc = func() error {
-			return nil
-		}
-		mockEnv.PostEnvHookFunc = func() error {
+		// Given a mock controller that returns a valid list of environment printers
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.PostEnvHookFunc = func() error {
 			return fmt.Errorf("post env hook error")
 		}
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnvPrinter}
+		}
 
-		Initialize(mocks.Injector)
-
-		// Capture the output
-		var buf bytes.Buffer
-		rootCmd.SetOut(&buf)
-		rootCmd.SetErr(&buf)
+		// Set the global controller to the mock controller
+		controller = mockController
 
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
-		err := rootCmd.Execute()
+		err := Execute(mockController)
 
 		// Then the error should be nil and no output should be produced
 		if err != nil {
 			t.Fatalf("Expected error nil, got %v", err)
-		}
-		if buf.Len() != 0 {
-			t.Fatalf("Expected no output, got %s", buf.String())
 		}
 	})
 }

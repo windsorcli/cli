@@ -2,8 +2,8 @@ package constants
 
 // Default git livereload settings
 const (
-	// renovate: datasource=docker depName=ghcr.io/windsor-hotel/git-livereload-server
-	DEFAULT_GIT_LIVE_RELOAD_IMAGE         = "ghcr.io/windsor-hotel/git-livereload-server:v0.2.1"
+	// renovate: datasource=docker depName=ghcr.io/windsorcli/git-livereload-server
+	DEFAULT_GIT_LIVE_RELOAD_IMAGE         = "ghcr.io/windsorcli/git-livereload-server:v0.2.1"
 	DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE = ".docker-cache,.terraform,data,.venv"
 	DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT = "flux-system"
 	DEFAULT_GIT_LIVE_RELOAD_USERNAME      = "local"
@@ -32,4 +32,9 @@ const (
 // Default DNS settings
 const (
 	DEFAULT_DNS_IMAGE = "coredns/coredns:1.11.3"
+)
+
+// Default Registry settings
+const (
+	REGISTRY_DEFAULT_IMAGE = "registry:2.8.3"
 )

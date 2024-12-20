@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/getsops/sops/v3/decrypt"
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 var decryptFileFunc = decrypt.File

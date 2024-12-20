@@ -7,92 +7,120 @@ import (
 )
 
 var upCmd = &cobra.Command{
-	Use:   "up",
-	Short: "Set up the Windsor environment",
-	Long:  "Set up the Windsor environment by executing necessary shell commands.",
+	Use:          "up",
+	Short:        "Set up the Windsor environment",
+	Long:         "Set up the Windsor environment by executing necessary shell commands.",
+	SilenceUsage: true,
+	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Determine if Colima is being used
-		driver := configHandler.GetString("vm.driver")
+		// Create environment components
+		if err := controller.CreateEnvComponents(); err != nil {
+			return fmt.Errorf("Error creating environment components: %w", err)
+		}
 
-		// Determine if Docker is being used
-		dockerEnabled := configHandler.GetBool("docker.enabled")
+		// Create virtualization components
+		if err := controller.CreateVirtualizationComponents(); err != nil {
+			return fmt.Errorf("Error creating virtualization components: %w", err)
+		}
 
-		// Get the DNS name
-		dnsName := configHandler.GetString("dns.name")
+		// Create service components
+		if err := controller.CreateServiceComponents(); err != nil {
+			return fmt.Errorf("Error creating services components: %w", err)
+		}
 
-		// Initialize the DNS address
-		dnsAddress := ""
+		// Create stack components
+		if err := controller.CreateStackComponents(); err != nil {
+			return fmt.Errorf("Error creating stack components: %w", err)
+		}
 
-		// Get the DNS create flag
-		createDns := configHandler.GetBool("dns.create")
+		// Initialize all components
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
+		}
 
-		// Start Colima if it is being used
-		if driver == "colima" {
-			// Write the Colima configuration
-			if err := colimaVirt.WriteConfig(); err != nil {
-				return fmt.Errorf("Error writing Colima config: %w", err)
+		// Write configuration files
+		if err := controller.WriteConfigurationFiles(); err != nil {
+			return fmt.Errorf("Error writing configuration files: %w", err)
+		}
+
+		// Resolve the config handler
+		configHandler := controller.ResolveConfigHandler()
+		if configHandler == nil {
+			return fmt.Errorf("No config handler found")
+		}
+
+		// Determine if a virtualization driver is being used
+		vmDriver := configHandler.GetString("vm.driver")
+
+		// Start the virtual machine if enabled in configuration
+		if vmDriver != "" {
+			virtualMachine := controller.ResolveVirtualMachine()
+			if virtualMachine == nil {
+				return fmt.Errorf("No virtual machine found")
 			}
-
-			// Start the Colima VM
-			if err := colimaVirt.Up(verbose); err != nil {
-				return fmt.Errorf("Error running Colima VM Up command: %w", err)
+			if err := virtualMachine.Up(); err != nil {
+				return fmt.Errorf("Error running virtual machine Up command: %w", err)
 			}
 		}
 
-		// Start Docker if it is being used
-		if dockerEnabled {
-			// Write the Docker configuration
-			if err := dockerVirt.WriteConfig(); err != nil {
-				return fmt.Errorf("Error writing Docker config: %w", err)
+		// Start the container runtime if enabled in configuration
+		containerRuntimeEnabled := configHandler.GetBool("docker.enabled")
+
+		// Configure container runtime if enabled in configuration
+		if containerRuntimeEnabled {
+			// Resolve container runtime
+			containerRuntime := controller.ResolveContainerRuntime()
+			if containerRuntime == nil {
+				return fmt.Errorf("No container runtime found")
 			}
 
-			// Write the DNS configuration
-			if createDns {
-				if err := dnsHelper.WriteConfig(); err != nil {
-					return fmt.Errorf("Error writing DNS config: %w", err)
-				}
-			}
-
-			// Start the Docker VM
-			if err := dockerVirt.Up(verbose); err != nil {
-				return fmt.Errorf("Error running DockerVirt Up command: %w", err)
-			}
-
-			// Get the DNS address
-			if dnsName != "" {
-				dnsService, err := dockerVirt.GetContainerInfo("dns.test")
-				if err != nil {
-					return fmt.Errorf("Error getting DNS service: %w", err)
-				}
-				if len(dnsService) == 0 {
-					return fmt.Errorf("DNS service not found")
-				}
-				dnsAddress = dnsService[0].Address
+			// Run the container runtime Up command
+			if err := containerRuntime.Up(); err != nil {
+				return fmt.Errorf("Error running container runtime Up command: %w", err)
 			}
 		}
 
-		// Configure the network for Colima
-		if driver == "colima" {
-			if err := colimaNetworkManager.ConfigureGuest(); err != nil {
+		// Configure networking only if a VM driver is defined
+		if vmDriver != "" {
+			// Get the DNS name and address
+			dnsName := configHandler.GetString("dns.name")
+			dnsAddress := configHandler.GetString("dns.address")
+
+			// Resolve networkManager
+			networkManager := controller.ResolveNetworkManager()
+			if networkManager == nil {
+				return fmt.Errorf("No network manager found")
+			}
+
+			// Configure the guest network
+			if err := networkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("Error configuring guest network: %w", err)
 			}
-			if err := colimaNetworkManager.ConfigureHostRoute(); err != nil {
+
+			// Configure the host route for the network
+			if err := networkManager.ConfigureHostRoute(); err != nil {
 				return fmt.Errorf("Error configuring host network: %w", err)
 			}
-		}
 
-		// Configure DNS if dns.name is set
-		if dnsName != "" && dnsAddress != "" {
-
-			// Begin hack to get the DNS address into the config
-			configData := configHandler.GetConfig()
-			configData.DNS.Address = &dnsAddress
-			// End hack
-
-			if err := colimaNetworkManager.ConfigureDNS(); err != nil {
-				return fmt.Errorf("Error configuring DNS: %w", err)
+			// Configure DNS if dns.name is set
+			if dnsName != "" && dnsAddress != "" {
+				if err := networkManager.ConfigureDNS(); err != nil {
+					return fmt.Errorf("Error configuring DNS: %w", err)
+				}
 			}
 		}
+
+		// Stack up
+		stack := controller.ResolveStack()
+		if stack == nil {
+			return fmt.Errorf("No stack found")
+		}
+		if err := stack.Up(); err != nil {
+			return fmt.Errorf("Error running stack Up command: %w", err)
+		}
+
+		// Print success message
+		fmt.Println("Windsor environment set up successfully.")
 
 		return nil
 	},

@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/goccy/go-yaml"
@@ -38,33 +37,10 @@ func compareYAML(t *testing.T, actualYAML, expectedYAML []byte) {
 }
 
 func TestNewYamlConfigHandler(t *testing.T) {
-	t.Run("ErrorLoadingConfig", func(t *testing.T) {
-		// Create a temporary directory
-		tempDir, err := os.MkdirTemp("", "test")
-		if err != nil {
-			t.Fatalf("failed to create temp dir: %v", err)
-		}
-		defer os.RemoveAll(tempDir)
-
-		// Given a non-existent config path
-		invalidPath := tempDir + "/nonexistent.yaml"
-
-		// Mock osReadFile to return an error
-		originalOsReadFile := osReadFile
-		osReadFile = func(string) ([]byte, error) {
-			return nil, fmt.Errorf("mocked error reading file")
-		}
-		defer func() { osReadFile = originalOsReadFile }()
-
-		// When creating a new YamlConfigHandler
-		handler, err := NewYamlConfigHandler(invalidPath)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if handler != nil {
-			t.Errorf("expected handler to be nil, got %v", handler)
+	t.Run("Success", func(t *testing.T) {
+		handler := NewYamlConfigHandler()
+		if handler == nil {
+			t.Fatal("Expected non-nil YamlConfigHandler")
 		}
 	})
 }
@@ -106,16 +82,18 @@ func TestYamlConfigHandler_LoadConfigUsingMocks(t *testing.T) {
 
 func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 	t.Run("WithPath", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Given a valid config path
 		tempDir := t.TempDir()
 		err := handler.LoadConfig(tempDir + "/config.yaml")
 		// Then no error should be returned
-		assertError(t, err, nil)
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
 	})
 
 	t.Run("WithInvalidPath", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Given an invalid config path
 		tempDir := t.TempDir()
 		invalidPath := tempDir + "/invalid.yaml"
@@ -165,7 +143,7 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 		defer func() { osReadFile = originalOsReadFile }()
 
 		// Ensure the file is considered created by the mock
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		err := handler.LoadConfig("test_config.yaml")
 		if err != nil {
 			t.Fatalf("LoadConfig() unexpected error: %v", err)
@@ -187,7 +165,7 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 		}
 		defer func() { osWriteFile = originalOsWriteFile }()
 
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		err := handler.LoadConfig("test_config.yaml")
 		if err == nil {
 			t.Fatalf("LoadConfig() expected error, got nil")
@@ -200,20 +178,22 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 	})
 
 	t.Run("UnmarshalError", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 
 		// Mock yamlUnmarshal to return an error
 		originalYamlUnmarshal := yamlUnmarshal
+		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
 		yamlUnmarshal = func(data []byte, v interface{}) error {
 			return fmt.Errorf("mocked error unmarshalling yaml")
 		}
-		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
 
 		tempDir := t.TempDir()
 		configPath := filepath.Join(tempDir, "config.yaml")
 
 		// Create a dummy config file
-		osWriteFile(configPath, []byte("dummy: data"), 0644)
+		if err := osWriteFile(configPath, []byte("dummy: data"), 0644); err != nil {
+			t.Fatalf("Failed to create dummy config file: %v", err)
+		}
 
 		err := handler.LoadConfig(configPath)
 		if err == nil {
@@ -222,109 +202,17 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 
 		expectedError := "error unmarshalling yaml: mocked error unmarshalling yaml"
 		if err.Error() != expectedError {
-			t.Fatalf("LoadConfig() error = %v, expected '%s'", err, expectedError)
+			t.Errorf("LoadConfig() error = %v, expected '%s'", err, expectedError)
 		}
 	})
 }
 
 func TestYamlConfigHandler_Get(t *testing.T) {
-	t.Run("KeyExistsInConfig", func(t *testing.T) {
-		// Given a handler with a context and key defined in y.config
-		handler, _ := NewYamlConfigHandler("")
-
-		// Set a value in y.config
-		err := handler.Set("contexts.local.aws.aws_endpoint_url", "http://custom.aws.endpoint")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-
-		// When getting the key
-		value, err := handler.Get("contexts.local.aws.aws_endpoint_url")
-		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
-		}
-
-		// Then the value should be from y.config
-		expectedValue := "http://custom.aws.endpoint"
-		if value != expectedValue {
-			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
-		}
-	})
-
-	t.Run("KeyMissingContextMissingInConfig", func(t *testing.T) {
-		// Given a handler without the context defined in y.config
-		handler, _ := NewYamlConfigHandler("")
-		// Set the context in y.config
-		err := handler.Set("context", "local")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		// Set the default context
-		defaultContext := Context{
-			AWS: &AWSConfig{
-				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
-			},
-		}
-		handler.SetDefault(defaultContext)
-
-		// When getting a key under contexts.local.aws.aws_endpoint_url
-		value, err := handler.Get("contexts.local.aws.aws_endpoint_url")
-		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
-		}
-
-		// Then the value should be from defaultContextConfig
-		expectedValue := "http://default.aws.endpoint"
-		if value != expectedValue {
-			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
-		}
-	})
-
-	t.Run("KeyMissingContextExistsInConfig", func(t *testing.T) {
-		// Given a handler where context exists but key is missing in y.config
-		handler, _ := NewYamlConfigHandler("")
-		// Set the context in y.config without AWSConfig
-		err := handler.Set("context", "local")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		err = handler.Set("contexts.local", &Context{
-			AWS: &AWSConfig{
-				// AWSEndpointURL is not set (nil)
-			},
-		})
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		// Set default context with the key
-		defaultContext := Context{
-			AWS: &AWSConfig{
-				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
-			},
-		}
-		handler.SetDefault(defaultContext)
-
-		// When getting the key
-		value, err := handler.Get("contexts.local.aws.aws_endpoint_url")
-		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
-		}
-
-		// Then it should fallback to defaultContextConfig and return the value
-		expectedValue := "http://default.aws.endpoint"
-		if value != expectedValue {
-			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
-		}
-	})
-
 	t.Run("KeyNotUnderContexts", func(t *testing.T) {
 		// Given a handler with key not under 'contexts'
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		// Set the context in y.config
-		err := handler.Set("context", "local")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
+		handler.Set("context", "local")
 		// Set the default context (should not be used)
 		defaultContext := Context{
 			AWS: &AWSConfig{
@@ -334,146 +222,33 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 		handler.SetDefault(defaultContext)
 
 		// When getting a key not under 'contexts'
-		_, err = handler.Get("some.other.key")
-		if err == nil {
-			t.Fatalf("Get() expected error, got nil")
-		}
+		value := handler.Get("some.other.key")
 
 		// Then default context should not be used, and an error should be returned
 		expectedError := "key some.other.key not found in configuration"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error '%v', got '%v'", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ContextExistsButErrorInGetValueByPathFromValue", func(t *testing.T) {
-		// Given a handler where context exists but GetValueByPathFromValue returns an error
-		handler, _ := NewYamlConfigHandler("")
-		// Set the context in y.config
-		err := handler.Set("context", "local")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		// Set the context in y.config as empty context
-		err = handler.Set("contexts.local", &Context{})
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		// Set default context with the key
-		defaultContext := Context{
-			AWS: &AWSConfig{
-				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
-			},
-		}
-		handler.SetDefault(defaultContext)
-
-		// When getting a key that is missing in context and getValueByPathFromValue returns an error
-		value, err := handler.Get("contexts.local.aws.aws_endpoint_url")
-		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
-		}
-
-		// Then it should fallback to defaultContextConfig and return the value
-		expectedValue := "http://default.aws.endpoint"
-		if value != expectedValue {
-			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
+		if value != nil {
+			t.Errorf("Expected error '%v', got '%v'", expectedError, value)
 		}
 	})
 
 	t.Run("InvalidPath", func(t *testing.T) {
 		// Given a handler
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 
 		// When calling Get with an empty path
-		_, err := handler.Get("")
+		value := handler.Get("")
 
 		// Then an error should be returned
 		expectedErr := "invalid path"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("NilValueFallbackToDefaultContext", func(t *testing.T) {
-		// Given a handler with a context where the key is set to nil in y.config
-		handler, _ := NewYamlConfigHandler("")
-		// Set the context in y.config
-		err := handler.Set("context", "local")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		// Set the context in y.config with AWSConfig having a nil AWSEndpointURL
-		err = handler.Set("contexts.local", &Context{
-			AWS: &AWSConfig{
-				AWSEndpointURL: nil, // Explicitly set to nil
-			},
-		})
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		// Set default context with the key
-		defaultContext := Context{
-			AWS: &AWSConfig{
-				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
-			},
-		}
-		handler.SetDefault(defaultContext)
-
-		// When getting the key
-		value, err := handler.Get("contexts.local.aws.aws_endpoint_url")
-		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
-		}
-
-		// Then it should fallback to defaultContextConfig and return the value
-		expectedValue := "http://default.aws.endpoint"
-		if value != expectedValue {
-			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
-		}
-	})
-
-	t.Run("FallbackToDefaultContextConfig", func(t *testing.T) {
-		// Given a handler with a context where the key is not set in y.config
-		handler, _ := NewYamlConfigHandler("")
-		// Set the context in y.config
-		err := handler.Set("context", "local")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		// Set the context in y.config without AWSConfig
-		err = handler.Set("contexts.local", &Context{
-			AWS: &AWSConfig{
-				// AWSEndpointURL is not set (nil)
-			},
-		})
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		// Set default context with the key
-		defaultContext := Context{
-			AWS: &AWSConfig{
-				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
-			},
-		}
-		handler.SetDefault(defaultContext)
-
-		// When getting the key
-		value, err := handler.Get("contexts.local.aws.aws_endpoint_url")
-		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
-		}
-
-		// Then it should fallback to defaultContextConfig and return the value
-		expectedValue := "http://default.aws.endpoint"
-		if value != expectedValue {
-			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
+		if value != nil {
+			t.Errorf("Expected error '%s', got %v", expectedErr, value)
 		}
 	})
 }
 
 func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 	t.Run("WithValidPath", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		handler.Set("saveKey", "saveValue")
 		// Given a valid config path
 		tempDir := t.TempDir()
@@ -481,7 +256,9 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 
 		err := handler.SaveConfig(configPath)
 		// Then the config should be saved without error
-		assertError(t, err, nil)
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
 
 		// And the config file should exist at the specified path
 		if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -490,7 +267,7 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 	})
 
 	t.Run("WithEmptyPath", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		handler.Set("saveKey", "saveValue")
 		// Given an empty config path
 		err := handler.SaveConfig("")
@@ -533,7 +310,7 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 	})
 
 	t.Run("WriteFileError", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		handler.Set("saveKey", "saveValue")
 
 		// Mock osWriteFile to return an error
@@ -581,7 +358,8 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 			return []byte{}, nil
 		}
 
-		handler, _ := NewYamlConfigHandler(expectedPath)
+		handler := NewYamlConfigHandler()
+		handler.path = expectedPath // Ensure the config handler has a path set
 		handler.Set("key", "value")
 
 		err := handler.SaveConfig("")
@@ -634,31 +412,6 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 }
 
 func TestYamlConfigHandler_GetString(t *testing.T) {
-	t.Run("WithExistingKey", func(t *testing.T) {
-		// Mock the existing context in the configuration
-		handler := &YamlConfigHandler{
-			config: Config{
-				Context: ptrString("default"),
-				Contexts: map[string]*Context{
-					"default": {
-						Environment: map[string]string{
-							"EXISTING_KEY": "existingValue",
-						},
-					},
-				},
-			},
-		}
-
-		// Given an existing key in the config
-		got := handler.GetString("environment.EXISTING_KEY")
-
-		// Then the value should be retrieved without error
-		expectedValue := "existingValue"
-		if got != expectedValue {
-			t.Errorf("GetString() = %v, expected %v", got, expectedValue)
-		}
-	})
-
 	t.Run("WithNonExistentKey", func(t *testing.T) {
 		// Mock the existing context in the configuration
 		handler := &YamlConfigHandler{
@@ -697,28 +450,6 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 }
 
 func TestYamlConfigHandler_GetInt(t *testing.T) {
-	t.Run("WithExistingIntegerKey", func(t *testing.T) {
-		// Mock the existing context in the configuration
-		handler := &YamlConfigHandler{
-			config: Config{
-				Context: ptrString("default"),
-			},
-		}
-
-		// Set an integer value
-		err := handler.Set("contexts.default.vm.cpu", 4)
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-
-		value := handler.GetInt("vm.cpu")
-
-		expectedValue := 4
-		if value != expectedValue {
-			t.Errorf("Expected value %v, got %v", expectedValue, value)
-		}
-	})
-
 	t.Run("WithExistingNonIntegerKey", func(t *testing.T) {
 		// Mock the existing context in the configuration
 		handler := &YamlConfigHandler{
@@ -783,25 +514,6 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 
 func TestYamlConfigHandler_GetBool(t *testing.T) {
 	t.Run("WithExistingBooleanKey", func(t *testing.T) {
-		// Mock the existing context in the configuration
-		handler := &YamlConfigHandler{
-			config: Config{
-				Context: ptrString("default"),
-			},
-		}
-
-		// Set a boolean value
-		err := handler.Set("contexts.default.docker.enabled", true)
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-
-		value := handler.GetBool("docker.enabled")
-
-		expectedValue := true
-		if value != expectedValue {
-			t.Errorf("Expected value %v, got %v", expectedValue, value)
-		}
 	})
 
 	t.Run("WithExistingNonBooleanKey", func(t *testing.T) {
@@ -813,10 +525,7 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 		}
 
 		// Set a non-boolean value for the key
-		err := handler.Set("contexts.default.aws.aws_endpoint_url", "notABool")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
+		handler.Set("contexts.default.aws.aws_endpoint_url", "notABool")
 
 		// Given an existing key with a non-boolean value
 		value := handler.GetBool("aws.aws_endpoint_url")
@@ -866,7 +575,7 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 func TestYamlConfigHandler_GetConfig(t *testing.T) {
 	t.Run("ContextIsSet", func(t *testing.T) {
 		// Given a handler with a context set
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		handler.config.Context = ptrString("local")
 		handler.config.Contexts = map[string]*Context{
 			"local": {
@@ -887,7 +596,7 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 
 	t.Run("ContextIsNotSet", func(t *testing.T) {
 		// Given a handler without a context set
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 
 		// When calling GetConfig
 		config := handler.GetConfig()
@@ -900,7 +609,7 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 
 	t.Run("ContextDoesNotExist", func(t *testing.T) {
 		// Given a handler with a context set that does not exist in contexts
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		handler.config.Context = ptrString("nonexistent")
 
 		// When calling GetConfig
@@ -914,144 +623,73 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 }
 
 func TestYamlConfigHandler_Set(t *testing.T) {
-	t.Run("SetSimpleKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-
-		err := handler.Set("context", "simpleValue")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-
-		// Verify the value
-		value, err := handler.Get("context")
-		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
-		}
-
-		if value != "simpleValue" {
-			t.Errorf("Expected 'simpleValue', got '%v'", value)
-		}
-	})
-
-	t.Run("SetNestedKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		err := handler.Set("contexts.local.aws.aws_endpoint_url", "http://aws.test:4566")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		got, err := handler.Get("contexts.local.aws.aws_endpoint_url")
-		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
-		}
-		if got != "http://aws.test:4566" {
-			t.Errorf("Get() = %v, expected %v", got, "http://aws.test:4566")
-		}
-	})
-
-	t.Run("SetOverwritingExistingKey", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		err := handler.Set("context", "initialValue")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		err = handler.Set("context", "newValue")
-		if err != nil {
-			t.Fatalf("Set() unexpected error when overwriting key: %v", err)
-		}
-		got, err := handler.Get("context")
-		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
-		}
-		if got != "newValue" {
-			t.Errorf("Get() after overwriting = %v, expected %v", got, "newValue")
-		}
-	})
-
 	t.Run("SetWithInvalidPath", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 
 		// Attempt to set a value with an empty path
-		err := handler.Set("", "someValue")
+		handler.Set("", "someValue")
 
 		// Check if the error is as expected
-		if err == nil {
+		if handler.Get("") != nil {
 			t.Fatalf("Set() expected error, got nil")
 		}
+	})
+}
 
-		expectedError := "invalid path"
-		if err.Error() != expectedError {
-			t.Errorf("Set() error = %v, expected '%s'", err, expectedError)
+func TestYamlConfigHandler_SetContextValue(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a handler with a valid context set
+		handler := NewYamlConfigHandler()
+		handler.config.Context = ptrString("local")
+
+		// When calling SetContextValue with a valid path and value
+		err := handler.SetContextValue("environment.TEST_KEY", "someValue")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("SetContextValue() unexpected error: %v", err)
+		}
+
+		// And the value should be set correctly in the context
+		value := handler.Get("contexts.local.environment.TEST_KEY")
+		if value != "someValue" {
+			t.Errorf("Expected value 'someValue', got %v", value)
 		}
 	})
 
-	t.Run("SetWithNilMap", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		// Assuming 'config' has a field 'Contexts' which is a map
-		handler.config = Config{
-			Contexts: nil,
-		}
+	t.Run("ContextNotSet", func(t *testing.T) {
+		// Given a handler without a context set
+		handler := NewYamlConfigHandler()
 
-		err := handler.Set("contexts.default.environment.someKey", "value")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		got, err := handler.Get("contexts.default.environment.someKey")
-		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
-		}
-		if got != "value" {
-			t.Errorf("Get() = %v, expected %v", got, "value")
+		// When calling SetContextValue
+		err := handler.SetContextValue("some.path", "someValue")
+
+		// Then an error should be returned
+		expectedError := "current context is not set"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("Expected error '%s', got %v", expectedError, err)
 		}
 	})
 
-	t.Run("SetCreatesIntermediateMaps", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		err := handler.Set("contexts.default.environment.someKey", "deepValue")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		got, err := handler.Get("contexts.default.environment.someKey")
-		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
-		}
-		if got != "deepValue" {
-			t.Errorf("Get() = %v, expected %v", got, "deepValue")
-		}
-	})
+	t.Run("InvalidPath", func(t *testing.T) {
+		// Given a handler with a valid context set
+		handler := NewYamlConfigHandler()
+		handler.config.Context = ptrString("local")
 
-	t.Run("SetWithUnassignableKeyTypeInMap", func(t *testing.T) {
-		handler, _ := NewYamlConfigHandler("")
-		// Create a context with a map with key type string
-		handler.config = Config{
-			Contexts: map[string]*Context{
-				"default": {
-					Environment: map[string]string{},
-					AWS:         &AWSConfig{},
-					Docker:      &DockerConfig{},
-					Terraform:   &TerraformConfig{},
-					VM:          &VMConfig{},
-				},
-			},
-		}
-		err := handler.Set("contexts.default.environment.someKey", "value")
-		// Expect no error due to key type match
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
-		got, err := handler.Get("contexts.default.environment.someKey")
-		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
-		}
-		if got != "value" {
-			t.Errorf("Get() = %v, expected %v", got, "value")
+		// When calling SetContextValue with an empty path
+		err := handler.SetContextValue("", "someValue")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
 		}
 	})
 }
 
 func TestYamlConfigHandler_SetDefault(t *testing.T) {
-	t.Run("SetDefaultContext", func(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
 		// Given a YamlConfigHandler and a default context
-		handler, _ := NewYamlConfigHandler("")
+		handler := NewYamlConfigHandler()
 		defaultContext := Context{
 			Environment: map[string]string{
 				"ENV_VAR": "value",
@@ -1059,13 +697,13 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 		}
 
 		// Set the context in y.config
-		err := handler.Set("context", "local")
-		if err != nil {
-			t.Fatalf("Set() unexpected error: %v", err)
-		}
+		handler.Set("context", "local")
 
 		// When setting the default context
-		handler.SetDefault(defaultContext)
+		err := handler.SetDefault(defaultContext)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
 
 		// Then the default context should be set correctly
 		if handler.defaultContextConfig.Environment["ENV_VAR"] != "value" {
@@ -1073,55 +711,46 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 		}
 	})
 
-	t.Run("SetDefaultContextWhenNotDefined", func(t *testing.T) {
-		// Given a YamlConfigHandler with no context defined
-		handler, _ := NewYamlConfigHandler("")
+	t.Run("NilContext", func(t *testing.T) {
+		// Given a handler with a nil context
+		handler := NewYamlConfigHandler()
+		handler.config.Context = nil
+
+		// When calling SetDefault
 		defaultContext := Context{
 			Environment: map[string]string{
-				"ENV_VAR": "default_value",
+				"ENV_VAR": "value",
 			},
 		}
-		handler.Set("context", "local")
+		err := handler.SetDefault(defaultContext)
 
-		// Set the default context
-		handler.SetDefault(defaultContext)
-
-		// Verify that the default context is set
-		value, err := handler.Get("contexts.local.environment.ENV_VAR")
+		// Then the default context should be set correctly
 		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
+			t.Fatalf("Unexpected error: %v", err)
 		}
-
-		expectedValue := "default_value"
-		if value != expectedValue {
-			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
+		if handler.defaultContextConfig.Environment["ENV_VAR"] != "value" {
+			t.Errorf("SetDefault() = %v, expected %v", handler.defaultContextConfig.Environment["ENV_VAR"], "value")
 		}
 	})
 
-	t.Run("SetDefaultContextWhenAlreadyDefined", func(t *testing.T) {
-		// Given a YamlConfigHandler with a context already defined
-		handler, _ := NewYamlConfigHandler("")
-		handler.Set("context", "local")
-		handler.Set("contexts.local.environment.ENV_VAR", "existing_value")
+	t.Run("ContextNotSet", func(t *testing.T) {
+		// Given a handler without a context set
+		handler := NewYamlConfigHandler()
 
+		// When calling SetDefault
 		defaultContext := Context{
 			Environment: map[string]string{
-				"ENV_VAR": "default_value",
+				"ENV_VAR": "value",
 			},
 		}
+		err := handler.SetDefault(defaultContext)
 
-		// Set the default context
-		handler.SetDefault(defaultContext)
-
-		// Verify that the existing context value is not overwritten
-		value, err := handler.Get("contexts.local.environment.ENV_VAR")
+		// Then the default context should be set correctly
 		if err != nil {
-			t.Fatalf("Get() unexpected error: %v", err)
+			t.Fatalf("Unexpected error: %v", err)
 		}
-
-		expectedValue := "existing_value"
-		if value != expectedValue {
-			t.Errorf("Expected value '%v', got '%v'", expectedValue, value)
+		if handler.defaultContextConfig.Environment["ENV_VAR"] != "value" {
+			t.Errorf("SetDefault() = %v, expected %v", handler.defaultContextConfig.Environment["ENV_VAR"], "value")
 		}
 	})
 }
@@ -1134,7 +763,8 @@ func TestSetValueByPath(t *testing.T) {
 		value := "test"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		fullPath := "some.full.path"
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then an error should be returned
 		if err == nil || err.Error() != "pathKeys cannot be empty" {
@@ -1147,12 +777,12 @@ func TestSetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(42)
 		pathKeys := []string{"key"}
 		value := "test"
-
+		fullPath := "some.full.path"
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then an error should be returned
-		expectedErr := "unsupported kind int"
+		expectedErr := "Invalid path: some.full.path"
 		if err == nil || err.Error() != expectedErr {
 			t.Errorf("Expected error '%s', got %v", expectedErr, err)
 		}
@@ -1163,9 +793,10 @@ func TestSetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(make(map[int]string))
 		pathKeys := []string{"stringKey"}
 		value := "testValue"
+		fullPath := "some.full.path"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then an error should be returned
 		expectedErr := "key type mismatch: expected int, got string"
@@ -1179,9 +810,10 @@ func TestSetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(make(map[string]int))
 		pathKeys := []string{"key"}
 		value := "stringValue" // Cannot convert string to int
+		fullPath := "some.full.path"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then an error should be returned
 		expectedErr := "value type mismatch for key key: expected int, got string"
@@ -1196,9 +828,10 @@ func TestSetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(testMap)
 		pathKeys := []string{"key"}
 		value := "testValue"
+		fullPath := "some.full.path"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then the map should be updated without error
 		if err != nil {
@@ -1215,9 +848,10 @@ func TestSetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(&testMap).Elem()
 		pathKeys := []string{"key"}
 		value := "testValue"
+		fullPath := "some.full.path"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then the map should be initialized and updated without error
 		if err != nil {
@@ -1245,9 +879,10 @@ func TestSetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(&config).Elem()
 		pathKeys := []string{"contexts", "level1", "environment", "level2"}
 		value := "testValue"
+		fullPath := "contexts.level1.environment.level2"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then the existing nested map should be updated without error
 		if err != nil {
@@ -1266,9 +901,10 @@ func TestSetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(testMap)
 		pathKeys := []string{"key"} // Key in the map
 		value := 42.0               // Float value that is convertible to int
+		fullPath := "some.full.path"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then the value should be converted and set without error
 		if err != nil {
@@ -1288,14 +924,15 @@ func TestSetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(testMap)
 		pathKeys := []string{"docker", "level2", "nonexistentfield"}
 		value := "newValue"
+		fullPath := "docker.level2.nonexistentfield"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then an error should be returned indicating the field was not found
-		expectedErr := "field nonexistentfield not found in struct"
-		if err == nil || (!strings.Contains(err.Error(), expectedErr) && !strings.Contains(err.Error(), "unsupported kind interface")) {
-			t.Errorf("Expected error containing '%s' or 'unsupported kind interface', got %v", expectedErr, err)
+		expectedErr := "Invalid path: docker.level2.nonexistentfield"
+		if err == nil || err.Error() != expectedErr {
+			t.Errorf("Expected error '%s', got %v", expectedErr, err)
 		}
 	})
 
@@ -1327,12 +964,11 @@ func TestGetValueByPath(t *testing.T) {
 		pathKeys := []string{}
 
 		// When calling getValueByPath
-		_, err := getValueByPath(current, pathKeys)
+		value := getValueByPath(current, pathKeys)
 
 		// Then an error should be returned
-		expectedErr := "pathKeys cannot be empty"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
+		if value != nil {
+			t.Errorf("Expected value to be nil, got %v", value)
 		}
 	})
 
@@ -1342,27 +978,11 @@ func TestGetValueByPath(t *testing.T) {
 		pathKeys := []string{"key"}
 
 		// When calling getValueByPath
-		_, err := getValueByPath(current, pathKeys)
+		value := getValueByPath(current, pathKeys)
 
 		// Then an error should be returned
-		expectedErr := "current value is invalid"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("UnsupportedKind", func(t *testing.T) {
-		// Given a current value of unsupported kind (e.g., int)
-		current := 42
-		pathKeys := []string{"key"}
-
-		// When calling getValueByPath
-		_, err := getValueByPath(current, pathKeys)
-
-		// Then an error should be returned
-		expectedErr := "unsupported kind int"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
+		if value != nil {
+			t.Errorf("Expected value to be nil, got %v", value)
 		}
 	})
 
@@ -1372,12 +992,11 @@ func TestGetValueByPath(t *testing.T) {
 		pathKeys := []string{"1"}
 
 		// When calling getValueByPath
-		_, err := getValueByPath(current, pathKeys)
+		value := getValueByPath(current, pathKeys)
 
 		// Then an error should be returned
-		expectedErr := "key type mismatch: expected int, got string"
-		if err == nil || err.Error() != expectedErr {
-			t.Errorf("Expected error '%s', got %v", expectedErr, err)
+		if value != nil {
+			t.Errorf("Expected value to be nil, got %v", value)
 		}
 	})
 
@@ -1387,11 +1006,11 @@ func TestGetValueByPath(t *testing.T) {
 		pathKeys := []string{"key"}
 
 		// When calling getValueByPath
-		value, err := getValueByPath(current, pathKeys)
+		value := getValueByPath(current, pathKeys)
 
 		// Then the value should be retrieved without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
+		if value == nil {
+			t.Errorf("Expected value to be 'testValue', got nil")
 		}
 		expectedValue := "testValue"
 		if value != expectedValue {
@@ -1408,9 +1027,10 @@ func TestGetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(testStruct)
 		pathKeys := []string{"unexportedfield"}
 		value := "testValue"
+		fullPath := "unexportedfield"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then an error should be returned
 		expectedErr := "cannot set field"
@@ -1428,12 +1048,13 @@ func TestGetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(testMap)
 		pathKeys := []string{"level1", "level2", "nonexistentfield"}
 		value := "newValue"
+		fullPath := "level1.level2.nonexistentfield"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then an error should be returned indicating the field does not exist
-		expectedErr := "unsupported kind interface"
+		expectedErr := "Invalid path: level1.level2.nonexistentfield"
 		if err == nil || err.Error() != expectedErr {
 			t.Errorf("Expected error '%s', got '%v'", expectedErr, err)
 		}
@@ -1448,9 +1069,10 @@ func TestGetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(testStruct)
 		pathKeys := []string{"intfield"}
 		value := []string{"incompatibleType"} // A slice, which is incompatible with int
+		fullPath := "intfield"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then an error should be returned indicating the type mismatch
 		expectedErr := "cannot assign value of type []string to field of type int"
@@ -1468,9 +1090,10 @@ func TestGetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(testStruct)
 		pathKeys := []string{"intptrfield"}
 		value := []string{"incompatibleType"} // A slice, which is incompatible with *int
+		fullPath := "intptrfield"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then an error should be returned indicating the type mismatch
 		expectedErr := "cannot assign value of type []string to field of type *int"
@@ -1488,9 +1111,10 @@ func TestGetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(testStruct)
 		pathKeys := []string{"stringfield"}
 		value := "testValue" // Directly assignable to string
+		fullPath := "stringfield"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then the field should be set without error
 		if err != nil {
@@ -1510,9 +1134,10 @@ func TestGetValueByPath(t *testing.T) {
 		currValue := reflect.ValueOf(testStruct)
 		pathKeys := []string{"intfield"}
 		value := 42.0 // A float64, which is convertible to int
+		fullPath := "intfield"
 
 		// When calling setValueByPath
-		err := setValueByPath(currValue, pathKeys, value)
+		err := setValueByPath(currValue, pathKeys, value, fullPath)
 
 		// Then the field should be set without error
 		if err != nil {

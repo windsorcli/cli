@@ -6,13 +6,14 @@ package network
 import (
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
-	"github.com/windsor-hotel/cli/internal/ssh"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/ssh"
 )
 
 type LinuxNetworkManagerMocks struct {
@@ -29,7 +30,7 @@ func setupLinuxNetworkManagerMocks() *LinuxNetworkManagerMocks {
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell(injector)
-	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+	mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 		if command == "sudo" && args[0] == "ip" && args[1] == "route" && args[2] == "add" {
 			return "", nil
 		}
@@ -118,9 +119,17 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureHostRoute method and expect no error
+		// Mock the shell.Exec function to simulate a successful route check
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if message == "Checking if route exists" {
+				return "", fmt.Errorf("mock error")
+			}
+			return "", nil
+		}
+
+		// Call the ConfigureHostRoute method and expect an error
 		err = nm.ConfigureHostRoute()
-		if err != nil {
+		if err == nil || !strings.Contains(err.Error(), "failed to check if route exists: mock error") {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
@@ -153,7 +162,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		// Call the ConfigureHostRoute method and expect an error
 		err = nm.ConfigureHostRoute()
-		if err == nil || err.Error() != "network CIDR is not configured" {
+		if err == nil || !strings.Contains(err.Error(), "network CIDR is not configured") {
 			t.Fatalf("expected error 'network CIDR is not configured', got %v", err)
 		}
 	})
@@ -163,6 +172,9 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		// Mock the GetString function to return an empty string for "vm.address"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.5.0/24"
+			}
 			if key == "vm.address" {
 				return ""
 			}
@@ -186,8 +198,53 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		// Call the ConfigureHostRoute method and expect an error
 		err = nm.ConfigureHostRoute()
-		if err == nil || err.Error() != "guest IP is not configured" {
+		if err == nil || !strings.Contains(err.Error(), "guest IP is not configured") {
 			t.Fatalf("expected error 'guest IP is not configured', got %v", err)
+		}
+	})
+
+	t.Run("RouteExists", func(t *testing.T) {
+		mocks := setupLinuxNetworkManagerMocks()
+
+		// Mock the Exec function to simulate an existing route with the guest IP
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "ip" && args[0] == "route" && args[1] == "show" {
+				// Simulate output that includes the guest IP to trigger routeExists = true
+				return "192.168.5.0/24 via 192.168.1.2 dev eth0", nil
+			}
+			return "", nil
+		}
+
+		// Mock the GetString function to return specific values for testing
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.5.0/24"
+			}
+			if key == "vm.address" {
+				return "192.168.1.2"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// Create a networkManager using NewBaseNetworkManager with the mock DI container
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Initialize the network manager
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Call the ConfigureHostRoute method and expect no error since the route exists
+		err = nm.ConfigureHostRoute()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
@@ -195,7 +252,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupLinuxNetworkManagerMocks()
 
 		// Mock an error in the Exec function to simulate a route addition failure
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "ip" && args[1] == "route" && args[2] == "add" {
 				return "mock output", fmt.Errorf("mock error")
 			}
@@ -220,7 +277,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "failed to add route: mock error, output: mock output"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
@@ -254,6 +311,9 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 
 		// Mock the GetString function to return an empty string for "dns.address"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.5.0/24"
+			}
 			if key == "dns.address" {
 				return ""
 			}
@@ -281,7 +341,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "DNS address is not configured"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
@@ -291,6 +351,9 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 
 		// Mock the GetString function to return an empty string for "dns.name"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.5.0/24"
+			}
 			if key == "dns.name" {
 				return ""
 			}
@@ -318,7 +381,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "DNS domain is not configured"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
@@ -351,8 +414,44 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "systemd-resolved is not in use. Please configure DNS manually or use a compatible system"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("DropInFileAlreadyExistsWithCorrectContent", func(t *testing.T) {
+		mocks := setupLinuxNetworkManagerMocks()
+
+		// Mock the readFile function to simulate that the drop-in file already exists with the correct content
+		originalReadFile := readFile
+		defer func() { readFile = originalReadFile }()
+		readFile = func(_ string) ([]byte, error) {
+			return []byte("[Resolve]\nDNS=1.2.3.4\n"), nil
+		}
+
+		// Mock the readLink function to simulate that /etc/resolv.conf is a symlink to systemd-resolved
+		originalReadLink := readLink
+		defer func() { readLink = originalReadLink }()
+		readLink = func(_ string) (string, error) {
+			return "../run/systemd/resolve/stub-resolv.conf", nil
+		}
+
+		// Create a networkManager using NewBaseNetworkManager with the mock DI container
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Initialize the network manager
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Call the ConfigureDNS method and expect no error since the drop-in file already exists with correct content
+		err = nm.ConfigureDNS()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
@@ -362,11 +461,11 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Mock the shell.Exec function to simulate an error when creating the drop-in directory
 		originalExec := mocks.MockShell.ExecFunc
 		defer func() { mocks.MockShell.ExecFunc = originalExec }()
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "mkdir" {
 				return "", fmt.Errorf("mock mkdir error")
 			}
-			return originalExec(verbose, message, command, args...)
+			return originalExec(message, command, args...)
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
@@ -387,7 +486,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "failed to create drop-in directory: mock mkdir error"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
@@ -398,11 +497,11 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Mock the shell.Exec function to simulate an error when writing the DNS configuration
 		originalExec := mocks.MockShell.ExecFunc
 		defer func() { mocks.MockShell.ExecFunc = originalExec }()
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "bash" && args[1] == "-c" {
 				return "", fmt.Errorf("mock write DNS configuration error")
 			}
-			return originalExec(verbose, message, command, args...)
+			return originalExec(message, command, args...)
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
@@ -423,7 +522,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "failed to write DNS configuration: mock write DNS configuration error"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
@@ -434,11 +533,11 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Mock the shell.Exec function to simulate an error when restarting systemd-resolved
 		originalExec := mocks.MockShell.ExecFunc
 		defer func() { mocks.MockShell.ExecFunc = originalExec }()
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "systemctl" && args[1] == "restart" && args[2] == "systemd-resolved" {
 				return "", fmt.Errorf("mock restart systemd-resolved error")
 			}
-			return originalExec(verbose, message, command, args...)
+			return originalExec(message, command, args...)
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
@@ -459,7 +558,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "failed to restart systemd-resolved: mock restart systemd-resolved error"
-		if err.Error() != expectedError {
+		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})

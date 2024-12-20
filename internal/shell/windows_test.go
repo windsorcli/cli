@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 	"golang.org/x/sys/windows"
 )
 

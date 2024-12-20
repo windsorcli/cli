@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 type OmniEnvPrinterMocks struct {
@@ -59,7 +59,6 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 
 		omniEnvPrinter := NewOmniEnvPrinter(mocks.Injector)
 		omniEnvPrinter.Initialize()
-		omniEnvPrinter.Initialize()
 
 		envVars, err := omniEnvPrinter.GetEnvVars()
 		if err != nil {
@@ -88,8 +87,9 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		if envVars["OMNICONFIG"] != "" {
-			t.Errorf("OMNICONFIG = %v, want empty", envVars["OMNICONFIG"])
+		expectedPath := filepath.FromSlash("/mock/config/root/.omni/config")
+		if envVars["OMNICONFIG"] != expectedPath {
+			t.Errorf("OMNICONFIG = %v, want %v", envVars["OMNICONFIG"], expectedPath)
 		}
 	})
 

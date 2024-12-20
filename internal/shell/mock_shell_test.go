@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // Helper function for error assertion
@@ -205,12 +205,12 @@ func TestMockShell_Exec(t *testing.T) {
 		// Given a mock shell with a custom ExecFn implementation
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
-		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			// Simulate command execution and return a mocked output
 			return "mocked output", nil
 		}
 		// When calling Exec
-		output, err := mockShell.Exec(false, "Executing command", "somecommand", "arg1", "arg2")
+		output, err := mockShell.Exec("Executing command", "somecommand", "arg1", "arg2")
 		// Then no error should be returned and output should be as expected
 		expectedOutput := "mocked output"
 		if err != nil {
@@ -225,12 +225,12 @@ func TestMockShell_Exec(t *testing.T) {
 		// Given a mock shell whose ExecFn returns an error
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
-		mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			// Simulate command failure
 			return "", fmt.Errorf("execution error")
 		}
 		// When calling Exec
-		output, err := mockShell.Exec(false, "Executing command", "somecommand", "arg1", "arg2")
+		output, err := mockShell.Exec("Executing command", "somecommand", "arg1", "arg2")
 		// Then an error should be returned
 		if err == nil {
 			t.Errorf("Expected an error but got none")
@@ -244,7 +244,7 @@ func TestMockShell_Exec(t *testing.T) {
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
 		// When calling Exec
-		output, err := mockShell.Exec(false, "Executing command", "somecommand", "arg1", "arg2")
+		output, err := mockShell.Exec("Executing command", "somecommand", "arg1", "arg2")
 		// Then no error should be returned and the result should be empty
 		if err != nil {
 			t.Errorf("Exec() error = %v, want nil", err)

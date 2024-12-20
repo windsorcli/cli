@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
-	"github.com/windsor-hotel/cli/internal/ssh"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/ssh"
 )
 
 type ColimaNetworkManagerMocks struct {
@@ -29,7 +29,7 @@ func setupColimaNetworkManagerMocks() *ColimaNetworkManagerMocks {
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell(injector)
-	mockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+	mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 		if command == "ls" && args[0] == "/sys/class/net" {
 			return "br-bridge0\neth0\nlo", nil
 		}
@@ -198,6 +198,9 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 
 		// Override the GetString method to return an empty string for "vm.address"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "192.168.5.0/24"
+			}
 			if key == "vm.address" {
 				return ""
 			}
@@ -227,41 +230,12 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGettingContext", func(t *testing.T) {
-		// Setup mocks using setupColimaNetworkManagerMocks
-		mocks := setupColimaNetworkManagerMocks()
-
-		// Override the GetContext method to return an error
-		mocks.MockContextHandler.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error getting context")
-		}
-
-		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
-		nm := NewColimaNetworkManager(mocks.Injector)
-
-		// Initialize the network manager
-		err := nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// Call the ConfigureGuest method and expect an error due to failed context retrieval
-		err = nm.ConfigureGuest()
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "error retrieving context: mock error getting context"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
 	t.Run("ErrorGettingSSHConfig", func(t *testing.T) {
 		// Setup mocks using setupColimaNetworkManagerMocks
 		mocks := setupColimaNetworkManagerMocks()
 
 		// Override the ExecFunc to return an error when getting SSH config
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "colima" && args[0] == "ssh-config" {
 				return "", fmt.Errorf("mock error getting SSH config")
 			}
@@ -322,7 +296,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		mocks := setupColimaNetworkManagerMocks()
 
 		// Override the ExecFunc to return an error when listing interfaces
-		mocks.MockShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "ls" && args[0] == "/sys/class/net" {
 				return "", fmt.Errorf("mock error listing interfaces")
 			}
@@ -354,7 +328,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		mocks := setupColimaNetworkManagerMocks()
 
 		// Override the ExecFunc to return no interfaces starting with "br-"
-		mocks.MockSecureShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockSecureShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "ls" && args[0] == "/sys/class/net" {
 				return "eth0\nlo\nwlan0", nil // No "br-" interface
 			}
@@ -389,7 +363,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		mocks := setupColimaNetworkManagerMocks()
 
 		// Override the ExecFunc to simulate finding a docker bridge interface and an error when setting iptables rule
-		mocks.MockSecureShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockSecureShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "ls" && args[0] == "/sys/class/net" {
 				return "br-1234\neth0\nlo\nwlan0", nil // Include a "br-" interface
 			}
@@ -461,11 +435,11 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 
 		// Override the ExecFunc to simulate an unexpected error when checking iptables rule
 		originalExecFunc := mocks.MockSecureShell.ExecFunc
-		mocks.MockSecureShell.ExecFunc = func(verbose bool, message string, command string, args ...string) (string, error) {
+		mocks.MockSecureShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-C" {
 				return "", fmt.Errorf("unexpected error checking iptables rule")
 			}
-			return originalExecFunc(verbose, message, command, args...)
+			return originalExecFunc(message, command, args...)
 		}
 
 		// Use the mock injector from setupColimaNetworkManagerMocks

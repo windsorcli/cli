@@ -3,30 +3,28 @@ package cmd
 import (
 	"fmt"
 	"runtime"
-	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/mocks"
+	ctrl "github.com/windsorcli/cli/internal/controller"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 func TestVersionCommand(t *testing.T) {
 	originalExitFunc := exitFunc
-	exitFunc = func(code int) {
-		mockExit(code, "")
-	}
+	exitFunc = mockExit
 	t.Cleanup(func() {
 		exitFunc = originalExitFunc
 	})
 
 	t.Run("VersionOutput", func(t *testing.T) {
-		// Setup injector with mock dependencies
-		mocks := mocks.CreateSuperMocks()
-		Initialize(mocks.Injector)
+		// Create a mock controller
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
 
 		// When: the version command is executed
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"version"})
-			err := rootCmd.Execute()
+			err := Execute(mockController)
 			if err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
@@ -37,28 +35,5 @@ func TestVersionCommand(t *testing.T) {
 		if output != expectedOutput {
 			t.Errorf("Expected output %q, got %q", expectedOutput, output)
 		}
-	})
-
-	t.Run("VersionCommandError", func(t *testing.T) {
-		// Setup injector with mock dependencies
-		mocks := mocks.CreateSuperMocks()
-		Initialize(mocks.Injector)
-
-		// When: the version command is executed with an error
-		defer func() {
-			if r := recover(); r != nil {
-				// Then: the output should indicate the error
-				expectedOutput := "exit code: 1"
-				if !strings.Contains(fmt.Sprint(r), expectedOutput) {
-					t.Errorf("Expected output to contain %q, got %q", expectedOutput, r)
-				}
-			} else {
-				t.Fatalf("Expected panic, got nil")
-			}
-		}()
-
-		rootCmd.SetArgs([]string{"version"})
-		exitFunc(1)
-		rootCmd.Execute()
 	})
 }

@@ -4,8 +4,7 @@ package virt
 type MockVirt struct {
 	InitializeFunc       func() error
 	UpFunc               func(verbose ...bool) error
-	DownFunc             func(verbose ...bool) error
-	DeleteFunc           func(verbose ...bool) error
+	DownFunc             func() error
 	PrintInfoFunc        func() error
 	WriteConfigFunc      func() error
 	GetVMInfoFunc        func() (VMInfo, error)
@@ -28,27 +27,18 @@ func (m *MockVirt) Initialize() error {
 
 // Up starts the mock virt.
 // If a custom UpFunc is provided, it will use that function instead.
-func (m *MockVirt) Up(verbose ...bool) error {
+func (m *MockVirt) Up() error {
 	if m.UpFunc != nil {
-		return m.UpFunc(verbose...)
+		return m.UpFunc()
 	}
 	return nil
 }
 
 // Down stops the mock virt.
 // If a custom DownFunc is provided, it will use that function instead.
-func (m *MockVirt) Down(verbose ...bool) error {
+func (m *MockVirt) Down() error {
 	if m.DownFunc != nil {
-		return m.DownFunc(verbose...)
-	}
-	return nil
-}
-
-// Delete removes the mock virt.
-// If a custom DeleteFunc is provided, it will use that function instead.
-func (m *MockVirt) Delete(verbose ...bool) error {
-	if m.DeleteFunc != nil {
-		return m.DeleteFunc(verbose...)
+		return m.DownFunc()
 	}
 	return nil
 }

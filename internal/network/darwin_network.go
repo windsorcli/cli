@@ -6,6 +6,7 @@ package network
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 // ConfigureHostRoute sets up the local development network
@@ -22,9 +23,36 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	// Add route on the host to VM guest
+	// Use the shell to execute a command that checks the routing table for the specific route
 	output, err := n.shell.Exec(
-		false,
+		"Checking if route exists",
+		"route",
+		"get",
+		networkCIDR,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to check if route exists: %w", err)
+	}
+
+	// Check if the output contains the gateway IP, indicating the route exists
+	lines := strings.Split(output, "\n")
+	routeExists := false
+	for _, line := range lines {
+		if strings.Contains(line, "gateway:") {
+			parts := strings.Fields(line)
+			if len(parts) == 2 && parts[1] == guestIP {
+				routeExists = true
+				break
+			}
+		}
+	}
+
+	if routeExists {
+		return nil
+	}
+
+	// Add route on the host to VM guest
+	output, err = n.shell.Exec(
 		"Configuring host route",
 		"sudo",
 		"route",
@@ -56,7 +84,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	resolverDir := "/etc/resolver"
 	if _, err := stat(resolverDir); os.IsNotExist(err) {
 		if _, err := n.shell.Exec(
-			false,
 			"",
 			"sudo",
 			"mkdir",
@@ -65,6 +92,14 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		); err != nil {
 			return fmt.Errorf("Error creating resolver directory: %w", err)
 		}
+	}
+
+	// Check if the resolver file already exists with the correct content
+	resolverFile := fmt.Sprintf("%s/%s", resolverDir, dnsDomain)
+	existingContent, err := readFile(resolverFile)
+	if err == nil && string(existingContent) == fmt.Sprintf("nameserver %s\n", dnsIP) {
+		// The resolver file already exists with the correct content, no need to update
+		return nil
 	}
 
 	// Write the DNS server to a temporary file
@@ -76,9 +111,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	// Move the temporary file to the /etc/resolver/<tld> file
-	resolverFile := fmt.Sprintf("%s/%s", resolverDir, dnsDomain)
 	if _, err := n.shell.Exec(
-		false,
 		"Configuring DNS resolver at "+resolverFile,
 		"sudo",
 		"mv",
@@ -89,10 +122,10 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	// Flush the DNS cache
-	if _, err := n.shell.Exec(false, "Flushing DNS cache", "sudo", "dscacheutil", "-flushcache"); err != nil {
+	if _, err := n.shell.Exec("Flushing DNS cache", "sudo", "dscacheutil", "-flushcache"); err != nil {
 		return fmt.Errorf("Error flushing DNS cache: %w", err)
 	}
-	if _, err := n.shell.Exec(false, "Restarting DNS daemon", "sudo", "killall", "-HUP", "mDNSResponder"); err != nil {
+	if _, err := n.shell.Exec("Restarting DNS daemon", "sudo", "killall", "-HUP", "mDNSResponder"); err != nil {
 		return fmt.Errorf("Error restarting mDNSResponder: %w", err)
 	}
 

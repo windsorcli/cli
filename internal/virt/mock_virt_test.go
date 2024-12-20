@@ -3,11 +3,11 @@ package virt
 import (
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/helpers"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/services"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 type MockComponents struct {
@@ -15,7 +15,7 @@ type MockComponents struct {
 	MockContext       *context.MockContext
 	MockShell         *shell.MockShell
 	MockConfigHandler *config.MockConfigHandler
-	MockHelper        *helpers.MockHelper
+	MockService       *services.MockService
 }
 
 type mockYAMLEncoder struct {
@@ -100,7 +100,7 @@ func TestMockVirt_Down(t *testing.T) {
 	t.Run("DownFuncImplemented", func(t *testing.T) {
 		// Given a MockVirt with a custom DownFunc
 		mockVirt := NewMockVirt()
-		mockVirt.DownFunc = func(verbose ...bool) error {
+		mockVirt.DownFunc = func() error {
 			return nil
 		}
 
@@ -119,38 +119,6 @@ func TestMockVirt_Down(t *testing.T) {
 
 		// When calling Down
 		err := mockVirt.Down()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-}
-
-// TestMockVirt_Delete tests the Delete method of MockVirt.
-func TestMockVirt_Delete(t *testing.T) {
-	t.Run("DeleteFuncImplemented", func(t *testing.T) {
-		// Given a MockVirt with a custom DeleteFunc
-		mockVirt := NewMockVirt()
-		mockVirt.DeleteFunc = func(verbose ...bool) error {
-			return nil
-		}
-
-		// When calling Delete
-		err := mockVirt.Delete()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("DeleteFuncNotImplemented", func(t *testing.T) {
-		// Given a MockVirt without a custom DeleteFunc
-		mockVirt := NewMockVirt()
-
-		// When calling Delete
-		err := mockVirt.Delete()
 
 		// Then no error should be returned
 		if err != nil {

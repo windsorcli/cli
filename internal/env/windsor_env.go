@@ -3,7 +3,7 @@ package env
 import (
 	"fmt"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // WindsorEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
@@ -25,10 +25,7 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Add WINDSOR_CONTEXT to the environment variables
-	currentContext, err := e.contextHandler.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving current context: %w", err)
-	}
+	currentContext := e.contextHandler.GetContext()
 	envVars["WINDSOR_CONTEXT"] = currentContext
 
 	// Get the project root and add WINDSOR_PROJECT_ROOT to the environment variables

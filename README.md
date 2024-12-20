@@ -18,10 +18,65 @@ Key objectives of the Windsor CLI include:
 - **Flexibility**: Support a wide range of configurations and integrations to accommodate diverse project needs.
 - **Scalability**: Scale the environment and the production workload.
 - **Configuration Management**: Easily manage and switch between different project configurations.
-- **Shell Integration**: Seamlessly integrate with your shell environment for enhanced productivity.
-- **Cross-Platform Compatibility**: Provide a seamless experience on Windows, macOS, and Linux systems.
-- **Security**: Fully compliant and automated security updates.
-- **Visibility**: Provide dashboards to ensure informative decisions.
+- **Shell Integration**: Seamlessly integrates with your shell environment for enhanced productivity.
+- **Cross-Platform Support**: Works on Windows, macOS, and Linux.
+
+## Installation
+
+To install Windsor CLI, you need to have Go installed on your system. You can then install Windsor CLI using the following command:
+
+```sh
+go install github.com/windsorcli/cli@latest
+```
+
+## Usage
+
+After installation, you can use the `windsor` command to interact with the CLI. Here are some common commands:
+
+### Initialize a Project
+
+```sh
+windsor init [context]
+```
+
+This command initializes the application by setting up necessary configurations and environment.
+
+## Configuration
+
+Windsor CLI uses configuration files to manage settings. The configuration files are typically located in the following paths:
+
+- **CLI Configuration**: `~/.config/windsor/config.yaml`
+- **Project Configuration**: `./windsor.yaml` or `./windsor.yml`
+
+You can customize these configurations to suit your needs.
+
+### Example Configuration
+
+Here is an example of a CLI configuration file:
+
+```yaml
+context: default
+contexts:
+  default:
+    environment:
+      FOO_VAR: bar
+```
+
+## Shell Integration
+
+To automatically load Windsor CLI environment variables in your shell, you can add the following to your `precmd()` function in your shell configuration file (e.g., `.zshrc` for Zsh or `.bashrc` for Bash):
+
+```sh
+precmd() {
+  if command -v windsor >/dev/null 2>&1; then
+    eval "$(windsor env)"
+  fi
+}
+```
+
+This will ensure that the Windsor CLI environment variables are loaded every time a new shell session is started.
+
+## Contributing
 
 ## [Contributing](#contributing)
 We welcome contributions to Windsor CLI! If you would like to contribute, please follow these steps:

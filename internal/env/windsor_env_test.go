@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 type WindsorEnvMocks struct {
@@ -31,8 +31,8 @@ func setupSafeWindsorEnvMocks(injector ...di.Injector) *WindsorEnvMocks {
 	mockContext.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
 	}
-	mockContext.GetContextFunc = func() (string, error) {
-		return "mock-context", nil
+	mockContext.GetContextFunc = func() string {
+		return "mock-context"
 	}
 
 	mockShell := shell.NewMockShell()
@@ -70,22 +70,6 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		expectedProjectRoot := filepath.FromSlash("/mock/project/root")
 		if envVars["WINDSOR_PROJECT_ROOT"] != expectedProjectRoot {
 			t.Errorf("WINDSOR_PROJECT_ROOT = %v, want %v", envVars["WINDSOR_PROJECT_ROOT"], expectedProjectRoot)
-		}
-	})
-
-	t.Run("GetContextError", func(t *testing.T) {
-		mocks := setupSafeWindsorEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "", fmt.Errorf("mock context error")
-		}
-
-		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
-		windsorEnvPrinter.Initialize()
-
-		_, err := windsorEnvPrinter.GetEnvVars()
-		expectedErrorMessage := "error retrieving current context: mock context error"
-		if err == nil || err.Error() != expectedErrorMessage {
-			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
 	})
 

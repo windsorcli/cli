@@ -3,10 +3,10 @@ package env
 import (
 	"fmt"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 // EnvPrinter defines the method for printing environment variables.
@@ -20,7 +20,7 @@ type EnvPrinter interface {
 // Env is a struct that implements the EnvPrinter interface.
 type BaseEnvPrinter struct {
 	injector       di.Injector
-	contextHandler context.ContextInterface
+	contextHandler context.ContextHandler
 	shell          shell.Shell
 	configHandler  config.ConfigHandler
 }
@@ -33,37 +33,26 @@ func NewBaseEnvPrinter(injector di.Injector) *BaseEnvPrinter {
 // Initialize initializes the environment.
 func (e *BaseEnvPrinter) Initialize() error {
 	// Resolve the contextHandler
-	contextHandler, err := e.injector.Resolve("contextHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving contextHandler: %w", err)
-	}
-	context, ok := contextHandler.(context.ContextInterface)
+	context, ok := e.injector.Resolve("contextHandler").(context.ContextHandler)
 	if !ok {
-		return fmt.Errorf("failed to cast contextHandler to context.ContextInterface")
+		return fmt.Errorf("error resolving or casting contextHandler to context.ContextHandler")
 	}
 	e.contextHandler = context
 
 	// Resolve the shell
-	shellInstance, err := e.injector.Resolve("shell")
-	if err != nil {
-		return fmt.Errorf("error resolving shell: %w", err)
-	}
-	shell, ok := shellInstance.(shell.Shell)
+	shell, ok := e.injector.Resolve("shell").(shell.Shell)
 	if !ok {
-		return fmt.Errorf("shell is not of type Shell")
+		return fmt.Errorf("error resolving or casting shell to shell.Shell")
 	}
 	e.shell = shell
 
 	// Resolve the configHandler
-	configHandler, err := e.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("error resolving configHandler: %w", err)
-	}
-	configInterface, ok := configHandler.(config.ConfigHandler)
+	configInterface, ok := e.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
-		return fmt.Errorf("configHandler is not of type ConfigHandler")
+		return fmt.Errorf("error resolving or casting configHandler to config.ConfigHandler")
 	}
 	e.configHandler = configInterface
+
 	return nil
 }
 

@@ -2,21 +2,20 @@ package virt
 
 import (
 	"fmt"
-	"net"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/helpers"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/services"
 )
 
 // DockerVirt implements the ContainerInterface for Docker
 type DockerVirt struct {
 	BaseVirt
-	helpers []helpers.Helper
+	services []services.Service
 }
 
 // NewDockerVirt creates a new instance of DockerVirt using a DI injector
@@ -34,31 +33,38 @@ func (v *DockerVirt) Initialize() error {
 		return fmt.Errorf("error initializing base: %w", err)
 	}
 
-	resolvedHelpers, err := v.injector.ResolveAll((*helpers.Helper)(nil))
+	// Resolve all services
+	resolvedServices, err := v.injector.ResolveAll((*services.Service)(nil))
 	if err != nil {
-		return fmt.Errorf("error resolving helpers: %w", err)
+		return fmt.Errorf("error resolving services: %w", err)
 	}
 
-	// Convert the resolved helpers to the correct type
-	helperSlice := make([]helpers.Helper, len(resolvedHelpers))
-	for i, helper := range resolvedHelpers {
-		if h, _ := helper.(helpers.Helper); h != nil {
-			helperSlice[i] = h
+	// Convert the resolved services to the correct type
+	serviceSlice := make([]services.Service, len(resolvedServices))
+	for i, service := range resolvedServices {
+		if s, _ := service.(services.Service); s != nil {
+			serviceSlice[i] = s
 		}
 	}
 
-	v.helpers = helperSlice
+	// Alphabetize the services by their name
+	sort.Slice(serviceSlice, func(i, j int) bool {
+		return fmt.Sprintf("%T", serviceSlice[i]) < fmt.Sprintf("%T", serviceSlice[j])
+	})
+
+	// Get the context configuration
+	contextConfig := v.configHandler.GetConfig()
+	if contextConfig == nil || contextConfig.Docker == nil {
+		return fmt.Errorf("Docker configuration is not defined")
+	}
+
+	// Set the services
+	v.services = serviceSlice
 	return nil
 }
 
 // Up starts docker-compose
-func (v *DockerVirt) Up(verbose ...bool) error {
-	// Set verbose to false if not defined
-	verboseFlag := false
-	if len(verbose) > 0 {
-		verboseFlag = verbose[0]
-	}
-
+func (v *DockerVirt) Up() error {
 	// Get the context configuration
 	contextConfig := v.configHandler.GetConfig()
 
@@ -69,45 +75,64 @@ func (v *DockerVirt) Up(verbose ...bool) error {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
 
+		// Get the path to the compose.yaml file
+		configRoot, err := v.contextHandler.GetConfigRoot()
+		if err != nil {
+			return fmt.Errorf("error retrieving config root: %w", err)
+		}
+		composeFilePath := filepath.Join(configRoot, "compose.yaml")
+
 		// Retry logic for docker-compose up
 		retries := 3
 		var lastErr error
 		var lastOutput string
 		for i := 0; i < retries; i++ {
 			command := "docker-compose"
-			args := []string{"up", "-d"}
-			output, err := v.shell.Exec(verboseFlag, fmt.Sprintf("Running %s %s", command, strings.Join(args, " ")), command, args...)
+			args := []string{"-f", composeFilePath, "up", "-d", "--remove-orphans"}
+			message := ""
+			if i == 0 {
+				message = "Running docker-compose up..."
+			}
+			output, err := v.shell.Exec(message, command, args...)
 			if err == nil {
 				lastErr = nil
 				break
 			}
-
 			lastErr = err
 			lastOutput = output
-
 			if i < retries-1 {
-				fmt.Println("Retrying docker-compose up...")
-				time.Sleep(2 * time.Second)
+				time.Sleep(time.Duration(RETRY_WAIT) * time.Second)
 			}
 		}
-
 		if lastErr != nil {
-			return fmt.Errorf("Error executing command %s %v: %w\n%s", "docker-compose", []string{"up", "-d"}, lastErr, lastOutput)
+			return fmt.Errorf("Error executing command %s %v: %w\n%s", "docker-compose", []string{"-f", composeFilePath, "up", "-d", "--remove-orphans"}, lastErr, lastOutput)
 		}
 	}
-
 	return nil
 }
 
 // Down stops the Docker container
-func (v *DockerVirt) Down(verbose ...bool) error {
-	// Placeholder implementation
-	return nil
-}
+func (v *DockerVirt) Down() error {
+	// Check if Docker is enabled and run "docker-compose down" if necessary
+	if v.configHandler.GetBool("docker.enabled") {
+		// Ensure Docker daemon is running
+		if err := v.checkDockerDaemon(); err != nil {
+			return fmt.Errorf("Docker daemon is not running: %w", err)
+		}
 
-// Delete removes the Docker container
-func (v *DockerVirt) Delete(verbose ...bool) error {
-	// Placeholder implementation
+		// Get the path to the compose.yaml file
+		configRoot, err := v.contextHandler.GetConfigRoot()
+		if err != nil {
+			return fmt.Errorf("error retrieving config root: %w", err)
+		}
+		composeFilePath := filepath.Join(configRoot, "compose.yaml")
+
+		// Run docker-compose down with clean flags using the Exec function from shell.go
+		output, err := v.shell.Exec("Running docker-compose down...", "docker-compose", "-f", composeFilePath, "down", "--remove-orphans", "--volumes")
+		if err != nil {
+			return fmt.Errorf("Error executing command docker-compose down: %w\n%s", err, output)
+		}
+	}
 	return nil
 }
 
@@ -149,14 +174,11 @@ func (v *DockerVirt) WriteConfig() error {
 // GetContainerInfo returns a list of information about the Docker containers, including their labels
 func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 	// Get the context name
-	contextName, err := v.contextHandler.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := v.contextHandler.GetContext()
 
 	command := "docker"
 	args := []string{"ps", "--filter", "label=managed_by=windsor", "--filter", fmt.Sprintf("label=context=%s", contextName), "--format", "{{.ID}}"}
-	out, err := v.shell.Exec(false, "", command, args...)
+	out, err := v.shell.Exec(".", command, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +191,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 			continue
 		}
 		inspectArgs := []string{"inspect", containerID, "--format", "{{json .Config.Labels}}"}
-		inspectOut, err := v.shell.Exec(false, "", command, inspectArgs...)
+		inspectOut, err := v.shell.Exec(".", command, inspectArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -179,10 +201,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 			return nil, err
 		}
 
-		serviceName, serviceExists := labels["com.docker.compose.service"]
-		if !serviceExists {
-			continue
-		}
+		serviceName, _ := labels["com.docker.compose.service"]
 
 		// If a name is provided, check if it matches the current serviceName
 		if len(name) > 0 && serviceName != name[0] {
@@ -190,7 +209,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 		}
 
 		networkInspectArgs := []string{"inspect", containerID, "--format", "{{json .NetworkSettings.Networks}}"}
-		networkInspectOut, err := v.shell.Exec(false, "", command, networkInspectArgs...)
+		networkInspectOut, err := v.shell.Exec("", command, networkInspectArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -221,11 +240,6 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 
 		containerInfos = append(containerInfos, containerInfo)
 	}
-
-	// Sort containerInfos alphabetically by container name
-	sort.Slice(containerInfos, func(i, j int) bool {
-		return containerInfos[i].Name < containerInfos[j].Name
-	})
 
 	return containerInfos, nil
 }
@@ -258,17 +272,16 @@ var _ ContainerRuntime = (*DockerVirt)(nil)
 func (v *DockerVirt) checkDockerDaemon() error {
 	command := "docker"
 	args := []string{"info"}
-	_, err := v.shell.Exec(false, "", command, args...)
+	_, err := v.shell.Exec("", command, args...)
 	return err
 }
 
 // getFullComposeConfig retrieves the full compose configuration for the DockerVirt.
 func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
-	contextName, err := v.contextHandler.GetContext()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving context: %w", err)
-	}
+	// Get the context name
+	contextName := v.contextHandler.GetContext()
 
+	// Get the context configuration
 	contextConfig := v.configHandler.GetConfig()
 
 	// Check if Docker is defined in the windsor config
@@ -276,6 +289,7 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 		return nil, nil
 	}
 
+	// Initialize the combined services, volumes, and networks
 	var combinedServices []types.ServiceConfig
 	var combinedVolumes map[string]types.VolumeConfig
 	var combinedNetworks map[string]types.NetworkConfig
@@ -283,27 +297,47 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	combinedVolumes = make(map[string]types.VolumeConfig)
 	combinedNetworks = make(map[string]types.NetworkConfig)
 
-	// Iterate through each helper and collect container configs
-	for _, helper := range v.helpers {
-		if helperInstance, ok := helper.(interface{ GetComposeConfig() (*types.Config, error) }); ok {
-			helperName := fmt.Sprintf("%T", helperInstance)
-			containerConfigs, err := helperInstance.GetComposeConfig()
+	// Iterate through each service and collect container configs
+	for _, service := range v.services {
+		if serviceInstance, ok := service.(interface {
+			GetComposeConfig() (*types.Config, error)
+			GetAddress() string
+		}); ok {
+			serviceName := fmt.Sprintf("%T", serviceInstance)
+
+			// Retrieve the compose configuration for the service
+			containerConfigs, err := serviceInstance.GetComposeConfig()
 			if err != nil {
-				return nil, fmt.Errorf("error getting container config from helper %s: %w", helperName, err)
+				return nil, fmt.Errorf("error getting container config from service %s: %w", serviceName, err)
 			}
 			if containerConfigs == nil {
 				continue
 			}
+
+			// Add service configurations to the combined list
 			if containerConfigs.Services != nil {
 				for _, containerConfig := range containerConfigs.Services {
+
+					// Set the IP address for the service
+					containerConfig.Networks = map[string]*types.ServiceNetworkConfig{
+						fmt.Sprintf("windsor-%s", contextName): {
+							Ipv4Address: serviceInstance.GetAddress(),
+						},
+					}
+
+					// Add the service configuration to the combined list
 					combinedServices = append(combinedServices, containerConfig)
 				}
 			}
+
+			// Add volume configurations to the combined map
 			if containerConfigs.Volumes != nil {
 				for volumeName, volumeConfig := range containerConfigs.Volumes {
 					combinedVolumes[volumeName] = volumeConfig
 				}
 			}
+
+			// Add network configurations to the combined map
 			if containerConfigs.Networks != nil {
 				for networkName, networkConfig := range containerConfigs.Networks {
 					combinedNetworks[networkName] = networkConfig
@@ -312,9 +346,10 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 		}
 	}
 
+	// Define the network name based on the context
 	networkName := fmt.Sprintf("windsor-%s", contextName)
 
-	// Assign the CIDR to the network configuration
+	// Assign the CIDR to the network configuration if available
 	if contextConfig.Docker.NetworkCIDR != nil {
 		combinedNetworks[networkName] = types.NetworkConfig{
 			Driver: "bridge",
@@ -331,38 +366,7 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 		combinedNetworks[networkName] = types.NetworkConfig{}
 	}
 
-	// Assign IP addresses to services based on the network CIDR
-	if contextConfig.Docker.NetworkCIDR != nil {
-		ip, ipNet, err := net.ParseCIDR(*contextConfig.Docker.NetworkCIDR)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing network CIDR: %w", err)
-		}
-
-		// Skip the network address
-		ip = incrementIP(ip)
-
-		// Skip the first IP address
-		ip = incrementIP(ip)
-
-		// Alphabetize the names of the services
-		sort.Slice(combinedServices, func(i, j int) bool {
-			return combinedServices[i].Name < combinedServices[j].Name
-		})
-
-		for i := range combinedServices {
-			combinedServices[i].Networks = map[string]*types.ServiceNetworkConfig{
-				networkName: {
-					Ipv4Address: ip.String(),
-				},
-			}
-			ip = incrementIP(ip)
-			if !ipNet.Contains(ip) {
-				return nil, fmt.Errorf("not enough IP addresses in the CIDR range")
-			}
-		}
-	}
-
-	// Create a Project using compose-go
+	// Create a Project using compose-go with the combined configurations
 	project := &types.Project{
 		Services: combinedServices,
 		Volumes:  combinedVolumes,

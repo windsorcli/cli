@@ -2,18 +2,15 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/config"
 )
 
 var (
 	backend        string
 	awsProfile     string
 	awsEndpointURL string
-	vmType         string
+	vmDriver       string
 	cpu            int
 	disk           int
 	memory         int
@@ -23,97 +20,66 @@ var (
 )
 
 var initCmd = &cobra.Command{
-	Use:   "init [context]",
-	Short: "Initialize the application",
-	Long:  "Initialize the application by setting up necessary configurations and environment",
-	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	Use:          "init [context]",
+	Short:        "Initialize the application",
+	Long:         "Initialize the application by setting up necessary configurations and environment",
+	Args:         cobra.MaximumNArgs(1),
+	SilenceUsage: true,
+	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		contextName := args[0]
+		// Resolve the context handler
+		contextHandler := controller.ResolveContextHandler()
 
-		// Determine the cliConfig path
-		cliConfigPath := os.Getenv("WINDSOR_CONFIG")
-		if cliConfigPath == "" {
-			homeDir, err := osUserHomeDir()
-			if err != nil {
-				return fmt.Errorf("error retrieving home directory: %w", err)
-			}
-			cliConfigPath = filepath.Join(homeDir, ".config", "windsor", "config.yaml")
+		var contextName string
+		if len(args) == 1 {
+			contextName = args[0]
+		} else {
+			contextName = contextHandler.GetContext()
 		}
 
 		// Set the context value
-		if err := configHandler.Set("context", contextName); err != nil {
-			return fmt.Errorf("Error setting config value: %w", err)
+		if contextName == "" {
+			contextName = "local"
+		}
+		if err := contextHandler.SetContext(contextName); err != nil {
+			return fmt.Errorf("Error setting context value: %w", err)
 		}
 
-		// If the context is local or starts with "local-", set the defaults to the default local config
-		if contextName == "local" || len(contextName) > 6 && contextName[:6] == "local-" {
-			if err := configHandler.SetDefault(config.DefaultLocalConfig); err != nil {
-				return fmt.Errorf("Error setting default local config: %w", err)
-			}
-		} else {
-			if err := configHandler.SetDefault(config.DefaultConfig); err != nil {
-				return fmt.Errorf("Error setting default config: %w", err)
-			}
+		// Resolve the config handler
+		configHandler := controller.ResolveConfigHandler()
+
+		// Create the flag to config path mapping
+		configurations := []struct {
+			flagName   string
+			configPath string
+			value      interface{}
+		}{
+			{"aws-endpoint-url", "aws.aws_endpoint_url", awsEndpointURL},
+			{"aws-profile", "aws.aws_profile", awsProfile},
+			{"docker", "docker.enabled", docker},
+			{"backend", "terraform.backend", backend},
+			{"vm-driver", "vm.driver", vmDriver},
+			{"vm-cpu", "vm.cpu", cpu},
+			{"vm-disk", "vm.disk", disk},
+			{"vm-memory", "vm.memory", memory},
+			{"vm-arch", "vm.arch", arch},
+			{"git-livereload", "git.livereload.enabled", gitLivereload},
 		}
 
-		// Conditionally set AWS configuration
-		if cmd.Flags().Changed("aws-endpoint-url") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.aws.aws_endpoint_url", contextName), awsEndpointURL); err != nil {
-				return fmt.Errorf("Error setting AWS endpoint URL: %w", err)
-			}
-		}
-		if cmd.Flags().Changed("aws-profile") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.aws.aws_profile", contextName), awsProfile); err != nil {
-				return fmt.Errorf("Error setting AWS profile: %w", err)
-			}
-		}
-
-		// Conditionally set Docker configuration
-		if cmd.Flags().Changed("docker") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.docker.enabled", contextName), docker); err != nil {
-				return fmt.Errorf("Error setting Docker enabled: %w", err)
-			}
-		}
-
-		// Conditionally set Terraform configuration
-		if cmd.Flags().Changed("backend") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.terraform.backend", contextName), backend); err != nil {
-				return fmt.Errorf("Error setting Terraform backend: %w", err)
+		// Set the configurations
+		for _, config := range configurations {
+			if cmd.Flags().Changed(config.flagName) {
+				err := configHandler.SetContextValue(config.configPath, config.value)
+				if err != nil {
+					return fmt.Errorf("Error setting %s configuration: %w", config.flagName, err)
+				}
 			}
 		}
 
-		// Conditionally set VM configuration
-		if cmd.Flags().Changed("vm-driver") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.vm.driver", contextName), vmType); err != nil {
-				return fmt.Errorf("Error setting VM driver: %w", err)
-			}
-		}
-		if cmd.Flags().Changed("vm-cpu") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.vm.cpu", contextName), cpu); err != nil {
-				return fmt.Errorf("Error setting VM CPU: %w", err)
-			}
-		}
-		if cmd.Flags().Changed("vm-disk") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.vm.disk", contextName), disk); err != nil {
-				return fmt.Errorf("Error setting VM disk: %w", err)
-			}
-		}
-		if cmd.Flags().Changed("vm-memory") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.vm.memory", contextName), memory); err != nil {
-				return fmt.Errorf("Error setting VM memory: %w", err)
-			}
-		}
-		if cmd.Flags().Changed("vm-arch") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.vm.arch", contextName), arch); err != nil {
-				return fmt.Errorf("Error setting VM architecture: %w", err)
-			}
-		}
-
-		// Conditionally set Git Livereload configuration
-		if cmd.Flags().Changed("git-livereload") {
-			if err := configHandler.Set(fmt.Sprintf("contexts.%s.git.livereload.enabled", contextName), gitLivereload); err != nil {
-				return fmt.Errorf("Error setting Git Livereload enabled: %w", err)
-			}
+		// Get the cli configuration path
+		cliConfigPath, err := getCliConfigPath()
+		if err != nil {
+			return fmt.Errorf("Error getting cli configuration path: %w", err)
 		}
 
 		// Save the cli configuration
@@ -121,22 +87,32 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error saving config file: %w", err)
 		}
 
-		// Configure ColimaVirt if enabled in configuration
-		driver := configHandler.GetString("vm.driver")
-		if driver == "colima" {
-			if err := colimaVirt.WriteConfig(); err != nil {
-				return fmt.Errorf("error writing Colima config: %w", err)
-			}
+		// Create service components
+		if err := controller.CreateServiceComponents(); err != nil {
+			return fmt.Errorf("Error creating service components: %w", err)
 		}
 
-		// Configure DockerVirt if enabled in configuration
-		dockerEnabled := configHandler.GetBool("docker.enabled")
-		if dockerEnabled {
-			if err := dockerVirt.WriteConfig(); err != nil {
-				return fmt.Errorf("error writing Docker config: %w", err)
-			}
+		// Create virtualization components
+		if err := controller.CreateVirtualizationComponents(); err != nil {
+			return fmt.Errorf("Error creating virtualization components: %w", err)
 		}
 
+		// Create stack components
+		if err := controller.CreateStackComponents(); err != nil {
+			return fmt.Errorf("Error creating stack components: %w", err)
+		}
+
+		// Initialize components
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
+		}
+
+		// Write configurations to file
+		if err := controller.WriteConfigurationFiles(); err != nil {
+			return fmt.Errorf("Error writing configuration files: %w", err)
+		}
+
+		// Print the success message
 		fmt.Println("Initialization successful")
 		return nil
 	},
@@ -146,7 +122,7 @@ func init() {
 	initCmd.Flags().StringVar(&backend, "backend", "", "Specify the terraform backend to use")
 	initCmd.Flags().StringVar(&awsProfile, "aws-profile", "", "Specify the AWS profile to use")
 	initCmd.Flags().StringVar(&awsEndpointURL, "aws-endpoint-url", "", "Specify the AWS endpoint URL to use")
-	initCmd.Flags().StringVar(&vmType, "vm-driver", "", "Specify the VM driver. Only Colima is supported for now.")
+	initCmd.Flags().StringVar(&vmDriver, "vm-driver", "", "Specify the VM driver. Only Colima is supported for now.")
 	initCmd.Flags().IntVar(&cpu, "vm-cpu", 0, "Specify the number of CPUs for Colima")
 	initCmd.Flags().IntVar(&disk, "vm-disk", 0, "Specify the disk size for Colima")
 	initCmd.Flags().IntVar(&memory, "vm-memory", 0, "Specify the memory size for Colima")

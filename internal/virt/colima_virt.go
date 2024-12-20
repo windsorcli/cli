@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // Test hook to force memory overflow
@@ -30,12 +30,9 @@ func NewColimaVirt(injector di.Injector) *ColimaVirt {
 }
 
 // Up starts the Colima VM
-func (v *ColimaVirt) Up(verbose ...bool) error {
-	if len(verbose) == 0 {
-		verbose = append(verbose, false)
-	}
-
-	info, err := v.startColima(verbose[0])
+func (v *ColimaVirt) Up() error {
+	// Start the Colima VM
+	info, err := v.startColima()
 	if err != nil {
 		return err
 	}
@@ -48,25 +45,24 @@ func (v *ColimaVirt) Up(verbose ...bool) error {
 	return nil
 }
 
-// Down stops the Colima VM
-func (v *ColimaVirt) Down(verbose ...bool) error {
-	if len(verbose) == 0 {
-		verbose = append(verbose, false)
+// Down stops and deletes the Colima VM
+func (v *ColimaVirt) Down() error {
+	// Stop the Colima VM
+	if err := v.executeColimaCommand("stop"); err != nil {
+		return err
 	}
 
-	return v.executeColimaCommand("stop", verbose[0])
+	// Delete the Colima VM
+	return v.executeColimaCommand("delete")
 }
 
 // GetVMInfo returns the information about the Colima VM
 func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
-	contextName, err := v.contextHandler.GetContext()
-	if err != nil {
-		return VMInfo{}, fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := v.contextHandler.GetContext()
 
 	command := "colima"
 	args := []string{"ls", "--profile", fmt.Sprintf("windsor-%s", contextName), "--json"}
-	out, err := v.shell.Exec(false, "", command, args...)
+	out, err := v.shell.Exec("", command, args...)
 	if err != nil {
 		return VMInfo{}, err
 	}
@@ -103,10 +99,7 @@ func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
 
 // WriteConfig writes the Colima configuration file
 func (v *ColimaVirt) WriteConfig() error {
-	context, err := v.contextHandler.GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
+	context := v.contextHandler.GetContext()
 
 	config := v.configHandler.GetConfig()
 
@@ -220,15 +213,6 @@ func (v *ColimaVirt) PrintInfo() error {
 	return nil
 }
 
-// Delete removes the Colima VM
-func (v *ColimaVirt) Delete(verbose ...bool) error {
-	if len(verbose) == 0 {
-		verbose = append(verbose, false)
-	}
-
-	return v.executeColimaCommand("delete", verbose[0])
-}
-
 // Ensure ColimaVirt implements Virt and VirtualMachine
 var _ Virt = (*ColimaVirt)(nil)
 var _ VirtualMachine = (*ColimaVirt)(nil)
@@ -274,17 +258,14 @@ func getDefaultValues(context string) (int, int, int, string, string) {
 }
 
 // executeColimaCommand executes a Colima command with the given action
-func (v *ColimaVirt) executeColimaCommand(action string, verbose bool) error {
+func (v *ColimaVirt) executeColimaCommand(action string) error {
 	// Get the context name
-	contextName, err := v.contextHandler.GetContext()
-	if err != nil {
-		return fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := v.contextHandler.GetContext()
 
 	command := "colima"
 	args := []string{action, fmt.Sprintf("windsor-%s", contextName)}
 	formattedCommand := fmt.Sprintf("%s %s", command, strings.Join(args, " "))
-	output, err := v.shell.Exec(verbose, fmt.Sprintf("Running %s", formattedCommand), command, args...)
+	output, err := v.shell.Exec(fmt.Sprintf("Running %s", formattedCommand), command, args...)
 	if err != nil {
 		return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 	}
@@ -293,16 +274,13 @@ func (v *ColimaVirt) executeColimaCommand(action string, verbose bool) error {
 }
 
 // startColima starts the Colima VM and waits for it to have an assigned IP address
-func (v *ColimaVirt) startColima(verbose bool) (VMInfo, error) {
+func (v *ColimaVirt) startColima() (VMInfo, error) {
 	// Get the context name
-	contextName, err := v.contextHandler.GetContext()
-	if err != nil {
-		return VMInfo{}, fmt.Errorf("error retrieving context: %w", err)
-	}
+	contextName := v.contextHandler.GetContext()
 
 	command := "colima"
 	args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
-	output, err := v.shell.Exec(verbose, fmt.Sprintf("Running %s %s", command, strings.Join(args, " ")), command, args...)
+	output, err := v.shell.Exec(fmt.Sprintf("Running %s %s", command, strings.Join(args, " ")), command, args...)
 	if err != nil {
 		return VMInfo{}, fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 	}
@@ -317,7 +295,8 @@ func (v *ColimaVirt) startColima(verbose bool) (VMInfo, error) {
 		if info.Address != "" {
 			return info, nil
 		}
-		time.Sleep(2 * time.Second)
+
+		time.Sleep(time.Duration(RETRY_WAIT) * time.Second)
 	}
 
 	return VMInfo{}, fmt.Errorf("Failed to retrieve VM info with a valid address after multiple attempts")

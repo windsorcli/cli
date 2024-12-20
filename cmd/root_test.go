@@ -2,37 +2,25 @@ package cmd
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/helpers"
-	"github.com/windsor-hotel/cli/internal/mocks"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	ctrl "github.com/windsorcli/cli/internal/controller"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/env"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 // Helper functions to create pointers for basic types
 func ptrInt(i int) *int {
 	return &i
-}
-
-// Struct to hold optional mock handlers and helpers
-type MockDependencies struct {
-	ConfigHandler   config.ConfigHandler
-	Shell           shell.Shell
-	TerraformHelper helpers.Helper
-	AwsHelper       helpers.Helper
-	ColimaHelper    helpers.Helper
-	DockerHelper    helpers.Helper
-	ContextInstance context.ContextInterface
 }
 
 // Helper function to capture stdout output
@@ -65,362 +53,306 @@ func captureStderr(f func()) string {
 	return buf.String()
 }
 
-// Mock exit function to capture exit code and message
+// Mock exit function to capture exit code
 var exitCode int
-var exitMessage string
 
-func mockExit(code int, message string) {
+func mockExit(code int) {
 	exitCode = code
-	exitMessage = message
-	panic(fmt.Sprintf("exit code: %d", code))
 }
 
-func TestRootCommand(t *testing.T) {
+type MockObjects struct {
+	Controller     *ctrl.MockController
+	Shell          *shell.MockShell
+	EnvPrinter     *env.MockEnvPrinter
+	ConfigHandler  *config.MockConfigHandler
+	ContextHandler *context.MockContext
+}
+
+func TestRoot_Execute(t *testing.T) {
 	originalExitFunc := exitFunc
+	exitFunc = mockExit
 	t.Cleanup(func() {
 		exitFunc = originalExitFunc
 	})
+}
 
-	t.Run("PreRunLoadConfig", func(t *testing.T) {
-		t.Run("Success", func(t *testing.T) {
-			// Given valid config handlers and shell instance
-			mocks := mocks.CreateSuperMocks()
-			mocks.ConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				return "value"
-			}
-			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			Initialize(mocks.Injector)
-
-			// When preRunLoadConfig is executed
-			err := preRunLoadConfig(nil, nil)
-
-			// Then no error should be returned
-			if err != nil {
-				t.Fatalf("preRunLoadConfig() error = %v, expected no error", err)
-			}
-		})
-
-		t.Run("NoConfigHandler", func(t *testing.T) {
-			// Given no CLI config handler is registered
-			configHandler = nil
-
-			// When preRunLoadConfig is executed
-			err := preRunLoadConfig(nil, nil)
-
-			// Then an error should be returned
-			if err == nil {
-				t.Fatalf("preRunLoadConfig() expected error, got nil")
-			}
-			expectedError := "configHandler is not initialized"
-			if err.Error() != expectedError {
-				t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
-			}
-		})
-
-		t.Run("CLIConfigLoadError", func(t *testing.T) {
-			// Given CLI config handler returns an error on LoadConfig
-			mocks := mocks.CreateSuperMocks()
-			mocks.ConfigHandler.LoadConfigFunc = func(path string) error { return errors.New("mock load error") }
-			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				return "value"
-			}
-			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			Initialize(mocks.Injector)
-
-			// When preRunLoadConfig is executed
-			err := preRunLoadConfig(nil, nil)
-
-			// Then an error should be returned
-			if err == nil {
-				t.Fatalf("preRunLoadConfig() expected error, got nil")
-			}
-			expectedError := "error loading CLI config: mock load error"
-			if err.Error() != expectedError {
-				t.Fatalf("preRunLoadConfig() error = %v, expected '%s'", err, expectedError)
-			}
-		})
-	})
-
+func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		t.Run("ValidConfigHandlers", func(t *testing.T) {
-			// Given valid config handlers and shell instance
-			mocks := mocks.CreateSuperMocks()
-			mocks.ConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				return "value"
-			}
-			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
-			Initialize(mocks.Injector)
+		// Mock the injector
+		injector := di.NewInjector()
 
-			// Mock exitFunc to capture the exit code
-			var exitCode int
-			exitFunc = func(code int) {
-				exitCode = code
-			}
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
 
-			// Add a dummy subcommand to trigger PersistentPreRunE
-			dummyCmd := &cobra.Command{
-				Use: "dummy",
-				Run: func(cmd *cobra.Command, args []string) {},
-			}
-			rootCmd.AddCommand(dummyCmd)
-			rootCmd.SetArgs([]string{"dummy"})
+		// Mock the controller
+		mockController := ctrl.NewMockController(injector)
+		controller = mockController
 
-			// When the command is executed
-			err := rootCmd.Execute()
+		// Create mock config handler
+		mockConfigHandler := config.NewMockConfigHandler()
+		injector.Register("configHandler", mockConfigHandler)
 
-			// Then no error should be returned and exitFunc should not be called
-			if err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
-			if exitCode != 0 {
-				t.Errorf("exitFunc was called with code %d, expected 0", exitCode)
-			}
+		// Mock getCliConfigPath to return a consistent path format across OS
+		originalGetCliConfigPath := getCliConfigPath
+		getCliConfigPath = func() (string, error) {
+			return filepath.ToSlash("/mock/home/.config/windsor/config.yaml"), nil
+		}
+		defer func() { getCliConfigPath = originalGetCliConfigPath }()
 
-			// Cleanup
-			rootCmd.RemoveCommand(dummyCmd)
-		})
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
 	})
 
-	t.Run("Error", func(t *testing.T) {
-		t.Run("NoConfigHandlers", func(t *testing.T) {
-			// Given no config handlers are registered
-			configHandler = nil
+	t.Run("ErrorInitializingController", func(t *testing.T) {
+		// Mock the injector
+		injector := di.NewInjector()
 
-			// Mock exitFunc to capture the exit code
-			var exitCode int
-			exitFunc = func(code int) {
-				exitCode = code
-			}
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
 
-			// Add a dummy subcommand to trigger PersistentPreRunE
-			dummyCmd := &cobra.Command{
-				Use: "dummy",
-				Run: func(cmd *cobra.Command, args []string) {},
-			}
-			rootCmd.AddCommand(dummyCmd)
-			rootCmd.SetArgs([]string{"dummy"})
+		// Mock the controller to return an error on Initialize
+		mockController := ctrl.NewMockController(injector)
+		mockController.InitializeFunc = func() error {
+			return fmt.Errorf("mocked error initializing controller")
+		}
+		controller = mockController
 
-			// Capture stderr output
-			actualErrorMsg := captureStderr(func() {
-				Execute()
-			})
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
 
-			// Then exitFunc should be called with code 1 and the error message should be printed to stderr
-			if exitCode != 1 {
-				t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
-			}
-			expectedErrorMsg := "configHandler is not initialized\n"
-			if !strings.Contains(actualErrorMsg, expectedErrorMsg) {
-				t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
-			}
-
-			// Cleanup
-			rootCmd.RemoveCommand(dummyCmd)
-		})
+		// Then an error should be returned
+		expectedError := "mocked error initializing controller"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
 	})
 
-	t.Run("Initialize", func(t *testing.T) {
-		t.Run("Success", func(t *testing.T) {
-			// Given valid config handlers and shell instance
-			mocks := mocks.CreateSuperMocks()
-			mocks.ConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				return "value"
-			}
-			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
+	t.Run("ErrorCreatingCommonComponents", func(t *testing.T) {
+		// Mock the injector
+		injector := di.NewInjector()
 
-			// Mock exitFunc to capture the exit code
-			var exitCode int
-			exitFunc = func(code int) {
-				exitCode = code
-			}
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
 
-			// When the cmd package is initialized and stderr is captured
-			actualErrorMsg := captureStderr(func() {
-				Initialize(injector)
-			})
+		// Mock the controller to return an error on CreateCommonComponents
+		mockController := ctrl.NewMockController(injector)
+		mockController.CreateCommonComponentsFunc = func() error {
+			return fmt.Errorf("mocked error creating common components")
+		}
+		controller = mockController
 
-			// Then exitFunc should not be called and no error message should be printed to stderr
-			if exitCode != 0 {
-				t.Errorf("exitFunc was called with code %d, expected 0", exitCode)
-			}
-			if actualErrorMsg != "" {
-				t.Errorf("Expected no error message, got '%s'", actualErrorMsg)
-			}
-		})
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
 
-		t.Run("Error", func(t *testing.T) {
-			// Given no config handlers are registered
-			injector := di.NewInjector()
-
-			// Mock exitFunc to capture the exit code
-			var exitCode int
-			exitFunc = func(code int) {
-				exitCode = code
-			}
-
-			// When the cmd package is initialized and stderr is captured
-			actualErrorMsg := captureStderr(func() {
-				Initialize(injector)
-			})
-
-			// Then exitFunc should be called with code 1 and the error message should be printed to stderr
-			if exitCode != 1 {
-				t.Errorf("exitFunc was not called with code 1, got %d", exitCode)
-			}
-			expectedErrorMsg := "Error resolving configHandler: no instance registered with name configHandler\n"
-			if !strings.Contains(actualErrorMsg, expectedErrorMsg) {
-				t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrorMsg, actualErrorMsg)
-			}
-		})
+		// Then an error should be returned
+		expectedError := "mocked error creating common components"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
 	})
 
-	t.Run("GetCLIConfigPath", func(t *testing.T) {
-		t.Run("UserHomeDirError", func(t *testing.T) {
-			// Save the original functions
-			originalOsUserHomeDir := osUserHomeDir
-			originalExitFunc := exitFunc
+	t.Run("ErrorGettingCliConfigPath", func(t *testing.T) {
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
 
-			// Restore the original functions after the test
-			t.Cleanup(func() {
-				osUserHomeDir = originalOsUserHomeDir
-				exitFunc = originalExitFunc
-			})
+		// Mock the injector
+		injector := di.NewInjector()
 
-			// Mock osUserHomeDir to return an error
-			osUserHomeDir = func() (string, error) {
-				return "", errors.New("mock error")
-			}
+		// Mock the controller
+		mockController := ctrl.NewMockController(injector)
+		controller = mockController
 
-			// Mock exitFunc to capture the exit code
-			var exitCode int
-			exitFunc = func(code int) {
-				exitCode = code
-			}
+		// Mock getCliConfigPath to return an error
+		originalGetCliConfigPath := getCliConfigPath
+		getCliConfigPath = func() (string, error) {
+			return "", fmt.Errorf("mocked error getting cli configuration path")
+		}
+		defer func() { getCliConfigPath = originalGetCliConfigPath }()
 
-			// Capture the output to os.Stderr
-			stderr := captureStderr(func() {
-				getCLIConfigPath()
-			})
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
 
-			// Verify the error message
-			expectedErrorMessage := "error finding home directory, mock error\n"
-			if stderr != expectedErrorMessage {
-				t.Errorf("expected error message %q, got %q", expectedErrorMessage, stderr)
-			}
-
-			// Verify the exit code
-			if exitCode != 1 {
-				t.Errorf("expected exit code 1, got %d", exitCode)
-			}
-		})
+		// Then an error should be returned
+		expectedError := "mocked error getting cli configuration path"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
 	})
-	t.Run("GetProjectConfigPath", func(t *testing.T) {
-		// Save the original functions
-		originalGetwd := getwd
-		originalExitFunc := exitFunc
 
-		// Restore the original functions after the test
-		t.Cleanup(func() {
-			getwd = originalGetwd
-			exitFunc = originalExitFunc
-		})
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
 
-		// Mock getwd to return an error
-		getwd = func() (string, error) {
-			return "", errors.New("mock error")
+		// Mock the injector
+		injector := di.NewInjector()
+
+		// Mock the controller
+		mockController := ctrl.NewMockController(injector)
+		controller = mockController
+
+		// Mock ResolveConfigHandler to return nil
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return nil
 		}
 
-		// Mock exitFunc to capture the exit code
-		var exitCode int
-		exitFunc = func(code int) {
-			exitCode = code
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
+
+		// Then an error should be returned
+		expectedError := "No config handler found"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorLoadingConfig", func(t *testing.T) {
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
+
+		// Mock the injector
+		injector := di.NewInjector()
+
+		// Mock the controller
+		mockController := ctrl.NewMockController(injector)
+		controller = mockController
+
+		// Mock ResolveConfigHandler to return a mock config handler
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func(path string) error {
+			return fmt.Errorf("mocked error loading config")
+		}
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return mockConfigHandler
 		}
 
-		t.Run("GetwdError", func(t *testing.T) {
-			// Given valid config handlers and shell instance
-			mocks := mocks.CreateSuperMocks()
-			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				return "value"
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
+
+		// Then an error should be returned
+		expectedError := "mocked error loading config"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("ErrorSettingDefaultLocalConfig", func(t *testing.T) {
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
+
+		// Mock the injector
+		injector := di.NewInjector()
+
+		// Mock the controller
+		mockController := ctrl.NewMockController(injector)
+		controller = mockController
+
+		// Mock ResolveContextHandler to return a mock context handler
+		mockContextHandler := &context.MockContext{}
+		mockContextHandler.GetContextFunc = func() string {
+			return "local"
+		}
+		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
+			return mockContextHandler
+		}
+
+		// Mock ResolveConfigHandler to return a mock config handler
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.SetDefaultFunc = func(cfg config.Context) error {
+			if reflect.DeepEqual(cfg, config.DefaultLocalConfig) {
+				return fmt.Errorf("mocked error setting default local config")
 			}
-			mocks.Shell.GetProjectRootFunc = func() (string, error) { return "", errors.New("mock error") }
-			Initialize(mocks.Injector)
+			return nil
+		}
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return mockConfigHandler
+		}
 
-			// Capture the output to os.Stderr
-			stderr := captureStderr(func() {
-				getProjectConfigPath()
-			})
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(nil, nil)
 
-			// Verify the error message
-			expectedErrorMessage := "error getting current working directory, mock error\n"
-			if stderr != expectedErrorMessage {
-				t.Errorf("expected error message %q, got %q", expectedErrorMessage, stderr)
-			}
+		// Then an error should be returned
+		expectedError := "mocked error setting default local config"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
+	})
+}
 
-			// Verify the exit code
-			if exitCode != 1 {
-				t.Errorf("expected exit code 1, got %d", exitCode)
-			}
-		})
+func TestRoot_getCliConfigPath(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Unset the WINDSORCONFIG environment variable
+		os.Unsetenv("WINDSORCONFIG")
 
-		t.Run("WindsorYaml", func(t *testing.T) {
-			// Given valid config handlers and shell instance
-			mocks := mocks.CreateSuperMocks()
-			mocks.ConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				return "value"
-			}
+		// Mock osUserHomeDir to return a specific home directory
+		originalUserHomeDir := osUserHomeDir
+		defer func() { osUserHomeDir = originalUserHomeDir }()
+		osUserHomeDir = func() (string, error) {
+			return "/mock/home", nil
+		}
 
-			tempDir := t.TempDir()
-			mocks.Shell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
-			Initialize(mocks.Injector)
+		// When getCliConfigPath is called
+		cliConfigPath, err := getCliConfigPath()
 
-			// Create a temporary windsor.yaml file in the project root
-			windsorYamlPath := filepath.Join(tempDir, "windsor.yaml")
-			file, err := os.Create(windsorYamlPath)
-			if err != nil {
-				t.Fatalf("Failed to create windsor.yaml: %v", err)
-			}
-			file.Close()
+		// Then the path should be as expected and no error should be returned
+		expectedPath := filepath.ToSlash("/mock/home/.config/windsor/config.yaml")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if filepath.ToSlash(cliConfigPath) != expectedPath {
+			t.Errorf("Expected path to be %q, got %q", expectedPath, filepath.ToSlash(cliConfigPath))
+		}
+	})
 
-			// When getProjectConfigPath is called
-			projectConfigPath := getProjectConfigPath()
+	t.Run("EnvVarSet", func(t *testing.T) {
+		// Set the WINDSORCONFIG environment variable
+		os.Setenv("WINDSORCONFIG", "/mock/env/config.yaml")
 
-			// Then projectConfigPath should be set to windsor.yaml
-			if projectConfigPath != windsorYamlPath {
-				t.Errorf("expected projectConfigPath to be %s, got %s", windsorYamlPath, projectConfigPath)
-			}
-		})
+		// When getCliConfigPath is called
+		cliConfigPath, err := getCliConfigPath()
 
-		t.Run("WindsorYml", func(t *testing.T) {
-			// Given valid config handlers and shell instance
-			mocks := mocks.CreateSuperMocks()
-			mocks.ConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-			mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				return "value"
-			}
+		// Then the path should be as expected and no error should be returned
+		expectedPath := "/mock/env/config.yaml"
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if cliConfigPath != expectedPath {
+			t.Errorf("Expected path to be %q, got %q", expectedPath, cliConfigPath)
+		}
+	})
 
-			tempDir := t.TempDir()
-			mocks.Shell.GetProjectRootFunc = func() (string, error) { return tempDir, nil }
-			Initialize(mocks.Injector)
+	t.Run("ErrorGettingHomeDir", func(t *testing.T) {
+		// Unset the WINDSORCONFIG environment variable
+		os.Unsetenv("WINDSORCONFIG")
 
-			// Create a temporary windsor.yml file in the project root
-			windsorYmlPath := filepath.Join(tempDir, "windsor.yml")
-			file, err := os.Create(windsorYmlPath)
-			if err != nil {
-				t.Fatalf("Failed to create windsor.yml: %v", err)
-			}
-			file.Close()
+		// Mock osUserHomeDir to return an error
+		originalUserHomeDir := osUserHomeDir
+		defer func() { osUserHomeDir = originalUserHomeDir }()
+		osUserHomeDir = func() (string, error) {
+			return "", fmt.Errorf("mocked error retrieving home directory")
+		}
 
-			// When getProjectConfigPath is called
-			projectConfigPath := getProjectConfigPath()
+		// When getCliConfigPath is called
+		cliConfigPath, err := getCliConfigPath()
 
-			// Then projectConfigPath should be set to windsor.yml
-			if projectConfigPath != windsorYmlPath {
-				t.Errorf("expected projectConfigPath to be %s, got %s", windsorYmlPath, projectConfigPath)
-			}
-		})
+		// Then an error should be returned and the path should be empty
+		expectedError := "mocked error retrieving home directory"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+		}
+		if cliConfigPath != "" {
+			t.Errorf("Expected path to be empty, got %q", cliConfigPath)
+		}
 	})
 }

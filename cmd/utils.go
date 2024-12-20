@@ -4,8 +4,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-
-	"github.com/windsor-hotel/cli/internal/di"
 )
 
 // exitFunc is a function to exit the program
@@ -20,9 +18,6 @@ var osStat = os.Stat
 // getwd retrieves the current working directory
 var getwd = os.Getwd
 
-// injector is the dependency injector
-var injector di.Injector
-
 // verbose is a flag for verbose output
 var verbose bool
 
@@ -34,13 +29,3 @@ var execCommand = exec.Command
 
 // netInterfaces retrieves the network interfaces
 var netInterfaces = net.Interfaces
-
-// ptrBool returns a pointer to a boolean value
-func ptrBool(b bool) *bool {
-	return &b
-}
-
-// ptrString returns a pointer to a string value
-func ptrString(s string) *string {
-	return &s
-}

@@ -1,7 +1,7 @@
 package shell
 
 import (
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // MockShell is a struct that simulates a shell environment for testing purposes.
@@ -11,7 +11,7 @@ type MockShell struct {
 	PrintEnvVarsFunc   func(envVars map[string]string) error
 	PrintAliasFunc     func(envVars map[string]string) error
 	GetProjectRootFunc func() (string, error)
-	ExecFunc           func(verbose bool, message string, command string, args ...string) (string, error)
+	ExecFunc           func(message string, command string, args ...string) (string, error)
 }
 
 // NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
@@ -60,9 +60,9 @@ func (s *MockShell) GetProjectRoot() (string, error) {
 }
 
 // Exec calls the custom ExecFunc if provided.
-func (s *MockShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
+func (s *MockShell) Exec(message string, command string, args ...string) (string, error) {
 	if s.ExecFunc != nil {
-		return s.ExecFunc(verbose, message, command, args...)
+		return s.ExecFunc(message, command, args...)
 	}
 	return "", nil
 }

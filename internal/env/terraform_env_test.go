@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 type TerraformEnvMocks struct {
@@ -33,8 +33,8 @@ func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
 	mockContext.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
 	}
-	mockContext.GetContextFunc = func() (string, error) {
-		return "mockContext", nil
+	mockContext.GetContextFunc = func() string {
+		return "mockContext"
 	}
 
 	mockShell := shell.NewMockShell()
@@ -200,8 +200,8 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 
 	t.Run("ErrorListingTfvarsFiles", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "mockContext", nil
+		mocks.ContextHandler.GetContextFunc = func() string {
+			return "mockContext"
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{}
@@ -242,13 +242,68 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
 		}
 	})
+
+	t.Run("TestWindows", func(t *testing.T) {
+		originalGoos := goos
+		defer func() { goos = originalGoos }()
+		goos = func() string {
+			return "windows"
+		}
+
+		mocks := setupSafeTerraformEnvMocks()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+
+		// Mock the getwd function to simulate being in a terraform project path
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+		getwd = func() (string, error) {
+			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
+		}
+
+		// Mock the glob function to simulate the presence of *.tf files
+		originalGlob := glob
+		defer func() { glob = originalGlob }()
+		glob = func(pattern string) ([]string, error) {
+			if strings.Contains(pattern, "*.tf") {
+				return []string{"main.tf"}, nil
+			}
+			return nil, nil
+		}
+
+		// Mock the stat function to simulate the existence of tfvars files
+		originalStat := stat
+		defer func() { stat = originalStat }()
+		stat = func(name string) (os.FileInfo, error) {
+			if name == filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars") {
+				return nil, nil // Simulate file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock the GetEnvVars function to verify it returns the correct envVars
+		envVars, err := terraformEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that GetEnvVars returns the correct envVars
+		expectedEnvVars := map[string]string{
+			"TF_VAR_os_type": "windows",
+		}
+		if envVars == nil {
+			t.Errorf("envVars is nil, expected %v", expectedEnvVars)
+		} else if value, exists := envVars["TF_VAR_os_type"]; !exists || value != expectedEnvVars["TF_VAR_os_type"] {
+			t.Errorf("envVars[TF_VAR_os_type] = %v, want %v", value, expectedEnvVars["TF_VAR_os_type"])
+		}
+	})
 }
 
 func TestTerraformEnv_PostEnvHook(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "mockContext", nil
+		mocks.ContextHandler.GetContextFunc = func() string {
+			return "mockContext"
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
@@ -489,6 +544,12 @@ func TestTerraformEnv_Print(t *testing.T) {
 			t.Errorf("unexpected error: %v", err)
 		}
 
+		// Determine the expected OS type
+		expectedOSType := "unix"
+		if goos() == "windows" {
+			expectedOSType = "windows"
+		}
+
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":         filepath.FromSlash("/mock/config/root/.terraform/project/path"),
@@ -498,6 +559,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 			"TF_CLI_ARGS_import":  "",
 			"TF_CLI_ARGS_destroy": "",
 			"TF_VAR_context_path": filepath.FromSlash("/mock/config/root"),
+			"TF_VAR_os_type":      expectedOSType,
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
@@ -531,8 +593,8 @@ func TestTerraformEnv_Print(t *testing.T) {
 func TestTerraformEnv_getAlias(t *testing.T) {
 	t.Run("SuccessLocalstackEnabled", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "local", nil
+		mocks.ContextHandler.GetContextFunc = func() string {
+			return "local"
 		}
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "aws.localstack.create" {
@@ -558,14 +620,14 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 
 	t.Run("SuccessLocalstackDisabled", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() (string, error) {
-			return "local", nil
+		mocks.ContextHandler.GetContextFunc = func() string {
+			return "local"
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				AWS: &config.AWSConfig{
 					Localstack: &config.LocalstackConfig{
-						Create: boolPtr(false),
+						Enabled: boolPtr(false),
 					},
 				},
 			}

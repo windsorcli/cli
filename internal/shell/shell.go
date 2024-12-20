@@ -1,14 +1,17 @@
 package shell
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/ssh"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // maxFolderSearchDepth is the maximum depth to search for the project root
@@ -24,14 +27,13 @@ type Shell interface {
 	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
 	// Exec executes a command with optional privilege elevation
-	Exec(verbose bool, message string, command string, args ...string) (string, error)
+	Exec(message string, command string, args ...string) (string, error)
 }
 
 // DefaultShell is the default implementation of the Shell interface
 type DefaultShell struct {
 	projectRoot   string
 	injector      di.Injector
-	sshClient     ssh.Client
 	configHandler config.ConfigHandler
 }
 
@@ -43,18 +45,11 @@ func NewDefaultShell(injector di.Injector) *DefaultShell {
 }
 
 func (s *DefaultShell) Initialize() error {
-	// Get the SSH client
-	sshClient, err := s.injector.Resolve("sshClient")
-	if err != nil {
-		return fmt.Errorf("failed to resolve SSH client: %w", err)
+	configHandler, ok := s.injector.Resolve("configHandler").(config.ConfigHandler)
+	if !ok {
+		return fmt.Errorf("error resolving configHandler")
 	}
-	s.sshClient = sshClient.(ssh.Client)
-
-	configHandler, err := s.injector.Resolve("configHandler")
-	if err != nil {
-		return fmt.Errorf("failed to resolve config handler: %w", err)
-	}
-	s.configHandler = configHandler.(config.ConfigHandler)
+	s.configHandler = configHandler
 
 	return nil
 }
@@ -112,41 +107,103 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 }
 
 // Exec executes a command and returns its output as a string
-func (s *DefaultShell) Exec(verbose bool, message string, command string, args ...string) (string, error) {
+func (s *DefaultShell) Exec(message string, command string, args ...string) (string, error) {
 	cmd := execCommand(command, args...)
 
-	var outputBuffer, errorBuffer strings.Builder
-	cmd.Stdout = &outputBuffer
-	cmd.Stderr = &errorBuffer
+	// Create pipes for stdout and stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
 
-	// Always print the message if it is not empty
-	if message != "" {
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// Determine if passthrough should be enabled
+	passthrough := command == "sudo" || message == ""
+
+	// Print the message if it is not empty and passthrough is not enabled
+	if message != "" && !passthrough {
 		fmt.Println(message)
 	}
 
-	// Start the command and handle errors
-	errChan := make(chan error, 1)
+	// Start the command
+	if err := cmdStart(cmd); err != nil {
+		return "", fmt.Errorf("failed to start command: %w", err)
+	}
+
+	// Buffers to capture stdout and stderr
+	var stdoutBuf, stderrBuf bytes.Buffer
+
+	// Channel to capture errors from goroutines
+	errChan := make(chan error, 2)
+
+	// Signal handling
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+
 	go func() {
-		if err := cmdStart(cmd); err != nil {
-			errChan <- fmt.Errorf("failed to start command: %w", err)
-			return
+		<-signalChan
+		if passthrough {
+			fmt.Println("\nInterrupt received, stopping command...")
 		}
-
-		if err := cmdWait(cmd); err != nil {
-			errChan <- fmt.Errorf("command execution failed: %w\n%s", err, errorBuffer.String())
-			return
+		if err := cmd.Process.Kill(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to kill process: %v\n", err)
 		}
-
-		errChan <- nil
 	}()
 
-	// Wait for the command to finish or an error to occur
-	select {
-	case err := <-errChan:
-		if err != nil {
+	// Goroutine to read stdout
+	go func() {
+		scanner := bufio.NewScanner(stdoutPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if passthrough {
+				fmt.Println(line) // Directly print each line
+			}
+			stdoutBuf.WriteString(line + "\n")
+		}
+		if err := scanner.Err(); err != nil {
+			errChan <- fmt.Errorf("error reading stdout: %w", err)
+		} else {
+			errChan <- nil
+		}
+	}()
+
+	// Goroutine to read stderr
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if passthrough {
+				fmt.Fprintln(os.Stderr, line) // Print each line of stderr
+			}
+			stderrBuf.WriteString(line + "\n")
+		}
+		if err := scanner.Err(); err != nil {
+			errChan <- fmt.Errorf("error reading stderr: %w", err)
+		} else {
+			errChan <- nil
+		}
+	}()
+
+	// Handle sudo commands
+	if command == "sudo" {
+		cmd.Stdin = os.Stdin // Allow password input for sudo
+	}
+
+	// Wait for the command to finish
+	if err := cmdWait(cmd); err != nil {
+		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+	}
+
+	// Check for errors from the goroutines
+	for i := 0; i < 2; i++ {
+		if err := <-errChan; err != nil {
 			return "", err
 		}
 	}
 
-	return outputBuffer.String(), nil
+	return stdoutBuf.String(), nil
 }

@@ -38,7 +38,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
         with:
-          go-version: '1.22.2'
+          go-version: '1.23.1'
+          check-latest: true
 
       - name: Cache Go modules
         uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4.1.2
@@ -128,9 +129,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
         with:
-          go-version: '1.22.2'
+          go-version: '1.23.1'
+          check-latest: true
 
       - name: Run Gosec Security Scanner
         uses: securego/gosec@d4617f51baf75f4f809066386a4f9d27b3ac3e46 # v2.21.4
         with:
           args: ./...
+        env:
+          GOTOOLCHAIN: 'local'
+          GOFLAGS: '-buildvcs=false'

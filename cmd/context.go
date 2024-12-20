@@ -8,36 +8,58 @@ import (
 
 // getContextCmd represents the get command
 var getContextCmd = &cobra.Command{
-	Use:   "get",
-	Short: "Get the current context",
-	Long:  "Retrieve and display the current context from the configuration",
+	Use:          "get",
+	Short:        "Get the current context",
+	Long:         "Retrieve and display the current context from the configuration",
+	SilenceUsage: true,
+	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		context, err := contextHandler.GetContext()
-		if err != nil {
-			return fmt.Errorf("Error getting context: %w", err)
+		// Initialize components
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
 		}
-		fmt.Println(context)
+
+		// Resolve context handler
+		contextHandler := controller.ResolveContextHandler()
+
+		// Get the current context
+		currentContext := contextHandler.GetContext()
+
+		// Print the current context
+		fmt.Println(currentContext)
 		return nil
 	},
 }
 
 // setContextCmd represents the set command
 var setContextCmd = &cobra.Command{
-	Use:   "set [context]",
-	Short: "Set the current context",
-	Long:  "Set the current context in the configuration and save it",
-	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	Use:     "set [context]",
+	Short:   "Set the current context",
+	Long:    "Set the current context in the configuration and save it",
+	Args:    cobra.ExactArgs(1), // Ensure exactly one argument is provided
+	PreRunE: preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Initialize components
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
+		}
+
+		// Resolve context handler
+		contextHandler := controller.ResolveContextHandler()
+
+		// Set the context
 		contextName := args[0]
 		if err := contextHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("Error setting context: %w", err)
 		}
+
+		// Print the context
 		fmt.Println("Context set to:", contextName)
 		return nil
 	},
 }
 
-// Alias commands
+// getContextAliasCmd is an alias for the get command
 var getContextAliasCmd = &cobra.Command{
 	Use:   "get-context",
 	Short: "Alias for 'context get'",
@@ -48,6 +70,7 @@ var getContextAliasCmd = &cobra.Command{
 	},
 }
 
+// setContextAliasCmd is an alias for the set command
 var setContextAliasCmd = &cobra.Command{
 	Use:   "set-context [context]",
 	Short: "Alias for 'context set'",

@@ -5,6 +5,7 @@ package network
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ConfigureHostRoute sets up the local development network for Linux
@@ -21,9 +22,34 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	// Add route on the host to VM guest
+	// Use the shell to execute a command that checks the routing table for the specific route
 	output, err := n.shell.Exec(
-		false,
+		"Checking if route exists",
+		"ip",
+		"route",
+		"show",
+		networkCIDR,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to check if route exists: %w", err)
+	}
+
+	// Check if the output contains the guest IP, indicating the route exists
+	routeExists := false
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, guestIP) {
+			routeExists = true
+			break
+		}
+	}
+
+	if routeExists {
+		return nil
+	}
+
+	// Add route on the host to VM guest
+	output, err = n.shell.Exec(
 		"Configuring host route",
 		"sudo",
 		"ip",
@@ -36,6 +62,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	if err != nil {
 		return fmt.Errorf("failed to add route: %w, output: %s", err, output)
 	}
+
 	return nil
 }
 
@@ -61,8 +88,17 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	// Create a drop-in configuration file for DNS settings
 	dropInDir := "/etc/systemd/resolved.conf.d"
 	dropInFile := fmt.Sprintf("%s/dns-override-%s.conf", dropInDir, dnsDomain)
+
+	// Check if the drop-in file already exists with the correct content
+	existingContent, err := readFile(dropInFile)
+	expectedContent := fmt.Sprintf("[Resolve]\nDNS=%s\n", dnsIP)
+	if err == nil && string(existingContent) == expectedContent {
+		// The drop-in file already exists with the correct content, no need to update
+		return nil
+	}
+
+	// Ensure the drop-in directory exists
 	_, err = n.shell.Exec(
-		false,
 		"Creating drop-in directory for resolved.conf",
 		"sudo",
 		"mkdir",
@@ -75,12 +111,11 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 
 	// Write DNS configuration to the drop-in file
 	_, err = n.shell.Exec(
-		false,
 		"Writing DNS configuration to drop-in file",
 		"sudo",
 		"bash",
 		"-c",
-		fmt.Sprintf("echo '[Resolve]\nDNS=%s\n' | sudo tee %s", dnsIP, dropInFile),
+		fmt.Sprintf("echo '%s' | sudo tee %s", expectedContent, dropInFile),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to write DNS configuration: %w", err)
@@ -88,7 +123,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 
 	// Restart systemd-resolved
 	_, err = n.shell.Exec(
-		false,
 		"Restarting systemd-resolved",
 		"sudo",
 		"systemctl",

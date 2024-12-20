@@ -1,14 +1,13 @@
 package env
 
 import (
-	"errors"
 	"reflect"
 	"testing"
 
-	"github.com/windsor-hotel/cli/internal/config"
-	"github.com/windsor-hotel/cli/internal/context"
-	"github.com/windsor-hotel/cli/internal/di"
-	"github.com/windsor-hotel/cli/internal/shell"
+	"github.com/windsorcli/cli/internal/config"
+	"github.com/windsorcli/cli/internal/context"
+	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/internal/shell"
 )
 
 // TestEnv_Initialize tests the Initialize method of the Env struct
@@ -34,11 +33,11 @@ func TestEnv_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorCastingContextHandler", func(t *testing.T) {
+	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
 		// Create a mock injector and Env instance
 		mockInjector := di.NewMockInjector()
 
-		// Register an invalid contextHandler that cannot be cast to context.ContextInterface
+		// Register an invalid contextHandler that cannot be cast to context.ContextHandler
 		mockInjector.Register("contextHandler", "invalid")
 
 		env := NewBaseEnvPrinter(mockInjector)
@@ -47,36 +46,12 @@ func TestEnv_Initialize(t *testing.T) {
 		err := env.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
-		} else if err.Error() != "failed to cast contextHandler to context.ContextInterface" {
+		} else if err.Error() != "error resolving or casting contextHandler to context.ContextHandler" {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-
-		// Register mock versions of contextHandler and configHandler
-		mockContextHandler := context.NewMockContext()
-		mockInjector.Register("contextHandler", mockContextHandler)
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("configHandler", mockConfigHandler)
-
-		// Set an error for shell resolution to simulate resolution error
-		mockInjector.SetResolveError("shell", errors.New("di: could not resolve dependency"))
-
-		env := NewBaseEnvPrinter(mockInjector)
-
-		// Call Initialize and expect an error
-		err := env.Initialize()
-		if err == nil {
-			t.Error("expected error, got nil")
-		} else if err.Error() != "error resolving shell: di: could not resolve dependency" {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("ErrorCastingShell", func(t *testing.T) {
 		// Create a mock injector and Env instance
 		mockInjector := di.NewMockInjector()
 
@@ -95,31 +70,7 @@ func TestEnv_Initialize(t *testing.T) {
 		err := env.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
-		} else if err.Error() != "shell is not of type Shell" {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingCliConfigHandler", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-
-		// Register mock versions of contextHandler and shell
-		mockContextHandler := context.NewMockContext()
-		mockInjector.Register("contextHandler", mockContextHandler)
-		mockShell := shell.NewMockShell()
-		mockInjector.Register("shell", mockShell)
-
-		// Set an error for configHandler resolution to simulate resolution error
-		mockInjector.SetResolveError("configHandler", errors.New("di: could not resolve dependency"))
-
-		env := NewBaseEnvPrinter(mockInjector)
-
-		// Call Initialize and expect an error
-		err := env.Initialize()
-		if err == nil {
-			t.Error("expected error, got nil")
-		} else if err.Error() != "error resolving configHandler: di: could not resolve dependency" {
+		} else if err.Error() != "error resolving or casting shell to shell.Shell" {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
@@ -143,7 +94,7 @@ func TestEnv_Initialize(t *testing.T) {
 		err := env.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
-		} else if err.Error() != "configHandler is not of type ConfigHandler" {
+		} else if err.Error() != "error resolving or casting configHandler to config.ConfigHandler" {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})

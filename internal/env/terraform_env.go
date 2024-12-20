@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/windsor-hotel/cli/internal/di"
+	"github.com/windsorcli/cli/internal/di"
 )
 
 // TerraformEnvPrinter is a struct that simulates a Terraform environment for testing purposes.
@@ -74,6 +74,13 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(strings.Join(varFileArgs, " "))
 	envVars["TF_VAR_context_path"] = strings.TrimSpace(configRoot)
 
+	// Set TF_VAR_os_type based on the operating system
+	if goos() == "windows" {
+		envVars["TF_VAR_os_type"] = "windows"
+	} else {
+		envVars["TF_VAR_os_type"] = "unix"
+	}
+
 	return envVars, nil
 }
 
@@ -131,11 +138,10 @@ func findRelativeTerraformProjectPath() (string, error) {
 
 	// Split the current path into its components
 	pathParts := strings.Split(currentPath, string(os.PathSeparator))
-
-	// Iterate through the path components to find the "terraform" directory
+	// Iterate through the path components to find the "terraform" or ".tf_modules" directory
 	for i := len(pathParts) - 1; i >= 0; i-- {
-		if strings.EqualFold(pathParts[i], "terraform") { // Use case-insensitive comparison for Windows
-			// Join the path components after the "terraform" directory
+		if strings.EqualFold(pathParts[i], "terraform") || strings.EqualFold(pathParts[i], ".tf_modules") { // Use case-insensitive comparison for Windows
+			// Join the path components after the "terraform" or ".tf_modules" directory
 			relativePath := filepath.Join(pathParts[i+1:]...)
 			return relativePath, nil
 		}
