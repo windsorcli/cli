@@ -205,7 +205,7 @@ func TestMockShell_Exec(t *testing.T) {
 		// Given a mock shell with a custom ExecFn implementation
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
-		mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
 			// Simulate command execution and return a mocked output
 			return "mocked output", nil
 		}
@@ -225,12 +225,12 @@ func TestMockShell_Exec(t *testing.T) {
 		// Given a mock shell whose ExecFn returns an error
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
-		mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
 			// Simulate command failure
 			return "", fmt.Errorf("execution error")
 		}
 		// When calling Exec
-		output, err := mockShell.Exec("Executing command", "somecommand", "arg1", "arg2")
+		output, err := mockShell.Exec("somecommand", "arg1", "arg2")
 		// Then an error should be returned
 		if err == nil {
 			t.Errorf("Expected an error but got none")
@@ -239,6 +239,7 @@ func TestMockShell_Exec(t *testing.T) {
 			t.Errorf("Exec() output = %v, want %v", output, "")
 		}
 	})
+
 	t.Run("NotImplemented", func(t *testing.T) {
 		// Given a mock shell with no ExecFn implementation
 		injector := di.NewInjector()

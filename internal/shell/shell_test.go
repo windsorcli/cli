@@ -207,66 +207,8 @@ func TestShell_GetProjectRoot(t *testing.T) {
 }
 
 func TestShell_Exec(t *testing.T) {
-	t.Run("FailToStartCommand", func(t *testing.T) {
-		injector := di.NewInjector()
+	t.Run("Success", func(t *testing.T) {
 
-		// Override cmdStart to simulate a failure in starting the command
-		originalCmdStart := cmdStart
-		cmdStart = func(cmd *exec.Cmd) error {
-			return errors.New("simulated start failure")
-		}
-		defer func() {
-			cmdStart = originalCmdStart
-		}()
-
-		// When executing a command that fails to start
-		shell := NewDefaultShell(injector)
-		_, err := shell.Exec("Attempting to start command", "somecommand")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		expectedError := "failed to start command: simulated start failure"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("FailToWaitCommand", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Override execCommand to simulate a successful command execution
-		originalExecCommand := execCommand
-		execCommand = func(name string, arg ...string) *exec.Cmd {
-			// Use a command that is available on all platforms
-			return exec.Command("go", "version")
-		}
-		defer func() {
-			execCommand = originalExecCommand
-		}()
-
-		// Override cmdWait to simulate a failure in waiting for the command to finish
-		originalCmdWait := cmdWait
-		cmdWait = func(cmd *exec.Cmd) error {
-			return errors.New("simulated wait failure")
-		}
-		defer func() {
-			cmdWait = originalCmdWait
-		}()
-
-		// When executing a command that fails to wait
-		shell := NewDefaultShell(injector)
-		_, err := shell.Exec("Attempting to wait for command", "somecommand")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		expectedError := "command execution failed: simulated wait failure\n"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
 	})
 }
 

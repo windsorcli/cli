@@ -22,8 +22,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	}
 
 	// Check if the route already exists using PowerShell command
-	output, err := n.shell.Exec(
-		"Checking if route exists",
+	output, err := n.shell.ExecSilent(
 		"powershell",
 		"-Command",
 		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s | Where-Object { $_.NextHop -eq '%s' }", networkCIDR, guestIP),
@@ -38,8 +37,8 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	}
 
 	// Add route on the host to VM guest using PowerShell command
+	fmt.Println("🔐 Adding route on the host to VM guest")
 	output, err = n.shell.Exec(
-		"Adding route on the host to VM guest",
 		"powershell",
 		"-Command",
 		fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", networkCIDR, guestIP),
@@ -64,8 +63,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	// Check the current DNS server configuration
-	currentDNSOutput, err := n.shell.Exec(
-		"Checking current DNS server",
+	currentDNSOutput, err := n.shell.ExecSilent(
 		"powershell",
 		"-Command",
 		"Get-DnsClientServerAddress -InterfaceAlias 'Ethernet' | Select-Object -ExpandProperty ServerAddresses",
@@ -80,8 +78,8 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	// Execute PowerShell command to set DNS server
-	output, err := n.shell.Exec(
-		"Setting DNS server",
+	fmt.Println("🔐 Setting DNS server")
+	output, err := n.shell.ExecSilent(
 		"powershell",
 		"-Command",
 		fmt.Sprintf("Set-DnsClientServerAddress -InterfaceAlias 'Ethernet' -ServerAddresses %s", dnsIP),

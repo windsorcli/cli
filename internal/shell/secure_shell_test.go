@@ -127,7 +127,6 @@ func TestSecureShell_Exec(t *testing.T) {
 		expectedOutput := "command output"
 		command := "echo"
 		args := []string{"hello"}
-		message := "Running echo command"
 
 		mocks := setSafeSecureShellMocks()
 		mocks.ClientConn.NewSessionFunc = func() (ssh.Session, error) {
@@ -148,7 +147,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		secureShell := NewSecureShell(mocks.Injector)
 		secureShell.Initialize()
 
-		output, err := secureShell.Exec(message, command, args...)
+		output, err := secureShell.Exec(command, args...)
 		if err != nil {
 			t.Fatalf("Failed to execute command: %v", err)
 		}
@@ -160,7 +159,6 @@ func TestSecureShell_Exec(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		command := "invalid_command"
 		args := []string{}
-		message := "Running invalid command"
 
 		mocks := setSafeSecureShellMocks()
 		mocks.ClientConn.NewSessionFunc = func() (ssh.Session, error) {
@@ -178,7 +176,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		secureShell := NewSecureShell(mocks.Injector)
 		secureShell.Initialize()
 
-		output, err := secureShell.Exec(message, command, args...)
+		output, err := secureShell.Exec(command, args...)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -229,7 +227,6 @@ func TestSecureShell_Exec(t *testing.T) {
 		expectedOutput := "command output"
 		command := "echo"
 		args := []string{"hello"}
-		message := "Running echo command"
 
 		mocks := setSafeSecureShellMocks()
 		mocks.ClientConn.NewSessionFunc = func() (ssh.Session, error) {
@@ -250,7 +247,7 @@ func TestSecureShell_Exec(t *testing.T) {
 		secureShell := NewSecureShell(mocks.Injector)
 		secureShell.Initialize()
 
-		output, err := secureShell.Exec(message, command, args...)
+		output, err := secureShell.Exec(command, args...)
 		if err != nil {
 			t.Fatalf("Failed to execute command: %v", err)
 		}

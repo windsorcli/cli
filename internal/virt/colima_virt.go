@@ -62,7 +62,7 @@ func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
 
 	command := "colima"
 	args := []string{"ls", "--profile", fmt.Sprintf("windsor-%s", contextName), "--json"}
-	out, err := v.shell.Exec("", command, args...)
+	out, err := v.shell.ExecSilent(command, args...)
 	if err != nil {
 		return VMInfo{}, err
 	}
@@ -265,7 +265,7 @@ func (v *ColimaVirt) executeColimaCommand(action string) error {
 	command := "colima"
 	args := []string{action, fmt.Sprintf("windsor-%s", contextName)}
 	formattedCommand := fmt.Sprintf("%s %s", command, strings.Join(args, " "))
-	output, err := v.shell.Exec(fmt.Sprintf("Running %s", formattedCommand), command, args...)
+	output, err := v.shell.ExecProgress(fmt.Sprintf("🦙 Running %s", formattedCommand), command, args...)
 	if err != nil {
 		return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 	}
@@ -280,7 +280,7 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 
 	command := "colima"
 	args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
-	output, err := v.shell.ExecProgress(fmt.Sprintf("Running %s %s", command, strings.Join(args, " ")), command, args...)
+	output, err := v.shell.ExecProgress(fmt.Sprintf("🦙 Running %s %s", command, strings.Join(args, " ")), command, args...)
 	if err != nil {
 		return VMInfo{}, fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 	}

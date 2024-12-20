@@ -42,7 +42,7 @@ func (s *SecureShell) Initialize() error {
 }
 
 // Exec executes a command on the remote host via SSH and returns its output as a string.
-func (s *SecureShell) Exec(message string, command string, args ...string) (string, error) {
+func (s *SecureShell) Exec(command string, args ...string) (string, error) {
 	clientConn, err := s.sshClient.Connect()
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to SSH client: %w", err)
@@ -65,44 +65,24 @@ func (s *SecureShell) Exec(message string, command string, args ...string) (stri
 	session.SetStdout(&stdoutBuf)
 	session.SetStderr(&stderrBuf)
 
-	// Always print the message if it is not empty
-	if message != "" {
-		fmt.Println(message)
+	// Run the command and wait for it to finish
+	if err := session.Run(fullCommand); err != nil {
+		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 	}
 
-	// Start the command and handle errors
-	errChan := make(chan error, 1)
-	go func() {
-		if err := session.Run(fullCommand); err != nil {
-			errChan <- fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
-			return
-		}
-		errChan <- nil
-	}()
-
-	// Wait for the command to finish or an error to occur
-	select {
-	case err := <-errChan:
-		if err != nil {
-			return "", err
-		}
-	}
-
-	output := stdoutBuf.String()
-
-	return output, nil
+	return stdoutBuf.String(), nil
 }
 
 // ExecProgress executes a command and returns its output as a string
 func (s *SecureShell) ExecProgress(message string, command string, args ...string) (string, error) {
 	// Not yet implemented for SecureShell
-	return s.Exec(message, command, args...)
+	return s.Exec(command, args...)
 }
 
 // ExecSilent executes a command and returns its output as a string without printing to stdout or stderr
 func (s *SecureShell) ExecSilent(command string, args ...string) (string, error) {
 	// Not yet implemented for SecureShell
-	return s.Exec("", command, args...)
+	return s.Exec(command, args...)
 }
 
 // Ensure SecureShell implements the Shell interface
