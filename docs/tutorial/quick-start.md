@@ -39,12 +39,12 @@ Run env command in a terraform folder to see the environment variables that are 
 
 
 <div>
-{{ footer('Installation', '../../install/index.html', 'Local Cluster Demo', '../../tutorial/local-cluster-demo/index.html') }}
+{{ footer('Installation', '../../install/install/index.html', 'Local Cluster Demo', '../../tutorial/local-cluster-demo/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../install/index.html'; 
+    window.location.href = '../../install/install/index.html'; 
   });
 
   document.getElementById('nextButton').addEventListener('click', function() {

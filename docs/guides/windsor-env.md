@@ -80,7 +80,7 @@ export S3_HOSTNAME="http://s3.local.aws.test:4566"
 
 In the case above, the talos folder is under the terraform folder so environment variables for terraform, talos, kube, aws and other tools are set
 
-## [Environment Variables](../guides/environment-variables.md)
+## [Environment Variables](../guides/configuration.md)
 
 The exection of the windsor env output in the command prompt sets environment variables to configure various tools. Environment variables are key-value pairs that can be used to customize the behavior of software applications without altering the code. They provide a flexible way to manage configuration settings, such as API keys, database connections, and other sensitive information, which can vary between different environments (e.g., development, testing, production).
 
@@ -88,4 +88,4 @@ In this context, the `windsor env` command is used to set up these environment v
 
 By using environment variables, tools can be more easily configured and deployed across different environments, enhancing portability and reducing the risk of configuration errors. This approach also supports better security practices by keeping sensitive information out of the source code.
 
-See [Environment Variables](../guides/environment-variables.md) for a more detailed description of environment variables.
+See [Environment Variables](../guides/configuration.md) for a more detailed description of environment variables.

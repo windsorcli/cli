@@ -1,3 +1,5 @@
+# Configuration
+
 Windsor CLI uses configuration files to manage settings. The configuration files are typically located in the following paths:
 
 - **CLI Configuration**: `~/.config/windsor/config.yaml`

@@ -69,11 +69,11 @@ Thank you for using Windsor CLI! If you have any questions or need further assis
 </script> -->
 
 <div>
-{{ next_footer('Installation', 'install/index.html') }}
+{{ next_footer('Installation', 'install/install/index.html') }}
 </div>
 
 <script>
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = 'install/index.html'; 
+    window.location.href = 'install/install/index.html'; 
   });
 </script>
