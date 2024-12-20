@@ -1,7 +1,7 @@
-## [Windsor Command Line Interface](https://windsor-hotel.github.io/windsorcli/)
+## [Windsor Command Line Interface](https://windsorcli.github.io/windsorcli)
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/windsor-hotel/cli)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/windsor-hotel/cli/test.yml)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/windsorcli/cli)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/windsorcli/cli/build-and-deploy.yml)
 
 The Windsor Command Line Interface (CLI) is a powerful tool designed to streamline your workflow and enhance productivity. With a small suite of intuitive commands, the Windsor CLI allows you to efficiently manage contexts for other tools in your development environment.
 
