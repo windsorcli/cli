@@ -18,11 +18,11 @@ cp cli/dist/windsor /usr/local/bin/windsor
 ```
 
 <div>
-{{ previous_footer('Installation', '../index.html') }}
+{{ previous_footer('Installation', '../install/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../index.html'; 
+    window.location.href = '../install/index.html'; 
   });
 </script>
