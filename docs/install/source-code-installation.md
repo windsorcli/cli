@@ -2,7 +2,7 @@ Follow these steps to install Windsor CLI from the source code:
 
 #### Step 1: Clone the Repository
 ```bash
-git clone https://github.com/windsor-hotel/cli.git
+git clone https://github.com/windsorcli/cli.git
 ```
 
 #### Step 2: Build the Application

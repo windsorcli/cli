@@ -60,7 +60,7 @@ contexts:
         remote: https://quay.io
     git:
       livereload:
-        image: ghcr.io/windsor-hotel/git-livereload-server:v0.2.1
+        image: ghcr.io/windsorcli/git-livereload-server:v0.2.1
         password: local
         rsync_exclude: .docker-cache,.terraform,data,.venv
         rsync_protect: flux-system
