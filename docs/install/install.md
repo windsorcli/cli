@@ -5,8 +5,8 @@ Ensure you have **[Go](https://golang.org/doc/install)** and **[Git](https://git
 ## [Installation](#installation)
 | Installation Method          | Description         |
 |------------------------------|---------------------|
-| [Source Code Installation](./install/source-code-installation.md) | Clone and build        |
-| [Go Installation](./install/go-installation.md)   | Go installation     |
+| [Source Code Installation](./source-code-installation.md) | Clone and build        |
+| [Go Installation](./go-installation.md)   | Go installation     |
 
 
 ## [Shell Integration](#shell-integration)
