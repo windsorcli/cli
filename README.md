@@ -1,4 +1,4 @@
-## [Windsor Command Line Interface](https://windsorcli.github.io/windsorcli)
+## [Windsor Command Line Interface](https://windsorcli.github.io)
 
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/windsorcli/cli)
 ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml)

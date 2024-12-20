@@ -14,7 +14,7 @@ jobs:
       REPO_OWNER: windsorcli
       REPO_NAME: cli
       TARGET_REPO_OWNER: windsorcli
-      TARGET_REPO_NAME: windsorcli
+      TARGET_REPO_NAME: windsorcli.github.io
 
     steps:
       # - name: Checkout code
