@@ -17,6 +17,7 @@ Key objectives of the Windsor CLI include:
 - **Consistency**: Ensure a standardized approach and consistent tool usage across different environments and teams.
 - **Flexibility**: Support a wide range of configurations and integrations to accommodate diverse project needs.
 - **Scalability**: Scale the environment and the production workload.
+- **Project Initialization**: Quickly set up new projects with predefined configurations.
 - **Configuration Management**: Easily manage and switch between different project configurations.
 - **Shell Integration**: Seamlessly integrates with your shell environment for enhanced productivity.
 - **Cross-Platform Support**: Works on Windows, macOS, and Linux.
@@ -75,8 +76,6 @@ precmd() {
 ```
 
 This will ensure that the Windsor CLI environment variables are loaded every time a new shell session is started.
-
-## Contributing
 
 ## [Contributing](#contributing)
 We welcome contributions to Windsor CLI! If you would like to contribute, please follow these steps:
