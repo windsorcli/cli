@@ -395,17 +395,17 @@ func TestShell_ExecSudo(t *testing.T) {
 
 func TestShell_ExecSilent(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		command := "echo"
-		args := []string{"hello"}
+		command := "go"
+		args := []string{"version"}
 
 		shell := NewDefaultShell(nil)
 		output, err := shell.ExecSilent(command, args...)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		expectedOutput := "hello\n"
-		if output != expectedOutput {
-			t.Fatalf("Expected output %q, got %q", expectedOutput, output)
+		expectedOutputPrefix := "go version"
+		if !strings.HasPrefix(output, expectedOutputPrefix) {
+			t.Fatalf("Expected output to start with %q, got %q", expectedOutputPrefix, output)
 		}
 	})
 
@@ -434,7 +434,7 @@ func TestShell_ExecProgress(t *testing.T) {
 	// Helper function to mock a command execution
 	mockCommandExecution := func() {
 		execCommand = func(command string, args ...string) *exec.Cmd {
-			return exec.Command("echo", "hello")
+			return exec.Command("go", "version")
 		}
 	}
 
@@ -444,7 +444,7 @@ func TestShell_ExecProgress(t *testing.T) {
 			r, w := io.Pipe()
 			go func() {
 				defer w.Close()
-				w.Write([]byte("hello\n"))
+				w.Write([]byte("go version go1.16.3\n"))
 			}()
 			return r, nil
 		}
@@ -479,23 +479,23 @@ func TestShell_ExecProgress(t *testing.T) {
 	}()
 
 	t.Run("Success", func(t *testing.T) {
-		command := "echo"
-		args := []string{"hello"}
+		command := "go"
+		args := []string{"version"}
 
 		shell := NewDefaultShell(nil)
 		output, err := shell.ExecProgress("Test Progress Command", command, args...)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		expectedOutput := "hello\n"
+		expectedOutput := "go version go1.16.3\n"
 		if output != expectedOutput {
 			t.Fatalf("Expected output %q, got %q", expectedOutput, output)
 		}
 	})
 
 	t.Run("ErrStdoutPipe", func(t *testing.T) {
-		command := "echo"
-		args := []string{"hello"}
+		command := "go"
+		args := []string{"version"}
 
 		// Mock cmdStdoutPipe to simulate an error
 		originalCmdStdoutPipe := cmdStdoutPipe
@@ -516,8 +516,8 @@ func TestShell_ExecProgress(t *testing.T) {
 	})
 
 	t.Run("ErrStderrPipe", func(t *testing.T) {
-		command := "echo"
-		args := []string{"hello"}
+		command := "go"
+		args := []string{"version"}
 
 		// Mock cmdStderrPipe to simulate an error
 		originalCmdStderrPipe := cmdStderrPipe
@@ -538,8 +538,8 @@ func TestShell_ExecProgress(t *testing.T) {
 	})
 
 	t.Run("ErrStartCommand", func(t *testing.T) {
-		command := "echo"
-		args := []string{"hello"}
+		command := "go"
+		args := []string{"version"}
 
 		// Mock cmdStart to simulate an error
 		originalCmdStart := cmdStart
@@ -560,8 +560,8 @@ func TestShell_ExecProgress(t *testing.T) {
 	})
 
 	t.Run("ErrBufioScannerScan", func(t *testing.T) {
-		command := "echo"
-		args := []string{"hello"}
+		command := "go"
+		args := []string{"version"}
 
 		// Mock bufioScannerScan to simulate an error
 		originalBufioScannerScan := bufioScannerScan
@@ -589,8 +589,8 @@ func TestShell_ExecProgress(t *testing.T) {
 	})
 
 	t.Run("ErrBufioScannerErr", func(t *testing.T) {
-		command := "echo"
-		args := []string{"hello"}
+		command := "go"
+		args := []string{"version"}
 
 		// Mock cmdStdoutPipe and cmdStderrPipe to return a pipe that can be scanned
 		originalCmdStdoutPipe := cmdStdoutPipe
@@ -634,8 +634,8 @@ func TestShell_ExecProgress(t *testing.T) {
 	})
 
 	t.Run("ErrCmdWait", func(t *testing.T) {
-		command := "echo"
-		args := []string{"hello"}
+		command := "go"
+		args := []string{"version"}
 
 		// Mock cmdWait to return an error
 		originalCmdWait := cmdWait
