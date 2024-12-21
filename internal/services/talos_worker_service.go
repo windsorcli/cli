@@ -28,11 +28,17 @@ func NewTalosWorkerService(injector di.Injector) *TalosWorkerService {
 func (s *TalosWorkerService) SetAddress(address string) error {
 	tld := s.configHandler.GetString("dns.name", "test")
 
-	s.BaseService.SetAddress(address)
-	s.configHandler.Set("cluster.workers.nodes."+s.name+".hostname", s.name+"."+tld)
-	s.configHandler.Set("cluster.workers.nodes."+s.name+".node", address+":50000")
-	s.configHandler.Set("cluster.workers.nodes."+s.name+".endpoint", address)
-	return nil
+	if err := s.configHandler.Set("cluster.workers.nodes."+s.name+".hostname", s.name+"."+tld); err != nil {
+		return err
+	}
+	if err := s.configHandler.Set("cluster.workers.nodes."+s.name+".node", address+":50000"); err != nil {
+		return err
+	}
+	if err := s.configHandler.Set("cluster.workers.nodes."+s.name+".endpoint", address); err != nil {
+		return err
+	}
+
+	return s.BaseService.SetAddress(address)
 }
 
 // GetComposeConfig returns a list of container data for docker-compose.

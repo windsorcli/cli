@@ -126,6 +126,74 @@ func TestTalosWorkerService_SetAddress(t *testing.T) {
 			t.Errorf("expected %s to be set to %s, got %v", expectedEndpointKey, expectedEndpointValue, setCalls[expectedEndpointKey])
 		}
 	})
+
+	t.Run("SetFailures", func(t *testing.T) {
+		// Given: a set of mock components
+		mocks := setupSafeTalosWorkerServiceMocks()
+		service := NewTalosWorkerService(mocks.Injector)
+
+		// Initialize the service
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+		service.SetName("worker-1")
+
+		// Define the error scenarios
+		errorScenarios := []struct {
+			description string
+			setup       func()
+		}{
+			{
+				description: "configHandler.Set hostname fails",
+				setup: func() {
+					mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+						if key == "cluster.workers.nodes.worker-1.hostname" {
+							return fmt.Errorf("configHandler.Set hostname error")
+						}
+						return nil
+					}
+				},
+			},
+			{
+				description: "configHandler.Set node fails",
+				setup: func() {
+					mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+						if key == "cluster.workers.nodes.worker-1.node" {
+							return fmt.Errorf("configHandler.Set node error")
+						}
+						return nil
+					}
+				},
+			},
+			{
+				description: "configHandler.Set endpoint fails",
+				setup: func() {
+					mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+						if key == "cluster.workers.nodes.worker-1.endpoint" {
+							return fmt.Errorf("configHandler.Set endpoint error")
+						}
+						return nil
+					}
+				},
+			},
+		}
+
+		for _, scenario := range errorScenarios {
+			t.Run(scenario.description, func(t *testing.T) {
+				// Setup the specific error scenario
+				scenario.setup()
+
+				// When: the SetAddress method is called
+				err := service.SetAddress("192.168.1.1")
+
+				// Then: an error should be returned
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+			})
+		}
+	})
 }
 
 func TestTalosWorkerService_GetComposeConfig(t *testing.T) {
