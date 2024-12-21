@@ -23,8 +23,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	}
 
 	// Use the shell to execute a command that checks the routing table for the specific route
-	output, err := n.shell.Exec(
-		"Checking if route exists",
+	output, err := n.shell.ExecSilent(
 		"ip",
 		"route",
 		"show",
@@ -74,6 +73,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("DNS address is not configured")
 	}
 
+	// Access the DNS domain configuration
 	dnsDomain := n.configHandler.GetString("dns.name")
 	if dnsDomain == "" {
 		return fmt.Errorf("DNS domain is not configured")
