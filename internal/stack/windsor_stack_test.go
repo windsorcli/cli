@@ -193,7 +193,7 @@ func TestWindsorStack_Up(t *testing.T) {
 	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
 		// Given shell.Exec is mocked to return an error
 		mocks := setupSafeMocks()
-		mocks.Shell.ExecFunc = func(_ string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && args[0] == "init" {
 				return "", fmt.Errorf("mock error running terraform init")
 			}
@@ -210,6 +210,10 @@ func TestWindsorStack_Up(t *testing.T) {
 
 		// And when Up is called
 		err = stack.Up()
+		if err == nil {
+			t.Fatalf("Expected error during Up, got nil")
+		}
+
 		// Then the expected error is contained in err
 		expectedError := "error running 'terraform init'"
 		if !strings.Contains(err.Error(), expectedError) {
@@ -220,7 +224,7 @@ func TestWindsorStack_Up(t *testing.T) {
 	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
 		// Given shell.Exec is mocked to return an error
 		mocks := setupSafeMocks()
-		mocks.Shell.ExecFunc = func(_ string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && args[0] == "plan" {
 				return "", fmt.Errorf("mock error running terraform plan")
 			}
@@ -247,7 +251,7 @@ func TestWindsorStack_Up(t *testing.T) {
 	t.Run("ErrorRunningTerraformApply", func(t *testing.T) {
 		// Given shell.Exec is mocked to return an error
 		mocks := setupSafeMocks()
-		mocks.Shell.ExecFunc = func(_ string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && args[0] == "apply" {
 				return "", fmt.Errorf("mock error running terraform apply")
 			}

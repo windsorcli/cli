@@ -82,24 +82,33 @@ func (v *DockerVirt) Up() error {
 		}
 		composeFilePath := filepath.Join(configRoot, "compose.yaml")
 
-		// Retry logic for docker-compose up
+		// Retry logic for docker-compose up with progress display
 		retries := 3
 		var lastErr error
 		var lastOutput string
 		for i := 0; i < retries; i++ {
 			command := "docker-compose"
 			args := []string{"-f", composeFilePath, "up", "-d", "--remove-orphans"}
-			message := ""
+			message := "📦 Running docker-compose up"
+
+			// Use ExecProgress for the first attempt to show progress
 			if i == 0 {
-				message = "Running docker-compose up..."
+				output, err := v.shell.ExecProgress(message, command, args...)
+				if err == nil {
+					return nil
+				}
+				lastErr = err
+				lastOutput = output
+			} else {
+				// Use ExecSilent for retries to avoid multiple progress messages
+				output, err := v.shell.ExecSilent(command, args...)
+				if err == nil {
+					return nil
+				}
+				lastErr = err
+				lastOutput = output
 			}
-			output, err := v.shell.Exec(message, command, args...)
-			if err == nil {
-				lastErr = nil
-				break
-			}
-			lastErr = err
-			lastOutput = output
+
 			if i < retries-1 {
 				time.Sleep(time.Duration(RETRY_WAIT) * time.Second)
 			}
@@ -128,7 +137,7 @@ func (v *DockerVirt) Down() error {
 		composeFilePath := filepath.Join(configRoot, "compose.yaml")
 
 		// Run docker-compose down with clean flags using the Exec function from shell.go
-		output, err := v.shell.Exec("Running docker-compose down...", "docker-compose", "-f", composeFilePath, "down", "--remove-orphans", "--volumes")
+		output, err := v.shell.ExecProgress("📦 Running docker-compose down", "docker-compose", "-f", composeFilePath, "down", "--remove-orphans", "--volumes")
 		if err != nil {
 			return fmt.Errorf("Error executing command docker-compose down: %w\n%s", err, output)
 		}
@@ -178,7 +187,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 
 	command := "docker"
 	args := []string{"ps", "--filter", "label=managed_by=windsor", "--filter", fmt.Sprintf("label=context=%s", contextName), "--format", "{{.ID}}"}
-	out, err := v.shell.Exec(".", command, args...)
+	out, err := v.shell.ExecSilent(command, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +200,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 			continue
 		}
 		inspectArgs := []string{"inspect", containerID, "--format", "{{json .Config.Labels}}"}
-		inspectOut, err := v.shell.Exec(".", command, inspectArgs...)
+		inspectOut, err := v.shell.ExecSilent(command, inspectArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -209,7 +218,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 		}
 
 		networkInspectArgs := []string{"inspect", containerID, "--format", "{{json .NetworkSettings.Networks}}"}
-		networkInspectOut, err := v.shell.Exec("", command, networkInspectArgs...)
+		networkInspectOut, err := v.shell.ExecSilent(command, networkInspectArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -272,7 +281,7 @@ var _ ContainerRuntime = (*DockerVirt)(nil)
 func (v *DockerVirt) checkDockerDaemon() error {
 	command := "docker"
 	args := []string{"info"}
-	_, err := v.shell.Exec("", command, args...)
+	_, err := v.shell.ExecSilent(command, args...)
 	return err
 }
 

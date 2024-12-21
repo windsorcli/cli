@@ -5,11 +5,12 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 
+	"time"
+
+	"github.com/briandowns/spinner"
 	"github.com/windsorcli/cli/internal/config"
 	"github.com/windsorcli/cli/internal/di"
 )
@@ -27,7 +28,13 @@ type Shell interface {
 	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
 	// Exec executes a command with optional privilege elevation
-	Exec(message string, command string, args ...string) (string, error)
+	Exec(command string, args ...string) (string, error)
+	// ExecSilent executes a command and returns its output as a string without printing to stdout or stderr
+	ExecSilent(command string, args ...string) (string, error)
+	// ExecSudo executes a command with sudo if not already present and returns its output as a string while suppressing it from being printed
+	ExecSudo(message string, command string, args ...string) (string, error)
+	// ExecProgress executes a command and returns its output as a string while displaying progress status
+	ExecProgress(message string, command string, args ...string) (string, error)
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -44,6 +51,7 @@ func NewDefaultShell(injector di.Injector) *DefaultShell {
 	}
 }
 
+// Initialize initializes the shell
 func (s *DefaultShell) Initialize() error {
 	configHandler, ok := s.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
@@ -107,103 +115,165 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 }
 
 // Exec executes a command and returns its output as a string
-func (s *DefaultShell) Exec(message string, command string, args ...string) (string, error) {
+func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 	cmd := execCommand(command, args...)
 
-	// Create pipes for stdout and stderr
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
-
-	// Determine if passthrough should be enabled
-	passthrough := command == "sudo" || message == ""
-
-	// Print the message if it is not empty and passthrough is not enabled
-	if message != "" && !passthrough {
-		fmt.Println(message)
-	}
-
-	// Start the command
-	if err := cmdStart(cmd); err != nil {
-		return "", fmt.Errorf("failed to start command: %w", err)
-	}
-
-	// Buffers to capture stdout and stderr
+	// Capture stdout and stderr in buffers
 	var stdoutBuf, stderrBuf bytes.Buffer
-
-	// Channel to capture errors from goroutines
-	errChan := make(chan error, 2)
-
-	// Signal handling
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
-
-	go func() {
-		<-signalChan
-		if passthrough {
-			fmt.Println("\nInterrupt received, stopping command...")
-		}
-		if err := cmd.Process.Kill(); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to kill process: %v\n", err)
-		}
-	}()
-
-	// Goroutine to read stdout
-	go func() {
-		scanner := bufio.NewScanner(stdoutPipe)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if passthrough {
-				fmt.Println(line) // Directly print each line
-			}
-			stdoutBuf.WriteString(line + "\n")
-		}
-		if err := scanner.Err(); err != nil {
-			errChan <- fmt.Errorf("error reading stdout: %w", err)
-		} else {
-			errChan <- nil
-		}
-	}()
-
-	// Goroutine to read stderr
-	go func() {
-		scanner := bufio.NewScanner(stderrPipe)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if passthrough {
-				fmt.Fprintln(os.Stderr, line) // Print each line of stderr
-			}
-			stderrBuf.WriteString(line + "\n")
-		}
-		if err := scanner.Err(); err != nil {
-			errChan <- fmt.Errorf("error reading stderr: %w", err)
-		} else {
-			errChan <- nil
-		}
-	}()
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
 
 	// Handle sudo commands
 	if command == "sudo" {
 		cmd.Stdin = os.Stdin // Allow password input for sudo
 	}
 
-	// Wait for the command to finish
-	if err := cmdWait(cmd); err != nil {
+	// Run the command
+	if err := cmdRun(cmd); err != nil {
+		return "", fmt.Errorf("command execution failed: %w", err)
+	}
+
+	return stdoutBuf.String(), nil
+}
+
+// ExecSudo executes a command with sudo if not already present and returns its output while suppressing it from being printed
+func (s *DefaultShell) ExecSudo(message string, command string, args ...string) (string, error) {
+	// If the command is not sudo, add sudo to the command
+	if command != "sudo" {
+		args = append([]string{command}, args...)
+		command = "sudo"
+	}
+
+	cmd := execCommand(command, args...)
+
+	// Open the controlling terminal
+	tty, err := osOpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return "", fmt.Errorf("failed to open /dev/tty: %w", err)
+	}
+	defer tty.Close()
+
+	// Set the command's stdin and stderr to tty for password input and prompt
+	cmd.Stdin = tty
+	cmd.Stderr = tty
+
+	// Capture stdout in a buffer
+	var stdoutBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+
+	// Start the command
+	if err := cmdStart(cmd); err != nil {
+		fmt.Printf("\033[31m✗ %s - Failed\033[0m\n", message)
+		return "", err
+	}
+
+	// Wait for the command to complete
+	err = cmdWait(cmd)
+
+	if err != nil {
+		fmt.Printf("\033[31m✗ %s - Failed\033[0m\n", message)
+		return "", fmt.Errorf("command execution failed: %w", err)
+	}
+
+	// Print success message with a green checkbox and "Done"
+	fmt.Printf("\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+
+	// Return the captured stdout as a string
+	return stdoutBuf.String(), nil
+}
+
+// ExecSilent executes a command and returns its output as a string without printing to stdout or stderr
+func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error) {
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd := execCommand(command, args...)
+
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	// Run the command
+	if err := cmdRun(cmd); err != nil {
 		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 	}
 
-	// Check for errors from the goroutines
+	return stdoutBuf.String(), nil
+}
+
+// ExecProgress executes a command and returns its output as a string while displaying progress status
+func (s *DefaultShell) ExecProgress(message string, command string, args ...string) (string, error) {
+	cmd := execCommand(command, args...)
+
+	// Set up pipes to capture stdout and stderr
+	stdoutPipe, err := cmdStdoutPipe(cmd)
+	if err != nil {
+		return "", err
+	}
+
+	stderrPipe, err := cmdStderrPipe(cmd)
+	if err != nil {
+		return "", err
+	}
+
+	// Start the command execution
+	if err := cmdStart(cmd); err != nil {
+		return "", err
+	}
+
+	var stdoutBuf, stderrBuf bytes.Buffer
+	errChan := make(chan error, 2) // Channel to capture errors from goroutines
+
+	// Initialize the spinner with color
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " " + message
+	spin.Start()
+
+	// Goroutine to read and process stdout
+	go func() {
+		scanner := bufio.NewScanner(stdoutPipe)
+		for bufioScannerScan(scanner) {
+			line := scanner.Text()
+			stdoutBuf.WriteString(line + "\n") // Append line to stdout buffer
+		}
+		if err := bufioScannerErr(scanner); err != nil {
+			errChan <- fmt.Errorf("error reading stdout: %w", err)
+			return
+		}
+		errChan <- nil
+	}()
+
+	// Goroutine to read and process stderr
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for bufioScannerScan(scanner) {
+			line := scanner.Text()
+			stderrBuf.WriteString(line + "\n") // Append line to stderr buffer
+		}
+		if err := bufioScannerErr(scanner); err != nil {
+			errChan <- fmt.Errorf("error reading stderr: %w", err)
+			return
+		}
+		errChan <- nil
+	}()
+
+	// Wait for the command to complete
+	if err := cmdWait(cmd); err != nil {
+		spin.Stop()                                                                 // Stop the spinner
+		fmt.Printf("\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String()) // Print failure message in red
+		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+	}
+
+	// Check for errors from the stdout and stderr goroutines
 	for i := 0; i < 2; i++ {
 		if err := <-errChan; err != nil {
+			spin.Stop()                                                                 // Stop the spinner
+			fmt.Printf("\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String()) // Print failure message in red
 			return "", err
 		}
 	}
 
-	return stdoutBuf.String(), nil
+	spin.Stop() // Stop the spinner
+
+	// Print success message with a green checkbox and "Done"
+	fmt.Printf("\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+
+	return stdoutBuf.String(), nil // Return the captured stdout as a string
 }

@@ -25,7 +25,7 @@ func setupSafeExecCmdMocks() *MockObjects {
 	}
 
 	mockShell := shell.NewMockShell()
-	mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+	mockShell.ExecFunc = func(command string, args ...string) (string, error) {
 		return "hello", nil
 	}
 	mockController.ResolveShellFunc = func() shell.Shell {
@@ -333,7 +333,7 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
-		mocks.Shell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("command execution error")
 		}
 

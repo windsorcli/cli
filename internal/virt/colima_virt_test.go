@@ -69,7 +69,7 @@ func TestColimaVirt_Up(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "colima" && len(args) > 0 && args[0] == "ls" {
 				return `{
 					"address": "192.168.5.2",
@@ -102,7 +102,7 @@ func TestColimaVirt_Up(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods to return an error
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("mock error")
 		}
 
@@ -125,7 +125,7 @@ func TestColimaVirt_Down(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods to simulate a successful stop
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "VM stopped", nil
 		}
 
@@ -138,14 +138,14 @@ func TestColimaVirt_Down(t *testing.T) {
 		}
 	})
 
-	t.Run("Error", func(t *testing.T) {
+	t.Run("ErrorExecProgress", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
 		colimaVirt := NewColimaVirt(mocks.Injector)
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods to return an error
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			return "", fmt.Errorf("mock error")
 		}
 
@@ -168,7 +168,7 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods to simulate a successful info retrieval
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			return `{"address":"192.168.5.2","arch":"x86_64","cpus":4,"disk":64424509440,"memory":8589934592,"name":"test-vm","runtime":"docker","status":"Running"}`, nil
 		}
 
@@ -207,7 +207,7 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods to return an error
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("mock error")
 		}
 
@@ -223,7 +223,7 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 	t.Run("ErrorUnmarshallingColimaInfo", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "invalid json", nil
 		}
 
@@ -258,7 +258,7 @@ func TestColimaVirt_PrintInfo(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods to simulate a successful info retrieval
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			return `{"address":"192.168.5.2","arch":"x86_64","cpus":4,"disk":64424509440,"memory":8589934592,"name":"test-vm","runtime":"docker","status":"Running"}`, nil
 		}
 
@@ -283,7 +283,7 @@ func TestColimaVirt_PrintInfo(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods to return an error
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("mock error")
 		}
 
@@ -730,7 +730,7 @@ func TestColimaVirt_executeColimaCommand(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
 			if command == "colima" && len(args) > 0 && args[0] == "delete" {
 				return "Command executed successfully", nil
 			}
@@ -753,7 +753,7 @@ func TestColimaVirt_executeColimaCommand(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			return "", fmt.Errorf("mock error")
 		}
 
@@ -776,7 +776,7 @@ func TestColimaVirt_startColima(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "colima" && len(args) > 0 && args[0] == "start" {
 				return "", nil
 			}
@@ -811,7 +811,7 @@ func TestColimaVirt_startColima(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			return "", fmt.Errorf("mock execution error")
 		}
 
@@ -852,7 +852,7 @@ func TestColimaVirt_startColima(t *testing.T) {
 
 		// Mock the necessary methods
 		callCount := 0
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
 			if command == "colima" && len(args) > 0 && args[0] == "start" {
 				return "", nil // Simulate successful execution
 			}
@@ -882,7 +882,7 @@ func TestColimaVirt_startColima(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "colima" && len(args) > 0 && args[0] == "start" {
 				return "", nil // Simulate successful execution
 			}
