@@ -84,22 +84,26 @@ var DefaultLocalConfig = Context{
 		Enabled: ptrBool(true),
 		Driver:  ptrString("talos"),
 		ControlPlanes: struct {
-			Count  *int `yaml:"count"`
-			CPU    *int `yaml:"cpu"`
-			Memory *int `yaml:"memory"`
+			Count  *int                  `yaml:"count"`
+			CPU    *int                  `yaml:"cpu"`
+			Memory *int                  `yaml:"memory"`
+			Nodes  map[string]NodeConfig `yaml:"nodes"`
 		}{
 			Count:  ptrInt(1),
 			CPU:    ptrInt(2),
 			Memory: ptrInt(2),
+			Nodes:  make(map[string]NodeConfig),
 		},
 		Workers: struct {
-			Count  *int `yaml:"count"`
-			CPU    *int `yaml:"cpu"`
-			Memory *int `yaml:"memory"`
+			Count  *int                  `yaml:"count"`
+			CPU    *int                  `yaml:"cpu"`
+			Memory *int                  `yaml:"memory"`
+			Nodes  map[string]NodeConfig `yaml:"nodes"`
 		}{
 			Count:  ptrInt(1),
 			CPU:    ptrInt(4),
 			Memory: ptrInt(4),
+			Nodes:  make(map[string]NodeConfig),
 		},
 	},
 	DNS: &DNSConfig{

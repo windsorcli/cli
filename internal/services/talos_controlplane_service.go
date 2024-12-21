@@ -21,6 +21,18 @@ func NewTalosControlPlaneService(injector di.Injector) *TalosControlPlaneService
 	}
 }
 
+// SetAddress sets the address of the service
+// This turns out to be a convenient place to set node information
+func (s *TalosControlPlaneService) SetAddress(address string) error {
+	tld := s.configHandler.GetString("dns.name", "test")
+
+	s.BaseService.SetAddress(address)
+	s.configHandler.Set("cluster.controlplanes.nodes."+s.name+".hostname", s.name+"."+tld)
+	s.configHandler.Set("cluster.controlplanes.nodes."+s.name+".node", address+":50000")
+	s.configHandler.Set("cluster.controlplanes.nodes."+s.name+".endpoint", address)
+	return nil
+}
+
 // GetComposeConfig returns a list of container data for docker-compose.
 func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 	// Retrieve CPU and RAM settings for control planes from the configuration

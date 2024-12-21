@@ -23,6 +23,18 @@ func NewTalosWorkerService(injector di.Injector) *TalosWorkerService {
 	}
 }
 
+// SetAddress sets the address of the service
+// This turns out to be a convenient place to set node information
+func (s *TalosWorkerService) SetAddress(address string) error {
+	tld := s.configHandler.GetString("dns.name", "test")
+
+	s.BaseService.SetAddress(address)
+	s.configHandler.Set("cluster.workers.nodes."+s.name+".hostname", s.name+"."+tld)
+	s.configHandler.Set("cluster.workers.nodes."+s.name+".node", address+":50000")
+	s.configHandler.Set("cluster.workers.nodes."+s.name+".endpoint", address)
+	return nil
+}
+
 // GetComposeConfig returns a list of container data for docker-compose.
 func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 	// Retrieve CPU and RAM settings for workers from the configuration

@@ -73,15 +73,24 @@ type ClusterConfig struct {
 	Enabled       *bool   `yaml:"enabled"`
 	Driver        *string `yaml:"driver"`
 	ControlPlanes struct {
-		Count  *int `yaml:"count"`
-		CPU    *int `yaml:"cpu"`
-		Memory *int `yaml:"memory"`
+		Count  *int                  `yaml:"count"`
+		CPU    *int                  `yaml:"cpu"`
+		Memory *int                  `yaml:"memory"`
+		Nodes  map[string]NodeConfig `yaml:"nodes"`
 	} `yaml:"controlplanes"`
 	Workers struct {
-		Count  *int `yaml:"count"`
-		CPU    *int `yaml:"cpu"`
-		Memory *int `yaml:"memory"`
+		Count  *int                  `yaml:"count"`
+		CPU    *int                  `yaml:"cpu"`
+		Memory *int                  `yaml:"memory"`
+		Nodes  map[string]NodeConfig `yaml:"nodes"`
 	} `yaml:"workers"`
+}
+
+// NodeConfig represents the node configuration
+type NodeConfig struct {
+	Hostname *string `yaml:"hostname"`
+	Node     *string `yaml:"node"`
+	Endpoint *string `yaml:"endpoint"`
 }
 
 // Context represents the context configuration

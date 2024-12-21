@@ -34,6 +34,9 @@ func setupSafeTalosControlPlaneServiceMocks(optionalInjector ...di.Injector) *Mo
 
 	// Mock the functions that are actually called in talos_controlplane_service.go
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		if key == "dns.name" {
+			return "test"
+		}
 		if key == "cluster.driver" {
 			return "talos"
 		}
@@ -80,6 +83,57 @@ func TestTalosControlPlaneService_NewTalosControlPlaneService(t *testing.T) {
 		// Then: the TalosControlPlaneService should not be nil
 		if service == nil {
 			t.Fatalf("expected TalosControlPlaneService, got nil")
+		}
+	})
+}
+
+func TestTalosControlPlaneService_SetAddress(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a set of mock components
+		mocks := setupSafeTalosControlPlaneServiceMocks()
+		service := NewTalosControlPlaneService(mocks.Injector)
+
+		// Create a map to track the calls to SetFunc
+		setCalls := make(map[string]interface{})
+
+		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		// Initialize the service
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// When: the SetAddress method is called
+		service.SetName("controlplane-1")
+		err = service.SetAddress("192.168.1.1")
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And: configHandler.Set should be called with the expected node and endpoint
+		expectedHostnameKey := "cluster.controlplanes.nodes.controlplane-1.hostname"
+		expectedNodeKey := "cluster.controlplanes.nodes.controlplane-1.node"
+		expectedEndpointKey := "cluster.controlplanes.nodes.controlplane-1.endpoint"
+		expectedHostnameValue := "controlplane-1.test"
+		expectedNodeValue := "192.168.1.1:50000"
+		expectedEndpointValue := "192.168.1.1"
+
+		if setCalls[expectedHostnameKey] != expectedHostnameValue {
+			t.Errorf("expected %s to be set to %s, got %v", expectedHostnameKey, expectedHostnameValue, setCalls[expectedHostnameKey])
+		}
+
+		if setCalls[expectedNodeKey] != expectedNodeValue {
+			t.Errorf("expected %s to be set to %s, got %v", expectedNodeKey, expectedNodeValue, setCalls[expectedNodeKey])
+		}
+
+		if setCalls[expectedEndpointKey] != expectedEndpointValue {
+			t.Errorf("expected %s to be set to %s, got %v", expectedEndpointKey, expectedEndpointValue, setCalls[expectedEndpointKey])
 		}
 	})
 }
