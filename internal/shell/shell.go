@@ -118,9 +118,10 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 	cmd := execCommand(command, args...)
 
-	// Set the command's stdout and stderr to the process's stdout and stderr
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Capture stdout and stderr in buffers
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
 
 	// Handle sudo commands
 	if command == "sudo" {
@@ -128,15 +129,16 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 	}
 
 	// Run the command
-	if err := cmd.Run(); err != nil {
+	if err := cmdRun(cmd); err != nil {
 		return "", fmt.Errorf("command execution failed: %w", err)
 	}
 
-	return "", nil
+	return stdoutBuf.String(), nil
 }
 
 // ExecSudo executes a command with sudo if not already present and returns its output while suppressing it from being printed
 func (s *DefaultShell) ExecSudo(message string, command string, args ...string) (string, error) {
+	// If the command is not sudo, add sudo to the command
 	if command != "sudo" {
 		args = append([]string{command}, args...)
 		command = "sudo"
@@ -145,7 +147,7 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	cmd := execCommand(command, args...)
 
 	// Open the controlling terminal
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	tty, err := osOpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		return "", fmt.Errorf("failed to open /dev/tty: %w", err)
 	}
@@ -160,13 +162,13 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	cmd.Stdout = &stdoutBuf
 
 	// Start the command
-	if err := cmd.Start(); err != nil {
+	if err := cmdStart(cmd); err != nil {
 		fmt.Printf("\033[31m✗ %s - Failed\033[0m\n", message)
 		return "", err
 	}
 
 	// Wait for the command to complete
-	err = cmd.Wait()
+	err = cmdWait(cmd)
 
 	if err != nil {
 		fmt.Printf("\033[31m✗ %s - Failed\033[0m\n", message)
@@ -189,7 +191,7 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 	cmd.Stderr = &stderrBuf
 
 	// Run the command
-	if err := cmd.Run(); err != nil {
+	if err := cmdRun(cmd); err != nil {
 		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 	}
 
@@ -201,18 +203,18 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	cmd := execCommand(command, args...)
 
 	// Set up pipes to capture stdout and stderr
-	stdoutPipe, err := cmd.StdoutPipe()
+	stdoutPipe, err := cmdStdoutPipe(cmd)
 	if err != nil {
 		return "", err
 	}
 
-	stderrPipe, err := cmd.StderrPipe()
+	stderrPipe, err := cmdStderrPipe(cmd)
 	if err != nil {
 		return "", err
 	}
 
 	// Start the command execution
-	if err := cmd.Start(); err != nil {
+	if err := cmdStart(cmd); err != nil {
 		return "", err
 	}
 
@@ -227,11 +229,11 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	// Goroutine to read and process stdout
 	go func() {
 		scanner := bufio.NewScanner(stdoutPipe)
-		for scanner.Scan() {
+		for bufioScannerScan(scanner) {
 			line := scanner.Text()
 			stdoutBuf.WriteString(line + "\n") // Append line to stdout buffer
 		}
-		if err := scanner.Err(); err != nil {
+		if err := bufioScannerErr(scanner); err != nil {
 			errChan <- fmt.Errorf("error reading stdout: %w", err)
 			return
 		}
@@ -241,11 +243,11 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	// Goroutine to read and process stderr
 	go func() {
 		scanner := bufio.NewScanner(stderrPipe)
-		for scanner.Scan() {
+		for bufioScannerScan(scanner) {
 			line := scanner.Text()
 			stderrBuf.WriteString(line + "\n") // Append line to stderr buffer
 		}
-		if err := scanner.Err(); err != nil {
+		if err := bufioScannerErr(scanner); err != nil {
 			errChan <- fmt.Errorf("error reading stderr: %w", err)
 			return
 		}

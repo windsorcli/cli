@@ -255,3 +255,111 @@ func TestMockShell_Exec(t *testing.T) {
 		}
 	})
 }
+
+func TestMockShell_ExecSilent(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with a custom ExecSilentFn implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "mocked output", nil
+		}
+		// When calling ExecSilent
+		output, err := mockShell.ExecSilent("Executing command", "somecommand", "arg1", "arg2")
+		// Then no error should be returned and output should be as expected
+		expectedOutput := "mocked output"
+		if err != nil {
+			t.Errorf("ExecSilent() error = %v, want nil", err)
+		}
+		if output != expectedOutput {
+			t.Errorf("ExecSilent() output = %v, want %v", output, expectedOutput)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with no ExecSilentFn implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		// When calling ExecSilent
+		output, err := mockShell.ExecSilent("Executing command", "somecommand", "arg1", "arg2")
+		// Then no error should be returned and the result should be empty
+		if err != nil {
+			t.Errorf("ExecSilent() error = %v, want nil", err)
+		}
+		if output != "" {
+			t.Errorf("ExecSilent() output = %v, want %v", output, "")
+		}
+	})
+}
+
+func TestMockShell_ExecProgress(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with a custom ExecProgressFn implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		mockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			return "mocked output", nil
+		}
+		// When calling ExecProgress
+		output, err := mockShell.ExecProgress("Executing command", "somecommand", "arg1", "arg2")
+		// Then no error should be returned and output should be as expected
+		expectedOutput := "mocked output"
+		if err != nil {
+			t.Errorf("ExecProgress() error = %v, want nil", err)
+		}
+		if output != expectedOutput {
+			t.Errorf("ExecProgress() output = %v, want %v", output, expectedOutput)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with no ExecProgressFn implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		// When calling ExecProgress
+		output, err := mockShell.ExecProgress("Executing command", "somecommand", "arg1", "arg2")
+		// Then no error should be returned and the result should be empty
+		if err != nil {
+			t.Errorf("ExecProgress() error = %v, want nil", err)
+		}
+		if output != "" {
+			t.Errorf("ExecProgress() output = %v, want %v", output, "")
+		}
+	})
+}
+
+func TestMockShell_ExecSudo(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with a custom ExecSudoFn implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		mockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
+			return "mocked sudo output", nil
+		}
+		// When calling ExecSudo
+		output, err := mockShell.ExecSudo("Executing sudo command", "somecommand", "arg1", "arg2")
+		// Then no error should be returned and output should be as expected
+		expectedOutput := "mocked sudo output"
+		if err != nil {
+			t.Errorf("ExecSudo() error = %v, want nil", err)
+		}
+		if output != expectedOutput {
+			t.Errorf("ExecSudo() output = %v, want %v", output, expectedOutput)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with no ExecSudoFn implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		// When calling ExecSudo
+		output, err := mockShell.ExecSudo("Executing sudo command", "somecommand", "arg1", "arg2")
+		// Then no error should be returned and the result should be empty
+		if err != nil {
+			t.Errorf("ExecSudo() error = %v, want nil", err)
+		}
+		if output != "" {
+			t.Errorf("ExecSudo() output = %v, want %v", output, "")
+		}
+	})
+}

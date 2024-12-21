@@ -811,7 +811,7 @@ func TestColimaVirt_startColima(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods
-		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			return "", fmt.Errorf("mock execution error")
 		}
 
