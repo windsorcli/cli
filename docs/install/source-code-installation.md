@@ -1,3 +1,4 @@
+<div class="draft-watermark"></div>
 Follow these steps to install Windsor CLI from the source code:
 
 #### Step 1: Clone the Repository

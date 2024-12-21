@@ -1,3 +1,4 @@
+<div class="draft-watermark"></div>
 Follow these steps to install Windsor CLI using Go:
 
 #### Step 1: Go install

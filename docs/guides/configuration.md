@@ -1,3 +1,4 @@
+<div class="draft-watermark"></div>
 # Configuration
 
 Windsor CLI uses configuration files to manage settings. The configuration files are typically located in the following paths:

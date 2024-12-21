@@ -1,3 +1,4 @@
+<div class="draft-watermark"></div>
 # Troubleshooting
 
 ## Table of Contents

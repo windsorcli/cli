@@ -1,3 +1,4 @@
+<div class="draft-watermark"></div>
 # Quick Start
 After [installation](../install/install.md), you can use the \`windsor\` command to interact with the CLI. Here are some common commands:
 

@@ -1,4 +1,4 @@
-
+<div class="draft-watermark"></div>
 # `windsor env`
 
 The `windsor env` command provides the current environment configuration for your project. It is especially useful for dynamically managing environment variables based on the context of your current working directory.

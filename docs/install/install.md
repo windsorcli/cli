@@ -1,3 +1,4 @@
+<div class="draft-watermark"></div>
 
 ## [Prerequisites](#prerequisites)
 Ensure you have **[Go](https://golang.org/doc/install)** and **[Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)** installed on your system
