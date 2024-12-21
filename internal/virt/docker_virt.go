@@ -253,6 +253,7 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 	return containerInfos, nil
 }
 
+// PrintInfo prints the container information
 func (v *DockerVirt) PrintInfo() error {
 	containerInfos, err := v.GetContainerInfo()
 	if err != nil {

@@ -77,6 +77,125 @@ func TestTalosWorkerService_NewTalosWorkerService(t *testing.T) {
 	})
 }
 
+func TestTalosWorkerService_SetAddress(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a set of mock components
+		mocks := setupSafeTalosWorkerServiceMocks()
+		service := NewTalosWorkerService(mocks.Injector)
+
+		// Create a map to track the calls to SetFunc
+		setCalls := make(map[string]interface{})
+
+		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		// Initialize the service
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// When: the SetAddress method is called
+		service.SetName("worker-1")
+		err = service.SetAddress("192.168.1.1")
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And: configHandler.Set should be called with the expected node and endpoint
+		expectedHostnameKey := "cluster.workers.nodes.worker-1.hostname"
+		expectedNodeKey := "cluster.workers.nodes.worker-1.node"
+		expectedEndpointKey := "cluster.workers.nodes.worker-1.endpoint"
+		expectedHostnameValue := "worker-1.test"
+		expectedNodeValue := "192.168.1.1:50000"
+		expectedEndpointValue := "192.168.1.1"
+
+		if setCalls[expectedHostnameKey] != expectedHostnameValue {
+			t.Errorf("expected %s to be set to %s, got %v", expectedHostnameKey, expectedHostnameValue, setCalls[expectedHostnameKey])
+		}
+
+		if setCalls[expectedNodeKey] != expectedNodeValue {
+			t.Errorf("expected %s to be set to %s, got %v", expectedNodeKey, expectedNodeValue, setCalls[expectedNodeKey])
+		}
+
+		if setCalls[expectedEndpointKey] != expectedEndpointValue {
+			t.Errorf("expected %s to be set to %s, got %v", expectedEndpointKey, expectedEndpointValue, setCalls[expectedEndpointKey])
+		}
+	})
+
+	t.Run("SetFailures", func(t *testing.T) {
+		// Given: a set of mock components
+		mocks := setupSafeTalosWorkerServiceMocks()
+		service := NewTalosWorkerService(mocks.Injector)
+
+		// Initialize the service
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+		service.SetName("worker-1")
+
+		// Define the error scenarios
+		errorScenarios := []struct {
+			description string
+			setup       func()
+		}{
+			{
+				description: "configHandler.Set hostname fails",
+				setup: func() {
+					mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+						if key == "cluster.workers.nodes.worker-1.hostname" {
+							return fmt.Errorf("configHandler.Set hostname error")
+						}
+						return nil
+					}
+				},
+			},
+			{
+				description: "configHandler.Set node fails",
+				setup: func() {
+					mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+						if key == "cluster.workers.nodes.worker-1.node" {
+							return fmt.Errorf("configHandler.Set node error")
+						}
+						return nil
+					}
+				},
+			},
+			{
+				description: "configHandler.Set endpoint fails",
+				setup: func() {
+					mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
+						if key == "cluster.workers.nodes.worker-1.endpoint" {
+							return fmt.Errorf("configHandler.Set endpoint error")
+						}
+						return nil
+					}
+				},
+			},
+		}
+
+		for _, scenario := range errorScenarios {
+			t.Run(scenario.description, func(t *testing.T) {
+				// Setup the specific error scenario
+				scenario.setup()
+
+				// When: the SetAddress method is called
+				err := service.SetAddress("192.168.1.1")
+
+				// Then: an error should be returned
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+			})
+		}
+	})
+}
+
 func TestTalosWorkerService_GetComposeConfig(t *testing.T) {
 	// Mock the os functions to avoid actual file system operations
 	originalStat := stat
