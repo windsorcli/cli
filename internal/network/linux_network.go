@@ -23,8 +23,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	}
 
 	// Use the shell to execute a command that checks the routing table for the specific route
-	output, err := n.shell.Exec(
-		"Checking if route exists",
+	output, err := n.shell.ExecSilent(
 		"ip",
 		"route",
 		"show",
@@ -49,8 +48,8 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	}
 
 	// Add route on the host to VM guest
-	output, err = n.shell.Exec(
-		"Configuring host route",
+	fmt.Println("🔐 Configuring host route")
+	output, err = n.shell.ExecSilent(
 		"sudo",
 		"ip",
 		"route",
@@ -74,6 +73,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("DNS address is not configured")
 	}
 
+	// Access the DNS domain configuration
 	dnsDomain := n.configHandler.GetString("dns.name")
 	if dnsDomain == "" {
 		return fmt.Errorf("DNS domain is not configured")
@@ -98,8 +98,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	// Ensure the drop-in directory exists
-	_, err = n.shell.Exec(
-		"Creating drop-in directory for resolved.conf",
+	_, err = n.shell.ExecSilent(
 		"sudo",
 		"mkdir",
 		"-p",
@@ -110,9 +109,8 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	// Write DNS configuration to the drop-in file
-	_, err = n.shell.Exec(
-		"Writing DNS configuration to drop-in file",
-		"sudo",
+	_, err = n.shell.ExecSudo(
+		"🔐 Writing DNS configuration to "+dropInFile,
 		"bash",
 		"-c",
 		fmt.Sprintf("echo '%s' | sudo tee %s", expectedContent, dropInFile),
@@ -122,9 +120,9 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	// Restart systemd-resolved
-	_, err = n.shell.Exec(
-		"Restarting systemd-resolved",
-		"sudo",
+	fmt.Println("🔐 Restarting systemd-resolved")
+	_, err = n.shell.ExecSudo(
+		"🔐 Restarting systemd-resolved",
 		"systemctl",
 		"restart",
 		"systemd-resolved",

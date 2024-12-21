@@ -68,19 +68,19 @@ func (s *WindsorStack) Up() error {
 		}
 
 		// Execute 'terraform init' in the dirPath
-		_, err = s.shell.Exec("", "terraform", "init", "-migrate-state", "-upgrade")
+		_, err = s.shell.ExecProgress("🌎 Running terraform init", "terraform", "init", "-migrate-state", "-upgrade")
 		if err != nil {
 			return fmt.Errorf("error running 'terraform init' in %s: %v", component.Path, err)
 		}
 
 		// Execute 'terraform plan' in the dirPath
-		_, err = s.shell.Exec("", "terraform", "plan", "-lock=false")
+		_, err = s.shell.ExecProgress("🌎 Running terraform plan", "terraform", "plan", "-lock=false")
 		if err != nil {
 			return fmt.Errorf("error running 'terraform plan' in %s: %v", component.Path, err)
 		}
 
 		// Execute 'terraform apply' in the dirPath
-		_, err = s.shell.Exec("", "terraform", "apply")
+		_, err = s.shell.ExecProgress("🌎 Running terraform apply", "terraform", "apply")
 		if err != nil {
 			return fmt.Errorf("error running 'terraform apply' in %s: %v", component.Path, err)
 		}

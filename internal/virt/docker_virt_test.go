@@ -63,7 +63,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	}
 
 	// Mock the shell Exec function to return generic JSON structures for two containers
-	mockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+	mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 		if command == "docker" && len(args) > 0 {
 			switch args[0] {
 			case "ps":
@@ -202,10 +202,13 @@ func TestDockerVirt_Up(t *testing.T) {
 
 		// Mock the shell's Exec function to handle the callback
 		execCalled := false
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "", nil // Simulate successful Docker daemon check
 			}
+			return "", fmt.Errorf("unexpected command")
+		}
+		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "docker-compose" && len(args) > 0 && args[2] == "up" {
 				execCalled = true
 				return "", nil
@@ -227,39 +230,6 @@ func TestDockerVirt_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("TestVerboseMode", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.Initialize()
-
-		// Mock the shell's Exec function to handle the callback
-		execCalled := false
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "", nil // Simulate successful Docker daemon check
-			}
-			if command == "docker-compose" && len(args) > 0 && args[2] == "up" {
-				execCalled = true
-				return "", nil
-			}
-			return "", fmt.Errorf("unexpected command")
-		}
-
-		// Call the Up method with verbose mode enabled
-		err := dockerVirt.Up()
-
-		// Assert no error occurred
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		// Verify that the mock shell's Exec function was called with the expected command
-		if !execCalled {
-			t.Errorf("expected Exec to be called with 'docker-compose up', but it was not")
-		}
-	})
-
 	t.Run("DockerDaemonNotRunning", func(t *testing.T) {
 		// Setup mock components without mocking the container
 		mocks := setupSafeDockerContainerMocks()
@@ -267,7 +237,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the shell Exec function to simulate the Docker daemon not running
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "", fmt.Errorf("Cannot connect to the Docker daemon")
 			}
@@ -301,7 +271,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		}
 
 		// Mock the shell Exec function to simulate Docker daemon check
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
@@ -332,12 +302,22 @@ func TestDockerVirt_Up(t *testing.T) {
 		// Counter to track the number of retries
 		execCallCount := 0
 
-		// Mock the shell Exec function to simulate retry logic
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		// Mock the shell Exec functions to simulate retry logic
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
-			if command == "docker-compose" && len(args) > 0 && args[2] == "up" {
+			if command == "docker-compose" && len(args) > 2 && args[2] == "up" {
+				execCallCount++
+				if execCallCount < 3 {
+					return "", fmt.Errorf("temporary error")
+				}
+				return "success", nil
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "docker-compose" && len(args) > 2 && args[2] == "up" {
 				execCallCount++
 				if execCallCount < 3 {
 					return "", fmt.Errorf("temporary error")
@@ -370,11 +350,21 @@ func TestDockerVirt_Up(t *testing.T) {
 		// Counter to track the number of retries
 		execCallCount := 0
 
-		// Mock the shell Exec function to simulate retry logic with persistent error
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		// Mock the shell Exec functions to simulate retry logic with persistent error
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
+			if command == "docker-compose" && len(args) > 2 && args[2] == "up" {
+				execCallCount++
+				if execCallCount < 3 {
+					return "", fmt.Errorf("temporary error")
+				}
+				return "", fmt.Errorf("persistent error")
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "docker-compose" && len(args) > 2 && args[2] == "up" {
 				execCallCount++
 				if execCallCount < 3 {
@@ -414,7 +404,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the shell Exec function to simulate successful docker info and docker-compose down commands
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
@@ -440,7 +430,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the shell Exec function to simulate Docker daemon not running
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "", fmt.Errorf("Docker daemon is not running")
 			}
@@ -474,7 +464,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// Mock the shell Exec function to simulate successful docker info command
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
@@ -503,10 +493,13 @@ func TestDockerVirt_Down(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the shell Exec function to simulate successful docker info command
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
+			return "", fmt.Errorf("unknown command")
+		}
+		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "docker-compose" && len(args) > 0 && args[0] == "-f" && args[2] == "down" {
 				return "", fmt.Errorf("error executing docker-compose down")
 			}
@@ -602,8 +595,8 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the necessary methods to simulate an error during container inspection
-		originalExecFunc := mocks.MockShell.ExecFunc
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		originalExecFunc := mocks.MockShell.ExecSilentFunc
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 {
 				switch args[0] {
 				case "inspect":
@@ -613,7 +606,7 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 				}
 			}
 			// Call the original ExecFunc for any other cases
-			return originalExecFunc(message, command, args...)
+			return originalExecFunc(command, args...)
 		}
 
 		// When calling GetContainerInfo
@@ -635,8 +628,8 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the necessary methods to simulate an error during JSON unmarshalling
-		originalExecFunc := mocks.MockShell.ExecFunc
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		originalExecFunc := mocks.MockShell.ExecSilentFunc
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 {
 				switch args[0] {
 				case "inspect":
@@ -646,7 +639,7 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 				}
 			}
 			// Call the original ExecFunc for any other cases
-			return originalExecFunc(message, command, args...)
+			return originalExecFunc(command, args...)
 		}
 
 		// When calling GetContainerInfo
@@ -668,7 +661,7 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the shell Exec function to simulate an error when retrieving container info
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "ps" {
 				return "", fmt.Errorf("mock error retrieving container info")
 			}
@@ -694,12 +687,12 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the shell Exec function to simulate an error when inspecting network
-		originalExecFunc := mocks.MockShell.ExecFunc
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		originalExecFunc := mocks.MockShell.ExecSilentFunc
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "inspect" && args[2] == "--format" && args[3] == "{{json .NetworkSettings.Networks}}" {
 				return "", fmt.Errorf("mock error inspecting network")
 			}
-			return originalExecFunc(message, command, args...)
+			return originalExecFunc(command, args...)
 		}
 
 		// When calling GetContainerInfo
@@ -721,12 +714,12 @@ func TestDockerVirt_GetContainerInfo(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the shell Exec function to simulate an error when unmarshalling network info
-		originalExecFunc := mocks.MockShell.ExecFunc
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		originalExecFunc := mocks.MockShell.ExecSilentFunc
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "inspect" && args[2] == "--format" && args[3] == "{{json .NetworkSettings.Networks}}" {
 				return `invalid json`, nil
 			}
-			return originalExecFunc(message, command, args...)
+			return originalExecFunc(command, args...)
 		}
 
 		// When calling GetContainerInfo
@@ -771,7 +764,7 @@ func TestDockerVirt_PrintInfo(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the shell Exec function to simulate an error when fetching container IDs
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "ps" {
 				return "", fmt.Errorf("error fetching container IDs")
 			}
@@ -800,7 +793,7 @@ func TestDockerVirt_PrintInfo(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the shell Exec function to simulate no running containers
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "ps" {
 				return "\n", nil // Simulate no containers running by returning an empty line
 			}
@@ -1028,7 +1021,7 @@ func TestDockerVirt_checkDockerDaemon(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the shell Exec function to simulate Docker daemon running
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
@@ -1051,7 +1044,7 @@ func TestDockerVirt_checkDockerDaemon(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the shell Exec function to simulate Docker daemon not running
-		mocks.MockShell.ExecFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "", fmt.Errorf("Docker daemon is not running")
 			}

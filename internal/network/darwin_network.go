@@ -24,8 +24,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	}
 
 	// Use the shell to execute a command that checks the routing table for the specific route
-	output, err := n.shell.Exec(
-		"Checking if route exists",
+	output, err := n.shell.ExecSilent(
 		"route",
 		"get",
 		networkCIDR,
@@ -52,9 +51,8 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	}
 
 	// Add route on the host to VM guest
-	output, err = n.shell.Exec(
-		"Configuring host route",
-		"sudo",
+	output, err = n.shell.ExecSudo(
+		"🔐 Adding host route",
 		"route",
 		"-nv",
 		"add",
@@ -83,8 +81,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	// Ensure the /etc/resolver directory exists
 	resolverDir := "/etc/resolver"
 	if _, err := stat(resolverDir); os.IsNotExist(err) {
-		if _, err := n.shell.Exec(
-			"",
+		if _, err := n.shell.ExecSilent(
 			"sudo",
 			"mkdir",
 			"-p",
@@ -111,9 +108,8 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	// Move the temporary file to the /etc/resolver/<tld> file
-	if _, err := n.shell.Exec(
-		"Configuring DNS resolver at "+resolverFile,
-		"sudo",
+	if _, err := n.shell.ExecSudo(
+		fmt.Sprintf("🔐 Configuring DNS resolver at %s\n", resolverFile),
 		"mv",
 		tempResolverFile,
 		resolverFile,
@@ -122,10 +118,21 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	// Flush the DNS cache
-	if _, err := n.shell.Exec("Flushing DNS cache", "sudo", "dscacheutil", "-flushcache"); err != nil {
+	if _, err := n.shell.ExecSudo(
+		"🔐 Flushing DNS cache",
+		"dscacheutil",
+		"-flushcache",
+	); err != nil {
 		return fmt.Errorf("Error flushing DNS cache: %w", err)
 	}
-	if _, err := n.shell.Exec("Restarting DNS daemon", "sudo", "killall", "-HUP", "mDNSResponder"); err != nil {
+
+	// Restart mDNSResponder
+	if _, err := n.shell.ExecSudo(
+		"🔐 Restarting mDNSResponder",
+		"killall",
+		"-HUP",
+		"mDNSResponder",
+	); err != nil {
 		return fmt.Errorf("Error restarting mDNSResponder: %w", err)
 	}
 
