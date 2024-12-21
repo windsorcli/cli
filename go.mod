@@ -135,7 +135,7 @@ require (
 	golang.org/x/tools v0.28.0 // indirect
 	google.golang.org/api v0.209.0 // indirect
 	google.golang.org/genproto v0.0.0-20241113202542-65e8d215514f // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20241104194629-dd2ea8efbc28 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20241219192143-6b3ec007d9bb // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241219192143-6b3ec007d9bb // indirect
 	google.golang.org/grpc v1.68.0 // indirect
 	google.golang.org/grpc/stats/opentelemetry v0.0.0-20241028142157-ada6787961b3 // indirect
