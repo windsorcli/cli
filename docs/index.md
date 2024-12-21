@@ -1,9 +1,19 @@
-## [Windsor Command Line Interface](https://windsorcli.github.io)
+<div class="draft-watermark"></div>
+<div style="text-align: center;">
+  <img src="img/windsor-logo.png" alt="Feature 2">
+</div>
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/windsorcli/cli)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml)
 
+# [Windsor Command Line Interface](https://windsorcli.github.io)
 The Windsor Command Line Interface (CLI) is a powerful tool designed to streamline your workflow and enhance productivity. With a small suite of intuitive commands, the Windsor CLI allows you to efficiently manage contexts for other tools in your development environment.
+
+## ![bootstrap](./img/full-bootstrap.gif)
+
+<!-- <div class="vertical-scrolling-images">
+  <img src="img/icon.svg" alt="Feature 1">
+  <img src="img/icon.svg" alt="Feature 2">
+  <img src="img/icon.svg" alt="Feature 3">
+</div> -->
 
 ## [Purpose](#purpose)
 
@@ -17,65 +27,11 @@ Key objectives of the Windsor CLI include:
 - **Consistency**: Ensure a standardized approach and consistent tool usage across different environments and teams.
 - **Flexibility**: Support a wide range of configurations and integrations to accommodate diverse project needs.
 - **Scalability**: Scale the environment and the production workload.
-- **Project Initialization**: Quickly set up new projects with predefined configurations.
 - **Configuration Management**: Easily manage and switch between different project configurations.
-- **Shell Integration**: Seamlessly integrates with your shell environment for enhanced productivity.
-- **Cross-Platform Support**: Works on Windows, macOS, and Linux.
-
-## Installation
-
-To install Windsor CLI, you need to have Go installed on your system. You can then install Windsor CLI using the following command:
-
-```sh
-go install github.com/windsorcli/cli@latest
-```
-
-## Usage
-
-After installation, you can use the `windsor` command to interact with the CLI. Here are some common commands:
-
-### Initialize a Project
-
-```sh
-windsor init [context]
-```
-
-This command initializes the application by setting up necessary configurations and environment.
-
-## Configuration
-
-Windsor CLI uses configuration files to manage settings. The configuration files are typically located in the following paths:
-
-- **CLI Configuration**: `~/.config/windsor/config.yaml`
-- **Project Configuration**: `./windsor.yaml` or `./windsor.yml`
-
-You can customize these configurations to suit your needs.
-
-### Example Configuration
-
-Here is an example of a CLI configuration file:
-
-```yaml
-context: default
-contexts:
-  default:
-    environment:
-      FOO_VAR: bar
-```
-
-## Shell Integration
-
-To automatically load Windsor CLI environment variables in your shell, you can add the following to your `precmd()` function in your shell configuration file (e.g., `.zshrc` for Zsh or `.bashrc` for Bash):
-
-```sh
-precmd() {
-  if command -v windsor >/dev/null 2>&1; then
-    eval "$(windsor env)"
-  fi
-}
-```
-
-This will ensure that the Windsor CLI environment variables are loaded every time a new shell session is started.
+- **Shell Integration**: Seamlessly integrate with your shell environment for enhanced productivity.
+- **Cross-Platform Compatibility**: Provide a seamless experience on Windows, macOS, and Linux systems.
+- **Security**: Fully compliant and automated security updates.
+- **Visibility**: Provide dashboards to ensure informative decisions.
 
 ## [Contributing](#contributing)
 We welcome contributions to Windsor CLI! If you would like to contribute, please follow these steps:
@@ -96,3 +52,27 @@ Windsor CLI is licensed under the Mozilla Public License Version 2.0. See the [L
 ## [Contact Information](#contact-information)
 
 Thank you for using Windsor CLI! If you have any questions or need further assistance, please feel free to open an issue on our GitHub repository.
+
+<!-- Add buttons to load new files
+<button id="quickStartButton">Quick Start</button>
+<button id="demoButton">Local Cluster Demo</button>
+
+<script>
+  document.getElementById('quickStartButton').addEventListener('click', function() {
+    window.location.href = 'tutorial/quick-start/index.html'; 
+  });
+
+  document.getElementById('demoButton').addEventListener('click', function() {
+    window.location.href = 'tutorial/local-cluster-demo/index.html'; 
+  });
+</script> -->
+
+<div>
+{{ next_footer('Installation', 'install/install/index.html') }}
+</div>
+
+<script>
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = 'install/install/index.html'; 
+  });
+</script>
