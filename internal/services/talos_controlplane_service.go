@@ -26,13 +26,13 @@ func NewTalosControlPlaneService(injector di.Injector) *TalosControlPlaneService
 func (s *TalosControlPlaneService) SetAddress(address string) error {
 	tld := s.configHandler.GetString("dns.name", "test")
 
-	if err := s.configHandler.Set("cluster.controlplanes.nodes."+s.name+".hostname", s.name+"."+tld); err != nil {
+	if err := s.configHandler.SetContextValue("cluster.controlplanes.nodes."+s.name+".hostname", s.name+"."+tld); err != nil {
 		return err
 	}
-	if err := s.configHandler.Set("cluster.controlplanes.nodes."+s.name+".node", address+":50000"); err != nil {
+	if err := s.configHandler.SetContextValue("cluster.controlplanes.nodes."+s.name+".node", address); err != nil {
 		return err
 	}
-	if err := s.configHandler.Set("cluster.controlplanes.nodes."+s.name+".endpoint", address); err != nil {
+	if err := s.configHandler.SetContextValue("cluster.controlplanes.nodes."+s.name+".endpoint", address+":50000"); err != nil {
 		return err
 	}
 

@@ -41,13 +41,13 @@ func (s *WindsorStack) Up() error {
 	// Iterate over the components
 	for _, component := range components {
 		// Ensure the directory exists
-		if _, err := osStat(component.Path); os.IsNotExist(err) {
-			return fmt.Errorf("directory %s does not exist", component.Path)
+		if _, err := osStat(component.FullPath); os.IsNotExist(err) {
+			return fmt.Errorf("directory %s does not exist", component.FullPath)
 		}
 
 		// Change to the component directory
-		if err := osChdir(component.Path); err != nil {
-			return fmt.Errorf("error changing to directory %s: %v", component.Path, err)
+		if err := osChdir(component.FullPath); err != nil {
+			return fmt.Errorf("error changing to directory %s: %v", component.FullPath, err)
 		}
 
 		// Iterate over all envPrinters and load the environment variables
@@ -70,26 +70,26 @@ func (s *WindsorStack) Up() error {
 		// Execute 'terraform init' in the dirPath
 		_, err = s.shell.ExecProgress("🌎 Running terraform init", "terraform", "init", "-migrate-state", "-upgrade")
 		if err != nil {
-			return fmt.Errorf("error running 'terraform init' in %s: %v", component.Path, err)
+			return fmt.Errorf("error running 'terraform init' in %s: %v", component.FullPath, err)
 		}
 
 		// Execute 'terraform plan' in the dirPath
 		_, err = s.shell.ExecProgress("🌎 Running terraform plan", "terraform", "plan", "-lock=false")
 		if err != nil {
-			return fmt.Errorf("error running 'terraform plan' in %s: %v", component.Path, err)
+			return fmt.Errorf("error running 'terraform plan' in %s: %v", component.FullPath, err)
 		}
 
 		// Execute 'terraform apply' in the dirPath
 		_, err = s.shell.ExecProgress("🌎 Running terraform apply", "terraform", "apply")
 		if err != nil {
-			return fmt.Errorf("error running 'terraform apply' in %s: %v", component.Path, err)
+			return fmt.Errorf("error running 'terraform apply' in %s: %v", component.FullPath, err)
 		}
 
 		// Attempt to clean up 'backend_override.tf' if it exists
-		backendOverridePath := filepath.Join(component.Path, "backend_override.tf")
+		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
 		if _, err := osStat(backendOverridePath); err == nil {
 			if err := osRemove(backendOverridePath); err != nil {
-				return fmt.Errorf("error removing backend_override.tf in %s: %v", component.Path, err)
+				return fmt.Errorf("error removing backend_override.tf in %s: %v", component.FullPath, err)
 			}
 		}
 	}

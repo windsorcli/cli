@@ -33,15 +33,17 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 	mockBlueprintHandler.GetTerraformComponentsFunc = func() []blueprint.TerraformComponentV1Alpha1 {
 		// Define common components
 		remoteComponent := blueprint.TerraformComponentV1Alpha1{
-			Source: "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
-			Path:   "/mock/project/root/.tf_modules/remote/path",
+			Source:   "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
+			Path:     "remote/path",
+			FullPath: "/mock/project/root/.tf_modules/remote/path",
 			Values: map[string]interface{}{
 				"remote_variable1": "default_value",
 			},
 		}
 		localComponent := blueprint.TerraformComponentV1Alpha1{
-			Source: "local/path",
-			Path:   "/mock/project/root/terraform/local/path",
+			Source:   "",
+			Path:     "local/path",
+			FullPath: "/mock/project/root/terraform/local/path",
 			Values: map[string]interface{}{
 				"local_variable1": "default_value",
 			},
