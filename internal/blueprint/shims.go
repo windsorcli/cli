@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"regexp"
 
@@ -41,20 +42,40 @@ var jsonMarshal = json.Marshal
 // jsonUnmarshal is a wrapper around json.Unmarshal
 var jsonUnmarshal = json.Unmarshal
 
-// jsonnetMakeVM is a wrapper around jsonnet.MakeVM
-var jsonnetMakeVM = jsonnet.MakeVM
+// yamlJSONToYAML is a wrapper around yaml.JSONToYAML
+var yamlJSONToYAML = yaml.JSONToYAML
 
-// jsonnetVM is a wrapper around jsonnet.VM
+// jsonnetMakeVMFunc is a function type for creating a new jsonnet VM
+type jsonnetMakeVMFunc func() jsonnetVMInterface
+
+// jsonnetVMInterface defines the interface for a jsonnet VM
+type jsonnetVMInterface interface {
+	TLACode(key, val string)
+	EvaluateAnonymousSnippet(filename, snippet string) (string, error)
+}
+
+// jsonnetMakeVM is a variable holding the function to create a new jsonnet VM
+var jsonnetMakeVM jsonnetMakeVMFunc = func() jsonnetVMInterface {
+	return &jsonnetVM{VM: jsonnet.MakeVM()}
+}
+
+// jsonnetVM is a wrapper around jsonnet.VM that implements jsonnetVMInterface
 type jsonnetVM struct {
 	*jsonnet.VM
 }
 
-// jsonnetVM_TLACode is a wrapper around jsonnet.VM.TLACode
-func (vm *jsonnetVM) TLACode(key, val string) {
-	vm.VM.TLACode(key, val)
-}
-
-// jsonnetVM_EvaluateAnonymousSnippet is a wrapper around jsonnet.VM.EvaluateAnonymousSnippet
+// EvaluateAnonymousSnippet is a wrapper around jsonnet.VM.EvaluateAnonymousSnippet
 func (vm *jsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
 	return vm.VM.EvaluateAnonymousSnippet(filename, snippet)
+}
+
+// mockJsonnetVM is a mock implementation of jsonnetVMInterface for testing
+type mockJsonnetVM struct{}
+
+// TLACode is a mock implementation that does nothing
+func (vm *mockJsonnetVM) TLACode(key, val string) {}
+
+// EvaluateAnonymousSnippet is a mock implementation that returns an error
+func (vm *mockJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
+	return "", fmt.Errorf("error evaluating snippet")
 }

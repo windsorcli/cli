@@ -63,25 +63,27 @@ func TestWindsorStack_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorCheckingIfDirectoryExists", func(t *testing.T) {
+	t.Run("ErrorCheckingDirectoryExists", func(t *testing.T) {
 		// Given osStat is mocked to return an error
 		mocks := setupSafeMocks()
 		originalOsStat := osStat
 		defer func() { osStat = originalOsStat }()
-		osStat = func(_ string) (os.FileInfo, error) {
+		osStat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		// When a new WindsorStack is created, initialized, and Up is called
+		// When a new WindsorStack is created and Up is called
 		stack := NewWindsorStack(mocks.Injector)
 		err := stack.Initialize()
-		// Then no error should occur during initialization
 		if err != nil {
 			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
 
 		// And when Up is called
 		err = stack.Up()
+		if err == nil {
+			t.Fatalf("Expected an error, but got nil")
+		}
 
 		// Then the expected error is contained in err
 		expectedError := "directory /mock/project/root/.tf_modules/remote/path does not exist"

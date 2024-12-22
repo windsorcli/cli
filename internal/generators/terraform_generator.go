@@ -133,10 +133,7 @@ func (g *TerraformGenerator) writeVariableFile(dirPath string, component bluepri
 		// Set the default attribute if it exists
 		if variable.Default != nil {
 			// Use a generic approach to handle various data types for the default value
-			defaultValue, err := convertToCtyValue(variable.Default)
-			if err != nil {
-				return fmt.Errorf("error converting default value for variable %s: %w", variableName, err)
-			}
+			defaultValue := convertToCtyValue(variable.Default)
 			blockBody.SetAttributeValue("default", defaultValue)
 		}
 
@@ -255,10 +252,7 @@ func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint
 		}
 
 		// Convert and set the new value
-		ctyVal, err := convertToCtyValue(component.Values[variableName])
-		if err != nil {
-			return fmt.Errorf("error converting value for variable %s: %w", variableName, err)
-		}
+		ctyVal := convertToCtyValue(component.Values[variableName])
 		body.SetAttributeValue(variableName, ctyVal)
 	}
 
@@ -292,40 +286,32 @@ func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint
 var _ Generator = (*TerraformGenerator)(nil)
 
 // convertToCtyValue converts an interface{} to a cty.Value, handling various data types.
-func convertToCtyValue(value interface{}) (cty.Value, error) {
+func convertToCtyValue(value interface{}) cty.Value {
 	switch v := value.(type) {
 	case string:
-		return cty.StringVal(v), nil
+		return cty.StringVal(v)
 	case int:
-		return cty.NumberIntVal(int64(v)), nil
+		return cty.NumberIntVal(int64(v))
 	case float64:
-		return cty.NumberFloatVal(v), nil
+		return cty.NumberFloatVal(v)
 	case bool:
-		return cty.BoolVal(v), nil
+		return cty.BoolVal(v)
 	case []interface{}:
 		if len(v) == 0 {
-			return cty.ListValEmpty(cty.DynamicPseudoType), nil
+			return cty.ListValEmpty(cty.DynamicPseudoType)
 		}
 		var ctyList []cty.Value
 		for _, item := range v {
-			ctyVal, err := convertToCtyValue(item)
-			if err != nil {
-				return cty.NilVal, err
-			}
-			ctyList = append(ctyList, ctyVal)
+			ctyList = append(ctyList, convertToCtyValue(item))
 		}
-		return cty.ListVal(ctyList), nil
+		return cty.ListVal(ctyList)
 	case map[string]interface{}:
 		ctyMap := make(map[string]cty.Value)
 		for key, val := range v {
-			ctyVal, err := convertToCtyValue(val)
-			if err != nil {
-				return cty.NilVal, err
-			}
-			ctyMap[key] = ctyVal
+			ctyMap[key] = convertToCtyValue(val)
 		}
-		return cty.ObjectVal(ctyMap), nil
+		return cty.ObjectVal(ctyMap)
 	default:
-		return cty.NilVal, fmt.Errorf("unsupported type: %T", v)
+		return cty.NilVal
 	}
 }

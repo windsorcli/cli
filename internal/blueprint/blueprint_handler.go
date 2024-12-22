@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"reflect"
 
-	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/internal/config"
 	"github.com/windsorcli/cli/internal/context"
 	"github.com/windsorcli/cli/internal/di"
@@ -112,7 +111,7 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	}
 
 	// Determine paths based on provided path or default locations
-	basePath := configRoot + "/blueprint"
+	basePath := filepath.Join(configRoot, "blueprint")
 	if len(path) > 0 && path[0] != "" {
 		basePath = path[0]
 	}
@@ -180,7 +179,7 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 	}
 
 	// Create a copy of the blueprint to avoid modifying the original
-	fullBlueprint := b.blueprint.DeepCopy()
+	fullBlueprint := b.blueprint.deepCopy()
 
 	// Remove "variables" and "values" sections from all terraform components in the full blueprint
 	for i := range fullBlueprint.TerraformComponents {
@@ -291,6 +290,9 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *BlueprintV1Alpha
 			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", componentCopy.Path)
 		}
 
+		// Normalize FullPath
+		componentCopy.FullPath = filepath.FromSlash(componentCopy.FullPath)
+
 		// Update the resolved component in the slice
 		resolvedComponents[i] = componentCopy
 	}
@@ -299,12 +301,12 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *BlueprintV1Alpha
 	blueprint.TerraformComponents = resolvedComponents
 }
 
-// DeepCopy creates a deep copy of the Blueprint
-func (b *BlueprintV1Alpha1) DeepCopy() *BlueprintV1Alpha1 {
+// deepCopy creates a deep copy of the Blueprint
+func (b *BlueprintV1Alpha1) deepCopy() *BlueprintV1Alpha1 {
 	// Create a new Blueprint instance
 	copy := *b
 
-	// Use reflection to copy each reference type field generically
+	// Use reflection to copy each slice field generically
 	val := reflect.ValueOf(b).Elem()
 	copyVal := reflect.ValueOf(&copy).Elem()
 
@@ -315,9 +317,6 @@ func (b *BlueprintV1Alpha1) DeepCopy() *BlueprintV1Alpha1 {
 		if field.Kind() == reflect.Slice && !field.IsNil() {
 			copyField.Set(reflect.MakeSlice(field.Type(), field.Len(), field.Cap()))
 			reflect.Copy(copyField, field)
-		} else if field.Kind() == reflect.Ptr && !field.IsNil() {
-			copyField.Set(reflect.New(field.Elem().Type()))
-			copyField.Elem().Set(field.Elem())
 		}
 	}
 
@@ -328,7 +327,7 @@ func (b *BlueprintV1Alpha1) DeepCopy() *BlueprintV1Alpha1 {
 var _ BlueprintHandler = &BaseBlueprintHandler{}
 
 // isValidTerraformRemoteSource checks if the source is a valid Terraform module reference
-func isValidTerraformRemoteSource(source string) bool {
+var isValidTerraformRemoteSource = func(source string) bool {
 	// Define patterns for different valid source types
 	patterns := []string{
 		`^git::https://[^/]+/.*\.git(?:@.*)?$`, // Generic Git URL with .git suffix
@@ -355,7 +354,7 @@ func isValidTerraformRemoteSource(source string) bool {
 }
 
 // generateBlueprintFromJsonnet generates a blueprint from a jsonnet template
-func generateBlueprintFromJsonnet(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
+var generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
 	// Convert contextConfig to JSON
 	yamlBytes, err := yamlMarshal(contextConfig)
 	if err != nil {
@@ -380,7 +379,7 @@ local context = %s;
 	}
 
 	// Convert JSON to YAML
-	yamlOutput, err := yaml.JSONToYAML([]byte(evaluatedJsonnet))
+	yamlOutput, err := yamlJSONToYAML([]byte(evaluatedJsonnet))
 	if err != nil {
 		return "", err
 	}
@@ -389,26 +388,19 @@ local context = %s;
 }
 
 // Convert YAML (as []byte) to JSON (as []byte)
-func yamlToJson(yamlBytes []byte) ([]byte, error) {
+var yamlToJson = func(yamlBytes []byte) ([]byte, error) {
 	var data interface{}
-	if err := yaml.Unmarshal(yamlBytes, &data); err != nil {
+	if err := yamlUnmarshal(yamlBytes, &data); err != nil {
 		return nil, err
 	}
 	return json.Marshal(data)
-}
-
-// copySlice is a helper function to copy slices of TerraformComponentV1Alpha1
-func copySlice(dst, src []TerraformComponentV1Alpha1) {
-	for i := range src {
-		dst[i] = src[i]
-	}
 }
 
 // mergeBlueprints merges fields from src into dst, giving precedence to src.
 //
 // This helps ensure map fields (like Variables and Values) and other struct fields
 // are handled more reliably without relying on reflection or intermediate map conversions.
-func mergeBlueprints(dst, src *BlueprintV1Alpha1) {
+var mergeBlueprints = func(dst, src *BlueprintV1Alpha1) {
 	if src == nil {
 		return
 	}
