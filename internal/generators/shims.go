@@ -7,6 +7,9 @@ import (
 // osWriteFile is a shim for os.WriteFile
 var osWriteFile = os.WriteFile
 
+// osReadFile is a shim for os.ReadFile
+var osReadFile = os.ReadFile
+
 // osMkdirAll is a shim for os.MkdirAll
 var osMkdirAll = os.MkdirAll
 

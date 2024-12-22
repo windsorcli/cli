@@ -1,6 +1,7 @@
 package generators
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -156,57 +157,143 @@ func (g *TerraformGenerator) writeVariableFile(dirPath string, component bluepri
 	return nil
 }
 
-// writeTfvarsFile writes the Terraform tfvars file for the given component
+// writeTfvarsFile orchestrates writing a .tfvars file for the specified Terraform component,
+// preserving existing attributes and integrating any new values. If the component includes a
+// 'source' attribute, it indicates the component's origin or external module reference.
 func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint.TerraformComponentV1Alpha1) error {
-
 	// Define the path for the tfvars file relative to the component's path.
 	componentPath := filepath.Join(dirPath, "terraform", component.Path)
 	tfvarsFilePath := componentPath + ".tfvars"
 
-	// Check if the file already exists. If it does, do nothing.
-	if _, err := os.Stat(tfvarsFilePath); err == nil {
-		return nil
+	// Ensure the parent directories exist
+	parentDir := filepath.Dir(tfvarsFilePath)
+	if err := osMkdirAll(parentDir, os.ModePerm); err != nil {
+		return fmt.Errorf("error creating directories for path %s: %w", parentDir, err)
 	}
 
-	// Create a new empty HCL file to hold variable definitions.
-	variablesContent := hclwrite.NewEmptyFile()
-	body := variablesContent.Body()
+	// We'll define a unique token to identify our managed header line. This allows changing
+	// the exact header message in the future as long as we keep this token present.
+	windsorHeaderToken := "Managed by Windsor CLI:"
 
-	// Get the keys from the Values map and sort them alphabetically
+	// The actual user-facing header message. We can adjust this text in future changes
+	// while still identifying the line via the token.
+	headerComment := fmt.Sprintf("// %s This file is partially managed by the windsor CLI. Your changes will not be overwritten.", windsorHeaderToken)
+
+	var existingContent []byte
+	if _, err := osStat(tfvarsFilePath); err == nil {
+		// If the file already exists, read it and remove any lines matching our known header token or source comment
+		existingContent, err = osReadFile(tfvarsFilePath)
+		if err != nil {
+			return fmt.Errorf("error reading existing tfvars file: %w", err)
+		}
+	}
+
+	// Split existing file content into lines and filter out any lines that contain our token or start with the module source comment
+	lines := bytes.Split(existingContent, []byte("\n"))
+	var filteredLines [][]byte
+	for _, line := range lines {
+		trimmedLine := bytes.TrimSpace(line)
+		if bytes.Contains(trimmedLine, []byte(windsorHeaderToken)) ||
+			bytes.HasPrefix(trimmedLine, []byte("// Module source:")) {
+			continue
+		}
+		filteredLines = append(filteredLines, line)
+	}
+	remainder := bytes.Join(filteredLines, []byte("\n"))
+
+	// Trim leading newlines from the remainder to ensure correct formatting
+	remainder = bytes.TrimLeft(remainder, "\n")
+
+	// Parse the remainder (the actual HCL content) to build the mergedFile
+	mergedFile := hclwrite.NewEmptyFile()
+	body := mergedFile.Body()
+
+	if len(remainder) > 0 {
+		parsedFile, parseErr := hclwrite.ParseConfig(remainder, tfvarsFilePath, hcl.Pos{Line: 1, Column: 1})
+		if parseErr != nil {
+			return fmt.Errorf("unable to parse remaining tfvars content: %w", parseErr)
+		}
+		mergedFile = parsedFile
+		body = mergedFile.Body()
+	}
+
+	// Collect existing comments from the merged file to avoid duplicating them
+	existingComments := make(map[string]bool)
+	for _, token := range mergedFile.Body().BuildTokens(nil) {
+		if token.Type == hclsyntax.TokenComment {
+			commentLine := string(bytes.TrimSpace(token.Bytes))
+			existingComments[commentLine] = true
+		}
+	}
+
+	// Create a map to store variable names and their corresponding comments
+	variableComments := make(map[string]string)
+
+	// Get the keys from the Variables map and sort them alphabetically
 	var keys []string
-	for key := range component.Values {
+	for key := range component.Variables {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 
-	// Iterate over each key in the sorted order to define it as a variable in the HCL file.
+	// Collect comments for each variable
 	for _, variableName := range keys {
-		value := component.Values[variableName]
+		if variableDef, hasVar := component.Variables[variableName]; hasVar && variableDef.Description != "" {
+			commentText := fmt.Sprintf("// %s", variableDef.Description)
+			variableComments[variableName] = commentText
+		}
+	}
 
-		// Convert the value to a cty.Value
-		ctyValue, err := convertToCtyValue(value)
+	// Sort the keys from component.Values so we add them deterministically
+	keys = nil // Reuse the keys slice
+	for k := range component.Values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// For each new key in component.Values, add or update it in sorted order
+	for _, variableName := range keys {
+		// Add the comment for the variable if it exists and hasn't been inserted yet
+		if commentText, exists := variableComments[variableName]; exists && !existingComments[commentText] {
+			body.AppendUnstructuredTokens(hclwrite.Tokens{
+				{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
+				{Type: hclsyntax.TokenComment, Bytes: []byte(commentText)},
+				{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
+			})
+			existingComments[commentText] = true
+		}
+
+		// Convert the value and set/update in the merged file
+		ctyVal, err := convertToCtyValue(component.Values[variableName])
 		if err != nil {
 			return fmt.Errorf("error converting value for variable %s: %w", variableName, err)
 		}
-
-		// Add a description comment before each variable
-		if variable, exists := component.Variables[variableName]; exists && variable.Description != "" {
-			body.AppendUnstructuredTokens(hclwrite.Tokens{
-				{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("// %s", variable.Description))},
-				{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
-			})
-		}
-
-		body.SetAttributeValue(variableName, ctyValue)
-
-		// Add a newline after each variable definition for better spacing
-		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
-		})
+		body.SetAttributeValue(variableName, ctyVal)
 	}
 
-	// Write the variable definitions to the file.
-	if err := osWriteFile(tfvarsFilePath, variablesContent.Bytes(), 0644); err != nil {
+	// Combine final content: add the header comment, optionally the source comment, then the merged HCL
+	var finalContent bytes.Buffer
+	finalContent.WriteString(headerComment)
+	finalContent.WriteByte('\n') // Newline right after the header
+
+	if component.Source != "" {
+		finalContent.WriteString(fmt.Sprintf("// Module source: %s\n", component.Source))
+	}
+
+	// Add exactly one blank line after header (and possibly source)
+	finalContent.WriteByte('\n')
+
+	// Trim leading and trailing newlines from the merged file content to avoid stacking
+	mergedBytes := mergedFile.Bytes()
+	mergedBytes = bytes.Trim(mergedBytes, "\n")
+
+	finalContent.Write(mergedBytes)
+
+	// Ensure exactly one newline at the end of the file
+	finalContent.WriteByte('\n')
+
+	// Finally, write the new file content to disk
+	if err := osWriteFile(tfvarsFilePath, finalContent.Bytes(), 0644); err != nil {
 		return fmt.Errorf("error writing tfvars file: %w", err)
 	}
 
