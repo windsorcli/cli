@@ -179,45 +179,33 @@ func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint
 	// while still identifying the line via the token.
 	headerComment := fmt.Sprintf("// %s This file is partially managed by the windsor CLI. Your changes will not be overwritten.", windsorHeaderToken)
 
+	// Read the existing tfvars file if it exists. We do not remove existing lines or attributes
+	// so that the original file content takes precedence.
 	var existingContent []byte
 	if _, err := osStat(tfvarsFilePath); err == nil {
-		// If the file already exists, read it and remove any lines matching our known header token or source comment
 		existingContent, err = osReadFile(tfvarsFilePath)
 		if err != nil {
 			return fmt.Errorf("error reading existing tfvars file: %w", err)
 		}
 	}
 
-	// Split existing file content into lines and filter out any lines that contain our token or start with the module source comment
-	lines := bytes.Split(existingContent, []byte("\n"))
-	var filteredLines [][]byte
-	for _, line := range lines {
-		trimmedLine := bytes.TrimSpace(line)
-		if bytes.Contains(trimmedLine, []byte(windsorHeaderToken)) ||
-			bytes.HasPrefix(trimmedLine, []byte("// Module source:")) {
-			continue
-		}
-		filteredLines = append(filteredLines, line)
-	}
-	remainder := bytes.Join(filteredLines, []byte("\n"))
+	// Use the existing file content as the basis for merging
+	remainder := existingContent
 
-	// Trim leading newlines from the remainder to ensure correct formatting
-	remainder = bytes.TrimLeft(remainder, "\n")
-
-	// Parse the remainder (the actual HCL content) to build the mergedFile
+	// Parse the existing file content to build the mergedFile
 	mergedFile := hclwrite.NewEmptyFile()
 	body := mergedFile.Body()
 
 	if len(remainder) > 0 {
 		parsedFile, parseErr := hclwrite.ParseConfig(remainder, tfvarsFilePath, hcl.Pos{Line: 1, Column: 1})
 		if parseErr != nil {
-			return fmt.Errorf("unable to parse remaining tfvars content: %w", parseErr)
+			return fmt.Errorf("unable to parse existing tfvars content: %w", parseErr)
 		}
 		mergedFile = parsedFile
 		body = mergedFile.Body()
 	}
 
-	// Collect existing comments from the merged file to avoid duplicating them
+	// Collect existing comments from the merged file so we don't duplicate them
 	existingComments := make(map[string]bool)
 	for _, token := range mergedFile.Body().BuildTokens(nil) {
 		if token.Type == hclsyntax.TokenComment {
@@ -226,17 +214,15 @@ func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint
 		}
 	}
 
-	// Create a map to store variable names and their corresponding comments
+	// Create a map of variable names to comments from the component's variable definitions
 	variableComments := make(map[string]string)
-
-	// Get the keys from the Variables map and sort them alphabetically
 	var keys []string
 	for key := range component.Variables {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 
-	// Collect comments for each variable
+	// Collect comments for each variable from component.Variables
 	for _, variableName := range keys {
 		if variableDef, hasVar := component.Variables[variableName]; hasVar && variableDef.Description != "" {
 			commentText := fmt.Sprintf("// %s", variableDef.Description)
@@ -244,16 +230,21 @@ func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint
 		}
 	}
 
-	// Sort the keys from component.Values so we add them deterministically
-	keys = nil // Reuse the keys slice
+	// Sort the values keys from the component so we add or update them in deterministic order
+	keys = nil // reuse the slice
 	for k := range component.Values {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	// For each new key in component.Values, add or update it in sorted order
+	// For each key in component.Values, add or update only if it doesn't already exist in the merged file
 	for _, variableName := range keys {
-		// Add the comment for the variable if it exists and hasn't been inserted yet
+		// If an attribute already exists for this variable, keep the existing value; do not overwrite it.
+		if body.GetAttribute(variableName) != nil {
+			continue
+		}
+
+		// If we have a comment for the variable and it's not already present, add it
 		if commentText, exists := variableComments[variableName]; exists && !existingComments[commentText] {
 			body.AppendUnstructuredTokens(hclwrite.Tokens{
 				{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
@@ -263,7 +254,7 @@ func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint
 			existingComments[commentText] = true
 		}
 
-		// Convert the value and set/update in the merged file
+		// Convert and set the new value
 		ctyVal, err := convertToCtyValue(component.Values[variableName])
 		if err != nil {
 			return fmt.Errorf("error converting value for variable %s: %w", variableName, err)
@@ -271,29 +262,26 @@ func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint
 		body.SetAttributeValue(variableName, ctyVal)
 	}
 
-	// Combine final content: add the header comment, optionally the source comment, then the merged HCL
-	var finalContent bytes.Buffer
-	finalContent.WriteString(headerComment)
-	finalContent.WriteByte('\n') // Newline right after the header
+	// Build the final content. If the header token isn't in the existing file, prepend it.
+	finalOutput := mergedFile.Bytes()
 
-	if component.Source != "" {
-		finalContent.WriteString(fmt.Sprintf("// Module source: %s\n", component.Source))
+	if !bytes.Contains(bytes.ToLower(finalOutput), bytes.ToLower([]byte(windsorHeaderToken))) {
+		var headerBuffer bytes.Buffer
+		headerBuffer.WriteString(headerComment)
+		headerBuffer.WriteByte('\n')
+		if component.Source != "" && !bytes.Contains(bytes.ToLower(finalOutput), bytes.ToLower([]byte("// Module source:"))) {
+			headerBuffer.WriteString(fmt.Sprintf("// Module source: %s\n", component.Source))
+		}
+
+		finalOutput = append(headerBuffer.Bytes(), finalOutput...)
 	}
 
-	// Add exactly one blank line after header (and possibly source)
-	finalContent.WriteByte('\n')
+	// Ensure there's exactly one newline at the end
+	finalOutput = bytes.TrimRight(finalOutput, "\n")
+	finalOutput = append(finalOutput, '\n')
 
-	// Trim leading and trailing newlines from the merged file content to avoid stacking
-	mergedBytes := mergedFile.Bytes()
-	mergedBytes = bytes.Trim(mergedBytes, "\n")
-
-	finalContent.Write(mergedBytes)
-
-	// Ensure exactly one newline at the end of the file
-	finalContent.WriteByte('\n')
-
-	// Finally, write the new file content to disk
-	if err := osWriteFile(tfvarsFilePath, finalContent.Bytes(), 0644); err != nil {
+	// Write the merged content to disk
+	if err := osWriteFile(tfvarsFilePath, finalOutput, 0644); err != nil {
 		return fmt.Errorf("error writing tfvars file: %w", err)
 	}
 
