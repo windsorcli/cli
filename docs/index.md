@@ -1,9 +1,13 @@
-## [Windsor Command Line Interface](https://windsorcli.github.io)
+<div class="draft-watermark"></div>
+<div style="text-align: center;">
+  <img src="img/windsor-logo.png" alt="Feature 2">
+</div>
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/windsorcli/cli)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml)
 
+# [Windsor Command Line Interface](https://windsorcli.github.io)
 The Windsor Command Line Interface (CLI) is a powerful tool designed to streamline your workflow and enhance productivity. With a small suite of intuitive commands, the Windsor CLI allows you to efficiently manage contexts for other tools in your development environment.
+
+## ![bootstrap](./img/full-bootstrap.gif)
 
 ## [Purpose](#purpose)
 
@@ -17,16 +21,16 @@ Key objectives of the Windsor CLI include:
 - **Consistency**: Ensure a standardized approach and consistent tool usage across different environments and teams.
 - **Flexibility**: Support a wide range of configurations and integrations to accommodate diverse project needs.
 - **Scalability**: Scale the environment and the production workload.
-- **Project Initialization**: Quickly set up new projects with predefined configurations.
 - **Configuration Management**: Easily manage and switch between different project configurations.
-- **Shell Integration**: Seamlessly integrates with your shell environment for enhanced productivity.
-- **Cross-Platform Support**: Works on Windows, macOS, and Linux.
+- **Shell Integration**: Seamlessly integrate with your shell environment for enhanced productivity.
+- **Cross-Platform Compatibility**: Provide a seamless experience on Windows, macOS, and Linux systems.
+- **Security**: Fully compliant and automated security updates.
+- **Visibility**: Provide dashboards to ensure informative decisions.
 
 ## [Quick Start](#quick-start)
 
-1. Install the CLI with the [Setup and Installation](./docs/install/install.md)
-2. Deploy a local cluster using the [Quick Start Guide](./docs/tutorial/quick-start.md)
-
+1. Install the CLI with the [Setup and Installation](./install/install.md)
+2. Deploy a local cluster using the [Quick Start Guide](./tutorial/quick-start.md)
 
 ## [Contributing](#contributing)
 We welcome contributions to Windsor CLI! If you would like to contribute, please follow these steps:
@@ -47,3 +51,13 @@ Windsor CLI is licensed under the Mozilla Public License Version 2.0. See the [L
 ## [Contact Information](#contact-information)
 
 Thank you for using Windsor CLI! If you have any questions or need further assistance, please feel free to open an issue on our GitHub repository.
+
+<div>
+{{ next_footer('Installation', 'install/install/index.html') }}
+</div>
+
+<script>
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = 'install/install/index.html'; 
+  });
+</script>
