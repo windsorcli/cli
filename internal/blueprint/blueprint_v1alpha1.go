@@ -26,14 +26,15 @@ type SourceV1Alpha1 struct {
 
 // TerraformComponent describes a Terraform component for a blueprint
 type TerraformComponentV1Alpha1 struct {
-	Source string                 `yaml:"source,omitempty"` // The Source of the module
-	Path   string                 `yaml:"path"`             // The Path of the module
-	Values map[string]interface{} `yaml:"values,omitempty"` // The Values for the module
+	Source    string                               `yaml:"source,omitempty"`    // The Source of the module
+	Path      string                               `yaml:"path"`                // The Path of the module
+	FullPath  string                               `yaml:"-"`                   // The Full Path of the module
+	Values    map[string]interface{}               `yaml:"values,omitempty"`    // The Values for the module
+	Variables map[string]TerraformVariableV1Alpha1 `yaml:"variables,omitempty"` // The Variables for the module
 }
 
 // TerraformVariable describes a Terraform variable for a Terraform component
 type TerraformVariableV1Alpha1 struct {
-	Name        string      `yaml:"name"`                  // The Name of the variable
 	Type        string      `yaml:"type,omitempty"`        // The Type of the variable
 	Default     interface{} `yaml:"default,omitempty"`     // The Default value of the variable
 	Description string      `yaml:"description,omitempty"` // The Description of the variable
