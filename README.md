@@ -26,8 +26,9 @@ Key objectives of the Windsor CLI include:
 
 To install Windsor CLI, you need to have Go installed on your system. You can then install Windsor CLI using the following command:
 
-```sh
-go install github.com/windsorcli/cli@latest
+### Go install
+```bash
+go install github.com/windsorcli/cli/cmd/windsor@latest
 ```
 
 ## Usage
@@ -42,26 +43,6 @@ windsor init [context]
 
 This command initializes the application by setting up necessary configurations and environment.
 
-## Configuration
-
-Windsor CLI uses configuration files to manage settings. The configuration files are typically located in the following paths:
-
-- **CLI Configuration**: `~/.config/windsor/config.yaml`
-- **Project Configuration**: `./windsor.yaml` or `./windsor.yml`
-
-You can customize these configurations to suit your needs.
-
-### Example Configuration
-
-Here is an example of a CLI configuration file:
-
-```yaml
-context: default
-contexts:
-  default:
-    environment:
-      FOO_VAR: bar
-```
 
 ## Shell Integration
 
