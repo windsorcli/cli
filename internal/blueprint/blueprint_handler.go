@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
+
+	_ "embed"
 
 	"github.com/windsorcli/cli/internal/config"
 	"github.com/windsorcli/cli/internal/context"
@@ -90,69 +93,73 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	}
 	b.projectRoot = projectRoot
 
-	// Initialize with a default blueprint
-	b.blueprint = DefaultBlueprint
-
-	// Set the blueprint name to match the context name
-	context := b.contextHandler.GetContext()
-	b.blueprint.Metadata.Name = context
-
-	// Set the default description
-	b.blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", context)
-
 	return nil
 }
 
+//go:embed templates/local.jsonnet
+var localJsonnetTemplate string
+
 // LoadConfig Loads the blueprint from the specified path
 func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
+	// Get the config root
 	configRoot, err := b.contextHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
 
-	// Determine paths based on provided path or default locations
+	// Determine the blueprint path
 	basePath := filepath.Join(configRoot, "blueprint")
 	if len(path) > 0 && path[0] != "" {
 		basePath = path[0]
 	}
 
-	jsonnetPath := basePath + ".jsonnet"
-	yamlPath := basePath + ".yaml"
-
-	// Helper function to load and unmarshal files
-	loadAndUnmarshal := func(filePath string, unmarshalFunc func([]byte) error) error {
-		if _, err := osStat(filePath); err == nil {
-			data, err := osReadFile(filePath)
-			if err != nil {
-				return fmt.Errorf("error reading file %s: %w", filePath, err)
-			}
-			return unmarshalFunc(data)
-		}
-		return nil
+	// Load Jsonnet and YAML data
+	jsonnetData, jsonnetErr := loadFileData(basePath + ".jsonnet")
+	yamlData, yamlErr := loadFileData(basePath + ".yaml")
+	if jsonnetErr != nil {
+		return jsonnetErr
+	}
+	if yamlErr != nil && !os.IsNotExist(yamlErr) {
+		return yamlErr
 	}
 
-	// Load from jsonnet if it exists, storing the result in b.blueprint
-	if err := loadAndUnmarshal(jsonnetPath, func(data []byte) error {
-		evaluatedJsonnet, err := generateBlueprintFromJsonnet(b.configHandler.GetConfig(), string(data))
+	// Determine the blueprint to load
+	if len(jsonnetData) > 0 {
+		// Load blueprint from jsonnet
+		evaluatedJsonnet, err := generateBlueprintFromJsonnet(b.configHandler.GetConfig(), string(jsonnetData))
 		if err != nil {
 			return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
 		}
-		return yamlUnmarshal([]byte(evaluatedJsonnet), &b.blueprint)
-	}); err != nil {
-		return err
+		if err := yamlUnmarshal([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
+			return fmt.Errorf("error unmarshalling jsonnet data: %w", err)
+		}
+	} else {
+		// Check context and load appropriate blueprint
+		context := b.contextHandler.GetContext()
+		if strings.HasPrefix(context, "local") && len(yamlData) == 0 {
+			// Load local.jsonnet as blueprint
+			evaluatedJsonnet, err := generateBlueprintFromJsonnet(b.configHandler.GetConfig(), localJsonnetTemplate)
+			if err != nil {
+				return fmt.Errorf("error generating blueprint from local jsonnet: %w", err)
+			}
+			if err := yamlUnmarshal([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
+				return fmt.Errorf("error unmarshalling local jsonnet data: %w", err)
+			}
+		} else {
+			// Load DefaultBlueprint
+			b.blueprint = DefaultBlueprint
+			b.blueprint.Metadata.Name = context
+			b.blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", context)
+		}
 	}
 
-	// Load from yaml if it exists, storing the result in b.localBlueprint
-	if err := loadAndUnmarshal(yamlPath, func(data []byte) error {
-		if err := yamlUnmarshal(data, &b.localBlueprint); err != nil {
+	if len(yamlData) > 0 {
+		if err := yamlUnmarshal(yamlData, &b.localBlueprint); err != nil {
 			return fmt.Errorf("error unmarshalling yaml data: %w", err)
 		}
-		return nil
-	}); err != nil {
-		return err
 	}
 
-	// Now merge b.localBlueprint into b.blueprint, giving precedence to local overrides
+	// Merge the local blueprint into the main blueprint
 	mergeBlueprints(&b.blueprint, &b.localBlueprint)
 
 	return nil
@@ -396,6 +403,14 @@ var yamlToJson = func(yamlBytes []byte) ([]byte, error) {
 	return json.Marshal(data)
 }
 
+// loadFileData loads the file data from the specified path
+var loadFileData = func(path string) ([]byte, error) {
+	if _, err := osStat(path); err == nil {
+		return osReadFile(path)
+	}
+	return nil, nil
+}
+
 // mergeBlueprints merges fields from src into dst, giving precedence to src.
 //
 // This helps ensure map fields (like Variables and Values) and other struct fields
@@ -437,9 +452,6 @@ var mergeBlueprints = func(dst, src *BlueprintV1Alpha1) {
 				// Identify matching components by Source+Path
 				if dstComp.Source == srcComp.Source && dstComp.Path == srcComp.Path {
 					// Merge variables
-					if dstComp.Variables == nil {
-						dstComp.Variables = make(map[string]TerraformVariableV1Alpha1)
-					}
 					for k, v := range srcComp.Variables {
 						dstComp.Variables[k] = v
 					}

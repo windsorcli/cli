@@ -5,7 +5,7 @@ local cpNodes = std.objectValues(context.cluster.controlplanes.nodes);
 local firstNode = if std.length(cpNodes) > 0 then
   cpNodes[0]
 else
-  error "No controlplane nodes defined";
+  { node: "localhost" };  // Default to localhost if no nodes are defined
 
 {
   kind: "Blueprint",
@@ -24,14 +24,43 @@ else
   terraform: [
     {
       path: "cluster/talos",
+      source: "core",
       values: {
-        kubernetes_version: "1.30.3",
-        talos_version: "1.7.6",
         cluster_endpoint: "https://"+firstNode.node+":6443",
+        cluster_name: "talos",
         controlplanes: std.map(function(node)
-          node, std.objectValues(context.cluster.controlplanes.nodes)),
+          node, cpNodes),
         workers: std.map(function(node)
-          node, std.objectValues(context.cluster.workers.nodes))
+          node, std.objectValues(context.cluster.workers.nodes)),
+        common_config_patches: std.manifestYamlDoc({
+          cluster: {
+            apiServer: {
+              certSANs: [
+                "localhost",
+                firstNode.node,
+              ],
+            },
+          },
+          machine: {
+            certSANs: [
+              "localhost",
+              firstNode.node,
+            ],
+            features: {
+              hostDNS: {
+                forwardKubeDNSToHost: true,
+              },
+            },
+            network: {
+              interfaces: [
+                {
+                  ignore: true,
+                  interface: "eth0",
+                },
+              ],
+            },
+          },
+        }),
       },
       variables: {
         context_path: {
@@ -47,12 +76,12 @@ else
         kubernetes_version: {
           type: "string",
           description: "The kubernetes version to deploy.",
-          default: "1.30.3",
+          default: "1.31.4",
         },
         talos_version: {
           type: "string",
           description: "The talos version to deploy.",
-          default: "1.7.6",
+          default: "1.8.4",
         },
         cluster_name: {
           type: "string",
