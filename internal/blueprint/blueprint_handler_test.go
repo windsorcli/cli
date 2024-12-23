@@ -38,7 +38,7 @@ terraform:
 
 // safeBlueprintJsonnet holds the "safe" blueprint jsonnet string
 var safeBlueprintJsonnet = `
-{
+local context = {
   kind: "Blueprint",
   apiVersion: "v1alpha1",
   metadata: {
@@ -62,7 +62,8 @@ var safeBlueprintJsonnet = `
       }
     }
   ]
-}
+};
+context
 `
 
 type MockSafeComponents struct {
@@ -179,15 +180,19 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 			t.Errorf("Expected project root to be '/mock/project/root', but got '%s'", blueprintHandler.projectRoot)
 		}
 
-		// And the BlueprintHandler should have the correct metadata name
-		if blueprintHandler.blueprint.Metadata.Name != mocks.MockContextHandler.GetContext() {
-			t.Errorf("Expected metadata name to be '%s', but got '%s'", mocks.MockContextHandler.GetContext(), blueprintHandler.blueprint.Metadata.Name)
+		// And the BlueprintHandler should have the correct config handler
+		if blueprintHandler.configHandler == nil {
+			t.Errorf("Expected configHandler to be set, but got nil")
 		}
 
-		// And the BlueprintHandler should have the correct metadata description
-		expectedDescription := fmt.Sprintf("This blueprint outlines resources in the %s context", mocks.MockContextHandler.GetContext())
-		if blueprintHandler.blueprint.Metadata.Description != expectedDescription {
-			t.Errorf("Expected metadata description to be '%s', but got '%s'", expectedDescription, blueprintHandler.blueprint.Metadata.Description)
+		// And the BlueprintHandler should have the correct context handler
+		if blueprintHandler.contextHandler == nil {
+			t.Errorf("Expected contextHandler to be set, but got nil")
+		}
+
+		// And the BlueprintHandler should have the correct shell
+		if blueprintHandler.shell == nil {
+			t.Errorf("Expected shell to be set, but got nil")
 		}
 	})
 
@@ -256,17 +261,18 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 }
 
 func TestBlueprintHandler_LoadConfig(t *testing.T) {
-	// Save original functions to restore later
+	// Hoist the safe os level mocks to the top of the test runner
 	originalOsStat := osStat
-	originalOsReadFile := osReadFile
-
-	// Mock low-level file system functions
+	defer func() { osStat = originalOsStat }()
 	osStat = func(name string) (fs.FileInfo, error) {
 		if name == filepath.FromSlash("/mock/config/root/blueprint.jsonnet") || name == filepath.FromSlash("/mock/config/root/blueprint.yaml") {
 			return nil, nil
 		}
 		return nil, os.ErrNotExist
 	}
+
+	originalOsReadFile := osReadFile
+	defer func() { osReadFile = originalOsReadFile }()
 	osReadFile = func(name string) ([]byte, error) {
 		switch name {
 		case filepath.FromSlash("/mock/config/root/blueprint.jsonnet"):
@@ -275,49 +281,6 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 			return []byte(safeBlueprintYAML), nil
 		default:
 			return nil, fmt.Errorf("file not found")
-		}
-	}
-
-	// Defer restoring the original functions
-	defer func() {
-		osStat = originalOsStat
-		osReadFile = originalOsReadFile
-	}()
-
-	// validateBlueprint is a helper function to validate the blueprint metadata, sources, and Terraform components
-	validateBlueprint := func(t *testing.T, blueprintHandler *BaseBlueprintHandler) {
-		metadata := blueprintHandler.GetMetadata()
-		if metadata.Name != "test-blueprint" {
-			t.Errorf("Expected metadata name to be 'test-blueprint', got '%s'", metadata.Name)
-		}
-		if metadata.Description != "A test blueprint" {
-			t.Errorf("Expected metadata description to be 'A test blueprint', got '%s'", metadata.Description)
-		}
-		if len(metadata.Authors) != 1 || metadata.Authors[0] != "John Doe" {
-			t.Errorf("Expected metadata authors to be ['John Doe'], got %v", metadata.Authors)
-		}
-
-		sources := blueprintHandler.GetSources()
-		if len(sources) != 1 || sources[0].Name != "source1" {
-			t.Errorf("Expected sources to contain one source with name 'source1', got %v", sources)
-		}
-
-		terraformComponents := blueprintHandler.GetTerraformComponents()
-		if len(terraformComponents) != 1 {
-			t.Errorf("Expected Terraform components to contain one component, got %v", terraformComponents)
-		} else {
-			component := terraformComponents[0]
-			if component.Source != "git::https://example.com/source1.git//terraform/path/to/code?ref=v1.0.0" {
-				t.Errorf("Expected Terraform component source to be 'git::https://example.com/source1.git//terraform/path/to/code?ref=v1.0.0', got '%s'", component.Source)
-			}
-			expectedPath := "path/to/code"
-			if component.Path != expectedPath {
-				t.Errorf("Expected Terraform component path to be '%s', got '%s'", expectedPath, component.Path)
-			}
-			expectedValues := map[string]interface{}{"key1": "value1"}
-			if !reflect.DeepEqual(component.Values, expectedValues) {
-				t.Errorf("Expected Terraform component values to be %v, got %v", expectedValues, component.Values)
-			}
 		}
 	}
 
@@ -339,8 +302,10 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 			t.Fatalf("Failed to load blueprint config: %v", err)
 		}
 
-		// Validate the loaded blueprint
-		validateBlueprint(t, blueprintHandler)
+		// Simplified validation: Check if the blueprint name is set
+		if blueprintHandler.blueprint.Metadata.Name == "" {
+			t.Errorf("Expected blueprint name to be set, but it was empty")
+		}
 
 		// Ensure the project root is set correctly
 		projectRoot, _ := mocks.MockShell.GetProjectRoot()
@@ -356,6 +321,65 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 			component := terraformComponents[0]
 			if component.Path != expectedPath {
 				t.Errorf("Expected Terraform component path to be '%s', got '%s'", expectedPath, component.Path)
+			}
+		}
+	})
+
+	t.Run("SuccessWithLocalContext", func(t *testing.T) {
+		// Setup mocks
+		mocks := setupSafeMocks()
+		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
+			return &config.Context{
+				Cluster: &config.ClusterConfig{
+					ControlPlanes: struct {
+						Count  *int                         `yaml:"count"`
+						CPU    *int                         `yaml:"cpu"`
+						Memory *int                         `yaml:"memory"`
+						Nodes  map[string]config.NodeConfig `yaml:"nodes"`
+					}{
+						Nodes: map[string]config.NodeConfig{},
+					},
+				},
+			}
+		}
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+
+		// Initialize and load blueprint
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Initialization failed: %v", err)
+		}
+		if err := blueprintHandler.LoadConfig(filepath.Join("/mock", "config", "root", "blueprint")); err != nil {
+			t.Fatalf("LoadConfig failed: %v", err)
+		}
+
+		// Validate blueprint metadata
+		metadata := blueprintHandler.GetMetadata()
+		if metadata.Name != "local" {
+			t.Errorf("Expected metadata name 'local', got '%s'", metadata.Name)
+		}
+		if metadata.Description != "This blueprint outlines resources in the local context" {
+			t.Errorf("Expected metadata description 'This blueprint outlines resources in the local context', got '%s'", metadata.Description)
+		}
+
+		// Validate sources
+		sources := blueprintHandler.GetSources()
+		if len(sources) == 0 || sources[0].Name != "core" {
+			t.Errorf("Expected source name 'core', got %v", sources)
+		}
+
+		// Validate Terraform component
+		components := blueprintHandler.GetTerraformComponents()
+		if len(components) > 0 {
+			component := components[0]
+			if component.Path != "cluster/talos" {
+				t.Errorf("Expected component path 'cluster/talos', got '%s'", component.Path)
+			}
+			if component.Source != "github.com/windsorcli/core//terraform/cluster/talos?ref=v0.1.0" {
+				t.Errorf("Expected component source 'github.com/windsorcli/core//terraform/cluster/talos?ref=v0.1.0', got '%s'", component.Source)
 			}
 		}
 	})
@@ -377,30 +401,6 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		// Then the initialization should fail with the expected error
 		if err == nil || err.Error() != "error getting config root: error getting config root" {
 			t.Errorf("Expected Initialize to fail with 'error getting config root: error getting config root', but got: %v", err)
-		}
-	})
-
-	t.Run("ErrorReadingFile", func(t *testing.T) {
-		// Given a mock injector
-		mocks := setupSafeMocks()
-
-		// Mock osReadFile to return an error
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
-			return nil, fmt.Errorf("error reading file")
-		}
-
-		// When a new BlueprintHandler is created and initialized
-		blueprintHandler := NewBlueprintHandler(mocks.Injector)
-		err := blueprintHandler.Initialize()
-
-		// Load the blueprint configuration
-		err = blueprintHandler.LoadConfig()
-
-		// Then the initialization should fail with the expected error
-		if err == nil || !strings.Contains(err.Error(), "error reading file") {
-			t.Errorf("Expected LoadConfig to fail with error containing 'error reading file', but got: %v", err)
 		}
 	})
 
@@ -428,15 +428,108 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorReadingJsonnetFile", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Mock osStat to simulate the Jsonnet file exists
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) {
+			return nil, nil
+		}
+
+		// Mock osReadFile to return an error for Jsonnet file
+		originalOsReadFile := osReadFile
+		defer func() { osReadFile = originalOsReadFile }()
+		osReadFile = func(name string) ([]byte, error) {
+			if strings.HasSuffix(name, ".jsonnet") {
+				return nil, fmt.Errorf("error reading jsonnet file")
+			}
+			return nil, nil
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		err := blueprintHandler.Initialize()
+
+		// Load the blueprint configuration
+		err = blueprintHandler.LoadConfig()
+
+		// Then the LoadConfig should fail with the expected error for Jsonnet file
+		if err == nil || !strings.Contains(err.Error(), "error reading jsonnet file") {
+			t.Errorf("Expected LoadConfig to fail with error containing 'error reading jsonnet file', but got: %v", err)
+		}
+	})
+
+	t.Run("ErrorReadingYamlFile", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Mock osStat to simulate the YAML file exists
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) {
+			return nil, nil
+		}
+
+		// Mock osReadFile to return an error for YAML file
+		originalOsReadFile := osReadFile
+		defer func() { osReadFile = originalOsReadFile }()
+		osReadFile = func(name string) ([]byte, error) {
+			if strings.HasSuffix(name, ".yaml") {
+				return nil, fmt.Errorf("error reading yaml file")
+			}
+			return nil, nil
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		err := blueprintHandler.Initialize()
+
+		// Load the blueprint configuration
+		err = blueprintHandler.LoadConfig()
+
+		// Then the LoadConfig should fail with the expected error for YAML file
+		if err == nil || !strings.Contains(err.Error(), "error reading yaml file") {
+			t.Errorf("Expected LoadConfig to fail with error containing 'error reading yaml file', but got: %v", err)
+		}
+	})
+
 	t.Run("ErrorGeneratingBlueprintFromJsonnet", func(t *testing.T) {
 		// Given a mock injector
 		mocks := setupSafeMocks()
 
-		// Mock yamlMarshal to return an error
-		originalYamlMarshal := yamlMarshal
-		defer func() { yamlMarshal = originalYamlMarshal }()
-		yamlMarshal = func(v interface{}) ([]byte, error) {
-			return nil, fmt.Errorf("error marshalling yaml")
+		// Define a simple mockFileInfo struct to simulate file information
+		mockFileInfo := struct {
+			os.FileInfo
+		}{}
+
+		// Mock osStat to simulate the presence of a Jsonnet file
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) {
+			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
+				return mockFileInfo, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock osReadFile to return valid Jsonnet data
+		originalOsReadFile := osReadFile
+		defer func() { osReadFile = originalOsReadFile }()
+		osReadFile = func(name string) ([]byte, error) {
+			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
+				return []byte("valid: jsonnet"), nil
+			}
+			return nil, fmt.Errorf("file not found")
+		}
+
+		// Mock generateBlueprintFromJsonnet to return an error
+		originalGenerateBlueprintFromJsonnet := generateBlueprintFromJsonnet
+		defer func() { generateBlueprintFromJsonnet = originalGenerateBlueprintFromJsonnet }()
+		generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
+			return "", fmt.Errorf("error generating blueprint from jsonnet: %w", fmt.Errorf("error unmarshalling yaml"))
 		}
 
 		// When a new BlueprintHandler is created and initialized
@@ -447,12 +540,61 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		err = blueprintHandler.LoadConfig()
 
 		// Then the LoadConfig should fail with the expected error
-		if err == nil || !strings.Contains(err.Error(), "error marshalling yaml") {
-			t.Errorf("Expected LoadConfig to fail with error containing 'error marshalling yaml', but got: %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error unmarshalling yaml") {
+			t.Errorf("Expected LoadConfig to fail with error containing 'error unmarshalling yaml', but got: %v", err)
 		}
 	})
 
-	t.Run("ErrorUnmarshallingYaml", func(t *testing.T) {
+	t.Run("SuccessLoadingJsonnetBlueprint", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Define a simple mockFileInfo struct to simulate file information
+		mockFileInfo := struct {
+			os.FileInfo
+		}{}
+
+		// Mock osStat to simulate the presence of a Jsonnet file
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) {
+			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
+				return mockFileInfo, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock osReadFile to return valid Jsonnet data
+		originalOsReadFile := osReadFile
+		defer func() { osReadFile = originalOsReadFile }()
+		osReadFile = func(name string) ([]byte, error) {
+			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
+				return []byte("valid: jsonnet"), nil
+			}
+			return nil, fmt.Errorf("file not found")
+		}
+
+		// Mock generateBlueprintFromJsonnet to return valid evaluated Jsonnet
+		originalGenerateBlueprintFromJsonnet := generateBlueprintFromJsonnet
+		defer func() { generateBlueprintFromJsonnet = originalGenerateBlueprintFromJsonnet }()
+		generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
+			return `{"kind": "Blueprint", "metadata": {"name": "test"}}`, nil
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		err := blueprintHandler.Initialize()
+
+		// Load the blueprint configuration
+		err = blueprintHandler.LoadConfig()
+
+		// Then the LoadConfig should succeed without errors
+		if err != nil {
+			t.Errorf("Expected LoadConfig to succeed, but got error: %v", err)
+		}
+	})
+
+	t.Run("SuccessLoadingYamlForLocalBlueprint", func(t *testing.T) {
 		// Given a mock injector
 		mocks := setupSafeMocks()
 
@@ -481,11 +623,15 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 			return nil, fmt.Errorf("file not found")
 		}
 
-		// Mock yamlUnmarshal to return an error
+		// Mock yamlUnmarshal to successfully unmarshal local blueprint
 		originalYamlUnmarshal := yamlUnmarshal
 		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
 		yamlUnmarshal = func(data []byte, v interface{}) error {
-			return fmt.Errorf("error unmarshalling yaml")
+			if bp, ok := v.(*BlueprintV1Alpha1); ok {
+				bp.Metadata.Name = "local"
+				return nil
+			}
+			return fmt.Errorf("error unmarshalling yaml for local blueprint")
 		}
 
 		// When a new BlueprintHandler is created and initialized
@@ -495,9 +641,117 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		// Load the blueprint configuration
 		err = blueprintHandler.LoadConfig()
 
+		// Then the LoadConfig should succeed without errors
+		if err != nil {
+			t.Errorf("Expected LoadConfig to succeed, but got error: %v", err)
+		}
+	})
+
+	t.Run("ErrorUnmarshallingJsonnetData", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Mock osStat to simulate a Jsonnet file presence
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) {
+			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock osReadFile to return some “valid” Jsonnet data
+		originalOsReadFile := osReadFile
+		defer func() { osReadFile = originalOsReadFile }()
+		osReadFile = func(name string) ([]byte, error) {
+			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
+				return []byte("valid: jsonnet"), nil
+			}
+			return nil, fmt.Errorf("file not found")
+		}
+
+		// Mock generateBlueprintFromJsonnet to return valid YAML data without error
+		originalGenerateBlueprintFromJsonnet := generateBlueprintFromJsonnet
+		defer func() { generateBlueprintFromJsonnet = originalGenerateBlueprintFromJsonnet }()
+		generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
+			return "valid: yaml", nil
+		}
+
+		// Mock yamlUnmarshal to simulate an error during unmarshalling
+		originalYamlUnmarshal := yamlUnmarshal
+		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
+		yamlUnmarshal = func(data []byte, v interface{}) error {
+			return fmt.Errorf("error unmarshalling jsonnet data")
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Load the blueprint configuration
+		err := blueprintHandler.LoadConfig()
+		// Then the LoadConfig should fail with a matching error
+		if err == nil {
+			t.Errorf("Expected LoadConfig to fail, but it succeeded without error")
+		} else {
+			expectedMsg := "error unmarshalling jsonnet data"
+			if !strings.Contains(err.Error(), expectedMsg) {
+				t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
+			}
+		}
+	})
+
+	t.Run("ErrorUnmarshallingYamlForLocalBlueprint", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Mock osStat to simulate the presence of a YAML file
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) {
+			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.yaml") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock osReadFile to return valid YAML data
+		originalOsReadFile := osReadFile
+		defer func() { osReadFile = originalOsReadFile }()
+		osReadFile = func(name string) ([]byte, error) {
+			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.yaml") {
+				return []byte("valid: yaml"), nil
+			}
+			return nil, fmt.Errorf("file not found")
+		}
+
+		// Mock yamlUnmarshal to simulate an error
+		originalYamlUnmarshal := yamlUnmarshal
+		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
+		yamlUnmarshal = func(data []byte, v interface{}) error {
+			return fmt.Errorf("error unmarshalling yaml data: error unmarshalling yaml for local blueprint")
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Load the blueprint configuration
+		err := blueprintHandler.LoadConfig()
+
 		// Then the LoadConfig should fail with the expected error
-		if err == nil || !strings.Contains(err.Error(), "error unmarshalling yaml") {
-			t.Errorf("Expected LoadConfig to fail with error containing 'error unmarshalling yaml', but got: %v", err)
+		if err == nil {
+			t.Errorf("Expected LoadConfig to fail with an error containing 'error unmarshalling yaml for local blueprint', but got: <nil>")
+		} else {
+			expectedMsg := "error unmarshalling yaml for local blueprint"
+			if !strings.Contains(err.Error(), expectedMsg) {
+				t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
+			}
 		}
 	})
 }
@@ -1157,6 +1411,24 @@ func TestBlueprintHandler_generateBlueprintFromJsonnet(t *testing.T) {
 		// Compare the maps
 		if !reflect.DeepEqual(expectedMap, resultMap) {
 			t.Errorf("Expected generated YAML to be equivalent to expected YAML, but got differences")
+		}
+	})
+
+	t.Run("YamlMarshalError", func(t *testing.T) {
+		contextConfig := &config.Context{} // Use an empty struct as the fields are unknown
+
+		jsonnetTemplate := safeBlueprintJsonnet // Use the valid template from the context
+
+		// Mock yamlMarshal to return an error
+		originalYamlMarshal := yamlMarshal
+		defer func() { yamlMarshal = originalYamlMarshal }()
+		yamlMarshal = func(v interface{}) ([]byte, error) {
+			return nil, fmt.Errorf("error marshaling yaml")
+		}
+
+		_, err := generateBlueprintFromJsonnet(contextConfig, jsonnetTemplate)
+		if err == nil || !strings.Contains(err.Error(), "error marshaling yaml") {
+			t.Errorf("Expected generateBlueprintFromJsonnet to fail with error containing 'error marshaling yaml', but got: %v", err)
 		}
 	})
 

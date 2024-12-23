@@ -17,6 +17,7 @@ var (
 	arch           string
 	docker         bool
 	gitLivereload  bool
+	blueprint      string
 )
 
 var initCmd = &cobra.Command{
