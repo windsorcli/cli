@@ -90,9 +90,9 @@ jobs:
           echo " matrix.arch: ${{ matrix.arch }}"
 
           if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
-            GOOS=linux GOARCH=${{ matrix.arch }} go build -ldflags "-X 'cmd.version=$VERSION' -X 'cmd.commitSHA=$COMMIT_SHA'" -o dist/windsor-linux-${{ matrix.arch }} cmd/windsor/main.go
+            GOOS=linux GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o dist/windsor-linux-${{ matrix.arch }} cmd/windsor/main.go
           elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-            GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-X 'cmd.version=$VERSION' -X 'cmd.commitSHA=$COMMIT_SHA'" -o dist/windsor-darwin-${{ matrix.arch }} cmd/windsor/main.go
+            GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o dist/windsor-darwin-${{ matrix.arch }} cmd/windsor/main.go
           fi
 
       - name: Build Windsor CLI on Windows
@@ -103,7 +103,7 @@ jobs:
           $env:COMMIT_SHA = "${{ github.sha }}"
           $env:GOOS = "windows"
           $env:GOARCH = "${{ matrix.arch }}"
-          go build -ldflags "-X 'cmd.version=$env:VERSION' -X 'cmd.commitSHA=$env:COMMIT_SHA'" -o dist/windsor.exe cmd/windsor/main.go
+          go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$env:VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$env:COMMIT_SHA'" -o dist/windsor.exe cmd/windsor/main.go
         shell: pwsh
 
       - name: Upload Artifacts to Release (Windows)
