@@ -6,17 +6,23 @@
   "packageRules": [
     {
       "description": "Pin GitHub Actions to specific commit SHAs",
-      "matchManagers": ["github-actions"],
-      "matchPackagePatterns": [".*"],
+      "matchManagers": [
+        "github-actions"
+      ],
       "versioning": "github-tags",
       "pinDigests": true,
       "automerge": true,
       "automergeType": "pr",
-      "automergeStrategy": "squash"
+      "automergeStrategy": "squash",
+      "matchPackageNames": [
+        "/.*/"
+      ]
     },
     {
       "description": "Update Go modules",
-      "matchManagers": ["gomod"],
+      "matchManagers": [
+        "gomod"
+      ],
       "enabled": true,
       "automerge": true,
       "automergeType": "pr",
@@ -24,7 +30,9 @@
     },
     {
       "description": "Update Taskfile dependencies",
-      "matchFileNames": ["Taskfile.yaml"],
+      "matchFileNames": [
+        "Taskfile.yaml"
+      ],
       "enabled": true,
       "automerge": true,
       "automergeType": "pr",
@@ -35,7 +43,9 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["^internal/constants/constants.go$"],
+      "fileMatch": [
+        "^internal/constants/constants.go$"
+      ],
       "matchStrings": [
         "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*const\\s+\\S+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
       ],
@@ -44,14 +54,20 @@
     },
     {
       "customType": "regex",
-      "fileMatch": ["^Taskfile.yaml$"],
-      "matchStrings": ["go install (?<depName>\\S+)@(?<currentValue>\\S+)"],
+      "fileMatch": [
+        "^Taskfile.yaml$"
+      ],
+      "matchStrings": [
+        "go install (?<depName>\\S+)@(?<currentValue>\\S+)"
+      ],
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"
     },
     {
       "customType": "regex",
-      "fileMatch": ["^Taskfile.yaml$"],
+      "fileMatch": [
+        "^Taskfile.yaml$"
+      ],
       "matchStrings": [
         "choco install (?<depName>\\S+) --version=(?<currentValue>\\S+)"
       ],
@@ -59,5 +75,7 @@
       "versioningTemplate": "semver"
     }
   ],
-  "labels": ["dependencies"]
+  "labels": [
+    "dependencies"
+  ]
 }
