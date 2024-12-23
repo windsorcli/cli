@@ -81,7 +81,7 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           VERSION=$(echo "${GITHUB_REF}" | sed 's/refs\/heads\///' | sed 's/refs\/tags\///')
-          echo "Building version: $env:VERSION"
+          echo "Building version: $VERSION"
           COMMIT_SHA=${{ github.sha }}
           if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
             GOOS=linux GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o dist/windsor-linux-${{ matrix.arch }} cmd/windsor/main.go
