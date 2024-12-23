@@ -5,15 +5,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/internal/config"
-	"github.com/windsorcli/cli/internal/context"
-	"github.com/windsorcli/cli/internal/network"
-	"github.com/windsorcli/cli/internal/stack"
+	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/stack"
 
-	ctrl "github.com/windsorcli/cli/internal/controller"
-	"github.com/windsorcli/cli/internal/di"
-	"github.com/windsorcli/cli/internal/shell"
-	"github.com/windsorcli/cli/internal/virt"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/virt"
 )
 
 type MockSafeUpCmdComponents struct {

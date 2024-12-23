@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/internal/config"
-	ctrl "github.com/windsorcli/cli/internal/controller"
+	"github.com/windsorcli/cli/pkg/config"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
 // controller is the global controller

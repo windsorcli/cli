@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	ctrl "github.com/windsorcli/cli/internal/controller"
-	"github.com/windsorcli/cli/internal/di"
-	"github.com/windsorcli/cli/internal/env"
-	"github.com/windsorcli/cli/internal/shell"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 func setupSafeExecCmdMocks() *MockObjects {
