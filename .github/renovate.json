@@ -10,27 +10,28 @@
       "matchPackagePatterns": [".*"],
       "versioning": "github-tags",
       "pinDigests": true,
-      "automerge": true
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
     },
     {
       "description": "Update Go modules",
       "matchManagers": ["gomod"],
       "enabled": true,
-      "automerge": true
-    },
-    {
-      "description": "Update asdf tools",
-      "matchFileNames": [".tool-versions"],
-      "enabled": true,
-      "automerge": true
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
     },
     {
       "description": "Update Taskfile dependencies",
       "matchFileNames": ["Taskfile.yaml"],
       "enabled": true,
-      "automerge": true
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
     }
   ],
+  "platformAutomerge": true,
   "customManagers": [
     {
       "customType": "regex",
