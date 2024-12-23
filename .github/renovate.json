@@ -1,5 +1,8 @@
 {
-  "extends": ["config:recommended"],
+  "extends": [
+    "config:recommended",
+    "github>aquaproj/aqua-renovate-config#2.2.1"
+  ],
   "packageRules": [
     {
       "description": "Pin GitHub Actions to specific commit SHAs",
