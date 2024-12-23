@@ -114,25 +114,53 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	}
 
 	// Load Jsonnet and YAML data
-	jsonnetData, err := loadFileData(basePath + ".jsonnet")
-	if err != nil {
-		return err
+	jsonnetData, jsonnetErr := loadFileData(basePath + ".jsonnet")
+	yamlData, yamlErr := loadFileData(basePath + ".yaml")
+	if jsonnetErr != nil {
+		return jsonnetErr
 	}
-	yamlData, err := loadFileData(basePath + ".yaml")
-	if err != nil {
-		return err
-	}
-
-	// Determine the template to use
-	template := determineTemplate(jsonnetData, b)
-
-	// Generate and unmarshal blueprint
-	if err := generateAndUnmarshalBlueprint(template, yamlData, b); err != nil {
-		return err
+	if yamlErr != nil && !os.IsNotExist(yamlErr) {
+		return yamlErr
 	}
 
-	// Ensure blueprint metadata is set
-	ensureBlueprintMetadata(b)
+	// Determine the blueprint to load
+	if len(jsonnetData) > 0 {
+		// Load blueprint from jsonnet
+		evaluatedJsonnet, err := generateBlueprintFromJsonnet(b.configHandler.GetConfig(), string(jsonnetData))
+		if err != nil {
+			return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
+		}
+		if err := yamlUnmarshal([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
+			return fmt.Errorf("error unmarshalling jsonnet data: %w", err)
+		}
+	} else {
+		// Check context and load appropriate blueprint
+		context := b.contextHandler.GetContext()
+		if strings.HasPrefix(context, "local") && len(yamlData) == 0 {
+			// Load local.jsonnet as blueprint
+			evaluatedJsonnet, err := generateBlueprintFromJsonnet(b.configHandler.GetConfig(), localJsonnetTemplate)
+			if err != nil {
+				return fmt.Errorf("error generating blueprint from local jsonnet: %w", err)
+			}
+			if err := yamlUnmarshal([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
+				return fmt.Errorf("error unmarshalling local jsonnet data: %w", err)
+			}
+		} else {
+			// Load DefaultBlueprint
+			b.blueprint = DefaultBlueprint
+			b.blueprint.Metadata.Name = context
+			b.blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", context)
+		}
+	}
+
+	if len(yamlData) > 0 {
+		if err := yamlUnmarshal(yamlData, &b.localBlueprint); err != nil {
+			return fmt.Errorf("error unmarshalling yaml data: %w", err)
+		}
+	}
+
+	// Merge the local blueprint into the main blueprint
+	mergeBlueprints(&b.blueprint, &b.localBlueprint)
 
 	return nil
 }
@@ -376,51 +404,11 @@ var yamlToJson = func(yamlBytes []byte) ([]byte, error) {
 }
 
 // loadFileData loads the file data from the specified path
-func loadFileData(path string) ([]byte, error) {
+var loadFileData = func(path string) ([]byte, error) {
 	if _, err := osStat(path); err == nil {
 		return osReadFile(path)
 	}
 	return nil, nil
-}
-
-// determineTemplate determines the template to use for the blueprint
-func determineTemplate(jsonnetData []byte, b *BaseBlueprintHandler) string {
-	if len(jsonnetData) > 0 {
-		return string(jsonnetData)
-	}
-	if b.blueprint.Metadata.Name == "" && strings.HasPrefix(b.contextHandler.GetContext(), "local") {
-		return localJsonnetTemplate
-	}
-	return ""
-}
-
-// generateAndUnmarshalBlueprint generates and unmarshals the blueprint
-func generateAndUnmarshalBlueprint(template string, yamlData []byte, b *BaseBlueprintHandler) error {
-	if template != "" {
-		evaluatedJsonnet, err := generateBlueprintFromJsonnet(b.configHandler.GetConfig(), template)
-		if err != nil {
-			return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
-		}
-		if err := yamlUnmarshal([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
-			return fmt.Errorf("error unmarshalling jsonnet data: %w", err)
-		}
-	} else if len(yamlData) > 0 {
-		if err := yamlUnmarshal(yamlData, &b.localBlueprint); err != nil {
-			return fmt.Errorf("error unmarshalling yaml data: %w", err)
-		}
-	}
-	mergeBlueprints(&b.blueprint, &b.localBlueprint)
-	return nil
-}
-
-// ensureBlueprintMetadata ensures the blueprint metadata is set
-func ensureBlueprintMetadata(b *BaseBlueprintHandler) {
-	if b.blueprint.Metadata.Name == "" {
-		b.blueprint = DefaultBlueprint
-		context := b.contextHandler.GetContext()
-		b.blueprint.Metadata.Name = context
-		b.blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", context)
-	}
 }
 
 // mergeBlueprints merges fields from src into dst, giving precedence to src.
