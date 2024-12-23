@@ -754,6 +754,57 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("ErrorGeneratingBlueprintFromJsonnet", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Mock osStat to simulate the presence of a Jsonnet file
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) {
+			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock osReadFile to return valid Jsonnet data
+		originalOsReadFile := osReadFile
+		defer func() { osReadFile = originalOsReadFile }()
+		osReadFile = func(name string) ([]byte, error) {
+			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
+				return []byte("valid: jsonnet"), nil
+			}
+			return nil, fmt.Errorf("file not found")
+		}
+
+		// Mock generateBlueprintFromJsonnet to simulate an error
+		originalGenerateBlueprintFromJsonnet := generateBlueprintFromJsonnet
+		defer func() { generateBlueprintFromJsonnet = originalGenerateBlueprintFromJsonnet }()
+		generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
+			return "", fmt.Errorf("error generating blueprint from jsonnet")
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Load the blueprint configuration
+		err := blueprintHandler.LoadConfig()
+
+		// Then the LoadConfig should fail with the expected error
+		if err == nil {
+			t.Errorf("Expected LoadConfig to fail with an error containing 'error generating blueprint from jsonnet', but got: <nil>")
+		} else {
+			expectedMsg := "error generating blueprint from jsonnet"
+			if !strings.Contains(err.Error(), expectedMsg) {
+				t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
+			}
+		}
+	})
 }
 
 func TestBlueprintHandler_WriteConfig(t *testing.T) {
