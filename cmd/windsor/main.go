@@ -2,8 +2,8 @@ package main
 
 import (
 	"github.com/windsorcli/cli/cmd"
-	"github.com/windsorcli/cli/internal/controller"
-	"github.com/windsorcli/cli/internal/di"
+	"github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
 )
 
 func main() {

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	ctrl "github.com/windsorcli/cli/internal/controller"
-	"github.com/windsorcli/cli/internal/di"
-	"github.com/windsorcli/cli/internal/env"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/env"
 )
 
 func TestEnvCmd(t *testing.T) {
