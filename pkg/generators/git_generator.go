@@ -62,6 +62,7 @@ func (g *GitGenerator) Write() error {
 		".tf_modules/",
 		"terraform/**/backend_override.tf",
 		"contexts/**/.terraform/",
+		"contexts/**/.tfstate/",
 		"contexts/**/.kube/",
 		"contexts/**/.talos/",
 		"contexts/**/.aws/",
