@@ -136,7 +136,7 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	} else {
 		// Check context and load appropriate blueprint
 		context := b.contextHandler.GetContext()
-		if strings.HasPrefix(context, "local") && len(yamlData) == 0 {
+		if strings.HasPrefix(context, "local") {
 			// Load local.jsonnet as blueprint
 			evaluatedJsonnet, err := generateBlueprintFromJsonnet(b.configHandler.GetConfig(), localJsonnetTemplate)
 			if err != nil {
