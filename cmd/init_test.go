@@ -418,6 +418,29 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorCreatingProjectComponents", func(t *testing.T) {
+		// Given a mock controller with CreateProjectComponents set to fail
+		injector := di.NewInjector()
+		controller := ctrl.NewMockController(injector)
+		setupSafeInitCmdMocks(controller)
+		controller.CreateProjectComponentsFunc = func() error { return fmt.Errorf("create project components error") }
+
+		// When the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := Execute(controller)
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then the output should indicate the error
+		expectedOutput := "Error creating project components: create project components error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
 	t.Run("ErrorCreatingServiceComponents", func(t *testing.T) {
 		// Given a mock controller with CreateServiceComponents set to fail
 		injector := di.NewInjector()

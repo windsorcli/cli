@@ -99,6 +99,34 @@ func TestMockController_CreateCommonComponents(t *testing.T) {
 	})
 }
 
+func TestMockController_CreateProjectComponents(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new injector and mock controller
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
+		// And the CreateProjectComponentsFunc is set to return nil
+		mockCtrl.CreateProjectComponentsFunc = func() error {
+			return nil
+		}
+		// When CreateProjectComponents is called
+		if err := mockCtrl.CreateProjectComponents(); err != nil {
+			// Then no error should be returned
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("DefaultCreateProjectComponents", func(t *testing.T) {
+		// Given a new injector and a mock controller
+		injector := di.NewInjector()
+		mockCtrl := NewMockController(injector)
+		// When CreateProjectComponents is invoked without setting CreateProjectComponentsFunc
+		if err := mockCtrl.CreateProjectComponents(); err != nil {
+			// Then no error should be returned
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
 func TestMockController_CreateEnvComponents(t *testing.T) {
 	t.Run("CreateEnvComponents", func(t *testing.T) {
 		// Given a new injector and mock controller

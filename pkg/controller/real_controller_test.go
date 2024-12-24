@@ -54,6 +54,35 @@ func TestRealController_CreateCommonComponents(t *testing.T) {
 	})
 }
 
+func TestRealController_CreateProjectComponents(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new injector and a new real controller
+		injector := di.NewInjector()
+		controller := NewRealController(injector)
+
+		// When creating project components
+		err := controller.CreateProjectComponents()
+
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the components should be registered in the injector
+		if injector.Resolve("gitGenerator") == nil {
+			t.Fatalf("expected gitGenerator to be registered, got error")
+		}
+		if injector.Resolve("blueprintHandler") == nil {
+			t.Fatalf("expected blueprintHandler to be registered, got error")
+		}
+		if injector.Resolve("terraformGenerator") == nil {
+			t.Fatalf("expected terraformGenerator to be registered, got error")
+		}
+
+		t.Logf("Success: project components created and registered")
+	})
+}
+
 func TestRealController_CreateEnvComponents(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new injector and a new real controller
