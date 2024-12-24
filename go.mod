@@ -3,6 +3,7 @@ module github.com/windsorcli/cli
 go 1.23.1
 
 require (
+	github.com/abiosoft/colima v0.8.1
 	github.com/briandowns/spinner v1.23.1
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/getsops/sops/v3 v3.9.2
@@ -38,7 +39,6 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.48.1 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.48.1 // indirect
 	github.com/ProtonMail/go-crypto v1.1.3 // indirect
-	github.com/abiosoft/colima v0.8.1 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.32.7 // indirect
@@ -72,7 +72,8 @@ require (
 	github.com/distribution/reference v0.5.0 // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/envoyproxy/go-control-plane v0.13.1 // indirect
+	github.com/envoyproxy/go-control-plane v0.13.2 // indirect
+	github.com/envoyproxy/go-control-plane/envoy v1.32.2 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.1.0 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
