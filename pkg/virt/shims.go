@@ -10,6 +10,9 @@ import (
 	"github.com/shirou/gopsutil/mem"
 )
 
+// osSetenv is a variable that holds the os.Setenv function to set an environment variable.
+var osSetenv = os.Setenv
+
 // jsonUnmarshal is a variable that holds the json.Unmarshal function for decoding JSON data.
 var jsonUnmarshal = json.Unmarshal
 

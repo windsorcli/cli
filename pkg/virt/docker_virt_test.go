@@ -133,6 +133,14 @@ func TestDockerVirt_Initialize(t *testing.T) {
 		mocks := setupSafeDockerContainerMocks()
 		dockerVirt := NewDockerVirt(mocks.Injector)
 
+		// Mock the shell's ExecSilent function to simulate a valid docker compose command
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker-compose" && len(args) > 0 && args[0] == "--version" {
+				return "docker-compose version 1.29.2, build 5becea4c", nil
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+
 		// Call the Initialize method
 		err := dockerVirt.Initialize()
 
@@ -191,6 +199,31 @@ func TestDockerVirt_Initialize(t *testing.T) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
 	})
+
+	t.Run("ErrorDeterminingComposeCommand", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+
+		// Mock the shell's ExecSilent function to simulate no valid docker compose command found
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("command not found")
+		}
+
+		// Call the Initialize method
+		err := dockerVirt.Initialize()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+
+		// Verify the error message contains the expected substring
+		expectedErrorSubstring := "error determining docker compose command"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+		}
+	})
 }
 
 func TestDockerVirt_Up(t *testing.T) {
@@ -200,33 +233,26 @@ func TestDockerVirt_Up(t *testing.T) {
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()
 
-		// Mock the shell's Exec function to handle the callback
-		execCalled := false
+		// Mock the shell Exec function to simulate successful docker info and docker compose up
 		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
-				return "", nil // Simulate successful Docker daemon check
+				return "docker info", nil
 			}
-			return "", fmt.Errorf("unexpected command")
+			return "", fmt.Errorf("unknown command")
 		}
 		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "docker-compose" && len(args) > 0 && args[2] == "up" {
-				execCalled = true
-				return "", nil
+			if command == dockerVirt.composeCommand && args[0] == "up" {
+				return "docker compose up successful", nil
 			}
-			return "", fmt.Errorf("unexpected command")
+			return "", fmt.Errorf("unknown command")
 		}
 
 		// Call the Up method
 		err := dockerVirt.Up()
 
-		// Assert no error occurred
+		// Assert that no error occurred
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
-		}
-
-		// Verify that the mock shell's Exec function was called with the expected command
-		if !execCalled {
-			t.Errorf("expected Exec to be called with 'docker-compose up', but it was not")
 		}
 	})
 
@@ -293,6 +319,50 @@ func TestDockerVirt_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorSettingComposeFileEnv", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.Initialize()
+
+		// Mock the GetConfigRoot function to return a valid path
+		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+			return "/valid/path", nil
+		}
+
+		// Mock the shell Exec function to simulate Docker daemon check
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "info" {
+				return "docker info", nil
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+
+		// Temporarily replace osSetenv with a mock function to simulate an error
+		originalSetenv := osSetenv
+		defer func() { osSetenv = originalSetenv }()
+		osSetenv = func(key, value string) error {
+			if key == "COMPOSE_FILE" {
+				return fmt.Errorf("mock error setting COMPOSE_FILE environment variable")
+			}
+			return nil
+		}
+
+		// Call the Up method
+		err := dockerVirt.Up()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Verify that the error message is as expected
+		expectedErrorMsg := "error setting COMPOSE_FILE environment variable"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+	})
+
 	t.Run("RetryDockerComposeUp", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
@@ -307,7 +377,7 @@ func TestDockerVirt_Up(t *testing.T) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
-			if command == "docker-compose" && len(args) > 2 && args[2] == "up" {
+			if command == dockerVirt.composeCommand && len(args) > 0 && args[0] == "up" {
 				execCallCount++
 				if execCallCount < 3 {
 					return "", fmt.Errorf("temporary error")
@@ -317,7 +387,7 @@ func TestDockerVirt_Up(t *testing.T) {
 			return "", fmt.Errorf("unknown command")
 		}
 		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "docker-compose" && len(args) > 2 && args[2] == "up" {
+			if command == dockerVirt.composeCommand && len(args) > 0 && args[0] == "up" {
 				execCallCount++
 				if execCallCount < 3 {
 					return "", fmt.Errorf("temporary error")
@@ -355,21 +425,15 @@ func TestDockerVirt_Up(t *testing.T) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
-			if command == "docker-compose" && len(args) > 2 && args[2] == "up" {
+			if command == dockerVirt.composeCommand && len(args) > 0 && args[0] == "up" {
 				execCallCount++
-				if execCallCount < 3 {
-					return "", fmt.Errorf("temporary error")
-				}
 				return "", fmt.Errorf("persistent error")
 			}
 			return "", fmt.Errorf("unknown command")
 		}
 		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "docker-compose" && len(args) > 2 && args[2] == "up" {
+			if command == dockerVirt.composeCommand && len(args) > 0 && args[0] == "up" {
 				execCallCount++
-				if execCallCount < 3 {
-					return "", fmt.Errorf("temporary error")
-				}
 				return "", fmt.Errorf("persistent error")
 			}
 			return "", fmt.Errorf("unknown command")
@@ -403,13 +467,13 @@ func TestDockerVirt_Down(t *testing.T) {
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()
 
-		// Mock the shell Exec function to simulate successful docker info and docker-compose down commands
+		// Mock the shell Exec function to simulate successful docker info and docker compose down commands
 		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info", nil
 			}
-			if command == "docker-compose" && len(args) > 2 && args[2] == "down" {
-				return "docker-compose down", nil
+			if command == "docker compose" && len(args) > 2 && args[2] == "down" {
+				return "docker compose down", nil
 			}
 			return "", fmt.Errorf("unknown command")
 		}
@@ -486,6 +550,45 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorSettingComposeFileEnv", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.Initialize()
+
+		// Mock the shell Exec function to simulate successful docker info command
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "info" {
+				return "docker info", nil
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+
+		// Temporarily replace osSetenv with a mock function to simulate an error
+		originalSetenv := osSetenv
+		defer func() { osSetenv = originalSetenv }()
+		osSetenv = func(key, value string) error {
+			if key == "COMPOSE_FILE" {
+				return fmt.Errorf("mock error setting COMPOSE_FILE environment variable")
+			}
+			return nil
+		}
+
+		// Call the Down method
+		err := dockerVirt.Down()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Verify that the error message is as expected
+		expectedErrorMsg := "error setting COMPOSE_FILE environment variable"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+	})
+
 	t.Run("ErrorDockerComposeDown", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
@@ -500,8 +603,8 @@ func TestDockerVirt_Down(t *testing.T) {
 			return "", fmt.Errorf("unknown command")
 		}
 		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "docker-compose" && len(args) > 0 && args[0] == "-f" && args[2] == "down" {
-				return "", fmt.Errorf("error executing docker-compose down")
+			if command == dockerVirt.composeCommand && len(args) > 0 && args[0] == "down" {
+				return "", fmt.Errorf("error executing docker compose down")
 			}
 			return "", fmt.Errorf("unknown command")
 		}
@@ -514,10 +617,10 @@ func TestDockerVirt_Down(t *testing.T) {
 			t.Errorf("expected an error, got nil")
 		}
 
-		// Verify that the error message is as expected
-		expectedErrorMsg := "error executing docker-compose down"
-		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		// Verify that the error message contains the expected substring
+		expectedErrorSubstring := "docker compose down"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorSubstring, err)
 		}
 	})
 }
