@@ -78,8 +78,8 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Errorf("COMPOSE_FILE = %v, want %v or %v", envVars["COMPOSE_FILE"], filepath.FromSlash("/mock/config/root/compose.yaml"), filepath.FromSlash("/mock/config/root/compose.yml"))
 		}
 
-		if envVars["DOCKER_HOST"] != "" {
-			t.Errorf("DOCKER_HOST = %v, want empty", envVars["DOCKER_HOST"])
+		if envVars["DOCKER_SOCK"] != "" {
+			t.Errorf("DOCKER_SOCK = %v, want empty", envVars["DOCKER_SOCK"])
 		}
 	})
 
@@ -122,8 +122,8 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		}
 
 		expectedDockerHost := filepath.Join("/mock/home", ".colima", "test-context", "docker.sock")
-		if envVars["DOCKER_HOST"] != expectedDockerHost {
-			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		if envVars["DOCKER_SOCK"] != expectedDockerHost {
+			t.Errorf("DOCKER_SOCK = %v, want %v", envVars["DOCKER_SOCK"], expectedDockerHost)
 		}
 	})
 
