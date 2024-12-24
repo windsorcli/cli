@@ -45,6 +45,17 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	// Populate environment variables with Docker configuration data.
 	envVars["COMPOSE_FILE"] = composeFilePath
 
+	// Set DOCKER_HOST if vm.driver is colima
+	if e.configHandler.GetString("vm.driver") == "colima" {
+		homeDir, err := osUserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
+		}
+		contextName := e.contextHandler.GetContext()
+		dockerSockPath := filepath.Join(homeDir, ".colima", contextName, "docker.sock")
+		envVars["DOCKER_HOST"] = dockerSockPath
+	}
+
 	return envVars, nil
 }
 

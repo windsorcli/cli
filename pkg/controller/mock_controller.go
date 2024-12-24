@@ -137,13 +137,17 @@ func (m *MockController) CreateEnvComponents() error {
 		return m.CreateEnvComponentsFunc()
 	}
 
-	// Create mock aws env printer
-	awsEnv := env.NewMockEnvPrinter()
-	m.injector.Register("awsEnv", awsEnv)
+	// Create mock aws env printer only if aws.enabled is true
+	if m.configHandler.GetBool("aws.enabled") {
+		awsEnv := env.NewMockEnvPrinter()
+		m.injector.Register("awsEnv", awsEnv)
+	}
 
-	// Create mock docker env printer
-	dockerEnv := env.NewMockEnvPrinter()
-	m.injector.Register("dockerEnv", dockerEnv)
+	// Create mock docker env printer only if docker.enabled is true
+	if m.configHandler.GetBool("docker.enabled") {
+		dockerEnv := env.NewMockEnvPrinter()
+		m.injector.Register("dockerEnv", dockerEnv)
+	}
 
 	// Create mock kube env printer
 	kubeEnv := env.NewMockEnvPrinter()
