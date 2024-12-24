@@ -12,8 +12,19 @@ import (
 const (
 	gitGenTestMockGitignorePath = "/mock/project/root/.gitignore"
 	gitGenTestExistingContent   = "existing content\n"
-	gitGenTestExpectedContent   = "existing content\n\n# managed by windsor cli\n.volumes/\n.tf_modules/\nterraform/**/backend_override.tf\ncontexts/**/.terraform/\ncontexts/**/.kube/\ncontexts/**/.talos/\ncontexts/**/.aws/\n"
-	gitGenTestExpectedPerm      = fs.FileMode(0644)
+	gitGenTestExpectedContent   = `existing content
+
+# managed by windsor cli
+.volumes/
+.tf_modules/
+terraform/**/backend_override.tf
+contexts/**/.terraform/
+contexts/**/.tfstate/
+contexts/**/.kube/
+contexts/**/.talos/
+contexts/**/.aws/
+`
+	gitGenTestExpectedPerm = fs.FileMode(0644)
 )
 
 func TestGitGenerator_NewGitGenerator(t *testing.T) {
