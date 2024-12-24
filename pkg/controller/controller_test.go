@@ -410,6 +410,22 @@ func TestController_CreateCommonComponents(t *testing.T) {
 	})
 }
 
+func TestController_CreateProjectComponents(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new controller
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+
+		// When creating project components
+		err := controller.CreateProjectComponents()
+
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
 func TestController_CreateEnvComponents(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller

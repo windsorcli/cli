@@ -115,6 +115,21 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorCreatingProjectComponents", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		mocks.MockController.CreateProjectComponentsFunc = func() error {
+			return fmt.Errorf("error creating project components")
+		}
+
+		// Given a mock controller that returns an error when creating project components
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "error creating project components") {
+			t.Fatalf("Expected error containing 'error creating project components', got %v", err)
+		}
+	})
+
 	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
 		mocks.MockController.CreateEnvComponentsFunc = func() error {

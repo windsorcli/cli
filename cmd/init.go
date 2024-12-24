@@ -88,6 +88,11 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error saving config file: %w", err)
 		}
 
+		// Create project components
+		if err := controller.CreateProjectComponents(); err != nil {
+			return fmt.Errorf("Error creating project components: %w", err)
+		}
+
 		// Create service components
 		if err := controller.CreateServiceComponents(); err != nil {
 			return fmt.Errorf("Error creating service components: %w", err)

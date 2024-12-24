@@ -23,6 +23,7 @@ type Controller interface {
 	Initialize() error
 	InitializeComponents() error
 	CreateCommonComponents() error
+	CreateProjectComponents() error
 	CreateEnvComponents() error
 	CreateServiceComponents() error
 	CreateVirtualizationComponents() error
@@ -160,6 +161,12 @@ func (c *BaseController) InitializeComponents() error {
 
 // CreateCommonComponents creates the common components.
 func (c *BaseController) CreateCommonComponents() error {
+	// no-op
+	return nil
+}
+
+// CreateProjectComponents creates the project components.
+func (c *BaseController) CreateProjectComponents() error {
 	// no-op
 	return nil
 }

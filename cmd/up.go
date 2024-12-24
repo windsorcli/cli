@@ -13,6 +13,11 @@ var upCmd = &cobra.Command{
 	SilenceUsage: true,
 	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Create project components
+		if err := controller.CreateProjectComponents(); err != nil {
+			return fmt.Errorf("Error creating project components: %w", err)
+		}
+
 		// Create environment components
 		if err := controller.CreateEnvComponents(); err != nil {
 			return fmt.Errorf("Error creating environment components: %w", err)
