@@ -65,6 +65,23 @@ func (c *RealController) CreateCommonComponents() error {
 	return nil
 }
 
+// CreateProjectComponents creates components required for project initialization
+func (c *RealController) CreateProjectComponents() error {
+	// Create a new git generator
+	gitGenerator := generators.NewGitGenerator(c.injector)
+	c.injector.Register("gitGenerator", gitGenerator)
+
+	// Create a new blueprint handler
+	blueprintHandler := blueprint.NewBlueprintHandler(c.injector)
+	c.injector.Register("blueprintHandler", blueprintHandler)
+
+	// Create a new terraform generator
+	terraformGenerator := generators.NewTerraformGenerator(c.injector)
+	c.injector.Register("terraformGenerator", terraformGenerator)
+
+	return nil
+}
+
 // CreateEnvComponents creates components required for env and exec commands
 func (c *RealController) CreateEnvComponents() error {
 	// Create aws env printer
@@ -213,14 +230,6 @@ func (c *RealController) CreateVirtualizationComponents() error {
 
 // CreateStackComponents creates stack components
 func (c *RealController) CreateStackComponents() error {
-	// Create a new blueprint handler
-	blueprintHandler := blueprint.NewBlueprintHandler(c.injector)
-	c.injector.Register("blueprintHandler", blueprintHandler)
-
-	// Create a new terraform generator
-	terraformGenerator := generators.NewTerraformGenerator(c.injector)
-	c.injector.Register("terraformGenerator", terraformGenerator)
-
 	// Create a new stack
 	stackInstance := stack.NewWindsorStack(c.injector)
 	c.injector.Register("stack", stackInstance)

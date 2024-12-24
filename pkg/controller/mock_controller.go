@@ -23,6 +23,7 @@ type MockController struct {
 	InitializeFunc                     func() error
 	InitializeComponentsFunc           func() error
 	CreateCommonComponentsFunc         func() error
+	CreateProjectComponentsFunc        func() error
 	CreateEnvComponentsFunc            func() error
 	CreateServiceComponentsFunc        func() error
 	CreateVirtualizationComponentsFunc func() error
@@ -105,6 +106,27 @@ func (m *MockController) CreateCommonComponents() error {
 	if err := resolvedShell.Initialize(); err != nil {
 		return fmt.Errorf("error initializing shell: %w", err)
 	}
+
+	return nil
+}
+
+// CreateProjectComponents calls the mock CreateProjectComponentsFunc if set, otherwise creates mock components
+func (m *MockController) CreateProjectComponents() error {
+	if m.CreateProjectComponentsFunc != nil {
+		return m.CreateProjectComponentsFunc()
+	}
+
+	// Create a new mock blueprint handler
+	blueprintHandler := blueprint.NewMockBlueprintHandler(m.injector)
+	m.injector.Register("blueprintHandler", blueprintHandler)
+
+	// Create a new git generator
+	gitGenerator := generators.NewMockGenerator()
+	m.injector.Register("gitGenerator", gitGenerator)
+
+	// Create a new mock terraform generator
+	terraformGenerator := generators.NewMockGenerator()
+	m.injector.Register("terraformGenerator", terraformGenerator)
 
 	return nil
 }
@@ -266,14 +288,6 @@ func (c *MockController) CreateStackComponents() error {
 	if c.CreateStackComponentsFunc != nil {
 		return c.CreateStackComponentsFunc()
 	}
-
-	// Create a new blueprint handler
-	blueprintHandler := blueprint.NewMockBlueprintHandler(c.injector)
-	c.injector.Register("blueprintHandler", blueprintHandler)
-
-	// Create a new terraform generator
-	terraformGenerator := generators.NewMockGenerator()
-	c.injector.Register("terraformGenerator", terraformGenerator)
 
 	// Create a new stack
 	stackInstance := stack.NewMockStack(c.injector)

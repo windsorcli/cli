@@ -152,6 +152,24 @@ func TestGenerator_Initialize(t *testing.T) {
 			t.Errorf("Expected Initialize to fail, but it succeeded")
 		}
 	})
+
+	t.Run("ErrorResolvingShell", func(t *testing.T) {
+		mocks := setupSafeMocks()
+
+		// Given a mock injector with a nil shell
+		mocks.Injector.Register("shell", nil)
+
+		// When a new BaseGenerator is created
+		generator := NewGenerator(mocks.Injector)
+
+		// And the BaseGenerator is initialized
+		err := generator.Initialize()
+
+		// Then the initialization should fail
+		if err == nil {
+			t.Errorf("Expected Initialize to fail, but it succeeded")
+		}
+	})
 }
 
 func TestGenerator_Write(t *testing.T) {
