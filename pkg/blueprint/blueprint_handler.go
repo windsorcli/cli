@@ -126,7 +126,15 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	// Determine the blueprint to load
 	if len(jsonnetData) > 0 {
 		// Load blueprint from jsonnet
-		evaluatedJsonnet, err := generateBlueprintFromJsonnet(b.configHandler.GetConfig(), string(jsonnetData))
+		vm := jsonnetMakeVM()
+		contextJSON, err := jsonMarshal(b.configHandler.GetConfig())
+		if err != nil {
+			return fmt.Errorf("error marshalling context to JSON: %w", err)
+		}
+		vm.ExtCode("context", string(contextJSON))
+
+		// Evaluate the jsonnet data
+		evaluatedJsonnet, err := vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(jsonnetData))
 		if err != nil {
 			return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
 		}
@@ -137,8 +145,16 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 		// Check context and load appropriate blueprint
 		context := b.contextHandler.GetContext()
 		if strings.HasPrefix(context, "local") {
+			// Use ExtCode to inject the context object into local.jsonnet
+			vm := jsonnetMakeVM()
+			contextJSON, err := jsonMarshal(b.configHandler.GetConfig())
+			if err != nil {
+				return fmt.Errorf("error marshalling context to JSON: %w", err)
+			}
+			vm.ExtCode("context", string(contextJSON))
+
 			// Load local.jsonnet as blueprint
-			evaluatedJsonnet, err := generateBlueprintFromJsonnet(b.configHandler.GetConfig(), localJsonnetTemplate)
+			evaluatedJsonnet, err := vm.EvaluateAnonymousSnippet("local.jsonnet", localJsonnetTemplate)
 			if err != nil {
 				return fmt.Errorf("error generating blueprint from local jsonnet: %w", err)
 			}
