@@ -1,3 +1,4 @@
+local context = std.extVar("context");
 local cpNodes = std.objectValues(context.cluster.controlplanes.nodes);
 
 // Pick "the first" node in the object as a fallback. If there are no nodes,
