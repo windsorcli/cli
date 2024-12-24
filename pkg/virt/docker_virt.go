@@ -2,6 +2,7 @@ package virt
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,7 +16,8 @@ import (
 // DockerVirt implements the ContainerInterface for Docker
 type DockerVirt struct {
 	BaseVirt
-	services []services.Service
+	services       []services.Service
+	composeCommand string
 }
 
 // NewDockerVirt creates a new instance of DockerVirt using a DI injector
@@ -60,15 +62,33 @@ func (v *DockerVirt) Initialize() error {
 
 	// Set the services
 	v.services = serviceSlice
+
+	// Determine the correct docker compose command
+	if err := v.determineComposeCommand(); err != nil {
+		return fmt.Errorf("error determining docker compose command: %w", err)
+	}
+
 	return nil
 }
 
-// Up starts docker-compose
+// determineComposeCommand checks for available docker compose commands
+func (v *DockerVirt) determineComposeCommand() error {
+	commands := []string{"docker-compose", "docker-cli-plugin-docker-compose", "docker compose"}
+	for _, cmd := range commands {
+		if _, err := v.shell.ExecSilent(cmd, "--version"); err == nil {
+			v.composeCommand = cmd
+			return nil
+		}
+	}
+	return fmt.Errorf("no valid docker compose command found")
+}
+
+// Up starts docker compose
 func (v *DockerVirt) Up() error {
 	// Get the context configuration
 	contextConfig := v.configHandler.GetConfig()
 
-	// Check if Docker is enabled and run "docker-compose up" in daemon mode if necessary
+	// Check if Docker is enabled and run "docker compose up" in daemon mode if necessary
 	if contextConfig != nil && contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
 		// Ensure Docker daemon is running
 		if err := v.checkDockerDaemon(); err != nil {
@@ -82,18 +102,20 @@ func (v *DockerVirt) Up() error {
 		}
 		composeFilePath := filepath.Join(configRoot, "compose.yaml")
 
-		// Retry logic for docker-compose up with progress display
+		// Set the COMPOSE_FILE environment variable
+		os.Setenv("COMPOSE_FILE", composeFilePath)
+
+		// Retry logic for docker compose up with progress display
 		retries := 3
 		var lastErr error
 		var lastOutput string
 		for i := 0; i < retries; i++ {
-			command := "docker-compose"
-			args := []string{"-f", composeFilePath, "up", "-d", "--remove-orphans"}
-			message := "📦 Running docker-compose up"
+			args := []string{"up", "--detach", "--remove-orphans"}
+			message := "📦 Running docker compose up"
 
 			// Use ExecProgress for the first attempt to show progress
 			if i == 0 {
-				output, err := v.shell.ExecProgress(message, command, args...)
+				output, err := v.shell.ExecProgress(message, v.composeCommand, args...)
 				if err == nil {
 					return nil
 				}
@@ -101,7 +123,7 @@ func (v *DockerVirt) Up() error {
 				lastOutput = output
 			} else {
 				// Use ExecSilent for retries to avoid multiple progress messages
-				output, err := v.shell.ExecSilent(command, args...)
+				output, err := v.shell.ExecSilent(v.composeCommand, args...)
 				if err == nil {
 					return nil
 				}
@@ -114,7 +136,7 @@ func (v *DockerVirt) Up() error {
 			}
 		}
 		if lastErr != nil {
-			return fmt.Errorf("Error executing command %s %v: %w\n%s", "docker-compose", []string{"-f", composeFilePath, "up", "-d", "--remove-orphans"}, lastErr, lastOutput)
+			return fmt.Errorf("Error executing command %s %v: %w\n%s", v.composeCommand, []string{"up", "--detach", "--remove-orphans"}, lastErr, lastOutput)
 		}
 	}
 	return nil
@@ -122,7 +144,7 @@ func (v *DockerVirt) Up() error {
 
 // Down stops the Docker container
 func (v *DockerVirt) Down() error {
-	// Check if Docker is enabled and run "docker-compose down" if necessary
+	// Check if Docker is enabled and run "docker compose down" if necessary
 	if v.configHandler.GetBool("docker.enabled") {
 		// Ensure Docker daemon is running
 		if err := v.checkDockerDaemon(); err != nil {
@@ -136,10 +158,13 @@ func (v *DockerVirt) Down() error {
 		}
 		composeFilePath := filepath.Join(configRoot, "compose.yaml")
 
-		// Run docker-compose down with clean flags using the Exec function from shell.go
-		output, err := v.shell.ExecProgress("📦 Running docker-compose down", "docker-compose", "-f", composeFilePath, "down", "--remove-orphans", "--volumes")
+		// Set the COMPOSE_FILE environment variable
+		os.Setenv("COMPOSE_FILE", composeFilePath)
+
+		// Run docker compose down with clean flags using the Exec function from shell.go
+		output, err := v.shell.ExecProgress("📦 Running docker compose down", v.composeCommand, "down", "--remove-orphans", "--volumes")
 		if err != nil {
-			return fmt.Errorf("Error executing command docker-compose down: %w\n%s", err, output)
+			return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
 		}
 	}
 	return nil
@@ -165,16 +190,16 @@ func (v *DockerVirt) WriteConfig() error {
 		return fmt.Errorf("error getting full compose config: %w", err)
 	}
 
-	// Serialize the docker-compose config to YAML
+	// Serialize the docker compose config to YAML
 	yamlData, err := yamlMarshal(project)
 	if err != nil {
-		return fmt.Errorf("error marshaling docker-compose config to YAML: %w", err)
+		return fmt.Errorf("error marshaling docker compose config to YAML: %w", err)
 	}
 
 	// Write the YAML data to the specified file
 	err = writeFile(composeFilePath, yamlData, 0644)
 	if err != nil {
-		return fmt.Errorf("error writing docker-compose file: %w", err)
+		return fmt.Errorf("error writing docker compose file: %w", err)
 	}
 
 	return nil
