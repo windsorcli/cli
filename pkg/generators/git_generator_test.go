@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -86,12 +87,17 @@ func TestGitGenerator_Write(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
+		// Normalize line endings for cross-platform compatibility
+		normalizeLineEndings := func(content string) string {
+			return strings.ReplaceAll(content, "\r\n", "\n")
+		}
+
 		// Check if osWriteFile was called with the correct parameters
 		if filepath.ToSlash(capturedFilename) != gitGenTestMockGitignorePath {
 			t.Errorf("expected filename %s, got %s", gitGenTestMockGitignorePath, capturedFilename)
 		}
 
-		if string(capturedContent) != gitGenTestExpectedContent {
+		if normalizeLineEndings(string(capturedContent)) != normalizeLineEndings(gitGenTestExpectedContent) {
 			t.Errorf("expected content %s, got %s", gitGenTestExpectedContent, string(capturedContent))
 		}
 
