@@ -2,6 +2,7 @@ package env
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -121,9 +122,9 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		expectedDockerHost := filepath.Join("/mock/home", ".colima", "test-context", "docker.sock")
-		if envVars["DOCKER_SOCK"] != expectedDockerHost {
-			t.Errorf("DOCKER_SOCK = %v, want %v", envVars["DOCKER_SOCK"], expectedDockerHost)
+		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", "/mock/home", "test-context")
+		if envVars["DOCKER_HOST"] != expectedDockerHost {
+			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
 	})
 
