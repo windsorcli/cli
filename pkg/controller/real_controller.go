@@ -84,13 +84,17 @@ func (c *RealController) CreateProjectComponents() error {
 
 // CreateEnvComponents creates components required for env and exec commands
 func (c *RealController) CreateEnvComponents() error {
-	// Create aws env printer
-	awsEnv := env.NewAwsEnvPrinter(c.injector)
-	c.injector.Register("awsEnv", awsEnv)
+	// Create aws env printer only if aws.enabled is true
+	if c.configHandler.GetBool("aws.enabled") {
+		awsEnv := env.NewAwsEnvPrinter(c.injector)
+		c.injector.Register("awsEnv", awsEnv)
+	}
 
-	// Create docker env printer
-	dockerEnv := env.NewDockerEnvPrinter(c.injector)
-	c.injector.Register("dockerEnv", dockerEnv)
+	// Create docker env printer only if docker is enabled
+	if c.configHandler.GetBool("docker.enabled") {
+		dockerEnv := env.NewDockerEnvPrinter(c.injector)
+		c.injector.Register("dockerEnv", dockerEnv)
+	}
 
 	// Create kube env printer
 	kubeEnv := env.NewKubeEnvPrinter(c.injector)
