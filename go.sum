@@ -185,6 +185,8 @@ github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/getsops/gopgagent v0.0.0-20240527072608-0c14999532fe h1:QKe/kmAYbndxwu91TcjHERsnMh5SgOB1x/qicvOdUJ8=
 github.com/getsops/gopgagent v0.0.0-20240527072608-0c14999532fe/go.mod h1:awFzISqLJoZLm+i9QQ4SgMNHDqljH6jWV0B36V5MrUM=
+github.com/getsops/gopgagent v0.0.0-20241224165529-7044f28e491e h1:y/1nzrdF+RPds4lfoEpNhjfmzlgZtPqyO3jMzrqDQws=
+github.com/getsops/gopgagent v0.0.0-20241224165529-7044f28e491e/go.mod h1:awFzISqLJoZLm+i9QQ4SgMNHDqljH6jWV0B36V5MrUM=
 github.com/getsops/sops/v3 v3.9.2 h1:Cuuahc/UGu7W3+NXd+mrl+2oXGxxj/jIPsw6Ah2CbxA=
 github.com/getsops/sops/v3 v3.9.2/go.mod h1:J8CMEdmPWT8gxFaNmPBSrc5NFd4uNndf8aFQwhD/ZR8=
 github.com/go-jose/go-jose/v4 v4.0.4 h1:VsjPI33J0SB9vQM6PLmNjoHqMQNGPiZ0rHL7Ni7Q6/E=
