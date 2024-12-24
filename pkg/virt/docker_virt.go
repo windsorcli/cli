@@ -2,7 +2,6 @@ package virt
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -102,8 +101,10 @@ func (v *DockerVirt) Up() error {
 		}
 		composeFilePath := filepath.Join(configRoot, "compose.yaml")
 
-		// Set the COMPOSE_FILE environment variable
-		os.Setenv("COMPOSE_FILE", composeFilePath)
+		// Set the COMPOSE_FILE environment variable and handle potential error
+		if err := osSetenv("COMPOSE_FILE", composeFilePath); err != nil {
+			return fmt.Errorf("failed to set COMPOSE_FILE environment variable: %w", err)
+		}
 
 		// Retry logic for docker compose up with progress display
 		retries := 3
@@ -158,8 +159,10 @@ func (v *DockerVirt) Down() error {
 		}
 		composeFilePath := filepath.Join(configRoot, "compose.yaml")
 
-		// Set the COMPOSE_FILE environment variable
-		os.Setenv("COMPOSE_FILE", composeFilePath)
+		// Set the COMPOSE_FILE environment variable and handle potential error
+		if err := osSetenv("COMPOSE_FILE", composeFilePath); err != nil {
+			return fmt.Errorf("error setting COMPOSE_FILE environment variable: %w", err)
+		}
 
 		// Run docker compose down with clean flags using the Exec function from shell.go
 		output, err := v.shell.ExecProgress("📦 Running docker compose down", v.composeCommand, "down", "--remove-orphans", "--volumes")

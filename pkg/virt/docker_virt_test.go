@@ -319,6 +319,50 @@ func TestDockerVirt_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorSettingComposeFileEnv", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.Initialize()
+
+		// Mock the GetConfigRoot function to return a valid path
+		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+			return "/valid/path", nil
+		}
+
+		// Mock the shell Exec function to simulate Docker daemon check
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "info" {
+				return "docker info", nil
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+
+		// Temporarily replace osSetenv with a mock function to simulate an error
+		originalSetenv := osSetenv
+		defer func() { osSetenv = originalSetenv }()
+		osSetenv = func(key, value string) error {
+			if key == "COMPOSE_FILE" {
+				return fmt.Errorf("mock error setting COMPOSE_FILE environment variable")
+			}
+			return nil
+		}
+
+		// Call the Up method
+		err := dockerVirt.Up()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Verify that the error message is as expected
+		expectedErrorMsg := "error setting COMPOSE_FILE environment variable"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+	})
+
 	t.Run("RetryDockerComposeUp", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
@@ -501,6 +545,45 @@ func TestDockerVirt_Down(t *testing.T) {
 
 		// Verify that the error message is as expected
 		expectedErrorMsg := "error retrieving config root"
+		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		}
+	})
+
+	t.Run("ErrorSettingComposeFileEnv", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.Initialize()
+
+		// Mock the shell Exec function to simulate successful docker info command
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) > 0 && args[0] == "info" {
+				return "docker info", nil
+			}
+			return "", fmt.Errorf("unknown command")
+		}
+
+		// Temporarily replace osSetenv with a mock function to simulate an error
+		originalSetenv := osSetenv
+		defer func() { osSetenv = originalSetenv }()
+		osSetenv = func(key, value string) error {
+			if key == "COMPOSE_FILE" {
+				return fmt.Errorf("mock error setting COMPOSE_FILE environment variable")
+			}
+			return nil
+		}
+
+		// Call the Down method
+		err := dockerVirt.Down()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected an error, got nil")
+		}
+
+		// Verify that the error message is as expected
+		expectedErrorMsg := "error setting COMPOSE_FILE environment variable"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
