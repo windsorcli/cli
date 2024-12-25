@@ -1,7 +1,8 @@
 {
   "extends": [
     "config:recommended",
-    "github>aquaproj/aqua-renovate-config#2.2.1"
+    "github>aquaproj/aqua-renovate-config#2.2.1",
+    ":dependencyDashboard"
   ],
   "packageRules": [
     {
@@ -37,6 +38,15 @@
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "squash"
+    },
+    {
+      "description": "Update aqua.yaml dependencies",
+      "matchFileNames": ["aqua.yaml"],
+      "managers": ["aqua"],
+      "labels": ["aqua", "dependencies"],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
     }
   ],
   "platformAutomerge": true,
@@ -44,13 +54,16 @@
     {
       "customType": "regex",
       "fileMatch": [
-        "^internal/constants/constants.go$"
+        "^pkg/constants/constants.go$"
       ],
       "matchStrings": [
         "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*const\\s+\\S+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
       ],
       "datasourceTemplate": "{{datasource}}",
-      "versioningTemplate": "semver"
+      "versioningTemplate": "semver",
+      "automerge": true, 
+      "automergeType": "pr", 
+      "automergeStrategy": "squash" 
     },
     {
       "customType": "regex",
@@ -61,7 +74,10 @@
         "go install (?<depName>\\S+)@(?<currentValue>\\S+)"
       ],
       "datasourceTemplate": "go",
-      "versioningTemplate": "semver"
+      "versioningTemplate": "semver",
+      "automerge": true, 
+      "automergeType": "pr", 
+      "automergeStrategy": "squash" 
     },
     {
       "customType": "regex",
@@ -72,7 +88,11 @@
         "choco install (?<depName>\\S+) --version=(?<currentValue>\\S+)"
       ],
       "datasourceTemplate": "chocolatey",
-      "versioningTemplate": "semver"
+      "versioningTemplate": "semver",
+      "automerge": true, 
+      "automergeType": "pr", 
+      "automergeStrategy": "squash" 
+
     }
   ],
   "labels": [
