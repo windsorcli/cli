@@ -1,59 +1,101 @@
 {
-  "extends": ["config:recommended"],
+  "extends": [
+    "config:recommended",
+    "github>aquaproj/aqua-renovate-config#2.2.1",
+    ":dependencyDashboard"
+  ],
   "packageRules": [
     {
       "description": "Pin GitHub Actions to specific commit SHAs",
-      "matchManagers": ["github-actions"],
-      "matchPackagePatterns": [".*"],
+      "matchManagers": [
+        "github-actions"
+      ],
       "versioning": "github-tags",
       "pinDigests": true,
-      "automerge": true
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash",
+      "matchPackageNames": [
+        "/.*/"
+      ]
     },
     {
       "description": "Update Go modules",
-      "matchManagers": ["gomod"],
+      "matchManagers": [
+        "gomod"
+      ],
       "enabled": true,
-      "automerge": true
-    },
-    {
-      "description": "Update asdf tools",
-      "matchFileNames": [".tool-versions"],
-      "enabled": true,
-      "automerge": true
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
     },
     {
       "description": "Update Taskfile dependencies",
-      "matchFileNames": ["Taskfile.yaml"],
+      "matchFileNames": [
+        "Taskfile.yaml"
+      ],
       "enabled": true,
-      "automerge": true
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
+    },
+    {
+      "description": "Update aqua.yaml dependencies",
+      "matchFileNames": ["aqua.yaml"],
+      "managers": ["aqua"],
+      "labels": ["aqua", "dependencies"],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
     }
   ],
+  "platformAutomerge": true,
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["^internal/constants/constants.go$"],
+      "fileMatch": [
+        "^pkg/constants/constants.go$"
+      ],
       "matchStrings": [
         "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*const\\s+\\S+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
       ],
       "datasourceTemplate": "{{datasource}}",
-      "versioningTemplate": "semver"
+      "versioningTemplate": "semver",
+      "automerge": true, 
+      "automergeType": "pr", 
+      "automergeStrategy": "squash" 
     },
     {
       "customType": "regex",
-      "fileMatch": ["^Taskfile.yaml$"],
-      "matchStrings": ["go install (?<depName>\\S+)@(?<currentValue>\\S+)"],
+      "fileMatch": [
+        "^Taskfile.yaml$"
+      ],
+      "matchStrings": [
+        "go install (?<depName>\\S+)@(?<currentValue>\\S+)"
+      ],
       "datasourceTemplate": "go",
-      "versioningTemplate": "semver"
+      "versioningTemplate": "semver",
+      "automerge": true, 
+      "automergeType": "pr", 
+      "automergeStrategy": "squash" 
     },
     {
       "customType": "regex",
-      "fileMatch": ["^Taskfile.yaml$"],
+      "fileMatch": [
+        "^Taskfile.yaml$"
+      ],
       "matchStrings": [
         "choco install (?<depName>\\S+) --version=(?<currentValue>\\S+)"
       ],
       "datasourceTemplate": "chocolatey",
-      "versioningTemplate": "semver"
+      "versioningTemplate": "semver",
+      "automerge": true, 
+      "automergeType": "pr", 
+      "automergeStrategy": "squash" 
+
     }
   ],
-  "labels": ["dependencies"]
+  "labels": [
+    "dependencies"
+  ]
 }

@@ -17,6 +17,7 @@ var (
 	arch           string
 	docker         bool
 	gitLivereload  bool
+	blueprint      string
 )
 
 var initCmd = &cobra.Command{
@@ -85,6 +86,11 @@ var initCmd = &cobra.Command{
 		// Save the cli configuration
 		if err := configHandler.SaveConfig(cliConfigPath); err != nil {
 			return fmt.Errorf("Error saving config file: %w", err)
+		}
+
+		// Create project components
+		if err := controller.CreateProjectComponents(); err != nil {
+			return fmt.Errorf("Error creating project components: %w", err)
 		}
 
 		// Create service components

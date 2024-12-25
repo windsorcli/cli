@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/internal/config"
-	"github.com/windsorcli/cli/internal/context"
-	ctrl "github.com/windsorcli/cli/internal/controller"
-	"github.com/windsorcli/cli/internal/di"
-	"github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // setupSafeInitCmdMocks returns a mock controller with safe mocks for the init command
@@ -413,6 +413,29 @@ func TestInitCmd(t *testing.T) {
 
 		// Then the output should indicate the error
 		expectedOutput := "Error saving config file: save config error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorCreatingProjectComponents", func(t *testing.T) {
+		// Given a mock controller with CreateProjectComponents set to fail
+		injector := di.NewInjector()
+		controller := ctrl.NewMockController(injector)
+		setupSafeInitCmdMocks(controller)
+		controller.CreateProjectComponentsFunc = func() error { return fmt.Errorf("create project components error") }
+
+		// When the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := Execute(controller)
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then the output should indicate the error
+		expectedOutput := "Error creating project components: create project components error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}

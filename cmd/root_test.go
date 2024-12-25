@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/internal/config"
-	"github.com/windsorcli/cli/internal/context"
-	ctrl "github.com/windsorcli/cli/internal/controller"
-	"github.com/windsorcli/cli/internal/di"
-	"github.com/windsorcli/cli/internal/env"
-	"github.com/windsorcli/cli/internal/shell"
+	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/context"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // Helper functions to create pointers for basic types
