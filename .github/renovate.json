@@ -43,7 +43,9 @@
       "matchFileNames": ["aqua.yaml"],
       "managers": ["aqua"],
       "labels": ["aqua", "dependencies"],
-      "automerge": true
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
     }
   ],
   "platformAutomerge": true,
@@ -51,7 +53,7 @@
     {
       "customType": "regex",
       "fileMatch": [
-        "^internal/constants/constants.go$"
+        "^pkg/constants/constants.go$"
       ],
       "matchStrings": [
         "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*const\\s+\\S+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
