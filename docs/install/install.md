@@ -1,3 +1,15 @@
+# Install Aqua
+https://aquaproj.github.io/docs/install
+
+# Install Pipx
+https://pipx.pypa.io/stable/installation/
+
+# Install Poetry
+https://python-poetry.org/docs/#installing-with-pipx
+
+poetry env info --path
+
+
 # Setup and Installation
 
 ## [1. Confirm all prerequisites have been met](#prerequisites)
