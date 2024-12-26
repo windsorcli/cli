@@ -51,8 +51,7 @@
         "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*const\\s+\\S+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
       ],
       "datasourceTemplate": "{{datasource}}",
-      "versioningTemplate": "semver",
-      "automerge": true
+      "versioningTemplate": "semver"
     },
     {
       "customType": "regex",
@@ -63,8 +62,7 @@
         "go install (?<depName>\\S+)@(?<currentValue>\\S+)"
       ],
       "datasourceTemplate": "go",
-      "versioningTemplate": "semver",
-      "automerge": true
+      "versioningTemplate": "semver"
     },
     {
       "customType": "regex",
@@ -75,8 +73,7 @@
         "choco install (?<depName>\\S+) --version=(?<currentValue>\\S+)"
       ],
       "datasourceTemplate": "chocolatey",
-      "versioningTemplate": "semver",
-      "automerge": true
+      "versioningTemplate": "semver"
     }
   ],
   "labels": [
