@@ -28,7 +28,7 @@ jobs:
       - name: Install Aqua
         uses: aquaproj/aqua-installer@f13c5d2f0357708d85477aabe50fd3f725528745 # v3.1.0
         with:
-          aqua_version: v2.28.0
+          aqua_version: v2.40.0
 
       - name: Install tools using Aqua
         run: aqua install
@@ -61,7 +61,7 @@ jobs:
 
       - name: Upload Artifacts to Release (Windows)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@e7a8f85e1c67a31e6ed99a94b41bd0b71bbee6b8 # v2.0.9
+        uses: softprops/action-gh-release@7b4da11513bf3f43f9999e90eabced41ab8bb048 # v2.2.0
         with:
           files: |
             dist/windsor*
