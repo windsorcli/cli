@@ -4,4 +4,4 @@ colima 0.7.5
 lima 0.23.1
 sops 3.9.2
 age 1.2.0
-terraform 1.9.8
+terraform 1.10.3
