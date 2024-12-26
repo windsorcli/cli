@@ -1,7 +1,7 @@
 {
   "extends": [
     "config:recommended",
-    "github>aquaproj/aqua-renovate-config#2.2.1",
+    "github>aquaproj/aqua-renovate-config#2.6.0",
     ":dependencyDashboard"
   ],
   "packageRules": [
@@ -51,7 +51,8 @@
         "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*const\\s+\\S+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
       ],
       "datasourceTemplate": "{{datasource}}",
-      "versioningTemplate": "semver"
+      "versioningTemplate": "semver",
+      "automerge": true
     },
     {
       "customType": "regex",
@@ -62,7 +63,8 @@
         "go install (?<depName>\\S+)@(?<currentValue>\\S+)"
       ],
       "datasourceTemplate": "go",
-      "versioningTemplate": "semver"
+      "versioningTemplate": "semver",
+      "automerge": true
     },
     {
       "customType": "regex",
@@ -73,7 +75,8 @@
         "choco install (?<depName>\\S+) --version=(?<currentValue>\\S+)"
       ],
       "datasourceTemplate": "chocolatey",
-      "versioningTemplate": "semver"
+      "versioningTemplate": "semver",
+      "automerge": true
     }
   ],
   "labels": [
