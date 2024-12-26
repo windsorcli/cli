@@ -5,6 +5,7 @@ go 1.23.1
 require (
 	github.com/briandowns/spinner v1.23.1
 	github.com/compose-spec/compose-go v1.20.2
+	github.com/compose-spec/compose-go/v2 v2.4.6
 	github.com/getsops/sops/v3 v3.9.2
 	github.com/goccy/go-yaml v1.15.7
 	github.com/google/go-jsonnet v0.20.0
