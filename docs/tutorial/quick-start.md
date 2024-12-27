@@ -12,6 +12,8 @@ Initialize the contextual environment setting up necessary configurations and na
 
 ```sh
 windsor init --vm-driver colima local
+```
+```sh
 windsor context set local
 ```
 
