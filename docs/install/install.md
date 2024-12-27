@@ -1,6 +1,6 @@
 # Windsor CLI Setup and Installation
 
-This document delineates a comprehensive methodology for the installation and configuration of the Windsor CLI, with a particular emphasis on the utilization of Aqua for the management of CLI tools. The discourse herein advocates for the adoption of Aqua as an exemplary tool for version management, underscoring its efficacy in ensuring consistency and reliability across development environments.
+This document describes how to setup and initialize a new blueprint on MacOS.  
 
 ## Prerequisites
 
@@ -61,7 +61,7 @@ packages:
 
 ### Install Dependencies
 
-Upon the meticulous configuration of your `aqua.yaml` file, execute the following command to install the specified tools:
+Execute the following command to install the specified tools:
 
 ```bash
 aqua install
@@ -86,14 +86,11 @@ This function ascertains the presence of the Windsor CLI and loads the requisite
 
 ## Version Check
 
-To verify the installation and ascertain the version of the Windsor CLI, execute the following command:
+To verify the installation and check the version of the Windsor CLI, execute the following command:
 
 ```bash
 windsor version
 ```
-
-This command will display the current version of the Windsor CLI installed on your system, ensuring that the correct version is in use.
-
 
 <div>
   {{ footer('Home', '../../index.html', 'Quick Start', '../../tutorial/quick-start/index.html') }}
