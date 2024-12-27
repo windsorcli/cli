@@ -1,9 +1,7 @@
 # Quick Start
-After [installation](../install/install.md), you can use the \`windsor\` command to interact with the CLI. Here are some common commands:
+After [installation](../install/install.md) use the \`windsor\` command to interact with the CLI:
 
 ### Install Dependencies
-
-Upon the meticulous configuration of your `aqua.yaml` file, execute the following command to install the specified tools:
 
 ```bash
 aqua install
@@ -15,7 +13,7 @@ aqua install
 windsor init --vm-driver colima local
 windsor context set local
 ```
-This command initializes the application by setting up necessary configurations and environment.
+This command initializes the application by setting up necessary configurations and the contextual environment.
 
 ### Start Talos kubernetets
 
@@ -32,5 +30,3 @@ windsor up
     window.location.href = '../../install/install/index.html'; 
   });
 </script>
-
-
