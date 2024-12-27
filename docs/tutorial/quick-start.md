@@ -1,5 +1,4 @@
 # Quick Start
-After [installation](../install/install.md) use the \`windsor\` command to interact with the CLI:
 
 ### Install Dependencies
 
