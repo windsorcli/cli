@@ -8,13 +8,16 @@ aqua install
 
 ### Set the context to local
 
+Initialize the contextual environment setting up necessary configurations and naming the context.
+
 ```sh
 windsor init --vm-driver colima local
 windsor context set local
 ```
-This command initializes the application by setting up necessary configurations and the contextual environment.
 
-### Start Talos kubernetets
+### Start talos kubernetes cluster
+
+Build the virtual environment and start the talos operating system.
 
 ```sh
 windsor up
