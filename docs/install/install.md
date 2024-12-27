@@ -24,9 +24,10 @@ Aqua is a tool for managing multiple versions of executables. Install it from [A
 
 ### Configure Aqua YAML
 
-Use the following 'aqua.yaml' and the aqua install command to specify and install the necessary tools for the CLI:
+Run the following command to create a aqua.yaml that specifies install the necessary tools for the CLI:
 
-```yaml
+```bash
+cat << 'EOF' > aqua.yaml
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/aquaproj/aqua/main/json-schema/aqua-yaml.json
 # aqua - Declarative CLI Version Manager
@@ -54,14 +55,12 @@ packages:
   - name: aws/aws-cli@2.22.23
   - name: helm/helm@v3.16.4
   - name: fluxcd/flux2@v2.4.0
-  - name: hashicorp/vault@v1.18.3
-  - name: derailed/k9s@v0.32.7
-  - name: getsops/sops@v3.9.2
-```
+  - name
+  ```
 
 ### Install Dependencies
 
-Execute the following command to install the specified tools:
+Execute the aqua install command in the same folder as the aqua.yaml file:
 
 ```bash
 aqua install
