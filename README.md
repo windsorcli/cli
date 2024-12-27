@@ -24,8 +24,8 @@ Key objectives of the Windsor CLI include:
 
 ## [Quick Start](#quick-start)
 
-1. Install the CLI with the [Setup and Installation](./docs/install/install.md)
-2. Deploy a local cluster using the [Quick Start Guide](./docs/tutorial/quick-start.md)
+- **[Setup and Installation](./docs/install/install.md)**
+- **[Quick Start](./docs/tutorial/quick-start.md)**
 
 
 ## [Contributing](#contributing)

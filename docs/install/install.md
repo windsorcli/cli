@@ -1,55 +1,78 @@
-# Install Aqua
-https://aquaproj.github.io/docs/install
+# Windsor CLI Setup and Installation
 
-# Install Pipx
-https://pipx.pypa.io/stable/installation/
+This document delineates a comprehensive methodology for the installation and configuration of the Windsor CLI, with a particular emphasis on the utilization of Aqua for the management of CLI tools. The discourse herein advocates for the adoption of Aqua as an exemplary tool for version management, underscoring its efficacy in ensuring consistency and reliability across development environments.
 
-# Install Poetry
-https://python-poetry.org/docs/#installing-with-pipx
+## Prerequisites
 
-poetry env info --path
+Ensure you have the following prerequisites installed:
 
+### Install Windsor
 
-# Setup and Installation
-
-## [1. Confirm all prerequisites have been met](#prerequisites)
-Ensure you have **[Go](https://golang.org/doc/install)** and **[Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)** installed on your system
-
-## [2. Install the application ](#installation) 
-
-### Go Installation Method
-Follow these steps to install Windsor CLI using Go:
-
-#### Step 1: Go install
-```bash
-go install github.com/windsorcli/cli/cmd/windsor@latest
-```
-
-### Source Code Installation Method
-Follow these steps to install Windsor CLI from the source code:
-
-#### Step 1: Clone the Repository
-```bash
-git clone https://github.com/windsorcli/cli.git
-```
-
-#### Step 2: Build the Application
+To install Windsor, use the following commands:
 
 ```bash
-cd cli;mkdir -p dist;go build -o dist/windsor cmd/windsor/main.go;cd ..
+curl -L -o /usr/local/bin/windsor https://github.com/windsorcli/cli/releases/download/v0.1.1/windsor-darwin-arm64
+```
+```bash
+chmod +x /usr/local/bin/windsor
 ```
 
-#### Step 3: Put application in system PATH
+### Install Aqua
+
+A tool for managing multiple versions of executables. Install it from [Aqua's official documentation](https://aquaproj.github.io/docs/install).
+
+
+### Configure Aqua YAML
+
+The creation of an `aqua.yaml` file within your project directory is imperative for specifying the CLI tools to be managed. The following is a prototypical configuration:
+
+```yaml
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/aquaproj/aqua/main/json-schema/aqua-yaml.json
+# aqua - Declarative CLI Version Manager
+# https://aquaproj.github.io/
+# checksum:
+#   enabled: true
+#   require_checksum: true
+#   supported_envs:
+#   - all
+registries:
+  - type: standard
+    ref: v4.284.1 # renovate: depName=aquaproj/aqua-registry
+packages:
+  - name: hashicorp/terraform@v1.10.3
+  - name: siderolabs/talos@v1.9.0
+  - name: siderolabs/omni/omnictl@v0.45.1
+  - name: siderolabs/omni/omni@v0.45.1
+  - name: kubernetes/kubectl@v1.32.0
+  - name: go-task/task@v3.40.1
+  - name: golang/go@go1.23.4
+  - name: abiosoft/colima@v0.8.1
+  - name: lima-vm/lima@v1.0.2
+  - name: docker/cli@v27.4.1
+  - name: docker/compose@v2.32.1
+  - name: aws/aws-cli@2.22.23
+  - name: helm/helm@v3.16.4
+  - name: fluxcd/flux2@v2.4.0
+  - name: hashicorp/vault@v1.18.3
+  - name: derailed/k9s@v0.32.7
+  - name: getsops/sops@v3.9.2
+```
+
+### Install Dependencies
+
+Upon the meticulous configuration of your `aqua.yaml` file, execute the following command to install the specified tools:
 
 ```bash
-cp cli/dist/windsor /usr/local/bin/windsor
+aqua install
 ```
 
-## [3. Setup Shell Integration](#shell-integration)
+This command ensures that all tools are installed in their specified versions, thereby maintaining a consistent development environment.
 
-Add this `precmd()` definition to your shell configuration file (e.g., `.zshrc` for Zsh or `.bashrc` for Bash).
 
-This is required for the Windsor CLI to load environment variables automatically in the shell:
+## Shell Integration: Seamless Environment Management
+
+To enable the automatic loading of environment variables with the Windsor CLI, incorporate the following `precmd()` function into your shell configuration file (e.g., `.zshrc` for Zsh or `.bashrc` for Bash):
 
 ```bash
 precmd() {
@@ -59,22 +82,21 @@ precmd() {
 }
 ```
 
-## [4. Test windsor command](#test-windsor)
+This function ascertains the presence of the Windsor CLI and loads the requisite environment variables, thereby streamlining the user experience.
 
-Check the version using this command,
+## Version Check
+
+To verify the installation and ascertain the version of the Windsor CLI, execute the following command:
 
 ```bash
 windsor version
 ```
 
-Dump the windsor environment variables,
+This command will display the current version of the Windsor CLI installed on your system, ensuring that the correct version is in use.
 
-```bash
-windsor env
-```
 
 <div>
-{{ footer('Home', '../../index.html', 'Quick Start', '../../tutorial/quick-start/index.html') }}
+  {{ footer('Home', '../../index.html', 'Quick Start', '../../tutorial/quick-start/index.html') }}
 </div>
 
 <script>
