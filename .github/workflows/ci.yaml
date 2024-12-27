@@ -88,3 +88,25 @@ jobs:
         env:
           GOTOOLCHAIN: 'local'
           GOFLAGS: '-buildvcs=false'
+
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21' # Specify the Go version you are using
+
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@v3
+        with:
+          version: latest # You can specify a specific version if needed
+
+      - name: Run GoReleaser
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is automatically provided by GitHub Actions
+        run: goreleaser release --rm-dist
