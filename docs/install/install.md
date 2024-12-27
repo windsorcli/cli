@@ -19,12 +19,12 @@ chmod +x /usr/local/bin/windsor
 
 ### Install Aqua
 
-A tool for managing multiple versions of executables. Install it from [Aqua's official documentation](https://aquaproj.github.io/docs/install).
+Aqua is a tool for managing multiple versions of executables. Install it from [Aqua's official documentation](https://aquaproj.github.io/docs/install).
 
 
 ### Configure Aqua YAML
 
-The creation of an `aqua.yaml` file within your project directory is imperative for specifying the CLI tools to be managed. The following is a prototypical configuration:
+Use the following 'aqua.yaml' and the aqua install command to specify and install the necessary tools for the CLI:
 
 ```yaml
 ---
@@ -82,7 +82,7 @@ precmd() {
 }
 ```
 
-This function ascertains the presence of the Windsor CLI and loads the requisite environment variables, thereby streamlining the user experience.
+This function loads the environment variables contextually.
 
 ## Version Check
 
