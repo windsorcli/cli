@@ -55,8 +55,10 @@ packages:
   - name: aws/aws-cli@2.22.23
   - name: helm/helm@v3.16.4
   - name: fluxcd/flux2@v2.4.0
-  - name
-  ```
+  - name: hashicorp/vault@v1.18.3
+  - name: derailed/k9s@v0.32.7
+  - name: getsops/sops@v3.9.2
+```
 
 ### Install Dependencies
 
