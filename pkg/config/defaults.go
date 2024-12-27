@@ -1,35 +1,38 @@
 package config
 
-import "github.com/windsorcli/cli/pkg/constants"
+import (
+	"github.com/windsorcli/cli/pkg/constants"
+)
 
-// DefaultConfig returns the default configuration
+// DefaultConfig is a default configuration that populates values for all
+// lists and maps.
 var DefaultConfig = Context{
-	Environment: map[string]string{},
 	AWS: &AWSConfig{
-		Enabled:        nil,
-		AWSEndpointURL: nil,
-		AWSProfile:     nil,
-		S3Hostname:     nil,
-		MWAAEndpoint:   nil,
-		Localstack: &LocalstackConfig{
-			Enabled:  nil,
-			Services: nil,
-		},
+		Localstack: &LocalstackConfig{},
 	},
 	Docker: &DockerConfig{
-		Enabled:     nil,
-		Registries:  []Registry{},
-		NetworkCIDR: nil,
+		Registries: []RegistryConfig{},
 	},
-	Terraform: &TerraformConfig{
-		Backend: nil,
+	Terraform: &TerraformConfig{},
+	Cluster: &ClusterConfig{
+		ControlPlanes: struct {
+			Count  *int                  `yaml:"count,omitempty"`
+			CPU    *int                  `yaml:"cpu,omitempty"`
+			Memory *int                  `yaml:"memory,omitempty"`
+			Nodes  map[string]NodeConfig `yaml:"nodes,omitempty"`
+		}{
+			Nodes: make(map[string]NodeConfig),
+		},
+		Workers: struct {
+			Count  *int                  `yaml:"count,omitempty"`
+			CPU    *int                  `yaml:"cpu,omitempty"`
+			Memory *int                  `yaml:"memory,omitempty"`
+			Nodes  map[string]NodeConfig `yaml:"nodes,omitempty"`
+		}{
+			Nodes: make(map[string]NodeConfig),
+		},
 	},
-	Cluster: nil,
-	DNS: &DNSConfig{
-		Enabled: nil,
-		Name:    nil,
-		Address: nil,
-	},
+	DNS: &DNSConfig{},
 }
 
 // DefaultLocalConfig returns the default configuration for the "local" context
@@ -37,14 +40,14 @@ var DefaultLocalConfig = Context{
 	Environment: map[string]string{},
 	Docker: &DockerConfig{
 		Enabled: ptrBool(true),
-		Registries: []Registry{
+		Registries: []RegistryConfig{
 			{
 				Name: "registry",
 			},
 			{
 				Name:   "registry-1.docker",
-				Remote: "https://registry-1.docker.io",
-				Local:  "https://docker.io",
+				Remote: "https://registry-1.io",
+				Local:  "https://io",
 			},
 			{
 				Name:   "registry.k8s",
@@ -84,10 +87,10 @@ var DefaultLocalConfig = Context{
 		Enabled: ptrBool(true),
 		Driver:  ptrString("talos"),
 		ControlPlanes: struct {
-			Count  *int                  `yaml:"count"`
-			CPU    *int                  `yaml:"cpu"`
-			Memory *int                  `yaml:"memory"`
-			Nodes  map[string]NodeConfig `yaml:"nodes"`
+			Count  *int                  `yaml:"count,omitempty"`
+			CPU    *int                  `yaml:"cpu,omitempty"`
+			Memory *int                  `yaml:"memory,omitempty"`
+			Nodes  map[string]NodeConfig `yaml:"nodes,omitempty"`
 		}{
 			Count:  ptrInt(1),
 			CPU:    ptrInt(2),
@@ -95,10 +98,10 @@ var DefaultLocalConfig = Context{
 			Nodes:  make(map[string]NodeConfig),
 		},
 		Workers: struct {
-			Count  *int                  `yaml:"count"`
-			CPU    *int                  `yaml:"cpu"`
-			Memory *int                  `yaml:"memory"`
-			Nodes  map[string]NodeConfig `yaml:"nodes"`
+			Count  *int                  `yaml:"count,omitempty"`
+			CPU    *int                  `yaml:"cpu,omitempty"`
+			Memory *int                  `yaml:"memory,omitempty"`
+			Nodes  map[string]NodeConfig `yaml:"nodes,omitempty"`
 		}{
 			Count:  ptrInt(1),
 			CPU:    ptrInt(4),

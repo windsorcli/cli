@@ -31,3 +31,12 @@ age.public.key
 # Temporary development folders
 contexts/
 .tf_modules/
+
+# managed by windsor cli
+.volumes/
+terraform/**/backend_override.tf
+contexts/**/.terraform/
+contexts/**/.tfstate/
+contexts/**/.kube/
+contexts/**/.talos/
+contexts/**/.aws/

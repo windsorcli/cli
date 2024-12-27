@@ -232,7 +232,7 @@ func TestMockController_CreateServiceComponents(t *testing.T) {
 		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
 				Docker: &config.DockerConfig{
-					Registries: []config.Registry{
+					Registries: []config.RegistryConfig{
 						{Name: "registry1"},
 						{Name: "registry2"},
 					},

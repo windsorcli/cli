@@ -63,30 +63,29 @@ func NewBlueprintHandler(injector di.Injector) *BaseBlueprintHandler {
 	return &BaseBlueprintHandler{injector: injector}
 }
 
-// Initialize initializes the blueprint handler
+// Initialize sets up the blueprint handler by resolving dependencies
+// and configuring the project environment. It resolves the config handler,
+// context handler, and shell, assigning them to the blueprint handler.
+// It also retrieves and sets the project root directory.
 func (b *BaseBlueprintHandler) Initialize() error {
-	// Resolve the config handler
 	configHandler, ok := b.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
 		return fmt.Errorf("error resolving configHandler")
 	}
 	b.configHandler = configHandler
 
-	// Resolve the context handler
 	contextHandler, ok := b.injector.Resolve("contextHandler").(context.ContextHandler)
 	if !ok {
 		return fmt.Errorf("error resolving contextHandler")
 	}
 	b.contextHandler = contextHandler
 
-	// Resolve the shell
 	shell, ok := b.injector.Resolve("shell").(shell.Shell)
 	if !ok {
 		return fmt.Errorf("error resolving shell")
 	}
 	b.shell = shell
 
-	// Get the project root
 	projectRoot, err := b.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("error getting project root: %w", err)
@@ -99,9 +98,9 @@ func (b *BaseBlueprintHandler) Initialize() error {
 //go:embed templates/local.jsonnet
 var localJsonnetTemplate string
 
-// LoadConfig Loads the blueprint from the specified path
+// LoadConfig loads a blueprint from a path, using Jsonnet or YAML data.
 func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
-	// Get the config root
+	// Retrieve the configuration root
 	configRoot, err := b.contextHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
@@ -123,68 +122,78 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 		return yamlErr
 	}
 
-	// Determine the blueprint to load
+	// Retrieve the configuration and marshal it to YAML
+	config := b.configHandler.GetConfig()
+	contextYAML, err := yamlMarshalWithDefinedPaths(config)
+	if err != nil {
+		return fmt.Errorf("error marshalling context to YAML: %w", err)
+	}
+
+	// Unmarshal the YAML back into a generic map
+	var contextMap map[string]interface{}
+	if err := yamlUnmarshal(contextYAML, &contextMap); err != nil {
+		return fmt.Errorf("error unmarshalling context YAML to map: %w", err)
+	}
+
+	// Marshal the map to JSON
+	contextJSON, err := jsonMarshal(contextMap)
+	if err != nil {
+		return fmt.Errorf("error marshalling context map to JSON: %w", err)
+	}
+
+	var evaluatedJsonnet string
+	context := b.contextHandler.GetContext()
+
+	// Process Jsonnet data if available
 	if len(jsonnetData) > 0 {
-		// Load blueprint from jsonnet
+		// Evaluate Jsonnet data
 		vm := jsonnetMakeVM()
-		contextJSON, err := jsonMarshal(b.configHandler.GetConfig())
-		if err != nil {
-			return fmt.Errorf("error marshalling context to JSON: %w", err)
-		}
 		vm.ExtCode("context", string(contextJSON))
 
-		// Evaluate the jsonnet data
-		evaluatedJsonnet, err := vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(jsonnetData))
+		evaluatedJsonnet, err = vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(jsonnetData))
 		if err != nil {
 			return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
 		}
-		if err := yamlUnmarshal([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
-			return fmt.Errorf("error unmarshalling jsonnet data: %w", err)
-		}
-	} else {
-		// Check context and load appropriate blueprint
-		context := b.contextHandler.GetContext()
-		if strings.HasPrefix(context, "local") {
-			// Use ExtCode to inject the context object into local.jsonnet
-			vm := jsonnetMakeVM()
-			contextJSON, err := jsonMarshal(b.configHandler.GetConfig())
-			if err != nil {
-				return fmt.Errorf("error marshalling context to JSON: %w", err)
-			}
-			vm.ExtCode("context", string(contextJSON))
+	} else if strings.HasPrefix(context, "local") {
+		// Load local Jsonnet template
+		vm := jsonnetMakeVM()
+		vm.ExtCode("context", string(contextJSON))
 
-			// Load local.jsonnet as blueprint
-			evaluatedJsonnet, err := vm.EvaluateAnonymousSnippet("local.jsonnet", localJsonnetTemplate)
-			if err != nil {
-				return fmt.Errorf("error generating blueprint from local jsonnet: %w", err)
-			}
-			if err := yamlUnmarshal([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
-				return fmt.Errorf("error unmarshalling local jsonnet data: %w", err)
-			}
-		} else {
-			// Load DefaultBlueprint
-			b.blueprint = DefaultBlueprint
-			b.blueprint.Metadata.Name = context
-			b.blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", context)
+		evaluatedJsonnet, err = vm.EvaluateAnonymousSnippet("local.jsonnet", localJsonnetTemplate)
+		if err != nil {
+			return fmt.Errorf("error generating blueprint from local jsonnet: %w", err)
 		}
 	}
 
+	// Load default blueprint if no Jsonnet data was processed, else unmarshal evaluated Jsonnet data
+	if evaluatedJsonnet == "" {
+		b.blueprint = DefaultBlueprint
+		b.blueprint.Metadata.Name = context
+		b.blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", context)
+	} else {
+		if err := yamlUnmarshal([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
+			return fmt.Errorf("error unmarshalling jsonnet data: %w", err)
+		}
+	}
+
+	// Unmarshal YAML data if present
 	if len(yamlData) > 0 {
 		if err := yamlUnmarshal(yamlData, &b.localBlueprint); err != nil {
 			return fmt.Errorf("error unmarshalling yaml data: %w", err)
 		}
 	}
 
-	// Merge the local blueprint into the main blueprint
+	// Merge local blueprint into the main blueprint
 	mergeBlueprints(&b.blueprint, &b.localBlueprint)
 
 	return nil
 }
 
-// WriteConfig writes the current blueprint to a specified path or a default location
+// WriteConfig saves the current blueprint to a specified file path or defaults to a standard location if no path is provided.
+// It ensures the directory structure exists, creates a deep copy of the blueprint, removes variables and values,
+// merges local blueprint data, and writes the final YAML representation to the file system.
 func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 	finalPath := ""
-	// Determine the final path to save the blueprint
 	if len(path) > 0 && path[0] != "" {
 		finalPath = path[0]
 	} else {
@@ -195,31 +204,25 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 		finalPath = filepath.Join(configRoot, "blueprint.yaml")
 	}
 
-	// Ensure the parent directory exists
 	dir := filepath.Dir(finalPath)
 	if err := osMkdirAll(dir, os.ModePerm); err != nil {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
-	// Create a copy of the blueprint to avoid modifying the original
 	fullBlueprint := b.blueprint.deepCopy()
 
-	// Remove "variables" and "values" sections from all terraform components in the full blueprint
 	for i := range fullBlueprint.TerraformComponents {
 		fullBlueprint.TerraformComponents[i].Variables = nil
 		fullBlueprint.TerraformComponents[i].Values = nil
 	}
 
-	// Merge the local blueprint into the full blueprint, giving precedence to the local blueprint
 	mergeBlueprints(fullBlueprint, &b.localBlueprint)
 
-	// Convert the merged blueprint struct into YAML format, omitting null values
 	data, err := yamlMarshalNonNull(fullBlueprint)
 	if err != nil {
 		return fmt.Errorf("error marshalling yaml: %w", err)
 	}
 
-	// Write the YAML data to the determined path with appropriate permissions
 	if err := osWriteFile(finalPath, data, 0644); err != nil {
 		return fmt.Errorf("error writing blueprint file: %w", err)
 	}
@@ -493,4 +496,121 @@ var mergeBlueprints = func(dst, src *BlueprintV1Alpha1) {
 			}
 		}
 	}
+}
+
+// yamlMarshalWithDefinedPaths marshals YAML ensuring all parent paths are defined.
+func yamlMarshalWithDefinedPaths(v interface{}) ([]byte, error) {
+	if v == nil {
+		return nil, fmt.Errorf("invalid input: nil value")
+	}
+
+	var convert func(reflect.Value) (interface{}, error)
+	convert = func(val reflect.Value) (interface{}, error) {
+		switch val.Kind() {
+		case reflect.Ptr, reflect.Interface:
+			if val.IsNil() {
+				// Handle nil pointers to empty structs
+				if val.Kind() == reflect.Interface || (val.Kind() == reflect.Ptr && val.Type().Elem().Kind() == reflect.Struct) {
+					return make(map[string]interface{}), nil
+				}
+				return nil, nil
+			}
+			return convert(val.Elem())
+		case reflect.Struct:
+			result := make(map[string]interface{})
+			typ := val.Type()
+			for i := 0; i < val.NumField(); i++ {
+				fieldValue := val.Field(i)
+				fieldType := typ.Field(i)
+
+				if fieldType.PkgPath != "" {
+					continue
+				}
+
+				yamlTag := strings.Split(fieldType.Tag.Get("yaml"), ",")[0]
+				if yamlTag == "-" {
+					continue
+				}
+				if yamlTag == "" {
+					yamlTag = fieldType.Name
+				}
+
+				fieldInterface, err := convert(fieldValue)
+				if err != nil {
+					return nil, fmt.Errorf("error converting field %s: %w", fieldType.Name, err)
+				}
+				if fieldInterface != nil || fieldType.Type.Kind() == reflect.Interface || fieldType.Type.Kind() == reflect.Slice || fieldType.Type.Kind() == reflect.Map || fieldType.Type.Kind() == reflect.Struct {
+					result[yamlTag] = fieldInterface
+				}
+			}
+			return result, nil
+		case reflect.Slice, reflect.Array:
+			if val.Len() == 0 {
+				return []interface{}{}, nil
+			}
+			slice := make([]interface{}, val.Len())
+			for i := 0; i < val.Len(); i++ {
+				elemVal := val.Index(i)
+				if elemVal.Kind() == reflect.Ptr || elemVal.Kind() == reflect.Interface {
+					if elemVal.IsNil() {
+						slice[i] = nil
+						continue
+					}
+				}
+				elemInterface, err := convert(elemVal)
+				if err != nil {
+					return nil, fmt.Errorf("error converting slice element at index %d: %w", i, err)
+				}
+				slice[i] = elemInterface
+			}
+			return slice, nil
+		case reflect.Map:
+			result := make(map[string]interface{})
+			for _, key := range val.MapKeys() {
+				keyStr := fmt.Sprintf("%v", key.Interface())
+				elemVal := val.MapIndex(key)
+				if elemVal.Kind() == reflect.Interface && elemVal.IsNil() {
+					result[keyStr] = nil
+					continue
+				}
+				elemInterface, err := convert(elemVal)
+				if err != nil {
+					return nil, fmt.Errorf("error converting map value for key %s: %w", keyStr, err)
+				}
+				if elemInterface != nil || elemVal.Kind() == reflect.Interface || elemVal.Kind() == reflect.Slice || elemVal.Kind() == reflect.Map || elemVal.Kind() == reflect.Struct {
+					result[keyStr] = elemInterface
+				}
+			}
+			return result, nil
+		case reflect.String:
+			return val.String(), nil
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			return val.Int(), nil
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			return val.Uint(), nil
+		case reflect.Float32, reflect.Float64:
+			return val.Float(), nil
+		case reflect.Bool:
+			return val.Bool(), nil
+		default:
+			return nil, fmt.Errorf("unsupported value type %s", val.Kind())
+		}
+	}
+
+	val := reflect.ValueOf(v)
+	if val.Kind() == reflect.Func {
+		return nil, fmt.Errorf("unsupported value type func")
+	}
+
+	processed, err := convert(val)
+	if err != nil {
+		return nil, err
+	}
+
+	yamlData, err := yamlMarshal(processed)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling yaml: %w", err)
+	}
+
+	return yamlData, nil
 }

@@ -70,11 +70,6 @@ func (vm *jsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string,
 	return vm.VM.EvaluateAnonymousSnippet(filename, snippet)
 }
 
-// TLACode is a wrapper around jsonnet.VM.TLACode
-func (vm *jsonnetVM) TLACode(key, val string) {
-	vm.VM.TLACode(key, val)
-}
-
 // ExtCode is a wrapper around jsonnet.VM.ExtCode
 func (vm *jsonnetVM) ExtCode(key, val string) {
 	vm.VM.ExtCode(key, val)
