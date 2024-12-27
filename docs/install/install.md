@@ -6,12 +6,12 @@ This document describes how to setup and initialize a new blueprint on MacOS.
 
 Ensure you have the following prerequisites installed:
 
-### Install Windsor
+### Install Windsor on MacOS
 
 To install Windsor, use the following commands:
 
 ```bash
-curl -L -o /usr/local/bin/windsor https://github.com/windsorcli/cli/releases/download/v0.1.1/windsor-darwin-arm64
+curl -L -o /usr/local/bin/windsor https://github.com/windsorcli/cli/releases/download/v0.2.0/windsor-darwin-arm64
 ```
 ```bash
 chmod +x /usr/local/bin/windsor
