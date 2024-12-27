@@ -18,9 +18,7 @@ type YamlConfigHandler struct {
 
 // NewYamlConfigHandler creates a new instance of YamlConfigHandler with default context configuration.
 func NewYamlConfigHandler() *YamlConfigHandler {
-	return &YamlConfigHandler{
-		// defaultContextConfig: DefaultConfig,
-	}
+	return &YamlConfigHandler{}
 }
 
 // LoadConfig loads the configuration from the specified path. If the file does not exist, it does nothing.

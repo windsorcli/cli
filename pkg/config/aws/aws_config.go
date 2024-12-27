@@ -1,4 +1,4 @@
-package config
+package aws
 
 // AWSConfig represents the AWS configuration
 type AWSConfig struct {

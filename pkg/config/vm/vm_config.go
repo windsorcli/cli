@@ -1,4 +1,4 @@
-package config
+package vm
 
 // VMConfig represents the VM configuration
 type VMConfig struct {
@@ -12,6 +12,9 @@ type VMConfig struct {
 
 // Merge performs a deep merge of the current VMConfig with another VMConfig.
 func (base *VMConfig) Merge(overlay *VMConfig) {
+	if overlay == nil {
+		return
+	}
 	if overlay.Address != nil {
 		base.Address = overlay.Address
 	}

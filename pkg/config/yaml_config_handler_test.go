@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/config/aws"
 )
 
 func TestNewYamlConfigHandler(t *testing.T) {
@@ -17,32 +19,33 @@ func TestNewYamlConfigHandler(t *testing.T) {
 	})
 }
 
-func TestYamlConfigHandler_LoadConfigUsingMocks(t *testing.T) {
-
-	// Given mock functions
-	var (
-		mockOsStat      = osStat
-		mockOsMkdirAll  = osMkdirAll
-		mockOsWriteFile = osWriteFile
-	)
-
-	// Then restore original functions after tests
-	defer func() {
-		osStat = mockOsStat
-		osMkdirAll = mockOsMkdirAll
-		osWriteFile = mockOsWriteFile
-	}()
-}
-
 func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 	t.Run("WithPath", func(t *testing.T) {
 		handler := NewYamlConfigHandler()
 		// Given a valid config path
 		tempDir := t.TempDir()
-		err := handler.LoadConfig(tempDir + "/config.yaml")
-		// Then no error should be returned
+		configPath := filepath.Join(tempDir, "config.yaml")
+
+		// Create a mock config file in the temporary directory
+		err := os.WriteFile(configPath, []byte("valid: data"), 0644)
 		if err != nil {
-			t.Errorf("Expected error = %v, got = %v", nil, err)
+			t.Fatalf("Failed to create mock config file: %v", err)
+		}
+
+		// Mock yamlUnmarshal to simulate successful unmarshalling
+		originalYamlUnmarshal := yamlUnmarshal
+		yamlUnmarshal = func(data []byte, v interface{}) error {
+			return nil
+		}
+		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
+
+		err = handler.LoadConfig(configPath)
+		// Then no error should be returned and path should be set
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if handler.path != configPath {
+			t.Errorf("Expected handler.path to be %v, got %v", configPath, handler.path)
 		}
 	})
 
@@ -84,6 +87,42 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("ReadFileError", func(t *testing.T) {
+		handler := NewYamlConfigHandler()
+
+		// When mocking osStat to simulate an existing file
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) {
+			return nil, nil
+		}
+
+		// When mocking osReadFile to return an error
+		originalOsReadFile := osReadFile
+		defer func() { osReadFile = originalOsReadFile }()
+		osReadFile = func(filename string) ([]byte, error) {
+			return nil, fmt.Errorf("mocked error reading file")
+		}
+
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.yaml")
+
+		err := handler.LoadConfig(configPath)
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("LoadConfig() expected error, got nil")
+		}
+
+		// Then check if the error message is as expected
+		expectedError := "error reading config file: mocked error reading file"
+		if err.Error() != expectedError {
+			t.Errorf("LoadConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
+
+	// Mock implementation of os.FileInfo
+	type mockFileInfo struct{}
+
 	t.Run("UnmarshalError", func(t *testing.T) {
 		handler := NewYamlConfigHandler()
 
@@ -124,7 +163,7 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 		handler.Set("context", "local")
 		// When setting the default context (should not be used)
 		defaultContext := Context{
-			AWS: &AWSConfig{
+			AWS: &aws.AWSConfig{
 				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
 			},
 		}
@@ -189,6 +228,29 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		expectedError := "path cannot be empty"
 		if err.Error() != expectedError {
 			t.Fatalf("SaveConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
+
+	t.Run("CreateDirectoriesError", func(t *testing.T) {
+		handler := NewYamlConfigHandler()
+		handler.path = filepath.Join(t.TempDir(), "config.yaml")
+
+		// Mock osMkdirAll to simulate a directory creation error
+		originalOsMkdirAll := osMkdirAll
+		defer func() { osMkdirAll = originalOsMkdirAll }()
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mocked error creating directories")
+		}
+
+		err := handler.SaveConfig(handler.path)
+		if err == nil {
+			t.Fatalf("SaveConfig() expected error, got nil")
+		}
+
+		// Then check if the error message is as expected
+		expectedErrorMessage := "error creating directories: mocked error creating directories"
+		if err.Error() != expectedErrorMessage {
+			t.Errorf("Unexpected error message. Got: %s, Expected: %s", err.Error(), expectedErrorMessage)
 		}
 	})
 
@@ -296,7 +358,7 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 						"name":  "John Doe",
 						"email": "john.doe@example.com",
 					},
-					AWS: &AWSConfig{
+					AWS: &aws.AWSConfig{
 						AWSEndpointURL: nil,
 					},
 				},
@@ -336,7 +398,7 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 		// When given a non-existent key in the config
 		got := handler.GetString("nonExistentKey")
 
-		// Then an error should be returned
+		// Then an empty string should be returned
 		expectedValue := ""
 		if got != expectedValue {
 			t.Errorf("GetString() = %v, expected %v", got, expectedValue)
@@ -355,9 +417,34 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 		defaultValue := "defaultString"
 		value := handler.GetString("non.existent.key", defaultValue)
 
-		// Then the default value should be returned without error
+		// Then the default value should be returned
 		if value != defaultValue {
 			t.Errorf("Expected value '%v', got '%v'", defaultValue, value)
+		}
+	})
+
+	t.Run("WithExistingKey", func(t *testing.T) {
+		// Given the existing context in the configuration with a key-value pair
+		handler := &YamlConfigHandler{
+			config: Config{
+				Context: ptrString("default"),
+				Contexts: map[string]*Context{
+					"default": {
+						Environment: map[string]string{
+							"existingKey": "existingValue",
+						},
+					},
+				},
+			},
+		}
+
+		// When calling GetString with an existing key
+		got := handler.GetString("environment.existingKey")
+
+		// Then the value should be returned as a string
+		expectedValue := "existingValue"
+		if got != expectedValue {
+			t.Errorf("GetString() = %v, expected %v", got, expectedValue)
 		}
 	})
 }
@@ -370,7 +457,7 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 				Context: ptrString("default"),
 				Contexts: map[string]*Context{
 					"default": {
-						AWS: &AWSConfig{
+						AWS: &aws.AWSConfig{
 							AWSEndpointURL: ptrString("notAnInt"),
 						},
 					},
@@ -784,7 +871,7 @@ func TestSetValueByPath(t *testing.T) {
 					Environment: map[string]string{
 						"level2": "value2",
 					},
-					AWS: &AWSConfig{
+					AWS: &aws.AWSConfig{
 						AWSEndpointURL: ptrString("http://aws.test:4566"),
 					},
 				},

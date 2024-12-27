@@ -1,4 +1,4 @@
-package config
+package git
 
 // GitConfig represents the Git configuration
 type GitConfig struct {

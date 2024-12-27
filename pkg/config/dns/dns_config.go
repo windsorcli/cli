@@ -1,4 +1,4 @@
-package config
+package dns
 
 // DNSConfig represents the DNS configuration
 type DNSConfig struct {

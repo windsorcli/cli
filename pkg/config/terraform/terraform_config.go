@@ -1,4 +1,4 @@
-package config
+package terraform
 
 // TerraformConfig represents the Terraform configuration
 type TerraformConfig struct {

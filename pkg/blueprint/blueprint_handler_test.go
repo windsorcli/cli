@@ -120,11 +120,6 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockInjector.Register("configHandler", mockConfigHandler)
 
-	// Mock the config handler to return the default configuration
-	mockConfigHandler.GetConfigFunc = func() *config.Context {
-		return &config.DefaultConfig
-	}
-
 	// Mock the context handler methods
 	mockContextHandler.GetConfigRootFunc = func() (string, error) {
 		return "/mock/config/root", nil

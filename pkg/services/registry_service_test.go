@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/config/docker"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -40,9 +41,9 @@ func setupSafeRegistryServiceMocks(optionalInjector ...di.Injector) *MockCompone
 	// Set up the mock config handler to return a safe default configuration for Registry
 	mockConfigHandler.GetConfigFunc = func() *config.Context {
 		return &config.Context{
-			Docker: &config.DockerConfig{
+			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(true),
-				Registries: []config.RegistryConfig{
+				Registries: []docker.RegistryConfig{
 					{
 						Name:   "registry",
 						Remote: "registry.remote",

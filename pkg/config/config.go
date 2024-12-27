@@ -1,19 +1,32 @@
 package config
 
+import (
+	"github.com/windsorcli/cli/pkg/config/aws"
+	"github.com/windsorcli/cli/pkg/config/cluster"
+	"github.com/windsorcli/cli/pkg/config/dns"
+	"github.com/windsorcli/cli/pkg/config/docker"
+	"github.com/windsorcli/cli/pkg/config/git"
+	"github.com/windsorcli/cli/pkg/config/terraform"
+	"github.com/windsorcli/cli/pkg/config/vm"
+)
+
 // Context represents the context configuration
 type Context struct {
-	Environment map[string]string `yaml:"environment,omitempty"`
-	AWS         *AWSConfig        `yaml:"aws,omitempty"`
-	Docker      *DockerConfig     `yaml:"docker,omitempty"`
-	Git         *GitConfig        `yaml:"git,omitempty"`
-	Terraform   *TerraformConfig  `yaml:"terraform,omitempty"`
-	VM          *VMConfig         `yaml:"vm,omitempty"`
-	Cluster     *ClusterConfig    `yaml:"cluster,omitempty"`
-	DNS         *DNSConfig        `yaml:"dns,omitempty"`
+	Environment map[string]string          `yaml:"environment,omitempty"`
+	AWS         *aws.AWSConfig             `yaml:"aws,omitempty"`
+	Docker      *docker.DockerConfig       `yaml:"docker,omitempty"`
+	Git         *git.GitConfig             `yaml:"git,omitempty"`
+	Terraform   *terraform.TerraformConfig `yaml:"terraform,omitempty"`
+	VM          *vm.VMConfig               `yaml:"vm,omitempty"`
+	Cluster     *cluster.ClusterConfig     `yaml:"cluster,omitempty"`
+	DNS         *dns.DNSConfig             `yaml:"dns,omitempty"`
 }
 
 // Merge performs a deep merge of the current Context with another Context.
 func (base *Context) Merge(overlay *Context) {
+	if overlay == nil {
+		return
+	}
 	if overlay.Environment != nil {
 		if base.Environment == nil {
 			base.Environment = make(map[string]string)
@@ -24,43 +37,43 @@ func (base *Context) Merge(overlay *Context) {
 	}
 	if overlay.AWS != nil {
 		if base.AWS == nil {
-			base.AWS = &AWSConfig{}
+			base.AWS = &aws.AWSConfig{}
 		}
 		base.AWS.Merge(overlay.AWS)
 	}
 	if overlay.Docker != nil {
 		if base.Docker == nil {
-			base.Docker = &DockerConfig{}
+			base.Docker = &docker.DockerConfig{}
 		}
 		base.Docker.Merge(overlay.Docker)
 	}
 	if overlay.Git != nil {
 		if base.Git == nil {
-			base.Git = &GitConfig{}
+			base.Git = &git.GitConfig{}
 		}
 		base.Git.Merge(overlay.Git)
 	}
 	if overlay.Terraform != nil {
 		if base.Terraform == nil {
-			base.Terraform = &TerraformConfig{}
+			base.Terraform = &terraform.TerraformConfig{}
 		}
 		base.Terraform.Merge(overlay.Terraform)
 	}
 	if overlay.VM != nil {
 		if base.VM == nil {
-			base.VM = &VMConfig{}
+			base.VM = &vm.VMConfig{}
 		}
 		base.VM.Merge(overlay.VM)
 	}
 	if overlay.Cluster != nil {
 		if base.Cluster == nil {
-			base.Cluster = &ClusterConfig{}
+			base.Cluster = &cluster.ClusterConfig{}
 		}
 		base.Cluster.Merge(overlay.Cluster)
 	}
 	if overlay.DNS != nil {
 		if base.DNS == nil {
-			base.DNS = &DNSConfig{}
+			base.DNS = &dns.DNSConfig{}
 		}
 		base.DNS.Merge(overlay.DNS)
 	}

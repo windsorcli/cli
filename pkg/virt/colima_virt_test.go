@@ -12,6 +12,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/config/vm"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -42,7 +43,7 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 	// Set up the mock config handler to return a safe default configuration for Colima VMs
 	mockConfigHandler.GetConfigFunc = func() *config.Context {
 		return &config.Context{
-			VM: &config.VMConfig{
+			VM: &vm.VMConfig{
 				Arch:   ptrString(goArch),
 				CPU:    ptrInt(numCPU()),
 				Disk:   ptrInt(20 * 1024 * 1024 * 1024), // 20GB

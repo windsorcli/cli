@@ -1,4 +1,4 @@
-package config
+package cluster
 
 // ClusterConfig represents the cluster configuration
 type ClusterConfig struct {

@@ -1,4 +1,4 @@
-package config
+package docker
 
 // DockerConfig represents the Docker configuration
 type DockerConfig struct {
@@ -22,20 +22,32 @@ func (base *DockerConfig) Merge(overlay *DockerConfig) {
 	if overlay.NetworkCIDR != nil {
 		base.NetworkCIDR = overlay.NetworkCIDR
 	}
-	for i, overlayRegistry := range overlay.Registries {
-		if i < len(base.Registries) {
-			if overlayRegistry.Name != "" {
-				base.Registries[i].Name = overlayRegistry.Name
-			}
+
+	// Create a map to uniquely index base registries by Name
+	registryMap := make(map[string]RegistryConfig)
+	for _, registry := range base.Registries {
+		registryMap[registry.Name] = registry
+	}
+
+	// Merge overlay registries into the base, uniquely indexed by Name
+	for _, overlayRegistry := range overlay.Registries {
+		if baseRegistry, exists := registryMap[overlayRegistry.Name]; exists {
 			if overlayRegistry.Remote != "" {
-				base.Registries[i].Remote = overlayRegistry.Remote
+				baseRegistry.Remote = overlayRegistry.Remote
 			}
 			if overlayRegistry.Local != "" {
-				base.Registries[i].Local = overlayRegistry.Local
+				baseRegistry.Local = overlayRegistry.Local
 			}
+			registryMap[overlayRegistry.Name] = baseRegistry
 		} else {
-			base.Registries = append(base.Registries, overlayRegistry)
+			registryMap[overlayRegistry.Name] = overlayRegistry
 		}
+	}
+
+	// Update base.Registries with merged results
+	base.Registries = make([]RegistryConfig, 0, len(registryMap))
+	for _, registry := range registryMap {
+		base.Registries = append(base.Registries, registry)
 	}
 }
 
@@ -69,4 +81,13 @@ func (c *DockerConfig) Copy() *DockerConfig {
 		Registries:  registriesCopy,
 		NetworkCIDR: networkCIDRCopy,
 	}
+}
+
+// Helper functions to create pointers for basic types
+func ptrString(s string) *string {
+	return &s
+}
+
+func ptrBool(b bool) *bool {
+	return &b
 }
