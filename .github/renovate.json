@@ -1,6 +1,5 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-
   "extends": [
     "config:recommended",
     "github>aquaproj/aqua-renovate-config#2.6.0",
@@ -9,39 +8,58 @@
   "packageRules": [
     {
       "description": "Pin GitHub Actions to specific commit SHAs",
-      "matchManagers": ["github-actions"],
-      "matchPackagePatterns": [".*"],
+      "matchManagers": [
+        "github-actions"
+      ],
       "versioning": "github-tags",
       "pinDigests": true,
       "automerge": true,
       "automergeType": "pr",
-      "automergeStrategy": "squash"
+      "automergeStrategy": "squash",
+      "matchPackageNames": [
+        "/.*/"
+      ]
     },
     {
-      "matchUpdateTypes": ["major", "minor", "patch"],
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch"
+      ],
       "enabled": true,
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "squash",
-      "labels": ["dependencies"]
+      "labels": [
+        "dependencies"
+      ]
     },
     {
       "description": "Update Go modules",
-      "matchManagers": ["gomod"],
+      "matchManagers": [
+        "gomod"
+      ],
       "enabled": true,
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "squash",
-      "labels": ["go", "dependencies"]
+      "labels": [
+        "go",
+        "dependencies"
+      ]
     },
     {
       "description": "Update Taskfile dependencies",
-      "matchFileNames": ["Taskfile.yaml"],
+      "matchFileNames": [
+        "Taskfile.yaml"
+      ],
       "enabled": true,
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "squash",
-      "labels": ["dependencies"]
+      "labels": [
+        "dependencies"
+      ]
     }
   ],
   "platformAutomerge": true,
