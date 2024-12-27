@@ -23,6 +23,12 @@ Build the virtual environment and start the talos operating system.
 windsor up
 ```
 
+### List kubernetes nodes
+
+```sh
+kubectl get nodes
+```
+
 <div>
 {{ previous_footer('Installation', '../../install/install/index.html') }}
 </div>
