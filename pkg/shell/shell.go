@@ -20,6 +20,7 @@ const maxFolderSearchDepth = 10
 
 // Shell interface defines methods for shell operations
 type Shell interface {
+	// Initialize initializes the shell environment
 	Initialize() error
 	// PrintEnvVars prints the provided environment variables
 	PrintEnvVars(envVars map[string]string) error
@@ -35,6 +36,8 @@ type Shell interface {
 	ExecSudo(message string, command string, args ...string) (string, error)
 	// ExecProgress executes a command and returns its output as a string while displaying progress status
 	ExecProgress(message string, command string, args ...string) (string, error)
+	// InstallHook installs a shell hook for the specified shell name
+	InstallHook(shellName string) error
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -276,4 +279,21 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	fmt.Printf("\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 
 	return stdoutBuf.String(), nil // Return the captured stdout as a string
+}
+
+// InstallHook installs a shell hook if it exists for the given shell name.
+// It executes the hook command silently and returns an error if the shell is unsupported.
+func (s *DefaultShell) InstallHook(shellName string) error {
+	// Check if a hook exists for the given shell name
+	if hook, exists := shellHooks[shellName]; exists {
+		// Execute the hook command silently
+		_, err := s.ExecSilent("eval", hook)
+		if err != nil {
+			return fmt.Errorf("failed to execute hook for shell %s: %w", shellName, err)
+		}
+		return nil
+	} else {
+		// Return an error if the shell is unsupported
+		return fmt.Errorf("unsupported shell: %s", shellName)
+	}
 }
