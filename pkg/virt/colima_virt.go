@@ -34,13 +34,13 @@ func (v *ColimaVirt) Up() error {
 	// Start the Colima VM
 	info, err := v.startColima()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to start Colima VM: %w", err)
 	}
 
-	// Begin hack to get the VM address into the config
-	configData := v.configHandler.GetConfig()
-	configData.VM.Address = &info.Address
-	// End hack
+	// Set the VM address in the config handler
+	if err := v.configHandler.SetContextValue("vm.address", info.Address); err != nil {
+		return fmt.Errorf("failed to set VM address in config handler: %w", err)
+	}
 
 	return nil
 }
@@ -101,10 +101,7 @@ func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
 func (v *ColimaVirt) WriteConfig() error {
 	context := v.contextHandler.GetContext()
 
-	config := v.configHandler.GetConfig()
-
-	// Check if VM is defined and if the vm driver is colima
-	if config.VM == nil || config.VM.Driver == nil || *config.VM.Driver != "colima" {
+	if v.configHandler.GetString("vm.driver") != "colima" {
 		return nil
 	}
 
@@ -115,21 +112,16 @@ func (v *ColimaVirt) WriteConfig() error {
 		vmType = "vz"
 	}
 
-	// Helper function to override default values with context-specific values if provided
-	overrideValue := func(defaultValue *int, configValue *int) {
-		if configValue != nil && *configValue != 0 {
-			*defaultValue = *configValue
-		}
+	cpu = v.configHandler.GetInt("vm.cpu", cpu)
+	disk = v.configHandler.GetInt("vm.disk", disk)
+	memory = v.configHandler.GetInt("vm.memory", memory)
+
+	archValue := v.configHandler.GetString("vm.arch")
+	if archValue != "" {
+		arch = archValue
 	}
 
-	overrideValue(&cpu, config.VM.CPU)
-	overrideValue(&disk, config.VM.Disk)
-	overrideValue(&memory, config.VM.Memory)
-
-	if config.VM.Arch != nil && *config.VM.Arch != "" {
-		arch = *config.VM.Arch
-	}
-
+	// Use the config package to create a new Colima configuration
 	configData := map[string]interface{}{
 		"cpu":      cpu,
 		"disk":     disk,

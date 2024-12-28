@@ -42,11 +42,6 @@ func ptrString(s string) *string {
 	return &s
 }
 
-// ptrInt is a function that creates a pointer to an int.
-func ptrInt(i int) *int {
-	return &i
-}
-
 // ptrBool is a function that creates a pointer to a bool.
 func ptrBool(b bool) *bool {
 	return &b
