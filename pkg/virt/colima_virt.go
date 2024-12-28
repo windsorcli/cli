@@ -38,7 +38,7 @@ func (v *ColimaVirt) Up() error {
 	}
 
 	// Set the VM address in the config handler
-	v.configHandler.Set("vm.address", info.Address)
+	v.configHandler.SetContextValue("vm.address", info.Address)
 
 	return nil
 }
