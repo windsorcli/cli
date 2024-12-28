@@ -60,6 +60,7 @@ func (g *GitGenerator) Write() error {
 		"# managed by windsor cli",
 		".volumes/",
 		".tf_modules/",
+		".docker-cache/",
 		"terraform/**/backend_override.tf",
 		"contexts/**/.terraform/",
 		"contexts/**/.tfstate/",

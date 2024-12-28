@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -51,6 +52,19 @@ func setupSafeRegistryServiceMocks(optionalInjector ...di.Injector) *MockCompone
 				},
 				NetworkCIDR: ptrString("10.5.0.0/16"),
 			},
+		}
+	}
+
+	// Ensure the GetString method returns "test" for the key "dns.name"
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		switch key {
+		case "dns.name":
+			return "test"
+		default:
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 	}
 
@@ -141,6 +155,61 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		// Then: an error should be returned indicating no registry was found
 		if err == nil || !strings.Contains(err.Error(), "no registry found with name") {
 			t.Fatalf("expected error indicating no registry found, got %v", err)
+		}
+	})
+}
+
+func TestRegistryService_SetAddress(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock config handler, shell, context, and service
+		mocks := setupSafeRegistryServiceMocks()
+		registryService := NewRegistryService(mocks.Injector)
+		registryService.SetName("registry")
+		err := registryService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Mock the SetContextValue function to track if it's called
+		setContextValueCalled := false
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			setContextValueCalled = true
+			return nil
+		}
+
+		// When: SetAddress is called with a valid address
+		address := "192.168.1.1"
+		err = registryService.SetAddress(address)
+		if err != nil {
+			t.Fatalf("SetAddress() error = %v", err)
+		}
+
+		// Then: verify SetContextValue was called
+		if !setContextValueCalled {
+			t.Errorf("expected SetContextValue to be called, but it was not")
+		}
+	})
+
+	t.Run("Failure_SetHostnameError", func(t *testing.T) {
+		// Given: a mock config handler that will fail to set context value
+		mocks := setupSafeRegistryServiceMocks()
+		mocks.MockConfigHandler.SetContextValueFunc = func(path string, value interface{}) error {
+			return fmt.Errorf("failed to set context value")
+		}
+		registryService := NewRegistryService(mocks.Injector)
+		registryService.SetName("registry")
+		err := registryService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: SetAddress is called
+		address := "192.168.1.1"
+		err = registryService.SetAddress(address)
+
+		// Then: an error should be returned
+		if err == nil || !strings.Contains(err.Error(), "failed to set hostname for registry") {
+			t.Fatalf("expected error indicating failure to set hostname, got %v", err)
 		}
 	})
 }

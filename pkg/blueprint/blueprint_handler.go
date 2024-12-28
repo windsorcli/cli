@@ -1,7 +1,6 @@
 package blueprint
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -310,45 +309,6 @@ var isValidTerraformRemoteSource = func(source string) bool {
 	}
 
 	return false
-}
-
-// generateBlueprintFromJsonnet generates a blueprint from a jsonnet template
-var generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
-	yamlBytes, err := yamlMarshal(contextConfig)
-	if err != nil {
-		return "", err
-	}
-	jsonBytes, err := yamlToJson(yamlBytes)
-	if err != nil {
-		return "", err
-	}
-
-	snippetWithContext := fmt.Sprintf(`
-local context = %s;
-%s
-`, string(jsonBytes), jsonnetTemplate)
-
-	vm := jsonnetMakeVM()
-	evaluatedJsonnet, err := vm.EvaluateAnonymousSnippet("blueprint", snippetWithContext)
-	if err != nil {
-		return "", err
-	}
-
-	yamlOutput, err := yamlJSONToYAML([]byte(evaluatedJsonnet))
-	if err != nil {
-		return "", err
-	}
-
-	return string(yamlOutput), nil
-}
-
-// Convert YAML (as []byte) to JSON (as []byte)
-var yamlToJson = func(yamlBytes []byte) ([]byte, error) {
-	var data interface{}
-	if err := yamlUnmarshal(yamlBytes, &data); err != nil {
-		return nil, err
-	}
-	return json.Marshal(data)
 }
 
 // loadFileData loads the file data from the specified path

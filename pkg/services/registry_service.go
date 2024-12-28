@@ -50,7 +50,7 @@ func (s *RegistryService) SetAddress(address string) error {
 	hostName := s.name + "." + tld
 
 	// Set the hostname field in the registry configuration
-	err := s.configHandler.Set(fmt.Sprintf("docker.registries.%s.hostname", s.name), hostName)
+	err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostname", s.name), hostName)
 	if err != nil {
 		return fmt.Errorf("failed to set hostname for registry %s: %w", s.name, err)
 	}

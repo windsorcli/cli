@@ -48,8 +48,8 @@ var DefaultLocalConfig = Context{
 		Registries: map[string]docker.RegistryConfig{
 			"registry": {},
 			"registry-1.docker": {
-				Remote: "https://registry-1.io",
-				Local:  "https://io",
+				Remote: "https://registry-1.docker.io",
+				Local:  "https://docker.io",
 			},
 			"registry.k8s": {
 				Remote: "https://registry.k8s.io",

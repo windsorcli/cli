@@ -408,12 +408,12 @@ func parsePath(path string) []string {
 			}
 		case '[':
 			inBracket = true
-		case ']':
-			inBracket = false
 			if currentKey.Len() > 0 {
 				keys = append(keys, currentKey.String())
 				currentKey.Reset()
 			}
+		case ']':
+			inBracket = false
 		default:
 			currentKey.WriteRune(char)
 		}
