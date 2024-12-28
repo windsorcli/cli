@@ -18,31 +18,14 @@ import (
 
 // BlueprintHandler defines the interface for handling blueprint operations
 type BlueprintHandler interface {
-	// Initialize initializes the blueprint handler
 	Initialize() error
-
-	// LoadConfig loads the blueprint from the specified path
 	LoadConfig(path ...string) error
-
-	// GetMetadata retrieves the metadata for the blueprint
 	GetMetadata() MetadataV1Alpha1
-
-	// GetSources retrieves the sources for the blueprint
 	GetSources() []SourceV1Alpha1
-
-	// GetTerraformComponents retrieves the Terraform components for the blueprint
 	GetTerraformComponents() []TerraformComponentV1Alpha1
-
-	// SetMetadata sets the metadata for the blueprint
 	SetMetadata(metadata MetadataV1Alpha1) error
-
-	// SetSources sets the sources for the blueprint
 	SetSources(sources []SourceV1Alpha1) error
-
-	// SetTerraformComponents sets the Terraform components for the blueprint
 	SetTerraformComponents(terraformComponents []TerraformComponentV1Alpha1) error
-
-	// WriteConfig writes the current blueprint to the specified path
 	WriteConfig(path ...string) error
 }
 
@@ -64,9 +47,6 @@ func NewBlueprintHandler(injector di.Injector) *BaseBlueprintHandler {
 }
 
 // Initialize sets up the blueprint handler by resolving dependencies
-// and configuring the project environment. It resolves the config handler,
-// context handler, and shell, assigning them to the blueprint handler.
-// It also retrieves and sets the project root directory.
 func (b *BaseBlueprintHandler) Initialize() error {
 	configHandler, ok := b.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
@@ -100,19 +80,16 @@ var localJsonnetTemplate string
 
 // LoadConfig loads a blueprint from a path, using Jsonnet or YAML data.
 func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
-	// Retrieve the configuration root
 	configRoot, err := b.contextHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
 
-	// Determine the blueprint path
 	basePath := filepath.Join(configRoot, "blueprint")
 	if len(path) > 0 && path[0] != "" {
 		basePath = path[0]
 	}
 
-	// Load Jsonnet and YAML data
 	jsonnetData, jsonnetErr := loadFileData(basePath + ".jsonnet")
 	yamlData, yamlErr := loadFileData(basePath + ".yaml")
 	if jsonnetErr != nil {
@@ -122,20 +99,17 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 		return yamlErr
 	}
 
-	// Retrieve the configuration and marshal it to YAML
 	config := b.configHandler.GetConfig()
 	contextYAML, err := yamlMarshalWithDefinedPaths(config)
 	if err != nil {
 		return fmt.Errorf("error marshalling context to YAML: %w", err)
 	}
 
-	// Unmarshal the YAML back into a generic map
 	var contextMap map[string]interface{}
 	if err := yamlUnmarshal(contextYAML, &contextMap); err != nil {
 		return fmt.Errorf("error unmarshalling context YAML to map: %w", err)
 	}
 
-	// Marshal the map to JSON
 	contextJSON, err := jsonMarshal(contextMap)
 	if err != nil {
 		return fmt.Errorf("error marshalling context map to JSON: %w", err)
@@ -144,9 +118,7 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	var evaluatedJsonnet string
 	context := b.contextHandler.GetContext()
 
-	// Process Jsonnet data if available
 	if len(jsonnetData) > 0 {
-		// Evaluate Jsonnet data
 		vm := jsonnetMakeVM()
 		vm.ExtCode("context", string(contextJSON))
 
@@ -155,7 +127,6 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 			return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
 		}
 	} else if strings.HasPrefix(context, "local") {
-		// Load local Jsonnet template
 		vm := jsonnetMakeVM()
 		vm.ExtCode("context", string(contextJSON))
 
@@ -165,33 +136,32 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 		}
 	}
 
-	// Load default blueprint if no Jsonnet data was processed, else unmarshal evaluated Jsonnet data
 	if evaluatedJsonnet == "" {
-		b.blueprint = DefaultBlueprint
+		b.blueprint = *DefaultBlueprint.Copy()
 		b.blueprint.Metadata.Name = context
 		b.blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", context)
 	} else {
-		if err := yamlUnmarshal([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
+		newBlueprint := &BlueprintV1Alpha1{}
+		if err := yamlUnmarshal([]byte(evaluatedJsonnet), newBlueprint); err != nil {
 			return fmt.Errorf("error unmarshalling jsonnet data: %w", err)
 		}
+		b.blueprint.Merge(newBlueprint)
 	}
 
-	// Unmarshal YAML data if present
 	if len(yamlData) > 0 {
-		if err := yamlUnmarshal(yamlData, &b.localBlueprint); err != nil {
+		newLocalBlueprint := &BlueprintV1Alpha1{}
+		if err := yamlUnmarshal(yamlData, newLocalBlueprint); err != nil {
 			return fmt.Errorf("error unmarshalling yaml data: %w", err)
 		}
+		b.localBlueprint.Merge(newLocalBlueprint)
 	}
 
-	// Merge local blueprint into the main blueprint
-	mergeBlueprints(&b.blueprint, &b.localBlueprint)
+	b.blueprint.Merge(&b.localBlueprint)
 
 	return nil
 }
 
-// WriteConfig saves the current blueprint to a specified file path or defaults to a standard location if no path is provided.
-// It ensures the directory structure exists, creates a deep copy of the blueprint, removes variables and values,
-// merges local blueprint data, and writes the final YAML representation to the file system.
+// WriteConfig saves the current blueprint to a specified file path
 func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 	finalPath := ""
 	if len(path) > 0 && path[0] != "" {
@@ -209,14 +179,14 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
-	fullBlueprint := b.blueprint.deepCopy()
+	fullBlueprint := b.blueprint.Copy()
 
 	for i := range fullBlueprint.TerraformComponents {
 		fullBlueprint.TerraformComponents[i].Variables = nil
 		fullBlueprint.TerraformComponents[i].Values = nil
 	}
 
-	mergeBlueprints(fullBlueprint, &b.localBlueprint)
+	fullBlueprint.Merge(&b.localBlueprint)
 
 	data, err := yamlMarshalNonNull(fullBlueprint)
 	if err != nil {
@@ -231,27 +201,21 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 
 // GetMetadata retrieves the metadata for the blueprint
 func (b *BaseBlueprintHandler) GetMetadata() MetadataV1Alpha1 {
-	// Create a copy of the blueprint to avoid modifying the original
 	resolvedBlueprint := b.blueprint
 	return resolvedBlueprint.Metadata
 }
 
 // GetSources retrieves the sources for the blueprint
 func (b *BaseBlueprintHandler) GetSources() []SourceV1Alpha1 {
-	// Create a copy of the blueprint to avoid modifying the original
 	resolvedBlueprint := b.blueprint
 	return resolvedBlueprint.Sources
 }
 
 // GetTerraformComponents retrieves the Terraform components for the blueprint
 func (b *BaseBlueprintHandler) GetTerraformComponents() []TerraformComponentV1Alpha1 {
-	// Create a copy of the blueprint to avoid modifying the original
 	resolvedBlueprint := b.blueprint
 
-	// Resolve the component sources
 	b.resolveComponentSources(&resolvedBlueprint)
-
-	// Resolve the component paths
 	b.resolveComponentPaths(&resolvedBlueprint)
 
 	return resolvedBlueprint.TerraformComponents
@@ -277,7 +241,6 @@ func (b *BaseBlueprintHandler) SetTerraformComponents(terraformComponents []Terr
 
 // resolveComponentSources resolves the source for each Terraform component
 func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *BlueprintV1Alpha1) {
-	// Create a copy of the TerraformComponents to avoid modifying the original components
 	resolvedComponents := make([]TerraformComponentV1Alpha1, len(blueprint.TerraformComponents))
 	copy(resolvedComponents, blueprint.TerraformComponents)
 
@@ -294,7 +257,6 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *BlueprintV1Alp
 		}
 	}
 
-	// Replace the original components with the resolved ones
 	blueprint.TerraformComponents = resolvedComponents
 }
 
@@ -302,12 +264,10 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *BlueprintV1Alp
 func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *BlueprintV1Alpha1) {
 	projectRoot := b.projectRoot
 
-	// Create a copy of the TerraformComponents to avoid modifying the original components
 	resolvedComponents := make([]TerraformComponentV1Alpha1, len(blueprint.TerraformComponents))
 	copy(resolvedComponents, blueprint.TerraformComponents)
 
 	for i, component := range resolvedComponents {
-		// Create a copy of the component to avoid modifying the original component
 		componentCopy := component
 
 		if isValidTerraformRemoteSource(componentCopy.Source) {
@@ -316,37 +276,12 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *BlueprintV1Alpha
 			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", componentCopy.Path)
 		}
 
-		// Normalize FullPath
 		componentCopy.FullPath = filepath.FromSlash(componentCopy.FullPath)
 
-		// Update the resolved component in the slice
 		resolvedComponents[i] = componentCopy
 	}
 
-	// Replace the original components with the resolved ones
 	blueprint.TerraformComponents = resolvedComponents
-}
-
-// deepCopy creates a deep copy of the Blueprint
-func (b *BlueprintV1Alpha1) deepCopy() *BlueprintV1Alpha1 {
-	// Create a new Blueprint instance
-	copy := *b
-
-	// Use reflection to copy each slice field generically
-	val := reflect.ValueOf(b).Elem()
-	copyVal := reflect.ValueOf(&copy).Elem()
-
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Field(i)
-		copyField := copyVal.Field(i)
-
-		if field.Kind() == reflect.Slice && !field.IsNil() {
-			copyField.Set(reflect.MakeSlice(field.Type(), field.Len(), field.Cap()))
-			reflect.Copy(copyField, field)
-		}
-	}
-
-	return &copy
 }
 
 // Ensure that BaseBlueprintHandler implements the BlueprintHandler interface
@@ -354,18 +289,16 @@ var _ BlueprintHandler = &BaseBlueprintHandler{}
 
 // isValidTerraformRemoteSource checks if the source is a valid Terraform module reference
 var isValidTerraformRemoteSource = func(source string) bool {
-	// Define patterns for different valid source types
 	patterns := []string{
-		`^git::https://[^/]+/.*\.git(?:@.*)?$`, // Generic Git URL with .git suffix
-		`^git@[^:]+:.*\.git(?:@.*)?$`,          // Generic SSH Git URL with .git suffix
-		`^https?://[^/]+/.*\.git(?:@.*)?$`,     // HTTP URL with .git suffix
-		`^https?://[^/]+/.*\.zip(?:@.*)?$`,     // HTTP URL pointing to a .zip archive
-		`^https?://[^/]+/.*//.*(?:@.*)?$`,      // HTTP URL with double slashes and optional ref
-		`^registry\.terraform\.io/.*`,          // Terraform Registry
-		`^[^/]+\.com/.*`,                       // Generic domain reference
+		`^git::https://[^/]+/.*\.git(?:@.*)?$`,
+		`^git@[^:]+:.*\.git(?:@.*)?$`,
+		`^https?://[^/]+/.*\.git(?:@.*)?$`,
+		`^https?://[^/]+/.*\.zip(?:@.*)?$`,
+		`^https?://[^/]+/.*//.*(?:@.*)?$`,
+		`^registry\.terraform\.io/.*`,
+		`^[^/]+\.com/.*`,
 	}
 
-	// Check if the source matches any of the valid patterns
 	for _, pattern := range patterns {
 		matched, err := regexpMatchString(pattern, source)
 		if err != nil {
@@ -381,7 +314,6 @@ var isValidTerraformRemoteSource = func(source string) bool {
 
 // generateBlueprintFromJsonnet generates a blueprint from a jsonnet template
 var generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
-	// Convert contextConfig to JSON
 	yamlBytes, err := yamlMarshal(contextConfig)
 	if err != nil {
 		return "", err
@@ -391,20 +323,17 @@ var generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTe
 		return "", err
 	}
 
-	// Build the snippet to define a local context object
 	snippetWithContext := fmt.Sprintf(`
 local context = %s;
 %s
 `, string(jsonBytes), jsonnetTemplate)
 
-	// Evaluate the snippet with the Jsonnet VM
 	vm := jsonnetMakeVM()
 	evaluatedJsonnet, err := vm.EvaluateAnonymousSnippet("blueprint", snippetWithContext)
 	if err != nil {
 		return "", err
 	}
 
-	// Convert JSON to YAML
 	yamlOutput, err := yamlJSONToYAML([]byte(evaluatedJsonnet))
 	if err != nil {
 		return "", err
@@ -430,74 +359,6 @@ var loadFileData = func(path string) ([]byte, error) {
 	return nil, nil
 }
 
-// mergeBlueprints merges fields from src into dst, giving precedence to src.
-//
-// This helps ensure map fields (like Variables and Values) and other struct fields
-// are handled more reliably without relying on reflection or intermediate map conversions.
-var mergeBlueprints = func(dst, src *BlueprintV1Alpha1) {
-	if src == nil {
-		return
-	}
-
-	// Merge top-level fields
-	if src.Kind != "" {
-		dst.Kind = src.Kind
-	}
-	if src.ApiVersion != "" {
-		dst.ApiVersion = src.ApiVersion
-	}
-
-	// Merge Metadata
-	if src.Metadata.Name != "" {
-		dst.Metadata.Name = src.Metadata.Name
-	}
-	if src.Metadata.Description != "" {
-		dst.Metadata.Description = src.Metadata.Description
-	}
-	if len(src.Metadata.Authors) > 0 {
-		dst.Metadata.Authors = src.Metadata.Authors
-	}
-
-	// Merge Sources
-	if len(src.Sources) > 0 {
-		dst.Sources = src.Sources
-	}
-
-	// Merge TerraformComponents
-	if len(src.TerraformComponents) > 0 {
-		for _, srcComp := range src.TerraformComponents {
-			found := false
-			for i, dstComp := range dst.TerraformComponents {
-				// Identify matching components by Source+Path
-				if dstComp.Source == srcComp.Source && dstComp.Path == srcComp.Path {
-					// Merge variables
-					for k, v := range srcComp.Variables {
-						dstComp.Variables[k] = v
-					}
-					// Merge values
-					if dstComp.Values == nil {
-						dstComp.Values = make(map[string]interface{})
-					}
-					for k, v := range srcComp.Values {
-						dstComp.Values[k] = v
-					}
-					// Update other fields if they are non-zero in src
-					if srcComp.FullPath != "" {
-						dstComp.FullPath = srcComp.FullPath
-					}
-					dst.TerraformComponents[i] = dstComp
-					found = true
-					break
-				}
-			}
-			// If there's no matching component, append it
-			if !found {
-				dst.TerraformComponents = append(dst.TerraformComponents, srcComp)
-			}
-		}
-	}
-}
-
 // yamlMarshalWithDefinedPaths marshals YAML ensuring all parent paths are defined.
 func yamlMarshalWithDefinedPaths(v interface{}) ([]byte, error) {
 	if v == nil {
@@ -509,7 +370,6 @@ func yamlMarshalWithDefinedPaths(v interface{}) ([]byte, error) {
 		switch val.Kind() {
 		case reflect.Ptr, reflect.Interface:
 			if val.IsNil() {
-				// Handle nil pointers to empty structs
 				if val.Kind() == reflect.Interface || (val.Kind() == reflect.Ptr && val.Type().Elem().Kind() == reflect.Struct) {
 					return make(map[string]interface{}), nil
 				}

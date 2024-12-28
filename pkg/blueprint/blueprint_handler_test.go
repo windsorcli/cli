@@ -1374,7 +1374,7 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 		blueprintHandler.SetSources(expectedSources)
 
 		// Resolve the component sources
-		blueprint := blueprintHandler.blueprint.deepCopy()
+		blueprint := blueprintHandler.blueprint.Copy()
 		blueprintHandler.resolveComponentSources(blueprint)
 
 		// Then the resolved sources should match the expected sources
@@ -1412,7 +1412,7 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 		blueprintHandler.SetTerraformComponents(expectedComponents)
 
 		// Resolve the component paths
-		blueprint := blueprintHandler.blueprint.deepCopy()
+		blueprint := blueprintHandler.blueprint.Copy()
 		blueprintHandler.resolveComponentPaths(blueprint)
 
 		// Then the resolved paths should match the expected paths
@@ -1473,7 +1473,7 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 			Path:   "module/path",
 		}})
 
-		blueprint := blueprintHandler.blueprint.deepCopy()
+		blueprint := blueprintHandler.blueprint.Copy()
 		blueprintHandler.resolveComponentSources(blueprint)
 		blueprintHandler.resolveComponentPaths(blueprint)
 
@@ -1496,44 +1496,6 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 
 		if got := isValidTerraformRemoteSource("[invalid-regex"); got != false {
 			t.Errorf("isValidTerraformRemoteSource([invalid-regex) = %v, want %v", got, false)
-		}
-	})
-}
-
-func TestBlueprintHandler_deepCopy(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		blueprint := &BlueprintV1Alpha1{
-			Metadata: MetadataV1Alpha1{
-				Name: "test-blueprint",
-			},
-			Sources: []SourceV1Alpha1{
-				{
-					Name:       "source1",
-					Url:        "https://example.com/repo1.git",
-					PathPrefix: "terraform",
-					Ref:        "main",
-				},
-			},
-			TerraformComponents: []TerraformComponentV1Alpha1{
-				{
-					Source: "source1",
-					Path:   "module/path1",
-				},
-			},
-		}
-		copy := blueprint.deepCopy()
-		if copy.Metadata.Name != "test-blueprint" {
-			t.Errorf("Expected deep copy to have name %v, but got %v", "test-blueprint", copy.Metadata.Name)
-		}
-		if len(copy.Sources) != 1 || copy.Sources[0].Name != "source1" {
-			t.Errorf("Expected deep copy to have source %v, but got %v", "source1", copy.Sources)
-		}
-		if len(copy.TerraformComponents) != 1 || copy.TerraformComponents[0].Source != "source1" {
-			t.Errorf("Expected deep copy to have terraform component source %v, but got %v", "source1", copy.TerraformComponents)
-		}
-		// Additional test to ensure deep copy handles pointer fields correctly
-		if copy.TerraformComponents[0].Path != "module/path1" {
-			t.Errorf("Expected deep copy to have terraform component path %v, but got %v", "module/path1", copy.TerraformComponents[0].Path)
 		}
 	})
 }
@@ -1650,144 +1612,6 @@ func TestBlueprintHandler_generateBlueprintFromJsonnet(t *testing.T) {
 		_, err := generateBlueprintFromJsonnet(contextConfig, jsonnetTemplate)
 		if err == nil || !strings.Contains(err.Error(), "error unmarshaling yaml") {
 			t.Errorf("Expected generateBlueprintFromJsonnet to fail with error containing 'error unmarshaling yaml', but got: %v", err)
-		}
-	})
-}
-
-func TestBlueprintHandler_mergeBlueprints(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		dst := &BlueprintV1Alpha1{
-			Kind:       "Blueprint",
-			ApiVersion: "v1alpha1",
-			Metadata: MetadataV1Alpha1{
-				Name:        "original",
-				Description: "original description",
-				Authors:     []string{"author1"},
-			},
-			Sources: []SourceV1Alpha1{
-				{
-					Name: "source1",
-					Url:  "http://example.com/source1",
-					Ref:  "v1.0.0",
-				},
-			},
-			TerraformComponents: []TerraformComponentV1Alpha1{
-				{
-					Source: "source1",
-					Path:   "path1",
-					Variables: map[string]TerraformVariableV1Alpha1{
-						"var1": {Default: "default1"},
-					},
-					Values:   nil, // Set Values to nil to test initialization
-					FullPath: "original/full/path",
-				},
-			},
-		}
-
-		src := &BlueprintV1Alpha1{
-			Kind:       "Blueprint",
-			ApiVersion: "v1alpha1",
-			Metadata: MetadataV1Alpha1{
-				Name:        "updated",
-				Description: "updated description",
-				Authors:     []string{"author2"},
-			},
-			Sources: []SourceV1Alpha1{
-				{
-					Name: "source2",
-					Url:  "http://example.com/source2",
-					Ref:  "v2.0.0",
-				},
-			},
-			TerraformComponents: []TerraformComponentV1Alpha1{
-				{
-					Source: "source1",
-					Path:   "path1",
-					Variables: map[string]TerraformVariableV1Alpha1{
-						"var2": {Default: "default2"},
-					},
-					Values: map[string]interface{}{
-						"key2": "value2",
-					},
-					FullPath: "updated/full/path",
-				},
-				{
-					Source: "source3",
-					Path:   "path3",
-					Variables: map[string]TerraformVariableV1Alpha1{
-						"var3": {Default: "default3"},
-					},
-					Values: map[string]interface{}{
-						"key3": "value3",
-					},
-					FullPath: "new/full/path",
-				},
-			},
-		}
-
-		mergeBlueprints(dst, src)
-
-		if dst.Metadata.Name != "updated" {
-			t.Errorf("Expected Metadata.Name to be 'updated', but got '%s'", dst.Metadata.Name)
-		}
-		if dst.Metadata.Description != "updated description" {
-			t.Errorf("Expected Metadata.Description to be 'updated description', but got '%s'", dst.Metadata.Description)
-		}
-		if len(dst.Metadata.Authors) != 1 || dst.Metadata.Authors[0] != "author2" {
-			t.Errorf("Expected Metadata.Authors to be ['author2'], but got %v", dst.Metadata.Authors)
-		}
-		if len(dst.Sources) != 1 || dst.Sources[0].Name != "source2" {
-			t.Errorf("Expected Sources to be ['source2'], but got %v", dst.Sources)
-		}
-		if len(dst.TerraformComponents) != 2 {
-			t.Fatalf("Expected 2 TerraformComponents, but got %d", len(dst.TerraformComponents))
-		}
-		component1 := dst.TerraformComponents[0]
-		if len(component1.Variables) != 2 || component1.Variables["var1"].Default != "default1" || component1.Variables["var2"].Default != "default2" {
-			t.Errorf("Expected Variables to be merged, but got %v", component1.Variables)
-		}
-		if component1.Values == nil || len(component1.Values) != 1 || component1.Values["key2"] != "value2" {
-			t.Errorf("Expected Values to be initialized and contain 'key2', but got %v", component1.Values)
-		}
-		if component1.FullPath != "updated/full/path" {
-			t.Errorf("Expected FullPath to be 'updated/full/path', but got '%s'", component1.FullPath)
-		}
-		component2 := dst.TerraformComponents[1]
-		if len(component2.Variables) != 1 || component2.Variables["var3"].Default != "default3" {
-			t.Errorf("Expected Variables to be ['var3'], but got %v", component2.Variables)
-		}
-		if component2.Values == nil || len(component2.Values) != 1 || component2.Values["key3"] != "value3" {
-			t.Errorf("Expected Values to contain 'key3', but got %v", component2.Values)
-		}
-		if component2.FullPath != "new/full/path" {
-			t.Errorf("Expected FullPath to be 'new/full/path', but got '%s'", component2.FullPath)
-		}
-	})
-
-	t.Run("NoMergeWhenSrcIsNil", func(t *testing.T) {
-		dst := &BlueprintV1Alpha1{
-			Kind:       "Blueprint",
-			ApiVersion: "v1alpha1",
-			Metadata: MetadataV1Alpha1{
-				Name:        "original",
-				Description: "original description",
-				Authors:     []string{"author1"},
-			},
-		}
-
-		mergeBlueprints(dst, nil)
-
-		if dst.Metadata.Name != "original" {
-			t.Errorf("Expected Metadata.Name to remain 'original', but got '%s'", dst.Metadata.Name)
-		}
-		if dst.Metadata.Description != "original description" {
-			t.Errorf("Expected Metadata.Description to remain 'original description', but got '%s'", dst.Metadata.Description)
-		}
-		if dst.Sources != nil {
-			t.Errorf("Expected Sources to remain nil, but got %v", dst.Sources)
-		}
-		if dst.TerraformComponents != nil {
-			t.Errorf("Expected TerraformComponents to remain nil, but got %v", dst.TerraformComponents)
 		}
 	})
 }

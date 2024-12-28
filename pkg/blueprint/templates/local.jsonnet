@@ -31,23 +31,23 @@ local firstNode = if std.length(cpNodes) > 0 then cpNodes[0] else null;
         // Construct the cluster endpoint URL using the first node's address
         cluster_endpoint: "https://" + firstNode.node + ":6443",
         cluster_name: "talos",
-        // Map control plane nodes to their configuration if available
-        controlplanes: std.mapWithKey(
-          function(k, v) {
+        // Create a list of control plane nodes with their configuration if available
+        controlplanes: std.map(
+          function(v) {
             endpoint: v.endpoint,
-            hostname: k + ".test",
+            hostname: v.hostname,
             node: v.node,
           },
-          context.cluster.controlplanes.nodes
+          std.objectValues(context.cluster.controlplanes.nodes)
         ),
-        // Map worker nodes to their configuration if available
-        workers: std.mapWithKey(
-          function(k, v) {
+        // Create a list of worker nodes with their configuration if available
+        workers: std.map(
+          function(v) {
             endpoint: v.endpoint,
-            hostname: k + ".test",
+            hostname: v.hostname,
             node: v.node,
           },
-          context.cluster.workers.nodes
+          std.objectValues(context.cluster.workers.nodes)
         ),
         // Convert common configuration patches to YAML format
         common_config_patches: std.manifestYamlDoc({
