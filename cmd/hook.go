@@ -22,7 +22,7 @@ var shellHooks = map[string][]string{
 		`
 		_windsor_hook() {
 			trap -- '' SIGINT;
- 			eval "$("{{.SelfPath}"/windsor env export zsh)"		
+ 			eval "$("{{.SelfPath}}" env)"		
 			trap - SIGINT;
 		};
 		typeset -ag precmd_functions;
@@ -40,7 +40,7 @@ var shellHooks = map[string][]string{
 		_windsor_hook() {
 			local previous_exit_status=$?;
 			trap -- '' SIGINT;
-			eval "$(windsor env)";
+			eval "$("{{.SelfPath}}" env)";
 			trap - SIGINT;
 			return $previous_exit_status;
 		};
@@ -56,25 +56,25 @@ var shellHooks = map[string][]string{
 	"fish": {
 		`
 		function _windsor_hook --on-event fish_prompt
-			eval (eval "$(windsor env)"; export fish | source)
+			eval "$("{{.SelfPath}}" env)"; export fish | source)
 		end
 		`,
 	},
 	"tcsh": {
 		`
 		alias precmd '_windsor_hook';
-		alias _windsor_hook 'eval eval "$(windsor env)"; export tcsh"
+		alias _windsor_hook 'eval "$("{{.SelfPath}}" env)"'; export tcsh"
 		`,
 	},
 	"elvish": {
 		`
-		eval (eval "$(windsor env)"; export elvish | slurp)
+		eval "$("{{.SelfPath}}" env)"; export elvish | slurp)
 		`,
 	},
 	"powershell": {
 		`
 		$DirenvPrompt = {
-			Invoke-Expression (& eval "$(windsor env)"; export powershell)
+			Invoke-Expression (& eval "$("{{.SelfPath}}" env)"; export powershell)
 		}
 		If ($global:Prompt -is [scriptblock]) {
 			$oldPrompt = $global:Prompt
