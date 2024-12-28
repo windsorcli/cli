@@ -190,7 +190,27 @@ func TestRegistryService_SetAddress(t *testing.T) {
 		}
 	})
 
-	t.Run("Failure_SetHostnameError", func(t *testing.T) {
+	t.Run("SetAddressError", func(t *testing.T) {
+		// Given: a mock config handler, shell, context, and service
+		mocks := setupSafeRegistryServiceMocks()
+		registryService := NewRegistryService(mocks.Injector)
+		registryService.SetName("registry")
+		err := registryService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: SetAddress is called with an invalid address
+		address := "invalid-address"
+		err = registryService.SetAddress(address)
+
+		// Then: an error should be returned indicating invalid IPv4 address
+		if err == nil || !strings.Contains(err.Error(), "invalid IPv4 address") {
+			t.Fatalf("expected error indicating invalid IPv4 address, got %v", err)
+		}
+	})
+
+	t.Run("SetHostnameError", func(t *testing.T) {
 		// Given: a mock config handler that will fail to set context value
 		mocks := setupSafeRegistryServiceMocks()
 		mocks.MockConfigHandler.SetContextValueFunc = func(path string, value interface{}) error {

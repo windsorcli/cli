@@ -44,7 +44,9 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 // SetAddress establishes additional address information for the registry service
 func (s *RegistryService) SetAddress(address string) error {
 	// Call the parent SetAddress method
-	s.BaseService.SetAddress(address)
+	if err := s.BaseService.SetAddress(address); err != nil {
+		return fmt.Errorf("failed to set address for base service: %w", err)
+	}
 
 	tld := s.configHandler.GetString("dns.name", "test")
 	hostName := s.name + "." + tld
