@@ -17,6 +17,20 @@ import (
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
+// MockShell is a mock implementation of the Shell interface
+type MockShell struct {
+	// ... existing fields ...
+}
+
+// Execute is a mock implementation of the InstallHook's Execute method
+func (m *MockShell) Execute() error {
+	// Mock implementation
+	return nil
+}
+
+// Ensure MockShell implements InstallHook
+var _ shell.InstallHook = (*MockShell)(nil)
+
 // MockController is a mock implementation of the Controller interface
 type MockController struct {
 	BaseController
@@ -35,6 +49,7 @@ type MockController struct {
 	ResolveAllEnvPrintersFunc          func() []env.EnvPrinter
 	ResolveShellFunc                   func() shell.Shell
 	ResolveSecureShellFunc             func() shell.Shell
+	ResolveInstallHookFunc             func(name string) shell.InstallHook
 	ResolveNetworkManagerFunc          func() network.NetworkManager
 	ResolveServiceFunc                 func(name string) services.Service
 	ResolveAllServicesFunc             func() []services.Service

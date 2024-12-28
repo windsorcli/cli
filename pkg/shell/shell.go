@@ -25,6 +25,11 @@ type HookContext struct {
 	SelfPath string
 }
 
+type InstallHook interface {
+	Execute() error
+	// Add other methods as needed
+}
+
 // Shell interface defines methods for shell operations
 type Shell interface {
 	// Initialize initializes the shell environment

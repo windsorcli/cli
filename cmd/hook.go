@@ -9,8 +9,8 @@ import (
 
 var hookCmd = &cobra.Command{
 	Use:          "hook",
-	Short:        "Prints out shell hook information per platform.",
-	Long:         "Prints out shell hook information for each platform (zsh,bash,fish,tcsh, elvish,powershell).",
+	Short:        "Prints out shell hook information per platform (zsh,bash,fish,tcsh,powershell).",
+	Long:         "Prints out shell hook information for each platform (zsh,bash,fish,tcsh,powershell).",
 	SilenceUsage: true,
 	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -21,7 +21,6 @@ var hookCmd = &cobra.Command{
 
 		shell := shell.NewDefaultShell(nil) // Assuming no injector is needed here
 		return shell.InstallHook(args[0])
-
 	},
 }
 
