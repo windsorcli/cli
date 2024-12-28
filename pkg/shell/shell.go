@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"html/template"
 	"os"
 	"path/filepath"
 	"strings"
+	"text/template"
 
 	"time"
 
@@ -319,16 +319,4 @@ func (s *DefaultShell) InstallHook(shellName string) error {
 
 	return nil
 
-	// // Check if a hook exists for the given shell name
-	// if hook, exists := shellHooks[shellName]; exists {
-	// 	// Execute the hook command silently
-	// 	_, err := s.ExecSilent("eval", hook)
-	// 	if err != nil {
-	// 		return fmt.Errorf("failed to execute hook for shell %s: %w", shellName, err)
-	// 	}
-	// 	return nil
-	// } else {
-	// 	// Return an error if the shell is unsupported
-	// 	return fmt.Errorf("unsupported shell: %s", shellName)
-	// }
 }
