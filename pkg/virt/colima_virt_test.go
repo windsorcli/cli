@@ -1,7 +1,6 @@
 package virt
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -12,7 +11,6 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/vm"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -40,16 +38,34 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 		return "mock-context"
 	}
 
-	// Set up the mock config handler to return a safe default configuration for Colima VMs
-	mockConfigHandler.GetConfigFunc = func() *config.Context {
-		return &config.Context{
-			VM: &vm.VMConfig{
-				Arch:   ptrString(goArch),
-				CPU:    ptrInt(numCPU()),
-				Disk:   ptrInt(20 * 1024 * 1024 * 1024), // 20GB
-				Driver: ptrString("colima"),
-				Memory: ptrInt(4 * 1024 * 1024 * 1024), // 4GB
-			},
+	// Set up the mock config handler to return specific configuration values
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		switch key {
+		case "vm.driver":
+			return "colima"
+		case "vm.arch":
+			return goArch
+		default:
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+	}
+
+	mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
+		switch key {
+		case "vm.cpu":
+			return numCPU()
+		case "vm.disk":
+			return 20 * 1024 * 1024 * 1024 // 20GB
+		case "vm.memory":
+			return 4 * 1024 * 1024 * 1024 // 4GB
+		default:
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return 0
 		}
 	}
 
@@ -310,207 +326,184 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		colimaVirt := NewColimaVirt(mocks.Injector)
 		colimaVirt.Initialize()
 
-		// And a mock config handler that simulates a successful config save
+		// Mock the necessary methods to simulate a successful config save
 		mocks.MockConfigHandler.SaveConfigFunc = func(path string) error {
 			return nil
 		}
 
-		// When calling WriteConfig
-		err := colimaVirt.WriteConfig()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("NoVMDefined", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// And a mock config handler that returns a config with no VM defined
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{VM: nil}
-		}
-
-		// When calling WriteConfig
-		err := colimaVirt.WriteConfig()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("AArchVM", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// Mock the getArch function to return "aarch64"
-		originalGetArch := getArch
-		defer func() { getArch = originalGetArch }()
-		getArch = func() string { return "aarch64" }
-
-		// When calling WriteConfig
-		err := colimaVirt.WriteConfig()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Verify the vmType is set to "vz"
-		if getArch() != "aarch64" {
-			t.Errorf("Expected getArch to return 'aarch64', got %s", getArch())
-		}
-	})
-
-	t.Run("ErrorSavingConfig", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// Mock the writeFile function to simulate an error during file writing
-		originalWriteFile := writeFile
-		defer func() { writeFile = originalWriteFile }()
-		writeFile = func(filename string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("mock write file error")
-		}
-
-		// When calling WriteConfig
-		err := colimaVirt.WriteConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock write file error") {
-			t.Errorf("Expected error to contain 'mock write file error', got %v", err)
-		}
-	})
-
-	t.Run("ErrorGettingUserHomeDir", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// Mock the userHomeDir function to simulate an error
-		originalUserHomeDir := userHomeDir
-		defer func() { userHomeDir = originalUserHomeDir }()
+		// Mock the userHomeDir function to return a valid directory
 		userHomeDir = func() (string, error) {
-			return "", fmt.Errorf("mock user home dir error")
+			return "/mock/home/dir", nil
 		}
 
-		// When calling WriteConfig
-		err := colimaVirt.WriteConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock user home dir error") {
-			t.Errorf("Expected error to contain 'mock user home dir error', got %v", err)
-		}
-	})
-
-	t.Run("ErrorCreatingParentDirectories", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// Mock the mkdirAll function to simulate an error when creating directories
-		originalMkdirAll := mkdirAll
-		defer func() { mkdirAll = originalMkdirAll }()
+		// Mock the mkdirAll function to simulate directory creation
 		mkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("mock mkdirAll error")
+			return nil
 		}
 
-		// When calling WriteConfig
-		err := colimaVirt.WriteConfig()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
+		// Mock the writeFile function to simulate file writing
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return nil
 		}
-		if !strings.Contains(err.Error(), "mock mkdirAll error") {
-			t.Errorf("Expected error to contain 'mock mkdirAll error', got %v", err)
-		}
-	})
 
-	t.Run("ErrorCreatingColimaDirectory", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// Mock the mkdirAll function to simulate an error when creating the Colima directory
-		originalMkdirAll := mkdirAll
-		defer func() { mkdirAll = originalMkdirAll }()
-		mkdirAll = func(path string, perm os.FileMode) error {
-			if strings.Contains(path, ".colima") {
-				return fmt.Errorf("mock error creating colima directory")
-			}
+		// Mock the rename function to simulate file renaming
+		rename = func(_, _ string) error {
 			return nil
 		}
 
 		// When calling WriteConfig
 		err := colimaVirt.WriteConfig()
 
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ColimaNotDriver", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		mocks := setupSafeColimaVmMocks()
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
+
+		// Mock the vm.driver to be something other than "colima"
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "other-driver"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// When calling WriteConfig
+		err := colimaVirt.WriteConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ArchSet", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeColimaVmMocks()
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
+
+		// Mock the vm.arch to be an empty string
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.arch" {
+				return "aarch64"
+			}
+			if key == "vm.driver" {
+				return "colima"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// When calling WriteConfig
+		err := colimaVirt.WriteConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingHomeDir", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeColimaVmMocks()
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
+
+		// Mock the userHomeDir function to return an error
+		originalUserHomeDir := userHomeDir
+		defer func() { userHomeDir = originalUserHomeDir }()
+		userHomeDir = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving home directory")
+		}
+
+		// When calling WriteConfig
+		err := colimaVirt.WriteConfig()
+
 		// Then an error should be returned
 		if err == nil {
-			t.Fatalf("Expected an error, got nil")
+			t.Fatal("Expected an error, got nil")
 		}
-		if !strings.Contains(err.Error(), "mock error creating colima directory") {
-			t.Errorf("Expected error to contain 'mock error creating colima directory', got %v", err)
+		if err.Error() != "error retrieving user home directory: mock error retrieving home directory" {
+			t.Fatalf("Unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("ErrorCreatingColimaDir", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeColimaVmMocks()
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
+
+		// Mock the mkdirAll function to return an error
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mock error creating colima directory")
+		}
+
+		// When calling WriteConfig
+		err := colimaVirt.WriteConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected an error, got nil")
+		}
+		if err.Error() != "error creating colima directory: mock error creating colima directory" {
+			t.Fatalf("Unexpected error message: %v", err)
 		}
 	})
 
 	t.Run("ErrorEncodingYaml", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
+		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
 		colimaVirt := NewColimaVirt(mocks.Injector)
 		colimaVirt.Initialize()
 
-		// Mock the newYAMLEncoder function to return a mock encoder that returns an error on Encode
+		// Mock the newYAMLEncoder function to return an error
 		originalNewYAMLEncoder := newYAMLEncoder
+		defer func() { newYAMLEncoder = originalNewYAMLEncoder }()
 		newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
 			return &mockYAMLEncoder{
 				encodeFunc: func(v interface{}) error {
-					return errors.New("mock encode error")
+					return fmt.Errorf("mock error encoding yaml")
 				},
 				closeFunc: func() error {
 					return nil
 				},
 			}
 		}
-		defer func() { newYAMLEncoder = originalNewYAMLEncoder }()
 
 		// When calling WriteConfig
 		err := colimaVirt.WriteConfig()
 
 		// Then an error should be returned
 		if err == nil {
-			t.Fatalf("Expected an error, got nil")
+			t.Fatal("Expected an error, got nil")
 		}
-		if !strings.Contains(err.Error(), "mock encode error") {
-			t.Errorf("Expected error to contain 'mock encode error', got %v", err)
+		if err.Error() != "error encoding yaml: mock error encoding yaml" {
+			t.Fatalf("Unexpected error message: %v", err)
 		}
 	})
 
 	t.Run("ErrorClosingEncoder", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
+		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
 		colimaVirt := NewColimaVirt(mocks.Injector)
 		colimaVirt.Initialize()
 
-		// Mock the newYAMLEncoder function to simulate an error during closing
+		// Mock the newYAMLEncoder function to simulate an error when closing the encoder
 		originalNewYAMLEncoder := newYAMLEncoder
 		defer func() { newYAMLEncoder = originalNewYAMLEncoder }()
 		newYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
@@ -519,7 +512,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 					return nil
 				},
 				closeFunc: func() error {
-					return fmt.Errorf("mock close error")
+					return fmt.Errorf("mock error closing encoder")
 				},
 			}
 		}
@@ -529,24 +522,24 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 
 		// Then an error should be returned
 		if err == nil {
-			t.Fatalf("Expected an error, got nil")
+			t.Fatal("Expected an error, got nil")
 		}
-		if !strings.Contains(err.Error(), "mock close error") {
-			t.Errorf("Expected error to contain 'mock close error', got %v", err)
+		if err.Error() != "error closing encoder: mock error closing encoder" {
+			t.Fatalf("Unexpected error message: %v", err)
 		}
 	})
 
-	t.Run("ErrorRenamingTemporaryFile", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
+	t.Run("ErrorWritingToTemporaryFile", func(t *testing.T) {
+		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
 		colimaVirt := NewColimaVirt(mocks.Injector)
 		colimaVirt.Initialize()
 
-		// Mock the rename function to simulate an error during renaming
-		originalRename := rename
-		defer func() { rename = originalRename }()
-		rename = func(oldpath, newpath string) error {
-			return fmt.Errorf("mock rename error")
+		// Mock the writeFile function to simulate an error when writing to the temporary file
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("mock error writing to temporary file")
 		}
 
 		// When calling WriteConfig
@@ -554,10 +547,35 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 
 		// Then an error should be returned
 		if err == nil {
-			t.Fatalf("Expected an error, got nil")
+			t.Fatal("Expected an error, got nil")
 		}
-		if !strings.Contains(err.Error(), "mock rename error") {
-			t.Errorf("Expected error to contain 'mock rename error', got %v", err)
+		if err.Error() != "error writing to temporary file: mock error writing to temporary file" {
+			t.Fatalf("Unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("ErrorRenamingTemporaryFile", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeColimaVmMocks()
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
+
+		// Mock the rename function to simulate an error during file renaming
+		originalRename := rename
+		defer func() { rename = originalRename }()
+		rename = func(_, _ string) error {
+			return fmt.Errorf("mock error renaming temporary file")
+		}
+
+		// When calling WriteConfig
+		err := colimaVirt.WriteConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected an error, got nil")
+		}
+		if err.Error() != "error renaming temporary file to colima config file: mock error renaming temporary file" {
+			t.Fatalf("Unexpected error message: %v", err)
 		}
 	})
 }
