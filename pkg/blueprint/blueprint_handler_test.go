@@ -38,7 +38,8 @@ terraform:
 
 // safeBlueprintJsonnet holds the "safe" blueprint jsonnet string
 var safeBlueprintJsonnet = `
-local context = {
+local context = std.extVar("context");
+{
   kind: "Blueprint",
   apiVersion: "v1alpha1",
   metadata: {
@@ -62,9 +63,33 @@ local context = {
       }
     }
   ]
-};
-context
+}
 `
+
+// compareYAML compares two YAML byte slices by unmarshaling them into interface{} and using DeepEqual.
+func compareYAML(t *testing.T, actualYAML, expectedYAML []byte) {
+	var actualData interface{}
+	var expectedData interface{}
+
+	// When unmarshaling actual YAML
+	err := yaml.Unmarshal(actualYAML, &actualData)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal actual YAML data: %v", err)
+	}
+
+	// When unmarshaling expected YAML
+	err = yaml.Unmarshal(expectedYAML, &expectedData)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal expected YAML data: %v", err)
+	}
+
+	// Then compare the data structures
+	if !reflect.DeepEqual(actualData, expectedData) {
+		actualFormatted, _ := yaml.Marshal(actualData)
+		expectedFormatted, _ := yaml.Marshal(expectedData)
+		t.Errorf("YAML mismatch.\nActual:\n%s\nExpected:\n%s", string(actualFormatted), string(expectedFormatted))
+	}
+}
 
 type MockSafeComponents struct {
 	Injector           di.Injector
@@ -283,22 +308,10 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 			return nil, fmt.Errorf("file not found")
 		}
 	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Setup mocks
 		mocks := setupSafeMocks()
-
-		// Mock loadFileData to return jsonnet data instead of yaml
-		originalLoadFileData := loadFileData
-		defer func() { loadFileData = originalLoadFileData }()
-		loadFileData = func(path string) ([]byte, error) {
-			if path == filepath.FromSlash("/mock/config/root/blueprint.jsonnet") {
-				return []byte(safeBlueprintJsonnet), nil
-			}
-			if path == filepath.FromSlash("/mock/config/root/blueprint.yaml") {
-				return []byte(safeBlueprintYAML), nil
-			}
-			return nil, fmt.Errorf("file not found")
-		}
 
 		// Initialize and load blueprint
 		blueprintHandler := NewBlueprintHandler(mocks.Injector)
@@ -331,29 +344,19 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessWithLocalContext", func(t *testing.T) {
+	t.Run("DefaultBlueprint", func(t *testing.T) {
 		// Setup mocks
 		mocks := setupSafeMocks()
-		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
-				Cluster: &config.ClusterConfig{
-					ControlPlanes: struct {
-						Count  *int                         `yaml:"count"`
-						CPU    *int                         `yaml:"cpu"`
-						Memory *int                         `yaml:"memory"`
-						Nodes  map[string]config.NodeConfig `yaml:"nodes"`
-					}{
-						Nodes: map[string]config.NodeConfig{},
-					},
-				},
-			}
-		}
 
-		// Mock loadFileData to return no data for both jsonnet and yaml
+		// Mock loadFileData to simulate no Jsonnet or YAML data
 		originalLoadFileData := loadFileData
 		defer func() { loadFileData = originalLoadFileData }()
-		loadFileData = func(path string) ([]byte, error) { return nil, nil }
+		loadFileData = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, ".jsonnet") || strings.HasSuffix(path, ".yaml") {
+				return nil, nil
+			}
+			return originalLoadFileData(path)
+		}
 
 		// Initialize and load blueprint
 		blueprintHandler := NewBlueprintHandler(mocks.Injector)
@@ -364,31 +367,46 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 			t.Fatalf("LoadConfig failed: %v", err)
 		}
 
-		// Validate blueprint metadata
+		// Validate that the default blueprint is used
 		metadata := blueprintHandler.GetMetadata()
-		if metadata.Name != "local" {
-			t.Errorf("Expected metadata name 'local', got '%s'", metadata.Name)
+		expectedName := "mock-context"
+		if metadata.Name != expectedName {
+			t.Errorf("Expected metadata name to be '%s', got '%s'", expectedName, metadata.Name)
 		}
-		if metadata.Description != "This blueprint outlines resources in the local context" {
-			t.Errorf("Expected metadata description 'This blueprint outlines resources in the local context', got '%s'", metadata.Description)
+		expectedDescription := fmt.Sprintf("This blueprint outlines resources in the %s context", expectedName)
+		if metadata.Description != expectedDescription {
+			t.Errorf("Expected metadata description to be '%s', got '%s'", expectedDescription, metadata.Description)
+		}
+	})
+
+	t.Run("ErrorUnmarshallingLocalJsonnet", func(t *testing.T) {
+		// Setup mocks
+		mocks := setupSafeMocks()
+
+		// Mock context to return "local"
+		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+
+		// Mock loadFileData to simulate no data for local jsonnet
+		originalLoadFileData := loadFileData
+		defer func() { loadFileData = originalLoadFileData }()
+		loadFileData = func(path string) ([]byte, error) {
+			return nil, nil
 		}
 
-		// Validate sources
-		sources := blueprintHandler.GetSources()
-		if len(sources) == 0 || sources[0].Name != "core" {
-			t.Errorf("Expected source name 'core', got %v", sources)
+		// Mock yamlUnmarshal to simulate an error on unmarshalling local jsonnet data
+		originalYamlUnmarshal := yamlUnmarshal
+		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
+		yamlUnmarshal = func(data []byte, v interface{}) error {
+			return fmt.Errorf("simulated unmarshalling error")
 		}
 
-		// Validate Terraform component
-		components := blueprintHandler.GetTerraformComponents()
-		if len(components) > 0 {
-			component := components[0]
-			if component.Path != "cluster/talos" {
-				t.Errorf("Expected component path 'cluster/talos', got '%s'", component.Path)
-			}
-			if component.Source != "github.com/windsorcli/core//terraform/cluster/talos?ref=v0.1.0" {
-				t.Errorf("Expected component source 'github.com/windsorcli/core//terraform/cluster/talos?ref=v0.1.0', got '%s'", component.Source)
-			}
+		// Initialize and attempt to load blueprint
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Initialization failed: %v", err)
+		}
+		if err := blueprintHandler.LoadConfig(filepath.Join("/mock", "config", "root", "blueprint")); err == nil {
+			t.Fatalf("Expected LoadConfig to fail due to unmarshalling error, but it succeeded")
 		}
 	})
 
@@ -412,31 +430,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("NoFileFound", func(t *testing.T) {
-		// Given a mock injector
-		mocks := setupSafeMocks()
-
-		// Mock osStat to return an error indicating the file does not exist
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		// When a new BlueprintHandler is created and initialized
-		blueprintHandler := NewBlueprintHandler(mocks.Injector)
-		err := blueprintHandler.Initialize()
-
-		// Load the blueprint configuration
-		err = blueprintHandler.LoadConfig()
-
-		// Then the LoadConfig should not return an error
-		if err != nil {
-			t.Errorf("Expected LoadConfig to succeed, but got: %v", err)
-		}
-	})
-
-	t.Run("ErrorReadingJsonnetFile", func(t *testing.T) {
+	t.Run("ErrorLoadingJsonnetFile", func(t *testing.T) {
 		// Given a mock injector
 		mocks := setupSafeMocks()
 
@@ -444,7 +438,10 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		originalOsStat := osStat
 		defer func() { osStat = originalOsStat }()
 		osStat = func(name string) (os.FileInfo, error) {
-			return nil, nil
+			if strings.HasSuffix(name, ".jsonnet") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
 		}
 
 		// Mock osReadFile to return an error for Jsonnet file
@@ -470,7 +467,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorReadingYamlFile", func(t *testing.T) {
+	t.Run("ErrorLoadingYamlFile", func(t *testing.T) {
 		// Given a mock injector
 		mocks := setupSafeMocks()
 
@@ -478,7 +475,10 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		originalOsStat := osStat
 		defer func() { osStat = originalOsStat }()
 		osStat = func(name string) (os.FileInfo, error) {
-			return nil, nil
+			if strings.HasSuffix(name, ".yaml") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
 		}
 
 		// Mock osReadFile to return an error for YAML file
@@ -501,160 +501,6 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		// Then the LoadConfig should fail with the expected error for YAML file
 		if err == nil || !strings.Contains(err.Error(), "error reading yaml file") {
 			t.Errorf("Expected LoadConfig to fail with error containing 'error reading yaml file', but got: %v", err)
-		}
-	})
-
-	t.Run("ErrorGeneratingBlueprintFromJsonnet", func(t *testing.T) {
-		// Given a mock injector
-		mocks := setupSafeMocks()
-
-		// Mock osStat to simulate the presence of a Jsonnet file
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
-			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Mock osReadFile to return valid Jsonnet data
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
-			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
-				return []byte("valid: jsonnet"), nil
-			}
-			return nil, fmt.Errorf("file not found")
-		}
-
-		// Mock generateBlueprintFromJsonnet to return an error
-		originalGenerateBlueprintFromJsonnet := generateBlueprintFromJsonnet
-		defer func() { generateBlueprintFromJsonnet = originalGenerateBlueprintFromJsonnet }()
-		generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
-			return "", fmt.Errorf("error generating blueprint from local jsonnet")
-		}
-
-		// When a new BlueprintHandler is created and initialized
-		blueprintHandler := NewBlueprintHandler(mocks.Injector)
-		err := blueprintHandler.Initialize()
-
-		// Load the blueprint configuration
-		err = blueprintHandler.LoadConfig()
-
-		// Then the LoadConfig should fail with the expected error for Jsonnet generation
-		if err == nil || !strings.Contains(err.Error(), "error generating blueprint from local jsonnet") {
-			t.Errorf("Expected LoadConfig to fail with error containing 'error generating blueprint from local jsonnet', but got: %v", err)
-		}
-	})
-
-	t.Run("SuccessLoadingJsonnetBlueprint", func(t *testing.T) {
-		// Given a mock injector
-		mocks := setupSafeMocks()
-
-		// Define a simple mockFileInfo struct to simulate file information
-		mockFileInfo := struct {
-			os.FileInfo
-		}{}
-
-		// Mock osStat to simulate the presence of a Jsonnet file
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
-			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
-				return mockFileInfo, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Mock osReadFile to return valid Jsonnet data
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
-			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
-				return []byte("valid: jsonnet"), nil
-			}
-			return nil, fmt.Errorf("file not found")
-		}
-
-		// Mock generateBlueprintFromJsonnet to return valid evaluated Jsonnet
-		originalGenerateBlueprintFromJsonnet := generateBlueprintFromJsonnet
-		defer func() { generateBlueprintFromJsonnet = originalGenerateBlueprintFromJsonnet }()
-		generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
-			return `{"kind": "Blueprint", "metadata": {"name": "test"}}`, nil
-		}
-
-		// When a new BlueprintHandler is created and initialized
-		blueprintHandler := NewBlueprintHandler(mocks.Injector)
-		err := blueprintHandler.Initialize()
-
-		// Load the blueprint configuration
-		err = blueprintHandler.LoadConfig()
-
-		// Then the LoadConfig should succeed without errors
-		if err != nil {
-			t.Errorf("Expected LoadConfig to succeed, but got error: %v", err)
-		}
-	})
-
-	t.Run("SuccessLoadingYamlForLocalBlueprint", func(t *testing.T) {
-
-	})
-
-	t.Run("ErrorUnmarshallingJsonnetData", func(t *testing.T) {
-		// Given a mock injector
-		mocks := setupSafeMocks()
-
-		// Mock osStat to simulate a Jsonnet file presence
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
-			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Mock osReadFile to return some “valid” Jsonnet data
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
-			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.jsonnet") {
-				return []byte("valid: jsonnet"), nil
-			}
-			return nil, fmt.Errorf("file not found")
-		}
-
-		// Mock generateBlueprintFromJsonnet to return valid YAML data without error
-		originalGenerateBlueprintFromJsonnet := generateBlueprintFromJsonnet
-		defer func() { generateBlueprintFromJsonnet = originalGenerateBlueprintFromJsonnet }()
-		generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
-			return "valid: yaml", nil
-		}
-
-		// Mock yamlUnmarshal to simulate an error during unmarshalling
-		originalYamlUnmarshal := yamlUnmarshal
-		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
-		yamlUnmarshal = func(data []byte, v interface{}) error {
-			return fmt.Errorf("error unmarshalling jsonnet data")
-		}
-
-		// When a new BlueprintHandler is created and initialized
-		blueprintHandler := NewBlueprintHandler(mocks.Injector)
-		if err := blueprintHandler.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
-		}
-
-		// Load the blueprint configuration
-		err := blueprintHandler.LoadConfig()
-		// Then the LoadConfig should fail with a matching error
-		if err == nil {
-			t.Errorf("Expected LoadConfig to fail, but it succeeded without error")
-		} else {
-			expectedMsg := "error unmarshalling jsonnet data"
-			if !strings.Contains(err.Error(), expectedMsg) {
-				t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
-			}
 		}
 	})
 
@@ -709,6 +555,229 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorMarshallingContextToJSON", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Mock context to return "local"
+		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+
+		// Mock jsonMarshal to return an error
+		originalJsonMarshal := jsonMarshal
+		defer func() { jsonMarshal = originalJsonMarshal }()
+		jsonMarshal = func(v interface{}) ([]byte, error) {
+			return nil, fmt.Errorf("error marshalling context to JSON")
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Load the blueprint configuration
+		err := blueprintHandler.LoadConfig()
+
+		// Then the LoadConfig should fail with the expected error
+		if err == nil {
+			t.Errorf("Expected LoadConfig to fail with an error containing 'error marshalling context to JSON', but got: <nil>")
+		} else {
+			expectedMsg := "error marshalling context to JSON"
+			if !strings.Contains(err.Error(), expectedMsg) {
+				t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
+			}
+		}
+	})
+
+	t.Run("ErrorEvaluatingJsonnet", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Mock context to return "local"
+		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+
+		// Mock jsonnetMakeVM to return a VM that fails on EvaluateAnonymousSnippet
+		originalJsonnetMakeVM := jsonnetMakeVM
+		defer func() { jsonnetMakeVM = originalJsonnetMakeVM }()
+		jsonnetMakeVM = func() jsonnetVMInterface {
+			return &mockJsonnetVM{}
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Load the blueprint configuration
+		err := blueprintHandler.LoadConfig()
+
+		// Then the LoadConfig should fail with the expected error
+		if err == nil {
+			t.Errorf("Expected LoadConfig to fail with an error containing 'error evaluating jsonnet', but got: <nil>")
+		} else {
+			expectedMsg := "error evaluating snippet"
+			if !strings.Contains(err.Error(), expectedMsg) {
+				t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
+			}
+		}
+	})
+
+	t.Run("ErrorUnmarshallingJsonnetData", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Mock context to return "local"
+		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+
+		// Mock yamlUnmarshal to return an error
+		originalYamlUnmarshal := yamlUnmarshal
+		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
+		yamlUnmarshal = func(data []byte, v interface{}) error {
+			return fmt.Errorf("mock error unmarshalling jsonnet data")
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Load the blueprint configuration
+		err := blueprintHandler.LoadConfig()
+
+		// Then the LoadConfig should fail with the expected error
+		if err == nil {
+			t.Errorf("Expected LoadConfig to fail with an error containing 'error unmarshalling jsonnet data', but got: <nil>")
+		} else {
+			expectedMsg := "error unmarshalling jsonnet data"
+			if !strings.Contains(err.Error(), expectedMsg) {
+				t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
+			}
+		}
+	})
+
+	t.Run("ErrorMarshallingLocalBlueprintYaml", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Mock yamlMarshal to return an error
+		originalYamlMarshal := yamlMarshal
+		defer func() { yamlMarshal = originalYamlMarshal }()
+		yamlMarshal = func(v interface{}) ([]byte, error) {
+			return nil, fmt.Errorf("mock error marshalling context config to YAML")
+		}
+
+		// Mock context to return "local"
+		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+
+		// Mock loadFileData to return empty jsonnet data
+		originalLoadFileData := loadFileData
+		defer func() { loadFileData = originalLoadFileData }()
+		loadFileData = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, ".jsonnet") {
+				return []byte(""), nil // Return empty data for jsonnet
+			}
+			return originalLoadFileData(path)
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Load the blueprint configuration
+		err := blueprintHandler.LoadConfig()
+
+		// Then the LoadConfig should fail with the expected error
+		if err == nil {
+			t.Fatalf("Expected LoadConfig to fail with an error containing 'error marshalling context config to YAML', but got: <nil>")
+		}
+
+		expectedMsg := "error marshalling context config to YAML"
+		if !strings.Contains(err.Error(), expectedMsg) {
+			t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
+		}
+	})
+
+	t.Run("ErrorUnmarshallingYamlToJson", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Mock yamlUnmarshal to return an error only on the second call
+		originalYamlUnmarshal := yamlUnmarshal
+		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
+		callCount := 0
+		yamlUnmarshal = func(data []byte, v interface{}) error {
+			callCount++
+			if callCount == 3 {
+				return fmt.Errorf("mock error unmarshalling YAML to JSON")
+			}
+			return originalYamlUnmarshal(data, v)
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Load the blueprint configuration
+		err := blueprintHandler.LoadConfig()
+
+		// Then the LoadConfig should fail with the expected error
+		if err == nil {
+			t.Fatalf("Expected LoadConfig to fail with an error containing 'mock error unmarshalling YAML to JSON', but got: <nil>")
+		}
+
+		expectedMsg := "mock error unmarshalling YAML to JSON"
+		if !strings.Contains(err.Error(), expectedMsg) {
+			t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
+		}
+	})
+
+	t.Run("ErrorMarshallingLocalJson", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Mock jsonMarshal to return an error
+		originalJsonMarshal := jsonMarshal
+		defer func() { jsonMarshal = originalJsonMarshal }()
+		jsonMarshal = func(v interface{}) ([]byte, error) {
+			return nil, fmt.Errorf("mock error marshalling JSON data")
+		}
+
+		// Mock context to return "local"
+		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+
+		// Mock loadFileData to return empty data for both jsonnet and yaml
+		originalLoadFileData := loadFileData
+		defer func() { loadFileData = originalLoadFileData }()
+		loadFileData = func(path string) ([]byte, error) {
+			return []byte(""), nil // Return empty data for both jsonnet and yaml
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Load the blueprint configuration
+		err := blueprintHandler.LoadConfig()
+
+		// Then the LoadConfig should fail with the expected error
+		if err == nil {
+			t.Fatalf("Expected LoadConfig to fail with an error containing 'mock error marshalling JSON data', but got: <nil>")
+		}
+
+		expectedMsg := "mock error marshalling JSON data"
+		if !strings.Contains(err.Error(), expectedMsg) {
+			t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
+		}
+	})
+
 	t.Run("ErrorGeneratingBlueprintFromLocalJsonnet", func(t *testing.T) {
 		// Given a mock injector
 		mocks := setupSafeMocks()
@@ -730,11 +799,11 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		// Mock context to return "local"
 		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
 
-		// Mock generateBlueprintFromJsonnet to return an error
-		originalGenerateBlueprintFromJsonnet := generateBlueprintFromJsonnet
-		defer func() { generateBlueprintFromJsonnet = originalGenerateBlueprintFromJsonnet }()
-		generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
-			return "", fmt.Errorf("error generating blueprint from local jsonnet")
+		// Mock jsonnetMakeVM to simulate an error during Jsonnet evaluation
+		originalJsonnetMakeVM := jsonnetMakeVM
+		defer func() { jsonnetMakeVM = originalJsonnetMakeVM }()
+		jsonnetMakeVM = func() jsonnetVMInterface {
+			return &mockJsonnetVM{}
 		}
 
 		// When a new BlueprintHandler is created and initialized
@@ -748,48 +817,27 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 
 		// Then the LoadConfig should fail with the expected error
 		if err == nil {
-			t.Errorf("Expected LoadConfig to fail with an error containing 'error generating blueprint from local jsonnet', but got: <nil>")
+			t.Errorf("Expected LoadConfig to fail with an error containing 'error evaluating snippet', but got: <nil>")
 		} else {
-			expectedMsg := "error generating blueprint from local jsonnet"
+			expectedMsg := "error evaluating snippet"
 			if !strings.Contains(err.Error(), expectedMsg) {
 				t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
 			}
 		}
 	})
 
-	t.Run("ErrorUnmarshallingLocalBlueprint", func(t *testing.T) {
+	t.Run("ErrorUnmarshallingJsonnetData", func(t *testing.T) {
 		// Given a mock injector
 		mocks := setupSafeMocks()
 
-		// Mock osStat to simulate the absence of a Jsonnet file
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		// Mock osReadFile to return an error for Jsonnet file
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
-			return nil, fmt.Errorf("file not found")
-		}
-
-		// Mock context to return "local"
-		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
-
-		// Mock generateBlueprintFromJsonnet to return valid evaluated Jsonnet
-		originalGenerateBlueprintFromJsonnet := generateBlueprintFromJsonnet
-		defer func() { generateBlueprintFromJsonnet = originalGenerateBlueprintFromJsonnet }()
-		generateBlueprintFromJsonnet = func(contextConfig *config.Context, jsonnetTemplate string) (string, error) {
-			return `{"kind": "Blueprint", "metadata": {"name": "test"}}`, nil
-		}
-
-		// Mock yamlUnmarshal to return an error
+		// Mock yamlUnmarshal to simulate an error only when unmarshalling Jsonnet data
 		originalYamlUnmarshal := yamlUnmarshal
 		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
 		yamlUnmarshal = func(data []byte, v interface{}) error {
-			return fmt.Errorf("error unmarshalling jsonnet data")
+			if strings.Contains(string(data), "test-blueprint") {
+				return fmt.Errorf("simulated unmarshalling error")
+			}
+			return originalYamlUnmarshal(data, v)
 		}
 
 		// When a new BlueprintHandler is created and initialized
@@ -803,9 +851,56 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 
 		// Then the LoadConfig should fail with the expected error
 		if err == nil {
-			t.Errorf("Expected LoadConfig to fail with an error containing 'error unmarshalling jsonnet data', but got: <nil>")
+			t.Errorf("Expected LoadConfig to fail due to unmarshalling error, but it succeeded")
 		} else {
 			expectedMsg := "error unmarshalling jsonnet data"
+			if !strings.Contains(err.Error(), expectedMsg) {
+				t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
+			}
+		}
+	})
+
+	t.Run("ErrorUnmarshallingYamlDataWithEvaluatedJsonnet", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Mock yamlUnmarshal to simulate an error when unmarshalling YAML data
+		originalYamlUnmarshal := yamlUnmarshal
+		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
+		yamlUnmarshal = func(data []byte, v interface{}) error {
+			if strings.Contains(string(data), "test-blueprint") {
+				return fmt.Errorf("simulated unmarshalling error for YAML")
+			}
+			return originalYamlUnmarshal(data, v)
+		}
+
+		// Mock loadFileData to return empty YAML data and valid Jsonnet data
+		originalLoadFileData := loadFileData
+		defer func() { loadFileData = originalLoadFileData }()
+		loadFileData = func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, ".jsonnet") {
+				return []byte(`{"test-blueprint": "some data"}`), nil
+			}
+			if strings.HasSuffix(path, ".yaml") {
+				return []byte{}, nil
+			}
+			return originalLoadFileData(path)
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		if err := blueprintHandler.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Load the blueprint configuration
+		err := blueprintHandler.LoadConfig(filepath.Join("/mock", "config", "root", "blueprint"))
+
+		// Then the LoadConfig should fail with the expected error
+		if err == nil {
+			t.Errorf("Expected LoadConfig to fail due to YAML unmarshalling error, but it succeeded")
+		} else {
+			expectedMsg := "simulated unmarshalling error for YAML"
 			if !strings.Contains(err.Error(), expectedMsg) {
 				t.Errorf("Expected error to contain '%s', but got: %v", expectedMsg, err)
 			}
@@ -1279,7 +1374,7 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 		blueprintHandler.SetSources(expectedSources)
 
 		// Resolve the component sources
-		blueprint := blueprintHandler.blueprint.deepCopy()
+		blueprint := blueprintHandler.blueprint.Copy()
 		blueprintHandler.resolveComponentSources(blueprint)
 
 		// Then the resolved sources should match the expected sources
@@ -1317,7 +1412,7 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 		blueprintHandler.SetTerraformComponents(expectedComponents)
 
 		// Resolve the component paths
-		blueprint := blueprintHandler.blueprint.deepCopy()
+		blueprint := blueprintHandler.blueprint.Copy()
 		blueprintHandler.resolveComponentPaths(blueprint)
 
 		// Then the resolved paths should match the expected paths
@@ -1378,7 +1473,7 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 			Path:   "module/path",
 		}})
 
-		blueprint := blueprintHandler.blueprint.deepCopy()
+		blueprint := blueprintHandler.blueprint.Copy()
 		blueprintHandler.resolveComponentSources(blueprint)
 		blueprintHandler.resolveComponentPaths(blueprint)
 
@@ -1405,294 +1500,380 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 	})
 }
 
-func TestBlueprintHandler_deepCopy(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		blueprint := &BlueprintV1Alpha1{
-			Metadata: MetadataV1Alpha1{
-				Name: "test-blueprint",
+func TestYamlMarshalWithDefinedPaths(t *testing.T) {
+	t.Run("AllNonNilValues", func(t *testing.T) {
+		testData := struct {
+			Name    string                          `yaml:"name"`
+			Age     int                             `yaml:"age"`
+			Nested  struct{ FieldA, FieldB string } `yaml:"nested"`
+			Numbers []int                           `yaml:"numbers"`
+			MapData map[string]string               `yaml:"map_data"`
+		}{
+			Name: "Alice",
+			Age:  30,
+			Nested: struct{ FieldA, FieldB string }{
+				FieldA: "ValueA",
+				FieldB: "42",
 			},
-			Sources: []SourceV1Alpha1{
-				{
-					Name:       "source1",
-					Url:        "https://example.com/repo1.git",
-					PathPrefix: "terraform",
-					Ref:        "main",
-				},
-			},
-			TerraformComponents: []TerraformComponentV1Alpha1{
-				{
-					Source: "source1",
-					Path:   "module/path1",
-				},
+			Numbers: []int{1, 2, 3},
+			MapData: map[string]string{
+				"key1": "value1",
+				"key2": "value2",
 			},
 		}
-		copy := blueprint.deepCopy()
-		if copy.Metadata.Name != "test-blueprint" {
-			t.Errorf("Expected deep copy to have name %v, but got %v", "test-blueprint", copy.Metadata.Name)
-		}
-		if len(copy.Sources) != 1 || copy.Sources[0].Name != "source1" {
-			t.Errorf("Expected deep copy to have source %v, but got %v", "source1", copy.Sources)
-		}
-		if len(copy.TerraformComponents) != 1 || copy.TerraformComponents[0].Source != "source1" {
-			t.Errorf("Expected deep copy to have terraform component source %v, but got %v", "source1", copy.TerraformComponents)
-		}
-		// Additional test to ensure deep copy handles pointer fields correctly
-		if copy.TerraformComponents[0].Path != "module/path1" {
-			t.Errorf("Expected deep copy to have terraform component path %v, but got %v", "module/path1", copy.TerraformComponents[0].Path)
-		}
-	})
-}
+		expectedYAML := "name: Alice\nage: 30\nnested:\n  FieldA: ValueA\n  FieldB: \"42\"\nnumbers:\n- 1\n- 2\n- 3\nmap_data:\n  key1: value1\n  key2: value2\n"
 
-func TestBlueprintHandler_generateBlueprintFromJsonnet(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		contextConfig := &config.Context{} // Use an empty struct as the fields are unknown
-
-		jsonnetTemplate := safeBlueprintJsonnet // Use the valid template from the context
-
-		expectedYaml := safeBlueprintYAML // Use the valid YAML from the context
-
-		result, err := generateBlueprintFromJsonnet(contextConfig, jsonnetTemplate)
+		data, err := yamlMarshalWithDefinedPaths(testData)
 		if err != nil {
-			t.Fatalf("Expected no error, but got: %v", err)
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
 		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
 
-		// Unmarshal both YAML strings into maps for comparison
-		var expectedMap, resultMap map[string]interface{}
-		if err := yaml.Unmarshal([]byte(expectedYaml), &expectedMap); err != nil {
-			t.Fatalf("Failed to unmarshal expected YAML: %v", err)
+	t.Run("NilPointerFields", func(t *testing.T) {
+		testData := struct {
+			Name    *string `yaml:"name"`
+			Age     *int    `yaml:"age"`
+			Comment *string `yaml:"comment"`
+		}{
+			Name:    nil,
+			Age:     func() *int { i := 25; return &i }(),
+			Comment: nil,
 		}
-		if err := yaml.Unmarshal([]byte(result), &resultMap); err != nil {
-			t.Fatalf("Failed to unmarshal result YAML: %v", err)
-		}
+		expectedYAML := "age: 25\n"
 
-		// Compare the maps
-		if !reflect.DeepEqual(expectedMap, resultMap) {
-			t.Errorf("Expected generated YAML to be equivalent to expected YAML, but got differences")
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("ZeroValues", func(t *testing.T) {
+		testData := struct {
+			Name    string `yaml:"name"`
+			Age     int    `yaml:"age"`
+			Active  bool   `yaml:"active"`
+			Comment string `yaml:"comment"`
+		}{
+			Name:    "",
+			Age:     0,
+			Active:  false,
+			Comment: "",
+		}
+		expectedYAML := "name: \"\"\nage: 0\nactive: false\ncomment: \"\"\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("NilSlicesAndMaps", func(t *testing.T) {
+		testData := struct {
+			Numbers []int          `yaml:"numbers"`
+			MapData map[string]int `yaml:"map_data"`
+			Nested  *struct{}      `yaml:"nested"`
+		}{
+			Numbers: nil,
+			MapData: nil,
+			Nested:  nil,
+		}
+		expectedYAML := "numbers: []\nmap_data: {}\nnested: {}\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("EmptySlicesAndMaps", func(t *testing.T) {
+		testData := struct {
+			Numbers []int          `yaml:"numbers"`
+			MapData map[string]int `yaml:"map_data"`
+		}{
+			Numbers: []int{},
+			MapData: map[string]int{},
+		}
+		expectedYAML := "numbers: []\nmap_data: {}\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("UnexportedFields", func(t *testing.T) {
+		testData := struct {
+			ExportedField   string `yaml:"exported_field"`
+			unexportedField string `yaml:"unexported_field"`
+		}{
+			ExportedField:   "Visible",
+			unexportedField: "Hidden",
+		}
+		expectedYAML := "exported_field: Visible\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("OmittedFields", func(t *testing.T) {
+		testData := struct {
+			Name   string `yaml:"name"`
+			Secret string `yaml:"-"`
+		}{
+			Name:   "Bob",
+			Secret: "SuperSecret",
+		}
+		expectedYAML := "name: Bob\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("NestedPointers", func(t *testing.T) {
+		testData := struct {
+			Inner *struct{ Value *string } `yaml:"inner"`
+		}{
+			Inner: nil,
+		}
+		expectedYAML := "inner: {}\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("SliceWithNilElements", func(t *testing.T) {
+		testData := struct {
+			Items []interface{} `yaml:"items"`
+		}{
+			Items: []interface{}{"Item1", nil, "Item3"},
+		}
+		expectedYAML := "items:\n- \"Item1\"\n- null\n- \"Item3\"\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("MapWithNilValues", func(t *testing.T) {
+		testData := struct {
+			Data map[string]interface{} `yaml:"data"`
+		}{
+			Data: map[string]interface{}{
+				"key1": "value1",
+				"key2": nil,
+			},
+		}
+		expectedYAML := "data:\n  key1: \"value1\"\n  key2: null\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("InterfaceFields", func(t *testing.T) {
+		testData := struct {
+			Info interface{} `yaml:"info"`
+		}{
+			Info: nil,
+		}
+		expectedYAML := "info: {}\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("InvalidInput", func(t *testing.T) {
+		testData := func() {}
+		expectedYAML := ""
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err == nil || err.Error() != "unsupported value type func" {
+			t.Fatalf("Expected error 'unsupported value type func', but got: %v", err)
+		}
+		if string(data) != expectedYAML {
+			t.Errorf("Expected empty YAML, but got: %s", string(data))
 		}
 	})
 
-	t.Run("YamlMarshalError", func(t *testing.T) {
-		contextConfig := &config.Context{} // Use an empty struct as the fields are unknown
+	t.Run("InvalidReflectValue", func(t *testing.T) {
+		var testData interface{} = nil
+		expectedError := "invalid input: nil value"
 
-		jsonnetTemplate := safeBlueprintJsonnet // Use the valid template from the context
-
-		// Mock yamlMarshal to return an error
-		originalYamlMarshal := yamlMarshal
-		defer func() { yamlMarshal = originalYamlMarshal }()
-		yamlMarshal = func(v interface{}) ([]byte, error) {
-			return nil, fmt.Errorf("error marshaling yaml")
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err == nil || err.Error() != expectedError {
+			t.Fatalf("Expected error '%s', but got: %v", expectedError, err)
 		}
-
-		_, err := generateBlueprintFromJsonnet(contextConfig, jsonnetTemplate)
-		if err == nil || !strings.Contains(err.Error(), "error marshaling yaml") {
-			t.Errorf("Expected generateBlueprintFromJsonnet to fail with error containing 'error marshaling yaml', but got: %v", err)
+		if data != nil {
+			t.Errorf("Expected nil data, but got: %v", data)
 		}
 	})
 
-	t.Run("ErrorConvertYamlToJson", func(t *testing.T) {
-		contextConfig := &config.Context{} // Use an empty struct as the fields are unknown
-
-		jsonnetTemplate := safeBlueprintJsonnet // Use the valid template from the context
-
-		// Mock yamlToJson to return an error
-		originalYamlToJson := yamlToJson
-		defer func() { yamlToJson = originalYamlToJson }()
-		yamlToJson = func(yamlBytes []byte) ([]byte, error) {
-			return nil, fmt.Errorf("error converting yaml to json")
+	t.Run("NoYAMLTag", func(t *testing.T) {
+		testData := struct {
+			Name  string
+			Age   int
+			Email string
+		}{
+			Name:  "Alice",
+			Age:   30,
+			Email: "alice@example.com",
 		}
+		expectedYAML := "Name: Alice\nAge: 30\nEmail: alice@example.com\n"
 
-		_, err := generateBlueprintFromJsonnet(contextConfig, jsonnetTemplate)
-		if err == nil || !strings.Contains(err.Error(), "error converting yaml to json") {
-			t.Errorf("Expected generateBlueprintFromJsonnet to fail with error containing 'error converting yaml to json', but got: %v", err)
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("EmptyResult", func(t *testing.T) {
+		testData := struct {
+			Nested  *struct{ FieldA, FieldB string } `yaml:"nested"`
+			Numbers []int                            `yaml:"numbers"`
+			MapData map[string]string                `yaml:"map_data"`
+		}{
+			Nested:  nil,
+			Numbers: nil,
+			MapData: map[string]string{},
+		}
+		expectedYAML := "map_data: {}\nnested: {}\nnumbers: []\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("ErrorConvertingSliceElement", func(t *testing.T) {
+		testData := []interface{}{1, "string", func() {}}
+		_, err := yamlMarshalWithDefinedPaths(testData)
+		if err == nil || err.Error() != "error converting slice element at index 2: unsupported value type func" {
+			t.Fatalf("Expected error 'error converting slice element at index 2: unsupported value type func', but got: %v", err)
 		}
 	})
 
-	t.Run("ErrorEvaluateSnippet", func(t *testing.T) {
-		contextConfig := &config.Context{}      // Use an empty struct as the fields are unknown
-		jsonnetTemplate := safeBlueprintJsonnet // Use the valid template from the context
-
-		// Mock jsonnetMakeVM to return a VM that always errors on EvaluateAnonymousSnippet
-		originalJsonnetMakeVM := jsonnetMakeVM
-		defer func() { jsonnetMakeVM = originalJsonnetMakeVM }()
-		jsonnetMakeVM = func() jsonnetVMInterface {
-			return &mockJsonnetVM{}
+	t.Run("ErrorConvertingMapValue", func(t *testing.T) {
+		testData := map[string]interface{}{
+			"key1": 1,
+			"key2": func() {},
 		}
-
-		_, err := generateBlueprintFromJsonnet(contextConfig, jsonnetTemplate)
-		if err == nil || !strings.Contains(err.Error(), "error evaluating snippet") {
-			t.Errorf("Expected generateBlueprintFromJsonnet to fail with error containing 'error evaluating snippet', but got: %v", err)
+		_, err := yamlMarshalWithDefinedPaths(testData)
+		if err == nil || err.Error() != "error converting map value for key key2: unsupported value type func" {
+			t.Fatalf("Expected error 'error converting map value for key key2: unsupported value type func', but got: %v", err)
 		}
 	})
 
-	t.Run("ErrorJsonToYaml", func(t *testing.T) {
-		contextConfig := &config.Context{}      // Use an empty struct as the fields are unknown
-		jsonnetTemplate := safeBlueprintJsonnet // Use the valid template from the context
-
-		// Mock yamlJSONToYAML to return an error
-		originalYamlJSONToYAML := yamlJSONToYAML
-		defer func() { yamlJSONToYAML = originalYamlJSONToYAML }()
-		yamlJSONToYAML = func(jsonBytes []byte) ([]byte, error) {
-			return nil, fmt.Errorf("error converting json to yaml")
+	t.Run("ErrorConvertingField", func(t *testing.T) {
+		testData := struct {
+			Name    string `yaml:"name"`
+			Invalid func() `yaml:"invalid"`
+		}{
+			Name:    "Test",
+			Invalid: func() {},
 		}
-
-		_, err := generateBlueprintFromJsonnet(contextConfig, jsonnetTemplate)
-		if err == nil || !strings.Contains(err.Error(), "error converting json to yaml") {
-			t.Errorf("Expected generateBlueprintFromJsonnet to fail with error containing 'error converting json to yaml', but got: %v", err)
+		_, err := yamlMarshalWithDefinedPaths(testData)
+		if err == nil || err.Error() != "error converting field Invalid: unsupported value type func" {
+			t.Fatalf("Expected error 'error converting field Invalid: unsupported value type func', but got: %v", err)
 		}
 	})
 
-	t.Run("ErrorUnmarshalYaml", func(t *testing.T) {
-		contextConfig := &config.Context{}      // Use an empty struct as the fields are unknown
-		jsonnetTemplate := safeBlueprintJsonnet // Use the valid template from the context
+	t.Run("EmptyStruct", func(t *testing.T) {
+		testData := struct{}{}
+		expectedYAML := "{}\n"
 
-		// Mock yamlUnmarshal to return an error
-		originalYamlUnmarshal := yamlUnmarshal
-		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
-		yamlUnmarshal = func(yamlBytes []byte, v interface{}) error {
-			return fmt.Errorf("error unmarshaling yaml")
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
 		}
-
-		_, err := generateBlueprintFromJsonnet(contextConfig, jsonnetTemplate)
-		if err == nil || !strings.Contains(err.Error(), "error unmarshaling yaml") {
-			t.Errorf("Expected generateBlueprintFromJsonnet to fail with error containing 'error unmarshaling yaml', but got: %v", err)
-		}
-	})
-}
-
-func TestBlueprintHandler_mergeBlueprints(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		dst := &BlueprintV1Alpha1{
-			Kind:       "Blueprint",
-			ApiVersion: "v1alpha1",
-			Metadata: MetadataV1Alpha1{
-				Name:        "original",
-				Description: "original description",
-				Authors:     []string{"author1"},
-			},
-			Sources: []SourceV1Alpha1{
-				{
-					Name: "source1",
-					Url:  "http://example.com/source1",
-					Ref:  "v1.0.0",
-				},
-			},
-			TerraformComponents: []TerraformComponentV1Alpha1{
-				{
-					Source: "source1",
-					Path:   "path1",
-					Variables: map[string]TerraformVariableV1Alpha1{
-						"var1": {Default: "default1"},
-					},
-					Values:   nil, // Set Values to nil to test initialization
-					FullPath: "original/full/path",
-				},
-			},
-		}
-
-		src := &BlueprintV1Alpha1{
-			Kind:       "Blueprint",
-			ApiVersion: "v1alpha1",
-			Metadata: MetadataV1Alpha1{
-				Name:        "updated",
-				Description: "updated description",
-				Authors:     []string{"author2"},
-			},
-			Sources: []SourceV1Alpha1{
-				{
-					Name: "source2",
-					Url:  "http://example.com/source2",
-					Ref:  "v2.0.0",
-				},
-			},
-			TerraformComponents: []TerraformComponentV1Alpha1{
-				{
-					Source: "source1",
-					Path:   "path1",
-					Variables: map[string]TerraformVariableV1Alpha1{
-						"var2": {Default: "default2"},
-					},
-					Values: map[string]interface{}{
-						"key2": "value2",
-					},
-					FullPath: "updated/full/path",
-				},
-				{
-					Source: "source3",
-					Path:   "path3",
-					Variables: map[string]TerraformVariableV1Alpha1{
-						"var3": {Default: "default3"},
-					},
-					Values: map[string]interface{}{
-						"key3": "value3",
-					},
-					FullPath: "new/full/path",
-				},
-			},
-		}
-
-		mergeBlueprints(dst, src)
-
-		if dst.Metadata.Name != "updated" {
-			t.Errorf("Expected Metadata.Name to be 'updated', but got '%s'", dst.Metadata.Name)
-		}
-		if dst.Metadata.Description != "updated description" {
-			t.Errorf("Expected Metadata.Description to be 'updated description', but got '%s'", dst.Metadata.Description)
-		}
-		if len(dst.Metadata.Authors) != 1 || dst.Metadata.Authors[0] != "author2" {
-			t.Errorf("Expected Metadata.Authors to be ['author2'], but got %v", dst.Metadata.Authors)
-		}
-		if len(dst.Sources) != 1 || dst.Sources[0].Name != "source2" {
-			t.Errorf("Expected Sources to be ['source2'], but got %v", dst.Sources)
-		}
-		if len(dst.TerraformComponents) != 2 {
-			t.Fatalf("Expected 2 TerraformComponents, but got %d", len(dst.TerraformComponents))
-		}
-		component1 := dst.TerraformComponents[0]
-		if len(component1.Variables) != 2 || component1.Variables["var1"].Default != "default1" || component1.Variables["var2"].Default != "default2" {
-			t.Errorf("Expected Variables to be merged, but got %v", component1.Variables)
-		}
-		if component1.Values == nil || len(component1.Values) != 1 || component1.Values["key2"] != "value2" {
-			t.Errorf("Expected Values to be initialized and contain 'key2', but got %v", component1.Values)
-		}
-		if component1.FullPath != "updated/full/path" {
-			t.Errorf("Expected FullPath to be 'updated/full/path', but got '%s'", component1.FullPath)
-		}
-		component2 := dst.TerraformComponents[1]
-		if len(component2.Variables) != 1 || component2.Variables["var3"].Default != "default3" {
-			t.Errorf("Expected Variables to be ['var3'], but got %v", component2.Variables)
-		}
-		if component2.Values == nil || len(component2.Values) != 1 || component2.Values["key3"] != "value3" {
-			t.Errorf("Expected Values to contain 'key3', but got %v", component2.Values)
-		}
-		if component2.FullPath != "new/full/path" {
-			t.Errorf("Expected FullPath to be 'new/full/path', but got '%s'", component2.FullPath)
-		}
+		compareYAML(t, data, []byte(expectedYAML))
 	})
 
-	t.Run("NoMergeWhenSrcIsNil", func(t *testing.T) {
-		dst := &BlueprintV1Alpha1{
-			Kind:       "Blueprint",
-			ApiVersion: "v1alpha1",
-			Metadata: MetadataV1Alpha1{
-				Name:        "original",
-				Description: "original description",
-				Authors:     []string{"author1"},
-			},
-		}
+	t.Run("IntSlice", func(t *testing.T) {
+		testData := []int{1, 2, 3}
+		expectedYAML := "- 1\n- 2\n- 3\n"
 
-		mergeBlueprints(dst, nil)
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
 
-		if dst.Metadata.Name != "original" {
-			t.Errorf("Expected Metadata.Name to remain 'original', but got '%s'", dst.Metadata.Name)
+	t.Run("UintSlice", func(t *testing.T) {
+		testData := []uint{1, 2, 3}
+		expectedYAML := "- 1\n- 2\n- 3\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
 		}
-		if dst.Metadata.Description != "original description" {
-			t.Errorf("Expected Metadata.Description to remain 'original description', but got '%s'", dst.Metadata.Description)
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("IntMap", func(t *testing.T) {
+		testData := map[string]int{"key1": 1, "key2": 2}
+		expectedYAML := "key1: 1\nkey2: 2\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
 		}
-		if dst.Sources != nil {
-			t.Errorf("Expected Sources to remain nil, but got %v", dst.Sources)
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("UintMap", func(t *testing.T) {
+		testData := map[string]uint{"key1": 1, "key2": 2}
+		expectedYAML := "key1: 1\nkey2: 2\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
 		}
-		if dst.TerraformComponents != nil {
-			t.Errorf("Expected TerraformComponents to remain nil, but got %v", dst.TerraformComponents)
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("FloatSlice", func(t *testing.T) {
+		testData := []float64{1.1, 2.2, 3.3}
+		expectedYAML := "- 1.1\n- 2.2\n- 3.3\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
 		}
+		compareYAML(t, data, []byte(expectedYAML))
+	})
+
+	t.Run("FloatMap", func(t *testing.T) {
+		testData := map[string]float64{"key1": 1.1, "key2": 2.2}
+		expectedYAML := "key1: 1.1\nkey2: 2.2\n"
+
+		data, err := yamlMarshalWithDefinedPaths(testData)
+		if err != nil {
+			t.Fatalf("yamlMarshalWithDefinedPaths() error: %v", err)
+		}
+		compareYAML(t, data, []byte(expectedYAML))
 	})
 }

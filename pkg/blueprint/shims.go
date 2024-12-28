@@ -52,6 +52,7 @@ type jsonnetMakeVMFunc func() jsonnetVMInterface
 type jsonnetVMInterface interface {
 	TLACode(key, val string)
 	EvaluateAnonymousSnippet(filename, snippet string) (string, error)
+	ExtCode(key, val string)
 }
 
 // jsonnetMakeVM is a variable holding the function to create a new jsonnet VM
@@ -69,6 +70,11 @@ func (vm *jsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string,
 	return vm.VM.EvaluateAnonymousSnippet(filename, snippet)
 }
 
+// ExtCode is a wrapper around jsonnet.VM.ExtCode
+func (vm *jsonnetVM) ExtCode(key, val string) {
+	vm.VM.ExtCode(key, val)
+}
+
 // mockJsonnetVM is a mock implementation of jsonnetVMInterface for testing
 type mockJsonnetVM struct{}
 
@@ -79,3 +85,6 @@ func (vm *mockJsonnetVM) TLACode(key, val string) {}
 func (vm *mockJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
 	return "", fmt.Errorf("error evaluating snippet")
 }
+
+// ExtCode is a mock implementation that does nothing
+func (vm *mockJsonnetVM) ExtCode(key, val string) {}

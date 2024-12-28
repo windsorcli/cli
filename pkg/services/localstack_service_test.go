@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/config/aws"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -72,8 +73,8 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		// Mock GetConfig to return a valid Localstack configuration
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				AWS: &config.AWSConfig{
-					Localstack: &config.LocalstackConfig{
+				AWS: &aws.AWSConfig{
+					Localstack: &aws.LocalstackConfig{
 						Enabled:  ptrBool(true),
 						Services: []string{"s3", "dynamodb"},
 					},
@@ -120,8 +121,8 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		// Mock GetConfig to return a valid Localstack configuration
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				AWS: &config.AWSConfig{
-					Localstack: &config.LocalstackConfig{
+				AWS: &aws.AWSConfig{
+					Localstack: &aws.LocalstackConfig{
 						Enabled:  ptrBool(true),
 						Services: []string{"s3", "dynamodb"},
 					},

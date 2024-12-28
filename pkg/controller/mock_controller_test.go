@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/config/docker"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
@@ -231,10 +232,10 @@ func TestMockController_CreateServiceComponents(t *testing.T) {
 
 		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				Docker: &config.DockerConfig{
-					Registries: []config.Registry{
-						{Name: "registry1"},
-						{Name: "registry2"},
+				Docker: &docker.DockerConfig{
+					Registries: map[string]docker.RegistryConfig{
+						"registry1": {Remote: "registry1"},
+						"registry2": {Remote: "registry2"},
 					},
 				},
 			}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/config/docker"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
@@ -48,11 +49,10 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	// Set up the mock config handler to return a safe default configuration for Docker VMs
 	mockConfigHandler.GetConfigFunc = func() *config.Context {
 		return &config.Context{
-			Docker: &config.DockerConfig{
+			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(true),
-				Registries: []config.Registry{
-					{
-						Name:   "registry.test",
+				Registries: map[string]docker.RegistryConfig{
+					"registry.test": {
 						Remote: "https://registry.test",
 						Local:  "https://local.registry.test",
 					},
@@ -1315,7 +1315,7 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		// Mock the context configuration to have no NetworkCIDR defined
 		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				Docker: &config.DockerConfig{
+				Docker: &docker.DockerConfig{
 					NetworkCIDR: nil,
 				},
 			}

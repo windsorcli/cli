@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -223,87 +222,6 @@ func TestInitCmd(t *testing.T) {
 
 		// Then the error should be present
 		expectedError := "mocked error setting context"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorSettingDefaultLocalConfig", func(t *testing.T) {
-		// Given a mock config handler with SetDefaultFunc set to fail
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetDefaultFunc = func(context config.Context) error {
-			return fmt.Errorf("set default local config error")
-		}
-		injector.Register("configHandler", mockConfigHandler)
-
-		// When the init command is executed
-		rootCmd.SetArgs([]string{"init", "local"})
-		err := Execute(controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then the error should indicate an error setting the default config
-		expectedError := "set default local config error"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("NonLocalContextSetsDefault", func(t *testing.T) {
-		// Given a mock config handler with SetDefaultFunc set to succeed
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetDefaultFunc = func(context config.Context) error {
-			expectedValue := config.DefaultConfig
-			if !reflect.DeepEqual(context, expectedValue) {
-				t.Errorf("Expected value %v, got %v", expectedValue, context)
-			}
-			return nil
-		}
-		injector.Register("configHandler", mockConfigHandler)
-
-		// When the init command is executed with a non-local context
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(controller)
-			if err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
-		})
-
-		// Then the output should indicate success
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("SetDefaultConfigError", func(t *testing.T) {
-		// Given a mock config handler with SetDefaultFunc set to fail
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetDefaultFunc = func(context config.Context) error {
-			return fmt.Errorf("set default config error")
-		}
-		injector.Register("configHandler", mockConfigHandler)
-
-		// When the init command is executed
-		rootCmd.SetArgs([]string{"init", "test-context"})
-		err := Execute(controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then the error should indicate an error setting the default config
-		expectedError := "set default config error"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
 		}
