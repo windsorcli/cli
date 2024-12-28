@@ -23,6 +23,7 @@ func NewYamlConfigHandler() *YamlConfigHandler {
 
 // LoadConfig loads the configuration from the specified path. If the file does not exist, it does nothing.
 func (y *YamlConfigHandler) LoadConfig(path string) error {
+	y.path = path
 	if _, err := osStat(path); os.IsNotExist(err) {
 		return nil
 	}
@@ -35,7 +36,6 @@ func (y *YamlConfigHandler) LoadConfig(path string) error {
 	if err := yamlUnmarshal(data, &y.config); err != nil {
 		return fmt.Errorf("error unmarshalling yaml: %w", err)
 	}
-	y.path = path
 	return nil
 }
 
@@ -92,7 +92,7 @@ func (y *YamlConfigHandler) Get(path string) interface{} {
 	if path == "" {
 		return nil
 	}
-	pathKeys := strings.Split(path, ".")
+	pathKeys := parsePath(path)
 
 	value := getValueByPath(y.config, pathKeys)
 	if value == nil && len(pathKeys) >= 2 && pathKeys[0] == "contexts" {
@@ -153,7 +153,7 @@ func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 	if path == "" {
 		return nil
 	}
-	pathKeys := strings.Split(path, ".")
+	pathKeys := parsePath(path)
 	configValue := reflect.ValueOf(&y.config)
 	return setValueByPath(configValue, pathKeys, value, path)
 }
@@ -387,4 +387,41 @@ func makeAddressable(v reflect.Value) reflect.Value {
 	addr := reflect.New(v.Type())
 	addr.Elem().Set(v)
 	return addr.Elem()
+}
+
+// parsePath parses a path string into a slice of keys, supporting both dot and bracket notation.
+func parsePath(path string) []string {
+	var keys []string
+	var currentKey strings.Builder
+	inBracket := false
+
+	for _, char := range path {
+		switch char {
+		case '.':
+			if !inBracket {
+				if currentKey.Len() > 0 {
+					keys = append(keys, currentKey.String())
+					currentKey.Reset()
+				}
+			} else {
+				currentKey.WriteRune(char)
+			}
+		case '[':
+			inBracket = true
+			if currentKey.Len() > 0 {
+				keys = append(keys, currentKey.String())
+				currentKey.Reset()
+			}
+		case ']':
+			inBracket = false
+		default:
+			currentKey.WriteRune(char)
+		}
+	}
+
+	if currentKey.Len() > 0 {
+		keys = append(keys, currentKey.String())
+	}
+
+	return keys
 }

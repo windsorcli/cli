@@ -205,13 +205,12 @@ func (m *MockController) CreateServiceComponents() error {
 		m.injector.Register("localstackService", localstackService)
 	}
 
-	// Create mock registry services
+	// Create mock registry services if Docker and Registries are defined
 	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
-		registryServices := contextConfig.Docker.Registries
-		for _, registry := range registryServices {
+		for key := range contextConfig.Docker.Registries {
 			service := services.NewMockService()
-			service.SetName(registry.Name)
-			serviceName := fmt.Sprintf("registryService.%s", registry.Name)
+			service.SetName(key)
+			serviceName := fmt.Sprintf("registryService.%s", key)
 			m.injector.Register(serviceName, service)
 		}
 	}

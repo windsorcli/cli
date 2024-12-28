@@ -40,3 +40,4 @@ contexts/**/.tfstate/
 contexts/**/.kube/
 contexts/**/.talos/
 contexts/**/.aws/
+.docker-cache/

@@ -270,9 +270,9 @@ func TestDNSService_WriteConfig(t *testing.T) {
 				Docker: &docker.DockerConfig{
 					Enabled:     ptrBool(true),
 					NetworkCIDR: ptrString("192.168.1.0/24"),
-					Registries: []docker.RegistryConfig{
-						{Name: "service1", Remote: "remote1", Local: "local1"},
-						{Name: "service2", Remote: "remote2", Local: "local2"},
+					Registries: map[string]docker.RegistryConfig{
+						"service1": {Remote: "remote1", Local: "local1"},
+						"service2": {Remote: "remote2", Local: "local2"},
 					},
 				},
 				DNS: &dns.DNSConfig{

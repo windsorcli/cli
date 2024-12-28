@@ -1149,3 +1149,88 @@ func TestGetValueByPath(t *testing.T) {
 		}
 	})
 }
+
+func TestParsePath(t *testing.T) {
+	t.Run("EmptyPath", func(t *testing.T) {
+		// Given an empty path
+		path := ""
+
+		// When calling parsePath
+		pathKeys := parsePath(path)
+
+		// Then the pathKeys should be an empty slice
+		if len(pathKeys) != 0 {
+			t.Errorf("Expected pathKeys to be empty, got %v", pathKeys)
+		}
+	})
+
+	t.Run("SingleKey", func(t *testing.T) {
+		// Given a path with a single key
+		path := "key"
+
+		// When calling parsePath
+		pathKeys := parsePath(path)
+
+		// Then the pathKeys should contain one element
+		expected := []string{"key"}
+		if !reflect.DeepEqual(pathKeys, expected) {
+			t.Errorf("Expected pathKeys to be %v, got %v", expected, pathKeys)
+		}
+	})
+
+	t.Run("MultipleKeys", func(t *testing.T) {
+		// Given a path with multiple keys
+		path := "key1.key2.key3"
+
+		// When calling parsePath
+		pathKeys := parsePath(path)
+
+		// Then the pathKeys should contain all keys
+		expected := []string{"key1", "key2", "key3"}
+		if !reflect.DeepEqual(pathKeys, expected) {
+			t.Errorf("Expected pathKeys to be %v, got %v", expected, pathKeys)
+		}
+	})
+
+	t.Run("KeysWithBrackets", func(t *testing.T) {
+		// Given a path with keys using bracket notation
+		path := "key1[key2][key3]"
+
+		// When calling parsePath
+		pathKeys := parsePath(path)
+
+		// Then the pathKeys should contain all keys
+		expected := []string{"key1", "key2", "key3"}
+		if !reflect.DeepEqual(pathKeys, expected) {
+			t.Errorf("Expected pathKeys to be %v, got %v", expected, pathKeys)
+		}
+	})
+
+	t.Run("MixedDotAndBracketNotation", func(t *testing.T) {
+		// Given a path with mixed dot and bracket notation
+		path := "key1.key2[key3].key4[key5]"
+
+		// When calling parsePath
+		pathKeys := parsePath(path)
+
+		// Then the pathKeys should contain all keys
+		expected := []string{"key1", "key2", "key3", "key4", "key5"}
+		if !reflect.DeepEqual(pathKeys, expected) {
+			t.Errorf("Expected pathKeys to be %v, got %v", expected, pathKeys)
+		}
+	})
+
+	t.Run("DotInsideBrackets", func(t *testing.T) {
+		// Given a path with a dot inside brackets
+		path := "key1[key2.key3]"
+
+		// When calling parsePath
+		pathKeys := parsePath(path)
+
+		// Then the pathKeys should treat the dot inside brackets as part of the key
+		expected := []string{"key1", "key2.key3"}
+		if !reflect.DeepEqual(pathKeys, expected) {
+			t.Errorf("Expected pathKeys to be %v, got %v", expected, pathKeys)
+		}
+	})
+}

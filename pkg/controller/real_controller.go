@@ -155,12 +155,13 @@ func (c *RealController) CreateServiceComponents() error {
 	}
 
 	// Create registry services
-	registryServices := contextConfig.Docker.Registries
-	for _, registry := range registryServices {
-		service := services.NewRegistryService(c.injector)
-		service.SetName(registry.Name)
-		serviceName := fmt.Sprintf("registryService.%s", registry.Name)
-		c.injector.Register(serviceName, service)
+	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
+		for key := range contextConfig.Docker.Registries {
+			service := services.NewRegistryService(c.injector)
+			service.SetName(key)
+			serviceName := fmt.Sprintf("registryService.%s", key)
+			c.injector.Register(serviceName, service)
+		}
 	}
 
 	// Create cluster services
