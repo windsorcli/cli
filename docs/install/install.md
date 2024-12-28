@@ -73,17 +73,28 @@ This command ensures that all tools are installed in their specified versions, t
 
 ## Shell Integration: Seamless Environment Management
 
-To enable the automatic loading of environment variables with the Windsor CLI, incorporate the following `precmd()` function into your shell configuration file (e.g., `.zshrc` for Zsh or `.bashrc` for Bash):
+`windsor` is an environment variable manager for your shell. It knows how to hook into bash, zsh and fish shell to load or unload environment variables depending on your current directory. 
 
-```bash
-precmd() {
-  if command -v windsor >/dev/null 2>&1; then
-    eval "$(windsor env)"
-  fi
-}
+Adding the windsor hook to you shell file will cause windsor to be loaded into a sub-shell on each keypress and all exported variables are then captured by windsor and then made available to your current shell, while unset variables are removed
+
+### BASH
+
+Add the following line at the end of the `~/.bashrc` file:
+
+```sh
+eval "$(windsor hook bash)"
 ```
 
-This function loads the environment variables contextually.
+Make sure it appears even after rvm, git-prompt and other shell extensions
+that manipulate the prompt.
+
+### ZSH
+
+Add the following line at the end of the `~/.zshrc` file:
+
+```sh
+eval "$(windsor hook zsh)"
+```
 
 ## Version Check
 
