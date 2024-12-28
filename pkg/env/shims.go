@@ -32,3 +32,6 @@ func stringPtr(s string) *string {
 var goos = func() string {
 	return runtime.GOOS
 }
+
+// Define a variable for os.UserHomeDir for easier testing
+var osUserHomeDir = os.UserHomeDir

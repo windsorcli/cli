@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/config/aws"
+	"github.com/windsorcli/cli/pkg/config/terraform"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -42,7 +44,7 @@ func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetConfigFunc = func() *config.Context {
 		return &config.Context{
-			Terraform: &config.TerraformConfig{
+			Terraform: &terraform.TerraformConfig{
 				Backend: stringPtr("local"),
 			},
 		}
@@ -307,7 +309,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				Terraform: &config.TerraformConfig{
+				Terraform: &terraform.TerraformConfig{
 					Backend: stringPtr("local"),
 				},
 			}
@@ -430,7 +432,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				Terraform: &config.TerraformConfig{
+				Terraform: &terraform.TerraformConfig{
 					Backend: stringPtr("unsupported"),
 				},
 			}
@@ -625,8 +627,8 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				AWS: &config.AWSConfig{
-					Localstack: &config.LocalstackConfig{
+				AWS: &aws.AWSConfig{
+					Localstack: &aws.LocalstackConfig{
 						Enabled: boolPtr(false),
 					},
 				},
@@ -828,7 +830,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				Terraform: &config.TerraformConfig{
+				Terraform: &terraform.TerraformConfig{
 					Backend: stringPtr("local"),
 				},
 			}
@@ -884,7 +886,7 @@ terraform {
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				Terraform: &config.TerraformConfig{
+				Terraform: &terraform.TerraformConfig{
 					Backend: stringPtr("s3"),
 				},
 			}
@@ -940,7 +942,7 @@ terraform {
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				Terraform: &config.TerraformConfig{
+				Terraform: &terraform.TerraformConfig{
 					Backend: stringPtr("kubernetes"),
 				},
 			}
@@ -1032,7 +1034,7 @@ terraform {
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				Terraform: &config.TerraformConfig{
+				Terraform: &terraform.TerraformConfig{
 					Backend: stringPtr("unsupported"),
 				},
 			}
@@ -1072,7 +1074,7 @@ terraform {
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				Terraform: &config.TerraformConfig{
+				Terraform: &terraform.TerraformConfig{
 					Backend: stringPtr("local"),
 				},
 			}

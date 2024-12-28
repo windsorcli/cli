@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/config/aws"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -34,7 +35,7 @@ func setupSafeAwsEnvMocks(injector ...di.Injector) *AwsEnvMocks {
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetConfigFunc = func() *config.Context {
 		return &config.Context{
-			AWS: &config.AWSConfig{
+			AWS: &aws.AWSConfig{
 				AWSProfile:     stringPtr("default"),
 				AWSEndpointURL: stringPtr("https://aws.endpoint"),
 				S3Hostname:     stringPtr("s3.amazonaws.com"),
@@ -129,7 +130,7 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		// Override the GetConfigFunc to return a valid AWS configuration
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				AWS: &config.AWSConfig{
+				AWS: &aws.AWSConfig{
 					AWSProfile:     stringPtr("default"),
 					AWSEndpointURL: stringPtr("https://example.com"),
 					S3Hostname:     stringPtr("s3.example.com"),

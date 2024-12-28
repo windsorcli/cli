@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/config/docker"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -89,6 +90,23 @@ func TestRealController_CreateEnvComponents(t *testing.T) {
 		injector := di.NewInjector()
 		controller := NewRealController(injector)
 
+		// Override the existing configHandler with a mock configHandler
+		mockConfigHandler := config.NewMockConfigHandler()
+
+		// Configure the mock to return necessary values for testing CreateEnvComponents
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			switch key {
+			case "aws.enabled":
+				return true
+			case "docker.enabled":
+				return true
+			default:
+				return false
+			}
+		}
+		injector.Register("configHandler", mockConfigHandler)
+		controller.configHandler = mockConfigHandler
+
 		// When creating env components
 		err := controller.CreateEnvComponents()
 
@@ -139,6 +157,8 @@ func TestRealController_CreateServiceComponents(t *testing.T) {
 		// Configure the mock to return necessary values for testing CreateServiceComponents
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			switch key {
+			case "aws.enabled":
+				return true
 			case "docker.enabled":
 				return true
 			case "dns.enabled":
@@ -171,8 +191,8 @@ func TestRealController_CreateServiceComponents(t *testing.T) {
 		}
 		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				Docker: &config.DockerConfig{
-					Registries: []config.Registry{
+				Docker: &docker.DockerConfig{
+					Registries: []docker.RegistryConfig{
 						{Name: "registry1"},
 						{Name: "registry2"},
 					},

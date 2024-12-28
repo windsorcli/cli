@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/config/docker"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
@@ -144,9 +145,16 @@ func TestMockController_CreateEnvComponents(t *testing.T) {
 	})
 
 	t.Run("NoCreateEnvComponentsFunc", func(t *testing.T) {
+		// Use setSafeControllerMocks to set up the mock environment
+		mocks := setSafeControllerMocks()
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mockCtrl := NewMockController(mocks.Injector)
+
+		// Initialize the mock controller and check for error
+		if err := mockCtrl.Initialize(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
 		// When CreateEnvComponents is called without setting CreateEnvComponentsFunc
 		if err := mockCtrl.CreateEnvComponents(); err != nil {
 			// Then no error should be returned
@@ -224,8 +232,8 @@ func TestMockController_CreateServiceComponents(t *testing.T) {
 
 		mockConfigHandler.GetConfigFunc = func() *config.Context {
 			return &config.Context{
-				Docker: &config.DockerConfig{
-					Registries: []config.Registry{
+				Docker: &docker.DockerConfig{
+					Registries: []docker.RegistryConfig{
 						{Name: "registry1"},
 						{Name: "registry2"},
 					},

@@ -1,11 +1,13 @@
-local cpNodes = std.objectValues(context.cluster.controlplanes.nodes);
+// Access the external variable "context"
+local context = std.extVar("context");
 
-// Pick "the first" node in the object as a fallback. If there are no nodes,
-// you can default to something known or raise an error.
-local firstNode = if std.length(cpNodes) > 0 then
-  cpNodes[0]
-else
-  { node: "localhost" };  // Default to localhost if no nodes are defined
+// Safely access control plane nodes from the context, defaulting to an empty array if not present
+local cpNodes = if std.objectHas(context.cluster.controlplanes, "nodes")
+                then std.objectValues(context.cluster.controlplanes.nodes)
+                else [];
+
+// Select the first node or default to null if no nodes are present
+local firstNode = if std.length(cpNodes) > 0 then cpNodes[0] else null;
 
 {
   kind: "Blueprint",
@@ -22,16 +24,32 @@ else
     },
   ],
   terraform: [
-    {
+    if firstNode != null then {
       path: "cluster/talos",
       source: "core",
       values: {
-        cluster_endpoint: "https://"+firstNode.node+":6443",
+        // Construct the cluster endpoint URL using the first node's address
+        cluster_endpoint: "https://" + firstNode.node + ":6443",
         cluster_name: "talos",
-        controlplanes: std.map(function(node)
-          node, cpNodes),
-        workers: std.map(function(node)
-          node, std.objectValues(context.cluster.workers.nodes)),
+        // Create a list of control plane nodes with their configuration if available
+        controlplanes: std.map(
+          function(v) {
+            endpoint: v.endpoint,
+            hostname: v.hostname,
+            node: v.node,
+          },
+          std.objectValues(context.cluster.controlplanes.nodes)
+        ),
+        // Create a list of worker nodes with their configuration if available
+        workers: std.map(
+          function(v) {
+            endpoint: v.endpoint,
+            hostname: v.hostname,
+            node: v.node,
+          },
+          std.objectValues(context.cluster.workers.nodes)
+        ),
+        // Convert common configuration patches to YAML format
         common_config_patches: std.manifestYamlDoc({
           cluster: {
             apiServer: {
@@ -119,6 +137,6 @@ else
           default: "",
         },
       }
-    }
+    } else {}
   ],
 }

@@ -2,12 +2,14 @@ package env
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -17,6 +19,7 @@ type DockerEnvPrinterMocks struct {
 	Injector       di.Injector
 	ContextHandler *context.MockContext
 	Shell          *shell.MockShell
+	ConfigHandler  *config.MockConfigHandler
 }
 
 func setupSafeDockerEnvPrinterMocks(injector ...di.Injector) *DockerEnvPrinterMocks {
@@ -34,13 +37,20 @@ func setupSafeDockerEnvPrinterMocks(injector ...di.Injector) *DockerEnvPrinterMo
 
 	mockShell := shell.NewMockShell()
 
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		return "mock-value"
+	}
+
 	mockInjector.Register("contextHandler", mockContext)
 	mockInjector.Register("shell", mockShell)
+	mockInjector.Register("configHandler", mockConfigHandler)
 
 	return &DockerEnvPrinterMocks{
 		Injector:       mockInjector,
 		ContextHandler: mockContext,
 		Shell:          mockShell,
+		ConfigHandler:  mockConfigHandler,
 	}
 }
 
@@ -67,6 +77,54 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 
 		if envVars["COMPOSE_FILE"] != filepath.FromSlash("/mock/config/root/compose.yaml") && envVars["COMPOSE_FILE"] != filepath.FromSlash("/mock/config/root/compose.yml") {
 			t.Errorf("COMPOSE_FILE = %v, want %v or %v", envVars["COMPOSE_FILE"], filepath.FromSlash("/mock/config/root/compose.yaml"), filepath.FromSlash("/mock/config/root/compose.yml"))
+		}
+
+		if envVars["DOCKER_SOCK"] != "" {
+			t.Errorf("DOCKER_SOCK = %v, want empty", envVars["DOCKER_SOCK"])
+		}
+	})
+
+	t.Run("ColimaDriver", func(t *testing.T) {
+		mocks := setupSafeDockerEnvPrinterMocks()
+		mocks.ContextHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+
+		originalStat := stat
+		defer func() { stat = originalStat }()
+		stat = func(name string) (os.FileInfo, error) {
+			if name == filepath.FromSlash("/mock/config/root/compose.yaml") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		originalUserHomeDir := osUserHomeDir
+		defer func() { osUserHomeDir = originalUserHomeDir }()
+		osUserHomeDir = func() (string, error) {
+			return "/mock/home", nil
+		}
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
+		}
+		mocks.Injector.Register("configHandler", mockConfigHandler)
+
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		envVars, err := dockerEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", "/mock/home", "test-context")
+		if envVars["DOCKER_HOST"] != expectedDockerHost {
+			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
 	})
 
@@ -130,6 +188,32 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 
 		if envVars["COMPOSE_FILE"] != filepath.FromSlash("/mock/config/root/compose.yml") {
 			t.Errorf("COMPOSE_FILE = %v, want %v", envVars["COMPOSE_FILE"], filepath.FromSlash("/mock/config/root/compose.yml"))
+		}
+	})
+
+	t.Run("GetUserHomeDirError", func(t *testing.T) {
+		mocks := setupSafeDockerEnvPrinterMocks()
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
+		}
+
+		originalUserHomeDir := osUserHomeDir
+		defer func() { osUserHomeDir = originalUserHomeDir }()
+		osUserHomeDir = func() (string, error) {
+			return "", errors.New("mock user home dir error")
+		}
+
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		_, err := dockerEnvPrinter.GetEnvVars()
+		if err == nil {
+			t.Error("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "mock user home dir error") {
+			t.Errorf("error = %v, want error containing 'mock user home dir error'", err)
 		}
 	})
 }
