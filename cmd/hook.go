@@ -22,7 +22,7 @@ var shellHooks = map[string][]string{
 		`
 		_windsor_hook() {
 			trap -- '' SIGINT;
-			eval "$(windsor env)";
+ 			eval "$("{{.SelfPath}"/windsor env export zsh)"		
 			trap - SIGINT;
 		};
 		typeset -ag precmd_functions;
