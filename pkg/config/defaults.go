@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/windsorcli/cli/pkg/config/aws"
 	"github.com/windsorcli/cli/pkg/config/cluster"
 	"github.com/windsorcli/cli/pkg/config/dns"
 	"github.com/windsorcli/cli/pkg/config/docker"
@@ -8,6 +9,36 @@ import (
 	"github.com/windsorcli/cli/pkg/config/terraform"
 	"github.com/windsorcli/cli/pkg/constants"
 )
+
+// DefaultConfig returns the default configuration
+var DefaultConfig = Context{
+	Environment: map[string]string{},
+	AWS: &aws.AWSConfig{
+		Enabled:        nil,
+		AWSEndpointURL: nil,
+		AWSProfile:     nil,
+		S3Hostname:     nil,
+		MWAAEndpoint:   nil,
+		Localstack: &aws.LocalstackConfig{
+			Enabled:  nil,
+			Services: nil,
+		},
+	},
+	Docker: &docker.DockerConfig{
+		Enabled:     nil,
+		Registries:  []docker.RegistryConfig{},
+		NetworkCIDR: nil,
+	},
+	Terraform: &terraform.TerraformConfig{
+		Backend: nil,
+	},
+	Cluster: nil,
+	DNS: &dns.DNSConfig{
+		Enabled: nil,
+		Name:    nil,
+		Address: nil,
+	},
+}
 
 // DefaultLocalConfig returns the default configuration for the "local" context
 var DefaultLocalConfig = Context{

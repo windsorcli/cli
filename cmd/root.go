@@ -69,13 +69,12 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 		if err != nil {
 			return fmt.Errorf("error setting default local config: %w", err)
 		}
+	} else {
+		err := configHandler.SetDefault(config.DefaultConfig)
+		if err != nil {
+			return fmt.Errorf("error setting default config: %w", err)
+		}
 	}
-	// } else {
-	// 	err := configHandler.SetDefault(config.DefaultConfig)
-	// 	if err != nil {
-	// 		return fmt.Errorf("error setting default config: %w", err)
-	// 	}
-	// }
 
 	// Get the cli configuration path
 	cliConfigPath, err := getCliConfigPath()
