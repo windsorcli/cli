@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"html/template"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,12 @@ import (
 
 // maxFolderSearchDepth is the maximum depth to search for the project root
 const maxFolderSearchDepth = 10
+
+// HookContext are the variables available during hook template evaluation
+type HookContext struct {
+	// SelfPath is the unescaped absolute path to direnv
+	SelfPath string
+}
 
 // Shell interface defines methods for shell operations
 type Shell interface {
@@ -284,16 +291,44 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 // InstallHook installs a shell hook if it exists for the given shell name.
 // It executes the hook command silently and returns an error if the shell is unsupported.
 func (s *DefaultShell) InstallHook(shellName string) error {
-	// Check if a hook exists for the given shell name
-	if hook, exists := shellHooks[shellName]; exists {
-		// Execute the hook command silently
-		_, err := s.ExecSilent("eval", hook)
-		if err != nil {
-			return fmt.Errorf("failed to execute hook for shell %s: %w", shellName, err)
-		}
-		return nil
-	} else {
-		// Return an error if the shell is unsupported
-		return fmt.Errorf("unsupported shell: %s", shellName)
+
+	// Retrieve the hook command for the specified shell
+	hookCommand, exists := shellHooks[shellName]
+	if !exists {
+		return fmt.Errorf("Unsupported shell: %s", shellName)
 	}
+
+	selfPath, err := os.Executable()
+	if err != nil {
+		return err
+	}
+
+	// Convert Windows path if needed
+	selfPath = strings.Replace(selfPath, "\\", "/", -1)
+	ctx := HookContext{selfPath}
+
+	hookTemplate, err := template.New("hook").Parse(string(hookCommand))
+	if err != nil {
+		return err
+	}
+
+	err = hookTemplate.Execute(os.Stdout, ctx)
+	if err != nil {
+		return err
+	}
+
+	return nil
+
+	// // Check if a hook exists for the given shell name
+	// if hook, exists := shellHooks[shellName]; exists {
+	// 	// Execute the hook command silently
+	// 	_, err := s.ExecSilent("eval", hook)
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to execute hook for shell %s: %w", shellName, err)
+	// 	}
+	// 	return nil
+	// } else {
+	// 	// Return an error if the shell is unsupported
+	// 	return fmt.Errorf("unsupported shell: %s", shellName)
+	// }
 }
