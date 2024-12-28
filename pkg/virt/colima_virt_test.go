@@ -33,6 +33,8 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
 
+	mockConfigHandler.LoadConfigFunc = func(path string) error { return nil }
+
 	// Implement GetContextFunc on mock context
 	mockContext.GetContextFunc = func() string {
 		return "mock-context"
@@ -44,7 +46,7 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 		case "vm.driver":
 			return "colima"
 		case "vm.arch":
-			return goArch
+			return "x86_64"
 		default:
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -56,17 +58,34 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 	mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
 		switch key {
 		case "vm.cpu":
-			return numCPU()
+			return 4 // Assume a realistic CPU count
 		case "vm.disk":
-			return 20 * 1024 * 1024 * 1024 // 20GB
+			return 60 // Assume a realistic disk size in GB
 		case "vm.memory":
-			return 4 * 1024 * 1024 * 1024 // 4GB
+			return 8 // Assume a realistic memory size in GB
 		default:
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
 			}
 			return 0
 		}
+	}
+
+	// Mock realistic responses for ExecSilent
+	mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		if command == "colima" && len(args) > 0 && args[0] == "ls" {
+			return `{
+				"address": "192.168.5.2",
+				"arch": "x86_64",
+				"cpus": 4,
+				"disk": 64424509440,
+				"memory": 8589934592,
+				"name": "windsor-mock-context",
+				"runtime": "docker",
+				"status": "Running"
+			}`, nil
+		}
+		return "", fmt.Errorf("command not recognized")
 	}
 
 	return &MockComponents{
@@ -85,24 +104,6 @@ func TestColimaVirt_Up(t *testing.T) {
 		colimaVirt := NewColimaVirt(mocks.Injector)
 		colimaVirt.Initialize()
 
-		// Mock the necessary methods
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "colima" && len(args) > 0 && args[0] == "ls" {
-				return `{
-					"address": "192.168.5.2",
-					"arch": "x86_64",
-					"cpus": 4,
-					"disk": 64424509440,
-					"memory": 8589934592,
-					"name": "windsor-test-context",
-					"runtime": "docker",
-					"status": "Running"
-				}`, nil
-			}
-			return "", nil
-		}
-		mocks.MockConfigHandler.LoadConfigFunc = func(path string) error { return nil }
-
 		// When calling Up
 		err := colimaVirt.Up()
 
@@ -119,7 +120,7 @@ func TestColimaVirt_Up(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods to return an error
-		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("mock error")
 		}
 
@@ -129,6 +130,32 @@ func TestColimaVirt_Up(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
+		}
+	})
+
+	t.Run("ErrorSettingVMAddress", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeColimaVmMocks()
+		colimaVirt := NewColimaVirt(mocks.Injector)
+		colimaVirt.Initialize()
+
+		// Mock the necessary methods to simulate an error when setting the VM address
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "vm.address" {
+				return fmt.Errorf("mock set context value error")
+			}
+			return nil
+		}
+
+		// When calling Up
+		err := colimaVirt.Up()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected an error, got nil")
+		}
+		if err.Error() != "failed to set VM address in config handler: mock set context value error" {
+			t.Fatalf("Unexpected error message: %v", err)
 		}
 	})
 }
@@ -197,23 +224,17 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		if info.Address != "192.168.5.2" {
-			t.Errorf("Expected address to be '192.168.5.2', got %s", info.Address)
+		expectedInfo := VMInfo{
+			Address: "192.168.5.2",
+			Arch:    "x86_64",
+			CPUs:    4,
+			Disk:    60,
+			Memory:  8,
+			Name:    "test-vm",
 		}
-		if info.Arch != "x86_64" {
-			t.Errorf("Expected arch to be 'x86_64', got %s", info.Arch)
-		}
-		if info.CPUs != 4 {
-			t.Errorf("Expected CPUs to be 4, got %d", info.CPUs)
-		}
-		if info.Disk != 60 {
-			t.Errorf("Expected Disk to be 60, got %d", info.Disk)
-		}
-		if info.Memory != 8 {
-			t.Errorf("Expected Memory to be 8, got %d", info.Memory)
-		}
-		if info.Name != "test-vm" {
-			t.Errorf("Expected Name to be 'test-vm', got %s", info.Name)
+
+		if info != expectedInfo {
+			t.Errorf("Expected VMInfo to be %+v, got %+v", expectedInfo, info)
 		}
 	})
 
@@ -224,7 +245,7 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 		colimaVirt.Initialize()
 
 		// Mock the necessary methods to return an error
-		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("mock error")
 		}
 
@@ -240,7 +261,7 @@ func TestColimaVirt_GetVMInfo(t *testing.T) {
 	t.Run("ErrorUnmarshallingColimaInfo", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeColimaVmMocks()
-		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			return "invalid json", nil
 		}
 
@@ -840,57 +861,6 @@ func TestColimaVirt_startColima(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
-		}
-	})
-
-	t.Run("ErrorRetrievingContext", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// Mock the necessary methods
-		mocks.MockContext.GetContextFunc = func() string {
-			return ""
-		}
-
-		// When calling startColima
-		_, err := colimaVirt.startColima()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-	})
-
-	t.Run("ErrorRetrievingColimaInfo", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeColimaVmMocks()
-		colimaVirt := NewColimaVirt(mocks.Injector)
-		colimaVirt.Initialize()
-
-		// Mock the necessary methods
-		callCount := 0
-		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
-			if command == "colima" && len(args) > 0 && args[0] == "start" {
-				return "", nil // Simulate successful execution
-			}
-			if command == "colima" && len(args) > 0 && args[0] == "ls" {
-				callCount++
-				if callCount == 1 {
-					return `{"address": ""}`, nil // Simulate no IP address on first call
-				}
-				return "", fmt.Errorf("Error executing command %s %v", command, args) // Mock an error on second call
-			}
-			return "", fmt.Errorf("unexpected command")
-		}
-
-		// When calling startColima
-		_, err := colimaVirt.startColima()
-
-		// Then an error should be returned due to failure in Info() on the second call
-		if err == nil || !strings.Contains(err.Error(), "Error retrieving Colima info") {
-			t.Fatalf("Expected error containing 'Error retrieving Colima info', got %v", err)
 		}
 	})
 

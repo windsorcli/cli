@@ -1,6 +1,9 @@
 package blueprint
 
-import "testing"
+import (
+	"sort"
+	"testing"
+)
 
 func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
@@ -101,6 +104,12 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 		if len(dst.TerraformComponents) != 2 {
 			t.Fatalf("Expected 2 TerraformComponents, but got %d", len(dst.TerraformComponents))
 		}
+
+		// Sort TerraformComponents by Source to ensure consistent order
+		sort.Slice(dst.TerraformComponents, func(i, j int) bool {
+			return dst.TerraformComponents[i].Source < dst.TerraformComponents[j].Source
+		})
+
 		component1 := dst.TerraformComponents[0]
 		if len(component1.Variables) != 2 || component1.Variables["var1"].Default != "default1" || component1.Variables["var2"].Default != "default2" {
 			t.Errorf("Expected Variables to contain ['var1', 'var2'], but got %v", component1.Variables)
