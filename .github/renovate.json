@@ -1,7 +1,9 @@
 {
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    "github>aquaproj/aqua-renovate-config#2.2.1"
+    "github>aquaproj/aqua-renovate-config#2.6.0",
+    ":dependencyDashboard"
   ],
   "packageRules": [
     {
@@ -19,6 +21,20 @@
       ]
     },
     {
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch"
+      ],
+      "enabled": true,
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash",
+      "labels": [
+        "dependencies"
+      ]
+    },
+    {
       "description": "Update Go modules",
       "matchManagers": [
         "gomod"
@@ -26,7 +42,11 @@
       "enabled": true,
       "automerge": true,
       "automergeType": "pr",
-      "automergeStrategy": "squash"
+      "automergeStrategy": "squash",
+      "labels": [
+        "go",
+        "dependencies"
+      ]
     },
     {
       "description": "Update Taskfile dependencies",
@@ -36,7 +56,10 @@
       "enabled": true,
       "automerge": true,
       "automergeType": "pr",
-      "automergeStrategy": "squash"
+      "automergeStrategy": "squash",
+      "labels": [
+        "dependencies"
+      ]
     }
   ],
   "platformAutomerge": true,
@@ -44,7 +67,7 @@
     {
       "customType": "regex",
       "fileMatch": [
-        "^internal/constants/constants.go$"
+        "^pkg/constants/constants.go$"
       ],
       "matchStrings": [
         "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*const\\s+\\S+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
