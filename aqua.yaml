@@ -23,3 +23,4 @@ packages:
 - name: lima-vm/lima@v1.0.3
 - name: docker/cli@v27.4.1
 - name: securego/gosec@v2.21.4
+- name: docker/compose@v2.32.1

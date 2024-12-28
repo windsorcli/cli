@@ -26,7 +26,7 @@ var DefaultConfig = Context{
 	},
 	Docker: &docker.DockerConfig{
 		Enabled:     nil,
-		Registries:  []docker.RegistryConfig{},
+		Registries:  map[string]docker.RegistryConfig{},
 		NetworkCIDR: nil,
 	},
 	Terraform: &terraform.TerraformConfig{
@@ -45,29 +45,22 @@ var DefaultLocalConfig = Context{
 	Environment: map[string]string{},
 	Docker: &docker.DockerConfig{
 		Enabled: ptrBool(true),
-		Registries: []docker.RegistryConfig{
-			{
-				Name: "registry",
-			},
-			{
-				Name:   "registry-1.docker",
+		Registries: map[string]docker.RegistryConfig{
+			"registry": {},
+			"registry-1.docker": {
 				Remote: "https://registry-1.io",
 				Local:  "https://io",
 			},
-			{
-				Name:   "registry.k8s",
+			"registry.k8s": {
 				Remote: "https://registry.k8s.io",
 			},
-			{
-				Name:   "gcr",
+			"gcr": {
 				Remote: "https://gcr.io",
 			},
-			{
-				Name:   "ghcr",
+			"ghcr": {
 				Remote: "https://ghcr.io",
 			},
-			{
-				Name:   "quay",
+			"quay": {
 				Remote: "https://quay.io",
 			},
 		},

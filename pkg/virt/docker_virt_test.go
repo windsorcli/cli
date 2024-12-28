@@ -51,9 +51,8 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 		return &config.Context{
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(true),
-				Registries: []docker.RegistryConfig{
-					{
-						Name:   "registry.test",
+				Registries: map[string]docker.RegistryConfig{
+					"registry.test": {
 						Remote: "https://registry.test",
 						Local:  "https://local.registry.test",
 					},

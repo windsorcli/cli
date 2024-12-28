@@ -79,24 +79,21 @@ local firstNode = if std.length(cpNodes) > 0 then cpNodes[0] else null;
             },
             // Only include registries if there are any defined
             registries: local mirrors = std.filter(
-              function(mirror) std.length(mirror) > 0,
+              function(x) x != null,
               std.map(
-                function(registry)
+                function(registryName)
+                  local registry = context.docker.registries[registryName];
                   if std.objectHas(registry, "local") && registry["local"] != "" then
-                    {[registry.name]: {endpoints: [registry["local"]]}}
-                  else if std.objectHas(registry, "remote") && registry.remote != "" then
-                    {[registry.name]: {endpoints: [registry.remote]}}
+                    { [registryName]: { endpoints: [registry["local"]] } }
+                  else if std.objectHas(registry, "remote") && registry["remote"] != "" then
+                    { [registryName]: { endpoints: [registry["remote"]] } }
                   else
-                    {},
-                context.docker.registries
+                    null,
+                std.objectFields(context.docker.registries)
               )
             );
             if std.length(mirrors) > 0 then {
-              mirrors: std.foldl(
-                function(acc, registry) acc + registry,
-                [],
-                mirrors
-              )
+              mirrors: mirrors
             } else {}
           },
         }),

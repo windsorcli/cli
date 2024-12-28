@@ -2,16 +2,16 @@ package docker
 
 // DockerConfig represents the Docker configuration
 type DockerConfig struct {
-	Enabled     *bool            `yaml:"enabled"`
-	Registries  []RegistryConfig `yaml:"registries,omitempty"`
-	NetworkCIDR *string          `yaml:"network_cidr,omitempty"`
+	Enabled     *bool                     `yaml:"enabled"`
+	Registries  map[string]RegistryConfig `yaml:"registries,omitempty"`
+	NetworkCIDR *string                   `yaml:"network_cidr,omitempty"`
 }
 
 // RegistryConfig represents the registry configuration
 type RegistryConfig struct {
-	Name   string `yaml:"name"`
-	Remote string `yaml:"remote,omitempty"`
-	Local  string `yaml:"local,omitempty"`
+	Remote   string `yaml:"remote,omitempty"`
+	Local    string `yaml:"local,omitempty"`
+	Hostname string `yaml:"hostname,omitempty"`
 }
 
 // Merge performs a deep merge of the current DockerConfig with another DockerConfig.
@@ -23,32 +23,29 @@ func (base *DockerConfig) Merge(overlay *DockerConfig) {
 		base.NetworkCIDR = overlay.NetworkCIDR
 	}
 
-	// Create a map to uniquely index base registries by Name
-	registryMap := make(map[string]RegistryConfig)
-	for _, registry := range base.Registries {
-		registryMap[registry.Name] = registry
-	}
+	// The base.Registries is already a map, so no need to create a new map
+	registryMap := base.Registries
 
-	// Merge overlay registries into the base, uniquely indexed by Name
-	for _, overlayRegistry := range overlay.Registries {
-		if baseRegistry, exists := registryMap[overlayRegistry.Name]; exists {
+	// Merge overlay registries into the base, uniquely indexed by registry key
+	for key, overlayRegistry := range overlay.Registries {
+		if baseRegistry, exists := registryMap[key]; exists {
 			if overlayRegistry.Remote != "" {
 				baseRegistry.Remote = overlayRegistry.Remote
 			}
 			if overlayRegistry.Local != "" {
 				baseRegistry.Local = overlayRegistry.Local
 			}
-			registryMap[overlayRegistry.Name] = baseRegistry
+			if overlayRegistry.Hostname != "" {
+				baseRegistry.Hostname = overlayRegistry.Hostname
+			}
+			registryMap[key] = baseRegistry
 		} else {
-			registryMap[overlayRegistry.Name] = overlayRegistry
+			registryMap[key] = overlayRegistry
 		}
 	}
 
 	// Update base.Registries with merged results
-	base.Registries = make([]RegistryConfig, 0, len(registryMap))
-	for _, registry := range registryMap {
-		base.Registries = append(base.Registries, registry)
-	}
+	base.Registries = registryMap
 }
 
 // Copy creates a deep copy of the DockerConfig object
@@ -67,12 +64,12 @@ func (c *DockerConfig) Copy() *DockerConfig {
 		networkCIDRCopy = ptrString(*c.NetworkCIDR)
 	}
 
-	registriesCopy := make([]RegistryConfig, len(c.Registries))
-	for i, registry := range c.Registries {
-		registriesCopy[i] = RegistryConfig{
-			Name:   registry.Name,
-			Remote: registry.Remote,
-			Local:  registry.Local,
+	registriesCopy := make(map[string]RegistryConfig)
+	for name, registry := range c.Registries {
+		registriesCopy[name] = RegistryConfig{
+			Remote:   registry.Remote,
+			Local:    registry.Local,
+			Hostname: registry.Hostname,
 		}
 	}
 
