@@ -1,0 +1,62 @@
+# .goreleaser.yaml
+project_name: windsorcli
+
+# Build configuration
+builds:
+  - id: cli
+    main: ./cli/cmd/windsor/main.go
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - "-s -w -X main.version={{.Version}}"
+
+# Archive configuration
+archives:
+  - id: default
+    format: tar.gz
+    files:
+      - LICENSE
+      - README.md
+
+# Release configuration
+release:
+  github:
+    owner: windsorcli
+    name: cli
+  draft: false
+  prerelease: false
+
+# Changelog configuration
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+
+# Snapshot configuration
+snapshot:
+  name_template: "{{ .Tag }}-SNAPSHOT"
+
+# Checksum configuration
+checksum:
+  name_template: "{{ .ProjectName }}_checksums.txt"
+
+# Sign configuration
+signs:
+  - artifacts: checksum
+    args: ["--detach-sign"]
+
+# Docker configuration (optional)
+dockers:
+  - image_templates:
+      - "docker.io/windsorcli/cli:{{ .Tag }}"
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--build-arg=VERSION={{.Version}}"
