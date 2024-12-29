@@ -15,6 +15,7 @@ type MockShell struct {
 	ExecSilentFunc     func(command string, args ...string) (string, error)
 	ExecProgressFunc   func(message string, command string, args ...string) (string, error)
 	ExecSudoFunc       func(message string, command string, args ...string) (string, error)
+	InstallHookFunc    func(shellName string) error
 }
 
 // NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
@@ -92,6 +93,14 @@ func (s *MockShell) ExecSudo(message string, command string, args ...string) (st
 		return s.ExecSudoFunc(message, command, args...)
 	}
 	return "", nil
+}
+
+// InstallHook calls the custom InstallHook if provided.
+func (s *MockShell) InstallHook(shellName string) error {
+	if s.InstallHookFunc != nil {
+		return s.InstallHookFunc(shellName)
+	}
+	return nil
 }
 
 // Ensure MockShell implements the Shell interface

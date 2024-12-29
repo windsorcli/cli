@@ -18,8 +18,20 @@ import (
 // maxFolderSearchDepth is the maximum depth to search for the project root
 const maxFolderSearchDepth = 10
 
+// HookContext are the variables available during hook template evaluation
+type HookContext struct {
+	// SelfPath is the unescaped absolute path to direnv
+	SelfPath string
+}
+
+type InstallHook interface {
+	Execute() error
+	// Add other methods as needed
+}
+
 // Shell interface defines methods for shell operations
 type Shell interface {
+	// Initialize initializes the shell environment
 	Initialize() error
 	// PrintEnvVars prints the provided environment variables
 	PrintEnvVars(envVars map[string]string) error
@@ -35,6 +47,8 @@ type Shell interface {
 	ExecSudo(message string, command string, args ...string) (string, error)
 	// ExecProgress executes a command and returns its output as a string while displaying progress status
 	ExecProgress(message string, command string, args ...string) (string, error)
+	// InstallHook installs a shell hook for the specified shell name
+	InstallHook(shellName string) error
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -276,4 +290,40 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	fmt.Printf("\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 
 	return stdoutBuf.String(), nil // Return the captured stdout as a string
+}
+
+// InstallHook installs a shell hook if it exists for the given shell name.
+// It executes the hook command silently and returns an error if the shell is unsupported.
+func (s *DefaultShell) InstallHook(shellName string) error {
+
+	// Retrieve the hook command for the specified shell
+	hookCommand, exists := shellHooks[shellName]
+	if !exists {
+		return fmt.Errorf("Unsupported shell: %s", shellName)
+	}
+
+	selfPath, err := osExecutable()
+	if err != nil {
+		return err
+	}
+
+	// Convert Windows path if needed
+	selfPath = strings.Replace(selfPath, "\\", "/", -1)
+	ctx := HookContext{selfPath}
+
+	hookTemplate := hookTemplateNew("hook")
+	if hookTemplate == nil {
+		return fmt.Errorf("failed to create new template")
+	}
+	hookTemplate, err = hookTemplateParse(hookTemplate, string(hookCommand))
+	if err != nil {
+		return err
+	}
+
+	err = hookTemplateExecute(hookTemplate, os.Stdout, ctx)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
