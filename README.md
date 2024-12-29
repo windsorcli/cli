@@ -3,13 +3,15 @@
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/windsorcli/cli)
 ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml)
 
-The Windsor Command Line Interface (CLI) is a powerful tool designed to streamline your workflow and enhance productivity. With a small suite of intuitive commands, the Windsor CLI allows you to efficiently manage contexts for other tools in your development environment.
+Windsor CLI streamlines your cloud-native workflow, turning your development environment into a local simulation of your production infrastructure. Build, test, and deploy with ease, leveraging context-aware capabilities to seamlessly transition from local to cloud environments, or your own hardware. Experience a unified, efficient, and elegant toolset designed for modern developers.
+
+The Windsor CLI is a powerful tool designed to streamline your workflow and enhance productivity. With a small suite of intuitive commands, the Windsor CLI allows you to efficiently manage contexts for other tools in your development environment.
 
 ## [Purpose](#purpose)
 
-The Windsor CLI is designed to simplify and enhance the development workflow for developers working on various projects. Its primary purpose is to provide a unified command-line interface that streamlines project setup, configuration management, and integration with other tools. 
+Windsor CLI streamlines your cloud-native workflow, transforming your development environment into a local simulation of your production infrastructure. Build, test, and deploy with ease, leveraging context-aware capabilities to seamlessly transition between local, cloud environments, or your own hardware. Experience a unified, efficient, and elegant toolset designed for modern developers.
 
-By offering a consistent and efficient way to manage "contexts", the Windsor CLI aims to reduce the time and effort required for repetitive tasks, allowing developers to focus more on coding and less on setup and configuration.
+With its small suite of intuitive commands, the Windsor CLI empowers developers to efficiently manage contexts for other tools within their environment. By enhancing productivity and simplifying workflows, it ensures that navigating complex development setups is both straightforward and efficient.
 
 Key objectives of the Windsor CLI include:
 

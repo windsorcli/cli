@@ -4,7 +4,9 @@
 
 
 # [Windsor Command Line Interface](https://windsorcli.github.io)
-Windsor CLI streamlines your cloud-native workflow, turning your development environment into a local simulation of your production infrastructure. Build, test, and deploy with ease, leveraging context-aware capabilities to seamlessly transition from local to cloud environments, or your own hardware. Experience a unified, efficient, and elegant toolset designed for modern developers.
+Windsor CLI streamlines your cloud-native workflow, transforming your development environment into a local simulation of your production infrastructure. Build, test, and deploy with ease, leveraging context-aware capabilities to seamlessly transition between local, cloud environments, or your own hardware. Experience a unified, efficient, and elegant toolset designed for modern developers.
+
+With its small suite of intuitive commands, the Windsor CLI empowers developers to efficiently manage contexts for other tools within their environment. By enhancing productivity and simplifying workflows, it ensures that navigating complex development setups is both straightforward and efficient.
 
 ## ![bootstrap](./img/full-bootstrap.gif)
 
