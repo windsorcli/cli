@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"text/template"
 
 	"time"
 
@@ -303,7 +302,7 @@ func (s *DefaultShell) InstallHook(shellName string) error {
 		return fmt.Errorf("Unsupported shell: %s", shellName)
 	}
 
-	selfPath, err := os.Executable()
+	selfPath, err := osExecutable()
 	if err != nil {
 		return err
 	}
@@ -312,16 +311,19 @@ func (s *DefaultShell) InstallHook(shellName string) error {
 	selfPath = strings.Replace(selfPath, "\\", "/", -1)
 	ctx := HookContext{selfPath}
 
-	hookTemplate, err := template.New("hook").Parse(string(hookCommand))
+	hookTemplate := hookTemplateNew("hook")
+	if hookTemplate == nil {
+		return fmt.Errorf("failed to create new template")
+	}
+	hookTemplate, err = hookTemplateParse(hookTemplate, string(hookCommand))
 	if err != nil {
 		return err
 	}
 
-	err = hookTemplate.Execute(os.Stdout, ctx)
+	err = hookTemplateExecute(hookTemplate, os.Stdout, ctx)
 	if err != nil {
 		return err
 	}
 
 	return nil
-
 }
