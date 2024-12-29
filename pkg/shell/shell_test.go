@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"text/template"
 
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
@@ -652,6 +653,122 @@ func TestShell_ExecProgress(t *testing.T) {
 		expectedError := "error waiting for command"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+}
+
+func TestShell_InstallHook(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		shell := NewDefaultShell(nil)
+
+		// Capture stdout to validate the output
+		output := captureStdout(t, func() {
+			if err := shell.InstallHook("bash"); err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+		})
+
+		// Validate the output contains expected content
+		expectedOutput := "_windsor_hook" // Replace with actual expected output
+		if !strings.Contains(output, expectedOutput) {
+			t.Fatalf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("UnsupportedShell", func(t *testing.T) {
+		shell := NewDefaultShell(nil)
+		err := shell.InstallHook("unsupported-shell")
+		if err == nil {
+			t.Fatalf("Expected an error for unsupported shell, but got nil")
+		} else {
+			expectedError := "Unsupported shell: unsupported-shell"
+			if err.Error() != expectedError {
+				t.Fatalf("Expected error message %q, but got %q", expectedError, err.Error())
+			}
+		}
+	})
+
+	t.Run("ErrorGettingSelfPath", func(t *testing.T) {
+		shell := NewDefaultShell(nil)
+
+		// Mock osExecutable to simulate an error
+		originalOsExecutable := osExecutable
+		osExecutable = func() (string, error) {
+			return "", fmt.Errorf("executable file not found")
+		}
+		defer func() { osExecutable = originalOsExecutable }() // Restore original function after test
+
+		err := shell.InstallHook("bash")
+		if err == nil {
+			t.Fatalf("Expected error due to self path retrieval failure, but got nil")
+		} else {
+			expectedError := "executable file not found"
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Fatalf("Expected error message to contain %q, but got %q", expectedError, err.Error())
+			}
+		}
+	})
+
+	t.Run("ErrorCreatingNewTemplate", func(t *testing.T) {
+		shell := NewDefaultShell(nil)
+
+		// Mock hookTemplateNew to simulate an error
+		originalHookTemplateNew := hookTemplateNew
+		hookTemplateNew = func(name string) *template.Template {
+			return nil
+		}
+		defer func() { hookTemplateNew = originalHookTemplateNew }() // Restore original function after test
+
+		err := shell.InstallHook("bash")
+		if err == nil {
+			t.Fatalf("Expected error due to hook template creation failure, but got nil")
+		} else {
+			expectedError := "failed to create new template"
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Fatalf("Expected error message to contain %q, but got %q", expectedError, err.Error())
+			}
+		}
+	})
+
+	t.Run("ErrorParsingHookTemplate", func(t *testing.T) {
+		shell := NewDefaultShell(nil)
+
+		// Mock hookTemplateParse to simulate a parsing error
+		originalHookTemplateParse := hookTemplateParse
+		hookTemplateParse = func(tmpl *template.Template, text string) (*template.Template, error) {
+			return nil, fmt.Errorf("template parsing error")
+		}
+		defer func() { hookTemplateParse = originalHookTemplateParse }() // Restore original function after test
+
+		err := shell.InstallHook("bash")
+		if err == nil {
+			t.Fatalf("Expected error due to hook template parsing failure, but got nil")
+		} else {
+			expectedError := "template parsing error"
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Fatalf("Expected error message to contain %q, but got %q", expectedError, err.Error())
+			}
+		}
+	})
+
+	t.Run("ErrorParsingHookTemplate", func(t *testing.T) {
+		shell := NewDefaultShell(nil)
+
+		// Mock shellHooks to provide an invalid template command
+		originalShellHooks := shellHooks
+		shellHooks = map[string]string{
+			"bash": "{{ .InvalidField }}", // Invalid template field to cause parsing error
+		}
+		defer func() { shellHooks = originalShellHooks }() // Restore original shellHooks after test
+
+		err := shell.InstallHook("bash")
+		if err == nil {
+			t.Fatalf("Expected error due to hook template parsing failure, but got nil")
+		} else {
+			expectedError := "can't evaluate field InvalidField"
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Fatalf("Expected error message to contain %q, but got %q", expectedError, err.Error())
+			}
 		}
 	})
 }
