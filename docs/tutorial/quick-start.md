@@ -6,14 +6,18 @@ This guide will help you create a windsor project folder and deploy your first w
 
 1. **Open your terminal.**
 
-2. **Navigate to the directory where you want to create the top level windsor project.**
-
-   Use the `cd` command to change to your desired directory. For example:
+2. **Make the windsor project directory.**
    ```bash
-   cd /path/to/your/windsor-project-directory
+   mkdir windsor-project
    ```
 
-3. **Create the `aqua.yaml` file using the `cat` command.**
+3. **Navigate to the directory where you want to create the top level windsor project.**
+
+   ```bash
+   cd windsor-project
+   ```
+
+4. **Create the `aqua.yaml` file using the `cat` command.**
 
    Execute the following command to create the file and input the necessary content:
    ```bash
@@ -49,7 +53,7 @@ This guide will help you create a windsor project folder and deploy your first w
    EOF
    ```
 
-4. **Verify the file creation.**
+5. **Verify the file creation.**
 
    You can check the contents of the `aqua.yaml` file by using:
    ```bash
@@ -58,42 +62,42 @@ This guide will help you create a windsor project folder and deploy your first w
 
    This should display the content you just entered.
 
-5. **Install Dependencies**
+6. **Install Dependencies**
 
    Run the following command to install the dependencies specified in the `aqua.yaml` file:
    ```bash
    aqua install
    ```
 
-6. **Initialize Git Repository**
+7. **Initialize Git Repository**
 
    If the target folder is not already a git repository, initialize it:
    ```bash
    git init
    ```
 
-7. **Initialize the Environment**
+8. **Initialize the Environment**
 
    Set up the necessary configurations and name the context:
    ```sh
    windsor init local --vm-driver colima
    ```
 
-8. **Confirm Context**
+9. **Confirm Context**
 
    Verify that the default 'local' context was selected:
    ```sh
    windsor context get
    ```
 
-9. **Start Talos Kubernetes Cluster**
+10. **Start Talos Kubernetes Cluster**
 
    Build the virtual environment and start the Talos operating system:
    ```sh
    windsor up
    ```
 
-10. **List Kubernetes Nodes**
+11. **List Kubernetes Nodes**
 
     Display the list of Kubernetes nodes:
     ```sh
