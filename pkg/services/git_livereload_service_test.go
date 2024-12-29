@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/config/git"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
@@ -39,8 +40,8 @@ func setupSafeGitLivereloadServiceMocks(optionalInjector ...di.Injector) *MockCo
 	// Set up the mock config handler to return minimal configuration for Git
 	mockConfigHandler.GetConfigFunc = func() *config.Context {
 		return &config.Context{
-			Git: &config.GitConfig{
-				Livereload: &config.GitLivereloadConfig{
+			Git: &git.GitConfig{
+				Livereload: &git.GitLivereloadConfig{
 					Enabled: ptrBool(true),
 				},
 			},
