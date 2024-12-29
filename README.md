@@ -3,8 +3,6 @@
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/windsorcli/cli)
 ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml)
 
-Windsor CLI streamlines your cloud-native workflow, turning your development environment into a local simulation of your production infrastructure. Build, test, and deploy with ease, leveraging context-aware capabilities to seamlessly transition from local to cloud environments, or your own hardware. Experience a unified, efficient, and elegant toolset designed for modern developers.
-
 The Windsor CLI is a powerful tool designed to streamline your workflow and enhance productivity. With a small suite of intuitive commands, the Windsor CLI allows you to efficiently manage contexts for other tools in your development environment.
 
 ## [Purpose](#purpose)
