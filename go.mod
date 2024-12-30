@@ -5,7 +5,6 @@ go 1.23.1
 require (
 	github.com/briandowns/spinner v1.23.1
 	github.com/compose-spec/compose-go v1.20.2
-	github.com/compose-spec/compose-go/v2 v2.4.6
 	github.com/getsops/sops/v3 v3.9.2
 	github.com/goccy/go-yaml v1.15.13
 	github.com/google/go-jsonnet v0.20.0
@@ -116,7 +115,6 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/urfave/cli v1.22.16 // indirect
-	github.com/urfave/cli/v2 v2.27.5 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.33.0 // indirect
@@ -140,8 +138,7 @@ require (
 	google.golang.org/genproto v0.0.0-20241223144023-3abc09e42ca8 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241223144023-3abc09e42ca8 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241223144023-3abc09e42ca8 // indirect
-	google.golang.org/grpc v1.68.1 // indirect
-	google.golang.org/grpc/stats/opentelemetry v0.0.0-20241028142157-ada6787961b3 // indirect
+	google.golang.org/grpc v1.69.2 // indirect
 	google.golang.org/protobuf v1.36.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
