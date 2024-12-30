@@ -3,7 +3,6 @@ package env
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -58,15 +57,6 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
 
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.FromSlash("/mock/config/root/compose.yaml") || name == filepath.FromSlash("/mock/config/root/compose.yml") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
 		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
 		dockerEnvPrinter.Initialize()
 
@@ -75,12 +65,8 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		if envVars["COMPOSE_FILE"] != filepath.FromSlash("/mock/config/root/compose.yaml") && envVars["COMPOSE_FILE"] != filepath.FromSlash("/mock/config/root/compose.yml") {
-			t.Errorf("COMPOSE_FILE = %v, want %v or %v", envVars["COMPOSE_FILE"], filepath.FromSlash("/mock/config/root/compose.yaml"), filepath.FromSlash("/mock/config/root/compose.yml"))
-		}
-
-		if envVars["DOCKER_SOCK"] != "" {
-			t.Errorf("DOCKER_SOCK = %v, want empty", envVars["DOCKER_SOCK"])
+		if envVars["DOCKER_HOST"] != "" {
+			t.Errorf("DOCKER_HOST = %v, want empty", envVars["DOCKER_HOST"])
 		}
 	})
 
@@ -88,15 +74,6 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
 		mocks.ContextHandler.GetContextFunc = func() string {
 			return "test-context"
-		}
-
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.FromSlash("/mock/config/root/compose.yaml") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
 		}
 
 		originalUserHomeDir := osUserHomeDir
@@ -125,69 +102,6 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", "/mock/home", "test-context")
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
-		}
-	})
-
-	t.Run("NoComposeFile", func(t *testing.T) {
-		mocks := setupSafeDockerEnvPrinterMocks()
-
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.Initialize()
-
-		envVars, err := dockerEnvPrinter.GetEnvVars()
-		if err != nil {
-			t.Fatalf("GetEnvVars returned an error: %v", err)
-		}
-
-		if envVars["COMPOSE_FILE"] != "" {
-			t.Errorf("COMPOSE_FILE = %v, want empty", envVars["COMPOSE_FILE"])
-		}
-	})
-
-	t.Run("GetConfigRootError", func(t *testing.T) {
-		mocks := setupSafeDockerEnvPrinterMocks()
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
-			return "", errors.New("mock context error")
-		}
-
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.Initialize()
-
-		_, err := dockerEnvPrinter.GetEnvVars()
-		expectedError := "error retrieving configuration root directory: mock context error"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("error = %v, want %v", err, expectedError)
-		}
-	})
-
-	t.Run("YmlFileExists", func(t *testing.T) {
-		mocks := setupSafeDockerEnvPrinterMocks()
-
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.FromSlash("/mock/config/root/compose.yml") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.Initialize()
-
-		envVars, err := dockerEnvPrinter.GetEnvVars()
-		if err != nil {
-			t.Fatalf("GetEnvVars returned an error: %v", err)
-		}
-
-		if envVars["COMPOSE_FILE"] != filepath.FromSlash("/mock/config/root/compose.yml") {
-			t.Errorf("COMPOSE_FILE = %v, want %v", envVars["COMPOSE_FILE"], filepath.FromSlash("/mock/config/root/compose.yml"))
 		}
 	})
 
@@ -226,14 +140,6 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 		dockerEnvPrinter := NewDockerEnvPrinter(mockInjector)
 		dockerEnvPrinter.Initialize()
 
-		// Mock the stat function to simulate the existence of the Docker compose file
-		stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.FromSlash("/mock/config/root/compose.yaml") || name == filepath.FromSlash("/mock/config/root/compose.yml") {
-				return nil, nil // Simulate that the file exists
-			}
-			return nil, os.ErrNotExist
-		}
-
 		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
 		var capturedEnvVars map[string]string
 		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
@@ -248,34 +154,38 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 		}
 
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
-		expectedEnvVars := map[string]string{
-			"COMPOSE_FILE": filepath.FromSlash("/mock/config/root/compose.yaml"),
-		}
+		expectedEnvVars := map[string]string{}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
 		}
 	})
 
-	t.Run("GetConfigError", func(t *testing.T) {
-		// Use setupSafeAwsEnvMocks to create mocks
+	t.Run("GetEnvVarsError", func(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
-
-		// Override the GetConfigFunc to simulate an error
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
-			return "", errors.New("mock config error")
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 
-		mockInjector := mocks.Injector
+		originalUserHomeDir := osUserHomeDir
+		defer func() { osUserHomeDir = originalUserHomeDir }()
+		osUserHomeDir = func() (string, error) {
+			return "", errors.New("mock user home dir error")
+		}
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mockInjector)
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
 		dockerEnvPrinter.Initialize()
 
-		// Call Print and check for errors
 		err := dockerEnvPrinter.Print()
 		if err == nil {
-			t.Error("expected error, got nil")
-		} else if !strings.Contains(err.Error(), "mock config error") {
-			t.Errorf("unexpected error message: %v", err)
+			t.Error("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "mock user home dir error") {
+			t.Errorf("error = %v, want error containing 'mock user home dir error'", err)
 		}
 	})
 }
