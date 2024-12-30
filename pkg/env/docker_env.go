@@ -2,7 +2,6 @@ package env
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -24,26 +23,6 @@ func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
 // GetEnvVars retrieves the environment variables for the Docker environment.
 func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
-
-	// Determine the root directory for configuration files.
-	configRoot, err := e.contextHandler.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
-	}
-
-	// Check for the existence of compose.yaml or compose.yml
-	var composeFilePath string
-	yamlPath := filepath.Join(configRoot, "compose.yaml")
-	ymlPath := filepath.Join(configRoot, "compose.yml")
-
-	if _, err := stat(yamlPath); err == nil {
-		composeFilePath = yamlPath
-	} else if _, err := stat(ymlPath); err == nil {
-		composeFilePath = ymlPath
-	}
-
-	// Populate environment variables with Docker configuration data.
-	envVars["COMPOSE_FILE"] = composeFilePath
 
 	// Set DOCKER_HOST if vm.driver is colima
 	if e.configHandler.GetString("vm.driver") == "colima" {
