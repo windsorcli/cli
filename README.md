@@ -1,49 +1,53 @@
-## [Windsor Command Line Interface](https://windsorcli.github.io)
+# Windsor Command Line Interface
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/windsorcli/cli)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml)
+<p align="center">
+  <img src="docs/img/windsor-logo.png" alt="Windsor CLI Logo" style="width: 20%; height: auto;">
+</p>
 
-The Windsor CLI is a powerful tool designed to streamline your workflow and enhance productivity. With a small suite of intuitive commands, the Windsor CLI allows you to efficiently manage contexts for other tools in your development environment.
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/windsorcli/cli" alt="GitHub release (latest by date)">
+  <img src="https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml" alt="GitHub Workflow Status">
+</p>
 
-## [Purpose](#purpose)
+---
 
-Windsor CLI streamlines your cloud-native workflow, transforming your development environment into a local simulation of your production infrastructure. Build, test, and deploy with ease, leveraging context-aware capabilities to seamlessly transition between local, cloud environments, or your own hardware. Experience a unified, efficient, and elegant toolset designed for modern developers.
+## Purpose
 
-With its small suite of intuitive commands, the Windsor CLI empowers developers to efficiently manage contexts for other tools within their environment. By enhancing productivity and simplifying workflows, it ensures that navigating complex development setups is both straightforward and efficient.
+The Windsor CLI is designed to streamline the cloud-native developer experience. Built in Go, it runs seamlessly on Linux, macOS, and Windows.
 
-Key objectives of the Windsor CLI include:
+Windsor addresses several challenges common in building and running software platforms by integrating various tools into a cohesive workflow:
 
-- **Efficiency**: Start with a pre-configured, working, and fully functional environment.
-- **Consistency**: Ensure a standardized approach and consistent tool usage across different environments and teams.
-- **Flexibility**: Support a wide range of configurations and integrations to accommodate diverse project needs.
-- **Scalability**: Scale the environment and the production workload.
-- **Project Initialization**: Quickly set up new projects with predefined configurations.
-- **Configuration Management**: Easily manage and switch between different project configurations.
-- **Shell Integration**: Seamlessly integrates with your shell environment for enhanced productivity.
-- **Cross-Platform Support**: Works on Windows, macOS, and Linux.
+- **Complete Local Cloud**: Simulates complete cloud-native infrastructure locally using a native virtualization platform (currently supports Colima).
+- **Support Services**: Push and pull containers to local image registries, and browse your local services at `*.local.test` domains.
+- **Livereload GitOps**: Reflects your source via a local git repository, enabling you to work with GitOps tooling locally.
+- **Contextual Workflow**: Code once, deploy-to-many with an elegant contextual workflow, dynamically reconfiguring your toolchain as you target different deployment environments.
 
-## [Quick Start](#quick-start)
+## Quick Start
 
 - **[Setup and Installation](./docs/install/install.md)**
 - **[Quick Start](./docs/tutorial/quick-start.md)**
 
+## Supported Tools
 
-## [Contributing](#contributing)
-We welcome contributions to Windsor CLI! If you would like to contribute, please follow these steps:
+The following tools are supported by the Windsor CLI:
 
-1. Fork the repository.
-2. Create a new branch for your feature or bugfix.
-3. Make your changes and commit them with a descriptive message.
-4. Push your changes to your fork.
-5. Create a pull request to the main repository.
+- [**Docker**](https://github.com/docker/docker-ce)
+- [**Kubernetes**](https://github.com/kubernetes/kubernetes)
+- [**AWS**](https://github.com/aws/aws-cli)
+- [**Terraform**](https://github.com/hashicorp/terraform)
+- [**SOPS**](https://github.com/mozilla/sops)
+- [**Localstack**](https://github.com/localstack/localstack)
+- [**Colima**](https://github.com/abiosoft/colima)
+- [**Talos Linux**](https://github.com/siderolabs/talos)
 
-Please ensure that your code adheres to our coding standards and includes appropriate tests.
+## Contributing
 
-## [License](#license)
+Contributions are welcome! To get started, fork the repository, create a new branch, make your changes, and submit a pull request. Ensure your code follows our standards and includes tests. Thank you for your contributions!
+
+## License
 
 Windsor CLI is licensed under the Mozilla Public License Version 2.0. See the [LICENSE](LICENSE) file for more details.
 
+## Contact Information
 
-## [Contact Information](#contact-information)
-
-Thank you for using Windsor CLI! If you have any questions or need further assistance, please feel free to open an issue on our GitHub repository.
+If you have any questions or need further assistance, please feel free to open an issue on our GitHub repository.
