@@ -1,15 +1,17 @@
-# Windsor Command Line Interface
+<div align="center">
+  <h1>Windsor Command Line Interface</h1>
 
-<p align="center">
-  <img src="docs/img/windsor-logo.png" alt="Windsor CLI Logo" style="width: 20%; height: auto;">
-</p>
+  <p>
+    <img src="img/windsor-logo.png" alt="Windsor CLI Logo" style="width: 50%; height: auto;">
+  </p>
 
-<p align="center">
-  <img src="https://img.shields.io/github/v/release/windsorcli/cli" alt="GitHub release (latest by date)">
-  <img src="https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml" alt="GitHub Workflow Status">
-</p>
+  <p>
+    <img src="https://img.shields.io/github/v/release/windsorcli/cli" alt="GitHub release (latest by date)">
+    <img src="https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml" alt="GitHub Workflow Status">
+  </p>
 
----
+  <hr>
+</div>
 
 ## Purpose
 
@@ -24,8 +26,8 @@ Windsor addresses several challenges common in building and running software pla
 
 ## Quick Start
 
-- **[Setup and Installation](./docs/install/install.md)**
-- **[Quick Start](./docs/tutorial/quick-start.md)**
+- **[Setup and Installation](install/install.md)**
+- **[Quick Start](tutorial/macos-quick-start.md)**
 
 ## Supported Tools
 

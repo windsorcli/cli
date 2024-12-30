@@ -1,0 +1,5 @@
+nav:
+  - 'Home': index.md
+  - 'Install': install/install.md
+  - 'Tutorial': 
+    - 'Quick Start': tutorial/macos-quick-start.md
