@@ -41,7 +41,15 @@ type TerraformVariableV1Alpha1 struct {
 	Sensitive   bool        `yaml:"sensitive,omitempty"`   // Whether to treat the variable as sensitive
 }
 
-// Merge merges another BlueprintV1Alpha1 into the current one.
+// Merge integrates another BlueprintV1Alpha1 into the current one, with a focus on maintaining a comprehensive and
+// context-aware combination of blueprint data. The merge process includes:
+//   - Sources: Merged uniquely by their name to ensure each source remains distinct and is updated appropriately.
+//   - TerraformComponents: Merged intricately using the path as the primary key and source as the secondary key. This
+//     ensures precise integration and updates of components. The logic respects the overlay's components, allowing
+//     them to replace or update existing components based on these keys, while maintaining the order of components
+//     from the overlay.
+//   - Metadata: Fields such as name, description, and authors are merged by prioritizing non-empty values from the
+//     overlay, ensuring the most complete and relevant metadata is preserved.
 func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 	if overlay == nil {
 		return
@@ -87,45 +95,49 @@ func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 		key := component.Path
 		componentMap[key] = component
 	}
-	for _, overlayComponent := range overlay.TerraformComponents {
-		key := overlayComponent.Path
-		if existingComponent, exists := componentMap[key]; exists {
-			// Perform a full merge if both path and source match
-			if existingComponent.Source == overlayComponent.Source {
-				mergedComponent := existingComponent
 
-				// Merge Values
-				if mergedComponent.Values == nil {
-					mergedComponent.Values = make(map[string]interface{})
-				}
-				for k, v := range overlayComponent.Values {
-					mergedComponent.Values[k] = v
-				}
+	// Only merge components that exist in the overlay, preserving order
+	if len(overlay.TerraformComponents) == 0 {
+		// If overlay has no terraform components, use the target's list
+		b.TerraformComponents = append(b.TerraformComponents[:0], b.TerraformComponents...)
+	} else {
+		b.TerraformComponents = make([]TerraformComponentV1Alpha1, 0, len(overlay.TerraformComponents))
+		for _, overlayComponent := range overlay.TerraformComponents {
+			key := overlayComponent.Path
+			if existingComponent, exists := componentMap[key]; exists {
+				// Perform a full merge if both path and source match
+				if existingComponent.Source == overlayComponent.Source {
+					mergedComponent := existingComponent
 
-				// Merge Variables
-				if mergedComponent.Variables == nil {
-					mergedComponent.Variables = make(map[string]TerraformVariableV1Alpha1)
-				}
-				for k, v := range overlayComponent.Variables {
-					mergedComponent.Variables[k] = v
-				}
+					// Merge Values
+					if mergedComponent.Values == nil {
+						mergedComponent.Values = make(map[string]interface{})
+					}
+					for k, v := range overlayComponent.Values {
+						mergedComponent.Values[k] = v
+					}
 
-				if overlayComponent.FullPath != "" {
-					mergedComponent.FullPath = overlayComponent.FullPath
+					// Merge Variables
+					if mergedComponent.Variables == nil {
+						mergedComponent.Variables = make(map[string]TerraformVariableV1Alpha1)
+					}
+					for k, v := range overlayComponent.Variables {
+						mergedComponent.Variables[k] = v
+					}
+
+					if overlayComponent.FullPath != "" {
+						mergedComponent.FullPath = overlayComponent.FullPath
+					}
+					b.TerraformComponents = append(b.TerraformComponents, mergedComponent)
+				} else {
+					// Use the overlay component if the path matches but the source doesn't
+					b.TerraformComponents = append(b.TerraformComponents, overlayComponent)
 				}
-				componentMap[key] = mergedComponent
 			} else {
-				// Use the overlay component if the path matches but the source doesn't
-				componentMap[key] = overlayComponent
+				// Add the overlay component if it doesn't exist in the target
+				b.TerraformComponents = append(b.TerraformComponents, overlayComponent)
 			}
-		} else {
-			// Add the overlay component if it doesn't exist in the target
-			componentMap[key] = overlayComponent
 		}
-	}
-	b.TerraformComponents = make([]TerraformComponentV1Alpha1, 0, len(componentMap))
-	for _, component := range componentMap {
-		b.TerraformComponents = append(b.TerraformComponents, component)
 	}
 }
 

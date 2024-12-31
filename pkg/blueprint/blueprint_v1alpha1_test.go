@@ -214,6 +214,94 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 			t.Errorf("Expected FullPath to be 'updated/full/path', but got '%s'", component.FullPath)
 		}
 	})
+
+	t.Run("OverlayWithoutComponents", func(t *testing.T) {
+		dst := &BlueprintV1Alpha1{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			TerraformComponents: []TerraformComponentV1Alpha1{
+				{
+					Source: "source1",
+					Path:   "module/path1",
+					Variables: map[string]TerraformVariableV1Alpha1{
+						"var1": {Default: "default1"},
+					},
+					Values: map[string]interface{}{
+						"key1": "value1",
+					},
+					FullPath: "original/full/path",
+				},
+			},
+		}
+
+		overlay := &BlueprintV1Alpha1{
+			TerraformComponents: []TerraformComponentV1Alpha1{},
+		}
+
+		dst.Merge(overlay)
+
+		if len(dst.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 TerraformComponent, but got %d", len(dst.TerraformComponents))
+		}
+
+		component := dst.TerraformComponents[0]
+		if component.Source != "source1" {
+			t.Errorf("Expected Source to be 'source1', but got '%s'", component.Source)
+		}
+		if len(component.Variables) != 1 || component.Variables["var1"].Default != "default1" {
+			t.Errorf("Expected Variables to be ['var1'], but got %v", component.Variables)
+		}
+		if component.Values == nil || len(component.Values) != 1 || component.Values["key1"] != "value1" {
+			t.Errorf("Expected Values to contain 'key1', but got %v", component.Values)
+		}
+		if component.FullPath != "original/full/path" {
+			t.Errorf("Expected FullPath to be 'original/full/path', but got '%s'", component.FullPath)
+		}
+	})
+
+	t.Run("EmptyDstWithOverlayComponents", func(t *testing.T) {
+		dst := &BlueprintV1Alpha1{
+			Kind:                "Blueprint",
+			ApiVersion:          "v1alpha1",
+			TerraformComponents: []TerraformComponentV1Alpha1{},
+		}
+
+		overlay := &BlueprintV1Alpha1{
+			TerraformComponents: []TerraformComponentV1Alpha1{
+				{
+					Source: "source1",
+					Path:   "module/path1",
+					Variables: map[string]TerraformVariableV1Alpha1{
+						"var1": {Default: "default1"},
+					},
+					Values: map[string]interface{}{
+						"key1": "value1",
+					},
+					FullPath: "overlay/full/path",
+				},
+			},
+		}
+
+		dst.Merge(overlay)
+
+		if len(dst.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 TerraformComponent, but got %d", len(dst.TerraformComponents))
+		}
+
+		component := dst.TerraformComponents[0]
+		if component.Source != "source1" {
+			t.Errorf("Expected Source to be 'source1', but got '%s'", component.Source)
+		}
+		if len(component.Variables) != 1 || component.Variables["var1"].Default != "default1" {
+			t.Errorf("Expected Variables to be ['var1'], but got %v", component.Variables)
+		}
+		if component.Values == nil || len(component.Values) != 1 || component.Values["key1"] != "value1" {
+			t.Errorf("Expected Values to contain 'key1', but got %v", component.Values)
+		}
+		if component.FullPath != "overlay/full/path" {
+			t.Errorf("Expected FullPath to be 'overlay/full/path', but got '%s'", component.FullPath)
+		}
+	})
 }
 
 func TestBlueprintV1Alpha1_Copy(t *testing.T) {
