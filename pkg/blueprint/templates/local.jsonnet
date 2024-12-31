@@ -48,8 +48,8 @@ local registryMirrors = std.foldl(
       ref: "v0.1.0",
     },
   ],
-  terraform: [
-    if firstNode != null then {
+  terraform: if firstNode != null then [
+    {
       path: "cluster/talos",
       source: "core",
       values: {
@@ -185,6 +185,65 @@ local registryMirrors = std.foldl(
           default: "",
         },
       }
-    } else {}
-  ],
+    },
+    {
+      path: "gitops/flux",
+      source: "core",
+      values: {
+        git_username: "local",
+        git_password: "local",
+      },
+      variables: {
+        flux_namespace: {
+          description: "The namespace in which Flux will be installed",
+          type: "string",
+          default: "system-gitops",
+        },
+        flux_helm_version: {
+          description: "The version of Flux Helm chart to install",
+          type: "string",
+          default: "2.14.0",
+        },
+        flux_version: {
+          description: "The version of Flux to install",
+          type: "string",
+          default: "2.4.0",
+        },
+        ssh_private_key: {
+          description: "The private key to use for SSH authentication",
+          type: "string",
+          default: "",
+          sensitive: true,
+        },
+        ssh_public_key: {
+          description: "The public key to use for SSH authentication",
+          type: "string",
+          default: "",
+          sensitive: true,
+        },
+        ssh_known_hosts: {
+          description: "The known hosts to use for SSH authentication",
+          type: "string",
+          default: "",
+          sensitive: true,
+        },
+        git_auth_secret: {
+          description: "The name of the secret to store the git authentication details",
+          type: "string",
+          default: "flux-system",
+        },
+        git_username: {
+          description: "The git user to use to authenticate with the git provider",
+          type: "string",
+          default: "git",
+        },
+        git_password: {
+          description: "The git password or PAT used to authenticate with the git provider",
+          type: "string",
+          default: "",
+          sensitive: true,
+        },
+      }
+    }
+  ] else [],
 }

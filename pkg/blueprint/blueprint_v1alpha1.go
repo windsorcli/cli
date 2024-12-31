@@ -38,6 +38,7 @@ type TerraformVariableV1Alpha1 struct {
 	Type        string      `yaml:"type,omitempty"`        // The Type of the variable
 	Default     interface{} `yaml:"default,omitempty"`     // The Default value of the variable
 	Description string      `yaml:"description,omitempty"` // The Description of the variable
+	Sensitive   bool        `yaml:"sensitive,omitempty"`   // Whether to treat the variable as sensitive
 }
 
 // Merge merges another BlueprintV1Alpha1 into the current one.
