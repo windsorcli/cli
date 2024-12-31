@@ -38,7 +38,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 
 	// Add route on the host to VM guest using PowerShell command
 	fmt.Println("🔐 Adding route on the host to VM guest")
-	output, err = n.shell.Exec(
+	output, err = n.shell.ExecSilent(
 		"powershell",
 		"-Command",
 		fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", networkCIDR, guestIP),

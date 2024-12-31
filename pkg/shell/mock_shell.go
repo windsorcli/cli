@@ -16,6 +16,7 @@ type MockShell struct {
 	ExecProgressFunc   func(message string, command string, args ...string) (string, error)
 	ExecSudoFunc       func(message string, command string, args ...string) (string, error)
 	InstallHookFunc    func(shellName string) error
+	SetVerbosityFunc   func(verbose bool)
 }
 
 // NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
@@ -101,6 +102,13 @@ func (s *MockShell) InstallHook(shellName string) error {
 		return s.InstallHookFunc(shellName)
 	}
 	return nil
+}
+
+// SetVerbosity calls the custom SetVerbosityFunc if provided.
+func (s *MockShell) SetVerbosity(verbose bool) {
+	if s.SetVerbosityFunc != nil {
+		s.SetVerbosityFunc(verbose)
+	}
 }
 
 // Ensure MockShell implements the Shell interface

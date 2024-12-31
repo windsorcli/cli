@@ -363,3 +363,72 @@ func TestMockShell_ExecSudo(t *testing.T) {
 		}
 	})
 }
+
+func TestMockShell_InstallHook(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with a custom InstallHookFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		mockShell.InstallHookFunc = func(shellName string) error {
+			return nil
+		}
+		// When calling InstallHook
+		err := mockShell.InstallHook("bash")
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("InstallHook() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with no InstallHookFunc implementation
+		mockShell := NewMockShell()
+		// When calling InstallHook
+		err := mockShell.InstallHook("bash")
+		// Then no error should be returned
+		assertError(t, err, false)
+	})
+}
+
+func TestMockShell_SetVerbosity(t *testing.T) {
+	t.Run("SetVerbosityTrue", func(t *testing.T) {
+		// Given a mock shell with a custom SetVerbosityFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		var verbositySet bool
+		mockShell.SetVerbosityFunc = func(verbose bool) {
+			verbositySet = verbose
+		}
+		// When setting verbosity to true
+		mockShell.SetVerbosity(true)
+		// Then verbosity should be set to true
+		if !verbositySet {
+			t.Errorf("Expected verbosity to be set to true, but it was not")
+		}
+	})
+
+	t.Run("SetVerbosityFalse", func(t *testing.T) {
+		// Given a mock shell with a custom SetVerbosityFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		var verbositySet bool
+		mockShell.SetVerbosityFunc = func(verbose bool) {
+			verbositySet = verbose
+		}
+		// When setting verbosity to false
+		mockShell.SetVerbosity(false)
+		// Then verbosity should be set to false
+		if verbositySet {
+			t.Errorf("Expected verbosity to be set to false, but it was not")
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with no SetVerbosityFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		// When calling SetVerbosity
+		mockShell.SetVerbosity(true)
+		// Then no panic or error should occur
+	})
+}

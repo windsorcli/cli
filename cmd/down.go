@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -58,7 +59,7 @@ var downCmd = &cobra.Command{
 		}
 
 		// Print success message
-		fmt.Println("Windsor environment torn down successfully.")
+		fmt.Fprintln(os.Stderr, "Windsor environment torn down successfully.")
 
 		return nil
 	},

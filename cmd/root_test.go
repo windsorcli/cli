@@ -215,6 +215,44 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 		}
 	})
 
+	t.Run("SetVerbositySuccess", func(t *testing.T) {
+		// Mock the global controller
+		originalController := controller
+		defer func() { controller = originalController }()
+
+		// Mock the injector
+		injector := di.NewInjector()
+
+		// Mock the controller
+		mockController := ctrl.NewMockController(injector)
+		controller = mockController
+
+		// Mock ResolveShell to return a mock shell
+		mockShell := &shell.MockShell{}
+		mockController.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		// Mock SetVerbosity to verify it is called with the correct argument
+		var verbositySet bool
+		mockShell.SetVerbosityFunc = func(v bool) {
+			if v {
+				verbositySet = true
+			}
+		}
+
+		// Set the verbosity
+		shell := controller.ResolveShell()
+		if shell != nil {
+			shell.SetVerbosity(true)
+		}
+
+		// Then the verbosity should be set
+		if !verbositySet {
+			t.Fatalf("Expected verbosity to be set, but it was not")
+		}
+	})
+
 	t.Run("ErrorLoadingConfig", func(t *testing.T) {
 		// Mock the global controller
 		originalController := controller

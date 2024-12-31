@@ -100,7 +100,7 @@ func TestDownCmd(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
 
 		// When the down command is executed
-		output := captureStdout(func() {
+		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"down"})
 			if err := Execute(mocks.MockController); err != nil {
 				t.Fatalf("Execute() error = %v", err)

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -125,7 +126,7 @@ var upCmd = &cobra.Command{
 		}
 
 		// Print success message
-		fmt.Println("Windsor environment set up successfully.")
+		fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
 
 		return nil
 	},
