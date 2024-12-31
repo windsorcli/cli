@@ -85,11 +85,8 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	}
 
 	services := []types.ServiceConfig{corednsConfig}
-	volumes := map[string]types.VolumeConfig{
-		"coredns_config": {},
-	}
 
-	return &types.Config{Services: services, Volumes: volumes}, nil
+	return &types.Config{Services: services}, nil
 }
 
 // WriteConfig writes any necessary configuration files needed by the service
