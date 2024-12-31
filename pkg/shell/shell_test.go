@@ -51,6 +51,24 @@ func TestShell_Initialize(t *testing.T) {
 	})
 }
 
+func TestShell_SetVerbosity(t *testing.T) {
+	t.Run("Set to True", func(t *testing.T) {
+		shell := NewDefaultShell(nil)
+		shell.SetVerbosity(true)
+		if !shell.verbose {
+			t.Fatalf("Expected verbosity to be true, got false")
+		}
+	})
+
+	t.Run("Set to False", func(t *testing.T) {
+		shell := NewDefaultShell(nil)
+		shell.SetVerbosity(false)
+		if shell.verbose {
+			t.Fatalf("Expected verbosity to be false, got true")
+		}
+	})
+}
+
 func TestShell_GetProjectRoot(t *testing.T) {
 	t.Run("GitRepo", func(t *testing.T) {
 		injector := di.NewInjector()
@@ -392,6 +410,30 @@ func TestShell_ExecSudo(t *testing.T) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
 	})
+
+	t.Run("VerboseOutput", func(t *testing.T) {
+		command := "echo"
+		args := []string{"hello"}
+
+		shell := NewDefaultShell(nil)
+		shell.SetVerbosity(true)
+
+		stdout, _ := captureStdoutAndStderr(t, func() {
+			output, err := shell.ExecSudo("Test Sudo Command", command, args...)
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+			expectedOutput := "hello\n"
+			if output != expectedOutput {
+				t.Fatalf("Expected output %q, got %q", expectedOutput, output)
+			}
+		})
+
+		expectedVerboseOutput := "Test Sudo Command\n"
+		if !strings.Contains(stdout, expectedVerboseOutput) {
+			t.Fatalf("Expected verbose output %q, got %q", expectedVerboseOutput, stdout)
+		}
+	})
 }
 
 func TestShell_ExecSilent(t *testing.T) {
@@ -427,6 +469,30 @@ func TestShell_ExecSilent(t *testing.T) {
 		expectedError := "command execution failed"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("VerboseOutput", func(t *testing.T) {
+		command := "go"
+		args := []string{"version"}
+
+		shell := NewDefaultShell(nil)
+		shell.SetVerbosity(true)
+
+		stdout, _ := captureStdoutAndStderr(t, func() {
+			output, err := shell.ExecSilent(command, args...)
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+			expectedOutputPrefix := "go version"
+			if !strings.HasPrefix(output, expectedOutputPrefix) {
+				t.Fatalf("Expected output to start with %q, got %q", expectedOutputPrefix, output)
+			}
+		})
+
+		expectedVerboseOutput := "go version"
+		if !strings.Contains(stdout, expectedVerboseOutput) {
+			t.Fatalf("Expected verbose output to contain %q, got %q", expectedVerboseOutput, stdout)
 		}
 	})
 }
@@ -653,6 +719,44 @@ func TestShell_ExecProgress(t *testing.T) {
 		expectedError := "error waiting for command"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("VerboseOutput", func(t *testing.T) {
+		command := "go"
+		args := []string{"version"}
+
+		shell := NewDefaultShell(nil)
+		shell.SetVerbosity(true)
+
+		// Mock cmdStart to prevent hanging
+		originalCmdStart := cmdStart
+		cmdStart = func(cmd *exec.Cmd) error {
+			return nil
+		}
+		defer func() { cmdStart = originalCmdStart }() // Restore original function after test
+
+		// Mock cmdWait to prevent hanging
+		originalCmdWait := cmdWait
+		cmdWait = func(cmd *exec.Cmd) error {
+			return nil
+		}
+		defer func() { cmdWait = originalCmdWait }() // Restore original function after test
+
+		stdout, _ := captureStdoutAndStderr(t, func() {
+			output, err := shell.ExecProgress("Test Progress Command", command, args...)
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+			expectedOutputPrefix := "go version"
+			if !strings.HasPrefix(output, expectedOutputPrefix) {
+				t.Fatalf("Expected output to start with %q, got %q", expectedOutputPrefix, output)
+			}
+		})
+
+		expectedVerboseOutput := "Test Progress Command\n"
+		if !strings.Contains(stdout, expectedVerboseOutput) {
+			t.Fatalf("Expected verbose output %q, got %q", expectedVerboseOutput, stdout)
 		}
 	})
 }

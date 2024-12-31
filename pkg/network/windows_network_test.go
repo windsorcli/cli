@@ -34,7 +34,7 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell()
-	mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+	mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 		if command == "powershell" && args[0] == "-Command" {
 			return "Route added successfully", nil
 		}

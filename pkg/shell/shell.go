@@ -24,15 +24,12 @@ type HookContext struct {
 	SelfPath string
 }
 
-type InstallHook interface {
-	Execute() error
-	// Add other methods as needed
-}
-
 // Shell interface defines methods for shell operations
 type Shell interface {
 	// Initialize initializes the shell environment
 	Initialize() error
+	// SetVerbosity sets the verbosity flag
+	SetVerbosity(verbose bool)
 	// PrintEnvVars prints the provided environment variables
 	PrintEnvVars(envVars map[string]string) error
 	// PrintAlias retrieves the shell alias
@@ -56,6 +53,7 @@ type DefaultShell struct {
 	projectRoot   string
 	injector      di.Injector
 	configHandler config.ConfigHandler
+	verbose       bool
 }
 
 // NewDefaultShell creates a new instance of DefaultShell
@@ -74,6 +72,11 @@ func (s *DefaultShell) Initialize() error {
 	s.configHandler = configHandler
 
 	return nil
+}
+
+// SetVerbosity sets the verbosity flag
+func (s *DefaultShell) SetVerbosity(verbose bool) {
+	s.verbose = verbose
 }
 
 // GetProjectRoot retrieves the project root directory
@@ -128,7 +131,7 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 	}
 }
 
-// Exec executes a command and returns its output as a string
+// Exec executes a command, prints its output, and returns it as a string
 func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 	cmd := execCommand(command, args...)
 
@@ -147,11 +150,19 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 		return "", fmt.Errorf("command execution failed: %w", err)
 	}
 
+	// Print the captured stdout to the user
+	fmt.Print(stdoutBuf.String())
+
 	return stdoutBuf.String(), nil
 }
 
 // ExecSudo executes a command with sudo if not already present and returns its output while suppressing it from being printed
 func (s *DefaultShell) ExecSudo(message string, command string, args ...string) (string, error) {
+	if s.verbose {
+		fmt.Println(message)
+		return s.Exec("sudo", append([]string{command}, args...)...)
+	}
+
 	// If the command is not sudo, add sudo to the command
 	if command != "sudo" {
 		args = append([]string{command}, args...)
@@ -198,6 +209,10 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 
 // ExecSilent executes a command and returns its output as a string without printing to stdout or stderr
 func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error) {
+	if s.verbose {
+		return s.Exec(command, args...)
+	}
+
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd := execCommand(command, args...)
 
@@ -214,6 +229,11 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 
 // ExecProgress executes a command and returns its output as a string while displaying progress status
 func (s *DefaultShell) ExecProgress(message string, command string, args ...string) (string, error) {
+	if s.verbose {
+		fmt.Println(message)
+		return s.Exec(command, args...)
+	}
+
 	cmd := execCommand(command, args...)
 
 	// Set up pipes to capture stdout and stderr
