@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -55,12 +56,12 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 		SecurityOpt: []string{"seccomp=unconfined"},
 		Tmpfs:       []string{"/run", "/system", "/tmp"},
 		Volumes: []types.ServiceVolumeConfig{
-			{Type: "volume", Target: "/system/state"},
-			{Type: "volume", Target: "/var"},
-			{Type: "volume", Target: "/etc/cni"},
-			{Type: "volume", Target: "/etc/kubernetes"},
-			{Type: "volume", Target: "/usr/libexec/kubernetes"},
-			{Type: "volume", Target: "/opt"},
+			{Type: "volume", Source: strings.ReplaceAll(s.name+"_system_state", "-", "_"), Target: "/system/state"},
+			{Type: "volume", Source: strings.ReplaceAll(s.name+"_var", "-", "_"), Target: "/var"},
+			{Type: "volume", Source: strings.ReplaceAll(s.name+"_etc_cni", "-", "_"), Target: "/etc/cni"},
+			{Type: "volume", Source: strings.ReplaceAll(s.name+"_etc_kubernetes", "-", "_"), Target: "/etc/kubernetes"},
+			{Type: "volume", Source: strings.ReplaceAll(s.name+"_usr_libexec_kubernetes", "-", "_"), Target: "/usr/libexec/kubernetes"},
+			{Type: "volume", Source: strings.ReplaceAll(s.name+"_opt", "-", "_"), Target: "/opt"},
 		},
 	}
 
@@ -83,5 +84,18 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 		"TALOSSKU": ptrString(fmt.Sprintf("%dCPU-%dRAM", controlPlaneCPU, controlPlaneRAM*1024)),
 	}
 
-	return &types.Config{Services: []types.ServiceConfig{controlPlaneConfig}}, nil
+	// Include volume specifications in the compose config
+	volumes := map[string]types.VolumeConfig{
+		strings.ReplaceAll(s.name+"_system_state", "-", "_"):           {},
+		strings.ReplaceAll(s.name+"_var", "-", "_"):                    {},
+		strings.ReplaceAll(s.name+"_etc_cni", "-", "_"):                {},
+		strings.ReplaceAll(s.name+"_etc_kubernetes", "-", "_"):         {},
+		strings.ReplaceAll(s.name+"_usr_libexec_kubernetes", "-", "_"): {},
+		strings.ReplaceAll(s.name+"_opt", "-", "_"):                    {},
+	}
+
+	return &types.Config{
+		Services: []types.ServiceConfig{controlPlaneConfig},
+		Volumes:  volumes,
+	}, nil
 }
