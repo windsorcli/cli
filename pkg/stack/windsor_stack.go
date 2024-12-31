@@ -24,17 +24,6 @@ func NewWindsorStack(injector di.Injector) *WindsorStack {
 
 // Up creates a new stack of components.
 func (s *WindsorStack) Up() error {
-	// Store the current directory
-	currentDir, err := osGetwd()
-	if err != nil {
-		return fmt.Errorf("error getting current directory: %v", err)
-	}
-
-	// Ensure we change back to the original directory once the function completes
-	defer func() {
-		_ = osChdir(currentDir)
-	}()
-
 	// Get the Terraform components from the blueprint
 	components := s.blueprintHandler.GetTerraformComponents()
 
@@ -43,11 +32,6 @@ func (s *WindsorStack) Up() error {
 		// Ensure the directory exists
 		if _, err := osStat(component.FullPath); os.IsNotExist(err) {
 			return fmt.Errorf("directory %s does not exist", component.FullPath)
-		}
-
-		// Change to the component directory
-		if err := osChdir(component.FullPath); err != nil {
-			return fmt.Errorf("error changing to directory %s: %v", component.FullPath, err)
 		}
 
 		// Iterate over all envPrinters and load the environment variables
@@ -67,22 +51,27 @@ func (s *WindsorStack) Up() error {
 			}
 		}
 
-		// Execute 'terraform init' in the dirPath
-		_, err = s.shell.ExecProgress("🌎 Running terraform init", "terraform", "init", "-migrate-state", "-upgrade")
-		if err != nil {
-			return fmt.Errorf("error running 'terraform init' in %s: %v", component.FullPath, err)
+		// Execute 'terraform init', 'terraform plan', and 'terraform apply' using the -chdir flag
+		commands := [][]string{
+			{"terraform", "-chdir=" + component.FullPath, "init", "-migrate-state", "-upgrade"},
+			{"terraform", "-chdir=" + component.FullPath, "plan", "-lock=false"},
+			{"terraform", "-chdir=" + component.FullPath, "apply"},
 		}
 
-		// Execute 'terraform plan' in the dirPath
-		_, err = s.shell.ExecProgress("🌎 Running terraform plan", "terraform", "plan", "-lock=false")
-		if err != nil {
-			return fmt.Errorf("error running 'terraform plan' in %s: %v", component.FullPath, err)
+		commandMessages := []string{
+			"🌎 Initializing Terraform for %s",
+			"🌎 Planning Terraform changes for %s",
+			"🌎 Applying Terraform changes for %s",
 		}
 
-		// Execute 'terraform apply' in the dirPath
-		_, err = s.shell.ExecProgress("🌎 Running terraform apply", "terraform", "apply")
-		if err != nil {
-			return fmt.Errorf("error running 'terraform apply' in %s: %v", component.FullPath, err)
+		for i, cmd := range commands {
+			_, err := s.shell.ExecProgress(
+				fmt.Sprintf(commandMessages[i], component.Path),
+				cmd[0], cmd[1:]...,
+			)
+			if err != nil {
+				return fmt.Errorf("error running Terraform command %s in %s: %v", cmd[2], component.FullPath, err)
+			}
 		}
 
 		// Attempt to clean up 'backend_override.tf' if it exists

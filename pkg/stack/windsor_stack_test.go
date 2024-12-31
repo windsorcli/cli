@@ -43,26 +43,6 @@ func TestWindsorStack_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGettingCurrentDirectory", func(t *testing.T) {
-		// Given osGetwd is mocked to return an error
-		mocks := setupSafeMocks()
-		originalOsGetwd := osGetwd
-		defer func() { osGetwd = originalOsGetwd }()
-		osGetwd = func() (string, error) {
-			return "", fmt.Errorf("mock error getting current directory")
-		}
-
-		// When a new WindsorStack is created and Up is called
-		stack := NewWindsorStack(mocks.Injector)
-		err := stack.Up()
-
-		// Then the expected error is contained in err
-		expectedError := "error getting current directory"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
-
 	t.Run("ErrorCheckingDirectoryExists", func(t *testing.T) {
 		// Given osStat is mocked to return an error
 		mocks := setupSafeMocks()
@@ -87,32 +67,6 @@ func TestWindsorStack_Up(t *testing.T) {
 
 		// Then the expected error is contained in err
 		expectedError := "directory /mock/project/root/.tf_modules/remote/path does not exist"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorChangingDirectory", func(t *testing.T) {
-		// Given osChdir is mocked to return an error
-		mocks := setupSafeMocks()
-		originalOsChdir := osChdir
-		defer func() { osChdir = originalOsChdir }()
-		osChdir = func(_ string) error {
-			return fmt.Errorf("mock error changing directory")
-		}
-
-		// When a new WindsorStack is created, initialized, and Up is called
-		stack := NewWindsorStack(mocks.Injector)
-		err := stack.Initialize()
-		// Then no error should occur during initialization
-		if err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
-		}
-
-		// And when Up is called
-		err = stack.Up()
-		// Then the expected error is contained in err
-		expectedError := "error changing to directory"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
@@ -193,10 +147,10 @@ func TestWindsorStack_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
-		// Given shell.Exec is mocked to return an error
+		// Given shell.ExecProgress is mocked to return an error for 'terraform init'
 		mocks := setupSafeMocks()
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "terraform" && len(args) > 0 && args[0] == "init" {
+			if command == "terraform" && len(args) > 1 && args[1] == "init" {
 				return "", fmt.Errorf("mock error running terraform init")
 			}
 			return "", nil
@@ -212,22 +166,18 @@ func TestWindsorStack_Up(t *testing.T) {
 
 		// And when Up is called
 		err = stack.Up()
-		if err == nil {
-			t.Fatalf("Expected error during Up, got nil")
-		}
-
 		// Then the expected error is contained in err
-		expectedError := "error running 'terraform init'"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		expectedError := "error running Terraform command init"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
 		}
 	})
 
 	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
-		// Given shell.Exec is mocked to return an error
+		// Given shell.ExecProgress is mocked to return an error for 'terraform plan'
 		mocks := setupSafeMocks()
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "terraform" && len(args) > 0 && args[0] == "plan" {
+			if command == "terraform" && len(args) > 1 && args[1] == "plan" {
 				return "", fmt.Errorf("mock error running terraform plan")
 			}
 			return "", nil
@@ -244,17 +194,17 @@ func TestWindsorStack_Up(t *testing.T) {
 		// And when Up is called
 		err = stack.Up()
 		// Then the expected error is contained in err
-		expectedError := "error running 'terraform plan'"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		expectedError := "error running Terraform command plan"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
 		}
 	})
 
 	t.Run("ErrorRunningTerraformApply", func(t *testing.T) {
-		// Given shell.Exec is mocked to return an error
+		// Given shell.ExecProgress is mocked to return an error for 'terraform apply'
 		mocks := setupSafeMocks()
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "terraform" && len(args) > 0 && args[0] == "apply" {
+			if command == "terraform" && len(args) > 1 && args[1] == "apply" {
 				return "", fmt.Errorf("mock error running terraform apply")
 			}
 			return "", nil
@@ -271,9 +221,9 @@ func TestWindsorStack_Up(t *testing.T) {
 		// And when Up is called
 		err = stack.Up()
 		// Then the expected error is contained in err
-		expectedError := "error running 'terraform apply'"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		expectedError := "error running Terraform command apply"
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
 		}
 	})
 
