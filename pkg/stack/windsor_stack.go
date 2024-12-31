@@ -68,21 +68,21 @@ func (s *WindsorStack) Up() error {
 		}
 
 		// Execute 'terraform init' in the dirPath
-		_, err = s.shell.ExecProgress("🌎 Running terraform init", "terraform", "init", "-migrate-state", "-upgrade")
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), "terraform", "init", "-migrate-state", "-upgrade")
 		if err != nil {
-			return fmt.Errorf("error running 'terraform init' in %s: %v", component.FullPath, err)
+			return fmt.Errorf("error initializing Terraform in %s: %w", component.FullPath, err)
 		}
 
 		// Execute 'terraform plan' in the dirPath
-		_, err = s.shell.ExecProgress("🌎 Running terraform plan", "terraform", "plan", "-lock=false")
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), "terraform", "plan")
 		if err != nil {
-			return fmt.Errorf("error running 'terraform plan' in %s: %v", component.FullPath, err)
+			return fmt.Errorf("error planning Terraform changes in %s: %w", component.FullPath, err)
 		}
 
 		// Execute 'terraform apply' in the dirPath
-		_, err = s.shell.ExecProgress("🌎 Running terraform apply", "terraform", "apply")
+		_, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), "terraform", "apply")
 		if err != nil {
-			return fmt.Errorf("error running 'terraform apply' in %s: %v", component.FullPath, err)
+			return fmt.Errorf("error applying Terraform changes in %s: %w", component.FullPath, err)
 		}
 
 		// Attempt to clean up 'backend_override.tf' if it exists
