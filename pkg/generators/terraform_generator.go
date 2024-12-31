@@ -141,6 +141,11 @@ func (g *TerraformGenerator) writeVariableFile(dirPath string, component bluepri
 		if variable.Description != "" {
 			blockBody.SetAttributeValue("description", cty.StringVal(variable.Description))
 		}
+
+		// Set the sensitive attribute if it exists
+		if variable.Sensitive {
+			blockBody.SetAttributeValue("sensitive", cty.BoolVal(variable.Sensitive))
+		}
 	}
 
 	// Define the path for the variables file.
