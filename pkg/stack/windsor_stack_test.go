@@ -217,7 +217,7 @@ func TestWindsorStack_Up(t *testing.T) {
 		}
 
 		// Then the expected error is contained in err
-		expectedError := "error running 'terraform init'"
+		expectedError := "error initializing Terraform in"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
@@ -244,7 +244,7 @@ func TestWindsorStack_Up(t *testing.T) {
 		// And when Up is called
 		err = stack.Up()
 		// Then the expected error is contained in err
-		expectedError := "error running 'terraform plan'"
+		expectedError := "error planning Terraform changes in"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
@@ -271,7 +271,7 @@ func TestWindsorStack_Up(t *testing.T) {
 		// And when Up is called
 		err = stack.Up()
 		// Then the expected error is contained in err
-		expectedError := "error running 'terraform apply'"
+		expectedError := "error applying Terraform changes in"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
