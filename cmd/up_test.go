@@ -101,7 +101,7 @@ func TestUpCmd(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
 
 		// When the up command is executed
-		output := captureStdout(func() {
+		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"up"})
 			if err := Execute(mocks.MockController); err != nil {
 				t.Fatalf("Execute() error = %v", err)

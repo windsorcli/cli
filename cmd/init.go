@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -119,7 +120,7 @@ var initCmd = &cobra.Command{
 		}
 
 		// Print the success message
-		fmt.Println("Initialization successful")
+		fmt.Fprintln(os.Stderr, "Initialization successful")
 		return nil
 	},
 }

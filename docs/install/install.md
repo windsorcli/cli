@@ -6,7 +6,7 @@ This document describes how to install the windsor CLI on your development works
 
 === "MacOS"
     ```bash
-    curl -L -o /usr/local/bin/windsor https://github.com/windsorcli/cli/releases/download/v0.2.1/windsor-darwin-arm64
+    curl -L -o /usr/local/bin/windsor https://github.com/windsorcli/cli/releases/download/v0.2.1/windsor-darwin-arm64 && \
     chmod +x /usr/local/bin/windsor
     ```
 
@@ -17,7 +17,7 @@ This document describes how to install the windsor CLI on your development works
 
 === "Linux"
     ```bash
-    curl -L -o /usr/local/bin/windsor https://github.com/windsorcli/cli/releases/download/v0.2.1/windsor-linux-amd64
+    curl -L -o /usr/local/bin/windsor https://github.com/windsorcli/cli/releases/download/v0.2.1/windsor-linux-amd64 && \
     chmod +x /usr/local/bin/windsor
     ```
 

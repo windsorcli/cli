@@ -73,7 +73,7 @@ func TestInitCmd(t *testing.T) {
 		controller := setupSafeInitCmdMocks()
 
 		// Execute the init command and capture output
-		output := captureStdout(func() {
+		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
 			if err := Execute(controller); err != nil {
 				t.Fatalf("Execute() error = %v", err)
@@ -92,7 +92,7 @@ func TestInitCmd(t *testing.T) {
 		controller := setupSafeInitCmdMocks()
 
 		// When the init command is executed with all flags set
-		output := captureStdout(func() {
+		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{
 				"init", "test-context",
 				"--aws-endpoint-url", "http://localhost:4566",
@@ -123,7 +123,7 @@ func TestInitCmd(t *testing.T) {
 		controller := setupSafeInitCmdMocks()
 
 		// When the init command is executed without a context
-		output := captureStdout(func() {
+		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init"})
 			err := Execute(controller)
 			if err != nil {
@@ -143,7 +143,7 @@ func TestInitCmd(t *testing.T) {
 		controller := setupSafeInitCmdMocks()
 
 		// When the init command is executed with an empty context name
-		output := captureStdout(func() {
+		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", ""})
 			err := Execute(controller)
 			if err != nil {
@@ -163,7 +163,7 @@ func TestInitCmd(t *testing.T) {
 		controller := setupSafeInitCmdMocks()
 
 		// When the init command is executed with a context name provided
-		output := captureStdout(func() {
+		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
 			err := Execute(controller)
 			if err != nil {
@@ -438,16 +438,18 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		// When the init command is executed
-		rootCmd.SetArgs([]string{"init", "test-context"})
-		err := Execute(controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := Execute(controller)
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
 
 		// Then the output should indicate the error
 		expectedOutput := "Error initializing components: initialize components error"
-		if err.Error() != expectedOutput {
-			t.Errorf("Expected error %q, got %q", expectedOutput, err.Error())
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -461,16 +463,18 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		// When the init command is executed
-		rootCmd.SetArgs([]string{"init", "test-context"})
-		err := Execute(controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := Execute(controller)
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
 
 		// Then the output should indicate the error
 		expectedOutput := "Error writing configuration files: write configuration files error"
-		if err.Error() != expectedOutput {
-			t.Errorf("Expected error %q, got %q", expectedOutput, err.Error())
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 }
