@@ -18,9 +18,12 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-// Helper functions to create pointers for basic types
-func ptrInt(i int) *int {
-	return &i
+// resetRootCmd resets the root command to its initial state.
+func resetRootCmd() {
+	rootCmd.SetArgs([]string{})
+	rootCmd.SetOut(nil)
+	rootCmd.SetErr(nil)
+	verbose = false // Reset the verbose flag
 }
 
 // Helper function to capture stdout output
