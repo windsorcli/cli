@@ -1,4 +1,4 @@
-package blueprint
+package v1alpha1
 
 import (
 	"sort"
@@ -7,26 +7,26 @@ import (
 
 func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		dst := &BlueprintV1Alpha1{
+		dst := &Blueprint{
 			Kind:       "Blueprint",
 			ApiVersion: "v1alpha1",
-			Metadata: MetadataV1Alpha1{
+			Metadata: Metadata{
 				Name:        "original",
 				Description: "original description",
 				Authors:     []string{"author1"},
 			},
-			Sources: []SourceV1Alpha1{
+			Sources: []Source{
 				{
 					Name: "source1",
 					Url:  "http://example.com/source1",
 					Ref:  "v1.0.0",
 				},
 			},
-			TerraformComponents: []TerraformComponentV1Alpha1{
+			TerraformComponents: []TerraformComponent{
 				{
 					Source: "source1",
 					Path:   "path1",
-					Variables: map[string]TerraformVariableV1Alpha1{
+					Variables: map[string]TerraformVariable{
 						"var1": {Default: "default1"},
 					},
 					Values:   nil, // Set Values to nil to test initialization
@@ -35,26 +35,26 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 			},
 		}
 
-		src := &BlueprintV1Alpha1{
+		src := &Blueprint{
 			Kind:       "Blueprint",
 			ApiVersion: "v1alpha1",
-			Metadata: MetadataV1Alpha1{
+			Metadata: Metadata{
 				Name:        "updated",
 				Description: "updated description",
 				Authors:     []string{"author2"},
 			},
-			Sources: []SourceV1Alpha1{
+			Sources: []Source{
 				{
 					Name: "source2",
 					Url:  "http://example.com/source2",
 					Ref:  "v2.0.0",
 				},
 			},
-			TerraformComponents: []TerraformComponentV1Alpha1{
+			TerraformComponents: []TerraformComponent{
 				{
 					Source: "source1",
 					Path:   "path1",
-					Variables: map[string]TerraformVariableV1Alpha1{
+					Variables: map[string]TerraformVariable{
 						"var2": {Default: "default2"},
 					},
 					Values: map[string]interface{}{
@@ -65,7 +65,7 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 				{
 					Source: "source3",
 					Path:   "path3",
-					Variables: map[string]TerraformVariableV1Alpha1{
+					Variables: map[string]TerraformVariable{
 						"var3": {Default: "default3"},
 					},
 					Values: map[string]interface{}{
@@ -88,7 +88,7 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 			t.Errorf("Expected Metadata.Authors to be ['author2'], but got %v", dst.Metadata.Authors)
 		}
 
-		expectedSources := map[string]SourceV1Alpha1{
+		expectedSources := map[string]Source{
 			"source1": {Name: "source1", Url: "http://example.com/source1", Ref: "v1.0.0"},
 			"source2": {Name: "source2", Url: "http://example.com/source2", Ref: "v2.0.0"},
 		}
@@ -133,10 +133,10 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 	})
 
 	t.Run("NoMergeWhenSrcIsNil", func(t *testing.T) {
-		dst := &BlueprintV1Alpha1{
+		dst := &Blueprint{
 			Kind:       "Blueprint",
 			ApiVersion: "v1alpha1",
-			Metadata: MetadataV1Alpha1{
+			Metadata: Metadata{
 				Name:        "original",
 				Description: "original description",
 				Authors:     []string{"author1"},
@@ -160,14 +160,14 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 	})
 
 	t.Run("MatchingPathNotSource", func(t *testing.T) {
-		dst := &BlueprintV1Alpha1{
+		dst := &Blueprint{
 			Kind:       "Blueprint",
 			ApiVersion: "v1alpha1",
-			TerraformComponents: []TerraformComponentV1Alpha1{
+			TerraformComponents: []TerraformComponent{
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariableV1Alpha1{
+					Variables: map[string]TerraformVariable{
 						"var1": {Default: "default1"},
 					},
 					Values: map[string]interface{}{
@@ -178,12 +178,12 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 			},
 		}
 
-		overlay := &BlueprintV1Alpha1{
-			TerraformComponents: []TerraformComponentV1Alpha1{
+		overlay := &Blueprint{
+			TerraformComponents: []TerraformComponent{
 				{
 					Source: "source2",      // Different source
 					Path:   "module/path1", // Same path
-					Variables: map[string]TerraformVariableV1Alpha1{
+					Variables: map[string]TerraformVariable{
 						"var2": {Default: "default2"},
 					},
 					Values: map[string]interface{}{
@@ -216,14 +216,14 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 	})
 
 	t.Run("OverlayWithoutComponents", func(t *testing.T) {
-		dst := &BlueprintV1Alpha1{
+		dst := &Blueprint{
 			Kind:       "Blueprint",
 			ApiVersion: "v1alpha1",
-			TerraformComponents: []TerraformComponentV1Alpha1{
+			TerraformComponents: []TerraformComponent{
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariableV1Alpha1{
+					Variables: map[string]TerraformVariable{
 						"var1": {Default: "default1"},
 					},
 					Values: map[string]interface{}{
@@ -234,8 +234,8 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 			},
 		}
 
-		overlay := &BlueprintV1Alpha1{
-			TerraformComponents: []TerraformComponentV1Alpha1{},
+		overlay := &Blueprint{
+			TerraformComponents: []TerraformComponent{},
 		}
 
 		dst.Merge(overlay)
@@ -260,18 +260,18 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 	})
 
 	t.Run("EmptyDstWithOverlayComponents", func(t *testing.T) {
-		dst := &BlueprintV1Alpha1{
+		dst := &Blueprint{
 			Kind:                "Blueprint",
 			ApiVersion:          "v1alpha1",
-			TerraformComponents: []TerraformComponentV1Alpha1{},
+			TerraformComponents: []TerraformComponent{},
 		}
 
-		overlay := &BlueprintV1Alpha1{
-			TerraformComponents: []TerraformComponentV1Alpha1{
+		overlay := &Blueprint{
+			TerraformComponents: []TerraformComponent{
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariableV1Alpha1{
+					Variables: map[string]TerraformVariable{
 						"var1": {Default: "default1"},
 					},
 					Values: map[string]interface{}{
@@ -306,11 +306,11 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 
 func TestBlueprintV1Alpha1_Copy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		blueprint := &BlueprintV1Alpha1{
-			Metadata: MetadataV1Alpha1{
+		blueprint := &Blueprint{
+			Metadata: Metadata{
 				Name: "test-blueprint",
 			},
-			Sources: []SourceV1Alpha1{
+			Sources: []Source{
 				{
 					Name:       "source1",
 					Url:        "https://example.com/repo1.git",
@@ -318,11 +318,11 @@ func TestBlueprintV1Alpha1_Copy(t *testing.T) {
 					Ref:        "main",
 				},
 			},
-			TerraformComponents: []TerraformComponentV1Alpha1{
+			TerraformComponents: []TerraformComponent{
 				{
 					Source: "source1",
 					Path:   "module/path1",
-					Variables: map[string]TerraformVariableV1Alpha1{
+					Variables: map[string]TerraformVariable{
 						"var1": {
 							Type:        "string",
 							Default:     "default1",
@@ -351,7 +351,7 @@ func TestBlueprintV1Alpha1_Copy(t *testing.T) {
 	})
 
 	t.Run("EmptyBlueprint", func(t *testing.T) {
-		var blueprint *BlueprintV1Alpha1
+		var blueprint *Blueprint
 		copy := blueprint.DeepCopy()
 		if copy != nil {
 			t.Errorf("Expected copy to be nil, but got non-nil")

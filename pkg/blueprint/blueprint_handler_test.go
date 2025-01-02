@@ -12,6 +12,7 @@ import (
 	"github.com/aws/smithy-go/ptr"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/context"
@@ -946,7 +947,7 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 		}
 
 		// Mock the TerraformComponents to include in the blueprint
-		mockTerraformComponents := []TerraformComponentV1Alpha1{
+		mockTerraformComponents := []blueprintv1alpha1.TerraformComponent{
 			{
 				Source: "source1",
 				Path:   "path/to/code",
@@ -970,7 +971,7 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 		}
 
 		// Unmarshal the written data to validate its content
-		var writtenBlueprint BlueprintV1Alpha1
+		var writtenBlueprint blueprintv1alpha1.Blueprint
 		err = yamlUnmarshal(data, &writtenBlueprint)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal written blueprint data: %v", err)
@@ -1028,7 +1029,7 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 		}
 
 		// Unmarshal the written data to validate its content
-		var writtenBlueprint BlueprintV1Alpha1
+		var writtenBlueprint blueprintv1alpha1.Blueprint
 		err = yamlUnmarshal(data, &writtenBlueprint)
 		if err != nil {
 			t.Fatalf("Failed to unmarshal written blueprint data: %v", err)
@@ -1189,7 +1190,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		}
 
 		// Set the sources and kustomizations for the blueprint
-		expectedSources := []SourceV1Alpha1{
+		expectedSources := []blueprintv1alpha1.Source{
 			{
 				Name: "source1",
 				Url:  "git::https://example.com/source1.git",
@@ -1198,7 +1199,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		}
 		blueprintHandler.SetSources(expectedSources)
 
-		expectedKustomizations := []KustomizationV1Alpha1{
+		expectedKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name:      "kustomization1",
 				DependsOn: []string{"dependency1", "dependency2"},
@@ -1230,7 +1231,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		}
 
 		// Set the sources and kustomizations for the blueprint
-		expectedSources := []SourceV1Alpha1{
+		expectedSources := []blueprintv1alpha1.Source{
 			{
 				Name: "source1",
 				Url:  "git::https://example.com/source1.git",
@@ -1239,7 +1240,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		}
 		blueprintHandler.SetSources(expectedSources)
 
-		expectedKustomizations := []KustomizationV1Alpha1{
+		expectedKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name:      "kustomization1",
 				DependsOn: []string{"dependency1", "dependency2"},
@@ -1271,7 +1272,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		}
 
 		// Set the sources and kustomizations for the blueprint
-		expectedSources := []SourceV1Alpha1{
+		expectedSources := []blueprintv1alpha1.Source{
 			{
 				Name: "source1",
 				Url:  "git::https://example.com/source1.git",
@@ -1280,7 +1281,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		}
 		blueprintHandler.SetSources(expectedSources)
 
-		expectedKustomizations := []KustomizationV1Alpha1{
+		expectedKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name:      "kustomization1",
 				DependsOn: []string{"dependency1", "dependency2"},
@@ -1309,7 +1310,7 @@ func TestBlueprintHandler_GetMetadata(t *testing.T) {
 		}
 
 		// Set the metadata for the blueprint
-		expectedMetadata := MetadataV1Alpha1{
+		expectedMetadata := blueprintv1alpha1.Metadata{
 			Name:        "test-blueprint",
 			Description: "A test blueprint",
 			Authors:     []string{"John Doe"},
@@ -1339,7 +1340,7 @@ func TestBlueprintHandler_GetSources(t *testing.T) {
 		}
 
 		// Set the sources for the blueprint
-		expectedSources := []SourceV1Alpha1{
+		expectedSources := []blueprintv1alpha1.Source{
 			{
 				Name: "source1",
 				Url:  "git::https://example.com/source1.git",
@@ -1371,7 +1372,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 		}
 
 		// Set the Terraform components for the blueprint
-		expectedComponents := []TerraformComponentV1Alpha1{
+		expectedComponents := []blueprintv1alpha1.TerraformComponent{
 			{
 				Source:   "source1",
 				Path:     "path/to/code",
@@ -1405,7 +1406,7 @@ func TestBlueprintHandler_GetKustomizations(t *testing.T) {
 		}
 
 		// Set the Kustomizations for the blueprint
-		expectedKustomizations := []KustomizationV1Alpha1{
+		expectedKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name:          "kustomization1",
 				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
@@ -1437,7 +1438,7 @@ func TestBlueprintHandler_GetKustomizations(t *testing.T) {
 		}
 
 		// Set the Kustomizations with zero values
-		inputKustomizations := []KustomizationV1Alpha1{
+		inputKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name:          "kustomization1",
 				Interval:      &metav1.Duration{Duration: 0},
@@ -1453,7 +1454,7 @@ func TestBlueprintHandler_GetKustomizations(t *testing.T) {
 		actualKustomizations := blueprintHandler.GetKustomizations()
 
 		// Define the expected Kustomizations with default values from constants
-		expectedKustomizations := []KustomizationV1Alpha1{
+		expectedKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name:          "kustomization1",
 				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
@@ -1508,7 +1509,7 @@ func TestBlueprintHandler_SetMetadata(t *testing.T) {
 		}
 
 		// Set the metadata for the blueprint
-		expectedMetadata := MetadataV1Alpha1{
+		expectedMetadata := blueprintv1alpha1.Metadata{
 			Name:        "test-blueprint",
 			Description: "A test blueprint",
 			Authors:     []string{"John Doe"},
@@ -1538,7 +1539,7 @@ func TestBlueprintHandler_SetSources(t *testing.T) {
 		}
 
 		// Set the sources for the blueprint
-		expectedSources := []SourceV1Alpha1{
+		expectedSources := []blueprintv1alpha1.Source{
 			{
 				Name: "source1",
 				Url:  "git::https://example.com/source1.git",
@@ -1570,7 +1571,7 @@ func TestBlueprintHandler_SetTerraformComponents(t *testing.T) {
 		}
 
 		// Set the Terraform components for the blueprint
-		expectedComponents := []TerraformComponentV1Alpha1{
+		expectedComponents := []blueprintv1alpha1.TerraformComponent{
 			{
 				Source:   "source1",
 				Path:     "path/to/code",
@@ -1605,7 +1606,7 @@ func TestBlueprintHandler_SetKustomizations(t *testing.T) {
 		}
 
 		// Set the Kustomizations for the blueprint
-		expectedKustomizations := []KustomizationV1Alpha1{
+		expectedKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name:          "kustomization1",
 				Path:          "overlays/dev",
@@ -1665,7 +1666,7 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 		}
 
 		// Set the sources for the blueprint with an empty PathPrefix to test the default behavior
-		expectedSources := []SourceV1Alpha1{
+		expectedSources := []blueprintv1alpha1.Source{
 			{
 				Name:       "source1",
 				Url:        "git::https://example.com/source1.git",
@@ -1676,7 +1677,7 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 		blueprintHandler.SetSources(expectedSources)
 
 		// Set the Terraform components for the blueprint
-		expectedComponents := []TerraformComponentV1Alpha1{
+		expectedComponents := []blueprintv1alpha1.TerraformComponent{
 			{
 				Source: "source1",
 				Path:   "path/to/code",
@@ -1714,7 +1715,7 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 		blueprintHandler.projectRoot = "/mock/project/root"
 
 		// Set the Terraform components for the blueprint
-		expectedComponents := []TerraformComponentV1Alpha1{
+		expectedComponents := []blueprintv1alpha1.TerraformComponent{
 			{
 				Source: "source1",
 				Path:   "path/to/code",
@@ -1772,14 +1773,14 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 		blueprintHandler := NewBlueprintHandler(setupSafeMocks().Injector)
 		_ = blueprintHandler.Initialize()
 
-		blueprintHandler.SetSources([]SourceV1Alpha1{{
+		blueprintHandler.SetSources([]blueprintv1alpha1.Source{{
 			Name:       "test-source",
 			Url:        "https://github.com/user/repo.git",
 			PathPrefix: "terraform",
 			Ref:        "main",
 		}})
 
-		blueprintHandler.SetTerraformComponents([]TerraformComponentV1Alpha1{{
+		blueprintHandler.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{{
 			Source: "test-source",
 			Path:   "module/path",
 		}})
@@ -1826,7 +1827,7 @@ kustomizations:
     path: ./kustomize
 `)
 
-		var blueprint BlueprintV1Alpha1
+		var blueprint blueprintv1alpha1.Blueprint
 		if err := blueprintHandler.processBlueprintData(data, &blueprint); err != nil {
 			t.Fatalf("processBlueprintData() error: %v", err)
 		}
@@ -1866,7 +1867,7 @@ kustomizations:
     path: ./kustomize
 `)
 
-		var blueprint BlueprintV1Alpha1
+		var blueprint blueprintv1alpha1.Blueprint
 		if err := blueprintHandler.processBlueprintData(data, &blueprint); err == nil || !strings.Contains(err.Error(), "mocked error in yamlUnmarshal") {
 			t.Fatalf("Expected mocked unmarshalling error, got %v", err)
 		}
@@ -1893,7 +1894,7 @@ kustomizations:
     path: ./kustomize
 `)
 
-		var blueprint BlueprintV1Alpha1
+		var blueprint blueprintv1alpha1.Blueprint
 		if err := blueprintHandler.processBlueprintData(data, &blueprint); err == nil || !strings.Contains(err.Error(), "mocked error in yamlMarshal") {
 			t.Fatalf("Expected mocked marshalling error, got %v", err)
 		}
@@ -1920,7 +1921,7 @@ kustomizations:
     path: ./kustomize
 `)
 
-		var blueprint BlueprintV1Alpha1
+		var blueprint blueprintv1alpha1.Blueprint
 		if err := blueprintHandler.processBlueprintData(data, &blueprint); err == nil || !strings.Contains(err.Error(), "mocked error in k8sYamlUnmarshal") {
 			t.Fatalf("Expected mocked k8s unmarshalling error, got %v", err)
 		}
