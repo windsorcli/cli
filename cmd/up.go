@@ -5,6 +5,11 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	// Import the blueprint package
+)
+
+var (
+	installFlag bool // Declare the install flag
 )
 
 var upCmd = &cobra.Command{
@@ -125,6 +130,17 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("Error running stack Up command: %w", err)
 		}
 
+		// Check if the install flag is set
+		if installFlag {
+			blueprintHandler := controller.ResolveBlueprintHandler()
+			if blueprintHandler == nil {
+				return fmt.Errorf("No blueprint handler found")
+			}
+			if err := blueprintHandler.Install(); err != nil {
+				return fmt.Errorf("Error installing blueprint: %w", err)
+			}
+		}
+
 		// Print success message
 		fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
 
@@ -133,5 +149,6 @@ var upCmd = &cobra.Command{
 }
 
 func init() {
+	upCmd.Flags().BoolVar(&installFlag, "install", false, "Install the blueprint after setting up the environment")
 	rootCmd.AddCommand(upCmd)
 }

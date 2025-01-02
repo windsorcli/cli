@@ -1,12 +1,29 @@
 package blueprint
 
+import (
+	"github.com/fluxcd/pkg/apis/kustomize"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
 // A Blueprint is a collection of metadata that can be used to initialize a project
 type BlueprintV1Alpha1 struct {
-	Kind                string                       `yaml:"kind"`       // The Kind of the blueprint
-	ApiVersion          string                       `yaml:"apiVersion"` // The API Version of the blueprint
-	Metadata            MetadataV1Alpha1             `yaml:"metadata"`   // The Metadata for the blueprint
-	Sources             []SourceV1Alpha1             `yaml:"sources"`    // The Sources for the blueprint
-	TerraformComponents []TerraformComponentV1Alpha1 `yaml:"terraform"`  // The Terraform components
+	Kind                string                       `yaml:"kind"`           // The Kind of the blueprint
+	ApiVersion          string                       `yaml:"apiVersion"`     // The API Version of the blueprint
+	Metadata            MetadataV1Alpha1             `yaml:"metadata"`       // The Metadata for the blueprint
+	Sources             []SourceV1Alpha1             `yaml:"sources"`        // The Sources for the blueprint
+	TerraformComponents []TerraformComponentV1Alpha1 `yaml:"terraform"`      // The Terraform components
+	Kustomizations      []KustomizationV1Alpha1      `yaml:"kustomizations"` // The Kustomizations for the blueprint
+}
+
+// PartialBlueprint is a temporary struct for initial unmarshalling
+type PartialBlueprint struct {
+	Kind                string                       `yaml:"kind"`
+	ApiVersion          string                       `yaml:"apiVersion"`
+	Metadata            MetadataV1Alpha1             `yaml:"metadata"`
+	Sources             []SourceV1Alpha1             `yaml:"sources"`
+	Repository          RepositoryV1Alpha1           `yaml:"repository"`
+	TerraformComponents []TerraformComponentV1Alpha1 `yaml:"terraform"`
+	Kustomizations      []map[string]interface{}     `yaml:"kustomizations"`
 }
 
 // Metadata describes the metadata for a blueprint
@@ -14,6 +31,11 @@ type MetadataV1Alpha1 struct {
 	Name        string   `yaml:"name"`                  // The Name of the blueprint
 	Description string   `yaml:"description,omitempty"` // The Description of the blueprint
 	Authors     []string `yaml:"authors,omitempty"`     // The Authors of the blueprint
+}
+
+type RepositoryV1Alpha1 struct {
+	Url string `yaml:"url"` // The URL of the repository
+	Ref string `yaml:"ref"` // The Ref of the repository
 }
 
 // Source describes a source for a blueprint
@@ -41,6 +63,20 @@ type TerraformVariableV1Alpha1 struct {
 	Sensitive   bool        `yaml:"sensitive,omitempty"`   // Whether to treat the variable as sensitive
 }
 
+type KustomizationV1Alpha1 struct {
+	Name          string            `yaml:"name"`
+	Path          string            `yaml:"path"`
+	Source        string            `yaml:"source,omitempty"`
+	DependsOn     []string          `yaml:"dependsOn,omitempty"`
+	Interval      *metav1.Duration  `yaml:"interval,omitempty"`
+	RetryInterval *metav1.Duration  `yaml:"retryInterval,omitempty"`
+	Timeout       *metav1.Duration  `yaml:"timeout,omitempty"`
+	Patches       []kustomize.Patch `yaml:"patches,omitempty"`
+	Wait          *bool             `yaml:"wait,omitempty"`
+	Force         *bool             `yaml:"force,omitempty"`
+	Components    []string          `yaml:"components,omitempty"`
+}
+
 // Merge merges another BlueprintV1Alpha1 into the current one.
 func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 	if overlay == nil {
@@ -66,7 +102,7 @@ func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 		b.Metadata.Authors = overlay.Metadata.Authors
 	}
 
-	// Merge Sources by "name"
+	// Merge Sources by "name", preferring overlay values
 	sourceMap := make(map[string]SourceV1Alpha1)
 	for _, source := range b.Sources {
 		sourceMap[source.Name] = source
@@ -81,7 +117,7 @@ func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 		b.Sources = append(b.Sources, source)
 	}
 
-	// Merge TerraformComponents by "path" as primary key and "source" as secondary key
+	// Merge TerraformComponents by "path" as primary key and "source" as secondary key, preferring overlay values
 	componentMap := make(map[string]TerraformComponentV1Alpha1)
 	for _, component := range b.TerraformComponents {
 		key := component.Path
@@ -94,7 +130,7 @@ func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 			if existingComponent.Source == overlayComponent.Source {
 				mergedComponent := existingComponent
 
-				// Merge Values
+				// Merge Values, preferring overlay values
 				if mergedComponent.Values == nil {
 					mergedComponent.Values = make(map[string]interface{})
 				}
@@ -102,7 +138,7 @@ func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 					mergedComponent.Values[k] = v
 				}
 
-				// Merge Variables
+				// Merge Variables, preferring overlay values
 				if mergedComponent.Variables == nil {
 					mergedComponent.Variables = make(map[string]TerraformVariableV1Alpha1)
 				}
@@ -127,10 +163,37 @@ func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 	for _, component := range componentMap {
 		b.TerraformComponents = append(b.TerraformComponents, component)
 	}
+
+	// Merge Kustomizations, preferring overlay values
+	mergedKustomizations := make([]KustomizationV1Alpha1, 0, len(b.Kustomizations)+len(overlay.Kustomizations))
+
+	// Add existing kustomizations
+	for _, kustomization := range b.Kustomizations {
+		mergedKustomizations = append(mergedKustomizations, kustomization)
+	}
+
+	// Merge overlay kustomizations
+	for _, overlayKustomization := range overlay.Kustomizations {
+		found := false
+		for i, existingKustomization := range mergedKustomizations {
+			if existingKustomization.Name == overlayKustomization.Name {
+				// Merge patches and components uniquely
+				mergedKustomizations[i].Patches = mergeUniqueKustomizePatches(existingKustomization.Patches, overlayKustomization.Patches)
+				mergedKustomizations[i].Components = mergeUniqueComponents(existingKustomization.Components, overlayKustomization.Components)
+				found = true
+				break
+			}
+		}
+		if !found {
+			mergedKustomizations = append(mergedKustomizations, overlayKustomization)
+		}
+	}
+
+	b.Kustomizations = mergedKustomizations
 }
 
 // Copy creates a deep copy of the BlueprintV1Alpha1.
-func (b *BlueprintV1Alpha1) Copy() *BlueprintV1Alpha1 {
+func (b *BlueprintV1Alpha1) DeepCopy() *BlueprintV1Alpha1 {
 	if b == nil {
 		return nil
 	}
@@ -162,6 +225,7 @@ func (b *BlueprintV1Alpha1) Copy() *BlueprintV1Alpha1 {
 				Type:        variable.Type,
 				Default:     variable.Default,
 				Description: variable.Description,
+				Sensitive:   variable.Sensitive,
 			}
 		}
 
@@ -179,11 +243,58 @@ func (b *BlueprintV1Alpha1) Copy() *BlueprintV1Alpha1 {
 		}
 	}
 
+	// Copy Kustomizations using DeepCopy
+	kustomizationsCopy := make([]KustomizationV1Alpha1, len(b.Kustomizations))
+	for i, kustomization := range b.Kustomizations {
+		kustomizationsCopy[i] = kustomization
+	}
+
 	return &BlueprintV1Alpha1{
 		Kind:                b.Kind,
 		ApiVersion:          b.ApiVersion,
 		Metadata:            metadataCopy,
 		Sources:             sourcesCopy,
 		TerraformComponents: terraformComponentsCopy,
+		Kustomizations:      kustomizationsCopy,
 	}
+}
+
+// Helper function to merge patches uniquely
+func mergeUniqueKustomizePatches(existing, overlay []kustomize.Patch) []kustomize.Patch {
+	patchMap := make(map[string]kustomize.Patch)
+	for _, patch := range existing {
+		key := patch.Patch
+		if patch.Target != nil {
+			key += patch.Target.Group + patch.Target.Version + patch.Target.Kind + patch.Target.Namespace + patch.Target.Name
+		}
+		patchMap[key] = patch
+	}
+	for _, overlayPatch := range overlay {
+		key := overlayPatch.Patch
+		if overlayPatch.Target != nil {
+			key += overlayPatch.Target.Group + overlayPatch.Target.Version + overlayPatch.Target.Kind + overlayPatch.Target.Namespace + overlayPatch.Target.Name
+		}
+		patchMap[key] = overlayPatch
+	}
+	mergedPatches := make([]kustomize.Patch, 0, len(patchMap))
+	for _, patch := range patchMap {
+		mergedPatches = append(mergedPatches, patch)
+	}
+	return mergedPatches
+}
+
+// Helper function to merge components uniquely
+func mergeUniqueComponents(existing, overlay []string) []string {
+	componentSet := make(map[string]struct{})
+	for _, component := range existing {
+		componentSet[component] = struct{}{}
+	}
+	for _, overlayComponent := range overlay {
+		componentSet[overlayComponent] = struct{}{}
+	}
+	mergedComponents := make([]string, 0, len(componentSet))
+	for component := range componentSet {
+		mergedComponents = append(mergedComponents, component)
+	}
+	return mergedComponents
 }

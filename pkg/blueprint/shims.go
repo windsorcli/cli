@@ -2,12 +2,15 @@ package blueprint
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"regexp"
 
 	"github.com/goccy/go-yaml"
 	"github.com/google/go-jsonnet"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // yamlMarshalNonNull marshals the given struct into YAML data, omitting null values
@@ -24,26 +27,11 @@ var yamlUnmarshal = yaml.Unmarshal
 // osWriteFile is a wrapper around os.WriteFile
 var osWriteFile = os.WriteFile
 
-// osReadFile is a wrapper around os.ReadFile
-var osReadFile = os.ReadFile
-
-// osStat is a wrapper around os.Stat
-var osStat = os.Stat
-
 // osMkdirAll is a wrapper around os.MkdirAll
 var osMkdirAll = os.MkdirAll
 
-// regexpMatchString is a shim for regexp.MatchString
-var regexpMatchString = regexp.MatchString
-
 // jsonMarshal is a wrapper around json.Marshal
 var jsonMarshal = json.Marshal
-
-// jsonUnmarshal is a wrapper around json.Unmarshal
-var jsonUnmarshal = json.Unmarshal
-
-// yamlJSONToYAML is a wrapper around yaml.JSONToYAML
-var yamlJSONToYAML = yaml.JSONToYAML
 
 // jsonnetMakeVMFunc is a function type for creating a new jsonnet VM
 type jsonnetMakeVMFunc func() jsonnetVMInterface
@@ -75,16 +63,24 @@ func (vm *jsonnetVM) ExtCode(key, val string) {
 	vm.VM.ExtCode(key, val)
 }
 
-// mockJsonnetVM is a mock implementation of jsonnetVMInterface for testing
-type mockJsonnetVM struct{}
+// Shim for Kubernetes client-go functions
 
-// TLACode is a mock implementation that does nothing
-func (vm *mockJsonnetVM) TLACode(key, val string) {}
+// clientcmdBuildConfigFromFlags is a shim for clientcmd.BuildConfigFromFlags
+var clientcmdBuildConfigFromFlags = clientcmd.BuildConfigFromFlags
 
-// EvaluateAnonymousSnippet is a mock implementation that returns an error
-func (vm *mockJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
-	return "", fmt.Errorf("error evaluating snippet")
-}
+// restInClusterConfig is a shim for rest.InClusterConfig
+var restInClusterConfig = rest.InClusterConfig
 
-// ExtCode is a mock implementation that does nothing
-func (vm *mockJsonnetVM) ExtCode(key, val string) {}
+// kubernetesNewForConfigFunc is a function type for creating a new Kubernetes client
+type kubernetesNewForConfigFunc func(config *rest.Config) (kubernetes.Interface, error)
+
+// metav1Duration is a shim for metav1.Duration
+type metav1Duration = metav1.Duration
+
+// Add back the missing functions from file_context_0
+var (
+	regexpMatchString = regexp.MatchString
+	osStat            = os.Stat
+	osReadFile        = os.ReadFile
+	k8sYamlUnmarshal  = yaml.Unmarshal
+)

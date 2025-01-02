@@ -244,7 +244,7 @@ func TestBlueprintV1Alpha1_Copy(t *testing.T) {
 				},
 			},
 		}
-		copy := blueprint.Copy()
+		copy := blueprint.DeepCopy()
 		if copy.Metadata.Name != "test-blueprint" {
 			t.Errorf("Expected copy to have name %v, but got %v", "test-blueprint", copy.Metadata.Name)
 		}
@@ -264,7 +264,7 @@ func TestBlueprintV1Alpha1_Copy(t *testing.T) {
 
 	t.Run("EmptyBlueprint", func(t *testing.T) {
 		var blueprint *BlueprintV1Alpha1
-		copy := blueprint.Copy()
+		copy := blueprint.DeepCopy()
 		if copy != nil {
 			t.Errorf("Expected copy to be nil, but got non-nil")
 		}
