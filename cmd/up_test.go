@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	bp "github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/network"
@@ -413,6 +414,41 @@ func TestUpCmd(t *testing.T) {
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error running stack Up command: error running stack up") {
 			t.Fatalf("Expected error containing 'Error running stack Up command: error running stack up', got %v", err)
+		}
+	})
+
+	t.Run("ErrorInstallingBlueprint", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		injector := mocks.Injector
+		mocks.MockController.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
+			mockBlueprintHandler := bp.NewMockBlueprintHandler(injector)
+			mockBlueprintHandler.InstallFunc = func() error {
+				return fmt.Errorf("Error installing blueprint: %w", fmt.Errorf("installation failed"))
+			}
+			return mockBlueprintHandler
+		}
+
+		// Given a mock blueprint handler that returns an error when installing
+		rootCmd.SetArgs([]string{"up", "--install"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error installing blueprint: installation failed") {
+			t.Fatalf("Expected error containing 'Error installing blueprint: installation failed', got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingBlueprintHandler", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		mocks.MockController.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
+			return nil
+		}
+
+		// Given a mock controller that returns nil when resolving the blueprint handler
+		rootCmd.SetArgs([]string{"up", "--install"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "No blueprint handler found") {
+			t.Fatalf("Expected error containing 'No blueprint handler found', got %v", err)
 		}
 	})
 }

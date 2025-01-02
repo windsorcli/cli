@@ -1,5 +1,7 @@
 package constants
 
+import "time"
+
 // Default git livereload settings
 const (
 	// renovate: datasource=docker depName=ghcr.io/windsorcli/git-livereload-server
@@ -19,6 +21,18 @@ const (
 	DEFAULT_TALOS_WORKER_RAM        = 4
 	DEFAULT_TALOS_CONTROL_PLANE_CPU = 2
 	DEFAULT_TALOS_CONTROL_PLANE_RAM = 2
+)
+
+const (
+	DEFAULT_FLUX_SYSTEM_NAMESPACE             = "system-gitops"
+	DEFAULT_FLUX_KUSTOMIZATION_INTERVAL       = 1 * time.Minute
+	DEFAULT_FLUX_KUSTOMIZATION_PRUNE          = true
+	DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL = 2 * time.Minute
+	DEFAULT_FLUX_KUSTOMIZATION_WAIT           = true
+	DEFAULT_FLUX_KUSTOMIZATION_FORCE          = false
+	DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT        = 5 * time.Minute
+	DEFAULT_FLUX_SOURCE_INTERVAL              = 1 * time.Minute
+	DEFAULT_FLUX_SOURCE_TIMEOUT               = 2 * time.Minute
 )
 
 // Default AWS settings

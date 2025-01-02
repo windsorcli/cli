@@ -42,6 +42,7 @@ type MockController struct {
 	ResolveContainerRuntimeFunc        func() virt.ContainerRuntime
 	ResolveAllGeneratorsFunc           func() []generators.Generator
 	ResolveStackFunc                   func() stack.Stack
+	ResolveBlueprintHandlerFunc        func() blueprint.BlueprintHandler
 	WriteConfigurationFilesFunc        func() error
 }
 
@@ -417,6 +418,14 @@ func (c *MockController) ResolveStack() stack.Stack {
 		return c.ResolveStackFunc()
 	}
 	return c.BaseController.ResolveStack()
+}
+
+// ResolveBlueprintHandler calls the mock ResolveBlueprintHandlerFunc if set, otherwise calls the parent function
+func (c *MockController) ResolveBlueprintHandler() blueprint.BlueprintHandler {
+	if c.ResolveBlueprintHandlerFunc != nil {
+		return c.ResolveBlueprintHandlerFunc()
+	}
+	return c.BaseController.ResolveBlueprintHandler()
 }
 
 // Ensure MockController implements Controller

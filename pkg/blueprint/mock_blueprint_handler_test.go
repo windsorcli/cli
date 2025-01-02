@@ -128,6 +128,30 @@ func TestMockBlueprintHandler_GetTerraformComponents(t *testing.T) {
 	})
 }
 
+func TestMockBlueprintHandler_GetKustomizations(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		injector := di.NewInjector()
+		handler := NewMockBlueprintHandler(injector)
+		expectedKustomizations := []KustomizationV1Alpha1{}
+		handler.GetKustomizationsFunc = func() []KustomizationV1Alpha1 {
+			return expectedKustomizations
+		}
+		kustomizations := handler.GetKustomizations()
+		if !reflect.DeepEqual(kustomizations, expectedKustomizations) {
+			t.Errorf("Expected kustomizations = %v, got = %v", expectedKustomizations, kustomizations)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		injector := di.NewInjector()
+		handler := NewMockBlueprintHandler(injector)
+		kustomizations := handler.GetKustomizations()
+		if !reflect.DeepEqual(kustomizations, []KustomizationV1Alpha1{}) {
+			t.Errorf("Expected kustomizations = %v, got = %v", []KustomizationV1Alpha1{}, kustomizations)
+		}
+	})
+}
+
 func TestMockBlueprintHandler_SetMetadata(t *testing.T) {
 	mockSetErr := fmt.Errorf("mock set metadata error")
 
@@ -203,6 +227,31 @@ func TestMockBlueprintHandler_SetTerraformComponents(t *testing.T) {
 	})
 }
 
+func TestMockBlueprintHandler_SetKustomizations(t *testing.T) {
+	mockSetErr := fmt.Errorf("mock set kustomizations error")
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		injector := di.NewInjector()
+		handler := NewMockBlueprintHandler(injector)
+		handler.SetKustomizationsFunc = func(kustomizations []KustomizationV1Alpha1) error {
+			return mockSetErr
+		}
+		err := handler.SetKustomizations([]KustomizationV1Alpha1{})
+		if err != mockSetErr {
+			t.Errorf("Expected error = %v, got = %v", mockSetErr, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		injector := di.NewInjector()
+		handler := NewMockBlueprintHandler(injector)
+		err := handler.SetKustomizations([]KustomizationV1Alpha1{})
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+}
+
 func TestMockBlueprintHandler_WriteConfig(t *testing.T) {
 	mockWriteErr := fmt.Errorf("mock write config error")
 
@@ -222,6 +271,31 @@ func TestMockBlueprintHandler_WriteConfig(t *testing.T) {
 		injector := di.NewInjector()
 		handler := NewMockBlueprintHandler(injector)
 		err := handler.WriteConfig("some/path")
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+}
+
+func TestMockBlueprintHandler_Install(t *testing.T) {
+	mockInstallErr := fmt.Errorf("mock install error")
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		injector := di.NewInjector()
+		handler := NewMockBlueprintHandler(injector)
+		handler.InstallFunc = func() error {
+			return mockInstallErr
+		}
+		err := handler.Install()
+		if err != mockInstallErr {
+			t.Errorf("Expected error = %v, got = %v", mockInstallErr, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		injector := di.NewInjector()
+		handler := NewMockBlueprintHandler(injector)
+		err := handler.Install()
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}

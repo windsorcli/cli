@@ -1,6 +1,8 @@
 package blueprint
 
-import "github.com/windsorcli/cli/pkg/di"
+import (
+	"github.com/windsorcli/cli/pkg/di"
+)
 
 // MockBlueprintHandler is a mock implementation of the BlueprintHandler interface for testing purposes
 type MockBlueprintHandler struct {
@@ -9,10 +11,13 @@ type MockBlueprintHandler struct {
 	GetMetadataFunc            func() MetadataV1Alpha1
 	GetSourcesFunc             func() []SourceV1Alpha1
 	GetTerraformComponentsFunc func() []TerraformComponentV1Alpha1
+	GetKustomizationsFunc      func() []KustomizationV1Alpha1
 	SetMetadataFunc            func(metadata MetadataV1Alpha1) error
 	SetSourcesFunc             func(sources []SourceV1Alpha1) error
 	SetTerraformComponentsFunc func(terraformComponents []TerraformComponentV1Alpha1) error
+	SetKustomizationsFunc      func(kustomizations []KustomizationV1Alpha1) error
 	WriteConfigFunc            func(path ...string) error
+	InstallFunc                func() error
 }
 
 // NewMockBlueprintHandler creates a new instance of MockBlueprintHandler
@@ -60,6 +65,14 @@ func (m *MockBlueprintHandler) GetTerraformComponents() []TerraformComponentV1Al
 	return []TerraformComponentV1Alpha1{}
 }
 
+// GetKustomizations calls the mock GetKustomizationsFunc if set, otherwise returns a reasonable default slice of kustomizev1.Kustomization
+func (m *MockBlueprintHandler) GetKustomizations() []KustomizationV1Alpha1 {
+	if m.GetKustomizationsFunc != nil {
+		return m.GetKustomizationsFunc()
+	}
+	return []KustomizationV1Alpha1{}
+}
+
 // SetMetadata calls the mock SetMetadataFunc if set, otherwise returns nil
 func (m *MockBlueprintHandler) SetMetadata(metadata MetadataV1Alpha1) error {
 	if m.SetMetadataFunc != nil {
@@ -84,10 +97,26 @@ func (m *MockBlueprintHandler) SetTerraformComponents(terraformComponents []Terr
 	return nil
 }
 
+// SetKustomizations calls the mock SetKustomizationsFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) SetKustomizations(kustomizations []KustomizationV1Alpha1) error {
+	if m.SetKustomizationsFunc != nil {
+		return m.SetKustomizationsFunc(kustomizations)
+	}
+	return nil
+}
+
 // WriteConfig calls the mock WriteConfigFunc if set, otherwise returns nil
 func (m *MockBlueprintHandler) WriteConfig(path ...string) error {
 	if m.WriteConfigFunc != nil {
 		return m.WriteConfigFunc(path...)
+	}
+	return nil
+}
+
+// Install calls the mock InstallFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) Install() error {
+	if m.InstallFunc != nil {
+		return m.InstallFunc()
 	}
 	return nil
 }

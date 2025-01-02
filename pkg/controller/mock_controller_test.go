@@ -3,6 +3,7 @@ package controller
 import (
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/config/docker"
 	"github.com/windsorcli/cli/pkg/context"
@@ -778,6 +779,36 @@ func TestMockController_ResolveStack(t *testing.T) {
 		// Then the returned stack instance should be nil
 		if stackInstance != nil {
 			t.Fatalf("expected nil, got %v", stackInstance)
+		}
+	})
+}
+
+func TestMockController_ResolveBlueprintHandler(t *testing.T) {
+	t.Run("ResolveBlueprintHandler", func(t *testing.T) {
+		// Given a new mock injector and mock controller
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		// And the ResolveBlueprintHandlerFunc is set to return a mock blueprint handler
+		mockCtrl.ResolveBlueprintHandlerFunc = func() blueprint.BlueprintHandler {
+			return blueprint.NewMockBlueprintHandler(injector)
+		}
+		// When ResolveBlueprintHandler is called
+		blueprintHandler := mockCtrl.ResolveBlueprintHandler()
+		// Then the returned blueprint handler should not be nil
+		if blueprintHandler == nil {
+			t.Fatalf("expected %v, got %v", blueprint.NewMockBlueprintHandler(injector), blueprintHandler)
+		}
+	})
+
+	t.Run("NoResolveBlueprintHandlerFunc", func(t *testing.T) {
+		// Given a new mock injector and mock controller
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		// When ResolveBlueprintHandler is called without setting ResolveBlueprintHandlerFunc
+		blueprintHandler := mockCtrl.ResolveBlueprintHandler()
+		// Then the returned blueprint handler should be nil
+		if blueprintHandler != nil {
+			t.Fatalf("expected nil, got %v", blueprintHandler)
 		}
 	})
 }

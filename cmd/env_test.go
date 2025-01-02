@@ -321,11 +321,3 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 }
-
-// resetRootCmd resets the root command to its initial state.
-func resetRootCmd() {
-	rootCmd.SetArgs([]string{})
-	rootCmd.SetOut(nil)
-	rootCmd.SetErr(nil)
-	verbose = false // Reset the verbose flag
-}
