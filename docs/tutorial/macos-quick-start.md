@@ -78,6 +78,8 @@ If you have not done so, be sure to initialize a git repository in the root of y
 git init
 ```
 
+See [Creating a repository from a template](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template)
+
 The windsor tool will create a few folders in your project. In particular, it will create a folder called `contexts/` where your context configurations will reside. Initialize windsor with the colima vm driver by running:
 
 ```sh
