@@ -1,4 +1,4 @@
-package blueprint
+package v1alpha1
 
 import (
 	"github.com/fluxcd/pkg/apis/kustomize"
@@ -6,40 +6,40 @@ import (
 )
 
 // A Blueprint is a collection of metadata that can be used to initialize a project
-type BlueprintV1Alpha1 struct {
-	Kind                string                       `yaml:"kind"`           // The Kind of the blueprint
-	ApiVersion          string                       `yaml:"apiVersion"`     // The API Version of the blueprint
-	Metadata            MetadataV1Alpha1             `yaml:"metadata"`       // The Metadata for the blueprint
-	Sources             []SourceV1Alpha1             `yaml:"sources"`        // The Sources for the blueprint
-	TerraformComponents []TerraformComponentV1Alpha1 `yaml:"terraform"`      // The Terraform components
-	Kustomizations      []KustomizationV1Alpha1      `yaml:"kustomizations"` // The Kustomizations for the blueprint
+type Blueprint struct {
+	Kind                string               `yaml:"kind"`           // The Kind of the blueprint
+	ApiVersion          string               `yaml:"apiVersion"`     // The API Version of the blueprint
+	Metadata            Metadata             `yaml:"metadata"`       // The Metadata for the blueprint
+	Sources             []Source             `yaml:"sources"`        // The Sources for the blueprint
+	TerraformComponents []TerraformComponent `yaml:"terraform"`      // The Terraform components
+	Kustomizations      []Kustomization      `yaml:"kustomizations"` // The Kustomizations for the blueprint
 }
 
 // PartialBlueprint is a temporary struct for initial unmarshalling
 type PartialBlueprint struct {
-	Kind                string                       `yaml:"kind"`
-	ApiVersion          string                       `yaml:"apiVersion"`
-	Metadata            MetadataV1Alpha1             `yaml:"metadata"`
-	Sources             []SourceV1Alpha1             `yaml:"sources"`
-	Repository          RepositoryV1Alpha1           `yaml:"repository"`
-	TerraformComponents []TerraformComponentV1Alpha1 `yaml:"terraform"`
-	Kustomizations      []map[string]interface{}     `yaml:"kustomizations"`
+	Kind                string                   `yaml:"kind"`
+	ApiVersion          string                   `yaml:"apiVersion"`
+	Metadata            Metadata                 `yaml:"metadata"`
+	Sources             []Source                 `yaml:"sources"`
+	Repository          Repository               `yaml:"repository"`
+	TerraformComponents []TerraformComponent     `yaml:"terraform"`
+	Kustomizations      []map[string]interface{} `yaml:"kustomizations"`
 }
 
 // Metadata describes the metadata for a blueprint
-type MetadataV1Alpha1 struct {
+type Metadata struct {
 	Name        string   `yaml:"name"`                  // The Name of the blueprint
 	Description string   `yaml:"description,omitempty"` // The Description of the blueprint
 	Authors     []string `yaml:"authors,omitempty"`     // The Authors of the blueprint
 }
 
-type RepositoryV1Alpha1 struct {
+type Repository struct {
 	Url string `yaml:"url"` // The URL of the repository
 	Ref string `yaml:"ref"` // The Ref of the repository
 }
 
 // Source describes a source for a blueprint
-type SourceV1Alpha1 struct {
+type Source struct {
 	Name       string `yaml:"name"`                 // The Name of the source
 	Url        string `yaml:"url"`                  // The URL of the source
 	PathPrefix string `yaml:"pathPrefix,omitempty"` // The Path Prefix of the source
@@ -47,23 +47,23 @@ type SourceV1Alpha1 struct {
 }
 
 // TerraformComponent describes a Terraform component for a blueprint
-type TerraformComponentV1Alpha1 struct {
-	Source    string                               `yaml:"source,omitempty"`    // The Source of the module
-	Path      string                               `yaml:"path"`                // The Path of the module
-	FullPath  string                               `yaml:"-"`                   // The Full Path of the module
-	Values    map[string]interface{}               `yaml:"values,omitempty"`    // The Values for the module
-	Variables map[string]TerraformVariableV1Alpha1 `yaml:"variables,omitempty"` // The Variables for the module
+type TerraformComponent struct {
+	Source    string                       `yaml:"source,omitempty"`    // The Source of the module
+	Path      string                       `yaml:"path"`                // The Path of the module
+	FullPath  string                       `yaml:"-"`                   // The Full Path of the module
+	Values    map[string]interface{}       `yaml:"values,omitempty"`    // The Values for the module
+	Variables map[string]TerraformVariable `yaml:"variables,omitempty"` // The Variables for the module
 }
 
 // TerraformVariable describes a Terraform variable for a Terraform component
-type TerraformVariableV1Alpha1 struct {
+type TerraformVariable struct {
 	Type        string      `yaml:"type,omitempty"`        // The Type of the variable
 	Default     interface{} `yaml:"default,omitempty"`     // The Default value of the variable
 	Description string      `yaml:"description,omitempty"` // The Description of the variable
 	Sensitive   bool        `yaml:"sensitive,omitempty"`   // Whether to treat the variable as sensitive
 }
 
-type KustomizationV1Alpha1 struct {
+type Kustomization struct {
 	Name          string            `yaml:"name"`
 	Path          string            `yaml:"path"`
 	Source        string            `yaml:"source,omitempty"`
@@ -77,8 +77,75 @@ type KustomizationV1Alpha1 struct {
 	Components    []string          `yaml:"components,omitempty"`
 }
 
+// Copy creates a deep copy of BlueprintV1Alpha1.
+func (b *Blueprint) DeepCopy() *Blueprint {
+	if b == nil {
+		return nil
+	}
+
+	// Copy Metadata
+	metadataCopy := Metadata{
+		Name:        b.Metadata.Name,
+		Description: b.Metadata.Description,
+		Authors:     append([]string{}, b.Metadata.Authors...),
+	}
+
+	// Copy Sources
+	sourcesCopy := make([]Source, len(b.Sources))
+	for i, source := range b.Sources {
+		sourcesCopy[i] = Source{
+			Name:       source.Name,
+			Url:        source.Url,
+			PathPrefix: source.PathPrefix,
+			Ref:        source.Ref,
+		}
+	}
+
+	// Copy TerraformComponents
+	terraformComponentsCopy := make([]TerraformComponent, len(b.TerraformComponents))
+	for i, component := range b.TerraformComponents {
+		variablesCopy := make(map[string]TerraformVariable, len(component.Variables))
+		for key, variable := range component.Variables {
+			variablesCopy[key] = TerraformVariable{
+				Type:        variable.Type,
+				Default:     variable.Default,
+				Description: variable.Description,
+				Sensitive:   variable.Sensitive,
+			}
+		}
+
+		valuesCopy := make(map[string]interface{}, len(component.Values))
+		for key, value := range component.Values {
+			valuesCopy[key] = value
+		}
+
+		terraformComponentsCopy[i] = TerraformComponent{
+			Source:    component.Source,
+			Path:      component.Path,
+			FullPath:  component.FullPath,
+			Values:    valuesCopy,
+			Variables: variablesCopy,
+		}
+	}
+
+	// Copy Kustomizations using DeepCopy
+	kustomizationsCopy := make([]Kustomization, len(b.Kustomizations))
+	for i, kustomization := range b.Kustomizations {
+		kustomizationsCopy[i] = kustomization
+	}
+
+	return &Blueprint{
+		Kind:                b.Kind,
+		ApiVersion:          b.ApiVersion,
+		Metadata:            metadataCopy,
+		Sources:             sourcesCopy,
+		TerraformComponents: terraformComponentsCopy,
+		Kustomizations:      kustomizationsCopy,
+	}
+}
+
 // Merge integrates another BlueprintV1Alpha1 into the current one, ensuring that terraform components maintain order.
-func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
+func (b *Blueprint) Merge(overlay *Blueprint) {
 	if overlay == nil {
 		return
 	}
@@ -103,7 +170,7 @@ func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 	}
 
 	// Merge Sources by "name", preferring overlay values
-	sourceMap := make(map[string]SourceV1Alpha1)
+	sourceMap := make(map[string]Source)
 	for _, source := range b.Sources {
 		sourceMap[source.Name] = source
 	}
@@ -112,13 +179,13 @@ func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 			sourceMap[overlaySource.Name] = overlaySource
 		}
 	}
-	b.Sources = make([]SourceV1Alpha1, 0, len(sourceMap))
+	b.Sources = make([]Source, 0, len(sourceMap))
 	for _, source := range sourceMap {
 		b.Sources = append(b.Sources, source)
 	}
 
 	// Merge TerraformComponents by "path" as primary key and "source" as secondary key, maintaining order
-	componentMap := make(map[string]TerraformComponentV1Alpha1)
+	componentMap := make(map[string]TerraformComponent)
 	for _, component := range b.TerraformComponents {
 		key := component.Path
 		componentMap[key] = component
@@ -126,7 +193,7 @@ func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 
 	// Only merge components that exist in the overlay, preserving order
 	if len(overlay.TerraformComponents) > 0 {
-		b.TerraformComponents = make([]TerraformComponentV1Alpha1, 0, len(overlay.TerraformComponents))
+		b.TerraformComponents = make([]TerraformComponent, 0, len(overlay.TerraformComponents))
 		for _, overlayComponent := range overlay.TerraformComponents {
 			key := overlayComponent.Path
 			if existingComponent, exists := componentMap[key]; exists {
@@ -144,7 +211,7 @@ func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 
 					// Merge Variables
 					if mergedComponent.Variables == nil {
-						mergedComponent.Variables = make(map[string]TerraformVariableV1Alpha1)
+						mergedComponent.Variables = make(map[string]TerraformVariable)
 					}
 					for k, v := range overlayComponent.Variables {
 						mergedComponent.Variables[k] = v
@@ -166,7 +233,7 @@ func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 	}
 
 	// Merge Kustomizations, preferring overlay values
-	mergedKustomizations := make([]KustomizationV1Alpha1, 0, len(b.Kustomizations)+len(overlay.Kustomizations))
+	mergedKustomizations := make([]Kustomization, 0, len(b.Kustomizations)+len(overlay.Kustomizations))
 
 	// Add existing kustomizations
 	for _, kustomization := range b.Kustomizations {
@@ -191,73 +258,6 @@ func (b *BlueprintV1Alpha1) Merge(overlay *BlueprintV1Alpha1) {
 	}
 
 	b.Kustomizations = mergedKustomizations
-}
-
-// Copy creates a deep copy of the BlueprintV1Alpha1.
-func (b *BlueprintV1Alpha1) DeepCopy() *BlueprintV1Alpha1 {
-	if b == nil {
-		return nil
-	}
-
-	// Copy Metadata
-	metadataCopy := MetadataV1Alpha1{
-		Name:        b.Metadata.Name,
-		Description: b.Metadata.Description,
-		Authors:     append([]string{}, b.Metadata.Authors...),
-	}
-
-	// Copy Sources
-	sourcesCopy := make([]SourceV1Alpha1, len(b.Sources))
-	for i, source := range b.Sources {
-		sourcesCopy[i] = SourceV1Alpha1{
-			Name:       source.Name,
-			Url:        source.Url,
-			PathPrefix: source.PathPrefix,
-			Ref:        source.Ref,
-		}
-	}
-
-	// Copy TerraformComponents
-	terraformComponentsCopy := make([]TerraformComponentV1Alpha1, len(b.TerraformComponents))
-	for i, component := range b.TerraformComponents {
-		variablesCopy := make(map[string]TerraformVariableV1Alpha1, len(component.Variables))
-		for key, variable := range component.Variables {
-			variablesCopy[key] = TerraformVariableV1Alpha1{
-				Type:        variable.Type,
-				Default:     variable.Default,
-				Description: variable.Description,
-				Sensitive:   variable.Sensitive,
-			}
-		}
-
-		valuesCopy := make(map[string]interface{}, len(component.Values))
-		for key, value := range component.Values {
-			valuesCopy[key] = value
-		}
-
-		terraformComponentsCopy[i] = TerraformComponentV1Alpha1{
-			Source:    component.Source,
-			Path:      component.Path,
-			FullPath:  component.FullPath,
-			Values:    valuesCopy,
-			Variables: variablesCopy,
-		}
-	}
-
-	// Copy Kustomizations using DeepCopy
-	kustomizationsCopy := make([]KustomizationV1Alpha1, len(b.Kustomizations))
-	for i, kustomization := range b.Kustomizations {
-		kustomizationsCopy[i] = kustomization
-	}
-
-	return &BlueprintV1Alpha1{
-		Kind:                b.Kind,
-		ApiVersion:          b.ApiVersion,
-		Metadata:            metadataCopy,
-		Sources:             sourcesCopy,
-		TerraformComponents: terraformComponentsCopy,
-		Kustomizations:      kustomizationsCopy,
-	}
 }
 
 // Helper function to merge patches uniquely

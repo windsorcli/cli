@@ -10,7 +10,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
-	"github.com/windsorcli/cli/pkg/blueprint"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -67,7 +67,7 @@ func (g *TerraformGenerator) Write() error {
 }
 
 // writeModule writes the Terraform module file for the given component
-func (g *TerraformGenerator) writeModuleFile(dirPath string, component blueprint.TerraformComponentV1Alpha1) error {
+func (g *TerraformGenerator) writeModuleFile(dirPath string, component blueprintv1alpha1.TerraformComponent) error {
 	// Create a new empty HCL file
 	moduleContent := hclwrite.NewEmptyFile()
 
@@ -105,7 +105,7 @@ func (g *TerraformGenerator) writeModuleFile(dirPath string, component blueprint
 }
 
 // writeVariableFile generates and writes the Terraform variable definitions to a file.
-func (g *TerraformGenerator) writeVariableFile(dirPath string, component blueprint.TerraformComponentV1Alpha1) error {
+func (g *TerraformGenerator) writeVariableFile(dirPath string, component blueprintv1alpha1.TerraformComponent) error {
 	// Create a new empty HCL file to hold variable definitions.
 	variablesContent := hclwrite.NewEmptyFile()
 	body := variablesContent.Body()
@@ -162,7 +162,7 @@ func (g *TerraformGenerator) writeVariableFile(dirPath string, component bluepri
 // writeTfvarsFile orchestrates writing a .tfvars file for the specified Terraform component,
 // preserving existing attributes and integrating any new values. If the component includes a
 // 'source' attribute, it indicates the component's origin or external module reference.
-func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint.TerraformComponentV1Alpha1) error {
+func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprintv1alpha1.TerraformComponent) error {
 	// Define the path for the tfvars file relative to the component's path.
 	componentPath := filepath.Join(dirPath, "terraform", component.Path)
 	tfvarsFilePath := componentPath + ".tfvars"

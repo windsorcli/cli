@@ -22,6 +22,7 @@ import (
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	"github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -36,14 +37,14 @@ type BlueprintHandler interface {
 	LoadConfig(path ...string) error
 	WriteConfig(path ...string) error
 	Install() error
-	GetMetadata() MetadataV1Alpha1
-	GetSources() []SourceV1Alpha1
-	GetTerraformComponents() []TerraformComponentV1Alpha1
-	GetKustomizations() []KustomizationV1Alpha1
-	SetMetadata(metadata MetadataV1Alpha1) error
-	SetSources(sources []SourceV1Alpha1) error
-	SetTerraformComponents(terraformComponents []TerraformComponentV1Alpha1) error
-	SetKustomizations(kustomizations []KustomizationV1Alpha1) error
+	GetMetadata() blueprintv1alpha1.Metadata
+	GetSources() []blueprintv1alpha1.Source
+	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
+	GetKustomizations() []blueprintv1alpha1.Kustomization
+	SetMetadata(metadata blueprintv1alpha1.Metadata) error
+	SetSources(sources []blueprintv1alpha1.Source) error
+	SetTerraformComponents(terraformComponents []blueprintv1alpha1.TerraformComponent) error
+	SetKustomizations(kustomizations []blueprintv1alpha1.Kustomization) error
 }
 
 // BaseBlueprintHandler is a base implementation of the BlueprintHandler interface
@@ -52,8 +53,8 @@ type BaseBlueprintHandler struct {
 	contextHandler context.ContextHandler
 	configHandler  config.ConfigHandler
 	shell          shell.Shell
-	localBlueprint BlueprintV1Alpha1
-	blueprint      BlueprintV1Alpha1
+	localBlueprint blueprintv1alpha1.Blueprint
+	blueprint      blueprintv1alpha1.Blueprint
 	projectRoot    string
 }
 
@@ -258,7 +259,7 @@ func (b *BaseBlueprintHandler) Install() error {
 // GetMetadata retrieves the metadata for the current blueprint.
 // It returns the metadata information, which includes details such as
 // the name and description of the blueprint.
-func (b *BaseBlueprintHandler) GetMetadata() MetadataV1Alpha1 {
+func (b *BaseBlueprintHandler) GetMetadata() blueprintv1alpha1.Metadata {
 	resolvedBlueprint := b.blueprint
 	return resolvedBlueprint.Metadata
 }
@@ -266,14 +267,14 @@ func (b *BaseBlueprintHandler) GetMetadata() MetadataV1Alpha1 {
 // GetSources retrieves the source configurations for the current blueprint.
 // It returns a list of sources, which define the origins of various components
 // within the blueprint.
-func (b *BaseBlueprintHandler) GetSources() []SourceV1Alpha1 {
+func (b *BaseBlueprintHandler) GetSources() []blueprintv1alpha1.Source {
 	resolvedBlueprint := b.blueprint
 	return resolvedBlueprint.Sources
 }
 
 // GetTerraformComponents retrieves the Terraform components defined in the blueprint.
 // It resolves the sources and paths for each component before returning the list of components.
-func (b *BaseBlueprintHandler) GetTerraformComponents() []TerraformComponentV1Alpha1 {
+func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.TerraformComponent {
 	resolvedBlueprint := b.blueprint
 
 	b.resolveComponentSources(&resolvedBlueprint)
@@ -285,13 +286,13 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []TerraformComponentV1Al
 // GetKustomizations retrieves the Kustomization configurations for the blueprint.
 // It ensures that default values are set for each Kustomization's specifications,
 // such as interval, prune, and timeout.
-func (b *BaseBlueprintHandler) GetKustomizations() []KustomizationV1Alpha1 {
+func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomization {
 	if b.blueprint.Kustomizations == nil {
 		return nil
 	}
 
 	resolvedBlueprint := b.blueprint
-	kustomizations := make([]KustomizationV1Alpha1, len(resolvedBlueprint.Kustomizations))
+	kustomizations := make([]blueprintv1alpha1.Kustomization, len(resolvedBlueprint.Kustomizations))
 	copy(kustomizations, resolvedBlueprint.Kustomizations)
 
 	for i := range kustomizations {
@@ -319,21 +320,21 @@ func (b *BaseBlueprintHandler) GetKustomizations() []KustomizationV1Alpha1 {
 
 // SetMetadata updates the metadata for the current blueprint.
 // It replaces the existing metadata with the provided metadata information.
-func (b *BaseBlueprintHandler) SetMetadata(metadata MetadataV1Alpha1) error {
+func (b *BaseBlueprintHandler) SetMetadata(metadata blueprintv1alpha1.Metadata) error {
 	b.blueprint.Metadata = metadata
 	return nil
 }
 
 // SetSources updates the source configurations for the current blueprint.
 // It replaces the existing sources with the provided list of sources.
-func (b *BaseBlueprintHandler) SetSources(sources []SourceV1Alpha1) error {
+func (b *BaseBlueprintHandler) SetSources(sources []blueprintv1alpha1.Source) error {
 	b.blueprint.Sources = sources
 	return nil
 }
 
 // SetTerraformComponents updates the Terraform components for the current blueprint.
 // It replaces the existing components with the provided list of Terraform components.
-func (b *BaseBlueprintHandler) SetTerraformComponents(terraformComponents []TerraformComponentV1Alpha1) error {
+func (b *BaseBlueprintHandler) SetTerraformComponents(terraformComponents []blueprintv1alpha1.TerraformComponent) error {
 	b.blueprint.TerraformComponents = terraformComponents
 	return nil
 }
@@ -341,15 +342,15 @@ func (b *BaseBlueprintHandler) SetTerraformComponents(terraformComponents []Terr
 // SetKustomizations updates the Kustomizations for the current blueprint.
 // It replaces the existing Kustomizations with the provided list of Kustomizations.
 // If the provided list is nil, it clears the existing Kustomizations.
-func (b *BaseBlueprintHandler) SetKustomizations(kustomizations []KustomizationV1Alpha1) error {
+func (b *BaseBlueprintHandler) SetKustomizations(kustomizations []blueprintv1alpha1.Kustomization) error {
 	b.blueprint.Kustomizations = kustomizations
 	return nil
 }
 
 // resolveComponentSources resolves the source URLs for each Terraform component in the blueprint.
 // It constructs the full source URL for each component based on its associated source configuration.
-func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *BlueprintV1Alpha1) {
-	resolvedComponents := make([]TerraformComponentV1Alpha1, len(blueprint.TerraformComponents))
+func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alpha1.Blueprint) {
+	resolvedComponents := make([]blueprintv1alpha1.TerraformComponent, len(blueprint.TerraformComponents))
 	copy(resolvedComponents, blueprint.TerraformComponents)
 
 	for i, component := range resolvedComponents {
@@ -370,10 +371,10 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *BlueprintV1Alp
 
 // resolveComponentPaths determines the local file paths for each Terraform component in the blueprint.
 // It calculates the full path for each component based on whether it is a remote source or a local module.
-func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *BlueprintV1Alpha1) {
+func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha1.Blueprint) {
 	projectRoot := b.projectRoot
 
-	resolvedComponents := make([]TerraformComponentV1Alpha1, len(blueprint.TerraformComponents))
+	resolvedComponents := make([]blueprintv1alpha1.TerraformComponent, len(blueprint.TerraformComponents))
 	copy(resolvedComponents, blueprint.TerraformComponents)
 
 	for i, component := range resolvedComponents {
@@ -398,13 +399,13 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *BlueprintV1Alpha
 // converting them to blueprintv1alpha1.Kustomization format. Errors during conversion
 // are collected and returned. Finally, it merges the processed data into the
 // blueprint object, ensuring all components are integrated.
-func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *BlueprintV1Alpha1) error {
-	newBlueprint := &PartialBlueprint{}
+func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blueprintv1alpha1.Blueprint) error {
+	newBlueprint := &blueprintv1alpha1.PartialBlueprint{}
 	if err := yamlUnmarshal(data, newBlueprint); err != nil {
 		return fmt.Errorf("error unmarshalling blueprint data: %w", err)
 	}
 
-	var kustomizations []KustomizationV1Alpha1
+	var kustomizations []blueprintv1alpha1.Kustomization
 
 	for _, kMap := range newBlueprint.Kustomizations {
 		kustomizationYAML, err := yamlMarshal(kMap)
@@ -412,7 +413,7 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *Blue
 			return fmt.Errorf("error marshalling kustomization map: %w", err)
 		}
 
-		var kustomization KustomizationV1Alpha1
+		var kustomization blueprintv1alpha1.Kustomization
 		err = k8sYamlUnmarshal(kustomizationYAML, &kustomization)
 		if err != nil {
 			return fmt.Errorf("error unmarshalling kustomization YAML: %w", err)
@@ -421,7 +422,7 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *Blue
 		kustomizations = append(kustomizations, kustomization)
 	}
 
-	completeBlueprint := &BlueprintV1Alpha1{
+	completeBlueprint := &blueprintv1alpha1.Blueprint{
 		Kind:                newBlueprint.Kind,
 		ApiVersion:          newBlueprint.ApiVersion,
 		Metadata:            newBlueprint.Metadata,
@@ -671,7 +672,7 @@ var kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOpe
 // checks and prefixes the URL with "https://" if needed, and serializes it to JSON for the API request.
 // The function uses a PUT request to update the resource if it exists, or a POST request to create it
 // if not, allowing safe retries without creating duplicates.
-func (b *BaseBlueprintHandler) applyGitRepository(source SourceV1Alpha1) error {
+func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Source) error {
 	sourceUrl := source.Url
 	if !strings.HasPrefix(sourceUrl, "http://") && !strings.HasPrefix(sourceUrl, "https://") {
 		sourceUrl = "https://" + sourceUrl
@@ -717,7 +718,7 @@ func (b *BaseBlueprintHandler) applyGitRepository(source SourceV1Alpha1) error {
 // sets the namespace to the default Flux system namespace, and serializes it to JSON for the API request.
 // The function uses a PUT request to update the resource if it exists, or a POST request to create it
 // if not, allowing safe retries without creating duplicates.
-func (b *BaseBlueprintHandler) applyKustomization(kustomization KustomizationV1Alpha1) error {
+func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha1.Kustomization) error {
 	kustomizeObj := &kustomizev1.Kustomization{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "kustomize.toolkit.fluxcd.io/v1",

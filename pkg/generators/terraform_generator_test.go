@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/zclconf/go-cty/cty"
+
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
 
 func TestNewTerraformGenerator(t *testing.T) {
@@ -197,9 +198,9 @@ func TestTerraformGenerator_writeModuleFile(t *testing.T) {
 		}
 
 		// And the writeModuleFile method is called
-		err := generator.writeModuleFile("/fake/dir", blueprint.TerraformComponentV1Alpha1{
+		err := generator.writeModuleFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
 			Source: "fake-source",
-			Variables: map[string]blueprint.TerraformVariableV1Alpha1{
+			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "default1", Description: "description1"},
 				"var2": {Type: "number", Default: 2, Description: "description2"},
 			},
@@ -224,8 +225,8 @@ func TestTerraformGenerator_writeVariableFile(t *testing.T) {
 		}
 
 		// And the writeVariableFile method is called
-		err := generator.writeVariableFile("/fake/dir", blueprint.TerraformComponentV1Alpha1{
-			Variables: map[string]blueprint.TerraformVariableV1Alpha1{
+		err := generator.writeVariableFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
+			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "default1", Description: "description1"},
 				"var2": {Type: "number", Default: 2, Description: "description2"},
 			},
@@ -251,8 +252,8 @@ func TestTerraformGenerator_writeTfvarsFile(t *testing.T) {
 		}
 
 		// And the writeTfvarsFile method is called with no existing tfvars file
-		err := generator.writeTfvarsFile("/fake/dir", blueprint.TerraformComponentV1Alpha1{
-			Variables: map[string]blueprint.TerraformVariableV1Alpha1{
+		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
+			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "default1", Description: "desc1"},
 				"var2": {Type: "bool", Default: true, Description: "desc2"},
 			},
@@ -301,9 +302,9 @@ var1 = "oldval1"
 		}
 
 		// And the writeTfvarsFile method is called
-		err := generator.writeTfvarsFile("/fake/dir", blueprint.TerraformComponentV1Alpha1{
+		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
 			Source: "some-module-source", // to test source comment insertion
-			Variables: map[string]blueprint.TerraformVariableV1Alpha1{
+			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "default1", Description: "desc1"},
 				"var2": {Type: "list", Default: []interface{}{"item1"}, Description: "desc2"},
 			},
@@ -339,8 +340,8 @@ var1 = "oldval1"
 		}
 
 		// And the writeTfvarsFile method is called
-		err := generator.writeTfvarsFile("/fake/dir", blueprint.TerraformComponentV1Alpha1{
-			Variables: map[string]blueprint.TerraformVariableV1Alpha1{
+		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
+			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "defval", Description: "desc"},
 			},
 			Values: map[string]interface{}{
@@ -383,7 +384,7 @@ var1 = "oldval1"
 		}
 
 		// And we call writeTfvarsFile
-		err := generator.writeTfvarsFile("/fake/dir", blueprint.TerraformComponentV1Alpha1{
+		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
 			Values: map[string]interface{}{
 				"var1": "value1",
 			},
@@ -425,7 +426,7 @@ var1 = "oldval1"
 		}
 
 		// And we call writeTfvarsFile
-		err := generator.writeTfvarsFile("/fake/dir", blueprint.TerraformComponentV1Alpha1{
+		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
 			Values: map[string]interface{}{
 				"var1": "val1",
 			},
@@ -457,7 +458,7 @@ var1 = "oldval1"
 		}
 
 		// And we call writeTfvarsFile
-		err := generator.writeTfvarsFile("/fake/dir", blueprint.TerraformComponentV1Alpha1{
+		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
 			Values: map[string]interface{}{
 				"var1": "val1",
 			},
@@ -489,8 +490,8 @@ var1 = "oldval1"
 		}
 
 		// And the writeTfvarsFile method is called
-		err := generator.writeTfvarsFile("/fake/dir", blueprint.TerraformComponentV1Alpha1{
-			Variables: map[string]blueprint.TerraformVariableV1Alpha1{
+		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
+			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "default1", Description: "description1"},
 			},
 			Values: map[string]interface{}{

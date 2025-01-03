@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"testing"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
@@ -51,9 +52,9 @@ func setupSafeMocks(injector ...di.Injector) MockComponents {
 	mockInjector.Register("blueprintHandler", mockBlueprintHandler)
 
 	// Mock the GetTerraformComponents method
-	mockBlueprintHandler.GetTerraformComponentsFunc = func() []blueprint.TerraformComponentV1Alpha1 {
+	mockBlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
 		// Common components setup
-		remoteComponent := blueprint.TerraformComponentV1Alpha1{
+		remoteComponent := blueprintv1alpha1.TerraformComponent{
 			Source: "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
 			Path:   "/mock/project/root/.tf_modules/remote/path",
 			Values: map[string]interface{}{
@@ -61,7 +62,7 @@ func setupSafeMocks(injector ...di.Injector) MockComponents {
 			},
 		}
 
-		localComponent := blueprint.TerraformComponentV1Alpha1{
+		localComponent := blueprintv1alpha1.TerraformComponent{
 			Source: "local/path",
 			Path:   "/mock/project/root/terraform/local/path",
 			Values: map[string]interface{}{
@@ -69,7 +70,7 @@ func setupSafeMocks(injector ...di.Injector) MockComponents {
 			},
 		}
 
-		return []blueprint.TerraformComponentV1Alpha1{remoteComponent, localComponent}
+		return []blueprintv1alpha1.TerraformComponent{remoteComponent, localComponent}
 	}
 
 	// Create a new mock shell
