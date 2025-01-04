@@ -125,10 +125,11 @@ func (n *BaseNetworkManager) ConfigureGuest() error {
 func (n *BaseNetworkManager) updateHostsFile(dnsDomain string) error {
 	var hostsFile, tempHostsFile string
 
-	if goos() == "windows" {
+	switch goos() {
+	case "windows":
 		hostsFile = "C:\\Windows\\System32\\drivers\\etc\\hosts"
 		tempHostsFile = "C:\\Windows\\Temp\\hosts"
-	} else {
+	default:
 		hostsFile = "/etc/hosts"
 		tempHostsFile = "/tmp/hosts"
 	}
@@ -143,7 +144,7 @@ func (n *BaseNetworkManager) updateHostsFile(dnsDomain string) error {
 	entryExists, changed := false, false
 
 	for i, line := range lines {
-		if line == hostsEntry {
+		if strings.TrimSpace(line) == hostsEntry {
 			entryExists = true
 			if !n.isLocalhost {
 				lines = append(lines[:i], lines[i+1:]...)
@@ -162,11 +163,13 @@ func (n *BaseNetworkManager) updateHostsFile(dnsDomain string) error {
 		return nil
 	}
 
-	if err := writeFile(tempHostsFile, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+	updatedContent := strings.Join(lines, "\n")
+	if err := writeFile(tempHostsFile, []byte(updatedContent), 0644); err != nil {
 		return fmt.Errorf("Error writing to temporary hosts file: %w", err)
 	}
 
-	if goos() == "windows" {
+	switch goos() {
+	case "windows":
 		if _, err := n.shell.ExecSudo(
 			"🔐 Updating hosts file",
 			"cmd",
@@ -175,7 +178,7 @@ func (n *BaseNetworkManager) updateHostsFile(dnsDomain string) error {
 		); err != nil {
 			return fmt.Errorf("Error updating hosts file: %w", err)
 		}
-	} else {
+	default:
 		if _, err := n.shell.ExecSudo(
 			"🔐 Updating /etc/hosts",
 			"mv",
