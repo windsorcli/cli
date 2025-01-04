@@ -8,7 +8,7 @@ require (
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/fluxcd/kustomize-controller/api v1.4.0
 	github.com/fluxcd/pkg/apis/kustomize v1.8.0
-	github.com/fluxcd/pkg/apis/meta v1.6.1
+	github.com/fluxcd/pkg/apis/meta v1.9.0
 	github.com/fluxcd/source-controller/api v1.4.1
 	github.com/getsops/sops/v3 v3.9.3
 	github.com/goccy/go-yaml v1.15.13
