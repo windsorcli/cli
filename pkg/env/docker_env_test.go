@@ -2,7 +2,10 @@ package env
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -68,40 +71,131 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		}
 	})
 
-	// t.Run("ColimaDriver", func(t *testing.T) {
-	// 	mocks := setupSafeDockerEnvPrinterMocks()
-	// 	mocks.ContextHandler.GetContextFunc = func() string {
-	// 		return "test-context"
-	// 	}
+	t.Run("ColimaDriver", func(t *testing.T) {
+		mocks := setupSafeDockerEnvPrinterMocks()
+		mocks.ContextHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
 
-	// 	originalUserHomeDir := osUserHomeDir
-	// 	defer func() { osUserHomeDir = originalUserHomeDir }()
-	// 	osUserHomeDir = func() (string, error) {
-	// 		return "/mock/home", nil
-	// 	}
+		// Mock osUserHomeDir function
+		originalUserHomeDir := osUserHomeDir
+		defer func() { osUserHomeDir = originalUserHomeDir }()
+		osUserHomeDir = func() (string, error) {
+			return "/mock/home", nil
+		}
 
-	// 	mockConfigHandler := config.NewMockConfigHandler()
-	// 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-	// 		if key == "vm.driver" {
-	// 			return "colima"
-	// 		}
-	// 		return ""
-	// 	}
-	// 	mocks.Injector.Register("configHandler", mockConfigHandler)
+		// Mock mkdirAll function
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAllCalled := false
+		mkdirAll = func(path string, perm os.FileMode) error {
+			mkdirAllCalled = true
+			return nil
+		}
 
-	// 	dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-	// 	dockerEnvPrinter.Initialize()
+		// Mock writeFile function
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFileCalled := false
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			writeFileCalled = true
+			return nil
+		}
 
-	// 	envVars, err := dockerEnvPrinter.GetEnvVars()
-	// 	if err != nil {
-	// 		t.Fatalf("GetEnvVars returned an error: %v", err)
-	// 	}
+		// Use the existing mockConfigHandler from mocks
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
+		}
 
-	// 	expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", "/mock/home", "test-context")
-	// 	if envVars["DOCKER_HOST"] != expectedDockerHost {
-	// 		t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
-	// 	}
-	// })
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		envVars, err := dockerEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", "/mock/home", "test-context")
+		if envVars["DOCKER_HOST"] != expectedDockerHost {
+			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		}
+
+		if !mkdirAllCalled {
+			t.Error("mkdirAll was not called")
+		}
+
+		if !writeFileCalled {
+			t.Error("writeFile was not called")
+		}
+	})
+
+	t.Run("DockerDesktopDriver", func(t *testing.T) {
+		mocks := setupSafeDockerEnvPrinterMocks()
+
+		// Mock osUserHomeDir function
+		originalUserHomeDir := osUserHomeDir
+		defer func() { osUserHomeDir = originalUserHomeDir }()
+		osUserHomeDir = func() (string, error) {
+			return "/mock/home", nil
+		}
+
+		// Mock goos function to simulate different OS environments
+		originalGoos := goos
+		defer func() { goos = originalGoos }()
+		goos = func() string {
+			return "linux"
+		}
+
+		// Mock mkdirAll function
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAllCalled := false
+		mkdirAll = func(path string, perm os.FileMode) error {
+			mkdirAllCalled = true
+			return nil
+		}
+
+		// Mock writeFile function
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFileCalled := false
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			writeFileCalled = true
+			return nil
+		}
+
+		// Use the existing mockConfigHandler from mocks
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			return ""
+		}
+
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		envVars, err := dockerEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		expectedDockerHost := fmt.Sprintf("unix://%s/.docker/run/docker.sock", "/mock/home")
+		if envVars["DOCKER_HOST"] != expectedDockerHost {
+			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		}
+
+		if !mkdirAllCalled {
+			t.Error("mkdirAll was not called")
+		}
+
+		if !writeFileCalled {
+			t.Error("writeFile was not called")
+		}
+	})
 
 	t.Run("GetUserHomeDirError", func(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
@@ -128,35 +222,144 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Errorf("error = %v, want error containing 'mock user home dir error'", err)
 		}
 	})
+
+	t.Run("MkdirAllError", func(t *testing.T) {
+		mocks := setupSafeDockerEnvPrinterMocks()
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
+		}
+
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return errors.New("mock mkdirAll error")
+		}
+
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		_, err := dockerEnvPrinter.GetEnvVars()
+		if err == nil {
+			t.Error("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "mock mkdirAll error") {
+			t.Errorf("error = %v, want error containing 'mock mkdirAll error'", err)
+		}
+	})
+
+	t.Run("WriteFileError", func(t *testing.T) {
+		mocks := setupSafeDockerEnvPrinterMocks()
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
+		}
+
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return errors.New("mock writeFile error")
+		}
+
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		_, err := dockerEnvPrinter.GetEnvVars()
+		if err == nil {
+			t.Error("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "mock writeFile error") {
+			t.Errorf("error = %v, want error containing 'mock writeFile error'", err)
+		}
+	})
+
+	t.Run("DockerHostOSVariations", func(t *testing.T) {
+		testCases := []struct {
+			osName       string
+			expectedHost string
+		}{
+			{"windows", "npipe:////./pipe/docker_engine"},
+			{"linux", "unix:///home/user/.docker/run/docker.sock"},
+			{"darwin", "unix:///home/user/.docker/run/docker.sock"},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.osName, func(t *testing.T) {
+				mocks := setupSafeDockerEnvPrinterMocks()
+				mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+					if key == "vm.driver" {
+						return "docker-desktop"
+					}
+					return ""
+				}
+
+				originalGoos := goos
+				defer func() { goos = originalGoos }()
+				goos = func() string {
+					return tc.osName
+				}
+
+				originalUserHomeDir := osUserHomeDir
+				defer func() { osUserHomeDir = originalUserHomeDir }()
+				osUserHomeDir = func() (string, error) {
+					return "/home/user", nil
+				}
+
+				originalMkdirAll := mkdirAll
+				defer func() { mkdirAll = originalMkdirAll }()
+				mkdirAll = func(path string, perm os.FileMode) error {
+					return nil
+				}
+
+				originalWriteFile := writeFile
+				defer func() { writeFile = originalWriteFile }()
+				writeFile = func(filename string, data []byte, perm os.FileMode) error {
+					return nil
+				}
+
+				dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+				dockerEnvPrinter.Initialize()
+
+				envVars, err := dockerEnvPrinter.GetEnvVars()
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				if envVars["DOCKER_HOST"] != tc.expectedHost {
+					t.Fatalf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], tc.expectedHost)
+				}
+			})
+		}
+	})
 }
 
 func TestDockerEnvPrinter_Print(t *testing.T) {
-	// t.Run("Success", func(t *testing.T) {
-	// 	// Use setupSafeAwsEnvMocks to create mocks
-	// 	mocks := setupSafeDockerEnvPrinterMocks()
-	// 	mockInjector := mocks.Injector
-	// 	dockerEnvPrinter := NewDockerEnvPrinter(mockInjector)
-	// 	dockerEnvPrinter.Initialize()
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupSafeDockerEnvPrinterMocks()
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
 
-	// 	// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
-	// 	var capturedEnvVars map[string]string
-	// 	mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
-	// 		capturedEnvVars = envVars
-	// 		return nil
-	// 	}
+		// Mock the Print method of BaseEnvPrinter to capture the envVars
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			capturedEnvVars = envVars
+			return nil
+		}
 
-	// 	// Call Print and check for errors
-	// 	err := dockerEnvPrinter.Print()
-	// 	if err != nil {
-	// 		t.Errorf("unexpected error: %v", err)
-	// 	}
+		// Call Print and check for errors
+		err := dockerEnvPrinter.Print()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
 
-	// 	// Verify that PrintEnvVarsFunc was called with the correct envVars
-	// 	expectedEnvVars := map[string]string{}
-	// 	if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
-	// 		t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
-	// 	}
-	// })
+		// Verify that PrintEnvVarsFunc was called with the correct envVars
+		expectedEnvVars, _ := dockerEnvPrinter.GetEnvVars()
+		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
+			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+		}
+	})
 
 	t.Run("GetEnvVarsError", func(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
