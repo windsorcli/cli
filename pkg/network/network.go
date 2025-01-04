@@ -98,7 +98,7 @@ func (n *BaseNetworkManager) Initialize() error {
 		networkCIDR := n.configHandler.GetString("docker.network_cidr")
 		if networkCIDR == "" {
 			networkCIDR = constants.DEFAULT_NETWORK_CIDR
-			n.configHandler.SetContextValue("docker.network_cidr", networkCIDR)
+			return n.configHandler.SetContextValue("docker.network_cidr", networkCIDR)
 		}
 		if err := assignIPAddresses(serviceList, &networkCIDR); err != nil {
 			return fmt.Errorf("error assigning IP addresses: %w", err)
