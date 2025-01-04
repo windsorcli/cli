@@ -5,23 +5,23 @@ package network
 
 import (
 	"fmt"
+	"strings"
 )
 
-// ConfigureHostRoute sets up the local development network
+// ConfigureHostRoute sets up the local development network. It checks if the route
+// already exists using a PowerShell command. If not, it adds a new route on the host
+// to the VM guest using another PowerShell command.
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
-	// Access the Docker configuration using GetString
 	networkCIDR := n.configHandler.GetString("docker.network_cidr")
 	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}
 
-	// Access the VM configuration using GetString
 	guestIP := n.configHandler.GetString("vm.address")
 	if guestIP == "" {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	// Check if the route already exists using PowerShell command
 	output, err := n.shell.ExecSilent(
 		"powershell",
 		"-Command",
@@ -31,12 +31,10 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return fmt.Errorf("failed to check if route exists: %w", err)
 	}
 
-	// If the output is not empty, the route exists
 	if output != "" {
 		return nil
 	}
 
-	// Add route on the host to VM guest using PowerShell command
 	fmt.Println("🔐 Adding route on the host to VM guest")
 	output, err = n.shell.ExecSilent(
 		"powershell",
@@ -50,19 +48,47 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS sets up the DNS configuration
+// ConfigureDNS sets up the DNS configuration. If the DNS address is not configured, it routes
+// the DNS name wildcard to localhost using the hosts file. If the DNS address is configured,
+// it sets the DNS server using PowerShell and flushes the DNS cache to ensure changes take
+// effect.
 func (n *BaseNetworkManager) ConfigureDNS() error {
-	// Access the DNS configuration using GetString
 	dnsDomain := n.configHandler.GetString("dns.name")
 	if dnsDomain == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
 	dnsIP := n.configHandler.GetString("dns.address")
+
 	if dnsIP == "" {
-		return fmt.Errorf("DNS address is not configured")
+		hostsFile := "C:\\Windows\\System32\\drivers\\etc\\hosts"
+		existingContent, err := readFile(hostsFile)
+		if err != nil {
+			return fmt.Errorf("Error reading hosts file: %w", err)
+		}
+
+		hostsEntry := fmt.Sprintf("127.0.0.1 %s", dnsDomain)
+		lines := strings.Split(string(existingContent), "\n")
+		entryExists := false
+
+		for i, line := range lines {
+			if strings.Contains(line, dnsDomain) {
+				lines[i] = hostsEntry
+				entryExists = true
+				break
+			}
+		}
+
+		if !entryExists {
+			lines = append(lines, hostsEntry)
+		}
+
+		if err := writeFile(hostsFile, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+			return fmt.Errorf("Error writing to hosts file: %w", err)
+		}
+
+		return nil
 	}
 
-	// Check the current DNS server configuration
 	currentDNSOutput, err := n.shell.ExecSilent(
 		"powershell",
 		"-Command",
@@ -72,12 +98,10 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("failed to get current DNS server: %w", err)
 	}
 
-	// If the current DNS server is already set to the desired IP, do nothing
-	if currentDNSOutput == dnsIP {
+	if strings.Contains(currentDNSOutput, dnsIP) {
 		return nil
 	}
 
-	// Execute PowerShell command to set DNS server
 	fmt.Println("🔐 Setting DNS server")
 	output, err := n.shell.ExecSilent(
 		"powershell",
@@ -86,6 +110,15 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	)
 	if err != nil {
 		return fmt.Errorf("failed to set DNS server: %w, output: %s", err, output)
+	}
+
+	_, err = n.shell.ExecSilent(
+		"powershell",
+		"-Command",
+		"Clear-DnsClientCache",
+	)
+	if err != nil {
+		return fmt.Errorf("failed to flush DNS cache: %w", err)
 	}
 
 	return nil

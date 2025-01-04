@@ -65,39 +65,42 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS sets up the DNS configuration using systemd-resolved
+// ConfigureDNS sets up DNS using systemd-resolved or /etc/hosts. If the DNS IP is missing, it updates
+// /etc/hosts with the DNS domain. If the DNS IP is configured, it ensures systemd-resolved is used
+// by creating a drop-in configuration file. The function checks if /etc/resolv.conf is a symlink to
+// systemd-resolved and restarts the service if necessary. It handles errors at each step to ensure
+// proper DNS configuration.
 func (n *BaseNetworkManager) ConfigureDNS() error {
-	// Access the DNS configuration
+	contextName := n.contextHandler.GetContext()
+	tld := n.configHandler.GetString("dns.name")
+	if tld == "" {
+		return fmt.Errorf("DNS TLD is not configured")
+	}
+	dnsDomain := fmt.Sprintf("%s.%s", contextName, tld)
 	dnsIP := n.configHandler.GetString("dns.address")
-	if dnsIP == "" {
-		return fmt.Errorf("DNS address is not configured")
+
+	if n.isLocalhost {
+		if err := n.updateHostsFile(dnsDomain); err != nil {
+			return err
+		}
+		return nil
 	}
 
-	// Access the DNS domain configuration
-	dnsDomain := n.configHandler.GetString("dns.name")
-	if dnsDomain == "" {
-		return fmt.Errorf("DNS domain is not configured")
-	}
-
-	// Check if /etc/resolv.conf is a symlink to systemd-resolved
+	// If DNS address is configured, use systemd-resolved
 	resolvConf, err := readLink("/etc/resolv.conf")
 	if err != nil || resolvConf != "../run/systemd/resolve/stub-resolv.conf" {
 		return fmt.Errorf("systemd-resolved is not in use. Please configure DNS manually or use a compatible system")
 	}
 
-	// Create a drop-in configuration file for DNS settings
 	dropInDir := "/etc/systemd/resolved.conf.d"
 	dropInFile := fmt.Sprintf("%s/dns-override-%s.conf", dropInDir, dnsDomain)
 
-	// Check if the drop-in file already exists with the correct content
 	existingContent, err := readFile(dropInFile)
 	expectedContent := fmt.Sprintf("[Resolve]\nDNS=%s\n", dnsIP)
 	if err == nil && string(existingContent) == expectedContent {
-		// The drop-in file already exists with the correct content, no need to update
 		return nil
 	}
 
-	// Ensure the drop-in directory exists
 	_, err = n.shell.ExecSilent(
 		"sudo",
 		"mkdir",
@@ -108,7 +111,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("failed to create drop-in directory: %w", err)
 	}
 
-	// Write DNS configuration to the drop-in file
 	_, err = n.shell.ExecSudo(
 		"🔐 Writing DNS configuration to "+dropInFile,
 		"bash",
@@ -119,7 +121,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("failed to write DNS configuration: %w", err)
 	}
 
-	// Restart systemd-resolved
 	fmt.Println("🔐 Restarting systemd-resolved")
 	_, err = n.shell.ExecSudo(
 		"🔐 Restarting systemd-resolved",

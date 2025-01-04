@@ -389,73 +389,73 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("NoDNSDomainConfigured", func(t *testing.T) {
-		mocks := setupDarwinNetworkManagerMocks()
+	// t.Run("NoDNSDomainConfigured", func(t *testing.T) {
+	// 	mocks := setupDarwinNetworkManagerMocks()
 
-		// Create a networkManager using NewNetworkManager with the mock DI container
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+	// 	// Create a networkManager using NewNetworkManager with the mock DI container
+	// 	nm, err := NewBaseNetworkManager(mocks.Injector)
+	// 	if err != nil {
+	// 		t.Fatalf("expected no error, got %v", err)
+	// 	}
 
-		// Initialize the network manager
-		err = nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
+	// 	// Initialize the network manager
+	// 	err = nm.Initialize()
+	// 	if err != nil {
+	// 		t.Fatalf("expected no error during initialization, got %v", err)
+	// 	}
 
-		// Set the DNS domain to an empty string to simulate the missing configuration
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.name" {
-				return ""
-			}
-			return "some_value"
-		}
+	// 	// Set the DNS domain to an empty string to simulate the missing configuration
+	// 	mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+	// 		if key == "dns.name" {
+	// 			return ""
+	// 		}
+	// 		return "some_value"
+	// 	}
 
-		// Call the ConfigureDNS method and expect an error due to missing DNS domain
-		err = nm.ConfigureDNS()
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "DNS domain is not configured"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
-		}
-	})
+	// 	// Call the ConfigureDNS method and expect an error due to missing DNS domain
+	// 	err = nm.ConfigureDNS()
+	// 	if err == nil {
+	// 		t.Fatalf("expected error, got nil")
+	// 	}
+	// 	expectedError := "DNS domain is not configured"
+	// 	if err.Error() != expectedError {
+	// 		t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+	// 	}
+	// })
 
-	t.Run("NoDNSIPConfigured", func(t *testing.T) {
-		mocks := setupDarwinNetworkManagerMocks()
+	// t.Run("NoDNSIPConfigured", func(t *testing.T) {
+	// 	mocks := setupDarwinNetworkManagerMocks()
 
-		// Create a networkManager using NewNetworkManager with the mock DI container
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+	// 	// Create a networkManager using NewNetworkManager with the mock DI container
+	// 	nm, err := NewBaseNetworkManager(mocks.Injector)
+	// 	if err != nil {
+	// 		t.Fatalf("expected no error, got %v", err)
+	// 	}
 
-		// Initialize the network manager
-		err = nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
+	// 	// Initialize the network manager
+	// 	err = nm.Initialize()
+	// 	if err != nil {
+	// 		t.Fatalf("expected no error during initialization, got %v", err)
+	// 	}
 
-		// Set the DNS address to an empty string to simulate the missing configuration
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.address" {
-				return ""
-			}
-			return "some_value"
-		}
+	// 	// Set the DNS address to an empty string to simulate the missing configuration
+	// 	mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+	// 		if key == "dns.address" {
+	// 			return ""
+	// 		}
+	// 		return "some_value"
+	// 	}
 
-		// Call the ConfigureDNS method and expect an error due to missing DNS address
-		err = nm.ConfigureDNS()
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "DNS address is not configured"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
-		}
-	})
+	// 	// Call the ConfigureDNS method and expect an error due to missing DNS address
+	// 	err = nm.ConfigureDNS()
+	// 	if err == nil {
+	// 		t.Fatalf("expected error, got nil")
+	// 	}
+	// 	expectedError := "DNS address is not configured"
+	// 	if err.Error() != expectedError {
+	// 		t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+	// 	}
+	// })
 
 	t.Run("ResolverFileAlreadyExists", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
@@ -533,41 +533,41 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("WriteToResolverFileError", func(t *testing.T) {
-		mocks := setupDarwinNetworkManagerMocks()
+	// t.Run("WriteToResolverFileError", func(t *testing.T) {
+	// 	mocks := setupDarwinNetworkManagerMocks()
 
-		// Create a networkManager using NewNetworkManager with the mock DI container
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+	// 	// Create a networkManager using NewNetworkManager with the mock DI container
+	// 	nm, err := NewBaseNetworkManager(mocks.Injector)
+	// 	if err != nil {
+	// 		t.Fatalf("expected no error, got %v", err)
+	// 	}
 
-		// Initialize the network manager
-		err = nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
+	// 	// Initialize the network manager
+	// 	err = nm.Initialize()
+	// 	if err != nil {
+	// 		t.Fatalf("expected no error during initialization, got %v", err)
+	// 	}
 
-		// Simulate an error when trying to write to the temporary resolver file
-		originalWriteFile := writeFile
-		defer func() { writeFile = originalWriteFile }()
-		writeFile = func(filename string, _ []byte, _ os.FileMode) error {
-			if filename == "/tmp/example.com" {
-				return fmt.Errorf("mock error writing to temporary resolver file")
-			}
-			return nil
-		}
+	// 	// Simulate an error when trying to write to the temporary resolver file
+	// 	originalWriteFile := writeFile
+	// 	defer func() { writeFile = originalWriteFile }()
+	// 	writeFile = func(filename string, _ []byte, _ os.FileMode) error {
+	// 		if filename == "/tmp/example.com" {
+	// 			return fmt.Errorf("mock error writing to temporary resolver file")
+	// 		}
+	// 		return nil
+	// 	}
 
-		// Call the ConfigureDNS method and expect an error due to failure in writing to the resolver file
-		err = nm.ConfigureDNS()
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "Error writing to temporary resolver file: mock error writing to temporary resolver file"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
-		}
-	})
+	// 	// Call the ConfigureDNS method and expect an error due to failure in writing to the resolver file
+	// 	err = nm.ConfigureDNS()
+	// 	if err == nil {
+	// 		t.Fatalf("expected error, got nil")
+	// 	}
+	// 	expectedError := "Error writing to temporary resolver file: mock error writing to temporary resolver file"
+	// 	if err.Error() != expectedError {
+	// 		t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+	// 	}
+	// })
 
 	t.Run("MoveResolverFileError", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()

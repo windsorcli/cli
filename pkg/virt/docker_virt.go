@@ -314,20 +314,21 @@ func (v *DockerVirt) checkDockerDaemon() error {
 	return err
 }
 
-// getFullComposeConfig retrieves the full compose configuration for the DockerVirt.
+// getFullComposeConfig constructs a Docker Compose configuration for DockerVirt. It retrieves the
+// context name and configuration, and checks if Docker is defined. If not, it returns nil. It
+// initializes combined configurations for services, volumes, and networks. It defines a network
+// name and configuration, assigning IPAM settings if a NetworkCIDR is specified. It iterates over
+// services, retrieving their configurations and addresses, appending them to the combined list,
+// and setting IP addresses if applicable. Finally, it creates and returns a Project with these
+// combined configurations.
 func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
-	// Get the context name
 	contextName := v.contextHandler.GetContext()
-
-	// Get the context configuration
 	contextConfig := v.configHandler.GetConfig()
 
-	// Check if Docker is defined in the windsor config
 	if contextConfig.Docker == nil {
 		return nil, nil
 	}
 
-	// Initialize the combined services, volumes, and networks
 	var combinedServices []types.ServiceConfig
 	var combinedVolumes map[string]types.VolumeConfig
 	var combinedNetworks map[string]types.NetworkConfig
@@ -335,7 +336,27 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	combinedVolumes = make(map[string]types.VolumeConfig)
 	combinedNetworks = make(map[string]types.NetworkConfig)
 
-	// Iterate through each service and collect container configs
+	// Configure the network
+	networkName := fmt.Sprintf("windsor-%s", contextName)
+
+	networkConfig := types.NetworkConfig{
+		Driver: "bridge",
+	}
+
+	if contextConfig.Docker.NetworkCIDR != nil {
+		networkConfig.Ipam = types.IPAMConfig{
+			Driver: "default",
+			Config: []*types.IPAMPool{
+				{
+					Subnet: *contextConfig.Docker.NetworkCIDR,
+				},
+			},
+		}
+	}
+
+	combinedNetworks[networkName] = networkConfig
+
+	// Iterate over each service and collect container configs
 	for _, service := range v.services {
 		if serviceInstance, ok := service.(interface {
 			GetComposeConfig() (*types.Config, error)
@@ -343,7 +364,6 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 		}); ok {
 			serviceName := fmt.Sprintf("%T", serviceInstance)
 
-			// Retrieve the compose configuration for the service
 			containerConfigs, err := serviceInstance.GetComposeConfig()
 			if err != nil {
 				return nil, fmt.Errorf("error getting container config from service %s: %w", serviceName, err)
@@ -352,30 +372,28 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 				continue
 			}
 
-			// Add service configurations to the combined list
 			if containerConfigs.Services != nil {
 				for _, containerConfig := range containerConfigs.Services {
+					ipAddress := serviceInstance.GetAddress()
 
-					// Set the IP address for the service
 					containerConfig.Networks = map[string]*types.ServiceNetworkConfig{
-						fmt.Sprintf("windsor-%s", contextName): {
-							Ipv4Address: serviceInstance.GetAddress(),
-						},
+						networkName: {},
 					}
 
-					// Add the service configuration to the combined list
+					if contextConfig.Docker.NetworkCIDR != nil && ipAddress != "127.0.0.1" && ipAddress != "" {
+						containerConfig.Networks[networkName].Ipv4Address = ipAddress
+					}
+
 					combinedServices = append(combinedServices, containerConfig)
 				}
 			}
 
-			// Add volume configurations to the combined map
 			if containerConfigs.Volumes != nil {
 				for volumeName, volumeConfig := range containerConfigs.Volumes {
 					combinedVolumes[volumeName] = volumeConfig
 				}
 			}
 
-			// Add network configurations to the combined map
 			if containerConfigs.Networks != nil {
 				for networkName, networkConfig := range containerConfigs.Networks {
 					combinedNetworks[networkName] = networkConfig
@@ -384,27 +402,6 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 		}
 	}
 
-	// Define the network name based on the context
-	networkName := fmt.Sprintf("windsor-%s", contextName)
-
-	// Assign the CIDR to the network configuration if available
-	if contextConfig.Docker.NetworkCIDR != nil {
-		combinedNetworks[networkName] = types.NetworkConfig{
-			Driver: "bridge",
-			Ipam: types.IPAMConfig{
-				Driver: "default",
-				Config: []*types.IPAMPool{
-					{
-						Subnet: *contextConfig.Docker.NetworkCIDR,
-					},
-				},
-			},
-		}
-	} else {
-		combinedNetworks[networkName] = types.NetworkConfig{}
-	}
-
-	// Create a Project using compose-go with the combined configurations
 	project := &types.Project{
 		Services: combinedServices,
 		Volumes:  combinedVolumes,

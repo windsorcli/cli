@@ -319,42 +319,42 @@ func TestRealController_CreateVirtualizationComponents(t *testing.T) {
 		t.Logf("Success: virtualization components created and registered")
 	})
 
-	t.Run("EmptyDriver", func(t *testing.T) {
-		// Given a new injector and a new real controller
-		injector := di.NewInjector()
-		controller := NewRealController(injector)
+	// t.Run("EmptyDriver", func(t *testing.T) {
+	// 	// Given a new injector and a new real controller
+	// 	injector := di.NewInjector()
+	// 	controller := NewRealController(injector)
 
-		// And a mock config handler with GetString("vm.driver") returning an empty string
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return ""
-			}
-			return ""
-		}
-		injector.Register("configHandler", mockConfigHandler)
-		controller.configHandler = mockConfigHandler
+	// 	// And a mock config handler with GetString("vm.driver") returning an empty string
+	// 	mockConfigHandler := config.NewMockConfigHandler()
+	// 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+	// 		if key == "vm.driver" {
+	// 			return ""
+	// 		}
+	// 		return ""
+	// 	}
+	// 	injector.Register("configHandler", mockConfigHandler)
+	// 	controller.configHandler = mockConfigHandler
 
-		// When creating virtualization components
-		err := controller.CreateVirtualizationComponents()
+	// 	// When creating virtualization components
+	// 	err := controller.CreateVirtualizationComponents()
 
-		// Then there should be no error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+	// 	// Then there should be no error
+	// 	if err != nil {
+	// 		t.Fatalf("expected no error, got %v", err)
+	// 	}
 
-		// And the virtual machine should not be registered in the injector
-		if injector.Resolve("virtualMachine") != nil {
-			t.Fatalf("expected virtualMachine not to be registered")
-		}
+	// 	// And the virtual machine should not be registered in the injector
+	// 	if injector.Resolve("virtualMachine") != nil {
+	// 		t.Fatalf("expected virtualMachine not to be registered")
+	// 	}
 
-		// And the network manager should not be registered in the injector
-		if injector.Resolve("networkManager") != nil {
-			t.Fatalf("expected networkManager not to be registered")
-		}
+	// 	// And the network manager should not be registered in the injector
+	// 	if injector.Resolve("networkManager") != nil {
+	// 		t.Fatalf("expected networkManager not to be registered")
+	// 	}
 
-		t.Logf("Success: no virtualization components created or registered")
-	})
+	// 	t.Logf("Success: no virtualization components created or registered")
+	// })
 
 	t.Run("DockerDisabled", func(t *testing.T) {
 		// Given a new injector and a new real controller

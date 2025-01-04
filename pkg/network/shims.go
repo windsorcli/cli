@@ -3,7 +3,11 @@ package network
 import (
 	"net"
 	"os"
+	"runtime"
 )
+
+// goos is a wrapper around runtime.GOOS
+func goos() string { return runtime.GOOS }
 
 // stat is a wrapper around os.Stat
 var stat = os.Stat
