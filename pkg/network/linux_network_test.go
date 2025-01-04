@@ -6,6 +6,7 @@ package network
 import (
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"testing"
 
@@ -131,6 +132,64 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		err = nm.ConfigureHostRoute()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("SuccessWithLocalhost", func(t *testing.T) {
+		mocks := setupLinuxNetworkManagerMocks()
+
+		// Mock the GetString function to return "docker-desktop" for "vm.driver"
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return "some_value"
+		}
+
+		// Create a networkManager using NewBaseNetworkManager with the mock DI container
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Initialize the network manager
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Check if isLocalhost is set to true
+		if !nm.isLocalhost {
+			t.Fatalf("expected isLocalhost to be true, got false")
+		}
+
+		// Mock the shell.ExecSilent function to simulate a successful route check
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "ip" && args[0] == "route" && args[1] == "show" {
+				return "192.168.5.0/24 via 192.168.5.100 dev eth0", nil
+			}
+			return "", nil
+		}
+
+		// Mock the writeFile function to validate it is called
+		writeFileCalled := false
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			writeFileCalled = true
+			return nil
+		}
+
+		// Call the ConfigureDNS method and expect no error
+		err = nm.ConfigureDNS()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Validate that writeFile was called
+		if !writeFileCalled {
+			t.Fatalf("expected writeFile to be called, but it was not")
 		}
 	})
 
