@@ -33,6 +33,19 @@ func (n *ColimaNetworkManager) Initialize() error {
 		return err
 	}
 
+	if err := n.resolveDependencies(); err != nil {
+		return err
+	}
+
+	// Set docker.NetworkCIDR to the default value if it's not set
+	if n.configHandler.GetString("docker.network_cidr") == "" {
+		n.configHandler.SetContextValue("docker.network_cidr", constants.DEFAULT_NETWORK_CIDR)
+	}
+
+	return nil
+}
+
+func (n *ColimaNetworkManager) resolveDependencies() error {
 	sshClient, ok := n.injector.Resolve("sshClient").(ssh.Client)
 	if !ok {
 		return fmt.Errorf("resolved ssh client instance is not of type ssh.Client")
@@ -45,17 +58,11 @@ func (n *ColimaNetworkManager) Initialize() error {
 	}
 	n.secureShell = secureShell
 
-	// Get the network interface provider from the injector
 	networkInterfaceProvider, ok := n.injector.Resolve("networkInterfaceProvider").(NetworkInterfaceProvider)
 	if !ok {
 		return fmt.Errorf("failed to resolve network interface provider")
 	}
 	n.networkInterfaceProvider = networkInterfaceProvider
-
-	// Set docker.NetworkCIDR to the default value if it's not set
-	if n.configHandler.GetString("docker.network_cidr") == "" {
-		n.configHandler.SetContextValue("docker.network_cidr", constants.DEFAULT_NETWORK_CIDR)
-	}
 
 	return nil
 }
