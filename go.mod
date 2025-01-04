@@ -16,7 +16,7 @@ require (
 	github.com/hashicorp/hcl/v2 v2.23.0
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/spf13/cobra v1.8.1
-	github.com/zclconf/go-cty v1.15.1
+	github.com/zclconf/go-cty v1.16.0
 	golang.org/x/crypto v0.31.0
 	golang.org/x/sys v0.28.0
 	k8s.io/apimachinery v0.32.0
