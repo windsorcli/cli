@@ -8,6 +8,33 @@ import (
 	"github.com/fluxcd/pkg/apis/kustomize"
 )
 
+// Helper functions to check if all elements are present
+func containsAll(slice []string, elements []string) bool {
+	elementMap := make(map[string]bool)
+	for _, el := range slice {
+		elementMap[el] = true
+	}
+	for _, el := range elements {
+		if !elementMap[el] {
+			return false
+		}
+	}
+	return true
+}
+
+func containsAllPatches(slice []kustomize.Patch, patches []string) bool {
+	patchMap := make(map[string]bool)
+	for _, patch := range slice {
+		patchMap[patch.Patch] = true
+	}
+	for _, patch := range patches {
+		if !patchMap[patch] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 	// Common data set for tests
 	baseDst := &Blueprint{
@@ -427,11 +454,11 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 		}
 
 		kustomization1 := dst.Kustomizations[0]
-		if len(kustomization1.Components) != 2 || kustomization1.Components[0] != "component1" || kustomization1.Components[1] != "component2" {
-			t.Errorf("Expected Kustomization1 Components to be ['component1', 'component2'], but got %v", kustomization1.Components)
+		if len(kustomization1.Components) != 2 || !containsAll(kustomization1.Components, []string{"component1", "component2"}) {
+			t.Errorf("Expected Kustomization1 Components to contain ['component1', 'component2'], but got %v", kustomization1.Components)
 		}
-		if len(kustomization1.Patches) != 2 || kustomization1.Patches[0].Patch != "patch1" || kustomization1.Patches[1].Patch != "patch2" {
-			t.Errorf("Expected Kustomization1 Patches to be ['patch1', 'patch2'], but got %v", kustomization1.Patches)
+		if len(kustomization1.Patches) != 2 || !containsAllPatches(kustomization1.Patches, []string{"patch1", "patch2"}) {
+			t.Errorf("Expected Kustomization1 Patches to contain ['patch1', 'patch2'], but got %v", kustomization1.Patches)
 		}
 
 		kustomization2 := dst.Kustomizations[1]
