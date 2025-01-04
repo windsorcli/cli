@@ -136,6 +136,76 @@ func setupColimaNetworkManagerMocks() *ColimaNetworkManagerMocks {
 	}
 }
 
+func TestColimaNetworkManager_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupColimaNetworkManagerMocks()
+		nm := NewColimaNetworkManager(mocks.Injector)
+		if err := nm.Initialize(); err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Verify that all dependencies are correctly initialized
+		if nm.sshClient == nil {
+			t.Fatalf("expected sshClient to be initialized, got nil")
+		}
+		if nm.secureShell == nil {
+			t.Fatalf("expected secureShell to be initialized, got nil")
+		}
+		if nm.networkInterfaceProvider == nil {
+			t.Fatalf("expected networkInterfaceProvider to be initialized, got nil")
+		}
+
+		// Mock the configHandler to return a specific CIDR for testing
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return "10.5.0.0/16"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// Verify that docker.network_cidr is set to the mocked value
+		if actualCIDR := nm.configHandler.GetString("docker.network_cidr"); actualCIDR != "10.5.0.0/16" {
+			t.Fatalf("expected docker.network_cidr to be 10.5.0.0/16, got %s", actualCIDR)
+		}
+	})
+
+	t.Run("ErrorResolvingSSHClient", func(t *testing.T) {
+		mocks := setupColimaNetworkManagerMocks()
+		// Simulate the failure by not registering the sshClient in the injector
+		mocks.Injector.Register("sshClient", nil)
+		nm := NewColimaNetworkManager(mocks.Injector)
+		err := nm.Initialize()
+		if err == nil {
+			t.Fatalf("expected error due to unresolved sshClient, got nil")
+		}
+	})
+
+	t.Run("ErrorResolvingSecureShell", func(t *testing.T) {
+		mocks := setupColimaNetworkManagerMocks()
+		// Simulate the failure by not registering the secureShell in the injector
+		mocks.Injector.Register("secureShell", nil)
+		nm := NewColimaNetworkManager(mocks.Injector)
+		err := nm.Initialize()
+		if err == nil {
+			t.Errorf("expected error due to unresolved secureShell, got nil")
+		}
+	})
+
+	t.Run("ErrorResolvingNetworkInterfaceProvider", func(t *testing.T) {
+		mocks := setupColimaNetworkManagerMocks()
+		// Simulate the failure by not registering the networkInterfaceProvider in the injector
+		mocks.Injector.Register("networkInterfaceProvider", nil)
+		nm := NewColimaNetworkManager(mocks.Injector)
+		err := nm.Initialize()
+		if err == nil {
+			t.Fatalf("expected error due to unresolved networkInterfaceProvider, got nil")
+		}
+	})
+}
+
 func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mocks using setupSafeAwsEnvMocks

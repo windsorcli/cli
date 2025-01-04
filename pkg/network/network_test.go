@@ -3,6 +3,7 @@ package network
 import (
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"testing"
 
@@ -151,26 +152,65 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		}
 	})
 
-	// t.Run("ErrorResolvingSSHClient", func(t *testing.T) {
-	// 	mocks := setupNetworkManagerMocks()
+	t.Run("SuccessLocalhost", func(t *testing.T) {
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 
-	// 	// Register the sshClient as "invalid"
-	// 	mocks.Injector.Register("sshClient", "invalid")
+		// Set the configuration to simulate docker-desktop
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			return ""
+		}
 
-	// 	// Create a new NetworkManager
-	// 	nm, err := NewBaseNetworkManager(mocks.Injector)
-	// 	if err != nil {
-	// 		t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-	// 	}
+		// Capture the SetAddress calls
+		mockService := services.NewMockService()
+		mockService.SetAddressFunc = func(address string) error {
+			if address != "127.0.0.1" {
+				return fmt.Errorf("expected address to be 127.0.0.1, got %v", address)
+			}
+			return nil
+		}
+		mocks.Injector.Register("service", mockService)
 
-	// 	// Run Initialize on the NetworkManager
-	// 	err = nm.Initialize()
-	// 	if err == nil {
-	// 		t.Fatalf("expected an error during Initialize, got nil")
-	// 	} else if err.Error() != "resolved ssh client instance is not of type ssh.Client" {
-	// 		t.Fatalf("unexpected error message: got %v", err)
-	// 	}
-	// })
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if !nm.isLocalhost {
+			t.Fatalf("expected isLocalhost to be true, got false")
+		}
+	})
+
+	t.Run("SetAddressFailure", func(t *testing.T) {
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Mock a failure in SetAddress using SetAddressFunc
+		mockService := services.NewMockService()
+		mockService.SetAddressFunc = func(address string) error {
+			return fmt.Errorf("mock error setting address for service")
+		}
+		mocks.Injector.Register("service", mockService)
+
+		err = nm.Initialize()
+		if err == nil {
+			t.Fatalf("expected error during Initialize, got nil")
+		}
+
+		expectedErrorSubstring := "error setting address for service"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+		}
+	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
 		mocks := setupNetworkManagerMocks()
@@ -192,28 +232,6 @@ func TestNetworkManager_Initialize(t *testing.T) {
 			t.Fatalf("unexpected error message: got %v", err)
 		}
 	})
-
-	// t.Run("ErrorResolvingSecureShell", func(t *testing.T) {
-	// 	injector := di.NewMockInjector()
-	// 	setupNetworkManagerMocks(injector)
-
-	// 	// Register the secureShell as "invalid"
-	// 	injector.Register("secureShell", "invalid")
-
-	// 	// Create a new NetworkManager
-	// 	nm, err := NewBaseNetworkManager(injector)
-	// 	if err != nil {
-	// 		t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-	// 	}
-
-	// 	// Run Initialize on the NetworkManager
-	// 	err = nm.Initialize()
-	// 	if err == nil {
-	// 		t.Fatalf("expected an error during Initialize, got nil")
-	// 	} else if err.Error() != "resolved secure shell instance is not of type shell.Shell" {
-	// 		t.Fatalf("unexpected error message: got %v", err)
-	// 	}
-	// })
 
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		mocks := setupNetworkManagerMocks()
@@ -257,28 +275,6 @@ func TestNetworkManager_Initialize(t *testing.T) {
 			t.Fatalf("unexpected error message: got %v", err)
 		}
 	})
-
-	// t.Run("ErrorResolvingNetworkInterfaceProvider", func(t *testing.T) {
-	// 	// Setup mocks
-	// 	mocks := setupNetworkManagerMocks()
-
-	// 	// Register the networkInterfaceProvider as "invalid"
-	// 	mocks.Injector.Register("networkInterfaceProvider", "invalid")
-
-	// 	// Create a new NetworkManager
-	// 	nm, err := NewBaseNetworkManager(mocks.Injector)
-	// 	if err != nil {
-	// 		t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-	// 	}
-
-	// 	// Run Initialize on the NetworkManager
-	// 	err = nm.Initialize()
-	// 	if err == nil {
-	// 		t.Fatalf("expected an error during Initialize, got nil")
-	// 	} else if err.Error() != "failed to resolve network interface provider" {
-	// 		t.Fatalf("unexpected error message: got %v", err)
-	// 	}
-	// })
 
 	t.Run("ErrorResolvingServices", func(t *testing.T) {
 		// Setup mock components
@@ -401,24 +397,6 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 		}
 	})
 
-	// t.Run("NilNetworkCIDR", func(t *testing.T) {
-	// 	services := []services.Service{
-	// 		&services.MockService{},
-	// 		&services.MockService{},
-	// 	}
-
-	// 	err := assignIPAddresses(services, nil)
-	// 	if err != nil {
-	// 		t.Fatalf("expected no error, got %v", err)
-	// 	}
-
-	// 	for _, service := range services {
-	// 		if service.GetAddress() != "" {
-	// 			t.Errorf("expected empty address, got %s", service.GetAddress())
-	// 		}
-	// 	}
-	// })
-
 	t.Run("InvalidNetworkCIDR", func(t *testing.T) {
 		services := []services.Service{
 			&services.MockService{},
@@ -468,6 +446,292 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "not enough IP addresses in the CIDR range") {
 			t.Fatalf("expected error message to contain 'not enough IP addresses in the CIDR range', got %v", err)
+		}
+	})
+
+	t.Run("NetworkCIDRNotDefined", func(t *testing.T) {
+		services := []services.Service{
+			&services.MockService{},
+		}
+		var networkCIDR *string
+
+		err := assignIPAddresses(services, networkCIDR)
+		if err == nil {
+			t.Fatal("expected an error, got none")
+		}
+		if !strings.Contains(err.Error(), "network CIDR is not defined") {
+			t.Fatalf("expected error message to contain 'network CIDR is not defined', got %v", err)
+		}
+	})
+}
+
+func TestNetworkManager_updateHostsFile(t *testing.T) {
+	t.Run("AddEntrySuccess", func(t *testing.T) {
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during Initialize, got %v", err)
+		}
+
+		// Mock the shell execution
+		mocks.MockShell.ExecSudoFunc = func(description string, command string, args ...string) (string, error) {
+			return "", nil
+		}
+
+		// Mock the readFile and writeFile functions
+		readFile = func(filename string) ([]byte, error) {
+			return []byte(""), nil
+		}
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+
+		nm.isLocalhost = true
+		err = nm.updateHostsFile("example.com")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("RemoveEntrySuccess", func(t *testing.T) {
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during Initialize, got %v", err)
+		}
+
+		// Mock the shell execution
+		mocks.MockShell.ExecSudoFunc = func(description string, command string, args ...string) (string, error) {
+			return "", nil
+		}
+
+		// Mock the readFile and writeFile functions
+		readFile = func(filename string) ([]byte, error) {
+			return []byte("127.0.0.1 example.com\n"), nil
+		}
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+
+		nm.isLocalhost = false
+		err = nm.updateHostsFile("example.com")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorReadingHostsFile", func(t *testing.T) {
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during Initialize, got %v", err)
+		}
+
+		// Mock the readFile function to return an error
+		readFile = func(filename string) ([]byte, error) {
+			return nil, fmt.Errorf("mock error reading file")
+		}
+
+		err = nm.updateHostsFile("example.com")
+		if err == nil || !strings.Contains(err.Error(), "Error reading hosts file") {
+			t.Fatalf("expected error reading hosts file, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWritingHostsFile", func(t *testing.T) {
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during Initialize, got %v", err)
+		}
+
+		// Mock the readFile function
+		readFile = func(filename string) ([]byte, error) {
+			return []byte(""), nil
+		}
+
+		// Mock the writeFile function to return an error
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("mock error writing file")
+		}
+
+		nm.isLocalhost = true
+		err = nm.updateHostsFile("example.com")
+		if err == nil || !strings.Contains(err.Error(), "Error writing to temporary hosts file") {
+			t.Fatalf("expected error writing to temporary hosts file, got %v", err)
+		}
+	})
+
+	t.Run("ErrorUpdatingHostsFile", func(t *testing.T) {
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during Initialize, got %v", err)
+		}
+
+		// Mock the shell execution to return an error
+		mocks.MockShell.ExecSudoFunc = func(description string, command string, args ...string) (string, error) {
+			return "", fmt.Errorf("mock error updating hosts file")
+		}
+
+		// Mock the readFile and writeFile functions
+		readFile = func(_ string) ([]byte, error) {
+			return []byte(""), nil
+		}
+		writeFile = func(_ string, _ []byte, _ os.FileMode) error {
+			return nil
+		}
+
+		nm.isLocalhost = true
+		err = nm.updateHostsFile("example.com")
+		if err == nil || !strings.Contains(err.Error(), "Error updating hosts file") {
+			t.Fatalf("expected error updating hosts file, got %v", err)
+		}
+	})
+
+	t.Run("WindowsHostsFilePath", func(t *testing.T) {
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during Initialize, got %v", err)
+		}
+
+		// Mock the goos function to return "windows"
+		goos = func() string { return "windows" }
+
+		// Mock the shell execution
+		mocks.MockShell.ExecSudoFunc = func(description string, command string, args ...string) (string, error) {
+			return "", nil
+		}
+
+		// Mock the readFile and writeFile functions
+		readFile = func(filename string) ([]byte, error) {
+			if filename != "C:\\Windows\\System32\\drivers\\etc\\hosts" {
+				return nil, fmt.Errorf("unexpected file path: %s", filename)
+			}
+			return []byte(""), nil
+		}
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			if filename != "C:\\Windows\\Temp\\hosts" {
+				return fmt.Errorf("unexpected file path: %s", filename)
+			}
+			return nil
+		}
+
+		nm.isLocalhost = true
+		err = nm.updateHostsFile("example.com")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorUpdatingWindowsHostsFile", func(t *testing.T) {
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during Initialize, got %v", err)
+		}
+
+		// Mock the goos function to return "windows"
+		originalGoos := goos
+		defer func() { goos = originalGoos }()
+		goos = func() string { return "windows" }
+
+		// Mock the shell execution to simulate an error
+		mocks.MockShell.ExecSudoFunc = func(description string, command string, args ...string) (string, error) {
+			return "", fmt.Errorf("mock error updating hosts file")
+		}
+
+		// Mock the readFile and writeFile functions
+		readFile = func(filename string) ([]byte, error) {
+			return []byte(""), nil
+		}
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+
+		nm.isLocalhost = true
+		err = nm.updateHostsFile("example.com")
+		if err == nil || !strings.Contains(err.Error(), "mock error updating hosts file") {
+			t.Fatalf("expected mock error updating hosts file, got %v", err)
+		}
+	})
+
+	t.Run("UnixHostsFilePath", func(t *testing.T) {
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during Initialize, got %v", err)
+		}
+
+		// Mock the goos function to return a Unix-like OS
+		originalGoos := goos
+		defer func() { goos = originalGoos }()
+		goos = func() string { return "linux" }
+
+		// Mock the shell execution
+		mocks.MockShell.ExecSudoFunc = func(description string, command string, args ...string) (string, error) {
+			return "", nil
+		}
+
+		// Mock the readFile and writeFile functions
+		readFile = func(filename string) ([]byte, error) {
+			if filename != "/etc/hosts" {
+				return nil, fmt.Errorf("unexpected file path: %s", filename)
+			}
+			return []byte(""), nil
+		}
+		writeFile = func(filename string, _ []byte, _ os.FileMode) error {
+			if filename != "/tmp/hosts" {
+				return fmt.Errorf("unexpected file path: %s", filename)
+			}
+			return nil
+		}
+
+		nm.isLocalhost = true
+		err = nm.updateHostsFile("example.com")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
