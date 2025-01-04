@@ -242,4 +242,45 @@ func TestTalosControlPlaneService_GetComposeConfig(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("SuccessLocalhost", func(t *testing.T) {
+		// Setup mocks for this test
+		mocks := setupSafeTalosControlPlaneServiceMocks()
+		service := NewTalosControlPlaneService(mocks.Injector)
+
+		// Set the service name to localhost
+		service.SetName("localhost")
+
+		// Initialize the service
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Set the address to a localhost value
+		err = service.SetAddress("127.0.0.1")
+		if err != nil {
+			t.Fatalf("expected no error when setting address, got %v", err)
+		}
+
+		// When: the GetComposeConfig method is called
+		config, err := service.GetComposeConfig()
+
+		// Then: no error should be returned and the config should match the expected config
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if config == nil {
+			t.Fatalf("expected config, got nil")
+		}
+		if len(config.Services) != 1 {
+			t.Fatalf("expected 1 service, got %d", len(config.Services))
+		}
+		if config.Services[0].Name != "localhost.test" {
+			t.Fatalf("expected service name localhost.test, got %s", config.Services[0].Name)
+		}
+		if config.Services[0].Image != constants.DEFAULT_TALOS_IMAGE {
+			t.Fatalf("expected service image %s, got %s", constants.DEFAULT_TALOS_IMAGE, config.Services[0].Image)
+		}
+	})
 }
