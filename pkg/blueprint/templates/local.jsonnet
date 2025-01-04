@@ -45,7 +45,7 @@ local registryMirrors = std.foldl(
     {
       name: "core",
       url: "github.com/windsorcli/core",
-      ref: "v0.1.0",
+      ref: "main",
     },
   ],
   terraform: if firstNode != null then [
