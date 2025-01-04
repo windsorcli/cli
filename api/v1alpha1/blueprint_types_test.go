@@ -19,7 +19,9 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 				{
 					Name: "source1",
 					Url:  "http://example.com/source1",
-					Ref:  "v1.0.0",
+					Ref: Reference{
+						Branch: "main",
+					},
 				},
 			},
 			TerraformComponents: []TerraformComponent{
@@ -47,7 +49,9 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 				{
 					Name: "source2",
 					Url:  "http://example.com/source2",
-					Ref:  "v2.0.0",
+					Ref: Reference{
+						Branch: "main",
+					},
 				},
 			},
 			TerraformComponents: []TerraformComponent{
@@ -89,8 +93,8 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 		}
 
 		expectedSources := map[string]Source{
-			"source1": {Name: "source1", Url: "http://example.com/source1", Ref: "v1.0.0"},
-			"source2": {Name: "source2", Url: "http://example.com/source2", Ref: "v2.0.0"},
+			"source1": {Name: "source1", Url: "http://example.com/source1", Ref: Reference{Branch: "main"}},
+			"source2": {Name: "source2", Url: "http://example.com/source2", Ref: Reference{Branch: "main"}},
 		}
 		if len(dst.Sources) != len(expectedSources) {
 			t.Fatalf("Expected %d Sources, but got %d", len(expectedSources), len(dst.Sources))
@@ -315,7 +319,7 @@ func TestBlueprintV1Alpha1_Copy(t *testing.T) {
 					Name:       "source1",
 					Url:        "https://example.com/repo1.git",
 					PathPrefix: "terraform",
-					Ref:        "main",
+					Ref:        Reference{Branch: "main"},
 				},
 			},
 			TerraformComponents: []TerraformComponent{

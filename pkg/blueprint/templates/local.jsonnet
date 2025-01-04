@@ -41,11 +41,20 @@ local registryMirrors = std.foldl(
     name: "local",
     description: "This blueprint outlines resources in the local context",
   },
+  repository: {
+    url: "http://git.test/git/" + context.projectName,
+    ref: {
+      branch: "main",
+    },
+    secretName: "flux-system",
+  },
   sources: [
     {
       name: "core",
       url: "github.com/windsorcli/core",
-      ref: "v0.1.0",
+      ref: {
+        branch: "main",
+      },
     },
   ],
   terraform: if firstNode != null then [
@@ -67,7 +76,7 @@ local registryMirrors = std.foldl(
           std.objectValues(context.cluster.controlplanes.nodes)
         ),
 
-        // Create a list of worker nodes
+        // Create a list of worker nodesq
         workers: std.map(
           function(v) {
             endpoint: v.endpoint,
@@ -89,6 +98,10 @@ local registryMirrors = std.foldl(
                   firstNode.node,
                 ],
               },
+              extraManifests: [
+                // renovate: datasource=github-releases depName=kubelet-serving-cert-approver package=alex1989hu/kubelet-serving-cert-approver
+                "https://raw.githubusercontent.com/alex1989hu/kubelet-serving-cert-approver/v0.8.7/deploy/standalone-install.yaml",
+              ],
             },
           }
           +
@@ -104,13 +117,18 @@ local registryMirrors = std.foldl(
                   forwardKubeDNSToHost: true,
                 },
               },
-              network: {
-                interfaces: [
-                  {
-                    ignore: true,
-                    interface: "eth0",
-                  },
-                ],
+              // network: {
+              //   interfaces: [
+              //     {
+              //       ignore: true,
+              //       interface: "eth0",
+              //     },
+              //   ],
+              // },
+              kubelet: {
+                extraArgs: {
+                  "rotate-server-certificates": "true",
+                },
               },
             },
           }

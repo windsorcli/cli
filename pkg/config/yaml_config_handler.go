@@ -171,7 +171,7 @@ func (y *YamlConfigHandler) SetContextValue(path string, value interface{}) erro
 
 // GetConfig returns the context config object for the current context, or the default if none is set.
 func (y *YamlConfigHandler) GetConfig() *Context {
-	defaultConfigCopy := y.defaultContextConfig.Copy() // Copy the internal default configuration
+	defaultConfigCopy := y.defaultContextConfig.DeepCopy()
 	context := y.config.Context
 
 	if context == nil {

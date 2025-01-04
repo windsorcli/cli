@@ -7,12 +7,17 @@ import (
 )
 
 var installCmd = &cobra.Command{
-	Use:   "install",
-	Short: "Install the blueprint's cluster-level services",
+	Use:     "install",
+	Short:   "Install the blueprint's cluster-level services",
+	PreRunE: preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Create project components
 		if err := controller.CreateProjectComponents(); err != nil {
 			return fmt.Errorf("Error creating project components: %w", err)
+		}
+
+		if err := controller.InitializeComponents(); err != nil {
+			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
 		// Resolve the blueprint handler

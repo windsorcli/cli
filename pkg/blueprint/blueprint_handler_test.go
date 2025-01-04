@@ -1194,7 +1194,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 			{
 				Name: "source1",
 				Url:  "git::https://example.com/source1.git",
-				Ref:  "v1.0.0",
+				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
 			},
 		}
 		blueprintHandler.SetSources(expectedSources)
@@ -1235,7 +1235,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 			{
 				Name: "source1",
 				Url:  "git::https://example.com/source1.git",
-				Ref:  "v1.0.0",
+				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
 			},
 		}
 		blueprintHandler.SetSources(expectedSources)
@@ -1276,7 +1276,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 			{
 				Name: "source1",
 				Url:  "git::https://example.com/source1.git",
-				Ref:  "v1.0.0",
+				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
 			},
 		}
 		blueprintHandler.SetSources(expectedSources)
@@ -1344,7 +1344,7 @@ func TestBlueprintHandler_GetSources(t *testing.T) {
 			{
 				Name: "source1",
 				Url:  "git::https://example.com/source1.git",
-				Ref:  "v1.0.0",
+				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
 			},
 		}
 		blueprintHandler.SetSources(expectedSources)
@@ -1543,7 +1543,7 @@ func TestBlueprintHandler_SetSources(t *testing.T) {
 			{
 				Name: "source1",
 				Url:  "git::https://example.com/source1.git",
-				Ref:  "v1.0.0",
+				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
 			},
 		}
 		blueprintHandler.SetSources(expectedSources)
@@ -1671,7 +1671,7 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 				Name:       "source1",
 				Url:        "git::https://example.com/source1.git",
 				PathPrefix: "", // Intentionally left empty to test default pathPrefix
-				Ref:        "v1.0.0",
+				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
 			},
 		}
 		blueprintHandler.SetSources(expectedSources)
@@ -1691,7 +1691,7 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 
 		// Then the resolved sources should match the expected sources with default pathPrefix
 		for i, component := range blueprint.TerraformComponents {
-			expectedSource := expectedSources[i].Url + "//terraform/" + component.Path + "?ref=" + expectedSources[i].Ref
+			expectedSource := expectedSources[i].Url + "//terraform/" + component.Path + "?ref=" + expectedSources[i].Ref.Branch
 			if component.Source != expectedSource {
 				t.Errorf("Expected component source to be %v, but got %v", expectedSource, component.Source)
 			}
@@ -1777,7 +1777,7 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 			Name:       "test-source",
 			Url:        "https://github.com/user/repo.git",
 			PathPrefix: "terraform",
-			Ref:        "main",
+			Ref:        blueprintv1alpha1.Reference{Branch: "main"},
 		}})
 
 		blueprintHandler.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{{
