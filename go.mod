@@ -7,7 +7,7 @@ require (
 	github.com/briandowns/spinner v1.23.1
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/fluxcd/kustomize-controller/api v1.4.0
-	github.com/fluxcd/pkg/apis/kustomize v1.6.1
+	github.com/fluxcd/pkg/apis/kustomize v1.8.0
 	github.com/fluxcd/pkg/apis/meta v1.6.1
 	github.com/fluxcd/source-controller/api v1.4.1
 	github.com/getsops/sops/v3 v3.9.3
@@ -171,7 +171,7 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/api v0.32.0 // indirect
-	k8s.io/apiextensions-apiserver v0.31.1 // indirect
+	k8s.io/apiextensions-apiserver v0.32.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20241212222426-2c72e554b1e7 // indirect
 	k8s.io/utils v0.0.0-20241210054802-24370beab758 // indirect
