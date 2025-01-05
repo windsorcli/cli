@@ -303,6 +303,91 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorSettingLocalhostAddresses", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
+		}
+
+		// Set the configuration to simulate docker-desktop
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			return ""
+		}
+
+		// Mock SetAddress to return an error
+		mockService := services.NewMockService()
+		mockService.SetAddressFunc = func(address string) error {
+			if address == "127.0.0.1" {
+				return fmt.Errorf("mock error setting address")
+			}
+			return nil
+		}
+		mocks.Injector.Register("service", mockService)
+
+		// Call the Initialize method
+		err = nm.Initialize()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+
+		// Verify the error message contains the expected substring
+		expectedErrorSubstring := "error setting address for service"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+		}
+
+		// Verify that isLocalhost is true
+		if !nm.isLocalhost {
+			t.Errorf("expected isLocalhost to be true, got false")
+		}
+	})
+
+	t.Run("ErrorSettingNetworkCidr", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
+		}
+
+		// Mock GetString to return an empty string for docker.network_cidr
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "docker.network_cidr" {
+				return ""
+			}
+			return ""
+		}
+
+		// Mock SetContextValue to return an error when setting docker.network_cidr
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "docker.network_cidr" {
+				return fmt.Errorf("mock error setting network CIDR")
+			}
+			return nil
+		}
+
+		// Call the Initialize method
+		err = nm.Initialize()
+
+		// Assert that an error occurred
+		if err == nil {
+			t.Errorf("expected error, got none")
+		}
+
+		// Verify the error message contains the expected substring
+		expectedErrorSubstring := "error setting default network CIDR"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
+		}
+	})
+
 	t.Run("ErrorAssigningIPAddresses", func(t *testing.T) {
 		// Setup mock components
 		injector := di.NewMockInjector()
