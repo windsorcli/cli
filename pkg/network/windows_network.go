@@ -53,72 +53,50 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 // it sets the DNS server using PowerShell and flushes the DNS cache to ensure changes take
 // effect.
 func (n *BaseNetworkManager) ConfigureDNS() error {
-	dnsDomain := n.configHandler.GetString("dns.name")
-	if dnsDomain == "" {
-		return fmt.Errorf("DNS domain is not configured")
+	tld := n.configHandler.GetString("dns.name")
+	if tld == "" {
+		return fmt.Errorf("DNS TLD is not configured")
 	}
 	dnsIP := n.configHandler.GetString("dns.address")
 
-	if dnsIP == "" {
-		hostsFile := "C:\\Windows\\System32\\drivers\\etc\\hosts"
-		existingContent, err := readFile(hostsFile)
+	// Always update the hosts file
+	if err := n.updateHostsFile(tld); err != nil {
+		return fmt.Errorf("failed to update hosts file: %w", err)
+	}
+
+	// Proceed with DNS server configuration if DNS IP is provided
+	if dnsIP != "" {
+		currentDNSOutput, err := n.shell.ExecSilent(
+			"powershell",
+			"-Command",
+			"Get-DnsClientServerAddress -InterfaceAlias 'Ethernet' | Select-Object -ExpandProperty ServerAddresses",
+		)
 		if err != nil {
-			return fmt.Errorf("Error reading hosts file: %w", err)
+			return fmt.Errorf("failed to get current DNS server: %w", err)
 		}
 
-		hostsEntry := fmt.Sprintf("127.0.0.1 %s", dnsDomain)
-		lines := strings.Split(string(existingContent), "\n")
-		entryExists := false
-
-		for i, line := range lines {
-			if strings.Contains(line, dnsDomain) {
-				lines[i] = hostsEntry
-				entryExists = true
-				break
-			}
+		if strings.Contains(currentDNSOutput, dnsIP) {
+			return nil
 		}
 
-		if !entryExists {
-			lines = append(lines, hostsEntry)
+		fmt.Println("🔐 Setting DNS server")
+		output, err := n.shell.ExecSilent(
+			"powershell",
+			"-Command",
+			fmt.Sprintf("Set-DnsClientServerAddress -InterfaceAlias 'Ethernet' -ServerAddresses %s", dnsIP),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to set DNS server: %w, output: %s", err, output)
 		}
 
-		if err := writeFile(hostsFile, []byte(strings.Join(lines, "\n")), 0644); err != nil {
-			return fmt.Errorf("Error writing to hosts file: %w", err)
+		_, err = n.shell.ExecSilent(
+			"powershell",
+			"-Command",
+			"Clear-DnsClientCache",
+		)
+		if err != nil {
+			return fmt.Errorf("failed to flush DNS cache: %w", err)
 		}
-
-		return nil
-	}
-
-	currentDNSOutput, err := n.shell.ExecSilent(
-		"powershell",
-		"-Command",
-		"Get-DnsClientServerAddress -InterfaceAlias 'Ethernet' | Select-Object -ExpandProperty ServerAddresses",
-	)
-	if err != nil {
-		return fmt.Errorf("failed to get current DNS server: %w", err)
-	}
-
-	if strings.Contains(currentDNSOutput, dnsIP) {
-		return nil
-	}
-
-	fmt.Println("🔐 Setting DNS server")
-	output, err := n.shell.ExecSilent(
-		"powershell",
-		"-Command",
-		fmt.Sprintf("Set-DnsClientServerAddress -InterfaceAlias 'Ethernet' -ServerAddresses %s", dnsIP),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to set DNS server: %w, output: %s", err, output)
-	}
-
-	_, err = n.shell.ExecSilent(
-		"powershell",
-		"-Command",
-		"Clear-DnsClientCache",
-	)
-	if err != nil {
-		return fmt.Errorf("failed to flush DNS cache: %w", err)
 	}
 
 	return nil

@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -32,7 +33,10 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 
 	// Find the registry matching the current s.name value
 	if registry, exists := registries[s.name]; exists {
-		service := s.generateRegistryService(s.name, registry.Remote, registry.Local)
+		service, err := s.generateRegistryService(s.name, registry.Remote, registry.Local)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate registry service: %w", err)
+		}
 		return &types.Config{Services: []types.ServiceConfig{service}}, nil
 	}
 
@@ -60,7 +64,7 @@ func (s *RegistryService) SetAddress(address string) error {
 
 // generateRegistryService creates a ServiceConfig for a Registry service
 // with the specified name, remote URL, and local URL.
-func (s *RegistryService) generateRegistryService(serviceName, remoteURL, localURL string) types.ServiceConfig {
+func (s *RegistryService) generateRegistryService(serviceName, remoteURL, localURL string) (types.ServiceConfig, error) {
 	// Retrieve the context name
 	contextName := s.contextHandler.GetContext()
 
@@ -101,13 +105,18 @@ func (s *RegistryService) generateRegistryService(serviceName, remoteURL, localU
 	}
 
 	// Create a .docker-cache directory at the project root
-	// Use the WINDSOR_PROJECT_ROOT environment variable for the volume mount
-	service.Volumes = []types.ServiceVolumeConfig{
-		{Type: "bind", Source: "${WINDSOR_PROJECT_ROOT}/.docker-cache", Target: "/var/lib/registry"},
+	cacheDir := os.Getenv("WINDSOR_PROJECT_ROOT") + "/.docker-cache"
+	if err := mkdirAll(cacheDir, os.ModePerm); err != nil {
+		return service, fmt.Errorf("error creating .docker-cache directory: %w", err)
 	}
 
-	// Return the configured ServiceConfig.
-	return service
+	// Use the WINDSOR_PROJECT_ROOT environment variable for the volume mount
+	service.Volumes = []types.ServiceVolumeConfig{
+		{Type: "bind", Source: cacheDir, Target: "/var/lib/registry"},
+	}
+
+	// Return the configured ServiceConfig and nil error.
+	return service, nil
 }
 
 // Ensure RegistryService implements Service interface

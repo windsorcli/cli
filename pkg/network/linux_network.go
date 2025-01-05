@@ -71,19 +71,15 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 // systemd-resolved and restarts the service if necessary. It handles errors at each step to ensure
 // proper DNS configuration.
 func (n *BaseNetworkManager) ConfigureDNS() error {
-	contextName := n.contextHandler.GetContext()
 	tld := n.configHandler.GetString("dns.name")
 	if tld == "" {
 		return fmt.Errorf("DNS TLD is not configured")
 	}
-	dnsDomain := fmt.Sprintf("%s.%s", contextName, tld)
 	dnsIP := n.configHandler.GetString("dns.address")
 
-	if n.isLocalhost {
-		if err := n.updateHostsFile(dnsDomain); err != nil {
-			return err
-		}
-		return nil
+	// Update the hosts file
+	if err := n.updateHostsFile(tld); err != nil {
+		return err
 	}
 
 	// If DNS address is configured, use systemd-resolved
@@ -93,7 +89,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	dropInDir := "/etc/systemd/resolved.conf.d"
-	dropInFile := fmt.Sprintf("%s/dns-override-%s.conf", dropInDir, dnsDomain)
+	dropInFile := fmt.Sprintf("%s/dns-override-%s.conf", dropInDir, tld)
 
 	existingContent, err := readFile(dropInFile)
 	expectedContent := fmt.Sprintf("[Resolve]\nDNS=%s\n", dnsIP)

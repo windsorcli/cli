@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -155,6 +156,32 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		// Then: an error should be returned indicating no registry was found
 		if err == nil || !strings.Contains(err.Error(), "no registry found with name") {
 			t.Fatalf("expected error indicating no registry found, got %v", err)
+		}
+	})
+
+	t.Run("MkdirAllFailure", func(t *testing.T) {
+		// Mock mkdirAll to simulate a failure
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mock error creating directory")
+		}
+
+		// Given: a mock config handler, shell, context, and service
+		mocks := setupSafeRegistryServiceMocks()
+		registryService := NewRegistryService(mocks.Injector)
+		registryService.SetName("registry")
+		err := registryService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetComposeConfig is called
+		_, err = registryService.GetComposeConfig()
+
+		// Then: an error should be returned indicating directory creation failure
+		if err == nil || !strings.Contains(err.Error(), "mock error creating directory") {
+			t.Fatalf("expected error indicating directory creation failure, got %v", err)
 		}
 	})
 }

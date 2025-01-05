@@ -56,7 +56,7 @@
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/windsor/main.go",
-      "args": ["install"],
+      "args": ["install", "--verbose"],
       "env": {
         "COMPOSE_FILE": "${workspaceFolder}/contexts/local/compose.yaml",
         "WINDSOR_CONTEXT": "local",

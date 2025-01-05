@@ -12,6 +12,7 @@ import (
 
 // Context represents the context configuration
 type Context struct {
+	ProjectName *string                    `yaml:"projectName,omitempty"`
 	Environment map[string]string          `yaml:"environment,omitempty"`
 	AWS         *aws.AWSConfig             `yaml:"aws,omitempty"`
 	Docker      *docker.DockerConfig       `yaml:"docker,omitempty"`
@@ -26,6 +27,9 @@ type Context struct {
 func (base *Context) Merge(overlay *Context) {
 	if overlay == nil {
 		return
+	}
+	if overlay.ProjectName != nil {
+		base.ProjectName = overlay.ProjectName
 	}
 	if overlay.Environment != nil {
 		if base.Environment == nil {
@@ -79,8 +83,8 @@ func (base *Context) Merge(overlay *Context) {
 	}
 }
 
-// Copy creates a deep copy of the Context object
-func (c *Context) Copy() *Context {
+// DeepCopy creates a deep copy of the Context object
+func (c *Context) DeepCopy() *Context {
 	if c == nil {
 		return nil
 	}
@@ -92,6 +96,7 @@ func (c *Context) Copy() *Context {
 		}
 	}
 	return &Context{
+		ProjectName: c.ProjectName,
 		Environment: environmentCopy,
 		AWS:         c.AWS.Copy(),
 		Docker:      c.Docker.Copy(),
