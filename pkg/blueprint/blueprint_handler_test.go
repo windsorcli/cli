@@ -31,6 +31,10 @@ metadata:
   description: A test blueprint
   authors:
     - John Doe
+repository:
+  url: git::https://example.com/repo.git
+  ref:
+    branch: main
 sources:
   - name: source1
     url: git::https://example.com/source1.git
@@ -73,6 +77,12 @@ local context = std.extVar("context");
     name: "test-blueprint",
     description: "A test blueprint",
     authors: ["John Doe"]
+  },
+  repository: {
+    url: "git::https://example.com/repo.git",
+    ref: {
+      branch: "main"
+    }
   },
   sources: [
     {
@@ -351,6 +361,28 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 		// Then the initialization should fail with the expected error
 		if err == nil || err.Error() != "error getting project root: error getting project root" {
 			t.Errorf("Expected Initialize to fail with 'error getting project root: error getting project root', but got: %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingProjectName", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
+
+		// Simulate an error when setting the project name in the config
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "projectName" {
+				return fmt.Errorf("mock error setting project name")
+			}
+			return nil
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		err := blueprintHandler.Initialize()
+
+		// Then the initialization should fail with the expected error
+		if err == nil || err.Error() != "error setting project name in config: mock error setting project name" {
+			t.Errorf("Expected Initialize to fail with 'error setting project name in config: mock error setting project name', but got: %v", err)
 		}
 	})
 }
@@ -1195,7 +1227,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
 		}
 
-		// Set the sources and kustomizations for the blueprint
+		// Set the sources, repository, and kustomizations for the blueprint
 		expectedSources := []blueprintv1alpha1.Source{
 			{
 				Name: "source1",
@@ -1204,6 +1236,12 @@ func TestBlueprintHandler_Install(t *testing.T) {
 			},
 		}
 		blueprintHandler.SetSources(expectedSources)
+
+		expectedRepository := blueprintv1alpha1.Repository{
+			Url: "git::https://example.com/repo.git",
+			Ref: blueprintv1alpha1.Reference{Branch: "main"},
+		}
+		blueprintHandler.SetRepository(expectedRepository)
 
 		expectedKustomizations := []blueprintv1alpha1.Kustomization{
 			{
@@ -1217,6 +1255,97 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		err = blueprintHandler.Install()
 		if err != nil {
 			t.Fatalf("Expected successful installation, but got error: %v", err)
+		}
+	})
+
+	t.Run("SourceURLWithoutDotGit", func(t *testing.T) {
+		// Mock the kubeClientResourceOperation function for success
+		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+			return nil
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		err := blueprintHandler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Set the sources with a URL ending in ".git"
+		expectedSources := []blueprintv1alpha1.Source{
+			{
+				Name: "source2",
+				Url:  "https://example.com/source2",
+				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+			},
+		}
+		blueprintHandler.SetSources(expectedSources)
+
+		// Attempt to install the blueprint components
+		err = blueprintHandler.Install()
+		if err != nil {
+			t.Fatalf("Expected successful installation with .git URL, but got error: %v", err)
+		}
+	})
+
+	t.Run("SourceWithSecretName", func(t *testing.T) {
+		// Mock the kubeClientResourceOperation function for success
+		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+			return nil
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		err := blueprintHandler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Set the sources with a SecretName
+		expectedSources := []blueprintv1alpha1.Source{
+			{
+				Name:       "source3",
+				Url:        "https://example.com/source3.git",
+				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
+				SecretName: "my-secret",
+			},
+		}
+		blueprintHandler.SetSources(expectedSources)
+
+		// Attempt to install the blueprint components
+		err = blueprintHandler.Install()
+		if err != nil {
+			t.Fatalf("Expected successful installation with SecretName, but got error: %v", err)
+		}
+	})
+
+	t.Run("ErrorApplyingPrimaryRepository", func(t *testing.T) {
+		// Mock the kubeClientResourceOperation function to simulate an error when applying the primary GitRepository
+		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+			if config.ResourceName == "gitrepositories" && config.ResourceInstanceName == "mock-context" {
+				return fmt.Errorf("mock error applying primary GitRepository")
+			}
+			return nil
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		err := blueprintHandler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Set the primary repository for the blueprint
+		expectedRepository := blueprintv1alpha1.Repository{
+			Url: "git::https://example.com/primary-repo.git",
+			Ref: blueprintv1alpha1.Reference{Branch: "main"},
+		}
+		blueprintHandler.SetRepository(expectedRepository)
+
+		// Attempt to install the blueprint components
+		err = blueprintHandler.Install()
+		if err == nil || !strings.Contains(err.Error(), "mock error applying primary GitRepository") {
+			t.Fatalf("Expected error when applying primary GitRepository, but got: %v", err)
 		}
 	})
 
@@ -1677,6 +1806,24 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 				Name:       "source1",
 				Url:        "git::https://example.com/source1.git",
 				PathPrefix: "", // Intentionally left empty to test default pathPrefix
+				Ref:        blueprintv1alpha1.Reference{Commit: "commit123"},
+			},
+			{
+				Name:       "source2",
+				Url:        "git::https://example.com/source2.git",
+				PathPrefix: "", // Intentionally left empty to test default pathPrefix
+				Ref:        blueprintv1alpha1.Reference{SemVer: "v1.0.0"},
+			},
+			{
+				Name:       "source3",
+				Url:        "git::https://example.com/source3.git",
+				PathPrefix: "", // Intentionally left empty to test default pathPrefix
+				Ref:        blueprintv1alpha1.Reference{Tag: "v1.0.1"},
+			},
+			{
+				Name:       "source4",
+				Url:        "git::https://example.com/source4.git",
+				PathPrefix: "", // Intentionally left empty to test default pathPrefix
 				Ref:        blueprintv1alpha1.Reference{Branch: "main"},
 			},
 		}
@@ -1686,7 +1833,19 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 		expectedComponents := []blueprintv1alpha1.TerraformComponent{
 			{
 				Source: "source1",
-				Path:   "path/to/code",
+				Path:   "path/to/code1",
+			},
+			{
+				Source: "source2",
+				Path:   "path/to/code2",
+			},
+			{
+				Source: "source3",
+				Path:   "path/to/code3",
+			},
+			{
+				Source: "source4",
+				Path:   "path/to/code4",
 			},
 		}
 		blueprintHandler.SetTerraformComponents(expectedComponents)
@@ -1697,7 +1856,17 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 
 		// Then the resolved sources should match the expected sources with default pathPrefix
 		for i, component := range blueprint.TerraformComponents {
-			expectedSource := expectedSources[i].Url + "//terraform/" + component.Path + "?ref=" + expectedSources[i].Ref.Branch
+			var expectedRef string
+			if expectedSources[i].Ref.Commit != "" {
+				expectedRef = expectedSources[i].Ref.Commit
+			} else if expectedSources[i].Ref.SemVer != "" {
+				expectedRef = expectedSources[i].Ref.SemVer
+			} else if expectedSources[i].Ref.Tag != "" {
+				expectedRef = expectedSources[i].Ref.Tag
+			} else {
+				expectedRef = expectedSources[i].Ref.Branch
+			}
+			expectedSource := expectedSources[i].Url + "//terraform/" + component.Path + "?ref=" + expectedRef
 			if component.Source != expectedSource {
 				t.Errorf("Expected component source to be %v, but got %v", expectedSource, component.Source)
 			}

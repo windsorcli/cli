@@ -406,15 +406,15 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alp
 					pathPrefix = "terraform"
 				}
 
-				ref := source.Ref.Branch
-				if ref == "" {
-					ref = source.Ref.Tag
-				}
+				ref := source.Ref.Commit
 				if ref == "" {
 					ref = source.Ref.SemVer
 				}
 				if ref == "" {
-					ref = source.Ref.Commit
+					ref = source.Ref.Tag
+				}
+				if ref == "" {
+					ref = source.Ref.Branch
 				}
 
 				resolvedComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "?ref=" + ref

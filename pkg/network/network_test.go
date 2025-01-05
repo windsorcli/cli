@@ -583,6 +583,38 @@ func TestNetworkManager_updateHostsFile(t *testing.T) {
 		}
 	})
 
+	t.Run("AddEntryAlreadyExists", func(t *testing.T) {
+		mocks := setupNetworkManagerMocks()
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during Initialize, got %v", err)
+		}
+
+		// Mock the shell execution
+		mocks.MockShell.ExecSudoFunc = func(description string, command string, args ...string) (string, error) {
+			return "", nil
+		}
+
+		// Mock the readFile and writeFile functions
+		readFile = func(filename string) ([]byte, error) {
+			return []byte("127.0.0.1 example.com\n"), nil
+		}
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("writeFile should not be called when entry already exists")
+		}
+
+		nm.isLocalhost = true
+		err = nm.updateHostsFile("example.com")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
 	t.Run("RemoveEntrySuccess", func(t *testing.T) {
 		mocks := setupNetworkManagerMocks()
 		nm, err := NewBaseNetworkManager(mocks.Injector)

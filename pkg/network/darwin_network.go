@@ -65,19 +65,15 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 // a resolver file for a specified DNS IP. It ensures directories exist,
 // updates files, and flushes the DNS cache to apply changes.
 func (n *BaseNetworkManager) ConfigureDNS() error {
-	contextName := n.contextHandler.GetContext()
 	tld := n.configHandler.GetString("dns.name")
 	if tld == "" {
 		return fmt.Errorf("DNS TLD is not configured")
 	}
-	dnsDomain := fmt.Sprintf("%s.%s", contextName, tld)
 	dnsIP := n.configHandler.GetString("dns.address")
 
-	if n.isLocalhost {
-		if err := n.updateHostsFile(dnsDomain); err != nil {
-			return err
-		}
-		return nil
+	// Update the hosts file
+	if err := n.updateHostsFile(tld); err != nil {
+		return err
 	}
 
 	resolverDir := "/etc/resolver"
@@ -92,7 +88,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		}
 	}
 
-	resolverFile := fmt.Sprintf("%s/%s", resolverDir, dnsDomain)
+	resolverFile := fmt.Sprintf("%s/%s", resolverDir, tld)
 	content := fmt.Sprintf("nameserver %s\n", dnsIP)
 
 	existingContent, err := readFile(resolverFile)
@@ -100,7 +96,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return nil
 	}
 
-	tempResolverFile := fmt.Sprintf("/tmp/%s", dnsDomain)
+	tempResolverFile := fmt.Sprintf("/tmp/%s", tld)
 	if err := writeFile(tempResolverFile, []byte(content), 0644); err != nil {
 		return fmt.Errorf("Error writing to temporary resolver file: %w", err)
 	}

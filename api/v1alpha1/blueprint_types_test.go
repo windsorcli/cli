@@ -8,7 +8,7 @@ import (
 	"github.com/fluxcd/pkg/apis/kustomize"
 )
 
-func TestBlueprintV1Alpha1_Merge(t *testing.T) {
+func TestBlueprint_Merge(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		dst := &Blueprint{
 			Kind:       "Blueprint",
@@ -26,6 +26,12 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 					Ref: Reference{
 						Branch: "main",
 					},
+				},
+			},
+			Repository: Repository{
+				Url: "http://example.com/repo1",
+				Ref: Reference{
+					Branch: "main",
 				},
 			},
 			TerraformComponents: []TerraformComponent{
@@ -64,6 +70,12 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 					Ref: Reference{
 						Branch: "main",
 					},
+				},
+			},
+			Repository: Repository{
+				Url: "http://example.com/repo2",
+				Ref: Reference{
+					Branch: "develop",
 				},
 			},
 			TerraformComponents: []TerraformComponent{
@@ -122,6 +134,13 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 			if expectedSource, exists := expectedSources[source.Name]; !exists || expectedSource != source {
 				t.Errorf("Unexpected source found: %v", source)
 			}
+		}
+
+		if dst.Repository.Url != "http://example.com/repo2" {
+			t.Errorf("Expected Repository.Url to be 'http://example.com/repo2', but got '%s'", dst.Repository.Url)
+		}
+		if dst.Repository.Ref.Branch != "develop" {
+			t.Errorf("Expected Repository.Ref.Branch to be 'develop', but got '%s'", dst.Repository.Ref.Branch)
 		}
 
 		if len(dst.TerraformComponents) != 2 {
@@ -552,9 +571,184 @@ func TestBlueprintV1Alpha1_Merge(t *testing.T) {
 			t.Errorf("Expected FullPath to be 'new/full/path', but got '%s'", component2.FullPath)
 		}
 	})
+
+	t.Run("RepositoryMerge", func(t *testing.T) {
+		tests := []struct {
+			name           string
+			dst            *Blueprint
+			overlay        *Blueprint
+			expectedCommit string
+			expectedName   string
+			expectedSemVer string
+			expectedTag    string
+			expectedBranch string
+			expectedSecret string
+		}{
+			{
+				name: "OverlayWithCommit",
+				dst: &Blueprint{
+					Repository: Repository{
+						Ref: Reference{
+							Commit: "originalCommit",
+							Name:   "originalName",
+							SemVer: "originalSemVer",
+							Tag:    "originalTag",
+							Branch: "originalBranch",
+						},
+						SecretName: "originalSecret",
+					},
+				},
+				overlay: &Blueprint{
+					Repository: Repository{
+						Ref: Reference{
+							Commit: "newCommit",
+						},
+						SecretName: "newSecret",
+					},
+				},
+				expectedCommit: "newCommit",
+				expectedName:   "originalName",
+				expectedSemVer: "originalSemVer",
+				expectedTag:    "originalTag",
+				expectedBranch: "originalBranch",
+				expectedSecret: "newSecret",
+			},
+			{
+				name: "OverlayWithName",
+				dst: &Blueprint{
+					Repository: Repository{
+						Ref: Reference{
+							Name:   "originalName",
+							SemVer: "originalSemVer",
+							Tag:    "originalTag",
+							Branch: "originalBranch",
+						},
+						SecretName: "originalSecret",
+					},
+				},
+				overlay: &Blueprint{
+					Repository: Repository{
+						Ref: Reference{
+							Name: "newName",
+						},
+						SecretName: "newSecret",
+					},
+				},
+				expectedCommit: "",
+				expectedName:   "newName",
+				expectedSemVer: "originalSemVer",
+				expectedTag:    "originalTag",
+				expectedBranch: "originalBranch",
+				expectedSecret: "newSecret",
+			},
+			{
+				name: "OverlayWithSemVer",
+				dst: &Blueprint{
+					Repository: Repository{
+						Ref: Reference{
+							SemVer: "originalSemVer",
+							Tag:    "originalTag",
+							Branch: "originalBranch",
+						},
+						SecretName: "originalSecret",
+					},
+				},
+				overlay: &Blueprint{
+					Repository: Repository{
+						Ref: Reference{
+							SemVer: "newSemVer",
+						},
+						SecretName: "newSecret",
+					},
+				},
+				expectedCommit: "",
+				expectedName:   "",
+				expectedSemVer: "newSemVer",
+				expectedTag:    "originalTag",
+				expectedBranch: "originalBranch",
+				expectedSecret: "newSecret",
+			},
+			{
+				name: "OverlayWithTag",
+				dst: &Blueprint{
+					Repository: Repository{
+						Ref: Reference{
+							Tag:    "originalTag",
+							Branch: "originalBranch",
+						},
+						SecretName: "originalSecret",
+					},
+				},
+				overlay: &Blueprint{
+					Repository: Repository{
+						Ref: Reference{
+							Tag: "newTag",
+						},
+						SecretName: "newSecret",
+					},
+				},
+				expectedCommit: "",
+				expectedName:   "",
+				expectedSemVer: "",
+				expectedTag:    "newTag",
+				expectedBranch: "originalBranch",
+				expectedSecret: "newSecret",
+			},
+			{
+				name: "OverlayWithBranch",
+				dst: &Blueprint{
+					Repository: Repository{
+						Ref: Reference{
+							Branch: "originalBranch",
+						},
+						SecretName: "originalSecret",
+					},
+				},
+				overlay: &Blueprint{
+					Repository: Repository{
+						Ref: Reference{
+							Branch: "newBranch",
+						},
+						SecretName: "newSecret",
+					},
+				},
+				expectedCommit: "",
+				expectedName:   "",
+				expectedSemVer: "",
+				expectedTag:    "",
+				expectedBranch: "newBranch",
+				expectedSecret: "newSecret",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				tt.dst.Merge(tt.overlay)
+
+				if tt.dst.Repository.Ref.Commit != tt.expectedCommit {
+					t.Errorf("Expected Commit to be '%s', but got '%s'", tt.expectedCommit, tt.dst.Repository.Ref.Commit)
+				}
+				if tt.dst.Repository.Ref.Name != tt.expectedName {
+					t.Errorf("Expected Name to be '%s', but got '%s'", tt.expectedName, tt.dst.Repository.Ref.Name)
+				}
+				if tt.dst.Repository.Ref.SemVer != tt.expectedSemVer {
+					t.Errorf("Expected SemVer to be '%s', but got '%s'", tt.expectedSemVer, tt.dst.Repository.Ref.SemVer)
+				}
+				if tt.dst.Repository.Ref.Tag != tt.expectedTag {
+					t.Errorf("Expected Tag to be '%s', but got '%s'", tt.expectedTag, tt.dst.Repository.Ref.Tag)
+				}
+				if tt.dst.Repository.Ref.Branch != tt.expectedBranch {
+					t.Errorf("Expected Branch to be '%s', but got '%s'", tt.expectedBranch, tt.dst.Repository.Ref.Branch)
+				}
+				if tt.dst.Repository.SecretName != tt.expectedSecret {
+					t.Errorf("Expected SecretName to be '%s', but got '%s'", tt.expectedSecret, tt.dst.Repository.SecretName)
+				}
+			})
+		}
+	})
 }
 
-func TestBlueprintV1Alpha1_DeepCopy(t *testing.T) {
+func TestBlueprint_DeepCopy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		blueprint := &Blueprint{
 			Metadata: Metadata{

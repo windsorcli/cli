@@ -140,22 +140,30 @@ func (n *BaseNetworkManager) updateHostsFile(dnsDomain string) error {
 
 	hostsEntry := fmt.Sprintf("127.0.0.1 %s", dnsDomain)
 	lines := strings.Split(string(existingContent), "\n")
-	entryExists, changed := false, false
+	changed := false
 
-	for i, line := range lines {
-		if strings.TrimSpace(line) == hostsEntry {
-			entryExists = true
-			if !n.isLocalhost {
+	// Remove the entry if not localhost
+	if !n.isLocalhost {
+		for i := 0; i < len(lines); i++ {
+			if strings.TrimSpace(lines[i]) == hostsEntry {
 				lines = append(lines[:i], lines[i+1:]...)
 				changed = true
+				i-- // Adjust index after removal
 			}
-			break
 		}
-	}
-
-	if n.isLocalhost && !entryExists {
-		lines = append(lines, hostsEntry)
-		changed = true
+	} else {
+		// Add the entry if localhost
+		entryExists := false
+		for _, line := range lines {
+			if strings.TrimSpace(line) == hostsEntry {
+				entryExists = true
+				break
+			}
+		}
+		if !entryExists {
+			lines = append(lines, hostsEntry)
+			changed = true
+		}
 	}
 
 	if !changed {

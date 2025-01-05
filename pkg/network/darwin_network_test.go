@@ -461,7 +461,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			if filename == fmt.Sprintf("/etc/resolver/%s", mocks.MockConfigHandler.GetStringFunc("dns.name")) {
 				return []byte(fmt.Sprintf("nameserver %s\n", mocks.MockConfigHandler.GetStringFunc("dns.address"))), nil
 			}
-			return nil, fmt.Errorf("mock error")
+			return nil, nil // Return nil error to simulate file existing
 		}
 
 		err = nm.ConfigureDNS()
