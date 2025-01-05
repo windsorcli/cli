@@ -2,8 +2,6 @@ package services
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -103,15 +101,9 @@ func (s *RegistryService) generateRegistryService(serviceName, remoteURL, localU
 	}
 
 	// Create a .docker-cache directory at the project root
-	projectRoot, err := s.shell.GetProjectRoot()
-	if err == nil {
-		dockerCachePath := filepath.Join(projectRoot, ".docker-cache")
-		if err := mkdirAll(dockerCachePath, os.ModePerm); err == nil {
-			// Configure the .docker-cache as a volume mount
-			service.Volumes = []types.ServiceVolumeConfig{
-				{Type: "bind", Source: dockerCachePath, Target: "/var/lib/registry"},
-			}
-		}
+	// Use the WINDSOR_PROJECT_ROOT environment variable for the volume mount
+	service.Volumes = []types.ServiceVolumeConfig{
+		{Type: "bind", Source: "${WINDSOR_PROJECT_ROOT}/.docker-cache", Target: "/var/lib/registry"},
 	}
 
 	// Return the configured ServiceConfig.

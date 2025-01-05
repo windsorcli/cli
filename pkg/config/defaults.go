@@ -30,6 +30,7 @@ var DefaultConfig = Context{
 		NetworkCIDR: nil,
 	},
 	Terraform: &terraform.TerraformConfig{
+		Enabled: nil,
 		Backend: nil,
 	},
 	Cluster: nil,
@@ -64,7 +65,7 @@ var DefaultLocalConfig = Context{
 				Remote: "https://quay.io",
 			},
 		},
-		NetworkCIDR: ptrString("10.5.0.0/16"),
+		NetworkCIDR: nil,
 	},
 	Git: &git.GitConfig{
 		Livereload: &git.GitLivereloadConfig{
@@ -79,6 +80,7 @@ var DefaultLocalConfig = Context{
 		},
 	},
 	Terraform: &terraform.TerraformConfig{
+		Enabled: ptrBool(true),
 		Backend: ptrString("local"),
 	},
 	Cluster: &cluster.ClusterConfig{

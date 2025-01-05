@@ -190,3 +190,30 @@ func TestBaseService_GetName(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseService_isLocalhost(t *testing.T) {
+	tests := []struct {
+		name          string
+		address       string
+		expectedLocal bool
+	}{
+		{"Localhost by name", "localhost", true},
+		{"Localhost by IPv4", "127.0.0.1", true},
+		{"Localhost by IPv6", "::1", true},
+		{"Non-localhost IPv4", "192.168.1.1", false},
+		{"Non-localhost IPv6", "2001:0db8:85a3:0000:0000:8a2e:0370:7334", false},
+		{"Empty address", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// When: isLocalhost is called with the test address
+			isLocal := isLocalhost(tt.address)
+
+			// Then: the result should match the expected outcome
+			if isLocal != tt.expectedLocal {
+				t.Fatalf("expected isLocalhost to be %v for address '%s', got %v", tt.expectedLocal, tt.address, isLocal)
+			}
+		})
+	}
+}
