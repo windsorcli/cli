@@ -34,11 +34,13 @@ metadata:
 sources:
   - name: source1
     url: git::https://example.com/source1.git
-    ref: v1.0.0
+    ref:
+      branch: main
     pathPrefix: /source1
   - name: source2
     url: git::https://example.com/source2.git
-    ref: v2.0.0
+    ref:
+      branch: develop
     pathPrefix: /source2
 terraform:
   - source: source1
@@ -76,13 +78,17 @@ local context = std.extVar("context");
     {
       name: "source1",
       url: "git::https://example.com/source1.git",
-      ref: "v1.0.0",
+      ref: {
+        branch: "main"
+      },
       pathPrefix: "/source1"
     },
     {
       name: "source2",
       url: "git::https://example.com/source2.git",
-      ref: "v2.0.0",
+      ref: {
+        branch: "develop"
+      },
       pathPrefix: "/source2"
     }
   ],
