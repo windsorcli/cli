@@ -199,7 +199,7 @@ func (c *RealController) CreateVirtualizationComponents() error {
 	vmDriver := configHandler.GetString("vm.driver")
 	dockerEnabled := configHandler.GetBool("docker.enabled")
 
-	if vmDriver != "" {
+	if vmDriver == "colima" {
 		// Create and register the RealNetworkInterfaceProvider instance
 		networkInterfaceProvider := &network.RealNetworkInterfaceProvider{}
 		c.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
@@ -211,16 +211,20 @@ func (c *RealController) CreateVirtualizationComponents() error {
 		// Create and register the secure shell
 		secureShell := shell.NewSecureShell(c.injector)
 		c.injector.Register("secureShell", secureShell)
-	}
 
-	// Create colima components
-	if vmDriver == "colima" {
 		// Create a colima virtual machine
 		colimaVirtualMachine := virt.NewColimaVirt(c.injector)
 		c.injector.Register("virtualMachine", colimaVirtualMachine)
 
 		// Create a colima network manager
 		networkManager := network.NewColimaNetworkManager(c.injector)
+		c.injector.Register("networkManager", networkManager)
+	} else {
+		// Create a base network manager
+		networkManager, err := network.NewBaseNetworkManager(c.injector)
+		if err != nil {
+			return fmt.Errorf("error creating base network manager: %w", err)
+		}
 		c.injector.Register("networkManager", networkManager)
 	}
 

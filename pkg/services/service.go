@@ -102,3 +102,14 @@ func (s *BaseService) SetName(name string) {
 func (s *BaseService) GetName() string {
 	return s.name
 }
+
+// isLocalhost checks if the given address is a localhost address
+func isLocalhost(address string) bool {
+	localhostAddresses := []string{"localhost", "127.0.0.1", "::1"}
+	for _, localhost := range localhostAddresses {
+		if address == localhost {
+			return true
+		}
+	}
+	return false
+}

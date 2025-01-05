@@ -16,6 +16,7 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("Error creating project components: %w", err)
 		}
 
+		// Initialize all components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)
 		}

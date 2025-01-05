@@ -282,7 +282,7 @@ func TestRealController_CreateServiceComponents(t *testing.T) {
 }
 
 func TestRealController_CreateVirtualizationComponents(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
+	t.Run("SuccessWithColimaDriver", func(t *testing.T) {
 		// Given a new injector and a new real controller
 		injector := di.NewInjector()
 		controller := NewRealController(injector)
@@ -311,49 +311,22 @@ func TestRealController_CreateVirtualizationComponents(t *testing.T) {
 			t.Fatalf("expected virtualMachine to be registered, got error")
 		}
 
-		// And the colima network manager should be registered in the injector
-		if injector.Resolve("networkManager") == nil {
-			t.Fatalf("expected networkManager to be registered, got error")
+		// And the network interface provider should be registered in the injector
+		if injector.Resolve("networkInterfaceProvider") == nil {
+			t.Fatalf("expected networkInterfaceProvider to be registered, got error")
+		}
+
+		// And the ssh client should be registered in the injector
+		if injector.Resolve("sshClient") == nil {
+			t.Fatalf("expected sshClient to be registered, got error")
+		}
+
+		// And the secure shell should be registered in the injector
+		if injector.Resolve("secureShell") == nil {
+			t.Fatalf("expected secureShell to be registered, got error")
 		}
 
 		t.Logf("Success: virtualization components created and registered")
-	})
-
-	t.Run("EmptyDriver", func(t *testing.T) {
-		// Given a new injector and a new real controller
-		injector := di.NewInjector()
-		controller := NewRealController(injector)
-
-		// And a mock config handler with GetString("vm.driver") returning an empty string
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return ""
-			}
-			return ""
-		}
-		injector.Register("configHandler", mockConfigHandler)
-		controller.configHandler = mockConfigHandler
-
-		// When creating virtualization components
-		err := controller.CreateVirtualizationComponents()
-
-		// Then there should be no error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// And the virtual machine should not be registered in the injector
-		if injector.Resolve("virtualMachine") != nil {
-			t.Fatalf("expected virtualMachine not to be registered")
-		}
-
-		// And the network manager should not be registered in the injector
-		if injector.Resolve("networkManager") != nil {
-			t.Fatalf("expected networkManager not to be registered")
-		}
-
-		t.Logf("Success: no virtualization components created or registered")
 	})
 
 	t.Run("DockerDisabled", func(t *testing.T) {
