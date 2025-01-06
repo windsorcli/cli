@@ -108,8 +108,10 @@ func (v *ColimaVirt) WriteConfig() error {
 	// Get default values
 	cpu, disk, memory, hostname, arch := getDefaultValues(context)
 	vmType := "qemu"
+	mountType := "sshfs"
 	if getArch() == "aarch64" {
 		vmType = "vz"
+		mountType = "virtiofs"
 	}
 
 	cpu = v.configHandler.GetInt("vm.cpu", cpu)
@@ -131,6 +133,8 @@ func (v *ColimaVirt) WriteConfig() error {
 		"hostname": hostname,
 		"kubernetes": map[string]interface{}{
 			"enabled": false,
+			"version": "v1.30.2+k3s1",
+			"k3sArgs": []string{"--disable=traefik"},
 		},
 		"autoActivate": true,
 		"network": map[string]interface{}{
@@ -144,7 +148,7 @@ func (v *ColimaVirt) WriteConfig() error {
 		"vmType":               vmType,
 		"rosetta":              false,
 		"nestedVirtualization": false,
-		"mountType":            "sshfs",
+		"mountType":            mountType,
 		"mountInotify":         true,
 		"cpuType":              "",
 		"provision":            []interface{}{},
