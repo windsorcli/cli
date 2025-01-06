@@ -136,7 +136,7 @@ func (v *ColimaVirt) WriteConfig() error {
 		Kubernetes: colimaConfig.Kubernetes{
 			Enabled: false,
 		},
-		ActivateRuntime: ptrBool(false),
+		ActivateRuntime: ptrBool(true),
 		Network: colimaConfig.Network{
 			Address:       true,
 			DNSResolvers:  []net.IP{},
@@ -144,7 +144,6 @@ func (v *ColimaVirt) WriteConfig() error {
 			HostAddresses: false,
 		},
 		ForwardAgent:         false,
-		Docker:               map[string]any{"VM": true},
 		VMType:               vmType,
 		VZRosetta:            false,
 		NestedVirtualization: false,
