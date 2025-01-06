@@ -61,8 +61,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 }
 
 // ConfigureDNS sets up DNS by modifying system files to route DNS queries.
-// It uses /etc/hosts for localhost routing, or creates
-// a resolver file for a specified DNS IP. It ensures directories exist,
+// It creates a resolver file for a specified DNS IP. It ensures directories exist,
 // updates files, and flushes the DNS cache to apply changes.
 func (n *BaseNetworkManager) ConfigureDNS() error {
 	tld := n.configHandler.GetString("dns.name")
@@ -70,11 +69,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("DNS TLD is not configured")
 	}
 	dnsIP := n.configHandler.GetString("dns.address")
-
-	// Update the hosts file
-	if err := n.updateHostsFile(tld); err != nil {
-		return err
-	}
 
 	resolverDir := "/etc/resolver"
 	if _, err := stat(resolverDir); os.IsNotExist(err) {

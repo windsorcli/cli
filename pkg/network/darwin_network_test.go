@@ -509,6 +509,67 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
+	t.Run("WriteFileError", func(t *testing.T) {
+		mocks := setupDarwinNetworkManagerMocks()
+
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		writeFile = func(_ string, _ []byte, _ os.FileMode) error {
+			return fmt.Errorf("mock error writing to temporary resolver file")
+		}
+
+		err = nm.ConfigureDNS()
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "Error writing to temporary resolver file: mock error writing to temporary resolver file"
+		if err.Error() != expectedError {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("MoveResolverFileError", func(t *testing.T) {
+		mocks := setupDarwinNetworkManagerMocks()
+
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		writeFile = func(_ string, _ []byte, _ os.FileMode) error {
+			return nil // Mock successful write to temporary resolver file
+		}
+
+		mocks.MockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "mv" {
+				return "", fmt.Errorf("mock error moving resolver file")
+			}
+			return "", nil
+		}
+
+		err = nm.ConfigureDNS()
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "Error moving resolver file: mock error moving resolver file"
+		if err.Error() != expectedError {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
 	t.Run("FlushDNSCacheError", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
@@ -520,6 +581,10 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		err = nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		writeFile = func(_ string, _ []byte, _ os.FileMode) error {
+			return nil // Mock successful write to temporary resolver file
 		}
 
 		mocks.MockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
@@ -552,6 +617,10 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
+		writeFile = func(_ string, _ []byte, _ os.FileMode) error {
+			return nil // Mock successful write to temporary resolver file
+		}
+
 		mocks.MockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "killall" && args[0] == "-HUP" {
 				return "", fmt.Errorf("mock error restarting mDNSResponder")
@@ -582,6 +651,10 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
+		writeFile = func(_ string, _ []byte, _ os.FileMode) error {
+			return nil // Mock successful write to temporary resolver file
+		}
+
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.address" {
 				return "127.0.0.1"
@@ -592,96 +665,6 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		err = nm.ConfigureDNS()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorMovingResolverFile", func(t *testing.T) {
-		mocks := setupDarwinNetworkManagerMocks()
-
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		err = nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		mocks.MockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "mv" {
-				return "", fmt.Errorf("mock error moving resolver file")
-			}
-			return "", nil
-		}
-
-		err = nm.ConfigureDNS()
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "Error moving resolver file: mock error moving resolver file"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("HostsFileContentExists", func(t *testing.T) {
-		mocks := setupDarwinNetworkManagerMocks()
-
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		err = nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		originalReadFile := readFile
-		defer func() { readFile = originalReadFile }()
-		readFile = func(filename string) ([]byte, error) {
-			if filename == "/etc/hosts" {
-				return []byte("127.0.0.1 localhost"), nil
-			}
-			return nil, fmt.Errorf("mock error")
-		}
-
-		err = nm.ConfigureDNS()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("WriteFileFailsAfterUpdateHostsFile", func(t *testing.T) {
-		mocks := setupDarwinNetworkManagerMocks()
-
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		err = nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		originalWriteFile := writeFile
-		defer func() { writeFile = originalWriteFile }()
-		writeFile = func(filename string, data []byte, perm os.FileMode) error {
-			if filename == "/etc/hosts" {
-				return nil
-			}
-			return fmt.Errorf("mock error after updating hosts file")
-		}
-
-		err = nm.ConfigureDNS()
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "Error writing to temporary resolver file: mock error after updating hosts file"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 }

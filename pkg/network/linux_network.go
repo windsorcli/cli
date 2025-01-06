@@ -65,8 +65,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS sets up DNS using systemd-resolved or /etc/hosts. If the DNS IP is missing, it updates
-// /etc/hosts with the DNS domain. If the DNS IP is configured, it ensures systemd-resolved is used
+// ConfigureDNS sets up DNS using systemd-resolved. If the DNS IP is configured, it ensures systemd-resolved is used
 // by creating a drop-in configuration file. The function checks if /etc/resolv.conf is a symlink to
 // systemd-resolved and restarts the service if necessary. It handles errors at each step to ensure
 // proper DNS configuration.
@@ -76,11 +75,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("DNS TLD is not configured")
 	}
 	dnsIP := n.configHandler.GetString("dns.address")
-
-	// Update the hosts file
-	if err := n.updateHostsFile(tld); err != nil {
-		return err
-	}
 
 	// If DNS address is configured, use systemd-resolved
 	resolvConf, err := readLink("/etc/resolv.conf")

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"sort"
-	"strings"
 
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -113,89 +112,6 @@ func (n *BaseNetworkManager) Initialize() error {
 // ConfigureGuest sets up the guest VM network
 func (n *BaseNetworkManager) ConfigureGuest() error {
 	// no-op
-	return nil
-}
-
-// updateHostsFile manages DNS entries in the hosts file. It ensures the file reflects the current
-// isLocalhost state by adding or removing the DNS entry for the given domain. If isLocalhost is
-// true, it adds an entry mapping the domain to 127.0.0.1. If false, it removes the entry. The
-// function checks for changes and only updates the file if necessary. It handles both Windows
-// and Unix-like systems, using appropriate file paths and commands for each.
-func (n *BaseNetworkManager) updateHostsFile(dnsDomain string) error {
-	var hostsFile, tempHostsFile string
-
-	switch goos() {
-	case "windows":
-		hostsFile = "C:\\Windows\\System32\\drivers\\etc\\hosts"
-		tempHostsFile = "C:\\Windows\\Temp\\hosts"
-	default:
-		hostsFile = "/etc/hosts"
-		tempHostsFile = "/tmp/hosts"
-	}
-
-	existingContent, err := readFile(hostsFile)
-	if err != nil {
-		return fmt.Errorf("Error reading hosts file: %w", err)
-	}
-
-	hostsEntry := fmt.Sprintf("127.0.0.1 %s", dnsDomain)
-	lines := strings.Split(string(existingContent), "\n")
-	changed := false
-
-	// Remove the entry if not localhost
-	if !n.isLocalhost {
-		for i := 0; i < len(lines); i++ {
-			if strings.TrimSpace(lines[i]) == hostsEntry {
-				lines = append(lines[:i], lines[i+1:]...)
-				changed = true
-				i-- // Adjust index after removal
-			}
-		}
-	} else {
-		// Add the entry if localhost
-		entryExists := false
-		for _, line := range lines {
-			if strings.TrimSpace(line) == hostsEntry {
-				entryExists = true
-				break
-			}
-		}
-		if !entryExists {
-			lines = append(lines, hostsEntry)
-			changed = true
-		}
-	}
-
-	if !changed {
-		return nil
-	}
-
-	updatedContent := strings.Join(lines, "\n")
-	if err := writeFile(tempHostsFile, []byte(updatedContent), 0644); err != nil {
-		return fmt.Errorf("Error writing to temporary hosts file: %w", err)
-	}
-
-	switch goos() {
-	case "windows":
-		if _, err := n.shell.ExecSudo(
-			"🔐 Updating hosts file",
-			"cmd",
-			"/C",
-			fmt.Sprintf("copy /Y %s %s", tempHostsFile, hostsFile),
-		); err != nil {
-			return fmt.Errorf("Error updating hosts file: %w", err)
-		}
-	default:
-		if _, err := n.shell.ExecSudo(
-			"🔐 Updating /etc/hosts",
-			"mv",
-			tempHostsFile,
-			hostsFile,
-		); err != nil {
-			return fmt.Errorf("Error updating hosts file: %w", err)
-		}
-	}
-
 	return nil
 }
 
