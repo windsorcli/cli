@@ -248,7 +248,46 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 			t.Errorf("Expected 1 service, got %d", len(cfg.Services))
 		}
 		if cfg.Services[0].Name != "dns.test" {
-			t.Errorf("Expected service name to be 'dns', got %s", cfg.Services[0].Name)
+			t.Errorf("Expected service name to be 'dns.test', got %s", cfg.Services[0].Name)
+		}
+	})
+
+	t.Run("LocalhostPorts", func(t *testing.T) {
+		// Create a mock injector with necessary mocks
+		mocks := createDNSServiceMocks()
+
+		// Given: a DNSService with the mock injector
+		service := NewDNSService(mocks.Injector)
+
+		// Initialize the service
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Set the address to localhost
+		service.SetAddress("127.0.0.1")
+
+		// When: GetComposeConfig is called
+		cfg, err := service.GetComposeConfig()
+
+		// Then: no error should be returned, and cfg should be correctly populated
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
+		if cfg == nil {
+			t.Fatalf("Expected cfg to be non-nil when GetComposeConfig succeeds")
+		}
+		if len(cfg.Services) != 1 {
+			t.Errorf("Expected 1 service, got %d", len(cfg.Services))
+		}
+		if len(cfg.Services[0].Ports) != 2 {
+			t.Errorf("Expected 2 ports, got %d", len(cfg.Services[0].Ports))
+		}
+		if cfg.Services[0].Ports[0].Published != "53" || cfg.Services[0].Ports[0].Protocol != "tcp" {
+			t.Errorf("Expected port 53 with protocol tcp, got port %s with protocol %s", cfg.Services[0].Ports[0].Published, cfg.Services[0].Ports[0].Protocol)
+		}
+		if cfg.Services[0].Ports[1].Published != "53" || cfg.Services[0].Ports[1].Protocol != "udp" {
+			t.Errorf("Expected port 53 with protocol udp, got port %s with protocol %s", cfg.Services[0].Ports[1].Published, cfg.Services[0].Ports[1].Protocol)
 		}
 	})
 }

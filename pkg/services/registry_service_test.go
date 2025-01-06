@@ -184,6 +184,62 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("expected error indicating directory creation failure, got %v", err)
 		}
 	})
+
+	t.Run("LocalhostPortAssignment", func(t *testing.T) {
+		// Mock mkdirAll to simulate successful directory creation
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		// Given: a mock config handler, shell, context, and service
+		mocks := setupSafeRegistryServiceMocks()
+		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
+			return &config.Context{
+				Docker: &docker.DockerConfig{
+					Enabled: ptrBool(true),
+					Registries: map[string]docker.RegistryConfig{
+						"registry": {
+							Remote: "",
+							Local:  "",
+						},
+					},
+					NetworkCIDR: ptrString("10.5.0.0/16"),
+				},
+			}
+		}
+		registryService := NewRegistryService(mocks.Injector)
+		err := registryService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+		registryService.SetName("registry")
+		registryService.SetAddress("127.0.0.1")
+
+		// When: GetComposeConfig is called
+		composeConfig, err := registryService.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
+
+		// Then: check if a port greater than or equal to 5000 is assigned
+		found := false
+		for _, config := range composeConfig.Services {
+			if config.Name == "registry.test" {
+				for _, portConfig := range config.Ports {
+					if portConfig.Published >= "5000" {
+						found = true
+						break
+					}
+				}
+			}
+		}
+
+		if !found {
+			t.Errorf("expected a port >= 5000 to be assigned for localhost, but none was found in the configuration:\n%+v", composeConfig.Services)
+		}
+	})
 }
 
 func TestRegistryService_SetAddress(t *testing.T) {

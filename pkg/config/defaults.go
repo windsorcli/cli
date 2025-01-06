@@ -7,6 +7,7 @@ import (
 	"github.com/windsorcli/cli/pkg/config/docker"
 	"github.com/windsorcli/cli/pkg/config/git"
 	"github.com/windsorcli/cli/pkg/config/terraform"
+	"github.com/windsorcli/cli/pkg/config/vm"
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
@@ -113,5 +114,8 @@ var DefaultLocalConfig = Context{
 		Enabled: ptrBool(true),
 		Name:    ptrString("test"),
 		Address: nil,
+	},
+	VM: &vm.VMConfig{
+		Driver: ptrString("docker-desktop"),
 	},
 }

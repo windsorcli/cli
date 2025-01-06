@@ -81,7 +81,7 @@ func (s *BaseService) WriteConfig() error {
 
 // SetAddress sets the address if it is a valid IPv4 address
 func (s *BaseService) SetAddress(address string) error {
-	if net.ParseIP(address) == nil || net.ParseIP(address).To4() == nil {
+	if address != "localhost" && (net.ParseIP(address) == nil || net.ParseIP(address).To4() == nil) {
 		return errors.New("invalid IPv4 address")
 	}
 	s.address = address

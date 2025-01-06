@@ -48,8 +48,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS sets up the DNS configuration. If the DNS address is not configured, it routes
-// the DNS name wildcard to localhost using the hosts file. If the DNS address is configured,
+// ConfigureDNS sets up the DNS configuration. If the DNS address is configured,
 // it sets the DNS server using PowerShell and flushes the DNS cache to ensure changes take
 // effect.
 func (n *BaseNetworkManager) ConfigureDNS() error {
@@ -58,11 +57,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("DNS TLD is not configured")
 	}
 	dnsIP := n.configHandler.GetString("dns.address")
-
-	// Always update the hosts file
-	if err := n.updateHostsFile(tld); err != nil {
-		return fmt.Errorf("failed to update hosts file: %w", err)
-	}
 
 	// Proceed with DNS server configuration if DNS IP is provided
 	if dnsIP != "" {

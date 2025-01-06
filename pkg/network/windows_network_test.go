@@ -116,47 +116,6 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorReadingHostsFile", func(t *testing.T) {
-		// Given setup mocks using setupWindowsNetworkManagerMocks
-		mocks := setupWindowsNetworkManagerMocks()
-
-		// Configure the mock to return a DNS domain to reach the file reading logic
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.name" {
-				return "example.com"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		// Mock the readFile function to simulate an error when reading the hosts file
-		originalReadFile := readFile
-		defer func() { readFile = originalReadFile }()
-		readFile = func(filename string) ([]byte, error) {
-			return nil, fmt.Errorf("simulated read error")
-		}
-
-		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		err = nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// When call the method under test
-		err = nm.ConfigureDNS()
-
-		// Then expect error 'Error reading hosts file'
-		if err == nil || !strings.Contains(err.Error(), "Error reading hosts file: simulated read error") {
-			t.Errorf("expected error 'Error reading hosts file: simulated read error', got %v", err)
-		}
-	})
-
 	t.Run("NoNetworkCIDR", func(t *testing.T) {
 		// Given setup mocks using setupWindowsNetworkManagerMocks
 		mocks := setupWindowsNetworkManagerMocks()

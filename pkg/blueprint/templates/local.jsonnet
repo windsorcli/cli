@@ -117,14 +117,14 @@ local registryMirrors = std.foldl(
                   forwardKubeDNSToHost: true,
                 },
               },
-              // network: {
-              //   interfaces: [
-              //     {
-              //       ignore: true,
-              //       interface: "eth0",
-              //     },
-              //   ],
-              // },
+              network: {
+                interfaces: [
+                  {
+                    ignore: true,
+                    interface: "eth0",
+                  },
+                ],
+              },
               kubelet: {
                 extraArgs: {
                   "rotate-server-certificates": "true",

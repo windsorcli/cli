@@ -84,6 +84,22 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
+	// Forward port 53 to the host
+	if isLocalhost(s.address) {
+		corednsConfig.Ports = []types.ServicePortConfig{
+			{
+				Target:    53,
+				Published: "53",
+				Protocol:  "tcp",
+			},
+			{
+				Target:    53,
+				Published: "53",
+				Protocol:  "udp",
+			},
+		}
+	}
+
 	services := []types.ServiceConfig{corednsConfig}
 
 	return &types.Config{Services: services}, nil

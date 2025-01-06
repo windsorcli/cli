@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"net"
 	"os"
 
 	"github.com/compose-spec/compose-go/types"
@@ -12,6 +13,7 @@ import (
 // RegistryService is a service struct that provides Registry-specific utility functions
 type RegistryService struct {
 	BaseService
+	nextPort int
 }
 
 // NewRegistryService is a constructor for RegistryService
@@ -20,6 +22,7 @@ func NewRegistryService(injector di.Injector) *RegistryService {
 		BaseService: BaseService{
 			injector: injector,
 		},
+		nextPort: 5000, // Initialize the next available port for localhost
 	}
 }
 
@@ -115,8 +118,37 @@ func (s *RegistryService) generateRegistryService(serviceName, remoteURL, localU
 		{Type: "bind", Source: cacheDir, Target: "/var/lib/registry"},
 	}
 
+	// Check if the address is localhost and assign ports if it is
+	// Only forward port 5000 if the registry is not used as a proxy
+	if isLocalhost(s.address) && remoteURL == "" {
+		for {
+			if isPortAvailable(s.nextPort) {
+				service.Ports = []types.ServicePortConfig{
+					{
+						Target:    5000,
+						Published: fmt.Sprintf("%d", s.nextPort),
+						Protocol:  "tcp",
+					},
+				}
+				s.nextPort++
+				break
+			}
+			s.nextPort++
+		}
+	}
+
 	// Return the configured ServiceConfig and nil error.
 	return service, nil
+}
+
+// isPortAvailable checks if a port is available for use
+func isPortAvailable(port int) bool {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return false
+	}
+	defer ln.Close()
+	return true
 }
 
 // Ensure RegistryService implements Service interface
