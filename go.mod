@@ -7,7 +7,6 @@ require (
 	github.com/aws/smithy-go v1.22.1
 	github.com/briandowns/spinner v1.23.1
 	github.com/compose-spec/compose-go v1.20.2
-	github.com/compose-spec/compose-go/v2 v2.4.7
 	github.com/fluxcd/kustomize-controller/api v1.4.0
 	github.com/fluxcd/pkg/apis/kustomize v1.8.0
 	github.com/fluxcd/pkg/apis/meta v1.9.0
@@ -28,14 +27,14 @@ require (
 
 require (
 	cel.dev/expr v0.19.1 // indirect
-	cloud.google.com/go v0.117.0 // indirect
+	cloud.google.com/go v0.118.0 // indirect
 	cloud.google.com/go/auth v0.13.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.6 // indirect
 	cloud.google.com/go/compute/metadata v0.6.0 // indirect
-	cloud.google.com/go/iam v1.3.0 // indirect
-	cloud.google.com/go/kms v1.20.3 // indirect
-	cloud.google.com/go/longrunning v0.6.3 // indirect
-	cloud.google.com/go/monitoring v1.22.0 // indirect
+	cloud.google.com/go/iam v1.3.1 // indirect
+	cloud.google.com/go/kms v1.20.4 // indirect
+	cloud.google.com/go/longrunning v0.6.4 // indirect
+	cloud.google.com/go/monitoring v1.22.1 // indirect
 	cloud.google.com/go/storage v1.49.0 // indirect
 	filippo.io/age v1.2.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.16.0 // indirect
