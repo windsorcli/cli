@@ -23,29 +23,10 @@ func (base *DockerConfig) Merge(overlay *DockerConfig) {
 		base.NetworkCIDR = overlay.NetworkCIDR
 	}
 
-	// The base.Registries is already a map, so no need to create a new map
-	registryMap := base.Registries
-
-	// Merge overlay registries into the base, uniquely indexed by registry key
-	for key, overlayRegistry := range overlay.Registries {
-		if baseRegistry, exists := registryMap[key]; exists {
-			if overlayRegistry.Remote != "" {
-				baseRegistry.Remote = overlayRegistry.Remote
-			}
-			if overlayRegistry.Local != "" {
-				baseRegistry.Local = overlayRegistry.Local
-			}
-			if overlayRegistry.Hostname != "" {
-				baseRegistry.Hostname = overlayRegistry.Hostname
-			}
-			registryMap[key] = baseRegistry
-		} else {
-			registryMap[key] = overlayRegistry
-		}
+	// Overwrite base.Registries entirely with overlay.Registries if defined, otherwise keep base.Registries
+	if overlay.Registries != nil {
+		base.Registries = overlay.Registries
 	}
-
-	// Update base.Registries with merged results
-	base.Registries = registryMap
 }
 
 // Copy creates a deep copy of the DockerConfig object

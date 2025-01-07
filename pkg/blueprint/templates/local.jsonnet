@@ -255,4 +255,10 @@ local registryMirrors = std.foldl(
       }
     }
   ] else [],
+  kustomize: [
+    {
+      name: "local",
+      path: "",
+    }
+  ]
 }

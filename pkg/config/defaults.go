@@ -48,7 +48,7 @@ var DefaultLocalConfig = Context{
 	Docker: &docker.DockerConfig{
 		Enabled: ptrBool(true),
 		Registries: map[string]docker.RegistryConfig{
-			"registry.io": {},
+			"registry.test": {},
 			"registry-1.docker.io": {
 				Remote: "https://registry-1.docker.io",
 				Local:  "https://docker.io",
