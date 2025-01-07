@@ -27,6 +27,19 @@ jobs:
       - name: Install tools
         run: aqua install
 
+      - name: Cache Go Modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+  
+      - name: Install Dependencies
+        run: go mod tidy
+
       - name: Run tests
         run: task test
 
@@ -43,6 +56,19 @@ jobs:
 
       - name: Install tools
         run: aqua install
+
+      - name: Cache Go Modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+  
+      - name: Install Dependencies
+        run: go mod tidy
 
       - name: Run Gosec Security Scanner
         uses: securego/gosec@d4617f51baf75f4f809066386a4f9d27b3ac3e46 # v2.21.4
@@ -72,6 +98,19 @@ jobs:
 
       - name: Install tools
         run: aqua install
+
+      - name: Cache Go Modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+  
+      - name: Install Dependencies
+        run: go mod tidy
 
       # - name: Import GPG key
       #   id: import_gpg
