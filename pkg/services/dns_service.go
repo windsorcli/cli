@@ -116,7 +116,7 @@ func (s *DNSService) WriteConfig() error {
 	// Get the TLD from the configuration
 	tld := s.configHandler.GetString("dns.name", "test")
 
-	// Gather the IP address of each service using the Address field
+	// Gather the IP address of each service using the GetHostname method
 	var hostEntries string
 	for _, service := range s.services {
 		composeConfig, err := service.GetComposeConfig()
@@ -125,12 +125,10 @@ func (s *DNSService) WriteConfig() error {
 		}
 		for _, svc := range composeConfig.Services {
 			if svc.Name != "" {
-				if addressService, ok := service.(interface{ GetAddress() string }); ok {
-					address := addressService.GetAddress()
-					if address != "" {
-						fullName := svc.Name
-						hostEntries += fmt.Sprintf("        %s %s\n", address, fullName)
-					}
+				address := service.GetAddress()
+				if address != "" {
+					hostname := service.GetHostname()
+					hostEntries += fmt.Sprintf("        %s %s\n", address, hostname)
 				}
 			}
 		}

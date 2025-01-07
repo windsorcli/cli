@@ -123,38 +123,38 @@ func (c *RealController) CreateEnvComponents() error {
 	return nil
 }
 
-// CreateServiceComponents creates components required for services
+// CreateServiceComponents initializes and registers various services based on configuration settings.
+// It checks if Docker is enabled before proceeding to create DNS, Git livereload, and Localstack services
+// if their respective configurations are enabled. It also sets up registry services for each configured
+// Docker registry, appending the DNS TLD to their names. Additionally, if the cluster is enabled and
+// uses the Talos driver, it creates and registers control plane and worker services based on the
+// specified counts.
 func (c *RealController) CreateServiceComponents() error {
 	configHandler := c.configHandler
 	contextConfig := configHandler.GetConfig()
 
-	// Don't create services if docker is not enabled
 	if !configHandler.GetBool("docker.enabled") {
 		return nil
 	}
 
-	// Create dns service
 	dnsEnabled := configHandler.GetBool("dns.enabled")
 	if dnsEnabled {
 		dnsService := services.NewDNSService(c.injector)
 		c.injector.Register("dnsService", dnsService)
 	}
 
-	// Create git livereload service
 	gitLivereloadEnabled := configHandler.GetBool("git.livereload.enabled")
 	if gitLivereloadEnabled {
 		gitLivereloadService := services.NewGitLivereloadService(c.injector)
 		c.injector.Register("gitLivereloadService", gitLivereloadService)
 	}
 
-	// Create localstack service
 	localstackEnabled := configHandler.GetBool("aws.localstack.enabled")
 	if localstackEnabled {
 		localstackService := services.NewLocalstackService(c.injector)
 		c.injector.Register("localstackService", localstackService)
 	}
 
-	// Create registry services
 	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
 		for key := range contextConfig.Docker.Registries {
 			service := services.NewRegistryService(c.injector)
@@ -164,7 +164,6 @@ func (c *RealController) CreateServiceComponents() error {
 		}
 	}
 
-	// Create cluster services
 	clusterEnabled := configHandler.GetBool("cluster.enabled")
 	if clusterEnabled {
 		controlPlaneCount := configHandler.GetInt("cluster.controlplanes.count")
@@ -172,7 +171,6 @@ func (c *RealController) CreateServiceComponents() error {
 
 		clusterDriver := configHandler.GetString("cluster.driver")
 
-		// Create a talos cluster
 		if clusterDriver == "talos" {
 			for i := 1; i <= controlPlaneCount; i++ {
 				controlPlaneService := services.NewTalosControlPlaneService(c.injector)
