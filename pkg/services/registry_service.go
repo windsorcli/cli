@@ -37,7 +37,11 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 
 	// Find the registry matching the current s.name value
 	if registry, exists := registries[s.name]; exists {
-		service, err := s.generateRegistryService(s.name, registry.Remote, registry.Local)
+		// Get the service hostname
+		hostname := s.GetHostname()
+
+		// Pass the hostname to generateRegistryService
+		service, err := s.generateRegistryService(hostname, registry.Remote, registry.Local)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate registry service: %w", err)
 		}
@@ -79,19 +83,15 @@ func (s *RegistryService) GetHostname() string {
 
 // generateRegistryService creates a ServiceConfig for a Registry service
 // with the specified name, remote URL, and local URL.
-func (s *RegistryService) generateRegistryService(serviceName, remoteURL, localURL string) (types.ServiceConfig, error) {
+func (s *RegistryService) generateRegistryService(hostName, remoteURL, localURL string) (types.ServiceConfig, error) {
 	// Retrieve the context name
 	contextName := s.contextHandler.GetContext()
-
-	// Get the TLD from the configuration
-	tld := s.configHandler.GetString("dns.name", "test")
-	fullName := serviceName + "." + tld
 
 	// Initialize the ServiceConfig with the provided name, a predefined image,
 	// a restart policy, and labels indicating the role and manager.
 	service := types.ServiceConfig{
-		Name:          fullName,
-		ContainerName: fullName,
+		Name:          hostName,
+		ContainerName: hostName,
 		Image:         constants.REGISTRY_DEFAULT_IMAGE,
 		Restart:       "always",
 		Labels: map[string]string{
