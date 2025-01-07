@@ -51,7 +51,7 @@ terraform:
     path: path/to/code
     values:
       key1: value1
-kustomizations:
+kustomize::
   - name: kustomization1
     path: overlays/dev
     source: source1
@@ -111,7 +111,7 @@ local context = std.extVar("context");
       }
     }
   ],
-  kustomizations: [
+  kustomize:: [
     {
       name: "kustomization1",
       path: "overlays/dev",
@@ -1952,7 +1952,7 @@ kind: Blueprint
 apiVersion: v1alpha1
 metadata:
   name: test-blueprint
-kustomizations:
+kustomize:
   - name: test-kustomization
     path: ./kustomize
 `)
@@ -1992,7 +1992,7 @@ kind: Blueprint
 apiVersion: v1alpha1
 metadata:
   name: test-blueprint
-kustomizations:
+kustomize::
   - name: test-kustomization
     path: ./kustomize
 `)
@@ -2019,7 +2019,7 @@ kind: Blueprint
 apiVersion: v1alpha1
 metadata:
   name: test-blueprint
-kustomizations:
+kustomize:
   - name: test-kustomization
     path: ./kustomize
 `)
@@ -2046,7 +2046,7 @@ kind: Blueprint
 apiVersion: v1alpha1
 metadata:
   name: test-blueprint
-kustomizations:
+kustomize:
   - name: test-kustomization
     path: ./kustomize
 `)

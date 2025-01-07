@@ -47,6 +47,54 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		// Given a set of safe mocks
+		mocks := setupSafeMocks()
+
+		// Mock the shell's GetProjectRoot method to return an error
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mocked error in GetProjectRoot")
+		}
+
+		// When a new TerraformGenerator is created
+		generator := NewTerraformGenerator(mocks.Injector)
+		if err := generator.Initialize(); err != nil {
+			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
+		}
+
+		// And the Write method is called
+		err := generator.Write()
+
+		// Then it should return an error
+		if err == nil {
+			t.Errorf("Expected TerraformGenerator.Write to return an error")
+		}
+	})
+
+	t.Run("ErrorMkdirAll", func(t *testing.T) {
+		// Given a set of safe mocks
+		mocks := setupSafeMocks()
+
+		// Mock osMkdirAll to return an error on the second call
+		osMkdirAll = func(_ string, _ os.FileMode) error {
+			return fmt.Errorf("mock error")
+		}
+
+		// When a new TerraformGenerator is created
+		generator := NewTerraformGenerator(mocks.Injector)
+		if err := generator.Initialize(); err != nil {
+			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
+		}
+
+		// And the Write method is called
+		err := generator.Write()
+
+		// Then it should return an error
+		if err == nil {
+			t.Errorf("Expected TerraformGenerator.Write to return an error")
+		}
+	})
+
 	t.Run("ErrorGetConfigRoot", func(t *testing.T) {
 		// Given a set of safe mocks
 		mocks := setupSafeMocks()
@@ -71,13 +119,20 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorMkdirAll", func(t *testing.T) {
+	t.Run("ErrorMkdirAllComponentFolder", func(t *testing.T) {
 		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
-		// Mock osMkdirAll to return an error when called
+		// Counter to track the number of times osMkdirAll is called
+		callCount := 0
+
+		// Mock osMkdirAll to return an error on the second call
 		osMkdirAll = func(_ string, _ os.FileMode) error {
-			return fmt.Errorf("mock error")
+			callCount++
+			if callCount == 2 {
+				return fmt.Errorf("mock error")
+			}
+			return nil
 		}
 
 		// When a new TerraformGenerator is created

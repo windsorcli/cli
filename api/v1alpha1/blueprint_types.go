@@ -7,13 +7,13 @@ import (
 
 // A Blueprint is a collection of metadata that can be used to initialize a project
 type Blueprint struct {
-	Kind                string               `yaml:"kind"`           // The Kind of the blueprint
-	ApiVersion          string               `yaml:"apiVersion"`     // The API Version of the blueprint
-	Metadata            Metadata             `yaml:"metadata"`       // The Metadata for the blueprint
-	Repository          Repository           `yaml:"repository"`     // The Repository for the blueprint
-	Sources             []Source             `yaml:"sources"`        // The Sources for the blueprint
-	TerraformComponents []TerraformComponent `yaml:"terraform"`      // The Terraform components
-	Kustomizations      []Kustomization      `yaml:"kustomizations"` // The Kustomizations for the blueprint
+	Kind                string               `yaml:"kind"`       // The Kind of the blueprint
+	ApiVersion          string               `yaml:"apiVersion"` // The API Version of the blueprint
+	Metadata            Metadata             `yaml:"metadata"`   // The Metadata for the blueprint
+	Repository          Repository           `yaml:"repository"` // The Repository for the blueprint
+	Sources             []Source             `yaml:"sources"`    // The Sources for the blueprint
+	TerraformComponents []TerraformComponent `yaml:"terraform"`  // The Terraform components
+	Kustomizations      []Kustomization      `yaml:"kustomize"`  // The Kustomizations for the blueprint
 }
 
 // PartialBlueprint is a temporary struct for initial unmarshalling
@@ -24,7 +24,7 @@ type PartialBlueprint struct {
 	Sources             []Source                 `yaml:"sources"`
 	Repository          Repository               `yaml:"repository"`
 	TerraformComponents []TerraformComponent     `yaml:"terraform"`
-	Kustomizations      []map[string]interface{} `yaml:"kustomizations"`
+	Kustomizations      []map[string]interface{} `yaml:"kustomize"`
 }
 
 // Metadata describes the metadata for a blueprint
