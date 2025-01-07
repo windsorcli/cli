@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - goreleaser
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
   pull_request:
@@ -12,14 +13,7 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        arch: [amd64, arm64]
-        exclude:
-          - os: windows-latest
-            arch: arm64
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -30,44 +24,11 @@ jobs:
         with:
           aqua_version: v2.40.0
 
-      - name: Install tools using Aqua
+      - name: Install tools
         run: aqua install
 
       - name: Run tests
         run: task test
-
-      - name: Build Windsor CLI on macOS/Linux
-        if: runner.os != 'Windows'
-        run: |
-          VERSION=$(echo "${GITHUB_REF}" | sed 's/refs\/heads\///' | sed 's/refs\/tags\///')
-          echo "Building version: $VERSION"
-          COMMIT_SHA=${{ github.sha }}
-          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
-            GOOS=linux GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o dist/windsor-linux-${{ matrix.arch }} cmd/windsor/main.go
-          elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-            GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o dist/windsor-darwin-${{ matrix.arch }} cmd/windsor/main.go
-          fi
-
-      - name: Build Windsor CLI on Windows
-        if: runner.os == 'Windows'
-        run: |
-          $env:VERSION = $env:GITHUB_REF -replace 'refs/heads/', '' -replace 'refs/tags/', ''
-          echo "Building version: $env:VERSION"
-          $env:COMMIT_SHA = "${{ github.sha }}"
-          $env:GOOS = "windows"
-          $env:GOARCH = "${{ matrix.arch }}"
-          go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$env:VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$env:COMMIT_SHA'" -o dist/windsor.exe cmd/windsor/main.go
-        shell: pwsh
-
-      - name: Upload Artifacts to Release (Windows)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@7b4da11513bf3f43f9999e90eabced41ab8bb048 # v2.2.0
-        with:
-          files: |
-            dist/windsor*
-          tag_name: ${{ github.ref_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   sast-scan:
     runs-on: ubuntu-latest
@@ -75,11 +36,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Set up Go
-        uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
+      - name: Install Aqua
+        uses: aquaproj/aqua-installer@f13c5d2f0357708d85477aabe50fd3f725528745 # v3.1.0
         with:
-          go-version: '1.23.1'
-          check-latest: true
+          aqua_version: v2.40.0
+
+      - name: Install tools
+        run: aqua install
 
       - name: Run Gosec Security Scanner
         uses: securego/gosec@d4617f51baf75f4f809066386a4f9d27b3ac3e46 # v2.21.4
@@ -91,23 +54,42 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
 
+    permissions:
+      contents: write  # Allows creating releases
+      issues: read
+      pull-requests: read
+          
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Set up Go
-        uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
+      - name: Install Aqua
+        uses: aquaproj/aqua-installer@f13c5d2f0357708d85477aabe50fd3f725528745 # v3.1.0
         with:
-          go-version: '1.23.1'
-          check-latest: true
+          aqua_version: v2.40.0
 
-      - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@v3
+      - name: Install tools
+        run: aqua install
+
+      - name: Import GPG key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v6
         with:
-          version: v6.1.0 # v6.1.0
-
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.PASSPHRASE }}
+          
       - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is automatically provided by GitHub Actions
-        run: goreleaser release --rm-dist
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+          HOMEBREW_ACCESS: ${{ secrets.HOMEBREW_ACCESS }}
+
+      - name: List dist folder
+        run: ls -al dist
+        

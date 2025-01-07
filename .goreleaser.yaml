@@ -1,21 +1,27 @@
-# .goreleaser.yaml
-project_name: windsorcli
+---
 
-# Build configuration
+project_name: windsor
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
 builds:
-  - id: cli
-    main: ./cli/cmd/windsor/main.go
-    goos:
-      - linux
-      - darwin
-      - windows
-    goarch:
-      - amd64
-      - arm64
-    env:
+  - env:
       - CGO_ENABLED=0
+    main: ./cmd/windsor
+    goos:
+      # - linux
+      # - windows
+      - darwin
+    goarch:
+      # - amd64
+      - arm64
     ldflags:
-      - "-s -w -X main.version={{.Version}}"
+      - "-s -w -X main.version={{ .Version }}"
 
 # Archive configuration
 archives:
@@ -25,6 +31,13 @@ archives:
       - LICENSE
       - README.md
 
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
 # Release configuration
 release:
   github:
@@ -33,30 +46,19 @@ release:
   draft: false
   prerelease: false
 
-# Changelog configuration
-changelog:
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
+binary_signs:
+  - {}
 
-# Snapshot configuration
-snapshot:
-  name_template: "{{ .Tag }}-SNAPSHOT"
-
-# Checksum configuration
-checksum:
-  name_template: "{{ .ProjectName }}_checksums.txt"
-
-# Sign configuration
 signs:
   - artifacts: checksum
-    args: ["--detach-sign"]
-
-# Docker configuration (optional)
-dockers:
-  - image_templates:
-      - "docker.io/windsorcli/cli:{{ .Tag }}"
-    dockerfile: Dockerfile
-    build_flag_templates:
-      - "--build-arg=VERSION={{.Version}}"
+brews:
+  - name: windsor
+    directory: Formula
+    skip_upload: false
+    repository:
+      owner: windsorcli
+      name: homebrew-cli
+      branch: main
+      token: "{{ .Env.HOMEBREW_ACCESS }}"
+    homepage: "https://windsorcli.github.io"      
+    description: "The Windsor Command Line Interface"
