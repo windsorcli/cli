@@ -11,23 +11,14 @@ local firstNode = if std.length(cpNodes) > 0 then cpNodes[0] else null;
 // Build the mirrors dynamically
 local registryMirrors = std.foldl(
   function(acc, key)
-    local regData = context.docker.registries[key];
-
-    // Figure out which endpoint to use:
-    //   1) local, if present
-    //   2) remote, if present
-    local endpointsVal =
-      if std.objectHas(regData, "local") && regData["local"] != "" then regData["local"]
-      else if std.objectHas(regData, "remote") && regData["remote"] != "" then regData["remote"]
-      else null;
-
-    // Must have a non-empty hostname, and endpointsVal must be non-null
-    if !(std.objectHas(regData, "hostname")) || regData.hostname == "" || endpointsVal == null then
+    local registryInfo = context.docker.registries[key];
+    // Must have a non-empty hostname
+    if !(std.objectHas(registryInfo, "hostname")) || registryInfo.hostname == "" then
       acc
     else
       acc + {
-        [regData["hostname"]]: {
-          endpoints: [endpointsVal],
+        [key]: {
+          endpoints: ["http://" + registryInfo["hostname"] + ":5000"],
         },
       },
   std.objectFields(context.docker.registries),

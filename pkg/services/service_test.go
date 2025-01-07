@@ -191,6 +191,32 @@ func TestBaseService_GetName(t *testing.T) {
 	})
 }
 
+func TestBaseService_GetHostname(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a new BaseService with a mock config handler
+		mocks := setupSafeBaseServiceMocks()
+		service := &BaseService{injector: mocks.Injector}
+		service.SetName("TestService")
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.name" {
+				return "example"
+			}
+			return ""
+		}
+
+		service.Initialize()
+
+		// When: GetHostname is called
+		hostname := service.GetHostname()
+
+		// Then: the hostname should be as expected
+		expectedHostname := "TestService.example"
+		if hostname != expectedHostname {
+			t.Fatalf("expected hostname '%s', got %v", expectedHostname, hostname)
+		}
+	})
+}
+
 func TestBaseService_isLocalhost(t *testing.T) {
 	tests := []struct {
 		name          string

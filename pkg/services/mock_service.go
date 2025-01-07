@@ -21,6 +21,8 @@ type MockService struct {
 	SetNameFunc func(name string)
 	// GetNameFunc is a function that mocks the GetName method
 	GetNameFunc func() string
+	// GetHostnameFunc is a function that mocks the GetHostname method
+	GetHostnameFunc func() string
 }
 
 // NewMockService is a constructor for MockService
@@ -80,6 +82,14 @@ func (m *MockService) SetName(name string) {
 func (m *MockService) GetName() string {
 	if m.GetNameFunc != nil {
 		return m.GetNameFunc()
+	}
+	return ""
+}
+
+// GetHostname calls the mock GetHostnameFunc if it is set, otherwise returns an empty string
+func (m *MockService) GetHostname() string {
+	if m.GetHostnameFunc != nil {
+		return m.GetHostnameFunc()
 	}
 	return ""
 }

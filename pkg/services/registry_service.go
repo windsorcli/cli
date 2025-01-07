@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -46,23 +47,34 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 	return nil, fmt.Errorf("no registry found with name: %s", s.name)
 }
 
-// SetAddress establishes additional address information for the registry service
+// SetAddress configures the registry address, forms a hostname, updates the
+// registry config, and returns an error if any step fails. It appends the TLD
+// to the service name to form the hostname.
 func (s *RegistryService) SetAddress(address string) error {
-	// Call the parent SetAddress method
 	if err := s.BaseService.SetAddress(address); err != nil {
 		return fmt.Errorf("failed to set address for base service: %w", err)
 	}
 
-	tld := s.configHandler.GetString("dns.name", "test")
-	hostName := s.name + "." + tld
+	// Get the hostname using the GetHostname method
+	hostName := s.GetHostname()
 
-	// Set the hostname field in the registry configuration
 	err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostname", s.name), hostName)
 	if err != nil {
 		return fmt.Errorf("failed to set hostname for registry %s: %w", s.name, err)
 	}
 
 	return nil
+}
+
+// GetHostname returns the hostname of the registry service. This is constructed
+// by removing the existing tld from the name and appending the configured tld.
+func (s *RegistryService) GetHostname() string {
+	tld := s.configHandler.GetString("dns.name", "test")
+	nameWithoutTLD := s.name
+	if dotIndex := strings.LastIndex(s.name, "."); dotIndex != -1 {
+		nameWithoutTLD = s.name[:dotIndex]
+	}
+	return nameWithoutTLD + "." + tld
 }
 
 // generateRegistryService creates a ServiceConfig for a Registry service
