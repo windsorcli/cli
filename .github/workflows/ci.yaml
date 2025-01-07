@@ -81,9 +81,9 @@ jobs:
       #     passphrase: ${{ secrets.PASSPHRASE }}
           
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@9ed2f89a662bf1735a48bc8557fd212fa902bebf
         with:
-          version: "~> v2"
+          # version: "~> v2"
           args: release --clean
         # env:
         #   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
