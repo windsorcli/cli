@@ -350,3 +350,36 @@ func TestMockService_GetName(t *testing.T) {
 		}
 	})
 }
+
+func TestMockService_GetHostname(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock service
+		mockService := NewMockService()
+		expectedHostname := "localhost"
+
+		// When: GetHostnameFunc is called
+		mockGetHostnameFunc := func() string {
+			return expectedHostname
+		}
+		mockService.GetHostnameFunc = mockGetHostnameFunc
+
+		// Then: the GetHostnameFunc should be set and return the expected hostname
+		hostname := mockService.GetHostname()
+		if hostname != expectedHostname {
+			t.Errorf("expected hostname %v, got %v", expectedHostname, hostname)
+		}
+	})
+
+	t.Run("SuccessNoMock", func(t *testing.T) {
+		// Given: a mock service with no GetHostnameFunc
+		mockService := NewMockService()
+
+		// When: GetHostname is called
+		hostname := mockService.GetHostname()
+
+		// Then: an empty string should be returned
+		if hostname != "" {
+			t.Errorf("expected empty hostname, got %v", hostname)
+		}
+	})
+}

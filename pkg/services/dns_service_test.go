@@ -405,6 +405,9 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		mockService.GetAddressFunc = func() string {
 			return "192.168.1.1"
 		}
+		mockService.GetHostnameFunc = func() string {
+			return "mockService.test"
+		}
 		mocks.Injector.Register("dockerService", mockService)
 
 		// Given: a DNSService with the mock config handler, context, and DockerService

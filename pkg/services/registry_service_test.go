@@ -316,3 +316,25 @@ func TestRegistryService_SetAddress(t *testing.T) {
 		}
 	})
 }
+
+func TestRegistryService_GetHostname(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock config handler, shell, context, and service
+		mocks := setupSafeRegistryServiceMocks()
+		registryService := NewRegistryService(mocks.Injector)
+		registryService.SetName("registry.oldtld")
+		err := registryService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetHostname is called
+		hostname := registryService.GetHostname()
+
+		// Then: the hostname should be as expected, with the old TLD removed
+		expectedHostname := "registry.test"
+		if hostname != expectedHostname {
+			t.Fatalf("expected hostname '%s', got %v", expectedHostname, hostname)
+		}
+	})
+}

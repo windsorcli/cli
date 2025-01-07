@@ -48,21 +48,21 @@ var DefaultLocalConfig = Context{
 	Docker: &docker.DockerConfig{
 		Enabled: ptrBool(true),
 		Registries: map[string]docker.RegistryConfig{
-			"registry": {},
-			"registry-1.docker": {
+			"registry.io": {},
+			"registry-1.docker.io": {
 				Remote: "https://registry-1.docker.io",
 				Local:  "https://docker.io",
 			},
-			"registry.k8s": {
+			"registry.k8s.io": {
 				Remote: "https://registry.k8s.io",
 			},
-			"gcr": {
+			"gcr.io": {
 				Remote: "https://gcr.io",
 			},
-			"ghcr": {
+			"ghcr.io": {
 				Remote: "https://ghcr.io",
 			},
-			"quay": {
+			"quay.io": {
 				Remote: "https://quay.io",
 			},
 		},

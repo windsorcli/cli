@@ -35,6 +35,9 @@ type Service interface {
 
 	// Initialize performs any necessary initialization for the service.
 	Initialize() error
+
+	// GetHostname returns the name plus the tld from the config
+	GetHostname() string
 }
 
 // BaseService is a base implementation of the Service interface
@@ -101,6 +104,12 @@ func (s *BaseService) SetName(name string) {
 // GetName returns the current name of the service
 func (s *BaseService) GetName() string {
 	return s.name
+}
+
+// GetHostname returns the name plus the tld from the config
+func (s *BaseService) GetHostname() string {
+	tld := s.configHandler.GetString("dns.name", "test")
+	return fmt.Sprintf("%s.%s", s.name, tld)
 }
 
 // isLocalhost checks if the given address is a localhost address
