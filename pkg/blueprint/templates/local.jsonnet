@@ -264,4 +264,10 @@ local registryMirrors = std.foldl(
       }
     }
   ] else [],
+  kustomizations: [
+    {
+      name: "local",
+      path: "",
+    }
+  ]
 }

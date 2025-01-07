@@ -79,6 +79,10 @@ func (c *RealController) CreateProjectComponents() error {
 	terraformGenerator := generators.NewTerraformGenerator(c.injector)
 	c.injector.Register("terraformGenerator", terraformGenerator)
 
+	// Create a new kustomize generator
+	kustomizeGenerator := generators.NewKustomizeGenerator(c.injector)
+	c.injector.Register("kustomizeGenerator", kustomizeGenerator)
+
 	return nil
 }
 

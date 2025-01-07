@@ -129,6 +129,10 @@ func (m *MockController) CreateProjectComponents() error {
 	terraformGenerator := generators.NewMockGenerator()
 	m.injector.Register("terraformGenerator", terraformGenerator)
 
+	// Create a new mock kustomize generator
+	kustomizeGenerator := generators.NewMockGenerator()
+	m.injector.Register("kustomizeGenerator", kustomizeGenerator)
+
 	return nil
 }
 

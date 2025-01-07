@@ -334,6 +334,12 @@ func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomiza
 	copy(kustomizations, resolvedBlueprint.Kustomizations)
 
 	for i := range kustomizations {
+		if kustomizations[i].Path == "" {
+			kustomizations[i].Path = "kustomize"
+		} else {
+			kustomizations[i].Path = filepath.Join("kustomize", kustomizations[i].Path)
+		}
+
 		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
 			kustomizations[i].Interval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL}
 		}

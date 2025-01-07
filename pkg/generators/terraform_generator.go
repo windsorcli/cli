@@ -31,9 +31,21 @@ func NewTerraformGenerator(injector di.Injector) *TerraformGenerator {
 func (g *TerraformGenerator) Write() error {
 	components := g.blueprintHandler.GetTerraformComponents()
 
+	// Get the project root
+	projectRoot, err := g.shell.GetProjectRoot()
+	if err != nil {
+		return err
+	}
+
 	// Get the context path
 	contextPath, err := g.contextHandler.GetConfigRoot()
 	if err != nil {
+		return err
+	}
+
+	// Ensure the "terraform" folder exists in the project root
+	terraformFolderPath := filepath.Join(projectRoot, "terraform")
+	if err := osMkdirAll(terraformFolderPath, os.ModePerm); err != nil {
 		return err
 	}
 
