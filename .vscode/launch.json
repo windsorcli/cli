@@ -32,7 +32,7 @@
       "program": "${workspaceFolder}/cmd/windsor/main.go",
       "args": ["up", "--verbose"],
       "env": {
-        "COMPOSE_FILE": "${workspaceFolder}/contexts/local/docker-compose.yaml",
+        "COMPOSE_FILE": "${workspaceFolder}/.windsor/docker-compose.yaml",
         "WINDSOR_CONTEXT": "local",
         "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
       }
@@ -45,7 +45,7 @@
       "program": "${workspaceFolder}/cmd/windsor/main.go",
       "args": ["down", "--verbose"],
       "env": {
-        "COMPOSE_FILE": "${workspaceFolder}/contexts/local/docker-compose.yaml",
+        "COMPOSE_FILE": "${workspaceFolder}/.windsor/docker-compose.yaml",
         "WINDSOR_CONTEXT": "local",
         "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
       }
@@ -58,7 +58,7 @@
       "program": "${workspaceFolder}/cmd/windsor/main.go",
       "args": ["install", "--verbose"],
       "env": {
-        "COMPOSE_FILE": "${workspaceFolder}/contexts/local/docker-compose.yaml",
+        "COMPOSE_FILE": "${workspaceFolder}/.windsor/docker-compose.yaml",
         "WINDSOR_CONTEXT": "local",
         "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
       }
