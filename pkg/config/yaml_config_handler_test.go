@@ -343,8 +343,8 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
+		handler.context = "local"
 		handler.config = Config{
-			Context: ptrString("local"),
 			Contexts: map[string]*Context{
 				"default": {
 					Environment: map[string]string{
@@ -375,7 +375,7 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		}
 
 		// Then check that the YAML data matches the expected content
-		expectedContent := "context: local\ncontexts:\n  default:\n    environment:\n      email: john.doe@example.com\n      name: John Doe\n    aws: {}\n"
+		expectedContent := "contexts:\n  default:\n    environment:\n      email: john.doe@example.com\n      name: John Doe\n    aws: {}\n"
 		if string(writtenData) != expectedContent {
 			t.Errorf("Config file content = %v, expected %v", string(writtenData), expectedContent)
 		}
@@ -388,9 +388,7 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		handler.config = Config{
-			Context: ptrString("default"),
-		}
+		handler.context = "default"
 
 		// When given a non-existent key in the config
 		got := handler.GetString("nonExistentKey")
@@ -407,9 +405,7 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		handler.config = Config{
-			Context: ptrString("default"),
-		}
+		handler.context = "default"
 
 		// When calling GetString with a non-existent key and a default value
 		defaultValue := "defaultString"
@@ -426,8 +422,8 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
+		handler.context = "default"
 		handler.config = Config{
-			Context: ptrString("default"),
 			Contexts: map[string]*Context{
 				"default": {
 					Environment: map[string]string{
@@ -454,8 +450,8 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
+		handler.context = "default"
 		handler.config = Config{
-			Context: ptrString("default"),
 			Contexts: map[string]*Context{
 				"default": {
 					AWS: &aws.AWSConfig{
@@ -480,9 +476,7 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		handler.config = Config{
-			Context: ptrString("default"),
-		}
+		handler.context = "default"
 
 		// When calling GetInt with a non-existent key
 		value := handler.GetInt("nonExistentKey")
@@ -499,9 +493,7 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		handler.config = Config{
-			Context: ptrString("default"),
-		}
+		handler.context = "default"
 
 		// When calling GetInt with a non-existent key and a default value
 		got := handler.GetInt("nonExistentKey", 99)
@@ -518,8 +510,8 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
+		handler.context = "default"
 		handler.config = Config{
-			Context: ptrString("default"),
 			Contexts: map[string]*Context{
 				"default": {
 					Cluster: &cluster.ClusterConfig{
@@ -553,8 +545,8 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
+		handler.context = "default"
 		handler.config = Config{
-			Context: ptrString("default"),
 			Contexts: map[string]*Context{
 				"default": {
 					AWS: &aws.AWSConfig{
@@ -579,9 +571,7 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		handler.config = Config{
-			Context: ptrString("default"),
-		}
+		handler.context = "default"
 
 		// When setting a non-boolean value for the key
 		handler.Set("contexts.default.aws.aws_endpoint_url", "notABool")
@@ -601,9 +591,7 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		handler.config = Config{
-			Context: ptrString("default"),
-		}
+		handler.context = "default"
 
 		// When given a non-existent key in the config
 		value := handler.GetBool("nonExistentKey")
@@ -618,9 +606,7 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		handler.config = Config{
-			Context: ptrString("default"),
-		}
+		handler.context = "default"
 
 		// When given a non-existent key in the config and a default value
 		got := handler.GetBool("nonExistentKey", false)
@@ -639,7 +625,7 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		handler.config.Context = ptrString("local")
+		handler.context = "local"
 		handler.config.Contexts = map[string]*Context{
 			"local": {
 				Environment: map[string]string{
@@ -680,7 +666,7 @@ func TestYamlConfigHandler_SetContextValue(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		handler.config.Context = ptrString("local")
+		handler.context = "local"
 
 		// When calling SetContextValue with a valid path and value
 		err := handler.SetContextValue("environment.TEST_KEY", "someValue")
@@ -718,7 +704,7 @@ func TestYamlConfigHandler_SetContextValue(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		handler.config.Context = ptrString("local")
+		handler.context = "local"
 
 		// When calling SetContextValue with an empty path
 		err := handler.SetContextValue("", "someValue")
@@ -763,7 +749,7 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		handler.config.Context = nil
+		handler.context = ""
 
 		// When calling SetDefault
 		defaultContext := Context{
