@@ -9,16 +9,14 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type KubeEnvPrinterMocks struct {
-	Injector       di.Injector
-	ConfigHandler  *config.MockConfigHandler
-	Shell          *shell.MockShell
-	ContextHandler *context.MockContext
+	Injector      di.Injector
+	ConfigHandler *config.MockConfigHandler
+	Shell         *shell.MockShell
 }
 
 func setupSafeKubeEnvPrinterMocks(injector ...di.Injector) *KubeEnvPrinterMocks {
@@ -36,20 +34,13 @@ func setupSafeKubeEnvPrinterMocks(injector ...di.Injector) *KubeEnvPrinterMocks 
 
 	mockShell := shell.NewMockShell()
 
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
-		return "mock-context"
-	}
-
 	mockInjector.Register("configHandler", mockConfigHandler)
 	mockInjector.Register("shell", mockShell)
-	mockInjector.Register("contextHandler", mockContextHandler)
 
 	return &KubeEnvPrinterMocks{
-		Injector:       mockInjector,
-		ConfigHandler:  mockConfigHandler,
-		Shell:          mockShell,
-		ContextHandler: mockContextHandler,
+		Injector:      mockInjector,
+		ConfigHandler: mockConfigHandler,
+		Shell:         mockShell,
 	}
 }
 
@@ -67,7 +58,6 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 		}
 
 		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
-		kubeEnvPrinter.Initialize()
 		kubeEnvPrinter.Initialize()
 
 		envVars, err := kubeEnvPrinter.GetEnvVars()

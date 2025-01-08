@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -19,10 +18,9 @@ type EnvPrinter interface {
 
 // Env is a struct that implements the EnvPrinter interface.
 type BaseEnvPrinter struct {
-	injector       di.Injector
-	contextHandler context.ContextHandler
-	shell          shell.Shell
-	configHandler  config.ConfigHandler
+	injector      di.Injector
+	shell         shell.Shell
+	configHandler config.ConfigHandler
 }
 
 // NewBaseEnvPrinter creates a new BaseEnvPrinter instance.
@@ -32,13 +30,6 @@ func NewBaseEnvPrinter(injector di.Injector) *BaseEnvPrinter {
 
 // Initialize initializes the environment.
 func (e *BaseEnvPrinter) Initialize() error {
-	// Resolve the contextHandler
-	context, ok := e.injector.Resolve("contextHandler").(context.ContextHandler)
-	if !ok {
-		return fmt.Errorf("error resolving or casting contextHandler to context.ContextHandler")
-	}
-	e.contextHandler = context
-
 	// Resolve the shell
 	shell, ok := e.injector.Resolve("shell").(shell.Shell)
 	if !ok {

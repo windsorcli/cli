@@ -9,16 +9,14 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type SopsEnvMocks struct {
-	Injector       di.Injector
-	ConfigHandler  *config.MockConfigHandler
-	Shell          *shell.MockShell
-	ContextHandler *context.MockContext
+	Injector      di.Injector
+	ConfigHandler *config.MockConfigHandler
+	Shell         *shell.MockShell
 }
 
 func setupSopsEnvMocks(injector ...di.Injector) *SopsEnvMocks {
@@ -36,20 +34,13 @@ func setupSopsEnvMocks(injector ...di.Injector) *SopsEnvMocks {
 
 	mockShell := shell.NewMockShell()
 
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
-		return "mock-context"
-	}
-
 	mockInjector.Register("configHandler", mockConfigHandler)
 	mockInjector.Register("shell", mockShell)
-	mockInjector.Register("contextHandler", mockContextHandler)
 
 	return &SopsEnvMocks{
-		Injector:       mockInjector,
-		ConfigHandler:  mockConfigHandler,
-		Shell:          mockShell,
-		ContextHandler: mockContextHandler,
+		Injector:      mockInjector,
+		ConfigHandler: mockConfigHandler,
+		Shell:         mockShell,
 	}
 }
 
@@ -96,7 +87,7 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorRetrievingConfigRoot", func(t *testing.T) {
-		// Given a mock injector with a context handler that returns an error for GetConfigRoot
+		// Given a mock injector with a config handler that returns an error for GetConfigRoot
 		mockInjector := di.NewMockInjector()
 		mocks := setupSopsEnvMocks(mockInjector)
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
@@ -118,7 +109,7 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("SopsFileDoesNotExist", func(t *testing.T) {
-		// Given a mock injector with a valid context handler
+		// Given a mock injector with a valid config handler
 		mockInjector := di.NewMockInjector()
 		mocks := setupSopsEnvMocks(mockInjector)
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
@@ -148,7 +139,7 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorDecryptingSopsFile", func(t *testing.T) {
-		// Given a mock injector with a valid context handler
+		// Given a mock injector with a valid config handler
 		mockInjector := di.NewMockInjector()
 		mocks := setupSopsEnvMocks(mockInjector)
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
@@ -183,7 +174,7 @@ func TestSopsEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorConvertingYamlToEnvVars", func(t *testing.T) {
-		// Given a mock injector with a valid context handler
+		// Given a mock injector with a valid config handler
 		mockInjector := di.NewMockInjector()
 		mocks := setupSopsEnvMocks(mockInjector)
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {

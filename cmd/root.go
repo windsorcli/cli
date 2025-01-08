@@ -50,18 +50,17 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 		return fmt.Errorf("Error creating common components: %w", err)
 	}
 
-	// Resolve the context handler
-	contextHandler := controller.ResolveContextHandler()
-	if contextHandler == nil {
-		return fmt.Errorf("No context handler found")
-	}
-	contextName := contextHandler.GetContext()
-
 	// Resolve the config handler
 	configHandler := controller.ResolveConfigHandler()
 	if configHandler == nil {
 		return fmt.Errorf("No config handler found")
 	}
+	// Initialize the config handler
+	if err := configHandler.Initialize(); err != nil {
+		return fmt.Errorf("Error initializing config handler: %w", err)
+	}
+
+	contextName := configHandler.GetContext()
 
 	// Set the verbosity
 	shell := controller.ResolveShell()

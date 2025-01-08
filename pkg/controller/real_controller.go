@@ -5,7 +5,6 @@ import (
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -33,15 +32,11 @@ var _ Controller = (*RealController)(nil)
 // CreateCommonComponents creates components commonly used by all commands.
 func (c *RealController) CreateCommonComponents() error {
 	// Create a new configHandler
-	configHandler := config.NewYamlConfigHandler()
+	configHandler := config.NewYamlConfigHandler(c.injector)
 	c.injector.Register("configHandler", configHandler)
 
 	// Set the configHandler
 	c.configHandler = configHandler
-
-	// Create a new contextHandler
-	contextHandler := context.NewContextHandler(c.injector)
-	c.injector.Register("contextHandler", contextHandler)
 
 	// Create a new shell
 	shell := shell.NewDefaultShell(c.injector)
@@ -51,11 +46,6 @@ func (c *RealController) CreateCommonComponents() error {
 	// above and can't be mocked externally. There may be a better way to
 	// organize this in the future but this works for now, so we don't expect
 	// these lines to be covered by tests.
-
-	// Initialize the contextHandler
-	if err := contextHandler.Initialize(); err != nil {
-		return fmt.Errorf("error initializing context handler: %w", err)
-	}
 
 	// Initialize the shell
 	if err := shell.Initialize(); err != nil {

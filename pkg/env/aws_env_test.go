@@ -10,16 +10,14 @@ import (
 
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/config/aws"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type AwsEnvMocks struct {
-	Injector       di.Injector
-	ConfigHandler  *config.MockConfigHandler
-	ContextHandler *context.MockContext
-	Shell          *shell.MockShell
+	Injector      di.Injector
+	ConfigHandler *config.MockConfigHandler
+	Shell         *shell.MockShell
 }
 
 func setupSafeAwsEnvMocks(injector ...di.Injector) *AwsEnvMocks {
@@ -46,26 +44,21 @@ func setupSafeAwsEnvMocks(injector ...di.Injector) *AwsEnvMocks {
 	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
 	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "test-context"
+	}
 
 	// Create a mock Shell using its constructor
 	mockShell := shell.NewMockShell()
 
-	// Create a mock ContextHandler using its constructor
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
-		return "test-context"
-	}
-
 	// Register the mocks in the DI injector
 	mockInjector.Register("configHandler", mockConfigHandler)
 	mockInjector.Register("shell", mockShell)
-	mockInjector.Register("contextHandler", mockContextHandler)
 
 	return &AwsEnvMocks{
-		Injector:       mockInjector,
-		ConfigHandler:  mockConfigHandler,
-		ContextHandler: mockContextHandler,
-		Shell:          mockShell,
+		Injector:      mockInjector,
+		ConfigHandler: mockConfigHandler,
+		Shell:         mockShell,
 	}
 }
 

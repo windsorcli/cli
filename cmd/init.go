@@ -29,26 +29,23 @@ var initCmd = &cobra.Command{
 	SilenceUsage: true,
 	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Resolve the context handler
-		contextHandler := controller.ResolveContextHandler()
+		// Resolve the config handler
+		configHandler := controller.ResolveConfigHandler()
 
 		var contextName string
 		if len(args) == 1 {
 			contextName = args[0]
 		} else {
-			contextName = contextHandler.GetContext()
+			contextName = configHandler.GetContext()
 		}
 
 		// Set the context value
 		if contextName == "" {
 			contextName = "local"
 		}
-		if err := contextHandler.SetContext(contextName); err != nil {
+		if err := configHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("Error setting context value: %w", err)
 		}
-
-		// Resolve the config handler
-		configHandler := controller.ResolveConfigHandler()
 
 		// Create the flag to config path mapping
 		configurations := []struct {

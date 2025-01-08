@@ -15,7 +15,6 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -172,10 +171,9 @@ func compareYAML(t *testing.T, actualYAML, expectedYAML []byte) {
 }
 
 type MockSafeComponents struct {
-	Injector           di.Injector
-	MockContextHandler *context.MockContext
-	MockShell          *shell.MockShell
-	MockConfigHandler  *config.MockConfigHandler
+	Injector          di.Injector
+	MockShell         *shell.MockShell
+	MockConfigHandler *config.MockConfigHandler
 }
 
 // setupSafeMocks function creates safe mocks for the blueprint handler
@@ -187,10 +185,6 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 	} else {
 		mockInjector = di.NewMockInjector()
 	}
-
-	// Create a new mock context handler
-	mockContextHandler := context.NewMockContext()
-	mockInjector.Register("contextHandler", mockContextHandler)
 
 	// Create a new mock shell
 	mockShell := shell.NewMockShell()
@@ -239,10 +233,9 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 	}()
 
 	return MockSafeComponents{
-		Injector:           mockInjector,
-		MockContextHandler: mockContextHandler,
-		MockShell:          mockShell,
-		MockConfigHandler:  mockConfigHandler,
+		Injector:          mockInjector,
+		MockShell:         mockShell,
+		MockConfigHandler: mockConfigHandler,
 	}
 }
 
@@ -290,11 +283,6 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 			t.Errorf("Expected configHandler to be set, but got nil")
 		}
 
-		// And the BlueprintHandler should have the correct context handler
-		if blueprintHandler.contextHandler == nil {
-			t.Errorf("Expected contextHandler to be set, but got nil")
-		}
-
 		// And the BlueprintHandler should have the correct shell
 		if blueprintHandler.shell == nil {
 			t.Errorf("Expected shell to be set, but got nil")
@@ -313,21 +301,6 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 		// Then the initialization should fail with the expected error
 		if err == nil || err.Error() != "error resolving configHandler" {
 			t.Errorf("Expected Initialize to fail with 'error resolving configHandler', but got: %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		// Given a mock injector
-		mocks := setupSafeMocks()
-		mocks.Injector.Register("contextHandler", nil)
-
-		// When a new BlueprintHandler is created and initialized
-		blueprintHandler := NewBlueprintHandler(mocks.Injector)
-		err := blueprintHandler.Initialize()
-
-		// Then the initialization should fail with the expected error
-		if err == nil || err.Error() != "error resolving contextHandler" {
-			t.Errorf("Expected Initialize to fail with 'error resolving contextHandler', but got: %v", err)
 		}
 	})
 
@@ -361,28 +334,6 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 		// Then the initialization should fail with the expected error
 		if err == nil || err.Error() != "error getting project root: error getting project root" {
 			t.Errorf("Expected Initialize to fail with 'error getting project root: error getting project root', but got: %v", err)
-		}
-	})
-
-	t.Run("ErrorSettingProjectName", func(t *testing.T) {
-		// Given a mock injector
-		mocks := setupSafeMocks()
-
-		// Simulate an error when setting the project name in the config
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
-			if key == "projectName" {
-				return fmt.Errorf("mock error setting project name")
-			}
-			return nil
-		}
-
-		// When a new BlueprintHandler is created and initialized
-		blueprintHandler := NewBlueprintHandler(mocks.Injector)
-		err := blueprintHandler.Initialize()
-
-		// Then the initialization should fail with the expected error
-		if err == nil || err.Error() != "error setting project name in config: mock error setting project name" {
-			t.Errorf("Expected Initialize to fail with 'error setting project name in config: mock error setting project name', but got: %v", err)
 		}
 	})
 }
@@ -486,7 +437,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		mocks := setupSafeMocks()
 
 		// Mock context to return "local"
-		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+		mocks.MockConfigHandler.GetContextFunc = func() string { return "local" }
 
 		// Mock loadFileData to simulate no data for local jsonnet
 		originalLoadFileData := loadFileData
@@ -662,7 +613,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		mocks := setupSafeMocks()
 
 		// Mock context to return "local"
-		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+		mocks.MockConfigHandler.GetContextFunc = func() string { return "local" }
 
 		// Mock jsonMarshal to return an error
 		originalJsonMarshal := jsonMarshal
@@ -696,7 +647,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		mocks := setupSafeMocks()
 
 		// Mock context to return "local"
-		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+		mocks.MockConfigHandler.GetContextFunc = func() string { return "local" }
 
 		// Mock jsonnetMakeVM to return a VM that fails on EvaluateAnonymousSnippet
 		originalJsonnetMakeVM := jsonnetMakeVM
@@ -741,7 +692,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 
 		// Mock context to return "local"
-		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+		mocks.MockConfigHandler.GetContextFunc = func() string { return "local" }
 
 		// Mock loadFileData to return empty jsonnet data
 		originalLoadFileData := loadFileData
@@ -821,7 +772,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 
 		// Mock context to return "local"
-		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+		mocks.MockConfigHandler.GetContextFunc = func() string { return "local" }
 
 		// Mock loadFileData to return empty data for both jsonnet and yaml
 		originalLoadFileData := loadFileData
@@ -869,7 +820,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 
 		// Mock context to return "local"
-		mocks.MockContextHandler.GetContextFunc = func() string { return "local" }
+		mocks.MockConfigHandler.GetContextFunc = func() string { return "local" }
 
 		// Mock jsonnetMakeVM to simulate an error during Jsonnet evaluation
 		originalJsonnetMakeVM := jsonnetMakeVM

@@ -9,16 +9,14 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type TalosEnvMocks struct {
-	Injector       di.Injector
-	ConfigHandler  *config.MockConfigHandler
-	Shell          *shell.MockShell
-	ContextHandler *context.MockContext
+	Injector      di.Injector
+	ConfigHandler *config.MockConfigHandler
+	Shell         *shell.MockShell
 }
 
 func setupSafeTalosEnvMocks(injector ...di.Injector) *TalosEnvMocks {
@@ -36,20 +34,13 @@ func setupSafeTalosEnvMocks(injector ...di.Injector) *TalosEnvMocks {
 
 	mockShell := shell.NewMockShell()
 
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
-		return "mock-context"
-	}
-
 	mockInjector.Register("configHandler", mockConfigHandler)
 	mockInjector.Register("shell", mockShell)
-	mockInjector.Register("contextHandler", mockContextHandler)
 
 	return &TalosEnvMocks{
-		Injector:       mockInjector,
-		ConfigHandler:  mockConfigHandler,
-		Shell:          mockShell,
-		ContextHandler: mockContextHandler,
+		Injector:      mockInjector,
+		ConfigHandler: mockConfigHandler,
+		Shell:         mockShell,
 	}
 }
 
@@ -106,14 +97,14 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 	t.Run("GetConfigRootError", func(t *testing.T) {
 		mocks := setupSafeTalosEnvMocks()
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", errors.New("mock context error")
+			return "", errors.New("mock config error")
 		}
 
 		talosEnvPrinter := NewTalosEnvPrinter(mocks.Injector)
 		talosEnvPrinter.Initialize()
 
 		_, err := talosEnvPrinter.GetEnvVars()
-		if err == nil || err.Error() != "error retrieving configuration root directory: mock context error" {
+		if err == nil || err.Error() != "error retrieving configuration root directory: mock config error" {
 			t.Errorf("expected error retrieving configuration root directory, got %v", err)
 		}
 	})
@@ -125,7 +116,6 @@ func TestTalosEnv_Print(t *testing.T) {
 		mocks := setupSafeTalosEnvMocks()
 		mockInjector := mocks.Injector
 		talosEnvPrinter := NewTalosEnvPrinter(mockInjector)
-		talosEnvPrinter.Initialize()
 		talosEnvPrinter.Initialize()
 
 		// Mock the stat function to simulate the existence of the talos config file

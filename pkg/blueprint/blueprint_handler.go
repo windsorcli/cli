@@ -13,7 +13,6 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 
@@ -50,7 +49,6 @@ type BlueprintHandler interface {
 // BaseBlueprintHandler is a base implementation of the BlueprintHandler interface
 type BaseBlueprintHandler struct {
 	injector       di.Injector
-	contextHandler context.ContextHandler
 	configHandler  config.ConfigHandler
 	shell          shell.Shell
 	localBlueprint blueprintv1alpha1.Blueprint
@@ -74,12 +72,6 @@ func (b *BaseBlueprintHandler) Initialize() error {
 		return fmt.Errorf("error resolving configHandler")
 	}
 	b.configHandler = configHandler
-
-	contextHandler, ok := b.injector.Resolve("contextHandler").(context.ContextHandler)
-	if !ok {
-		return fmt.Errorf("error resolving contextHandler")
-	}
-	b.contextHandler = contextHandler
 
 	shell, ok := b.injector.Resolve("shell").(shell.Shell)
 	if !ok {
@@ -145,7 +137,7 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	}
 
 	var evaluatedJsonnet string
-	context := b.contextHandler.GetContext()
+	context := b.configHandler.GetContext()
 
 	if len(jsonnetData) > 0 {
 		vm := jsonnetMakeVM()
@@ -234,7 +226,7 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 // over the sources and kustomizations, applying each to the cluster using the
 // Kubernetes client.
 func (b *BaseBlueprintHandler) Install() error {
-	context := b.contextHandler.GetContext()
+	context := b.configHandler.GetContext()
 
 	message := "📐 Installing blueprint components"
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
@@ -798,7 +790,7 @@ func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Sourc
 func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha1.Kustomization) error {
 	// If the kustomization doesn't have a source, use the repository source
 	if kustomization.Source == "" {
-		context := b.contextHandler.GetContext()
+		context := b.configHandler.GetContext()
 		kustomization.Source = context
 	}
 

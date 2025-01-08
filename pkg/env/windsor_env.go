@@ -25,7 +25,7 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Add WINDSOR_CONTEXT to the environment variables
-	currentContext := e.contextHandler.GetContext()
+	currentContext := e.configHandler.GetContext()
 	envVars["WINDSOR_CONTEXT"] = currentContext
 
 	// Get the project root and add WINDSOR_PROJECT_ROOT to the environment variables

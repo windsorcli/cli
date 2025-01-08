@@ -11,7 +11,6 @@ import (
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/config/dns"
 	"github.com/windsorcli/cli/pkg/config/docker"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -40,11 +39,10 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 	}
 
 	mockShell := shell.NewMockShell()
-	mockContext := context.NewMockContext()
 	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
 	}
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
 
@@ -55,14 +53,12 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 
 	// Register mocks in the injector
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 
 	return &MockComponents{
 		Injector:          injector,
 		MockConfigHandler: mockConfigHandler,
 		MockShell:         mockShell,
-		MockContext:       mockContext,
 		MockService:       mockService,
 	}
 }
@@ -299,7 +295,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
-		mocks.MockContext.GetContextFunc = func() string {
+		mocks.MockConfigHandler.GetContextFunc = func() string {
 			return "test"
 		}
 
@@ -514,7 +510,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return filepath.FromSlash("/invalid/path"), nil
 		}
-		mocks.MockContext.GetContextFunc = func() string {
+		mocks.MockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
 

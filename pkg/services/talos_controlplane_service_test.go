@@ -6,7 +6,6 @@ import (
 
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -19,17 +18,15 @@ func setupSafeTalosControlPlaneServiceMocks(optionalInjector ...di.Injector) *Mo
 		injector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
 
 	// Register mock instances in the injector
-	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
 
@@ -67,7 +64,6 @@ func setupSafeTalosControlPlaneServiceMocks(optionalInjector ...di.Injector) *Mo
 
 	return &MockComponents{
 		Injector:          injector,
-		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
 	}

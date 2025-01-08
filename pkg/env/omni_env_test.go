@@ -9,16 +9,14 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type OmniEnvPrinterMocks struct {
-	Injector       di.Injector
-	Shell          *shell.MockShell
-	ConfigHandler  *config.MockConfigHandler
-	ContextHandler *context.MockContext
+	Injector      di.Injector
+	Shell         *shell.MockShell
+	ConfigHandler *config.MockConfigHandler
 }
 
 func setupSafeOmniEnvPrinterMocks(injector ...di.Injector) *OmniEnvPrinterMocks {
@@ -36,20 +34,13 @@ func setupSafeOmniEnvPrinterMocks(injector ...di.Injector) *OmniEnvPrinterMocks 
 
 	mockShell := shell.NewMockShell()
 
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
-		return "mock-context"
-	}
-
 	mockInjector.Register("configHandler", mockConfigHandler)
 	mockInjector.Register("shell", mockShell)
-	mockInjector.Register("contextHandler", mockContextHandler)
 
 	return &OmniEnvPrinterMocks{
-		Injector:       mockInjector,
-		ConfigHandler:  mockConfigHandler,
-		Shell:          mockShell,
-		ContextHandler: mockContextHandler,
+		Injector:      mockInjector,
+		ConfigHandler: mockConfigHandler,
+		Shell:         mockShell,
 	}
 }
 

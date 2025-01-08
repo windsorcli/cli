@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/network"
 
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -18,7 +17,6 @@ import (
 type MockSafeDownCmdComponents struct {
 	Injector             di.Injector
 	MockController       *ctrl.MockController
-	MockContextHandler   *context.MockContext
 	MockConfigHandler    *config.MockConfigHandler
 	MockShell            *shell.MockShell
 	MockNetworkManager   *network.MockNetworkManager
@@ -46,17 +44,13 @@ func setupSafeDownCmdMocks(optionalInjector ...di.Injector) MockSafeDownCmdCompo
 		return nil
 	}
 
-	// Setup mock context handler
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
-		return "test-context"
-	}
-	injector.Register("contextHandler", mockContextHandler)
-
 	// Setup mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 		return nil
+	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "test-context"
 	}
 	injector.Register("configHandler", mockConfigHandler)
 
@@ -79,7 +73,6 @@ func setupSafeDownCmdMocks(optionalInjector ...di.Injector) MockSafeDownCmdCompo
 	return MockSafeDownCmdComponents{
 		Injector:             injector,
 		MockController:       mockController,
-		MockContextHandler:   mockContextHandler,
 		MockConfigHandler:    mockConfigHandler,
 		MockShell:            mockShell,
 		MockNetworkManager:   mockNetworkManager,

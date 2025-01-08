@@ -10,7 +10,6 @@ import (
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/config/docker"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -24,13 +23,11 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 		injector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockService := services.NewMockService()
 
 	// Register mock instances in the injector
-	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("dockerService", mockService)
@@ -42,7 +39,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	injector.Register("service2", mockService2)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
 
@@ -120,7 +117,6 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 
 	return &MockComponents{
 		Injector:          injector,
-		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
 		MockService:       mockService,
