@@ -30,7 +30,6 @@ age.public.key
 
 # Temporary development folders
 contexts/
-.tf_modules/
 kustomize/
 terraform/
 
