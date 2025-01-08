@@ -120,7 +120,7 @@ func (s *RegistryService) generateRegistryService(hostName, remoteURL, localURL 
 	}
 
 	// Create a .docker-cache directory at the project root
-	cacheDir := os.Getenv("WINDSOR_PROJECT_ROOT") + "/.docker-cache"
+	cacheDir := os.Getenv("WINDSOR_PROJECT_ROOT") + "/.windsor/.docker-cache"
 	if err := mkdirAll(cacheDir, os.ModePerm); err != nil {
 		return service, fmt.Errorf("error creating .docker-cache directory: %w", err)
 	}

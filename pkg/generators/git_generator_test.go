@@ -17,7 +17,6 @@ const (
 # managed by windsor cli
 .windsor/
 .volumes/
-.docker-cache/
 terraform/**/backend_override.tf
 contexts/**/.terraform/
 contexts/**/.tfstate/
