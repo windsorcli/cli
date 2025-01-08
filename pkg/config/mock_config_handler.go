@@ -2,6 +2,7 @@ package config
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
+	InitializeFunc      func() error
 	LoadConfigFunc      func(path string) error
 	GetStringFunc       func(key string, defaultValue ...string) string
 	GetIntFunc          func(key string, defaultValue ...int) int
@@ -17,6 +18,14 @@ type MockConfigHandler struct {
 // NewMockConfigHandler is a constructor for MockConfigHandler
 func NewMockConfigHandler() *MockConfigHandler {
 	return &MockConfigHandler{}
+}
+
+// Initialize calls the mock InitializeFunc if set, otherwise returns nil
+func (m *MockConfigHandler) Initialize() error {
+	if m.InitializeFunc != nil {
+		return m.InitializeFunc()
+	}
+	return nil
 }
 
 // LoadConfig calls the mock LoadConfigFunc if set, otherwise returns nil

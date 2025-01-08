@@ -6,6 +6,27 @@ import (
 	"testing"
 )
 
+func TestMockConfigHandler_Initialize(t *testing.T) {
+	mockInitializeErr := fmt.Errorf("mock initialize error")
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		handler := NewMockConfigHandler()
+		handler.InitializeFunc = func() error { return mockInitializeErr }
+		err := handler.Initialize()
+		if err != mockInitializeErr {
+			t.Errorf("Expected error = %v, got = %v", mockInitializeErr, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		handler := NewMockConfigHandler()
+		err := handler.Initialize()
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+}
+
 func TestMockConfigHandler_LoadConfig(t *testing.T) {
 	mockLoadErr := fmt.Errorf("mock load config error")
 

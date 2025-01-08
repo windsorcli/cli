@@ -1,7 +1,17 @@
 package config
 
+import (
+	"fmt"
+
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
+)
+
 // ConfigHandler defines the interface for handling configuration operations
 type ConfigHandler interface {
+	// Initialize initializes the config handler
+	Initialize() error
+
 	// LoadConfig loads the configuration from the specified path
 	LoadConfig(path string) error
 
@@ -36,4 +46,21 @@ type ConfigHandler interface {
 // BaseConfigHandler is a base implementation of the ConfigHandler interface
 type BaseConfigHandler struct {
 	ConfigHandler
+	injector di.Injector
+	shell    shell.Shell
+}
+
+// NewBaseConfigHandler creates a new BaseConfigHandler instance
+func NewBaseConfigHandler(injector di.Injector) *BaseConfigHandler {
+	return &BaseConfigHandler{injector: injector}
+}
+
+// Initialize sets up the config handler by resolving and storing the shell dependency.
+func (c *BaseConfigHandler) Initialize() error {
+	shell, ok := c.injector.Resolve("shell").(shell.Shell)
+	if !ok {
+		return fmt.Errorf("error resolving shell")
+	}
+	c.shell = shell
+	return nil
 }
