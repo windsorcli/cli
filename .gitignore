@@ -33,6 +33,7 @@ contexts/
 .tf_modules/
 
 # managed by windsor cli
+.windsor/
 .volumes/
 terraform/**/backend_override.tf
 contexts/**/.terraform/
