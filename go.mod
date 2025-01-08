@@ -7,7 +7,6 @@ require (
 	github.com/aws/smithy-go v1.22.1
 	github.com/briandowns/spinner v1.23.1
 	github.com/compose-spec/compose-go v1.20.2
-	github.com/compose-spec/compose-go/v2 v2.4.7
 	github.com/fluxcd/kustomize-controller/api v1.4.0
 	github.com/fluxcd/pkg/apis/kustomize v1.8.0
 	github.com/fluxcd/pkg/apis/meta v1.9.0
@@ -50,7 +49,6 @@ require (
 	github.com/ProtonMail/go-crypto v1.1.4 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
-	github.com/apparentlymart/go-textseg/v16 v16.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.32.7 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.7 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.28.7 // indirect
@@ -72,7 +70,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.3 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
-	github.com/cenkalti/backoff/v5 v5.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.5.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20241223141626-cff3c89139a3 // indirect
@@ -146,7 +143,6 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/urfave/cli v1.22.16 // indirect
-	github.com/urfave/cli/v2 v2.27.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
@@ -174,7 +170,6 @@ require (
 	google.golang.org/grpc v1.69.2 // indirect
 	google.golang.org/protobuf v1.36.2 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
-	gopkg.in/evanphx/json-patch.v5 v5.9.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
