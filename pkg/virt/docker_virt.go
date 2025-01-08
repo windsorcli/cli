@@ -94,12 +94,12 @@ func (v *DockerVirt) Up() error {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
 
-		// Get the path to the compose.yaml file
+		// Get the path to the docker-compose.yaml file
 		configRoot, err := v.configHandler.GetConfigRoot()
 		if err != nil {
 			return fmt.Errorf("error retrieving config root: %w", err)
 		}
-		composeFilePath := filepath.Join(configRoot, "compose.yaml")
+		composeFilePath := filepath.Join(configRoot, "docker-compose.yaml")
 
 		// Set the COMPOSE_FILE environment variable and handle potential error
 		if err := osSetenv("COMPOSE_FILE", composeFilePath); err != nil {
@@ -152,12 +152,12 @@ func (v *DockerVirt) Down() error {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
 
-		// Get the path to the compose.yaml file
+		// Get the path to the docker-compose.yaml file
 		configRoot, err := v.configHandler.GetConfigRoot()
 		if err != nil {
 			return fmt.Errorf("error retrieving config root: %w", err)
 		}
-		composeFilePath := filepath.Join(configRoot, "compose.yaml")
+		composeFilePath := filepath.Join(configRoot, "docker-compose.yaml")
 
 		// Set the COMPOSE_FILE environment variable and handle potential error
 		if err := osSetenv("COMPOSE_FILE", composeFilePath); err != nil {
@@ -180,7 +180,7 @@ func (v *DockerVirt) WriteConfig() error {
 	if err != nil {
 		return fmt.Errorf("error retrieving config root: %w", err)
 	}
-	composeFilePath := filepath.Join(configRoot, "compose.yaml")
+	composeFilePath := filepath.Join(configRoot, "docker-compose.yaml")
 
 	// Ensure the parent context folder exists
 	if err := mkdirAll(filepath.Dir(composeFilePath), 0755); err != nil {
