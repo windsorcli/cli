@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
@@ -60,10 +59,7 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 			return ""
 		}
 	}
-
-	// Create a mock context handler
-	mockContext := context.NewMockContext()
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mocked context"
 	}
 
@@ -77,7 +73,6 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("contextHandler", mockContext)
 	injector.Register("sshClient", mockSSHClient)
 	injector.Register("networkInterfaceProvider", mockNetworkInterfaceProvider)
 
