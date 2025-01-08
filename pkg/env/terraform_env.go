@@ -72,7 +72,7 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars["TF_CLI_ARGS_apply"] = strings.TrimSpace(filepath.Join(configRoot, ".terraform", projectPath, "terraform.tfplan"))
 	envVars["TF_CLI_ARGS_import"] = strings.TrimSpace(strings.Join(varFileArgs, " "))
 	envVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(strings.Join(varFileArgs, " "))
-	envVars["TF_VAR_context_path"] = strings.TrimSpace(configRoot)
+	envVars["TF_VAR_context_path"] = strings.TrimSpace(filepath.FromSlash(configRoot))
 
 	// Set TF_VAR_os_type based on the operating system
 	if goos() == "windows" {
