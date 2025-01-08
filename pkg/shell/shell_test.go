@@ -15,17 +15,12 @@ import (
 	"testing"
 	"text/template"
 
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
 func TestShell_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		injector := di.NewInjector()
-
-		// Register a mock ConfigHandler to avoid resolution errors
-		mockConfigHandler := config.NewMockConfigHandler()
-		injector.Register("configHandler", mockConfigHandler)
 
 		// Given a DefaultShell instance
 		shell := NewDefaultShell(injector)
@@ -36,17 +31,6 @@ func TestShell_Initialize(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Initialize() error = %v, wantErr %v", err, false)
-		}
-	})
-
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		injector := di.NewInjector()
-		shell := NewDefaultShell(injector)
-		err := shell.Initialize()
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		} else {
-			t.Logf("Received expected error: %v", err)
 		}
 	})
 }

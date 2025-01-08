@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/ssh"
 )
@@ -19,12 +18,11 @@ func (s *MockSpinner) Stop()  {}
 
 // setSafeSecureShellMocks creates a safe "supermock" where all components are mocked and return non-error responses.
 func setSafeSecureShellMocks(injector ...di.Injector) struct {
-	Injector      di.Injector
-	Client        *ssh.MockClient
-	ClientConn    *ssh.MockClientConn
-	Session       *ssh.MockSession
-	Shell         *MockShell
-	ConfigHandler *config.MockConfigHandler
+	Injector   di.Injector
+	Client     *ssh.MockClient
+	ClientConn *ssh.MockClientConn
+	Session    *ssh.MockSession
+	Shell      *MockShell
 } {
 	if len(injector) == 0 {
 		injector = []di.Injector{di.NewMockInjector()}
@@ -54,8 +52,6 @@ func setSafeSecureShellMocks(injector ...di.Injector) struct {
 
 	mockShell := NewMockShell(injector[0])
 
-	mockConfigHandler := config.NewMockConfigHandler()
-
 	i := injector[0]
 	if i.Resolve("sshClient") == nil {
 		i.Register("sshClient", mockClient)
@@ -63,24 +59,19 @@ func setSafeSecureShellMocks(injector ...di.Injector) struct {
 	if i.Resolve("defaultShell") == nil {
 		i.Register("defaultShell", mockShell)
 	}
-	if i.Resolve("configHandler") == nil {
-		i.Register("configHandler", mockConfigHandler)
-	}
 
 	return struct {
-		Injector      di.Injector
-		Client        *ssh.MockClient
-		ClientConn    *ssh.MockClientConn
-		Session       *ssh.MockSession
-		Shell         *MockShell
-		ConfigHandler *config.MockConfigHandler
+		Injector   di.Injector
+		Client     *ssh.MockClient
+		ClientConn *ssh.MockClientConn
+		Session    *ssh.MockSession
+		Shell      *MockShell
 	}{
-		Injector:      i,
-		Client:        mockClient,
-		ClientConn:    mockClientConn,
-		Session:       mockSession,
-		Shell:         mockShell,
-		ConfigHandler: mockConfigHandler,
+		Injector:   i,
+		Client:     mockClient,
+		ClientConn: mockClientConn,
+		Session:    mockSession,
+		Shell:      mockShell,
 	}
 }
 
@@ -98,16 +89,6 @@ func TestSecureShell_Initialize(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Initialize() error = %v, wantErr %v", err, false)
-		}
-	})
-
-	t.Run("ErrorInitializingBaseShell", func(t *testing.T) {
-		mocks := setSafeSecureShellMocks()
-		mocks.Injector.Register("configHandler", "not a configHandler")
-		secureShell := NewSecureShell(mocks.Injector)
-		err := secureShell.Initialize()
-		if err == nil {
-			t.Errorf("Expected error when initializing base shell with invalid configHandler, got nil")
 		}
 	})
 
