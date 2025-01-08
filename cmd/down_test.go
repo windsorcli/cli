@@ -199,14 +199,14 @@ func TestDownCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorCleaningContextArtifacts", func(t *testing.T) {
+	t.Run("ErrorCleaningConfigArtifacts", func(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
-		mocks.MockController.ResolveContextHandlerFunc = func() context.ContextHandler {
-			mockContextHandler := context.NewMockContext()
-			mockContextHandler.CleanFunc = func() error {
+		mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.CleanFunc = func() error {
 				return fmt.Errorf("Error cleaning up context specific artifacts: %w", fmt.Errorf("error cleaning context artifacts"))
 			}
-			return mockContextHandler
+			return mockConfigHandler
 		}
 
 		// Given a mock context handler that returns an error when cleaning context specific artifacts

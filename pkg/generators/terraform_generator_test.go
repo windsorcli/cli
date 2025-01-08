@@ -100,7 +100,7 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		mocks := setupSafeMocks()
 
 		// Mock GetConfigRoot to return an error
-		mocks.MockContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error")
 		}
 

@@ -95,7 +95,7 @@ func (v *DockerVirt) Up() error {
 		}
 
 		// Get the path to the compose.yaml file
-		configRoot, err := v.contextHandler.GetConfigRoot()
+		configRoot, err := v.configHandler.GetConfigRoot()
 		if err != nil {
 			return fmt.Errorf("error retrieving config root: %w", err)
 		}
@@ -153,7 +153,7 @@ func (v *DockerVirt) Down() error {
 		}
 
 		// Get the path to the compose.yaml file
-		configRoot, err := v.contextHandler.GetConfigRoot()
+		configRoot, err := v.configHandler.GetConfigRoot()
 		if err != nil {
 			return fmt.Errorf("error retrieving config root: %w", err)
 		}
@@ -176,7 +176,7 @@ func (v *DockerVirt) Down() error {
 // WriteConfig writes the Docker configuration file
 func (v *DockerVirt) WriteConfig() error {
 	// Get the config root and construct the file path
-	configRoot, err := v.contextHandler.GetConfigRoot()
+	configRoot, err := v.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error retrieving config root: %w", err)
 	}

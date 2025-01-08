@@ -13,6 +13,8 @@ type MockConfigHandler struct {
 	GetFunc             func(key string) interface{}
 	SetDefaultFunc      func(context Context) error
 	GetConfigFunc       func() *Context
+	GetConfigRootFunc   func() (string, error)
+	CleanFunc           func() error
 }
 
 // NewMockConfigHandler is a constructor for MockConfigHandler
@@ -115,6 +117,22 @@ func (m *MockConfigHandler) GetConfig() *Context {
 		return m.GetConfigFunc()
 	}
 	return &Context{}
+}
+
+// GetConfigRoot calls the mock GetConfigRootFunc if set, otherwise returns a reasonable default string
+func (m *MockConfigHandler) GetConfigRoot() (string, error) {
+	if m.GetConfigRootFunc != nil {
+		return m.GetConfigRootFunc()
+	}
+	return "mock-config-root", nil
+}
+
+// Clean calls the mock CleanFunc if set, otherwise returns nil
+func (m *MockConfigHandler) Clean() error {
+	if m.CleanFunc != nil {
+		return m.CleanFunc()
+	}
+	return nil
 }
 
 // Ensure MockConfigHandler implements ConfigHandler

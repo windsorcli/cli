@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -15,8 +16,9 @@ import (
 
 type TalosEnvMocks struct {
 	Injector       di.Injector
-	ContextHandler *context.MockContext
+	ConfigHandler  *config.MockConfigHandler
 	Shell          *shell.MockShell
+	ContextHandler *context.MockContext
 }
 
 func setupSafeTalosEnvMocks(injector ...di.Injector) *TalosEnvMocks {
@@ -27,20 +29,27 @@ func setupSafeTalosEnvMocks(injector ...di.Injector) *TalosEnvMocks {
 		mockInjector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
-	mockContext.GetConfigRootFunc = func() (string, error) {
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
 	}
 
 	mockShell := shell.NewMockShell()
 
-	mockInjector.Register("contextHandler", mockContext)
+	mockContextHandler := context.NewMockContext()
+	mockContextHandler.GetContextFunc = func() string {
+		return "mock-context"
+	}
+
+	mockInjector.Register("configHandler", mockConfigHandler)
 	mockInjector.Register("shell", mockShell)
+	mockInjector.Register("contextHandler", mockContextHandler)
 
 	return &TalosEnvMocks{
 		Injector:       mockInjector,
-		ContextHandler: mockContext,
+		ConfigHandler:  mockConfigHandler,
 		Shell:          mockShell,
+		ContextHandler: mockContextHandler,
 	}
 }
 
@@ -96,7 +105,7 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 
 	t.Run("GetConfigRootError", func(t *testing.T) {
 		mocks := setupSafeTalosEnvMocks()
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock context error")
 		}
 
@@ -154,7 +163,7 @@ func TestTalosEnv_Print(t *testing.T) {
 		mocks := setupSafeTalosEnvMocks()
 
 		// Override the GetConfigFunc to simulate an error
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock config error")
 		}
 

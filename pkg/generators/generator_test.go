@@ -6,14 +6,14 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/blueprint"
-	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	sh "github.com/windsorcli/cli/pkg/shell"
 )
 
 type MockComponents struct {
 	Injector             di.Injector
-	MockContextHandler   *context.MockContext
+	MockConfigHandler    *config.MockConfigHandler
 	MockBlueprintHandler *blueprint.MockBlueprintHandler
 	MockShell            *sh.MockShell
 }
@@ -39,11 +39,11 @@ func setupSafeMocks(injector ...di.Injector) MockComponents {
 	}
 
 	// Create a new mock context handler
-	mockContextHandler := context.NewMockContext()
-	mockInjector.Register("contextHandler", mockContextHandler)
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockInjector.Register("configHandler", mockConfigHandler)
 
 	// Mock the context handler methods
-	mockContextHandler.GetConfigRootFunc = func() (string, error) {
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return "/mock/config/root", nil
 	}
 
@@ -82,7 +82,7 @@ func setupSafeMocks(injector ...di.Injector) MockComponents {
 
 	return MockComponents{
 		Injector:             mockInjector,
-		MockContextHandler:   mockContextHandler,
+		MockConfigHandler:    mockConfigHandler,
 		MockBlueprintHandler: mockBlueprintHandler,
 		MockShell:            mockShell,
 	}
@@ -117,25 +117,6 @@ func TestGenerator_Initialize(t *testing.T) {
 			t.Errorf("Expected Initialize to succeed, but got error: %v", err)
 		}
 	})
-
-	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		mocks := setupSafeMocks()
-
-		// Given a mock injector with a nil context handler
-		mocks.Injector.Register("contextHandler", nil)
-
-		// When a new BaseGenerator is created
-		generator := NewGenerator(mocks.Injector)
-
-		// And the BaseGenerator is initialized
-		err := generator.Initialize()
-
-		// Then the initialization should fail
-		if err == nil {
-			t.Errorf("Expected Initialize to fail, but it succeeded")
-		}
-	})
-
 	t.Run("ErrorResolvingBlueprintHandler", func(t *testing.T) {
 		mocks := setupSafeMocks()
 

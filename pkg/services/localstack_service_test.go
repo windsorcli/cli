@@ -50,7 +50,7 @@ func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServic
 	mockContext := context.NewMockContext()
 	mockContext.GetContextFunc = func() string { return "mock-context" }
 	mockContext.SetContextFunc = func(context string) error { return nil }
-	mockContext.GetConfigRootFunc = func() (string, error) { return filepath.FromSlash("/mock/config/root"), nil }
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) { return filepath.FromSlash("/mock/config/root"), nil }
 
 	// Register mocks in the injector
 	injector.Register("configHandler", mockConfigHandler)

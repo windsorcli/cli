@@ -29,7 +29,7 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Get the configuration root directory
-	configRoot, err := e.contextHandler.GetConfigRoot()
+	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error getting config root: %w", err)
 	}
@@ -190,7 +190,7 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 	}
 
 	// Get the configuration root directory
-	configRoot, err := e.contextHandler.GetConfigRoot()
+	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}

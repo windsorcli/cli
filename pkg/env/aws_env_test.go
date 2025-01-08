@@ -43,23 +43,28 @@ func setupSafeAwsEnvMocks(injector ...di.Injector) *AwsEnvMocks {
 			},
 		}
 	}
-	mockContext := context.NewMockContext()
-	mockContext.GetConfigRootFunc = func() (string, error) {
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
 	}
 
 	// Create a mock Shell using its constructor
 	mockShell := shell.NewMockShell()
 
+	// Create a mock ContextHandler using its constructor
+	mockContextHandler := context.NewMockContext()
+	mockContextHandler.GetContextFunc = func() string {
+		return "test-context"
+	}
+
 	// Register the mocks in the DI injector
 	mockInjector.Register("configHandler", mockConfigHandler)
-	mockInjector.Register("contextHandler", mockContext)
 	mockInjector.Register("shell", mockShell)
+	mockInjector.Register("contextHandler", mockContextHandler)
 
 	return &AwsEnvMocks{
 		Injector:       mockInjector,
 		ConfigHandler:  mockConfigHandler,
-		ContextHandler: mockContext,
+		ContextHandler: mockContextHandler,
 		Shell:          mockShell,
 	}
 }
@@ -140,7 +145,7 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// Override the GetConfigRootFunc to return a valid path
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "/non/existent/path", nil
 		}
 
@@ -169,7 +174,7 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeAwsEnvMocks()
 
 		// Override the GetConfigRootFunc to simulate an error
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock context error")
 		}
 

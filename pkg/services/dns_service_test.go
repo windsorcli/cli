@@ -41,7 +41,7 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 
 	mockShell := shell.NewMockShell()
 	mockContext := context.NewMockContext()
-	mockContext.GetConfigRootFunc = func() (string, error) {
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
 	}
 	mockContext.GetContextFunc = func() string {
@@ -296,7 +296,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create mocks and set up the mock context
 		mocks := createDNSServiceMocks()
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
 		mocks.MockContext.GetContextFunc = func() string {
@@ -350,7 +350,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	t.Run("ErrorRetrievingConfigRoot", func(t *testing.T) {
 		// Create a mock context that returns an error on GetConfigRoot
 		mocks := createDNSServiceMocks()
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error retrieving config root")
 		}
 
@@ -376,7 +376,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	t.Run("ValidAddress", func(t *testing.T) {
 		// Create a mock context and config handler
 		mocks := createDNSServiceMocks()
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
 
@@ -440,7 +440,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	t.Run("ErrorWritingCorefile", func(t *testing.T) {
 		// Mock the GetConfigRoot function to return a mock path
 		mocks := createDNSServiceMocks()
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
 
@@ -511,7 +511,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 
 		// Mock the context
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return filepath.FromSlash("/invalid/path"), nil
 		}
 		mocks.MockContext.GetContextFunc = func() string {

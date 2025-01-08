@@ -2,9 +2,17 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 
+	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
+)
+
+const (
+	windsorDirName  = ".windsor"
+	contextDirName  = "contexts"
+	contextFileName = "context"
 )
 
 // ConfigHandler defines the interface for handling configuration operations
@@ -41,13 +49,20 @@ type ConfigHandler interface {
 
 	// GetConfig returns the context config object
 	GetConfig() *Context
+
+	// GetConfigRoot retrieves the configuration root path based on the current context
+	GetConfigRoot() (string, error)
+
+	// Clean cleans up context specific artifacts
+	Clean() error
 }
 
 // BaseConfigHandler is a base implementation of the ConfigHandler interface
 type BaseConfigHandler struct {
 	ConfigHandler
-	injector di.Injector
-	shell    shell.Shell
+	injector       di.Injector
+	shell          shell.Shell
+	contextHandler context.ContextHandler
 }
 
 // NewBaseConfigHandler creates a new BaseConfigHandler instance
@@ -57,10 +72,50 @@ func NewBaseConfigHandler(injector di.Injector) *BaseConfigHandler {
 
 // Initialize sets up the config handler by resolving and storing the shell dependency.
 func (c *BaseConfigHandler) Initialize() error {
+	contextHandler, ok := c.injector.Resolve("context").(context.ContextHandler)
+	if !ok {
+		return fmt.Errorf("error resolving context")
+	}
+	c.contextHandler = contextHandler
+
 	shell, ok := c.injector.Resolve("shell").(shell.Shell)
 	if !ok {
 		return fmt.Errorf("error resolving shell")
 	}
 	c.shell = shell
+	return nil
+}
+
+// GetConfigRoot retrieves the configuration root path based on the current context
+func (c *BaseConfigHandler) GetConfigRoot() (string, error) {
+	context := c.contextHandler.GetContext()
+
+	projectRoot, err := c.shell.GetProjectRoot()
+	if err != nil {
+		return "", err
+	}
+
+	configRoot := filepath.Join(projectRoot, contextDirName, context)
+	return configRoot, nil
+}
+
+// Clean cleans up context specific artifacts
+func (c *BaseConfigHandler) Clean() error {
+	configRoot, err := c.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error getting config root: %w", err)
+	}
+
+	dirsToDelete := []string{".kube", ".talos", ".omni", ".aws", ".terraform", ".tfstate"}
+
+	for _, dir := range dirsToDelete {
+		path := filepath.Join(configRoot, dir)
+		if _, err := osStat(path); err == nil {
+			if err := osRemoveAll(path); err != nil {
+				return fmt.Errorf("error deleting %s: %w", path, err)
+			}
+		}
+	}
+
 	return nil
 }

@@ -114,7 +114,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	}
 
 	// Mock the GetConfigRootFunc to return a mock config root path
-	mockContext.GetConfigRootFunc = func() (string, error) {
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return "/mock/config/root", nil
 	}
 
@@ -292,7 +292,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the GetConfigRoot function to simulate an error
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error retrieving config root")
 		}
 
@@ -326,7 +326,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the GetConfigRoot function to return a valid path
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "/valid/path", nil
 		}
 
@@ -523,7 +523,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the GetConfigRootFunc to return an error
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error retrieving config root")
 		}
 
@@ -982,7 +982,7 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error retrieving config root")
 		}
 

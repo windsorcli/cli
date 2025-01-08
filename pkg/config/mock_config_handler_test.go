@@ -279,3 +279,47 @@ func TestMockConfigHandler_GetConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestMockConfigHandler_GetConfigRoot(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		handler := NewMockConfigHandler()
+		handler.GetConfigRootFunc = func() (string, error) { return "mock-config-root", nil }
+		root, err := handler.GetConfigRoot()
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+		if root != "mock-config-root" {
+			t.Errorf("Expected GetConfigRoot to return 'mock-config-root', got %v", root)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		handler := NewMockConfigHandler()
+		root, err := handler.GetConfigRoot()
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+		if root != "mock-config-root" {
+			t.Errorf("Expected GetConfigRoot to return 'mock-config-root', got %v", root)
+		}
+	})
+}
+
+func TestMockConfigHandler_Clean(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		handler := NewMockConfigHandler()
+		handler.CleanFunc = func() error { return nil }
+		err := handler.Clean()
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		handler := NewMockConfigHandler()
+		err := handler.Clean()
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+}

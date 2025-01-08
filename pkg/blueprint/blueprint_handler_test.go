@@ -201,7 +201,7 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 	mockInjector.Register("configHandler", mockConfigHandler)
 
 	// Mock the context handler methods
-	mockContextHandler.GetConfigRootFunc = func() (string, error) {
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return "/mock/config/root", nil
 	}
 
@@ -515,7 +515,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
 		// Given a mock injector
 		mocks := setupSafeMocks()
-		mocks.MockContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error getting config root")
 		}
 
@@ -1090,9 +1090,9 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 		mocks := setupSafeMocks()
 
 		// Override the GetConfigRootFunc to simulate an error
-		originalGetConfigRootFunc := mocks.MockContextHandler.GetConfigRootFunc
-		defer func() { mocks.MockContextHandler.GetConfigRootFunc = originalGetConfigRootFunc }()
-		mocks.MockContextHandler.GetConfigRootFunc = func() (string, error) {
+		originalGetConfigRootFunc := mocks.MockConfigHandler.GetConfigRootFunc
+		defer func() { mocks.MockConfigHandler.GetConfigRootFunc = originalGetConfigRootFunc }()
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error")
 		}
 

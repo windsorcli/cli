@@ -109,7 +109,7 @@ var localJsonnetTemplate string
 // processes the configuration context, evaluates Jsonnet if present, and integrates
 // the resulting blueprint with any local blueprint data.
 func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
-	configRoot, err := b.contextHandler.GetConfigRoot()
+	configRoot, err := b.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
@@ -195,7 +195,7 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 	if len(path) > 0 && path[0] != "" {
 		finalPath = path[0]
 	} else {
-		configRoot, err := b.contextHandler.GetConfigRoot()
+		configRoot, err := b.configHandler.GetConfigRoot()
 		if err != nil {
 			return fmt.Errorf("error getting config root: %w", err)
 		}

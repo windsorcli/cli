@@ -30,27 +30,30 @@ func setupSafeDockerEnvPrinterMocks(injector ...di.Injector) *DockerEnvPrinterMo
 		mockInjector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
-	mockContext.GetConfigRootFunc = func() (string, error) {
-		return filepath.FromSlash("/mock/config/root"), nil
-	}
-
 	mockShell := shell.NewMockShell()
 
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 		return "mock-value"
 	}
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+		return filepath.FromSlash("/mock/config/root"), nil
+	}
 
-	mockInjector.Register("contextHandler", mockContext)
+	mockContextHandler := context.NewMockContext()
+	mockContextHandler.GetContextFunc = func() string {
+		return "mock-context"
+	}
+
 	mockInjector.Register("shell", mockShell)
 	mockInjector.Register("configHandler", mockConfigHandler)
+	mockInjector.Register("contextHandler", mockContextHandler)
 
 	return &DockerEnvPrinterMocks{
 		Injector:       mockInjector,
-		ContextHandler: mockContext,
 		Shell:          mockShell,
 		ConfigHandler:  mockConfigHandler,
+		ContextHandler: mockContextHandler,
 	}
 }
 
