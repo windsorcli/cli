@@ -60,7 +60,7 @@ func (v *ColimaVirt) Down() error {
 
 // GetVMInfo returns the information about the Colima VM
 func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
-	contextName := v.contextHandler.GetContext()
+	contextName := v.configHandler.GetContext()
 
 	command := "colima"
 	args := []string{"ls", "--profile", fmt.Sprintf("windsor-%s", contextName), "--json"}
@@ -101,7 +101,7 @@ func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
 
 // WriteConfig writes the Colima configuration file
 func (v *ColimaVirt) WriteConfig() error {
-	context := v.contextHandler.GetContext()
+	context := v.configHandler.GetContext()
 
 	if v.configHandler.GetString("vm.driver") != "colima" {
 		return nil
@@ -257,7 +257,7 @@ func getDefaultValues(context string) (int, int, int, string, string) {
 // executeColimaCommand executes a Colima command with the given action
 func (v *ColimaVirt) executeColimaCommand(action string) error {
 	// Get the context name
-	contextName := v.contextHandler.GetContext()
+	contextName := v.configHandler.GetContext()
 
 	command := "colima"
 	args := []string{action, fmt.Sprintf("windsor-%s", contextName)}
@@ -273,7 +273,7 @@ func (v *ColimaVirt) executeColimaCommand(action string) error {
 // startColima starts the Colima VM and waits for it to have an assigned IP address
 func (v *ColimaVirt) startColima() (VMInfo, error) {
 	// Get the context name
-	contextName := v.contextHandler.GetContext()
+	contextName := v.configHandler.GetContext()
 
 	command := "colima"
 	args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}

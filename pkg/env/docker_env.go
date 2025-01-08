@@ -49,7 +49,7 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	switch vmDriver {
 	case "colima":
 		// Handle the "colima" case
-		contextName := e.contextHandler.GetContext()
+		contextName := e.configHandler.GetContext()
 		dockerHostPath := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, contextName)
 		envVars["DOCKER_HOST"] = dockerHostPath
 		dockerConfigContent = fmt.Sprintf(dockerConfigContent, fmt.Sprintf("colima-windsor-%s", contextName))

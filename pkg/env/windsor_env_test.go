@@ -8,15 +8,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type WindsorEnvMocks struct {
-	Injector       di.Injector
-	ContextHandler *context.MockContext
-	Shell          *shell.MockShell
+	Injector      di.Injector
+	ConfigHandler *config.MockConfigHandler
+	Shell         *shell.MockShell
 }
 
 func setupSafeWindsorEnvMocks(injector ...di.Injector) *WindsorEnvMocks {
@@ -27,11 +27,11 @@ func setupSafeWindsorEnvMocks(injector ...di.Injector) *WindsorEnvMocks {
 		mockInjector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
-	mockContext.GetConfigRootFunc = func() (string, error) {
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
 	}
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
 
@@ -40,13 +40,13 @@ func setupSafeWindsorEnvMocks(injector ...di.Injector) *WindsorEnvMocks {
 		return filepath.FromSlash("/mock/project/root"), nil
 	}
 
-	mockInjector.Register("contextHandler", mockContext)
+	mockInjector.Register("configHandler", mockConfigHandler)
 	mockInjector.Register("shell", mockShell)
 
 	return &WindsorEnvMocks{
-		Injector:       mockInjector,
-		ContextHandler: mockContext,
-		Shell:          mockShell,
+		Injector:      mockInjector,
+		ConfigHandler: mockConfigHandler,
+		Shell:         mockShell,
 	}
 }
 
@@ -55,7 +55,6 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeWindsorEnvMocks()
 
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
-		windsorEnvPrinter.Initialize()
 		windsorEnvPrinter.Initialize()
 
 		envVars, err := windsorEnvPrinter.GetEnvVars()

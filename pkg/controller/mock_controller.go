@@ -5,7 +5,6 @@ import (
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -30,7 +29,6 @@ type MockController struct {
 	CreateStackComponentsFunc          func() error
 	ResolveInjectorFunc                func() di.Injector
 	ResolveConfigHandlerFunc           func() config.ConfigHandler
-	ResolveContextHandlerFunc          func() context.ContextHandler
 	ResolveEnvPrinterFunc              func(name string) env.EnvPrinter
 	ResolveAllEnvPrintersFunc          func() []env.EnvPrinter
 	ResolveShellFunc                   func() shell.Shell
@@ -83,10 +81,6 @@ func (m *MockController) CreateCommonComponents() error {
 	// Set the configHandler
 	m.configHandler = configHandler
 
-	// Create a new mock contextHandler
-	contextHandler := context.NewMockContext()
-	m.injector.Register("contextHandler", contextHandler)
-
 	// Create a new mock shell
 	shellInstance := shell.NewMockShell()
 	m.injector.Register("shell", shellInstance)
@@ -95,12 +89,6 @@ func (m *MockController) CreateCommonComponents() error {
 	// above and can't be mocked externally. There may be a better way to
 	// organize this in the future but this works for now, so we don't expect
 	// these lines to be covered by tests.
-
-	// Initialize the contextHandler
-	resolvedContextHandler := m.injector.Resolve("contextHandler").(*context.MockContext)
-	if err := resolvedContextHandler.Initialize(); err != nil {
-		return fmt.Errorf("error initializing context handler: %w", err)
-	}
 
 	// Initialize the shell
 	resolvedShell := m.injector.Resolve("shell").(*shell.MockShell)
@@ -326,14 +314,6 @@ func (c *MockController) ResolveConfigHandler() config.ConfigHandler {
 		return c.ResolveConfigHandlerFunc()
 	}
 	return c.BaseController.ResolveConfigHandler()
-}
-
-// ResolveContextHandler calls the mock ResolveContextHandlerFunc if set, otherwise calls the parent function
-func (c *MockController) ResolveContextHandler() context.ContextHandler {
-	if c.ResolveContextHandlerFunc != nil {
-		return c.ResolveContextHandlerFunc()
-	}
-	return c.BaseController.ResolveContextHandler()
 }
 
 // ResolveEnvPrinter calls the mock ResolveEnvPrinterFunc if set, otherwise calls the parent function

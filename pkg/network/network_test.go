@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -20,7 +19,6 @@ type NetworkManagerMocks struct {
 	MockShell                    *shell.MockShell
 	MockSecureShell              *shell.MockShell
 	MockConfigHandler            *config.MockConfigHandler
-	MockContextHandler           *context.MockContext
 	MockSSHClient                *ssh.MockClient
 	MockNetworkInterfaceProvider *MockNetworkInterfaceProvider
 }
@@ -59,9 +57,6 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 		}
 	}
 
-	// Create a mock context handler
-	mockContextHandler := context.NewMockContext()
-
 	// Create a mock SSH client
 	mockSSHClient := &ssh.MockClient{}
 
@@ -69,7 +64,6 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("contextHandler", mockContextHandler)
 	injector.Register("sshClient", mockSSHClient)
 
 	// Create a mock network interface provider with mock functions
@@ -127,7 +121,6 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 		MockShell:                    mockShell,
 		MockSecureShell:              mockSecureShell,
 		MockConfigHandler:            mockConfigHandler,
-		MockContextHandler:           mockContextHandler,
 		MockSSHClient:                mockSSHClient,
 		MockNetworkInterfaceProvider: mockNetworkInterfaceProvider,
 	}
@@ -249,28 +242,6 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected an error during Initialize, got nil")
 		} else if err.Error() != "error resolving configHandler" {
-			t.Fatalf("unexpected error message: got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupNetworkManagerMocks()
-
-		// Register a mock contextHandler with incorrect type
-		mocks.Injector.Register("contextHandler", "incorrectType")
-
-		// Create a new NetworkManager
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
-
-		// Run Initialize on the NetworkManager
-		err = nm.Initialize()
-		if err == nil {
-			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "failed to resolve context handler" {
 			t.Fatalf("unexpected error message: got %v", err)
 		}
 	})

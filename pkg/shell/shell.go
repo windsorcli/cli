@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/briandowns/spinner"
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -51,10 +50,9 @@ type Shell interface {
 
 // DefaultShell is the default implementation of the Shell interface
 type DefaultShell struct {
-	projectRoot   string
-	injector      di.Injector
-	configHandler config.ConfigHandler
-	verbose       bool
+	projectRoot string
+	injector    di.Injector
+	verbose     bool
 }
 
 // NewDefaultShell creates a new instance of DefaultShell
@@ -66,12 +64,6 @@ func NewDefaultShell(injector di.Injector) *DefaultShell {
 
 // Initialize initializes the shell
 func (s *DefaultShell) Initialize() error {
-	configHandler, ok := s.injector.Resolve("configHandler").(config.ConfigHandler)
-	if !ok {
-		return fmt.Errorf("error resolving configHandler")
-	}
-	s.configHandler = configHandler
-
 	return nil
 }
 
@@ -80,14 +72,14 @@ func (s *DefaultShell) SetVerbosity(verbose bool) {
 	s.verbose = verbose
 }
 
-// GetProjectRoot retrieves the project root directory
+// GetProjectRoot finds the project root directory. It first checks for a cached root.
+// If not found, it tries the git root. If that fails, it searches for windsor.yaml or
+// windsor.yml up to a max depth. Returns the root path or an error.
 func (s *DefaultShell) GetProjectRoot() (string, error) {
-	// Return cached project root if available
 	if s.projectRoot != "" {
 		return s.projectRoot, nil
 	}
 
-	// Try to get the git root first
 	cmd := execCommand("git", "rev-parse", "--show-toplevel")
 	output, err := cmd.Output()
 	if err == nil {
@@ -95,7 +87,6 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 		return s.projectRoot, nil
 	}
 
-	// If git command fails, search for windsor.yaml or windsor.yml
 	currentDir, err := getwd()
 	if err != nil {
 		return "", err
@@ -107,9 +98,7 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 			return "", nil
 		}
 
-		// Check for windsor.yaml file
 		windsorYaml := filepath.Join(currentDir, "windsor.yaml")
-		// Check for windsor.yml file
 		windsorYml := filepath.Join(currentDir, "windsor.yml")
 
 		if _, err := os.Stat(windsorYaml); err == nil {
@@ -121,10 +110,8 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 			return s.projectRoot, nil
 		}
 
-		// Move to the parent directory
 		parentDir := filepath.Dir(currentDir)
 		if parentDir == currentDir {
-			// We've reached the root of the file system
 			return "", nil
 		}
 		currentDir = parentDir
@@ -132,78 +119,57 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 	}
 }
 
-// Exec executes a command, prints its output, and returns it as a string
+// Exec runs a command with args, capturing stdout and stderr. It prints output and returns stdout as a string.
+// If the command is "sudo", it connects stdin to the terminal for password input.
 func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 	cmd := execCommand(command, args...)
-
-	// Buffer to capture stdout
-	var stdoutBuf bytes.Buffer
-	// Use MultiWriter to write to both os.Stdout and stdoutBuf
-	stdoutWriter := io.MultiWriter(os.Stdout, &stdoutBuf)
-	cmd.Stdout = stdoutWriter
-
-	// Buffer to capture stderr
-	var stderrBuf bytes.Buffer
-	// Use MultiWriter to write to both os.Stderr and stderrBuf
-	stderrWriter := io.MultiWriter(os.Stderr, &stderrBuf)
-	cmd.Stderr = stderrWriter
-
-	// Handle sudo commands
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	if command == "sudo" {
-		cmd.Stdin = os.Stdin // Allow password input for sudo
+		cmd.Stdin = os.Stdin
 	}
-
-	// Start the command
 	if err := cmdStart(cmd); err != nil {
 		return "", fmt.Errorf("command start failed: %w", err)
 	}
-
-	// Wait for the command to complete
 	if err := cmdWait(cmd); err != nil {
 		return "", fmt.Errorf("command execution failed: %w", err)
 	}
-
-	// Return the captured stdout as a string
 	return stdoutBuf.String(), nil
 }
 
-// ExecSudo executes a command with sudo if not already present and returns its output while suppressing it from being printed
+// ExecSudo runs a command with 'sudo', ensuring elevated privileges. It handles password prompts by
+// connecting to the terminal and captures the command's output. If verbose mode is enabled, it prints
+// a message to stderr. The function returns the command's stdout or an error if execution fails.
 func (s *DefaultShell) ExecSudo(message string, command string, args ...string) (string, error) {
 	if s.verbose {
 		fmt.Fprintln(os.Stderr, message)
 		return s.Exec("sudo", append([]string{command}, args...)...)
 	}
 
-	// If the command is not sudo, add sudo to the command
 	if command != "sudo" {
 		args = append([]string{command}, args...)
 		command = "sudo"
 	}
 
 	cmd := execCommand(command, args...)
-
-	// Open the controlling terminal
 	tty, err := osOpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		return "", fmt.Errorf("failed to open /dev/tty: %w", err)
 	}
 	defer tty.Close()
 
-	// Set the command's stdin and stderr to tty for password input and prompt
 	cmd.Stdin = tty
 	cmd.Stderr = tty
 
-	// Capture stdout in a buffer
 	var stdoutBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf
 
-	// Start the command
 	if err := cmdStart(cmd); err != nil {
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 		return "", err
 	}
 
-	// Wait for the command to complete
 	err = cmdWait(cmd)
 
 	if err != nil {
@@ -211,14 +177,13 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 		return "", fmt.Errorf("command execution failed: %w", err)
 	}
 
-	// Print success message with a green checkbox and "Done"
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 
-	// Return the captured stdout as a string
 	return stdoutBuf.String(), nil
 }
 
-// ExecSilent executes a command and returns its output as a string without printing to stdout or stderr
+// ExecSilent is a method that runs a command quietly, capturing its output.
+// It returns the command's stdout as a string and any error encountered.
 func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error) {
 	if s.verbose {
 		return s.Exec(command, args...)
@@ -230,7 +195,6 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 
-	// Run the command
 	if err := cmdRun(cmd); err != nil {
 		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 	}
@@ -238,7 +202,10 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 	return stdoutBuf.String(), nil
 }
 
-// ExecProgress executes a command and returns its output as a string while displaying progress status
+// ExecProgress is a method of the DefaultShell struct that executes a command with a progress indicator.
+// It takes a message, a command, and arguments, using the Exec method if verbose mode is enabled.
+// Otherwise, it captures stdout and stderr with pipes and uses a spinner to show progress.
+// The method returns the command's stdout as a string and any error encountered.
 func (s *DefaultShell) ExecProgress(message string, command string, args ...string) (string, error) {
 	if s.verbose {
 		fmt.Fprintln(os.Stderr, message)
@@ -247,7 +214,6 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 
 	cmd := execCommand(command, args...)
 
-	// Set up pipes to capture stdout and stderr
 	stdoutPipe, err := cmdStdoutPipe(cmd)
 	if err != nil {
 		return "", err
@@ -258,25 +224,22 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 		return "", err
 	}
 
-	// Start the command execution
 	if err := cmdStart(cmd); err != nil {
 		return "", err
 	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
-	errChan := make(chan error, 2) // Channel to capture errors from goroutines
+	errChan := make(chan error, 2)
 
-	// Initialize the spinner with color
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 	spin.Suffix = " " + message
 	spin.Start()
 
-	// Goroutine to read and process stdout
 	go func() {
 		scanner := bufio.NewScanner(stdoutPipe)
 		for bufioScannerScan(scanner) {
 			line := scanner.Text()
-			stdoutBuf.WriteString(line + "\n") // Append line to stdout buffer
+			stdoutBuf.WriteString(line + "\n")
 		}
 		if err := bufioScannerErr(scanner); err != nil {
 			errChan <- fmt.Errorf("error reading stdout: %w", err)
@@ -285,12 +248,11 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 		errChan <- nil
 	}()
 
-	// Goroutine to read and process stderr
 	go func() {
 		scanner := bufio.NewScanner(stderrPipe)
 		for bufioScannerScan(scanner) {
 			line := scanner.Text()
-			stderrBuf.WriteString(line + "\n") // Append line to stderr buffer
+			stderrBuf.WriteString(line + "\n")
 		}
 		if err := bufioScannerErr(scanner); err != nil {
 			errChan <- fmt.Errorf("error reading stderr: %w", err)
@@ -299,35 +261,29 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 		errChan <- nil
 	}()
 
-	// Wait for the command to complete
 	if err := cmdWait(cmd); err != nil {
-		spin.Stop()                                                                             // Stop the spinner
-		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String()) // Print failure message in red
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String())
 		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 	}
 
-	// Check for errors from the stdout and stderr goroutines
 	for i := 0; i < 2; i++ {
 		if err := <-errChan; err != nil {
-			spin.Stop()                                                                             // Stop the spinner
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String()) // Print failure message in red
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String())
 			return "", err
 		}
 	}
 
-	spin.Stop() // Stop the spinner
-
-	// Print success message with a green checkbox and "Done"
+	spin.Stop()
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 
-	return stdoutBuf.String(), nil // Return the captured stdout as a string
+	return stdoutBuf.String(), nil
 }
 
 // InstallHook installs a shell hook if it exists for the given shell name.
 // It executes the hook command silently and returns an error if the shell is unsupported.
 func (s *DefaultShell) InstallHook(shellName string) error {
-
-	// Retrieve the hook command for the specified shell
 	hookCommand, exists := shellHooks[shellName]
 	if !exists {
 		return fmt.Errorf("Unsupported shell: %s", shellName)
@@ -338,7 +294,6 @@ func (s *DefaultShell) InstallHook(shellName string) error {
 		return err
 	}
 
-	// Convert Windows path if needed
 	selfPath = strings.Replace(selfPath, "\\", "/", -1)
 	ctx := HookContext{selfPath}
 

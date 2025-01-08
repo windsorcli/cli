@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
@@ -64,11 +63,10 @@ func mockExit(code int) {
 }
 
 type MockObjects struct {
-	Controller     *ctrl.MockController
-	Shell          *shell.MockShell
-	EnvPrinter     *env.MockEnvPrinter
-	ConfigHandler  *config.MockConfigHandler
-	ContextHandler *context.MockContext
+	Controller    *ctrl.MockController
+	Shell         *shell.MockShell
+	EnvPrinter    *env.MockEnvPrinter
+	ConfigHandler *config.MockConfigHandler
 }
 
 func TestRoot_Execute(t *testing.T) {
@@ -299,15 +297,6 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 		mockController := ctrl.NewMockController(injector)
 		controller = mockController
 
-		// Mock ResolveContextHandler to return a mock context handler
-		mockContextHandler := &context.MockContext{}
-		mockContextHandler.GetContextFunc = func() string {
-			return "local"
-		}
-		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
-			return mockContextHandler
-		}
-
 		// Mock ResolveConfigHandler to return a mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.SetDefaultFunc = func(cfg config.Context) error {
@@ -318,6 +307,9 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 		}
 		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
 			return mockConfigHandler
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "local"
 		}
 
 		// When preRunEInitializeCommonComponents is called
@@ -342,15 +334,6 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 		mockController := ctrl.NewMockController(injector)
 		controller = mockController
 
-		// Mock ResolveContextHandler to return a mock context handler
-		mockContextHandler := &context.MockContext{}
-		mockContextHandler.GetContextFunc = func() string {
-			return "production"
-		}
-		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
-			return mockContextHandler
-		}
-
 		// Mock ResolveConfigHandler to return a mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.SetDefaultFunc = func(cfg config.Context) error {
@@ -361,6 +344,9 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 		}
 		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
 			return mockConfigHandler
+		}
+		mockConfigHandler.GetContextFunc = func() string {
+			return "production"
 		}
 
 		// When preRunEInitializeCommonComponents is called

@@ -61,7 +61,7 @@ func (s *DNSService) SetAddress(address string) error {
 // GetComposeConfig returns the compose configuration
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name
-	contextName := s.contextHandler.GetContext()
+	contextName := s.configHandler.GetContext()
 
 	// Get the TLD from the configuration
 	tld := s.configHandler.GetString("dns.name", "test")
@@ -108,7 +108,7 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 // WriteConfig writes any necessary configuration files needed by the service
 func (s *DNSService) WriteConfig() error {
 	// Retrieve the configuration directory for the current context
-	configDir, err := s.contextHandler.GetConfigRoot()
+	configDir, err := s.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error retrieving config root: %w", err)
 	}

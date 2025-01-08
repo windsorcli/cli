@@ -53,7 +53,7 @@ var downCmd = &cobra.Command{
 
 		// Clean up context specific artifacts if --clean flag is set
 		if cleanFlag {
-			if err := controller.ResolveContextHandler().Clean(); err != nil {
+			if err := controller.ResolveConfigHandler().Clean(); err != nil {
 				return fmt.Errorf("Error cleaning up context specific artifacts: %w", err)
 			}
 		}

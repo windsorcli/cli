@@ -44,9 +44,6 @@ func TestRealController_CreateCommonComponents(t *testing.T) {
 		if injector.Resolve("configHandler") == nil {
 			t.Fatalf("expected configHandler to be registered, got error")
 		}
-		if injector.Resolve("contextHandler") == nil {
-			t.Fatalf("expected contextHandler to be registered, got error")
-		}
 		if injector.Resolve("shell") == nil {
 			t.Fatalf("expected shell to be registered, got error")
 		}

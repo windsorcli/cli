@@ -10,16 +10,14 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type DockerEnvPrinterMocks struct {
-	Injector       di.Injector
-	ContextHandler *context.MockContext
-	Shell          *shell.MockShell
-	ConfigHandler  *config.MockConfigHandler
+	Injector      di.Injector
+	Shell         *shell.MockShell
+	ConfigHandler *config.MockConfigHandler
 }
 
 func setupSafeDockerEnvPrinterMocks(injector ...di.Injector) *DockerEnvPrinterMocks {
@@ -30,27 +28,26 @@ func setupSafeDockerEnvPrinterMocks(injector ...di.Injector) *DockerEnvPrinterMo
 		mockInjector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
-	mockContext.GetConfigRootFunc = func() (string, error) {
-		return filepath.FromSlash("/mock/config/root"), nil
-	}
-
 	mockShell := shell.NewMockShell()
 
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 		return "mock-value"
 	}
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+		return filepath.FromSlash("/mock/config/root"), nil
+	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "mock-context"
+	}
 
-	mockInjector.Register("contextHandler", mockContext)
 	mockInjector.Register("shell", mockShell)
 	mockInjector.Register("configHandler", mockConfigHandler)
 
 	return &DockerEnvPrinterMocks{
-		Injector:       mockInjector,
-		ContextHandler: mockContext,
-		Shell:          mockShell,
-		ConfigHandler:  mockConfigHandler,
+		Injector:      mockInjector,
+		Shell:         mockShell,
+		ConfigHandler: mockConfigHandler,
 	}
 }
 
@@ -73,7 +70,7 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 
 	t.Run("ColimaDriver", func(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
-		mocks.ContextHandler.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
 

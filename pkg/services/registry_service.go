@@ -85,7 +85,7 @@ func (s *RegistryService) GetHostname() string {
 // with the specified name, remote URL, and local URL.
 func (s *RegistryService) generateRegistryService(hostName, remoteURL, localURL string) (types.ServiceConfig, error) {
 	// Retrieve the context name
-	contextName := s.contextHandler.GetContext()
+	contextName := s.configHandler.GetContext()
 
 	// Initialize the ServiceConfig with the provided name, a predefined image,
 	// a restart policy, and labels indicating the role and manager.

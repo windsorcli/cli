@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
@@ -18,7 +17,6 @@ type ColimaNetworkManagerMocks struct {
 	MockShell                    *shell.MockShell
 	MockSecureShell              *shell.MockShell
 	MockConfigHandler            *config.MockConfigHandler
-	MockContextHandler           *context.MockContext
 	MockSSHClient                *ssh.MockClient
 	MockNetworkInterfaceProvider *MockNetworkInterfaceProvider
 }
@@ -72,9 +70,6 @@ func setupColimaNetworkManagerMocks() *ColimaNetworkManagerMocks {
 		}
 	}
 
-	// Create a mock context handler
-	mockContextHandler := context.NewMockContext()
-
 	// Create a mock SSH client
 	mockSSHClient := &ssh.MockClient{}
 
@@ -82,7 +77,6 @@ func setupColimaNetworkManagerMocks() *ColimaNetworkManagerMocks {
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("contextHandler", mockContextHandler)
 	injector.Register("sshClient", mockSSHClient)
 
 	// Create a mock network interface provider with mock functions
@@ -130,7 +124,6 @@ func setupColimaNetworkManagerMocks() *ColimaNetworkManagerMocks {
 		MockShell:                    mockShell,
 		MockSecureShell:              mockSecureShell,
 		MockConfigHandler:            mockConfigHandler,
-		MockContextHandler:           mockContextHandler,
 		MockSSHClient:                mockSSHClient,
 		MockNetworkInterfaceProvider: mockNetworkInterfaceProvider,
 	}

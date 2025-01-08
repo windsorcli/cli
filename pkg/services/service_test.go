@@ -4,14 +4,12 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type MockBaseServiceComponents struct {
 	Injector          di.Injector
-	MockContext       *context.MockContext
 	MockShell         *shell.MockShell
 	MockConfigHandler *config.MockConfigHandler
 }
@@ -24,18 +22,15 @@ func setupSafeBaseServiceMocks(optionalInjector ...di.Injector) *MockBaseService
 		injector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
 
 	// Register mock instances in the injector
-	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
 
 	return &MockBaseServiceComponents{
 		Injector:          injector,
-		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
 	}
@@ -62,9 +57,6 @@ func TestBaseService_Initialize(t *testing.T) {
 		if service.shell == nil {
 			t.Fatalf("expected shell to be set, got nil")
 		}
-		if service.contextHandler == nil {
-			t.Fatalf("expected contextHandler to be set, got nil")
-		}
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
@@ -73,23 +65,6 @@ func TestBaseService_Initialize(t *testing.T) {
 
 		// And: the injector is set to return nil for the shell dependency
 		mocks.Injector.Register("shell", nil)
-
-		// When: a new BaseService is created and initialized
-		service := &BaseService{injector: mocks.Injector}
-		err := service.Initialize()
-
-		// Then: the initialization should fail with an error
-		if err == nil {
-			t.Fatalf("expected an error during initialization, got nil")
-		}
-	})
-
-	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		// Given: a set of mock components
-		mocks := setupSafeBaseServiceMocks()
-
-		// And: the injector is set to return nil for the contextHandler dependency
-		mocks.Injector.Register("contextHandler", nil)
 
 		// When: a new BaseService is created and initialized
 		service := &BaseService{injector: mocks.Injector}

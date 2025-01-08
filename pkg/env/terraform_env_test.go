@@ -11,16 +11,14 @@ import (
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/config/aws"
 	"github.com/windsorcli/cli/pkg/config/terraform"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type TerraformEnvMocks struct {
-	Injector       di.Injector
-	ContextHandler *context.MockContext
-	Shell          *shell.MockShell
-	ConfigHandler  *config.MockConfigHandler
+	Injector      di.Injector
+	Shell         *shell.MockShell
+	ConfigHandler *config.MockConfigHandler
 }
 
 func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
@@ -31,17 +29,12 @@ func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
 		mockInjector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
-	mockContext.GetConfigRootFunc = func() (string, error) {
-		return filepath.FromSlash("/mock/config/root"), nil
-	}
-	mockContext.GetContextFunc = func() string {
-		return "mockContext"
-	}
-
 	mockShell := shell.NewMockShell()
 
 	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+		return "/mock/config/root", nil
+	}
 	mockConfigHandler.GetConfigFunc = func() *config.Context {
 		return &config.Context{
 			Terraform: &terraform.TerraformConfig{
@@ -49,16 +42,17 @@ func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
 			},
 		}
 	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "mock-context"
+	}
 
-	mockInjector.Register("contextHandler", mockContext)
 	mockInjector.Register("shell", mockShell)
 	mockInjector.Register("configHandler", mockConfigHandler)
 
 	return &TerraformEnvMocks{
-		Injector:       mockInjector,
-		ContextHandler: mockContext,
-		Shell:          mockShell,
-		ConfigHandler:  mockConfigHandler,
+		Injector:      mockInjector,
+		Shell:         mockShell,
+		ConfigHandler: mockConfigHandler,
 	}
 }
 
@@ -177,7 +171,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting config root")
 		}
 
@@ -202,7 +196,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 
 	t.Run("ErrorListingTfvarsFiles", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "mockContext"
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
@@ -304,7 +298,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 func TestTerraformEnv_PostEnvHook(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "mockContext"
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
@@ -398,7 +392,7 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting config root")
 		}
 
@@ -573,7 +567,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 
 		// Override the GetConfigFunc to simulate an error
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock config error")
 		}
 
@@ -595,7 +589,7 @@ func TestTerraformEnv_Print(t *testing.T) {
 func TestTerraformEnv_getAlias(t *testing.T) {
 	t.Run("SuccessLocalstackEnabled", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "local"
 		}
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -622,7 +616,7 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 
 	t.Run("SuccessLocalstackDisabled", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetContextFunc = func() string {
+		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "local"
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
@@ -825,7 +819,7 @@ func TestTerraformEnv_sanitizeForK8s(t *testing.T) {
 func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return filepath.FromSlash("/mock/config/root"), nil
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
@@ -996,7 +990,7 @@ terraform {
 
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting config root")
 		}
 

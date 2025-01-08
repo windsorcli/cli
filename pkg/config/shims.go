@@ -12,6 +12,9 @@ var osReadFile = os.ReadFile
 // osWriteFile is a variable to allow mocking os.WriteFile in tests
 var osWriteFile = os.WriteFile
 
+// osRemoveAll is a variable to allow mocking os.RemoveAll in tests
+var osRemoveAll = os.RemoveAll
+
 // Override variable for yamlMarshal
 var yamlMarshal = yaml.Marshal
 

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -16,9 +15,7 @@ func TestEnv_Initialize(t *testing.T) {
 		// Create a mock injector and Env instance
 		mockInjector := di.NewMockInjector()
 
-		// Create and register mock versions of contextHandler, shell, and configHandler
-		mockContextHandler := context.NewMockContext()
-		mockInjector.Register("contextHandler", mockContextHandler)
+		// Create and register mock versions of shell and configHandler
 		mockShell := shell.NewMockShell()
 		mockInjector.Register("shell", mockShell)
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -33,31 +30,11 @@ func TestEnv_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-
-		// Register an invalid contextHandler that cannot be cast to context.ContextHandler
-		mockInjector.Register("contextHandler", "invalid")
-
-		env := NewBaseEnvPrinter(mockInjector)
-
-		// Call Initialize and expect an error
-		err := env.Initialize()
-		if err == nil {
-			t.Error("expected error, got nil")
-		} else if err.Error() != "error resolving or casting contextHandler to context.ContextHandler" {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
-
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
 		// Create a mock injector and Env instance
 		mockInjector := di.NewMockInjector()
 
-		// Register mock versions of contextHandler and configHandler
-		mockContextHandler := context.NewMockContext()
-		mockInjector.Register("contextHandler", mockContextHandler)
+		// Register mock version of configHandler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockInjector.Register("configHandler", mockConfigHandler)
 
@@ -79,9 +56,7 @@ func TestEnv_Initialize(t *testing.T) {
 		// Create a mock injector and Env instance
 		mockInjector := di.NewMockInjector()
 
-		// Register mock versions of contextHandler and shell
-		mockContextHandler := context.NewMockContext()
-		mockInjector.Register("contextHandler", mockContextHandler)
+		// Register mock version of shell
 		mockShell := shell.NewMockShell()
 		mockInjector.Register("shell", mockShell)
 
@@ -131,8 +106,6 @@ func TestEnv_Print(t *testing.T) {
 		mockInjector.Register("shell", mockShell)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockInjector.Register("configHandler", mockConfigHandler)
-		mockContextHandler := context.NewMockContext()
-		mockInjector.Register("contextHandler", mockContextHandler)
 		env := NewBaseEnvPrinter(mockInjector)
 		env.Initialize()
 
@@ -163,8 +136,6 @@ func TestEnv_Print(t *testing.T) {
 		mockInjector.Register("shell", mockShell)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockInjector.Register("configHandler", mockConfigHandler)
-		mockContextHandler := context.NewMockContext()
-		mockInjector.Register("contextHandler", mockContextHandler)
 		env := NewBaseEnvPrinter(mockInjector)
 		env.Initialize()
 

@@ -7,7 +7,6 @@ import (
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -42,12 +41,11 @@ type Service interface {
 
 // BaseService is a base implementation of the Service interface
 type BaseService struct {
-	injector       di.Injector
-	configHandler  config.ConfigHandler
-	shell          shell.Shell
-	contextHandler context.ContextHandler
-	address        string
-	name           string
+	injector      di.Injector
+	configHandler config.ConfigHandler
+	shell         shell.Shell
+	address       string
+	name          string
 }
 
 // Initialize is a no-op for the Service interface
@@ -65,13 +63,6 @@ func (s *BaseService) Initialize() error {
 		return fmt.Errorf("error resolving shell")
 	}
 	s.shell = shell
-
-	// Resolve the contextHandler dependency
-	contextHandler, ok := s.injector.Resolve("contextHandler").(context.ContextHandler)
-	if !ok {
-		return fmt.Errorf("error resolving contextHandler")
-	}
-	s.contextHandler = contextHandler
 
 	return nil
 }
