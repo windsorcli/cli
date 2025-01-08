@@ -4,9 +4,14 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
+)
+
+const (
+	windsorDirName  = ".windsor"
+	contextDirName  = "contexts"
+	contextFileName = "context"
 )
 
 // ContextHandlerInterface defines the interface for context operations
@@ -20,9 +25,9 @@ type ContextHandler interface {
 
 // BaseContextHandler implements the ContextHandlerInterface
 type BaseContextHandler struct {
-	injector      di.Injector          // Handles dependency injection
-	configHandler config.ConfigHandler // Handles configuration operations
-	shell         shell.Shell          // Handles shell operations
+	injector di.Injector // Handles dependency injection
+	shell    shell.Shell // Handles shell operations
+	context  string      // Cached context value
 }
 
 // NewContextHandler creates a new ContextHandler instance
@@ -32,13 +37,6 @@ func NewContextHandler(injector di.Injector) *BaseContextHandler {
 
 // Initialize initializes the context handler
 func (c *BaseContextHandler) Initialize() error {
-	// Resolve the config handler
-	configHandler, ok := c.injector.Resolve("configHandler").(config.ConfigHandler)
-	if !ok {
-		return fmt.Errorf("error resolving configHandler")
-	}
-	c.configHandler = configHandler
-
 	// Resolve the shell
 	shell, ok := c.injector.Resolve("shell").(shell.Shell)
 	if !ok {
@@ -49,24 +47,46 @@ func (c *BaseContextHandler) Initialize() error {
 	return nil
 }
 
-// GetContext retrieves the current context from the configuration
+// GetContext retrieves the current context from the file or cache
 func (c *BaseContextHandler) GetContext() string {
-	context := c.configHandler.Get("context")
-	if context == nil {
+	if c.context != "" {
+		return c.context
+	}
+
+	projectRoot, err := c.shell.GetProjectRoot()
+	if err != nil {
 		return "local"
 	}
-	return context.(string)
+
+	contextFilePath := filepath.Join(projectRoot, windsorDirName, contextFileName)
+	data, err := osReadFile(contextFilePath)
+	if err != nil {
+		return "local"
+	}
+
+	c.context = string(data)
+	return c.context
 }
 
-// SetContext sets the current context in the configuration and saves it
+// SetContext sets the current context in the file and updates the cache
 func (c *BaseContextHandler) SetContext(context string) error {
-	err := c.configHandler.Set("context", context)
+	projectRoot, err := c.shell.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("error setting context: %w", err)
+		return fmt.Errorf("error getting project root: %w", err)
 	}
-	if err := c.configHandler.SaveConfig(""); err != nil {
-		return fmt.Errorf("error saving config: %w", err)
+
+	contextDirPath := filepath.Join(projectRoot, windsorDirName)
+	if err := osMkdirAll(contextDirPath, 0755); err != nil {
+		return fmt.Errorf("error ensuring context directory exists: %w", err)
 	}
+
+	contextFilePath := filepath.Join(contextDirPath, contextFileName)
+	err = osWriteFile(contextFilePath, []byte(context), 0644)
+	if err != nil {
+		return fmt.Errorf("error writing context to file: %w", err)
+	}
+
+	c.context = context
 	return nil
 }
 
@@ -79,7 +99,7 @@ func (c *BaseContextHandler) GetConfigRoot() (string, error) {
 		return "", err
 	}
 
-	configRoot := filepath.Join(projectRoot, "contexts", context)
+	configRoot := filepath.Join(projectRoot, contextDirName, context)
 	return configRoot, nil
 }
 

@@ -7,15 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type MockComponents struct {
-	Injector          di.Injector
-	MockConfigHandler *config.MockConfigHandler
-	MockShell         *shell.MockShell
+	Injector  di.Injector
+	MockShell *shell.MockShell
 }
 
 func setSafeContextMocks(mockInjector ...di.Injector) *MockComponents {
@@ -26,16 +24,12 @@ func setSafeContextMocks(mockInjector ...di.Injector) *MockComponents {
 		injector = di.NewMockInjector()
 	}
 
-	mockConfigHandler := config.NewMockConfigHandler()
 	mockShell := shell.NewMockShell()
-
-	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("shell", mockShell)
 
 	return &MockComponents{
-		Injector:          injector,
-		MockConfigHandler: mockConfigHandler,
-		MockShell:         mockShell,
+		Injector:  injector,
+		MockShell: mockShell,
 	}
 }
 
@@ -51,21 +45,6 @@ func TestContext_Initialize(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ResolvedInstanceNotConfigHandler", func(t *testing.T) {
-		// Given a mock injector that resolves to an incorrect type for configHandler
-		mocks := setSafeContextMocks()
-		mocks.Injector.Register("configHandler", "not a config handler")
-
-		// When a new ContextHandler is created and initialized
-		contextHandler := NewContextHandler(mocks.Injector)
-		err := contextHandler.Initialize()
-
-		// Then an error should be returned
-		if err == nil || err.Error() != "error resolving configHandler" {
-			t.Fatalf("expected error for incorrect configHandler type, got %v", err)
 		}
 	})
 
@@ -87,35 +66,53 @@ func TestContext_Initialize(t *testing.T) {
 
 func TestContext_GetContext(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock config handler that returns a context
+		// Given a mock shell that returns a valid project root and context file
 		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.GetFunc = func(key string) interface{} {
-			if key == "context" {
-				return "test-context"
-			}
-			return nil
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
 		}
 
-		context := NewContextHandler(mocks.Injector)
-		err := context.Initialize()
+		// Mock osReadFile to return a specific context
+		osReadFile = func(filename string) ([]byte, error) {
+			if filename == filepath.Join("/mock/project/root", ".windsor", "context") {
+				return []byte("test-context"), nil
+			}
+			return nil, fmt.Errorf("file not found")
+		}
+
+		// Mock osMkdirAll to simulate successful directory creation
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			if path == filepath.Join("/mock/project/root", ".windsor") {
+				return nil
+			}
+			return fmt.Errorf("error creating directory")
+		}
+
+		contextHandler := NewContextHandler(mocks.Injector)
+		err := contextHandler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
 		// When calling GetContext
-		contextValue := context.GetContext()
+		contextValue := contextHandler.GetContext()
 
 		// Then the context should be returned without error
 		if contextValue != "test-context" {
-			t.Fatalf("expected context 'test-context', got %s", contextValue)
+			t.Errorf("expected context 'test-context', got %s", contextValue)
 		}
 	})
 
 	t.Run("GetContextDefaultsToLocal", func(t *testing.T) {
-		// Given a config handler that returns an empty string
+		// Given a mock shell that returns a valid project root but no context file
 		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.GetFunc = func(key string) interface{} {
-			return nil
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+
+		// Mock osReadFile to simulate file not found
+		osReadFile = func(filename string) ([]byte, error) {
+			return nil, fmt.Errorf("file not found")
 		}
 
 		// Create a new Context instance
@@ -138,16 +135,18 @@ func TestContext_GetContext(t *testing.T) {
 
 func TestContext_SetContext(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock config handler that sets and saves the context successfully
+		// Given a mock shell that returns a valid project root
 		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "context" && value == "new-context" {
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+
+		// Mock osWriteFile to simulate successful write
+		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			if filename == filepath.Join("/mock/project/root", ".windsor", "context") && string(data) == "new-context" {
 				return nil
 			}
-			return nil
-		}
-		mocks.MockConfigHandler.SaveConfigFunc = func(path string) error {
-			return nil
+			return fmt.Errorf("error writing file")
 		}
 
 		context := NewContextHandler(mocks.Injector)
@@ -165,40 +164,24 @@ func TestContext_SetContext(t *testing.T) {
 		}
 	})
 
-	t.Run("SaveConfigError", func(t *testing.T) {
-		// Given a mock config handler that returns an error when saving the config
-		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.SaveConfigFunc = func(path string) error {
-			return fmt.Errorf("error saving config")
-		}
-
-		context := NewContextHandler(mocks.Injector)
-		err := context.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// When calling SetContext
-		err = context.SetContext("new-context")
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatalf("expected error, got none")
-		}
-		expectedError := "error saving config: error saving config"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %s, got %s", expectedError, err.Error())
-		}
-	})
-
 	t.Run("SetContextError", func(t *testing.T) {
-		// Given a mock config handler that returns an error when setting the context
+		// Given a mock shell that returns a valid project root
 		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "context" {
-				return fmt.Errorf("error setting context")
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+
+		// Mock osMkdirAll to simulate successful directory creation
+		osMkdirAll = func(path string, _ os.FileMode) error {
+			if path == filepath.Join("/mock/project/root", ".windsor") {
+				return nil
 			}
-			return nil
+			return fmt.Errorf("error creating directory")
+		}
+
+		// Mock osWriteFile to simulate an error
+		osWriteFile = func(_ string, _ []byte, _ os.FileMode) error {
+			return fmt.Errorf("error writing context to file")
 		}
 
 		context := NewContextHandler(mocks.Injector)
@@ -214,24 +197,26 @@ func TestContext_SetContext(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got none")
 		}
-		if !strings.Contains(err.Error(), "error setting context") {
-			t.Fatalf("expected error to contain 'error setting context', got %s", err.Error())
+		if !strings.Contains(err.Error(), "error writing context to file") {
+			t.Fatalf("expected error to contain 'error writing context to file', got %s", err.Error())
 		}
 	})
 }
 
 func TestContext_GetConfigRoot(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock config handler and shell that return valid values
+		// Given a mock shell that returns valid values
 		mocks := setSafeContextMocks()
-		mocks.MockConfigHandler.GetFunc = func(key string) interface{} {
-			if key == "context" {
-				return "test-context"
-			}
-			return nil
-		}
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
+		}
+
+		// Mock osReadFile to return a specific context
+		osReadFile = func(filename string) ([]byte, error) {
+			if filename == filepath.Join("/mock/project/root", ".windsor", "context") {
+				return []byte("test-context"), nil
+			}
+			return nil, fmt.Errorf("file not found")
 		}
 
 		context := NewContextHandler(mocks.Injector)
@@ -292,9 +277,18 @@ func TestContext_Clean(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		mocks.MockConfigHandler.Set("context", "test-context")
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
+		}
+
+		// Mock osStat to simulate the directory exists
+		osStat = func(_ string) (os.FileInfo, error) {
+			return nil, nil
+		}
+
+		// Mock osRemoveAll to simulate successful deletion
+		osRemoveAll = func(path string) error {
+			return nil
 		}
 
 		err = contextHandler.Clean()
