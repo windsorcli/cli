@@ -29,6 +29,9 @@ var cmdStart = func(cmd *exec.Cmd) error {
 	return cmd.Start()
 }
 
+// osStat is a variable that points to os.Stat, allowing it to be overridden in tests
+var osStat = os.Stat
+
 // osOpenFile is a variable that points to os.OpenFile, allowing it to be overridden in tests
 var osOpenFile = os.OpenFile
 

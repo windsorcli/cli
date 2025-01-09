@@ -80,32 +80,20 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 		return s.projectRoot, nil
 	}
 
-	cmd := execCommand("git", "rev-parse", "--show-toplevel")
-	output, err := cmd.Output()
-	if err == nil {
-		s.projectRoot = strings.TrimSpace(string(output))
-		return s.projectRoot, nil
-	}
-
 	currentDir, err := getwd()
 	if err != nil {
 		return "", err
 	}
 
-	depth := 0
 	for {
-		if depth > maxFolderSearchDepth {
-			return "", nil
-		}
-
 		windsorYaml := filepath.Join(currentDir, "windsor.yaml")
 		windsorYml := filepath.Join(currentDir, "windsor.yml")
 
-		if _, err := os.Stat(windsorYaml); err == nil {
+		if _, err := osStat(windsorYaml); err == nil {
 			s.projectRoot = currentDir
 			return s.projectRoot, nil
 		}
-		if _, err := os.Stat(windsorYml); err == nil {
+		if _, err := osStat(windsorYml); err == nil {
 			s.projectRoot = currentDir
 			return s.projectRoot, nil
 		}
@@ -115,7 +103,6 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 			return "", nil
 		}
 		currentDir = parentDir
-		depth++
 	}
 }
 

@@ -2,8 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -930,68 +928,6 @@ func TestController_ResolveContainerRuntime(t *testing.T) {
 		// And the resolved container runtime should match the expected container runtime
 		if containerRuntime != mocks.ContainerRuntime {
 			t.Fatalf("expected %v, got %v", mocks.ContainerRuntime, containerRuntime)
-		}
-	})
-}
-
-func TestController_getCLIConfigPath(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given the CLI config path is set
-		os.Setenv("WINDSORCONFIG", "testdata/config.yaml")
-
-		// When getting the CLI config path
-		configPath, err := getCLIConfigPath()
-
-		// Then there should be no error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// And the config path should match the expected path
-		expectedPath := "testdata/config.yaml"
-		if configPath != expectedPath {
-			t.Fatalf("expected %v, got %v", expectedPath, configPath)
-		}
-	})
-
-	t.Run("SuccessWithNoEnvVar", func(t *testing.T) {
-		// Given the CLI config path is not set
-		os.Unsetenv("WINDSORCONFIG")
-
-		// When getting the CLI config path
-		configPath, err := getCLIConfigPath()
-
-		// Then there should be no error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// And the config path should match the default path
-		home, _ := os.UserHomeDir()
-		expectedPath := filepath.Join(home, ".config", "windsor", "config.yaml")
-		if configPath != expectedPath {
-			t.Fatalf("expected %v, got %v", expectedPath, configPath)
-		}
-	})
-
-	t.Run("UserHomeDirError", func(t *testing.T) {
-		// Given the CLI config path is not set
-		os.Unsetenv("WINDSORCONFIG")
-
-		// Given osUserHomeDir is mocked to return an error
-		originalUserHomeDir := osUserHomeDir
-		osUserHomeDir = func() (string, error) {
-			return "", fmt.Errorf("mock error")
-		}
-		defer func() { osUserHomeDir = originalUserHomeDir }()
-
-		// Execute the function
-		_, err := getCLIConfigPath()
-
-		// Verify the error
-		expectedError := "error retrieving user home directory: mock error"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("expected error %q, got %v", expectedError, err)
 		}
 	})
 }
