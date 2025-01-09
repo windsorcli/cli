@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/user"
+	"path"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -30,6 +32,44 @@ var initCmd = &cobra.Command{
 	SilenceUsage: true,
 	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("Error getting current directory: %w", err)
+		}
+
+		usr, err := user.Current()
+		if err != nil {
+			return fmt.Errorf("Error getting user home directory: %w", err)
+		}
+
+		trustedDirPath := path.Join(usr.HomeDir, ".config", "windsor")
+		err = os.MkdirAll(trustedDirPath, os.ModePerm)
+		if err != nil {
+			return fmt.Errorf("Error creating directories for trusted file: %w", err)
+		}
+
+		trustedFilePath := path.Join(trustedDirPath, ".trusted")
+		_, err = os.Stat(trustedFilePath)
+		if os.IsNotExist(err) {
+			file, err := os.Create(trustedFilePath)
+			if err != nil {
+				return fmt.Errorf("Error creating trusted file: %w", err)
+			}
+			file.Close()
+		}
+
+		file, err := os.OpenFile(trustedFilePath, os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("Error opening trusted file: %w", err)
+		}
+
+		defer file.Close()
+
+		if _, err := file.WriteString(currentDir + "\n"); err != nil {
+			return fmt.Errorf("Error writing to trusted file: %w", err)
+		}
+
 		// Resolve the config handler
 		configHandler := controller.ResolveConfigHandler()
 
