@@ -69,8 +69,8 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error writing to trusted file: %w", err)
 		}
 
-		// Resolve the context handler
-		contextHandler := controller.ResolveContextHandler()
+		// Resolve the config handler
+		configHandler := controller.ResolveConfigHandler()
 
 		var contextName string
 		if len(args) == 1 {
