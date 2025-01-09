@@ -24,23 +24,31 @@ var envCmd = &cobra.Command{
 		// 	return fmt.Errorf("Error getting user home directory: %w", err)
 		// }
 
-		// trustedFilePath := path.Join(usr.HomeDir, ".config", "windsor", ".trusted")
-		// file, err := os.Open(trustedFilePath)
+		// trustedDirPath := path.Join(usr.HomeDir, ".config", "windsor")
+		// err = os.MkdirAll(trustedDirPath, os.ModePerm)
 		// if err != nil {
-		// 	return fmt.Errorf("Error opening trusted file: %w", err)
+		// 	return fmt.Errorf("Error creating directories for trusted file: %w", err)
+		// }
+
+		// trustedFilePath := path.Join(trustedDirPath, ".trusted")
+		// file, err := os.OpenFile(trustedFilePath, os.O_CREATE|os.O_RDWR, 0644)
+		// if err != nil {
+		// 	return fmt.Errorf("Error opening or creating trusted file: %w", err)
 		// }
 		// defer file.Close()
 
 		// scanner := bufio.NewScanner(file)
 		// isTrusted := false
+		// hasPaths := false
 		// for scanner.Scan() {
+		// 	hasPaths = true
 		// 	if strings.TrimSpace(scanner.Text()) == currentDir {
 		// 		isTrusted = true
 		// 		break
 		// 	}
 		// }
 
-		// if !isTrusted {
+		// if !isTrusted || !hasPaths {
 		// 	return nil
 		// }
 
