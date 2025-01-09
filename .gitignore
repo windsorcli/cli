@@ -30,7 +30,6 @@ age.public.key
 
 # Temporary development folders
 contexts/
-.tf_modules/
 kustomize/
 terraform/
 
@@ -43,4 +42,3 @@ contexts/**/.tfstate/
 contexts/**/.kube/
 contexts/**/.talos/
 contexts/**/.aws/
-.docker-cache/

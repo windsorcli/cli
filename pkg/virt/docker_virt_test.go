@@ -110,9 +110,9 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 		}, nil
 	}
 
-	// Mock the GetConfigRootFunc to return a mock config root path
-	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-		return "/mock/config/root", nil
+	// Mock the GetProjectRootFunc to return a mock project root path
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return "/mock/project/root", nil
 	}
 
 	return &MockComponents{
@@ -287,9 +287,9 @@ func TestDockerVirt_Up(t *testing.T) {
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()
 
-		// Mock the GetConfigRoot function to simulate an error
-		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving config root")
+		// Mock the GetProjectRoot function to simulate an error
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving project root")
 		}
 
 		// Mock the shell Exec function to simulate Docker daemon check
@@ -309,7 +309,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		}
 
 		// Verify that the error message is as expected
-		expectedErrorMsg := "error retrieving config root"
+		expectedErrorMsg := "error retrieving project root"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
@@ -519,8 +519,8 @@ func TestDockerVirt_Down(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the GetConfigRootFunc to return an error
-		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("error retrieving config root")
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("error retrieving project root")
 		}
 
 		// Mock the shell Exec function to simulate successful docker info command
@@ -540,7 +540,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// Verify that the error message is as expected
-		expectedErrorMsg := "error retrieving config root"
+		expectedErrorMsg := "error retrieving project root"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
@@ -957,7 +957,8 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 		defer func() { mkdirAll = originalMkdirAll }()
 		mkdirAll = func(path string, perm os.FileMode) error {
 			// Use filepath.FromSlash to ensure compatibility with Windows file paths
-			if filepath.Clean(path) == filepath.FromSlash("/mock/config/root") {
+			expectedPath := filepath.Join("/mock/project/root", ".windsor")
+			if filepath.Clean(path) == filepath.FromSlash(expectedPath) {
 				return fmt.Errorf("read-only file system")
 			}
 			return nil
@@ -978,8 +979,8 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
-		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("error retrieving config root")
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("error retrieving project root")
 		}
 
 		dockerVirt := NewDockerVirt(mocks.Injector)
@@ -994,7 +995,7 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 		}
 
 		// Assert the error message is as expected
-		expectedErrorMsg := "error retrieving config root"
+		expectedErrorMsg := "error retrieving project root"
 		if !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}

@@ -1874,7 +1874,7 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 			t.Errorf("Unexpected resolved source: %v", blueprint.TerraformComponents[0].Source)
 		}
 
-		if blueprint.TerraformComponents[0].FullPath != filepath.Join("/mock/project/root", ".tf_modules", "module/path") {
+		if blueprint.TerraformComponents[0].FullPath != filepath.Join("/mock/project/root", ".windsor", ".tf_modules", "module/path") {
 			t.Errorf("Unexpected full path: %v", blueprint.TerraformComponents[0].FullPath)
 		}
 	})

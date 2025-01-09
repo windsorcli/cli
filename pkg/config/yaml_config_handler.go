@@ -102,7 +102,7 @@ func (y *YamlConfigHandler) Get(path string) interface{} {
 
 // GetString retrieves a string value for the specified key from the configuration, with an optional default value.
 func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) string {
-	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)
+	contextKey := fmt.Sprintf("contexts.%s.%s", y.context, key)
 	value := y.Get(contextKey)
 	if value == nil {
 		if len(defaultValue) > 0 {
@@ -115,7 +115,7 @@ func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) string
 
 // GetInt retrieves an integer value for the specified key from the configuration, with an optional default value.
 func (y *YamlConfigHandler) GetInt(key string, defaultValue ...int) int {
-	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)
+	contextKey := fmt.Sprintf("contexts.%s.%s", y.context, key)
 	value := y.Get(contextKey)
 	if value == nil {
 		if len(defaultValue) > 0 {
@@ -132,7 +132,7 @@ func (y *YamlConfigHandler) GetInt(key string, defaultValue ...int) int {
 
 // GetBool retrieves a boolean value for the specified key from the configuration, with an optional default value.
 func (y *YamlConfigHandler) GetBool(key string, defaultValue ...bool) bool {
-	contextKey := fmt.Sprintf("contexts.%s.%s", *y.config.Context, key)
+	contextKey := fmt.Sprintf("contexts.%s.%s", y.context, key)
 	value := y.Get(contextKey)
 	if value == nil {
 		if len(defaultValue) > 0 {
@@ -158,11 +158,11 @@ func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 
 // SetContextValue sets a configuration value within the current context.
 func (y *YamlConfigHandler) SetContextValue(path string, value interface{}) error {
-	if y.config.Context == nil {
+	if y.context == "" {
 		return fmt.Errorf("current context is not set")
 	}
 
-	currentContext := *y.config.Context
+	currentContext := y.context
 	fullPath := fmt.Sprintf("contexts.%s.%s", currentContext, path)
 	return y.Set(fullPath, value)
 }
@@ -170,13 +170,13 @@ func (y *YamlConfigHandler) SetContextValue(path string, value interface{}) erro
 // GetConfig returns the context config object for the current context, or the default if none is set.
 func (y *YamlConfigHandler) GetConfig() *Context {
 	defaultConfigCopy := y.defaultContextConfig.DeepCopy()
-	context := y.config.Context
+	context := y.context
 
-	if context == nil {
+	if context == "" {
 		return defaultConfigCopy
 	}
 
-	if ctx, ok := y.config.Contexts[*context]; ok {
+	if ctx, ok := y.config.Contexts[context]; ok {
 		mergedConfig := defaultConfigCopy
 		mergedConfig.Merge(ctx)
 		return mergedConfig

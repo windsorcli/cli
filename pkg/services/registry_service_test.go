@@ -236,6 +236,28 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 			t.Errorf("expected a port >= 5000 to be assigned for localhost, but none was found in the configuration:\n%+v", composeConfig.Services)
 		}
 	})
+
+	t.Run("ProjectRootRetrievalFailure", func(t *testing.T) {
+		// Given: a mock config handler, shell, context, and service
+		mocks := setupSafeRegistryServiceMocks()
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving project root")
+		}
+		registryService := NewRegistryService(mocks.Injector)
+		registryService.SetName("registry")
+		err := registryService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetComposeConfig is called
+		_, err = registryService.GetComposeConfig()
+
+		// Then: an error should be returned indicating project root retrieval failure
+		if err == nil || !strings.Contains(err.Error(), "mock error retrieving project root") {
+			t.Fatalf("expected error indicating project root retrieval failure, got %v", err)
+		}
+	})
 }
 
 func TestRegistryService_SetAddress(t *testing.T) {

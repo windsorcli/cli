@@ -81,31 +81,32 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 		}
 	}
 
-	// Get the cli configuration path
-	cliConfigPath, err := getCliConfigPath()
-	if err != nil {
-		return fmt.Errorf("Error getting cli configuration path: %w", err)
+	// Determine the cliConfig path
+	var cliConfigPath string
+	if cliConfigPath = os.Getenv("WINDSORCONFIG"); cliConfigPath == "" {
+		projectRoot, err := shell.GetProjectRoot()
+		if err != nil {
+			return fmt.Errorf("error retrieving project root: %w", err)
+		}
+		yamlPath := filepath.Join(projectRoot, "windsor.yaml")
+		ymlPath := filepath.Join(projectRoot, "windsor.yml")
+
+		// Check if windsor.yaml exists
+		if _, err := osStat(yamlPath); os.IsNotExist(err) {
+			// Check if windsor.yml exists only if windsor.yaml does not exist
+			if _, err := osStat(ymlPath); err == nil {
+				cliConfigPath = ymlPath
+			}
+		} else {
+			cliConfigPath = yamlPath
+		}
 	}
 
-	// Load the configuration
-	if err := configHandler.LoadConfig(cliConfigPath); err != nil {
-		return fmt.Errorf("Error loading config file: %w", err)
+	// Load the configuration if a config path was determined
+	if cliConfigPath != "" {
+		if err := configHandler.LoadConfig(cliConfigPath); err != nil {
+			return fmt.Errorf("Error loading config file: %w", err)
+		}
 	}
 	return nil
-}
-
-// getCliConfigPath returns the path to the cli configuration file
-var getCliConfigPath = func() (string, error) {
-	// Determine the cliConfig path
-	if cliConfigPath := os.Getenv("WINDSORCONFIG"); cliConfigPath != "" {
-		return cliConfigPath, nil
-	}
-
-	homeDir, err := osUserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("error retrieving home directory: %w", err)
-	}
-	cliConfigPath := filepath.Join(homeDir, ".config", "windsor", "config.yaml")
-
-	return cliConfigPath, nil
 }
