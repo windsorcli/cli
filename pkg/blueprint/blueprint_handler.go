@@ -6,58 +6,72 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 
 	_ "embed"
 
+	"github.com/briandowns/spinner"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
+
+	ctx "context"
+
+	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
+	"github.com/fluxcd/pkg/apis/meta"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // BlueprintHandler defines the interface for handling blueprint operations
 type BlueprintHandler interface {
 	Initialize() error
 	LoadConfig(path ...string) error
-	GetMetadata() MetadataV1Alpha1
-	GetSources() []SourceV1Alpha1
-	GetTerraformComponents() []TerraformComponentV1Alpha1
-	SetMetadata(metadata MetadataV1Alpha1) error
-	SetSources(sources []SourceV1Alpha1) error
-	SetTerraformComponents(terraformComponents []TerraformComponentV1Alpha1) error
 	WriteConfig(path ...string) error
+	Install() error
+	GetMetadata() blueprintv1alpha1.Metadata
+	GetSources() []blueprintv1alpha1.Source
+	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
+	GetKustomizations() []blueprintv1alpha1.Kustomization
+	SetMetadata(metadata blueprintv1alpha1.Metadata) error
+	SetSources(sources []blueprintv1alpha1.Source) error
+	SetTerraformComponents(terraformComponents []blueprintv1alpha1.TerraformComponent) error
+	SetKustomizations(kustomizations []blueprintv1alpha1.Kustomization) error
 }
 
 // BaseBlueprintHandler is a base implementation of the BlueprintHandler interface
 type BaseBlueprintHandler struct {
-	BlueprintHandler
 	injector       di.Injector
-	contextHandler context.ContextHandler
 	configHandler  config.ConfigHandler
 	shell          shell.Shell
-	localBlueprint BlueprintV1Alpha1
-	blueprint      BlueprintV1Alpha1
+	localBlueprint blueprintv1alpha1.Blueprint
+	blueprint      blueprintv1alpha1.Blueprint
 	projectRoot    string
 }
 
-// Create a new blueprint handler
+// NewBlueprintHandler creates a new instance of BaseBlueprintHandler.
+// It initializes the handler with the provided dependency injector.
 func NewBlueprintHandler(injector di.Injector) *BaseBlueprintHandler {
 	return &BaseBlueprintHandler{injector: injector}
 }
 
-// Initialize sets up the blueprint handler by resolving dependencies
+// Initialize sets up the BaseBlueprintHandler by resolving and assigning its dependencies,
+// including the configHandler, contextHandler, and shell, from the provided dependency injector.
+// It also determines the project root directory using the shell and sets the project name
+// in the configuration. If any of these steps fail, it returns an error.
 func (b *BaseBlueprintHandler) Initialize() error {
 	configHandler, ok := b.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
 		return fmt.Errorf("error resolving configHandler")
 	}
 	b.configHandler = configHandler
-
-	contextHandler, ok := b.injector.Resolve("contextHandler").(context.ContextHandler)
-	if !ok {
-		return fmt.Errorf("error resolving contextHandler")
-	}
-	b.contextHandler = contextHandler
 
 	shell, ok := b.injector.Resolve("shell").(shell.Shell)
 	if !ok {
@@ -71,15 +85,23 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	}
 	b.projectRoot = projectRoot
 
+	if err := b.configHandler.SetContextValue("projectName", filepath.Base(projectRoot)); err != nil {
+		return fmt.Errorf("error setting project name in config: %w", err)
+	}
+
 	return nil
 }
 
 //go:embed templates/local.jsonnet
 var localJsonnetTemplate string
 
-// LoadConfig loads a blueprint from a path, using Jsonnet or YAML data.
+// LoadConfig reads a blueprint configuration from a given path, supporting both
+// Jsonnet and YAML formats. It first establishes the base path for the blueprint
+// configuration and attempts to load data from Jsonnet and YAML files. The function
+// processes the configuration context, evaluates Jsonnet if present, and integrates
+// the resulting blueprint with any local blueprint data.
 func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
-	configRoot, err := b.contextHandler.GetConfigRoot()
+	configRoot, err := b.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
@@ -115,7 +137,7 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	}
 
 	var evaluatedJsonnet string
-	context := b.contextHandler.GetContext()
+	context := b.configHandler.GetContext()
 
 	if len(jsonnetData) > 0 {
 		vm := jsonnetMakeVM()
@@ -136,23 +158,19 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	}
 
 	if evaluatedJsonnet == "" {
-		b.blueprint = *DefaultBlueprint.Copy()
+		b.blueprint = *DefaultBlueprint.DeepCopy()
 		b.blueprint.Metadata.Name = context
 		b.blueprint.Metadata.Description = fmt.Sprintf("This blueprint outlines resources in the %s context", context)
 	} else {
-		newBlueprint := &BlueprintV1Alpha1{}
-		if err := yamlUnmarshal([]byte(evaluatedJsonnet), newBlueprint); err != nil {
-			return fmt.Errorf("error unmarshalling jsonnet data: %w", err)
+		if err := b.processBlueprintData([]byte(evaluatedJsonnet), &b.blueprint); err != nil {
+			return err
 		}
-		b.blueprint.Merge(newBlueprint)
 	}
 
 	if len(yamlData) > 0 {
-		newLocalBlueprint := &BlueprintV1Alpha1{}
-		if err := yamlUnmarshal(yamlData, newLocalBlueprint); err != nil {
-			return fmt.Errorf("error unmarshalling yaml data: %w", err)
+		if err := b.processBlueprintData(yamlData, &b.localBlueprint); err != nil {
+			return err
 		}
-		b.localBlueprint.Merge(newLocalBlueprint)
 	}
 
 	b.blueprint.Merge(&b.localBlueprint)
@@ -160,13 +178,16 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	return nil
 }
 
-// WriteConfig saves the current blueprint to a specified file path
+// WriteConfig saves the current blueprint configuration to a specified file path.
+// It determines the final path for the blueprint file, creates necessary directories,
+// and writes the blueprint data to the file in YAML format. The function ensures that
+// any Terraform component variables and values are excluded from the saved configuration.
 func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 	finalPath := ""
 	if len(path) > 0 && path[0] != "" {
 		finalPath = path[0]
 	} else {
-		configRoot, err := b.contextHandler.GetConfigRoot()
+		configRoot, err := b.configHandler.GetConfigRoot()
 		if err != nil {
 			return fmt.Errorf("error getting config root: %w", err)
 		}
@@ -178,7 +199,7 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
-	fullBlueprint := b.blueprint.Copy()
+	fullBlueprint := b.blueprint.DeepCopy()
 
 	for i := range fullBlueprint.TerraformComponents {
 		fullBlueprint.TerraformComponents[i].Variables = nil
@@ -198,20 +219,92 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 	return nil
 }
 
-// GetMetadata retrieves the metadata for the blueprint
-func (b *BaseBlueprintHandler) GetMetadata() MetadataV1Alpha1 {
+// Install initializes the Kubernetes client if not already set, and applies all
+// GitRepositories and Kustomizations defined in the blueprint to the cluster.
+// It first checks for a KUBECONFIG environment variable to configure the client,
+// falling back to in-cluster configuration if not found. The function iterates
+// over the sources and kustomizations, applying each to the cluster using the
+// Kubernetes client.
+func (b *BaseBlueprintHandler) Install() error {
+	context := b.configHandler.GetContext()
+
+	message := "📐 Installing blueprint components"
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " " + message
+	spin.Start()
+	defer spin.Stop()
+
+	repository := b.GetRepository()
+	if repository.Url != "" {
+		source := blueprintv1alpha1.Source{
+			Name:       context,
+			Url:        repository.Url,
+			Ref:        repository.Ref,
+			SecretName: repository.SecretName,
+		}
+		if err := b.applyGitRepository(source); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+			return fmt.Errorf("failed to apply GitRepository: %w", err)
+		}
+	}
+
+	for _, source := range b.GetSources() {
+		if err := b.applyGitRepository(source); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+			return fmt.Errorf("failed to apply GitRepository: %w", err)
+		}
+	}
+
+	for _, kustomization := range b.GetKustomizations() {
+		if err := b.applyKustomization(kustomization); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+			return fmt.Errorf("failed to apply Kustomization: %w", err)
+		}
+	}
+
+	spin.Stop()
+	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+	return nil
+}
+
+// GetMetadata retrieves the metadata for the current blueprint.
+// It returns the metadata information, which includes details such as
+// the name and description of the blueprint.
+func (b *BaseBlueprintHandler) GetMetadata() blueprintv1alpha1.Metadata {
 	resolvedBlueprint := b.blueprint
 	return resolvedBlueprint.Metadata
 }
 
-// GetSources retrieves the sources for the blueprint
-func (b *BaseBlueprintHandler) GetSources() []SourceV1Alpha1 {
+// GetRepository retrieves the repository configuration for the current blueprint.
+// It returns the repository details, including the URL and reference branch.
+func (b *BaseBlueprintHandler) GetRepository() blueprintv1alpha1.Repository {
+	resolvedBlueprint := b.blueprint
+	repository := resolvedBlueprint.Repository
+
+	if repository.Url == "" {
+		repository.Url = ""
+	}
+	if repository.Ref == (blueprintv1alpha1.Reference{}) {
+		repository.Ref = blueprintv1alpha1.Reference{Branch: "main"}
+	}
+
+	return repository
+}
+
+// GetSources retrieves the source configurations for the current blueprint.
+// It returns a list of sources, which define the origins of various components
+// within the blueprint.
+func (b *BaseBlueprintHandler) GetSources() []blueprintv1alpha1.Source {
 	resolvedBlueprint := b.blueprint
 	return resolvedBlueprint.Sources
 }
 
-// GetTerraformComponents retrieves the Terraform components for the blueprint
-func (b *BaseBlueprintHandler) GetTerraformComponents() []TerraformComponentV1Alpha1 {
+// GetTerraformComponents retrieves the Terraform components defined in the blueprint.
+// It resolves the sources and paths for each component before returning the list of components.
+func (b *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.TerraformComponent {
 	resolvedBlueprint := b.blueprint
 
 	b.resolveComponentSources(&resolvedBlueprint)
@@ -220,27 +313,87 @@ func (b *BaseBlueprintHandler) GetTerraformComponents() []TerraformComponentV1Al
 	return resolvedBlueprint.TerraformComponents
 }
 
-// SetMetadata sets the metadata for the blueprint
-func (b *BaseBlueprintHandler) SetMetadata(metadata MetadataV1Alpha1) error {
+// GetKustomizations retrieves the Kustomization configurations for the blueprint.
+// It ensures that default values are set for each Kustomization's specifications,
+// such as interval, prune, and timeout.
+func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomization {
+	if b.blueprint.Kustomizations == nil {
+		return nil
+	}
+
+	resolvedBlueprint := b.blueprint
+	kustomizations := make([]blueprintv1alpha1.Kustomization, len(resolvedBlueprint.Kustomizations))
+	copy(kustomizations, resolvedBlueprint.Kustomizations)
+
+	for i := range kustomizations {
+		if kustomizations[i].Path == "" {
+			kustomizations[i].Path = "kustomize"
+		} else {
+			kustomizations[i].Path = filepath.Join("kustomize", kustomizations[i].Path)
+		}
+
+		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
+			kustomizations[i].Interval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL}
+		}
+		if kustomizations[i].RetryInterval == nil || kustomizations[i].RetryInterval.Duration == 0 {
+			kustomizations[i].RetryInterval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL}
+		}
+		if kustomizations[i].Timeout == nil || kustomizations[i].Timeout.Duration == 0 {
+			kustomizations[i].Timeout = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT}
+		}
+		if kustomizations[i].Wait == nil {
+			defaultWait := constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT
+			kustomizations[i].Wait = &defaultWait
+		}
+		if kustomizations[i].Force == nil {
+			defaultForce := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
+			kustomizations[i].Force = &defaultForce
+		}
+	}
+
+	return kustomizations
+}
+
+// SetMetadata updates the metadata for the current blueprint.
+// It replaces the existing metadata with the provided metadata information.
+func (b *BaseBlueprintHandler) SetMetadata(metadata blueprintv1alpha1.Metadata) error {
 	b.blueprint.Metadata = metadata
 	return nil
 }
 
-// SetSources sets the sources for the blueprint
-func (b *BaseBlueprintHandler) SetSources(sources []SourceV1Alpha1) error {
+// SetRepository updates the repository for the current blueprint.
+// It replaces the existing repository with the provided repository information.
+func (b *BaseBlueprintHandler) SetRepository(repository blueprintv1alpha1.Repository) error {
+	b.blueprint.Repository = repository
+	return nil
+}
+
+// SetSources updates the source configurations for the current blueprint.
+// It replaces the existing sources with the provided list of sources.
+func (b *BaseBlueprintHandler) SetSources(sources []blueprintv1alpha1.Source) error {
 	b.blueprint.Sources = sources
 	return nil
 }
 
-// SetTerraformComponents sets the Terraform components for the blueprint
-func (b *BaseBlueprintHandler) SetTerraformComponents(terraformComponents []TerraformComponentV1Alpha1) error {
+// SetTerraformComponents updates the Terraform components for the current blueprint.
+// It replaces the existing components with the provided list of Terraform components.
+func (b *BaseBlueprintHandler) SetTerraformComponents(terraformComponents []blueprintv1alpha1.TerraformComponent) error {
 	b.blueprint.TerraformComponents = terraformComponents
 	return nil
 }
 
-// resolveComponentSources resolves the source for each Terraform component
-func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *BlueprintV1Alpha1) {
-	resolvedComponents := make([]TerraformComponentV1Alpha1, len(blueprint.TerraformComponents))
+// SetKustomizations updates the Kustomizations for the current blueprint.
+// It replaces the existing Kustomizations with the provided list of Kustomizations.
+// If the provided list is nil, it clears the existing Kustomizations.
+func (b *BaseBlueprintHandler) SetKustomizations(kustomizations []blueprintv1alpha1.Kustomization) error {
+	b.blueprint.Kustomizations = kustomizations
+	return nil
+}
+
+// resolveComponentSources resolves the source URLs for each Terraform component in the blueprint.
+// It constructs the full source URL for each component based on its associated source configuration.
+func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alpha1.Blueprint) {
+	resolvedComponents := make([]blueprintv1alpha1.TerraformComponent, len(blueprint.TerraformComponents))
 	copy(resolvedComponents, blueprint.TerraformComponents)
 
 	for i, component := range resolvedComponents {
@@ -250,7 +403,19 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *BlueprintV1Alp
 				if pathPrefix == "" {
 					pathPrefix = "terraform"
 				}
-				resolvedComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "?ref=" + source.Ref
+
+				ref := source.Ref.Commit
+				if ref == "" {
+					ref = source.Ref.SemVer
+				}
+				if ref == "" {
+					ref = source.Ref.Tag
+				}
+				if ref == "" {
+					ref = source.Ref.Branch
+				}
+
+				resolvedComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "?ref=" + ref
 				break
 			}
 		}
@@ -259,11 +424,12 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *BlueprintV1Alp
 	blueprint.TerraformComponents = resolvedComponents
 }
 
-// resolveComponentPaths resolves the path for each Terraform component
-func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *BlueprintV1Alpha1) {
+// resolveComponentPaths determines the local file paths for each Terraform component in the blueprint.
+// It calculates the full path for each component based on whether it is a remote source or a local module.
+func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha1.Blueprint) {
 	projectRoot := b.projectRoot
 
-	resolvedComponents := make([]TerraformComponentV1Alpha1, len(blueprint.TerraformComponents))
+	resolvedComponents := make([]blueprintv1alpha1.TerraformComponent, len(blueprint.TerraformComponents))
 	copy(resolvedComponents, blueprint.TerraformComponents)
 
 	for i, component := range resolvedComponents {
@@ -283,10 +449,50 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *BlueprintV1Alpha
 	blueprint.TerraformComponents = resolvedComponents
 }
 
-// Ensure that BaseBlueprintHandler implements the BlueprintHandler interface
-var _ BlueprintHandler = &BaseBlueprintHandler{}
+// processBlueprintData converts raw blueprint data into a BlueprintV1Alpha1 object.
+// It unmarshals the data into a PartialBlueprint, then processes kustomizations,
+// converting them to blueprintv1alpha1.Kustomization format. Errors during conversion
+// are collected and returned. Finally, it merges the processed data into the
+// blueprint object, ensuring all components are integrated.
+func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blueprintv1alpha1.Blueprint) error {
+	newBlueprint := &blueprintv1alpha1.PartialBlueprint{}
+	if err := yamlUnmarshal(data, newBlueprint); err != nil {
+		return fmt.Errorf("error unmarshalling blueprint data: %w", err)
+	}
 
-// isValidTerraformRemoteSource checks if the source is a valid Terraform module reference
+	var kustomizations []blueprintv1alpha1.Kustomization
+
+	for _, kMap := range newBlueprint.Kustomizations {
+		kustomizationYAML, err := yamlMarshal(kMap)
+		if err != nil {
+			return fmt.Errorf("error marshalling kustomization map: %w", err)
+		}
+
+		var kustomization blueprintv1alpha1.Kustomization
+		err = k8sYamlUnmarshal(kustomizationYAML, &kustomization)
+		if err != nil {
+			return fmt.Errorf("error unmarshalling kustomization YAML: %w", err)
+		}
+
+		kustomizations = append(kustomizations, kustomization)
+	}
+
+	completeBlueprint := &blueprintv1alpha1.Blueprint{
+		Kind:                newBlueprint.Kind,
+		ApiVersion:          newBlueprint.ApiVersion,
+		Metadata:            newBlueprint.Metadata,
+		Sources:             newBlueprint.Sources,
+		TerraformComponents: newBlueprint.TerraformComponents,
+		Kustomizations:      kustomizations,
+		Repository:          newBlueprint.Repository,
+	}
+
+	blueprint.Merge(completeBlueprint)
+	return nil
+}
+
+// isValidTerraformRemoteSource checks if the source is a valid Terraform module reference.
+// It uses regular expressions to match the source string against known patterns for remote Terraform modules.
 var isValidTerraformRemoteSource = func(source string) bool {
 	patterns := []string{
 		`^git::https://[^/]+/.*\.git(?:@.*)?$`,
@@ -311,7 +517,8 @@ var isValidTerraformRemoteSource = func(source string) bool {
 	return false
 }
 
-// loadFileData loads the file data from the specified path
+// loadFileData loads the file data from the specified path.
+// It checks if the file exists and reads its content, returning the data as a byte slice.
 var loadFileData = func(path string) ([]byte, error) {
 	if _, err := osStat(path); err == nil {
 		return osReadFile(path)
@@ -319,7 +526,8 @@ var loadFileData = func(path string) ([]byte, error) {
 	return nil, nil
 }
 
-// yamlMarshalWithDefinedPaths marshals YAML ensuring all parent paths are defined.
+// yamlMarshalWithDefinedPaths marshals a given value into YAML format, ensuring all parent paths are defined.
+// It recursively processes the input value, converting it into a format suitable for YAML marshalling.
 func yamlMarshalWithDefinedPaths(v interface{}) ([]byte, error) {
 	if v == nil {
 		return nil, fmt.Errorf("invalid input: nil value")
@@ -433,4 +641,202 @@ func yamlMarshalWithDefinedPaths(v interface{}) ([]byte, error) {
 	}
 
 	return yamlData, nil
+}
+
+// ResourceOperationConfig is a configuration object that specifies the parameters for the resource operations.
+type ResourceOperationConfig struct {
+	ApiPath              string
+	Namespace            string
+	ResourceName         string
+	ResourceInstanceName string
+	ResourceObject       runtime.Object
+	ResourceType         func() runtime.Object
+}
+
+// NOTE: This is a temporary solution until we've integrated the kube client into our DI system.
+// As such, this function is not internally covered by our tests.
+//
+// kubeClientResourceOperation is a comprehensive function that handles the entire lifecycle of creating a Kubernetes client
+// and performing a sequence of operations (Get, Post, Put) on Kubernetes resources. It takes a kubeconfig path and a
+// configuration object that specifies the parameters for the operations.
+var kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+	var kubeConfig *rest.Config
+	var err error
+
+	if kubeconfigPath != "" {
+		kubeConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	} else {
+		kubeConfig, err = rest.InClusterConfig()
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to create Kubernetes config: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create Kubernetes client: %w", err)
+	}
+
+	restClient := clientset.CoreV1().RESTClient()
+	backgroundCtx := ctx.Background()
+
+	existingResource := config.ResourceType().(runtime.Object)
+	err = restClient.Get().
+		AbsPath(config.ApiPath).
+		Namespace(config.Namespace).
+		Resource(config.ResourceName).
+		Name(config.ResourceInstanceName).
+		Do(backgroundCtx).
+		Into(existingResource)
+
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			if err := restClient.Post().
+				AbsPath(config.ApiPath).
+				Namespace(config.Namespace).
+				Resource(config.ResourceName).
+				Body(config.ResourceObject).
+				Do(backgroundCtx).
+				Error(); err != nil {
+				return fmt.Errorf("failed to create resource: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to get resource: %w", err)
+		}
+	} else {
+		// Ensure the resourceVersion is set for the update
+		config.ResourceObject.(metav1.Object).SetResourceVersion(existingResource.(metav1.Object).GetResourceVersion())
+
+		if err := restClient.Put().
+			AbsPath(config.ApiPath).
+			Namespace(config.Namespace).
+			Resource(config.ResourceName).
+			Name(config.ResourceInstanceName).
+			Body(config.ResourceObject).
+			Do(backgroundCtx).
+			Error(); err != nil {
+			return fmt.Errorf("failed to update resource: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// The applyGitRepository function configures and applies a GitRepository resource to the Kubernetes
+// cluster, ensuring idempotency. It constructs the GitRepository object from the source information,
+// checks and prefixes the URL with "https://" if needed, and serializes it to JSON for the API request.
+// The function uses a PUT request to update the resource if it exists, or a POST request to create it
+// if not, allowing safe retries without creating duplicates.
+func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Source) error {
+	sourceUrl := source.Url
+	if !strings.HasPrefix(sourceUrl, "http://") && !strings.HasPrefix(sourceUrl, "https://") {
+		sourceUrl = "https://" + sourceUrl
+	}
+	if !strings.HasSuffix(sourceUrl, ".git") {
+		sourceUrl = sourceUrl + ".git"
+	}
+
+	gitRepository := &sourcev1.GitRepository{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "source.toolkit.fluxcd.io/v1",
+			Kind:       "GitRepository",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      source.Name,
+			Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
+		},
+		Spec: sourcev1.GitRepositorySpec{
+			URL: sourceUrl,
+			Reference: &sourcev1.GitRepositoryRef{
+				Commit: source.Ref.Commit,
+				Name:   source.Ref.Name,
+				SemVer: source.Ref.SemVer,
+				Tag:    source.Ref.Tag,
+				Branch: source.Ref.Branch,
+			},
+			Interval: metav1Duration{Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL},
+			Timeout:  &metav1Duration{Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT},
+		},
+	}
+
+	if source.SecretName != "" {
+		gitRepository.Spec.SecretRef = &meta.LocalObjectReference{
+			Name: source.SecretName,
+		}
+	}
+
+	// Ensure the status field is not included in the request body
+	gitRepository.Status = sourcev1.GitRepositoryStatus{}
+
+	config := ResourceOperationConfig{
+		ApiPath:              "/apis/source.toolkit.fluxcd.io/v1",
+		Namespace:            gitRepository.Namespace,
+		ResourceName:         "gitrepositories",
+		ResourceInstanceName: gitRepository.Name,
+		ResourceObject:       gitRepository,
+		ResourceType:         func() runtime.Object { return &sourcev1.GitRepository{} },
+	}
+
+	kubeconfig := os.Getenv("KUBECONFIG")
+	return kubeClientResourceOperation(kubeconfig, config)
+}
+
+// The applyKustomization function configures and applies a Kustomization resource to the Kubernetes
+// cluster, ensuring idempotency. It constructs the Kustomization object from the provided information,
+// sets the namespace to the default Flux system namespace, and serializes it to JSON for the API request.
+// The function uses a PUT request to update the resource if it exists, or a POST request to create it
+// if not, allowing safe retries without creating duplicates.
+func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha1.Kustomization) error {
+	// If the kustomization doesn't have a source, use the repository source
+	if kustomization.Source == "" {
+		context := b.configHandler.GetContext()
+		kustomization.Source = context
+	}
+
+	kustomizeObj := &kustomizev1.Kustomization{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "kustomize.toolkit.fluxcd.io/v1",
+			Kind:       "Kustomization",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      kustomization.Name,
+			Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
+		},
+		Spec: kustomizev1.KustomizationSpec{
+			Interval:      *kustomization.Interval,
+			Timeout:       kustomization.Timeout,
+			RetryInterval: kustomization.RetryInterval,
+			Path:          kustomization.Path,
+			Prune:         constants.DEFAULT_FLUX_KUSTOMIZATION_PRUNE,
+			Wait:          constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT,
+			DependsOn: func() []meta.NamespacedObjectReference {
+				dependsOn := make([]meta.NamespacedObjectReference, len(kustomization.DependsOn))
+				for i, dep := range kustomization.DependsOn {
+					dependsOn[i] = meta.NamespacedObjectReference{Name: dep}
+				}
+				return dependsOn
+			}(),
+			SourceRef: kustomizev1.CrossNamespaceSourceReference{
+				Kind:      "GitRepository",
+				Name:      kustomization.Source,
+				Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
+			},
+		},
+	}
+
+	// Ensure the status field is not included in the request body, it breaks the request
+	kustomizeObj.Status = kustomizev1.KustomizationStatus{}
+
+	config := ResourceOperationConfig{
+		ApiPath:              "/apis/kustomize.toolkit.fluxcd.io/v1",
+		Namespace:            kustomizeObj.Namespace,
+		ResourceName:         "kustomizations",
+		ResourceInstanceName: kustomizeObj.Name,
+		ResourceObject:       kustomizeObj,
+		ResourceType:         func() runtime.Object { return &kustomizev1.Kustomization{} },
+	}
+
+	kubeconfig := os.Getenv("KUBECONFIG")
+	return kubeClientResourceOperation(kubeconfig, config)
 }

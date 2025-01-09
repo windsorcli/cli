@@ -233,7 +233,7 @@ func TestConfig_Copy(t *testing.T) {
 			},
 		}
 
-		copy := original.Copy()
+		copy := original.DeepCopy()
 
 		// Ensure all fields are deeply equal by comparing values
 		if original.Environment["KEY"] != copy.Environment["KEY"] {
@@ -285,7 +285,7 @@ func TestConfig_Copy(t *testing.T) {
 			DNS:         nil,
 		}
 
-		copy := original.Copy()
+		copy := original.DeepCopy()
 
 		if copy.Environment != nil {
 			t.Errorf("Environment should be nil, got %v", copy.Environment)
@@ -315,7 +315,7 @@ func TestConfig_Copy(t *testing.T) {
 
 	t.Run("CopyNilContext", func(t *testing.T) {
 		var original *Context = nil
-		copy := original.Copy()
+		copy := original.DeepCopy()
 		if copy != nil {
 			t.Errorf("Expected nil copy for nil original, got %v", copy)
 		}

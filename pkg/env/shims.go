@@ -35,3 +35,9 @@ var goos = func() string {
 
 // Define a variable for os.UserHomeDir for easier testing
 var osUserHomeDir = os.UserHomeDir
+
+// Define a variable for os.MkdirAll for easier testing
+var mkdirAll = os.MkdirAll
+
+// Define a variable for os.ReadFile for easier testing
+var readFile = os.ReadFile

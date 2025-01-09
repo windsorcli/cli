@@ -95,7 +95,7 @@ func (v *DockerVirt) Up() error {
 		}
 
 		// Get the path to the compose.yaml file
-		configRoot, err := v.contextHandler.GetConfigRoot()
+		configRoot, err := v.configHandler.GetConfigRoot()
 		if err != nil {
 			return fmt.Errorf("error retrieving config root: %w", err)
 		}
@@ -153,7 +153,7 @@ func (v *DockerVirt) Down() error {
 		}
 
 		// Get the path to the compose.yaml file
-		configRoot, err := v.contextHandler.GetConfigRoot()
+		configRoot, err := v.configHandler.GetConfigRoot()
 		if err != nil {
 			return fmt.Errorf("error retrieving config root: %w", err)
 		}
@@ -176,7 +176,7 @@ func (v *DockerVirt) Down() error {
 // WriteConfig writes the Docker configuration file
 func (v *DockerVirt) WriteConfig() error {
 	// Get the config root and construct the file path
-	configRoot, err := v.contextHandler.GetConfigRoot()
+	configRoot, err := v.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error retrieving config root: %w", err)
 	}
@@ -211,7 +211,7 @@ func (v *DockerVirt) WriteConfig() error {
 // GetContainerInfo returns a list of information about the Docker containers, including their labels
 func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 	// Get the context name
-	contextName := v.contextHandler.GetContext()
+	contextName := v.configHandler.GetContext()
 
 	command := "docker"
 	args := []string{"ps", "--filter", "label=managed_by=windsor", "--filter", fmt.Sprintf("label=context=%s", contextName), "--format", "{{.ID}}"}
@@ -314,20 +314,19 @@ func (v *DockerVirt) checkDockerDaemon() error {
 	return err
 }
 
-// getFullComposeConfig retrieves the full compose configuration for the DockerVirt.
+// getFullComposeConfig builds a Docker Compose configuration for DockerVirt. It retrieves the
+// context name and configuration, checks if Docker is defined, and returns nil if not. It sets up
+// combined configurations for services, volumes, and networks, defining a network with IPAM if a
+// NetworkCIDR is specified. It iterates over services, gathering their configurations and IPs,
+// and returns a Project with these combined settings.
 func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
-	// Get the context name
-	contextName := v.contextHandler.GetContext()
-
-	// Get the context configuration
+	contextName := v.configHandler.GetContext()
 	contextConfig := v.configHandler.GetConfig()
 
-	// Check if Docker is defined in the windsor config
 	if contextConfig.Docker == nil {
 		return nil, nil
 	}
 
-	// Initialize the combined services, volumes, and networks
 	var combinedServices []types.ServiceConfig
 	var combinedVolumes map[string]types.VolumeConfig
 	var combinedNetworks map[string]types.NetworkConfig
@@ -335,7 +334,27 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	combinedVolumes = make(map[string]types.VolumeConfig)
 	combinedNetworks = make(map[string]types.NetworkConfig)
 
-	// Iterate through each service and collect container configs
+	// Configure the network
+	networkName := fmt.Sprintf("windsor-%s", contextName)
+
+	networkConfig := types.NetworkConfig{
+		Driver: "bridge",
+	}
+
+	if contextConfig.Docker.NetworkCIDR != nil {
+		networkConfig.Ipam = types.IPAMConfig{
+			Driver: "default",
+			Config: []*types.IPAMPool{
+				{
+					Subnet: *contextConfig.Docker.NetworkCIDR,
+				},
+			},
+		}
+	}
+
+	combinedNetworks[networkName] = networkConfig
+
+	// Iterate over each service and collect container configs
 	for _, service := range v.services {
 		if serviceInstance, ok := service.(interface {
 			GetComposeConfig() (*types.Config, error)
@@ -343,7 +362,6 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 		}); ok {
 			serviceName := fmt.Sprintf("%T", serviceInstance)
 
-			// Retrieve the compose configuration for the service
 			containerConfigs, err := serviceInstance.GetComposeConfig()
 			if err != nil {
 				return nil, fmt.Errorf("error getting container config from service %s: %w", serviceName, err)
@@ -352,30 +370,28 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 				continue
 			}
 
-			// Add service configurations to the combined list
 			if containerConfigs.Services != nil {
 				for _, containerConfig := range containerConfigs.Services {
+					ipAddress := serviceInstance.GetAddress()
 
-					// Set the IP address for the service
 					containerConfig.Networks = map[string]*types.ServiceNetworkConfig{
-						fmt.Sprintf("windsor-%s", contextName): {
-							Ipv4Address: serviceInstance.GetAddress(),
-						},
+						networkName: {},
 					}
 
-					// Add the service configuration to the combined list
+					if contextConfig.Docker.NetworkCIDR != nil && ipAddress != "127.0.0.1" && ipAddress != "" {
+						containerConfig.Networks[networkName].Ipv4Address = ipAddress
+					}
+
 					combinedServices = append(combinedServices, containerConfig)
 				}
 			}
 
-			// Add volume configurations to the combined map
 			if containerConfigs.Volumes != nil {
 				for volumeName, volumeConfig := range containerConfigs.Volumes {
 					combinedVolumes[volumeName] = volumeConfig
 				}
 			}
 
-			// Add network configurations to the combined map
 			if containerConfigs.Networks != nil {
 				for networkName, networkConfig := range containerConfigs.Networks {
 					combinedNetworks[networkName] = networkConfig
@@ -384,27 +400,6 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 		}
 	}
 
-	// Define the network name based on the context
-	networkName := fmt.Sprintf("windsor-%s", contextName)
-
-	// Assign the CIDR to the network configuration if available
-	if contextConfig.Docker.NetworkCIDR != nil {
-		combinedNetworks[networkName] = types.NetworkConfig{
-			Driver: "bridge",
-			Ipam: types.IPAMConfig{
-				Driver: "default",
-				Config: []*types.IPAMPool{
-					{
-						Subnet: *contextConfig.Docker.NetworkCIDR,
-					},
-				},
-			},
-		}
-	} else {
-		combinedNetworks[networkName] = types.NetworkConfig{}
-	}
-
-	// Create a Project using compose-go with the combined configurations
 	project := &types.Project{
 		Services: combinedServices,
 		Volumes:  combinedVolumes,

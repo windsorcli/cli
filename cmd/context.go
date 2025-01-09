@@ -19,11 +19,11 @@ var getContextCmd = &cobra.Command{
 			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
-		// Resolve context handler
-		contextHandler := controller.ResolveContextHandler()
+		// Resolve config handler
+		configHandler := controller.ResolveConfigHandler()
 
 		// Get the current context
-		currentContext := contextHandler.GetContext()
+		currentContext := configHandler.GetContext()
 
 		// Print the current context
 		fmt.Println(currentContext)
@@ -44,12 +44,12 @@ var setContextCmd = &cobra.Command{
 			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
-		// Resolve context handler
-		contextHandler := controller.ResolveContextHandler()
+		// Resolve config handler
+		configHandler := controller.ResolveConfigHandler()
 
 		// Set the context
 		contextName := args[0]
-		if err := contextHandler.SetContext(contextName); err != nil {
+		if err := configHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("Error setting context: %w", err)
 		}
 

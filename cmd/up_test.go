@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	bp "github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/stack"
 
@@ -19,7 +19,6 @@ import (
 type MockSafeUpCmdComponents struct {
 	Injector             di.Injector
 	MockController       *ctrl.MockController
-	MockContextHandler   *context.MockContext
 	MockConfigHandler    *config.MockConfigHandler
 	MockShell            *shell.MockShell
 	MockNetworkManager   *network.MockNetworkManager
@@ -47,17 +46,13 @@ func setupSafeUpCmdMocks(optionalInjector ...di.Injector) MockSafeUpCmdComponent
 		return nil
 	}
 
-	// Setup mock context handler
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
-		return "test-context"
-	}
-	injector.Register("contextHandler", mockContextHandler)
-
 	// Setup mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 		return nil
+	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "test-context"
 	}
 	injector.Register("configHandler", mockConfigHandler)
 
@@ -80,7 +75,6 @@ func setupSafeUpCmdMocks(optionalInjector ...di.Injector) MockSafeUpCmdComponent
 	return MockSafeUpCmdComponents{
 		Injector:             injector,
 		MockController:       mockController,
-		MockContextHandler:   mockContextHandler,
 		MockConfigHandler:    mockConfigHandler,
 		MockShell:            mockShell,
 		MockNetworkManager:   mockNetworkManager,
@@ -241,40 +235,6 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingVirtualMachine", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
-			return nil
-		}
-
-		// Given a mock controller that returns nil when resolving the virtual machine
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "No virtual machine found") {
-			t.Fatalf("Expected error containing 'No virtual machine found', got %v", err)
-		}
-	})
-
-	t.Run("ErrorRunningVirtualMachineUp", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
-			mockVM := virt.NewMockVirt()
-			mockVM.UpFunc = func(verbose ...bool) error {
-				return fmt.Errorf("Error running virtual machine Up command: %w", fmt.Errorf("error running VM up"))
-			}
-			return mockVM
-		}
-
-		// Given a mock virtual machine that returns an error when running the Up command
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error running virtual machine Up command: error running VM up") {
-			t.Fatalf("Expected error containing 'Error running virtual machine Up command: error running VM up', got %v", err)
-		}
-	})
-
 	t.Run("ErrorResolvingContainerRuntime", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
 		mocks.MockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
@@ -321,44 +281,6 @@ func TestUpCmd(t *testing.T) {
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "No network manager found") {
 			t.Fatalf("Expected error containing 'No network manager found', got %v", err)
-		}
-	})
-
-	t.Run("ErrorConfiguringGuestNetwork", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
-			mockNM := network.NewMockNetworkManager()
-			mockNM.ConfigureGuestFunc = func() error {
-				return fmt.Errorf("Error configuring guest network: %w", fmt.Errorf("error configuring guest network"))
-			}
-			return mockNM
-		}
-
-		// Given a mock network manager that returns an error when configuring the guest network
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error configuring guest network") {
-			t.Fatalf("Expected error containing 'Error configuring guest network', got %v", err)
-		}
-	})
-
-	t.Run("ErrorConfiguringHostRoute", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
-			mockNM := network.NewMockNetworkManager()
-			mockNM.ConfigureHostRouteFunc = func() error {
-				return fmt.Errorf("Error configuring host network: %w", fmt.Errorf("error configuring host route"))
-			}
-			return mockNM
-		}
-
-		// Given a mock network manager that returns an error when configuring the host route
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error configuring host network: error configuring host route") {
-			t.Fatalf("Expected error containing 'Error configuring host network: error configuring host route', got %v", err)
 		}
 	})
 
@@ -413,6 +335,194 @@ func TestUpCmd(t *testing.T) {
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error running stack Up command: error running stack up") {
 			t.Fatalf("Expected error containing 'Error running stack Up command: error running stack up', got %v", err)
+		}
+	})
+
+	t.Run("ErrorInstallingBlueprint", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		injector := mocks.Injector
+		mocks.MockController.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
+			mockBlueprintHandler := bp.NewMockBlueprintHandler(injector)
+			mockBlueprintHandler.InstallFunc = func() error {
+				return fmt.Errorf("Error installing blueprint: %w", fmt.Errorf("installation failed"))
+			}
+			return mockBlueprintHandler
+		}
+
+		// Given a mock blueprint handler that returns an error when installing
+		rootCmd.SetArgs([]string{"up", "--install"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error installing blueprint: installation failed") {
+			t.Fatalf("Expected error containing 'Error installing blueprint: installation failed', got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingBlueprintHandler", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		mocks.MockController.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
+			return nil
+		}
+
+		// Given a mock controller that returns nil when resolving the blueprint handler
+		rootCmd.SetArgs([]string{"up", "--install"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "No blueprint handler found") {
+			t.Fatalf("Expected error containing 'No blueprint handler found', got %v", err)
+		}
+	})
+
+	t.Run("ColimaDriverSuccess", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+
+		// Set the vmDriver to Colima in the mock config handler
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// Simulate successful virtual machine setup process
+		mocks.MockVirtualMachine.UpFunc = func(verbose ...bool) error {
+			return nil
+		}
+		mocks.MockNetworkManager.ConfigureGuestFunc = func() error {
+			return nil
+		}
+		mocks.MockNetworkManager.ConfigureHostRouteFunc = func() error {
+			return nil
+		}
+
+		// Given a mock controller with Colima driver success
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.MockController)
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NoVirtualMachineFound", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		mocks.MockController.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
+			return nil
+		}
+
+		// Set the vmDriver to Colima in the mock config handler
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// Given a mock controller that returns nil when resolving the virtual machine
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "No virtual machine found") {
+			t.Fatalf("Expected error containing 'No virtual machine found', got %v", err)
+		}
+	})
+
+	t.Run("ErrorRunningVirtualMachineUp", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mocks.MockVirtualMachine.UpFunc = func(verbose ...bool) error {
+			return fmt.Errorf("Error running virtual machine Up command: %w", fmt.Errorf("error running virtual machine up"))
+		}
+		mocks.MockController.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
+			return mocks.MockVirtualMachine
+		}
+
+		// Given a mock controller with Colima driver and virtual machine up error
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error running virtual machine Up command") {
+			t.Fatalf("Expected error containing 'Error running virtual machine Up command', got %v", err)
+		}
+	})
+
+	t.Run("ErrorConfiguringGuestNetwork", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+
+		// Set the vmDriver to Colima in the mock config handler
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// Simulate an error when configuring the guest network
+		mocks.MockNetworkManager.ConfigureGuestFunc = func() error {
+			return fmt.Errorf("Error configuring guest network: %w", fmt.Errorf("network configuration failed"))
+		}
+
+		// Resolve the mocked network manager
+		mocks.MockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
+			return mocks.MockNetworkManager
+		}
+
+		// Given a mock network manager that returns an error when configuring the guest network
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error configuring guest network: network configuration failed") {
+			t.Fatalf("Expected error containing 'Error configuring guest network: network configuration failed', got %v", err)
+		}
+	})
+
+	t.Run("ErrorConfiguringHostRoute", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+
+		// Set the vmDriver to Colima in the mock config handler
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// Simulate an error when configuring the host route
+		mocks.MockNetworkManager.ConfigureHostRouteFunc = func() error {
+			return fmt.Errorf("Error configuring host network: %w", fmt.Errorf("host route configuration failed"))
+		}
+
+		// Resolve the mocked network manager
+		mocks.MockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
+			return mocks.MockNetworkManager
+		}
+
+		// Given a mock network manager that returns an error when configuring the host route
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error configuring host network: host route configuration failed") {
+			t.Fatalf("Expected error containing 'Error configuring host network: host route configuration failed', got %v", err)
 		}
 	})
 }

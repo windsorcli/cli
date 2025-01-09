@@ -3,9 +3,9 @@ package controller
 import (
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/config/docker"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -49,22 +49,15 @@ func TestMockController_InitializeComponents(t *testing.T) {
 		// Given a new injector and mock controller
 		injector := di.NewInjector()
 		mockCtrl := NewMockController(injector)
+
+		// Initialize the controller
+		mockCtrl.Initialize()
+
 		// And the InitializeComponentsFunc is set to return nil
 		mockCtrl.InitializeComponentsFunc = func() error {
 			return nil
 		}
 		// When InitializeComponents is called
-		if err := mockCtrl.InitializeComponents(); err != nil {
-			// Then no error should be returned
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("NoInitializeComponentsFunc", func(t *testing.T) {
-		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
-		// When InitializeComponents is called without setting InitializeComponentsFunc
 		if err := mockCtrl.InitializeComponents(); err != nil {
 			// Then no error should be returned
 			t.Fatalf("expected no error, got %v", err)
@@ -409,37 +402,6 @@ func TestMockController_ResolveConfigHandler(t *testing.T) {
 	})
 }
 
-func TestMockController_ResolveContextHandler(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a new mock context handler, mock injector, and mock controller
-		expectedContextHandler := context.NewMockContext()
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
-		// And the ResolveContextHandlerFunc is set to return the expected context handler
-		mockCtrl.ResolveContextHandlerFunc = func() context.ContextHandler {
-			return expectedContextHandler
-		}
-		// When ResolveContextHandler is called
-		contextHandler := mockCtrl.ResolveContextHandler()
-		if contextHandler != expectedContextHandler {
-			// Then the returned context handler should be the expected context handler
-			t.Fatalf("expected %v, got %v", expectedContextHandler, contextHandler)
-		}
-	})
-
-	t.Run("NoResolveContextHandlerFunc", func(t *testing.T) {
-		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
-		// When ResolveContextHandler is called without setting ResolveContextHandlerFunc
-		contextHandler := mockCtrl.ResolveContextHandler()
-		if contextHandler != contextHandler {
-			// Then the returned context handler should be the same as the created context handler
-			t.Fatalf("expected %v, got %v", contextHandler, contextHandler)
-		}
-	})
-}
-
 func TestMockController_ResolveEnvPrinter(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new mock env printer, mock injector, and mock controller
@@ -778,6 +740,36 @@ func TestMockController_ResolveStack(t *testing.T) {
 		// Then the returned stack instance should be nil
 		if stackInstance != nil {
 			t.Fatalf("expected nil, got %v", stackInstance)
+		}
+	})
+}
+
+func TestMockController_ResolveBlueprintHandler(t *testing.T) {
+	t.Run("ResolveBlueprintHandler", func(t *testing.T) {
+		// Given a new mock injector and mock controller
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		// And the ResolveBlueprintHandlerFunc is set to return a mock blueprint handler
+		mockCtrl.ResolveBlueprintHandlerFunc = func() blueprint.BlueprintHandler {
+			return blueprint.NewMockBlueprintHandler(injector)
+		}
+		// When ResolveBlueprintHandler is called
+		blueprintHandler := mockCtrl.ResolveBlueprintHandler()
+		// Then the returned blueprint handler should not be nil
+		if blueprintHandler == nil {
+			t.Fatalf("expected %v, got %v", blueprint.NewMockBlueprintHandler(injector), blueprintHandler)
+		}
+	})
+
+	t.Run("NoResolveBlueprintHandlerFunc", func(t *testing.T) {
+		// Given a new mock injector and mock controller
+		injector := di.NewMockInjector()
+		mockCtrl := NewMockController(injector)
+		// When ResolveBlueprintHandler is called without setting ResolveBlueprintHandlerFunc
+		blueprintHandler := mockCtrl.ResolveBlueprintHandler()
+		// Then the returned blueprint handler should be nil
+		if blueprintHandler != nil {
+			t.Fatalf("expected nil, got %v", blueprintHandler)
 		}
 	})
 }

@@ -13,6 +13,7 @@ import (
 
 type TalosWorkerService struct {
 	BaseService
+	nextPort int
 }
 
 // NewTalosWorkerService is a constructor for TalosWorkerService
@@ -21,11 +22,13 @@ func NewTalosWorkerService(injector di.Injector) *TalosWorkerService {
 		BaseService: BaseService{
 			injector: injector,
 		},
+		nextPort: 50001, // Initialize the next available port
 	}
 }
 
-// SetAddress sets the address of the service
-// This turns out to be a convenient place to set node information
+// SetAddress configures the network address for the Talos worker service.
+// It also sets node-specific information such as hostname and endpoint in the configuration.
+// If the address is localhost (127.0.0.1), it assigns a unique port starting from 50001.
 func (s *TalosWorkerService) SetAddress(address string) error {
 	tld := s.configHandler.GetString("dns.name", "test")
 
@@ -35,20 +38,36 @@ func (s *TalosWorkerService) SetAddress(address string) error {
 	if err := s.configHandler.SetContextValue("cluster.workers.nodes."+s.name+".node", address); err != nil {
 		return err
 	}
-	if err := s.configHandler.SetContextValue("cluster.workers.nodes."+s.name+".endpoint", address+":50000"); err != nil {
+
+	port := 50000
+	if address == "127.0.0.1" {
+		port = s.nextPort
+		s.nextPort++
+	}
+
+	if err := s.configHandler.SetContextValue("cluster.workers.nodes."+s.name+".endpoint", fmt.Sprintf("%s:%d", address, port)); err != nil {
 		return err
 	}
 
 	return s.BaseService.SetAddress(address)
 }
 
-// GetComposeConfig returns a list of container data for docker-compose.
+// GetComposeConfig returns a list of container data for docker-compose. It retrieves CPU and
+// RAM settings for workers from the configuration and determines the port for the endpoint.
+// The function ensures the project root's .volumes folder exists and sets up a common
+// configuration for Talos containers. Finally, it creates a single worker service and includes
+// volume specifications in the compose config.
 func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
-	// Retrieve CPU and RAM settings for workers from the configuration
+	// Retrieve configuration settings and endpoint details
 	workerCPU := s.configHandler.GetInt("cluster.workers.cpu", constants.DEFAULT_TALOS_WORKER_CPU)
 	workerRAM := s.configHandler.GetInt("cluster.workers.memory", constants.DEFAULT_TALOS_WORKER_RAM)
+	endpoint := s.configHandler.GetString("cluster.workers.nodes."+s.name+".endpoint", "50000")
+	publishedPort := "50000"
+	if parts := strings.Split(endpoint, ":"); len(parts) == 2 {
+		publishedPort = parts[1]
+	}
 
-	// Get the project root and create the .volumes folder if it doesn't exist
+	// Ensure necessary directories exist
 	projectRoot, err := s.shell.GetProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving project root: %w", err)
@@ -60,7 +79,7 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 		}
 	}
 
-	// Common configuration for Talos containers
+	// Construct the common configuration for the Talos worker service
 	commonConfig := types.ServiceConfig{
 		Image:       constants.DEFAULT_TALOS_IMAGE,
 		Environment: map[string]*string{"PLATFORM": ptrString("container")},
@@ -80,7 +99,18 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
-	// Get the TLD from the configuration
+	// Check if the address is localhost and assign ports if it is
+	if isLocalhost(s.address) {
+		commonConfig.Ports = []types.ServicePortConfig{
+			{
+				Target:    50000,
+				Published: publishedPort,
+				Protocol:  "tcp",
+			},
+		}
+	}
+
+	// Finalize the worker configuration with specific settings
 	tld := s.configHandler.GetString("dns.name", "test")
 	fullName := s.name + "." + tld
 	if s.name == "" {
@@ -89,7 +119,6 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 		fullName = s.name + "." + tld
 	}
 
-	// Create a single worker service
 	workerConfig := commonConfig
 	workerConfig.Name = fullName
 	workerConfig.ContainerName = fullName
@@ -99,7 +128,6 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 		"TALOSSKU": ptrString(fmt.Sprintf("%dCPU-%dRAM", workerCPU, workerRAM*1024)),
 	}
 
-	// Include volume specifications in the compose config
 	volumes := map[string]types.VolumeConfig{
 		strings.ReplaceAll(s.name+"_system_state", "-", "_"):           {},
 		strings.ReplaceAll(s.name+"_var", "-", "_"):                    {},

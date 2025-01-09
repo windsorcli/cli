@@ -5,11 +5,11 @@ package network
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
@@ -59,10 +59,7 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 			return ""
 		}
 	}
-
-	// Create a mock context handler
-	mockContext := context.NewMockContext()
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mocked context"
 	}
 
@@ -76,7 +73,6 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("contextHandler", mockContext)
 	injector.Register("sshClient", mockSSHClient)
 	injector.Register("networkInterfaceProvider", mockNetworkInterfaceProvider)
 
@@ -297,8 +293,26 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 				if args[1] == "Set-DnsClientServerAddress -InterfaceAlias 'Ethernet' -ServerAddresses 8.8.8.8" {
 					return "DNS server set successfully", nil
 				}
+				if args[1] == "Clear-DnsClientCache" {
+					return "DNS cache cleared", nil
+				}
 			}
 			return "", fmt.Errorf("unexpected command")
+		}
+
+		// Mock the file reading and writing operations
+		readFile = func(filename string) ([]byte, error) {
+			if filename == "C:\\Windows\\System32\\drivers\\etc\\hosts" {
+				return []byte("127.0.0.1 localhost\n"), nil
+			}
+			return nil, fmt.Errorf("unexpected file path: %s", filename)
+		}
+
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			if filename == "C:\\Windows\\Temp\\hosts" {
+				return nil
+			}
+			return fmt.Errorf("unexpected file path: %s", filename)
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
@@ -352,9 +366,9 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		// When call the method under test
 		err = nm.ConfigureDNS()
 
-		// Then expect error 'DNS domain is not configured'
-		if err == nil || err.Error() != "DNS domain is not configured" {
-			t.Errorf("expected error 'DNS domain is not configured', got %v", err)
+		// Then expect error 'DNS TLD is not configured'
+		if err == nil || err.Error() != "DNS TLD is not configured" {
+			t.Errorf("expected error 'DNS TLD is not configured', got %v", err)
 		}
 	})
 
@@ -366,6 +380,9 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			if key == "dns.name" {
 				return "example.com"
 			}
+			if key == "dns.address" {
+				return ""
+			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
 			}
@@ -373,6 +390,26 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("unexpected command")
+		}
+
+		// Mock the readFile function to simulate reading the hosts file
+		originalReadFile := readFile
+		defer func() { readFile = originalReadFile }()
+		readFile = func(filename string) ([]byte, error) {
+			if filename == "C:\\Windows\\System32\\drivers\\etc\\hosts" {
+				return []byte("127.0.0.1 localhost"), nil
+			}
+			return nil, fmt.Errorf("unexpected file path: %s", filename)
+		}
+
+		// Mock the writeFile function to simulate writing to the hosts file
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			if filename == "C:\\Windows\\System32\\drivers\\etc\\hosts" {
+				return nil
+			}
+			return fmt.Errorf("unexpected file path: %s", filename)
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
@@ -389,9 +426,9 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		// When call the method under test
 		err = nm.ConfigureDNS()
 
-		// Then expect error 'DNS address is not configured'
-		if err == nil || err.Error() != "DNS address is not configured" {
-			t.Errorf("expected error 'DNS address is not configured', got %v", err)
+		// Then expect no error since DNS IP is not required for hosts file configuration
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
 		}
 	})
 
@@ -411,6 +448,16 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 			return ""
 		}
+
+		originalReadFile := readFile
+		defer func() { readFile = originalReadFile }()
+		readFile = func(filename string) ([]byte, error) {
+			if filename == "C:\\Windows\\System32\\drivers\\etc\\hosts" {
+				return []byte("127.0.0.1 localhost"), nil
+			}
+			return nil, fmt.Errorf("unexpected file path: %s", filename)
+		}
+
 		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			return "", fmt.Errorf("failed to set DNS server")
 		}
@@ -521,6 +568,111 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 
 		if err == nil || !strings.Contains(err.Error(), "failed to set DNS server") {
 			t.Errorf("expected error containing 'failed to set DNS server', got %v", err)
+		}
+	})
+
+	t.Run("HostsFileEntryExists", func(t *testing.T) {
+		// Given setup mocks using setupWindowsNetworkManagerMocks
+		mocks := setupWindowsNetworkManagerMocks()
+
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.name" {
+				return "example.com"
+			}
+			if key == "dns.address" {
+				return ""
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// Mock the readFile function to simulate reading the hosts file with an existing entry
+		originalReadFile := readFile
+		defer func() { readFile = originalReadFile }()
+		readFile = func(filename string) ([]byte, error) {
+			if filename == "C:\\Windows\\System32\\drivers\\etc\\hosts" {
+				return []byte("127.0.0.1 localhost\n127.0.0.1 example.com"), nil
+			}
+			return nil, fmt.Errorf("unexpected file path: %s", filename)
+		}
+
+		// Mock the writeFile function to simulate writing to the hosts file
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			if filename == "C:\\Windows\\System32\\drivers\\etc\\hosts" {
+				expectedContent := "127.0.0.1 localhost\n127.0.0.1 example.com"
+				if string(data) != expectedContent {
+					return fmt.Errorf("unexpected hosts file content: %s", string(data))
+				}
+				return nil
+			}
+			return nil
+		}
+
+		// And create a network manager using NewBaseNetworkManager with the mock injector
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		err = nm.Initialize()
+		if err != nil {
+			t.Errorf("expected no error during initialization, got %v", err)
+		}
+
+		// When call the method under test
+		err = nm.ConfigureDNS()
+
+		// Then expect no error since the entry should be replaced
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorClearingDNSCache", func(t *testing.T) {
+		// Given setup mocks using setupWindowsNetworkManagerMocks
+		mocks := setupWindowsNetworkManagerMocks()
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "dns.name":
+				return "example.com"
+			case "dns.address":
+				return "8.8.8.8"
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "powershell" && args[0] == "-Command" && strings.Contains(args[1], "Clear-DnsClientCache") {
+				return "", fmt.Errorf("failed to clear DNS cache")
+			}
+			return "", nil
+		}
+
+		// And create a network manager using NewBaseNetworkManager with the mock injector
+		nm, err := NewBaseNetworkManager(mocks.Injector)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Initialize the network manager
+		err = nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// When call the method under test
+		err = nm.ConfigureDNS()
+
+		// Then expect error about failing to flush DNS cache
+		if err == nil || !strings.Contains(err.Error(), "failed to flush DNS cache") {
+			t.Errorf("expected error about failing to flush DNS cache, got %v", err)
 		}
 	})
 }

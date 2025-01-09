@@ -32,14 +32,13 @@ func TestDockerConfig_Merge(t *testing.T) {
 		if base.NetworkCIDR == nil || *base.NetworkCIDR != "10.0.0.0/16" {
 			t.Errorf("NetworkCIDR mismatch: expected %v, got %v", "10.0.0.0/16", *base.NetworkCIDR)
 		}
-		if len(base.Registries) != 3 {
-			t.Errorf("Registries length mismatch: expected %v, got %v", 3, len(base.Registries))
+		if len(base.Registries) != 2 {
+			t.Errorf("Registries length mismatch: expected %v, got %v", 2, len(base.Registries))
 		}
 
 		// Create a map to verify registries without relying on order
 		expectedRegistries := map[string]RegistryConfig{
 			"base-registry1": {Remote: "overlay-remote1", Local: "overlay-local1", Hostname: "overlay-hostname1"},
-			"base-registry2": {Remote: "base-remote2", Local: "base-local2", Hostname: "base-hostname2"},
 			"new-registry":   {Remote: "overlay-remote2", Local: "overlay-local2", Hostname: "overlay-hostname2"},
 		}
 

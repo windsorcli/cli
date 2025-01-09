@@ -3,7 +3,13 @@ package network
 import (
 	"net"
 	"os"
+	"runtime"
 )
+
+// goos is a function that returns the current operating system, allowing for override
+var goos = func() string {
+	return runtime.GOOS
+}
 
 // stat is a wrapper around os.Stat
 var stat = os.Stat

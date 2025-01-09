@@ -2,6 +2,7 @@ package config
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
+	InitializeFunc      func() error
 	LoadConfigFunc      func(path string) error
 	GetStringFunc       func(key string, defaultValue ...string) string
 	GetIntFunc          func(key string, defaultValue ...int) int
@@ -12,11 +13,23 @@ type MockConfigHandler struct {
 	GetFunc             func(key string) interface{}
 	SetDefaultFunc      func(context Context) error
 	GetConfigFunc       func() *Context
+	GetContextFunc      func() string
+	SetContextFunc      func(context string) error
+	GetConfigRootFunc   func() (string, error)
+	CleanFunc           func() error
 }
 
 // NewMockConfigHandler is a constructor for MockConfigHandler
 func NewMockConfigHandler() *MockConfigHandler {
 	return &MockConfigHandler{}
+}
+
+// Initialize calls the mock InitializeFunc if set, otherwise returns nil
+func (m *MockConfigHandler) Initialize() error {
+	if m.InitializeFunc != nil {
+		return m.InitializeFunc()
+	}
+	return nil
 }
 
 // LoadConfig calls the mock LoadConfigFunc if set, otherwise returns nil
@@ -106,6 +119,38 @@ func (m *MockConfigHandler) GetConfig() *Context {
 		return m.GetConfigFunc()
 	}
 	return &Context{}
+}
+
+// GetContext calls the mock GetContextFunc if set, otherwise returns a reasonable default string
+func (m *MockConfigHandler) GetContext() string {
+	if m.GetContextFunc != nil {
+		return m.GetContextFunc()
+	}
+	return "mock-context"
+}
+
+// SetContext calls the mock SetContextFunc if set, otherwise returns nil
+func (m *MockConfigHandler) SetContext(context string) error {
+	if m.SetContextFunc != nil {
+		return m.SetContextFunc(context)
+	}
+	return nil
+}
+
+// GetConfigRoot calls the mock GetConfigRootFunc if set, otherwise returns a reasonable default string
+func (m *MockConfigHandler) GetConfigRoot() (string, error) {
+	if m.GetConfigRootFunc != nil {
+		return m.GetConfigRootFunc()
+	}
+	return "mock-config-root", nil
+}
+
+// Clean calls the mock CleanFunc if set, otherwise returns nil
+func (m *MockConfigHandler) Clean() error {
+	if m.CleanFunc != nil {
+		return m.CleanFunc()
+	}
+	return nil
 }
 
 // Ensure MockConfigHandler implements ConfigHandler

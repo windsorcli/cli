@@ -2,8 +2,9 @@ package services
 
 import (
 	"fmt"
+	"net"
 	"os"
-	"path/filepath"
+	"strings"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -13,6 +14,7 @@ import (
 // RegistryService is a service struct that provides Registry-specific utility functions
 type RegistryService struct {
 	BaseService
+	nextPort int
 }
 
 // NewRegistryService is a constructor for RegistryService
@@ -21,6 +23,7 @@ func NewRegistryService(injector di.Injector) *RegistryService {
 		BaseService: BaseService{
 			injector: injector,
 		},
+		nextPort: 5000, // Initialize the next available port for localhost
 	}
 }
 
@@ -34,24 +37,31 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 
 	// Find the registry matching the current s.name value
 	if registry, exists := registries[s.name]; exists {
-		service := s.generateRegistryService(s.name, registry.Remote, registry.Local)
+		// Get the service hostname
+		hostname := s.GetHostname()
+
+		// Pass the hostname to generateRegistryService
+		service, err := s.generateRegistryService(hostname, registry.Remote, registry.Local)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate registry service: %w", err)
+		}
 		return &types.Config{Services: []types.ServiceConfig{service}}, nil
 	}
 
 	return nil, fmt.Errorf("no registry found with name: %s", s.name)
 }
 
-// SetAddress establishes additional address information for the registry service
+// SetAddress configures the registry address, forms a hostname, updates the
+// registry config, and returns an error if any step fails. It appends the TLD
+// to the service name to form the hostname.
 func (s *RegistryService) SetAddress(address string) error {
-	// Call the parent SetAddress method
 	if err := s.BaseService.SetAddress(address); err != nil {
 		return fmt.Errorf("failed to set address for base service: %w", err)
 	}
 
-	tld := s.configHandler.GetString("dns.name", "test")
-	hostName := s.name + "." + tld
+	// Get the hostname using the GetHostname method
+	hostName := s.GetHostname()
 
-	// Set the hostname field in the registry configuration
 	err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostname", s.name), hostName)
 	if err != nil {
 		return fmt.Errorf("failed to set hostname for registry %s: %w", s.name, err)
@@ -60,21 +70,28 @@ func (s *RegistryService) SetAddress(address string) error {
 	return nil
 }
 
+// GetHostname returns the hostname of the registry service. This is constructed
+// by removing the existing tld from the name and appending the configured tld.
+func (s *RegistryService) GetHostname() string {
+	tld := s.configHandler.GetString("dns.name", "test")
+	nameWithoutTLD := s.name
+	if dotIndex := strings.LastIndex(s.name, "."); dotIndex != -1 {
+		nameWithoutTLD = s.name[:dotIndex]
+	}
+	return nameWithoutTLD + "." + tld
+}
+
 // generateRegistryService creates a ServiceConfig for a Registry service
 // with the specified name, remote URL, and local URL.
-func (s *RegistryService) generateRegistryService(serviceName, remoteURL, localURL string) types.ServiceConfig {
+func (s *RegistryService) generateRegistryService(hostName, remoteURL, localURL string) (types.ServiceConfig, error) {
 	// Retrieve the context name
-	contextName := s.contextHandler.GetContext()
-
-	// Get the TLD from the configuration
-	tld := s.configHandler.GetString("dns.name", "test")
-	fullName := serviceName + "." + tld
+	contextName := s.configHandler.GetContext()
 
 	// Initialize the ServiceConfig with the provided name, a predefined image,
 	// a restart policy, and labels indicating the role and manager.
 	service := types.ServiceConfig{
-		Name:          fullName,
-		ContainerName: fullName,
+		Name:          hostName,
+		ContainerName: hostName,
 		Image:         constants.REGISTRY_DEFAULT_IMAGE,
 		Restart:       "always",
 		Labels: map[string]string{
@@ -103,19 +120,47 @@ func (s *RegistryService) generateRegistryService(serviceName, remoteURL, localU
 	}
 
 	// Create a .docker-cache directory at the project root
-	projectRoot, err := s.shell.GetProjectRoot()
-	if err == nil {
-		dockerCachePath := filepath.Join(projectRoot, ".docker-cache")
-		if err := mkdirAll(dockerCachePath, os.ModePerm); err == nil {
-			// Configure the .docker-cache as a volume mount
-			service.Volumes = []types.ServiceVolumeConfig{
-				{Type: "bind", Source: dockerCachePath, Target: "/var/lib/registry"},
+	cacheDir := os.Getenv("WINDSOR_PROJECT_ROOT") + "/.docker-cache"
+	if err := mkdirAll(cacheDir, os.ModePerm); err != nil {
+		return service, fmt.Errorf("error creating .docker-cache directory: %w", err)
+	}
+
+	// Use the WINDSOR_PROJECT_ROOT environment variable for the volume mount
+	service.Volumes = []types.ServiceVolumeConfig{
+		{Type: "bind", Source: cacheDir, Target: "/var/lib/registry"},
+	}
+
+	// Check if the address is localhost and assign ports if it is
+	// Only forward port 5000 if the registry is not used as a proxy
+	if isLocalhost(s.address) && remoteURL == "" {
+		for {
+			if isPortAvailable(s.nextPort) {
+				service.Ports = []types.ServicePortConfig{
+					{
+						Target:    5000,
+						Published: fmt.Sprintf("%d", s.nextPort),
+						Protocol:  "tcp",
+					},
+				}
+				s.nextPort++
+				break
 			}
+			s.nextPort++
 		}
 	}
 
-	// Return the configured ServiceConfig.
-	return service
+	// Return the configured ServiceConfig and nil error.
+	return service, nil
+}
+
+// isPortAvailable checks if a port is available for use
+func isPortAvailable(port int) bool {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return false
+	}
+	defer ln.Close()
+	return true
 }
 
 // Ensure RegistryService implements Service interface

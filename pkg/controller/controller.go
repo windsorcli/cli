@@ -7,7 +7,6 @@ import (
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -30,7 +29,6 @@ type Controller interface {
 	CreateStackComponents() error
 	ResolveInjector() di.Injector
 	ResolveConfigHandler() config.ConfigHandler
-	ResolveContextHandler() context.ContextHandler
 	ResolveEnvPrinter(name string) env.EnvPrinter
 	ResolveAllEnvPrinters() []env.EnvPrinter
 	ResolveShell() shell.Shell
@@ -260,13 +258,6 @@ func (c *BaseController) ResolveConfigHandler() config.ConfigHandler {
 	instance := c.injector.Resolve("configHandler")
 	configHandler, _ := instance.(config.ConfigHandler)
 	return configHandler
-}
-
-// ResolveContextHandler resolves the contextHandler instance.
-func (c *BaseController) ResolveContextHandler() context.ContextHandler {
-	instance := c.injector.Resolve("contextHandler")
-	contextHandler, _ := instance.(context.ContextHandler)
-	return contextHandler
 }
 
 // ResolveEnvPrinter resolves the envPrinter instance.

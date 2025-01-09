@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -32,17 +31,13 @@ func setupSafeInitCmdMocks(existingControllers ...ctrl.Controller) *ctrl.MockCon
 		return nil
 	}
 
-	// Setup mock context handler
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
-		return "test-context"
-	}
-	injector.Register("contextHandler", mockContextHandler)
-
 	// Setup mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 		return nil
+	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "test-context"
 	}
 	injector.Register("configHandler", mockConfigHandler)
 
@@ -178,28 +173,6 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolveContextHandlerError", func(t *testing.T) {
-		// Given a mock controller with ResolveContextHandlerFunc set to fail
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		controller.ResolveContextHandlerFunc = func() context.ContextHandler {
-			return nil
-		}
-
-		// When the init command is executed
-		rootCmd.SetArgs([]string{"init"})
-		err := Execute(controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then the error should be present
-		expectedError := "No context handler found"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
-		}
-	})
-
 	t.Run("SetContextError", func(t *testing.T) {
 		// Given a valid config handler
 		injector := di.NewInjector()
@@ -207,11 +180,11 @@ func TestInitCmd(t *testing.T) {
 		setupSafeInitCmdMocks(controller)
 
 		// Mock SetContext to return an error
-		contextHandler := context.NewMockContext()
-		contextHandler.SetContextFunc = func(contextName string) error {
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.SetContextFunc = func(contextName string) error {
 			return fmt.Errorf("mocked error setting context")
 		}
-		injector.Register("contextHandler", contextHandler)
+		injector.Register("configHandler", mockConfigHandler)
 
 		// When the init command is executed
 		rootCmd.SetArgs([]string{"init", "test-context"})

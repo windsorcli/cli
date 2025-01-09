@@ -2,6 +2,8 @@ package env
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -24,16 +26,58 @@ func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
 func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Set DOCKER_HOST if vm.driver is colima
-	if e.configHandler.GetString("vm.driver") == "colima" {
-		homeDir, err := osUserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
-		}
-		contextName := e.contextHandler.GetContext()
+	// Determine the appropriate DOCKER_HOST based on the vm.driver setting
+	vmDriver := e.configHandler.GetString("vm.driver")
+	homeDir, err := osUserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving user home directory: %w", err)
+	}
+
+	windsorConfigDir := os.Getenv("WINDSORCONFIG")
+	if windsorConfigDir == "" {
+		windsorConfigDir = filepath.Join(homeDir, ".config", "windsor")
+	}
+	dockerConfigDir := filepath.Join(windsorConfigDir, "docker")
+	dockerConfigPath := filepath.Join(dockerConfigDir, "config.json")
+	dockerConfigContent := `{
+		"auths": {},
+		"currentContext": "%s",
+		"plugins": {},
+		"features": {}
+	}`
+
+	switch vmDriver {
+	case "colima":
+		// Handle the "colima" case
+		contextName := e.configHandler.GetContext()
 		dockerHostPath := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, contextName)
 		envVars["DOCKER_HOST"] = dockerHostPath
+		dockerConfigContent = fmt.Sprintf(dockerConfigContent, fmt.Sprintf("colima-windsor-%s", contextName))
+
+	case "docker-desktop":
+		// Handle the "docker-desktop" case
+		if goos() == "windows" {
+			envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
+		} else {
+			dockerHostPath := fmt.Sprintf("unix://%s/.docker/run/docker.sock", homeDir)
+			envVars["DOCKER_HOST"] = dockerHostPath
+		}
+		dockerConfigContent = fmt.Sprintf(dockerConfigContent, "desktop-linux")
 	}
+
+	// Ensure the directory exists
+	if err := mkdirAll(dockerConfigDir, 0755); err != nil {
+		return nil, fmt.Errorf("error creating docker config directory: %w", err)
+	}
+
+	// Write the docker config file idempotently
+	existingContent, err := readFile(dockerConfigPath)
+	if err != nil || string(existingContent) != dockerConfigContent {
+		if err := writeFile(dockerConfigPath, []byte(dockerConfigContent), 0644); err != nil {
+			return nil, fmt.Errorf("error writing docker config file: %w", err)
+		}
+	}
+	envVars["DOCKER_CONFIG"] = dockerConfigDir
 
 	return envVars, nil
 }

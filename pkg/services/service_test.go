@@ -4,14 +4,12 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type MockBaseServiceComponents struct {
 	Injector          di.Injector
-	MockContext       *context.MockContext
 	MockShell         *shell.MockShell
 	MockConfigHandler *config.MockConfigHandler
 }
@@ -24,18 +22,15 @@ func setupSafeBaseServiceMocks(optionalInjector ...di.Injector) *MockBaseService
 		injector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
 
 	// Register mock instances in the injector
-	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
 
 	return &MockBaseServiceComponents{
 		Injector:          injector,
-		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
 	}
@@ -62,9 +57,6 @@ func TestBaseService_Initialize(t *testing.T) {
 		if service.shell == nil {
 			t.Fatalf("expected shell to be set, got nil")
 		}
-		if service.contextHandler == nil {
-			t.Fatalf("expected contextHandler to be set, got nil")
-		}
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
@@ -73,23 +65,6 @@ func TestBaseService_Initialize(t *testing.T) {
 
 		// And: the injector is set to return nil for the shell dependency
 		mocks.Injector.Register("shell", nil)
-
-		// When: a new BaseService is created and initialized
-		service := &BaseService{injector: mocks.Injector}
-		err := service.Initialize()
-
-		// Then: the initialization should fail with an error
-		if err == nil {
-			t.Fatalf("expected an error during initialization, got nil")
-		}
-	})
-
-	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		// Given: a set of mock components
-		mocks := setupSafeBaseServiceMocks()
-
-		// And: the injector is set to return nil for the contextHandler dependency
-		mocks.Injector.Register("contextHandler", nil)
 
 		// When: a new BaseService is created and initialized
 		service := &BaseService{injector: mocks.Injector}
@@ -189,4 +164,57 @@ func TestBaseService_GetName(t *testing.T) {
 			t.Fatalf("expected name '%s', got %v", expectedName, name)
 		}
 	})
+}
+
+func TestBaseService_GetHostname(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a new BaseService with a mock config handler
+		mocks := setupSafeBaseServiceMocks()
+		service := &BaseService{injector: mocks.Injector}
+		service.SetName("TestService")
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.name" {
+				return "example"
+			}
+			return ""
+		}
+
+		service.Initialize()
+
+		// When: GetHostname is called
+		hostname := service.GetHostname()
+
+		// Then: the hostname should be as expected
+		expectedHostname := "TestService.example"
+		if hostname != expectedHostname {
+			t.Fatalf("expected hostname '%s', got %v", expectedHostname, hostname)
+		}
+	})
+}
+
+func TestBaseService_isLocalhost(t *testing.T) {
+	tests := []struct {
+		name          string
+		address       string
+		expectedLocal bool
+	}{
+		{"Localhost by name", "localhost", true},
+		{"Localhost by IPv4", "127.0.0.1", true},
+		{"Localhost by IPv6", "::1", true},
+		{"Non-localhost IPv4", "192.168.1.1", false},
+		{"Non-localhost IPv6", "2001:0db8:85a3:0000:0000:8a2e:0370:7334", false},
+		{"Empty address", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// When: isLocalhost is called with the test address
+			isLocal := isLocalhost(tt.address)
+
+			// Then: the result should match the expected outcome
+			if isLocal != tt.expectedLocal {
+				t.Fatalf("expected isLocalhost to be %v for address '%s', got %v", tt.expectedLocal, tt.address, isLocal)
+			}
+		})
+	}
 }

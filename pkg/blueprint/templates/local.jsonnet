@@ -11,23 +11,14 @@ local firstNode = if std.length(cpNodes) > 0 then cpNodes[0] else null;
 // Build the mirrors dynamically
 local registryMirrors = std.foldl(
   function(acc, key)
-    local regData = context.docker.registries[key];
-
-    // Figure out which endpoint to use:
-    //   1) local, if present
-    //   2) remote, if present
-    local endpointsVal =
-      if std.objectHas(regData, "local") && regData["local"] != "" then regData["local"]
-      else if std.objectHas(regData, "remote") && regData["remote"] != "" then regData["remote"]
-      else null;
-
-    // Must have a non-empty hostname, and endpointsVal must be non-null
-    if !(std.objectHas(regData, "hostname")) || regData.hostname == "" || endpointsVal == null then
+    local registryInfo = context.docker.registries[key];
+    // Must have a non-empty hostname
+    if !(std.objectHas(registryInfo, "hostname")) || registryInfo.hostname == "" then
       acc
     else
       acc + {
-        [regData["hostname"]]: {
-          endpoints: [endpointsVal],
+        [key]: {
+          endpoints: ["http://" + registryInfo["hostname"] + ":5000"],
         },
       },
   std.objectFields(context.docker.registries),
@@ -41,15 +32,24 @@ local registryMirrors = std.foldl(
     name: "local",
     description: "This blueprint outlines resources in the local context",
   },
+  repository: {
+    url: "http://git.test/git/" + context.projectName,
+    ref: {
+      branch: "main",
+    },
+    secretName: "flux-system",
+  },
   sources: [
     {
       name: "core",
       url: "github.com/windsorcli/core",
-      ref: "v0.1.0",
+      ref: {
+        branch: "main",
+      },
     },
   ],
-  terraform: [
-    if firstNode != null then {
+  terraform: if firstNode != null then [
+    {
       path: "cluster/talos",
       source: "core",
       values: {
@@ -67,7 +67,7 @@ local registryMirrors = std.foldl(
           std.objectValues(context.cluster.controlplanes.nodes)
         ),
 
-        // Create a list of worker nodes
+        // Create a list of worker nodesq
         workers: std.map(
           function(v) {
             endpoint: v.endpoint,
@@ -89,6 +89,10 @@ local registryMirrors = std.foldl(
                   firstNode.node,
                 ],
               },
+              extraManifests: [
+                // renovate: datasource=github-releases depName=kubelet-serving-cert-approver package=alex1989hu/kubelet-serving-cert-approver
+                "https://raw.githubusercontent.com/alex1989hu/kubelet-serving-cert-approver/v0.8.7/deploy/standalone-install.yaml",
+              ],
             },
           }
           +
@@ -111,6 +115,11 @@ local registryMirrors = std.foldl(
                     interface: "eth0",
                   },
                 ],
+              },
+              kubelet: {
+                extraArgs: {
+                  "rotate-server-certificates": "true",
+                },
               },
             },
           }
@@ -185,6 +194,71 @@ local registryMirrors = std.foldl(
           default: "",
         },
       }
-    } else {}
-  ],
+    },
+    {
+      path: "gitops/flux",
+      source: "core",
+      values: {
+        git_username: "local",
+        git_password: "local",
+      },
+      variables: {
+        flux_namespace: {
+          description: "The namespace in which Flux will be installed",
+          type: "string",
+          default: "system-gitops",
+        },
+        flux_helm_version: {
+          description: "The version of Flux Helm chart to install",
+          type: "string",
+          default: "2.14.0",
+        },
+        flux_version: {
+          description: "The version of Flux to install",
+          type: "string",
+          default: "2.4.0",
+        },
+        ssh_private_key: {
+          description: "The private key to use for SSH authentication",
+          type: "string",
+          default: "",
+          sensitive: true,
+        },
+        ssh_public_key: {
+          description: "The public key to use for SSH authentication",
+          type: "string",
+          default: "",
+          sensitive: true,
+        },
+        ssh_known_hosts: {
+          description: "The known hosts to use for SSH authentication",
+          type: "string",
+          default: "",
+          sensitive: true,
+        },
+        git_auth_secret: {
+          description: "The name of the secret to store the git authentication details",
+          type: "string",
+          default: "flux-system",
+        },
+        git_username: {
+          description: "The git user to use to authenticate with the git provider",
+          type: "string",
+          default: "git",
+        },
+        git_password: {
+          description: "The git password or PAT used to authenticate with the git provider",
+          type: "string",
+          default: "",
+          sensitive: true,
+        },
+      }
+    }
+  ] else [],
+  kustomize: [
+    {
+      name: "local",
+      path: "",
+    }
+  ]
 }

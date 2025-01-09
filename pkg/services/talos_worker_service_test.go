@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -22,17 +21,15 @@ func setupSafeTalosWorkerServiceMocks(optionalInjector ...di.Injector) *MockComp
 		injector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
 
 	// Register mock instances in the injector
-	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
 
@@ -56,7 +53,6 @@ func setupSafeTalosWorkerServiceMocks(optionalInjector ...di.Injector) *MockComp
 
 	return &MockComponents{
 		Injector:          injector,
-		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
 	}
@@ -89,7 +85,7 @@ func TestTalosWorkerService_SetAddress(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// When: the SetAddress method is called
+		// When: the SetAddress method is called with a non-localhost address
 		err = service.SetAddress("192.168.1.1")
 
 		// Then: no error should be returned
@@ -107,6 +103,38 @@ func TestTalosWorkerService_SetAddress(t *testing.T) {
 
 		if err := mocks.MockConfigHandler.SetContextValueFunc("cluster.workers.nodes."+service.name+".node", "192.168.1.1"); err != nil {
 			t.Fatalf("expected address to be set without error, got %v", err)
+		}
+	})
+
+	t.Run("Localhost", func(t *testing.T) {
+		// Setup mocks for this test
+		mocks := setupSafeTalosWorkerServiceMocks()
+		service := NewTalosWorkerService(mocks.Injector)
+
+		// Initialize the service
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// When: the SetAddress method is called with a localhost address
+		err = service.SetAddress("127.0.0.1")
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And: the endpoint should be set with a unique port
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "cluster.workers.nodes."+service.name+".endpoint" && strings.HasPrefix(value.(string), "127.0.0.1:50001") {
+				return nil
+			}
+			return fmt.Errorf("unexpected key or value")
+		}
+
+		if err := mocks.MockConfigHandler.SetContextValueFunc("cluster.workers.nodes."+service.name+".endpoint", "127.0.0.1:50001"); err != nil {
+			t.Fatalf("expected endpoint to be set without error, got %v", err)
 		}
 	})
 
@@ -229,16 +257,6 @@ func TestTalosWorkerService_GetComposeConfig(t *testing.T) {
 					t.Fatalf("expected no error during initialization, got %v", err)
 				}
 
-				// Mock the GetComposeConfig method to return a valid config
-				expectedConfig := &types.Config{
-					Services: []types.ServiceConfig{
-						{
-							Name:  tc.expected,
-							Image: constants.DEFAULT_TALOS_IMAGE,
-						},
-					},
-				}
-
 				// When: the GetComposeConfig method is called
 				config, err := service.GetComposeConfig()
 
@@ -250,15 +268,56 @@ func TestTalosWorkerService_GetComposeConfig(t *testing.T) {
 					t.Fatalf("expected config, got nil")
 				}
 				if len(config.Services) != 1 {
-					t.Fatalf("expected 1 services, got %d", len(config.Services))
+					t.Fatalf("expected 1 service, got %d", len(config.Services))
 				}
-				if config.Services[0].Name != expectedConfig.Services[0].Name {
-					t.Fatalf("expected service name %s, got %s", expectedConfig.Services[0].Name, config.Services[0].Name)
+				if config.Services[0].Name != tc.expected {
+					t.Fatalf("expected service name %s, got %s", tc.expected, config.Services[0].Name)
 				}
-				if config.Services[0].Image != expectedConfig.Services[0].Image {
-					t.Fatalf("expected service image %s, got %s", expectedConfig.Services[0].Image, config.Services[0].Image)
+				if config.Services[0].Image != constants.DEFAULT_TALOS_IMAGE {
+					t.Fatalf("expected service image %s, got %s", constants.DEFAULT_TALOS_IMAGE, config.Services[0].Image)
 				}
 			})
+		}
+	})
+
+	t.Run("SuccessLocalhost", func(t *testing.T) {
+		// Setup mocks for this test
+		mocks := setupSafeTalosWorkerServiceMocks()
+		service := NewTalosWorkerService(mocks.Injector)
+
+		// Set the service name to localhost
+		service.SetName("localhost")
+
+		// Initialize the service
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Set the address to a localhost value
+		err = service.SetAddress("127.0.0.1")
+		if err != nil {
+			t.Fatalf("expected no error when setting address, got %v", err)
+		}
+
+		// When: the GetComposeConfig method is called
+		config, err := service.GetComposeConfig()
+
+		// Then: no error should be returned and the config should match the expected config
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if config == nil {
+			t.Fatalf("expected config, got nil")
+		}
+		if len(config.Services) != 1 {
+			t.Fatalf("expected 1 service, got %d", len(config.Services))
+		}
+		if config.Services[0].Name != "localhost.test" {
+			t.Fatalf("expected service name localhost.test, got %s", config.Services[0].Name)
+		}
+		if config.Services[0].Image != constants.DEFAULT_TALOS_IMAGE {
+			t.Fatalf("expected service image %s, got %s", constants.DEFAULT_TALOS_IMAGE, config.Services[0].Image)
 		}
 	})
 

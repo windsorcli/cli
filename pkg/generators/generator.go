@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/windsorcli/cli/pkg/blueprint"
-	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -18,7 +18,7 @@ type Generator interface {
 // BaseGenerator is a base implementation of the Generator interface
 type BaseGenerator struct {
 	injector         di.Injector
-	contextHandler   context.ContextHandler
+	configHandler    config.ConfigHandler
 	blueprintHandler blueprint.BlueprintHandler
 	shell            shell.Shell
 }
@@ -32,12 +32,12 @@ func NewGenerator(injector di.Injector) *BaseGenerator {
 
 // Initialize initializes the BaseGenerator
 func (g *BaseGenerator) Initialize() error {
-	// Resolve the context handler
-	contextHandler, ok := g.injector.Resolve("contextHandler").(context.ContextHandler)
+	// Resolve the config handler
+	configHandler, ok := g.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
-		return fmt.Errorf("failed to resolve context handler")
+		return fmt.Errorf("failed to resolve config handler")
 	}
-	g.contextHandler = contextHandler
+	g.configHandler = configHandler
 
 	// Resolve the blueprint handler
 	blueprintHandler, ok := g.injector.Resolve("blueprintHandler").(blueprint.BlueprintHandler)

@@ -61,7 +61,7 @@ func (s *DNSService) SetAddress(address string) error {
 // GetComposeConfig returns the compose configuration
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name
-	contextName := s.contextHandler.GetContext()
+	contextName := s.configHandler.GetContext()
 
 	// Get the TLD from the configuration
 	tld := s.configHandler.GetString("dns.name", "test")
@@ -84,6 +84,22 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
+	// Forward port 53 to the host
+	if isLocalhost(s.address) {
+		corednsConfig.Ports = []types.ServicePortConfig{
+			{
+				Target:    53,
+				Published: "53",
+				Protocol:  "tcp",
+			},
+			{
+				Target:    53,
+				Published: "53",
+				Protocol:  "udp",
+			},
+		}
+	}
+
 	services := []types.ServiceConfig{corednsConfig}
 
 	return &types.Config{Services: services}, nil
@@ -92,7 +108,7 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 // WriteConfig writes any necessary configuration files needed by the service
 func (s *DNSService) WriteConfig() error {
 	// Retrieve the configuration directory for the current context
-	configDir, err := s.contextHandler.GetConfigRoot()
+	configDir, err := s.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error retrieving config root: %w", err)
 	}
@@ -100,7 +116,7 @@ func (s *DNSService) WriteConfig() error {
 	// Get the TLD from the configuration
 	tld := s.configHandler.GetString("dns.name", "test")
 
-	// Gather the IP address of each service using the Address field
+	// Gather the IP address of each service using the GetHostname method
 	var hostEntries string
 	for _, service := range s.services {
 		composeConfig, err := service.GetComposeConfig()
@@ -109,12 +125,10 @@ func (s *DNSService) WriteConfig() error {
 		}
 		for _, svc := range composeConfig.Services {
 			if svc.Name != "" {
-				if addressService, ok := service.(interface{ GetAddress() string }); ok {
-					address := addressService.GetAddress()
-					if address != "" {
-						fullName := svc.Name
-						hostEntries += fmt.Sprintf("        %s %s\n", address, fullName)
-					}
+				address := service.GetAddress()
+				if address != "" {
+					hostname := service.GetHostname()
+					hostEntries += fmt.Sprintf("        %s %s\n", address, hostname)
 				}
 			}
 		}

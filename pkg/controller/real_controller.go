@@ -5,7 +5,6 @@ import (
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -33,15 +32,11 @@ var _ Controller = (*RealController)(nil)
 // CreateCommonComponents creates components commonly used by all commands.
 func (c *RealController) CreateCommonComponents() error {
 	// Create a new configHandler
-	configHandler := config.NewYamlConfigHandler()
+	configHandler := config.NewYamlConfigHandler(c.injector)
 	c.injector.Register("configHandler", configHandler)
 
 	// Set the configHandler
 	c.configHandler = configHandler
-
-	// Create a new contextHandler
-	contextHandler := context.NewContextHandler(c.injector)
-	c.injector.Register("contextHandler", contextHandler)
 
 	// Create a new shell
 	shell := shell.NewDefaultShell(c.injector)
@@ -51,11 +46,6 @@ func (c *RealController) CreateCommonComponents() error {
 	// above and can't be mocked externally. There may be a better way to
 	// organize this in the future but this works for now, so we don't expect
 	// these lines to be covered by tests.
-
-	// Initialize the contextHandler
-	if err := contextHandler.Initialize(); err != nil {
-		return fmt.Errorf("error initializing context handler: %w", err)
-	}
 
 	// Initialize the shell
 	if err := shell.Initialize(); err != nil {
@@ -78,6 +68,10 @@ func (c *RealController) CreateProjectComponents() error {
 	// Create a new terraform generator
 	terraformGenerator := generators.NewTerraformGenerator(c.injector)
 	c.injector.Register("terraformGenerator", terraformGenerator)
+
+	// Create a new kustomize generator
+	kustomizeGenerator := generators.NewKustomizeGenerator(c.injector)
+	c.injector.Register("kustomizeGenerator", kustomizeGenerator)
 
 	return nil
 }
@@ -123,38 +117,38 @@ func (c *RealController) CreateEnvComponents() error {
 	return nil
 }
 
-// CreateServiceComponents creates components required for services
+// CreateServiceComponents initializes and registers various services based on configuration settings.
+// It checks if Docker is enabled before proceeding to create DNS, Git livereload, and Localstack services
+// if their respective configurations are enabled. It also sets up registry services for each configured
+// Docker registry, appending the DNS TLD to their names. Additionally, if the cluster is enabled and
+// uses the Talos driver, it creates and registers control plane and worker services based on the
+// specified counts.
 func (c *RealController) CreateServiceComponents() error {
 	configHandler := c.configHandler
 	contextConfig := configHandler.GetConfig()
 
-	// Don't create services if docker is not enabled
 	if !configHandler.GetBool("docker.enabled") {
 		return nil
 	}
 
-	// Create dns service
 	dnsEnabled := configHandler.GetBool("dns.enabled")
 	if dnsEnabled {
 		dnsService := services.NewDNSService(c.injector)
 		c.injector.Register("dnsService", dnsService)
 	}
 
-	// Create git livereload service
 	gitLivereloadEnabled := configHandler.GetBool("git.livereload.enabled")
 	if gitLivereloadEnabled {
 		gitLivereloadService := services.NewGitLivereloadService(c.injector)
 		c.injector.Register("gitLivereloadService", gitLivereloadService)
 	}
 
-	// Create localstack service
 	localstackEnabled := configHandler.GetBool("aws.localstack.enabled")
 	if localstackEnabled {
 		localstackService := services.NewLocalstackService(c.injector)
 		c.injector.Register("localstackService", localstackService)
 	}
 
-	// Create registry services
 	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
 		for key := range contextConfig.Docker.Registries {
 			service := services.NewRegistryService(c.injector)
@@ -164,7 +158,6 @@ func (c *RealController) CreateServiceComponents() error {
 		}
 	}
 
-	// Create cluster services
 	clusterEnabled := configHandler.GetBool("cluster.enabled")
 	if clusterEnabled {
 		controlPlaneCount := configHandler.GetInt("cluster.controlplanes.count")
@@ -172,7 +165,6 @@ func (c *RealController) CreateServiceComponents() error {
 
 		clusterDriver := configHandler.GetString("cluster.driver")
 
-		// Create a talos cluster
 		if clusterDriver == "talos" {
 			for i := 1; i <= controlPlaneCount; i++ {
 				controlPlaneService := services.NewTalosControlPlaneService(c.injector)
@@ -199,7 +191,7 @@ func (c *RealController) CreateVirtualizationComponents() error {
 	vmDriver := configHandler.GetString("vm.driver")
 	dockerEnabled := configHandler.GetBool("docker.enabled")
 
-	if vmDriver != "" {
+	if vmDriver == "colima" {
 		// Create and register the RealNetworkInterfaceProvider instance
 		networkInterfaceProvider := &network.RealNetworkInterfaceProvider{}
 		c.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
@@ -211,16 +203,20 @@ func (c *RealController) CreateVirtualizationComponents() error {
 		// Create and register the secure shell
 		secureShell := shell.NewSecureShell(c.injector)
 		c.injector.Register("secureShell", secureShell)
-	}
 
-	// Create colima components
-	if vmDriver == "colima" {
 		// Create a colima virtual machine
 		colimaVirtualMachine := virt.NewColimaVirt(c.injector)
 		c.injector.Register("virtualMachine", colimaVirtualMachine)
 
 		// Create a colima network manager
 		networkManager := network.NewColimaNetworkManager(c.injector)
+		c.injector.Register("networkManager", networkManager)
+	} else {
+		// Create a base network manager
+		networkManager, err := network.NewBaseNetworkManager(c.injector)
+		if err != nil {
+			return fmt.Errorf("error creating base network manager: %w", err)
+		}
 		c.injector.Register("networkManager", networkManager)
 	}
 

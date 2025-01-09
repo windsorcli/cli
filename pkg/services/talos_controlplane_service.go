@@ -25,7 +25,7 @@ func NewTalosControlPlaneService(injector di.Injector) *TalosControlPlaneService
 // SetAddress sets the address of the service
 // This turns out to be a convenient place to set node information
 func (s *TalosControlPlaneService) SetAddress(address string) error {
-	tld := s.configHandler.GetString("dns.name", "test")
+	tld := s.configHandler.GetString("dns.name")
 
 	if err := s.configHandler.SetContextValue("cluster.controlplanes.nodes."+s.name+".hostname", s.name+"."+tld); err != nil {
 		return err
@@ -42,7 +42,6 @@ func (s *TalosControlPlaneService) SetAddress(address string) error {
 
 // GetComposeConfig returns a list of container data for docker-compose.
 func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
-	// Retrieve CPU and RAM settings for control planes from the configuration
 	controlPlaneCPU := s.configHandler.GetInt("cluster.controlplanes.cpu", constants.DEFAULT_TALOS_CONTROL_PLANE_CPU)
 	controlPlaneRAM := s.configHandler.GetInt("cluster.controlplanes.memory", constants.DEFAULT_TALOS_CONTROL_PLANE_RAM)
 
@@ -63,6 +62,22 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 			{Type: "volume", Source: strings.ReplaceAll(s.name+"_usr_libexec_kubernetes", "-", "_"), Target: "/usr/libexec/kubernetes"},
 			{Type: "volume", Source: strings.ReplaceAll(s.name+"_opt", "-", "_"), Target: "/opt"},
 		},
+	}
+
+	// Check if the address is localhost and assign ports if it is
+	if isLocalhost(s.address) {
+		commonConfig.Ports = []types.ServicePortConfig{
+			{
+				Target:    50000,
+				Published: "50000",
+				Protocol:  "tcp",
+			},
+			{
+				Target:    6443,
+				Published: "6443",
+				Protocol:  "tcp",
+			},
+		}
 	}
 
 	// Get the TLD from the configuration

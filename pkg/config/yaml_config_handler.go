@@ -6,19 +6,25 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+
+	"github.com/windsorcli/cli/pkg/di"
 )
 
 // YamlConfigHandler implements the ConfigHandler interface using goccy/go-yaml
 type YamlConfigHandler struct {
-	ConfigHandler
+	BaseConfigHandler
 	config               Config
 	path                 string
 	defaultContextConfig Context
 }
 
 // NewYamlConfigHandler creates a new instance of YamlConfigHandler with default context configuration.
-func NewYamlConfigHandler() *YamlConfigHandler {
-	return &YamlConfigHandler{}
+func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
+	return &YamlConfigHandler{
+		BaseConfigHandler: BaseConfigHandler{
+			injector: injector,
+		},
+	}
 }
 
 // LoadConfig loads the configuration from the specified path. If the file does not exist, it does nothing.
@@ -68,15 +74,7 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 // SetDefault sets the given context configuration as the default. Defaults to "local" if no current context is set.
 func (y *YamlConfigHandler) SetDefault(context Context) error {
 	y.defaultContextConfig = context
-	currentContext := "local"
-
-	if y.config.Context != nil {
-		currentContext = *y.config.Context
-	} else {
-		if err := y.Set("context", currentContext); err != nil {
-			return err
-		}
-	}
+	currentContext := y.GetContext()
 
 	contextKey := fmt.Sprintf("contexts.%s", currentContext)
 
@@ -171,7 +169,7 @@ func (y *YamlConfigHandler) SetContextValue(path string, value interface{}) erro
 
 // GetConfig returns the context config object for the current context, or the default if none is set.
 func (y *YamlConfigHandler) GetConfig() *Context {
-	defaultConfigCopy := y.defaultContextConfig.Copy() // Copy the internal default configuration
+	defaultConfigCopy := y.defaultContextConfig.DeepCopy()
 	context := y.config.Context
 
 	if context == nil {

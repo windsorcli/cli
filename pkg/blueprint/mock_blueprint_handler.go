@@ -1,18 +1,24 @@
 package blueprint
 
-import "github.com/windsorcli/cli/pkg/di"
+import (
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/di"
+)
 
 // MockBlueprintHandler is a mock implementation of the BlueprintHandler interface for testing purposes
 type MockBlueprintHandler struct {
 	InitializeFunc             func() error
 	LoadConfigFunc             func(path ...string) error
-	GetMetadataFunc            func() MetadataV1Alpha1
-	GetSourcesFunc             func() []SourceV1Alpha1
-	GetTerraformComponentsFunc func() []TerraformComponentV1Alpha1
-	SetMetadataFunc            func(metadata MetadataV1Alpha1) error
-	SetSourcesFunc             func(sources []SourceV1Alpha1) error
-	SetTerraformComponentsFunc func(terraformComponents []TerraformComponentV1Alpha1) error
+	GetMetadataFunc            func() blueprintv1alpha1.Metadata
+	GetSourcesFunc             func() []blueprintv1alpha1.Source
+	GetTerraformComponentsFunc func() []blueprintv1alpha1.TerraformComponent
+	GetKustomizationsFunc      func() []blueprintv1alpha1.Kustomization
+	SetMetadataFunc            func(metadata blueprintv1alpha1.Metadata) error
+	SetSourcesFunc             func(sources []blueprintv1alpha1.Source) error
+	SetTerraformComponentsFunc func(terraformComponents []blueprintv1alpha1.TerraformComponent) error
+	SetKustomizationsFunc      func(kustomizations []blueprintv1alpha1.Kustomization) error
 	WriteConfigFunc            func(path ...string) error
+	InstallFunc                func() error
 }
 
 // NewMockBlueprintHandler creates a new instance of MockBlueprintHandler
@@ -37,31 +43,39 @@ func (m *MockBlueprintHandler) LoadConfig(path ...string) error {
 }
 
 // GetMetadata calls the mock GetMetadataFunc if set, otherwise returns a reasonable default MetadataV1Alpha1
-func (m *MockBlueprintHandler) GetMetadata() MetadataV1Alpha1 {
+func (m *MockBlueprintHandler) GetMetadata() blueprintv1alpha1.Metadata {
 	if m.GetMetadataFunc != nil {
 		return m.GetMetadataFunc()
 	}
-	return MetadataV1Alpha1{}
+	return blueprintv1alpha1.Metadata{}
 }
 
 // GetSources calls the mock GetSourcesFunc if set, otherwise returns a reasonable default slice of SourceV1Alpha1
-func (m *MockBlueprintHandler) GetSources() []SourceV1Alpha1 {
+func (m *MockBlueprintHandler) GetSources() []blueprintv1alpha1.Source {
 	if m.GetSourcesFunc != nil {
 		return m.GetSourcesFunc()
 	}
-	return []SourceV1Alpha1{}
+	return []blueprintv1alpha1.Source{}
 }
 
 // GetTerraformComponents calls the mock GetTerraformComponentsFunc if set, otherwise returns a reasonable default slice of TerraformComponentV1Alpha1
-func (m *MockBlueprintHandler) GetTerraformComponents() []TerraformComponentV1Alpha1 {
+func (m *MockBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.TerraformComponent {
 	if m.GetTerraformComponentsFunc != nil {
 		return m.GetTerraformComponentsFunc()
 	}
-	return []TerraformComponentV1Alpha1{}
+	return []blueprintv1alpha1.TerraformComponent{}
+}
+
+// GetKustomizations calls the mock GetKustomizationsFunc if set, otherwise returns a reasonable default slice of kustomizev1.Kustomization
+func (m *MockBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomization {
+	if m.GetKustomizationsFunc != nil {
+		return m.GetKustomizationsFunc()
+	}
+	return []blueprintv1alpha1.Kustomization{}
 }
 
 // SetMetadata calls the mock SetMetadataFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) SetMetadata(metadata MetadataV1Alpha1) error {
+func (m *MockBlueprintHandler) SetMetadata(metadata blueprintv1alpha1.Metadata) error {
 	if m.SetMetadataFunc != nil {
 		return m.SetMetadataFunc(metadata)
 	}
@@ -69,7 +83,7 @@ func (m *MockBlueprintHandler) SetMetadata(metadata MetadataV1Alpha1) error {
 }
 
 // SetSources calls the mock SetSourcesFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) SetSources(sources []SourceV1Alpha1) error {
+func (m *MockBlueprintHandler) SetSources(sources []blueprintv1alpha1.Source) error {
 	if m.SetSourcesFunc != nil {
 		return m.SetSourcesFunc(sources)
 	}
@@ -77,9 +91,17 @@ func (m *MockBlueprintHandler) SetSources(sources []SourceV1Alpha1) error {
 }
 
 // SetTerraformComponents calls the mock SetTerraformComponentsFunc if set, otherwise returns nil
-func (m *MockBlueprintHandler) SetTerraformComponents(terraformComponents []TerraformComponentV1Alpha1) error {
+func (m *MockBlueprintHandler) SetTerraformComponents(terraformComponents []blueprintv1alpha1.TerraformComponent) error {
 	if m.SetTerraformComponentsFunc != nil {
 		return m.SetTerraformComponentsFunc(terraformComponents)
+	}
+	return nil
+}
+
+// SetKustomizations calls the mock SetKustomizationsFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) SetKustomizations(kustomizations []blueprintv1alpha1.Kustomization) error {
+	if m.SetKustomizationsFunc != nil {
+		return m.SetKustomizationsFunc(kustomizations)
 	}
 	return nil
 }
@@ -88,6 +110,14 @@ func (m *MockBlueprintHandler) SetTerraformComponents(terraformComponents []Terr
 func (m *MockBlueprintHandler) WriteConfig(path ...string) error {
 	if m.WriteConfigFunc != nil {
 		return m.WriteConfigFunc(path...)
+	}
+	return nil
+}
+
+// Install calls the mock InstallFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) Install() error {
+	if m.InstallFunc != nil {
+		return m.InstallFunc()
 	}
 	return nil
 }

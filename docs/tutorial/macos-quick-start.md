@@ -81,7 +81,7 @@ git init
 The windsor tool will create a few folders in your project. In particular, it will create a folder called `contexts/` where your context configurations will reside. Initialize windsor with the colima vm driver by running:
 
 ```sh
-windsor init local --vm-driver colima
+windsor init local
 ```
 
 Verify that the default 'local' context was selected:

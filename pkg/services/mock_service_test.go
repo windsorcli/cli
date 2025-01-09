@@ -7,14 +7,12 @@ import (
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type MockComponents struct {
 	Injector          di.Injector
-	MockContext       *context.MockContext
 	MockShell         *shell.MockShell
 	MockConfigHandler *config.MockConfigHandler
 	MockService       *MockService
@@ -347,6 +345,39 @@ func TestMockService_GetName(t *testing.T) {
 		// Then: an empty string should be returned
 		if name != "" {
 			t.Errorf("expected empty name, got %v", name)
+		}
+	})
+}
+
+func TestMockService_GetHostname(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock service
+		mockService := NewMockService()
+		expectedHostname := "localhost"
+
+		// When: GetHostnameFunc is called
+		mockGetHostnameFunc := func() string {
+			return expectedHostname
+		}
+		mockService.GetHostnameFunc = mockGetHostnameFunc
+
+		// Then: the GetHostnameFunc should be set and return the expected hostname
+		hostname := mockService.GetHostname()
+		if hostname != expectedHostname {
+			t.Errorf("expected hostname %v, got %v", expectedHostname, hostname)
+		}
+	})
+
+	t.Run("SuccessNoMock", func(t *testing.T) {
+		// Given: a mock service with no GetHostnameFunc
+		mockService := NewMockService()
+
+		// When: GetHostname is called
+		hostname := mockService.GetHostname()
+
+		// Then: an empty string should be returned
+		if hostname != "" {
+			t.Errorf("expected empty hostname, got %v", hostname)
 		}
 	})
 }
