@@ -1,12 +1,7 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
-	"os"
-	"os/user"
-	"path"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -19,35 +14,35 @@ var envCmd = &cobra.Command{
 	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
 
-		currentDir, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("Error getting current directory: %w", err)
-		}
+		// currentDir, err := os.Getwd()
+		// if err != nil {
+		// 	return fmt.Errorf("Error getting current directory: %w", err)
+		// }
 
-		usr, err := user.Current()
-		if err != nil {
-			return fmt.Errorf("Error getting user home directory: %w", err)
-		}
+		// usr, err := user.Current()
+		// if err != nil {
+		// 	return fmt.Errorf("Error getting user home directory: %w", err)
+		// }
 
-		trustedFilePath := path.Join(usr.HomeDir, ".config", "windsor", ".trusted")
-		file, err := os.Open(trustedFilePath)
-		if err != nil {
-			return fmt.Errorf("Error opening trusted file: %w", err)
-		}
-		defer file.Close()
+		// trustedFilePath := path.Join(usr.HomeDir, ".config", "windsor", ".trusted")
+		// file, err := os.Open(trustedFilePath)
+		// if err != nil {
+		// 	return fmt.Errorf("Error opening trusted file: %w", err)
+		// }
+		// defer file.Close()
 
-		scanner := bufio.NewScanner(file)
-		isTrusted := false
-		for scanner.Scan() {
-			if strings.TrimSpace(scanner.Text()) == currentDir {
-				isTrusted = true
-				break
-			}
-		}
+		// scanner := bufio.NewScanner(file)
+		// isTrusted := false
+		// for scanner.Scan() {
+		// 	if strings.TrimSpace(scanner.Text()) == currentDir {
+		// 		isTrusted = true
+		// 		break
+		// 	}
+		// }
 
-		if !isTrusted {
-			return nil
-		}
+		// if !isTrusted {
+		// 	return nil
+		// }
 
 		// Create environment components
 		if err := controller.CreateEnvComponents(); err != nil {
