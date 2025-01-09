@@ -50,13 +50,13 @@ Here is an example of how you might download and verify a binary for Linux on an
 
 ```bash
 # Download the binary
-wget https://github.com/tvangundy/cli/releases/download/v<version>/windsorcli_<version>_linux_amd64.tar.gz
+wget https://github.com/windsorcli/cli/releases/download/v<version>/windsorcli_<version>_linux_amd64.tar.gz
 
 # Download the checksum file
-wget https://github.com/tvangundy/cli/releases/download/v<version>/checksums.txt
+wget https://github.com/windsorcli/cli/releases/download/v<version>/checksums.txt
 
 # Download the signature file
-wget https://github.com/tvangundy/cli/releases/download/v<version>/checksums.txt.asc
+wget https://github.com/windsorcli/cli/releases/download/v<version>/checksums.txt.asc
 
 # Verify the signature
 gpg --verify checksums.txt.asc checksums.txt
@@ -69,4 +69,4 @@ Replace `<version>` with the specific version number you are downloading.
 
 ## Conclusion
 
-Following these steps ensures that you have downloaded a legitimate and unaltered version of the Windsor CLI. If you encounter any issues, please refer to the [Issues](https://github.com/tvangundy/cli/issues) section of the repository for support.
+Following these steps ensures that you have downloaded a legitimate and unaltered version of the Windsor CLI. If you encounter any issues, please refer to the [Issues](https://github.com/windsorcli/cli/issues) section of the repository for support.
