@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/env"
 )
 
 var (
@@ -30,6 +31,15 @@ var initCmd = &cobra.Command{
 	SilenceUsage: true,
 	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+
+		// Add the current directory to the trusted file list
+		if err := env.AddCurrentDirToTrustedFile(); err != nil {
+			if verbose {
+				return fmt.Errorf("Error adding current directory to trusted file: %w", err)
+			}
+			return nil
+		}
+
 		// Resolve the config handler
 		configHandler := controller.ResolveConfigHandler()
 

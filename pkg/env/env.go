@@ -1,7 +1,12 @@
 package env
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"os/user"
+	"path"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
@@ -71,5 +76,83 @@ func (e *BaseEnvPrinter) GetEnvVars() (map[string]string, error) {
 // PostEnvHook simulates running any necessary commands after the environment variables have been set.
 func (e *BaseEnvPrinter) PostEnvHook() error {
 	// Placeholder for post-processing logic
+	return nil
+}
+
+// Add current directory to the trusted file list
+func AddCurrentDirToTrustedFile() error {
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("Error getting current directory: %w", err)
+	}
+
+	usr, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("Error getting user home directory: %w", err)
+	}
+
+	trustedDirPath := path.Join(usr.HomeDir, ".config", "windsor")
+	err = os.MkdirAll(trustedDirPath, os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("Error creating directories for trusted file: %w", err)
+	}
+
+	trustedFilePath := path.Join(trustedDirPath, ".trusted")
+	file, err := os.OpenFile(trustedFilePath, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		return fmt.Errorf("Error opening or creating trusted file: %w", err)
+	}
+	defer file.Close()
+
+	// Check if the current directory is already in the trusted file
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		if strings.TrimSpace(scanner.Text()) == currentDir {
+			return nil // Directory is already trusted, no need to add
+		}
+	}
+
+	// Add the current directory to the trusted file
+	if _, err := file.WriteString(currentDir + "\n"); err != nil {
+		return fmt.Errorf("Error writing to trusted file: %w", err)
+	}
+
+	return nil
+}
+
+// Check if current directory is in the trusted file list
+func CheckTrustedDirectory() error {
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("Error getting current directory: %w", err)
+	}
+
+	usr, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("Error getting user home directory: %w", err)
+	}
+
+	trustedDirPath := path.Join(usr.HomeDir, ".config", "windsor")
+	trustedFilePath := path.Join(trustedDirPath, ".trusted")
+	file, err := os.OpenFile(trustedFilePath, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	isTrusted := false
+	for scanner.Scan() {
+		trustedDir := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(currentDir, trustedDir) {
+			isTrusted = true
+			break
+		}
+	}
+
+	if !isTrusted {
+		return fmt.Errorf("Error current directory not in the trusted list")
+	}
+
 	return nil
 }

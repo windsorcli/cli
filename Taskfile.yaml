@@ -42,6 +42,7 @@ tasks:
       CI: true
     cmds:
       - |
+        windsor init local
         if [ -n "{{.CLI_ARGS}}" ]; then
           go test -coverprofile=coverage.out -run {{.CLI_ARGS}} ./...
         else
