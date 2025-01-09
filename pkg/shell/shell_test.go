@@ -54,69 +54,21 @@ func TestShell_SetVerbosity(t *testing.T) {
 }
 
 func TestShell_GetProjectRoot(t *testing.T) {
-	t.Run("GitRepo", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Given a temporary directory with a git repository
-		rootDir := createTempDir(t, "project-root")
-		subDir := filepath.Join(rootDir, "subdir")
-		if err := os.Mkdir(subDir, 0755); err != nil {
-			t.Fatalf("Failed to create subdir: %v", err)
-		}
-
-		initGitRepo(t, rootDir)
-		changeDir(t, subDir)
-
-		// When calling GetProjectRoot
-		shell := NewDefaultShell(injector)
-		projectRoot, err := shell.GetProjectRoot()
-
-		// Then the project root should be returned without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		expectedRootDir := resolveSymlinks(t, rootDir)
-
-		// Normalize paths for Windows compatibility
-		expectedRootDir = normalizePath(expectedRootDir)
-		projectRoot = normalizePath(projectRoot)
-		if expectedRootDir != projectRoot {
-			t.Errorf("Expected project root %q, got %q", expectedRootDir, projectRoot)
-		}
-	})
-
 	t.Run("Cached", func(t *testing.T) {
 		injector := di.NewInjector()
 
-		// Given a temporary directory with a git repository and cached project root
+		// Given a temporary directory with a cached project root
 		rootDir := createTempDir(t, "project-root")
 		subDir := filepath.Join(rootDir, "subdir")
 		if err := os.Mkdir(subDir, 0755); err != nil {
 			t.Fatalf("Failed to create subdir: %v", err)
 		}
 
-		initGitRepo(t, rootDir)
 		changeDir(t, subDir)
 
 		// When calling GetProjectRoot
 		shell := NewDefaultShell(injector)
-		projectRoot, err := shell.GetProjectRoot()
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-
-		expectedRootDir := resolveSymlinks(t, rootDir)
-
-		// Normalize paths for Windows compatibility
-		expectedRootDir = normalizePath(expectedRootDir)
-		projectRoot = normalizePath(projectRoot)
-
-		if expectedRootDir != projectRoot {
-			t.Errorf("Expected project root %q, got %q", expectedRootDir, projectRoot)
-		}
-
-		// When calling GetProjectRoot again with cached project root
-		shell.projectRoot = expectedRootDir
+		shell.projectRoot = rootDir // Simulate cached project root
 		cachedProjectRoot, err := shell.GetProjectRoot()
 
 		// Then the cached project root should be returned without error
@@ -124,7 +76,8 @@ func TestShell_GetProjectRoot(t *testing.T) {
 			t.Fatalf("Unexpected error: %v", err)
 		}
 
-		// Normalize cached project root for Windows compatibility
+		// Normalize paths for Windows compatibility
+		expectedRootDir := normalizePath(rootDir)
 		cachedProjectRoot = normalizePath(cachedProjectRoot)
 
 		if expectedRootDir != cachedProjectRoot {

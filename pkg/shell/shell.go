@@ -72,9 +72,9 @@ func (s *DefaultShell) SetVerbosity(verbose bool) {
 	s.verbose = verbose
 }
 
-// GetProjectRoot finds the project root directory. It first checks for a cached root.
-// If not found, it tries the git root. If that fails, it searches for windsor.yaml or
-// windsor.yml up to a max depth. Returns the root path or an error.
+// GetProjectRoot finds the project root. It checks for a cached root first.
+// If not found, it looks for "windsor.yaml" or "windsor.yml" in the current
+// directory and its parents. Returns the root path or an error if not found.
 func (s *DefaultShell) GetProjectRoot() (string, error) {
 	if s.projectRoot != "" {
 		return s.projectRoot, nil
