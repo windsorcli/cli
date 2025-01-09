@@ -2,8 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,6 +14,7 @@ import (
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
@@ -203,6 +202,30 @@ func TestController_InitializeComponents(t *testing.T) {
 			t.Fatalf("expected an error, got nil")
 		} else if !strings.Contains(err.Error(), "error initializing env printer") {
 			t.Fatalf("expected error to contain 'error initializing env printer', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
+		}
+	})
+
+	t.Run("ErrorInitializingToolsManager", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.InitializeFunc = func() error {
+			return fmt.Errorf("error initializing tools manager")
+		}
+		mocks.Injector.Register("toolsManager", mockToolsManager)
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// When initializing the components
+		err := controller.InitializeComponents()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error initializing tools manager") {
+			t.Fatalf("expected error to contain 'error initializing tools manager', got %v", err)
 		} else {
 			t.Logf("expected error received: %v", err)
 		}
@@ -510,12 +533,78 @@ func TestController_WriteConfigurationFiles(t *testing.T) {
 		controller := NewController(mocks.Injector)
 		controller.Initialize()
 
+		// Ensure toolsManager.WriteManifest is called
+		mockToolsManager := tools.NewMockToolsManager()
+		writeManifestCalled := false
+		mockToolsManager.WriteManifestFunc = func() error {
+			writeManifestCalled = true
+			return nil
+		}
+		mocks.Injector.Register("toolsManager", mockToolsManager)
+
+		// Ensure blueprintHandler.WriteConfig is called
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
+		writeBlueprintConfigCalled := false
+		mockBlueprintHandler.WriteConfigFunc = func(path ...string) error {
+			writeBlueprintConfigCalled = true
+			return nil
+		}
+		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
+
+		// Ensure service.WriteConfig is called
+		mockService := services.NewMockService()
+		writeServiceConfigCalled := false
+		mockService.WriteConfigFunc = func() error {
+			writeServiceConfigCalled = true
+			return nil
+		}
+		mocks.Injector.Register("service1", mockService)
+
 		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
 
 		// Then there should be no error
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And WriteManifest should have been called
+		if !writeManifestCalled {
+			t.Fatalf("expected WriteManifest to be called, but it was not")
+		}
+
+		// And WriteConfig for blueprintHandler should have been called
+		if !writeBlueprintConfigCalled {
+			t.Fatalf("expected WriteConfig for blueprintHandler to be called, but it was not")
+		}
+
+		// And WriteConfig for service should have been called
+		if !writeServiceConfigCalled {
+			t.Fatalf("expected WriteConfig for service to be called, but it was not")
+		}
+	})
+
+	t.Run("ErrorWritingToolsManifest", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.WriteManifestFunc = func() error {
+			return fmt.Errorf("error writing tools manifest")
+		}
+		mocks.Injector.Register("toolsManager", mockToolsManager)
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// When writing configuration files
+		err := controller.WriteConfigurationFiles()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error writing tools manifest") {
+			t.Fatalf("expected error to contain 'error writing tools manifest', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
 		}
 	})
 
@@ -930,68 +1019,6 @@ func TestController_ResolveContainerRuntime(t *testing.T) {
 		// And the resolved container runtime should match the expected container runtime
 		if containerRuntime != mocks.ContainerRuntime {
 			t.Fatalf("expected %v, got %v", mocks.ContainerRuntime, containerRuntime)
-		}
-	})
-}
-
-func TestController_getCLIConfigPath(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given the CLI config path is set
-		os.Setenv("WINDSORCONFIG", "testdata/config.yaml")
-
-		// When getting the CLI config path
-		configPath, err := getCLIConfigPath()
-
-		// Then there should be no error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// And the config path should match the expected path
-		expectedPath := "testdata/config.yaml"
-		if configPath != expectedPath {
-			t.Fatalf("expected %v, got %v", expectedPath, configPath)
-		}
-	})
-
-	t.Run("SuccessWithNoEnvVar", func(t *testing.T) {
-		// Given the CLI config path is not set
-		os.Unsetenv("WINDSORCONFIG")
-
-		// When getting the CLI config path
-		configPath, err := getCLIConfigPath()
-
-		// Then there should be no error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// And the config path should match the default path
-		home, _ := os.UserHomeDir()
-		expectedPath := filepath.Join(home, ".config", "windsor", "config.yaml")
-		if configPath != expectedPath {
-			t.Fatalf("expected %v, got %v", expectedPath, configPath)
-		}
-	})
-
-	t.Run("UserHomeDirError", func(t *testing.T) {
-		// Given the CLI config path is not set
-		os.Unsetenv("WINDSORCONFIG")
-
-		// Given osUserHomeDir is mocked to return an error
-		originalUserHomeDir := osUserHomeDir
-		osUserHomeDir = func() (string, error) {
-			return "", fmt.Errorf("mock error")
-		}
-		defer func() { osUserHomeDir = originalUserHomeDir }()
-
-		// Execute the function
-		_, err := getCLIConfigPath()
-
-		// Verify the error
-		expectedError := "error retrieving user home directory: mock error"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("expected error %q, got %v", expectedError, err)
 		}
 	})
 }

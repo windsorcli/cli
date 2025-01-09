@@ -50,10 +50,13 @@ var upCmd = &cobra.Command{
 		}
 		vmDriver := configHandler.GetString("vm.driver")
 
-		// Resolve the network manager
-		networkManager := controller.ResolveNetworkManager()
-		if networkManager == nil {
-			return fmt.Errorf("No network manager found")
+		// Resolve the tools manager and install the tools
+		toolsManager := controller.ResolveToolsManager()
+		if toolsManager == nil {
+			return fmt.Errorf("No tools manager found")
+		}
+		if err := toolsManager.Install(); err != nil {
+			return fmt.Errorf("Error installing tools: %w", err)
 		}
 
 		// If the virtualization driver is 'colima', start the virtual machine and configure networking.
@@ -77,6 +80,12 @@ var upCmd = &cobra.Command{
 			if err := containerRuntime.Up(); err != nil {
 				return fmt.Errorf("Error running container runtime Up command: %w", err)
 			}
+		}
+
+		// Resolve the network manager
+		networkManager := controller.ResolveNetworkManager()
+		if networkManager == nil {
+			return fmt.Errorf("No network manager found")
 		}
 
 		// Configure networking for the virtual machine

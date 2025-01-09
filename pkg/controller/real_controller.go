@@ -13,6 +13,7 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
@@ -60,6 +61,10 @@ func (c *RealController) CreateProjectComponents() error {
 	// Create a new git generator
 	gitGenerator := generators.NewGitGenerator(c.injector)
 	c.injector.Register("gitGenerator", gitGenerator)
+
+	// Create a new tools manager
+	toolsManager := tools.NewToolsManager(c.injector)
+	c.injector.Register("toolsManager", toolsManager)
 
 	// Create a new blueprint handler
 	blueprintHandler := blueprint.NewBlueprintHandler(c.injector)

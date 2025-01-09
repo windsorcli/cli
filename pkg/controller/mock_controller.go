@@ -13,6 +13,7 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
@@ -104,6 +105,10 @@ func (m *MockController) CreateProjectComponents() error {
 	if m.CreateProjectComponentsFunc != nil {
 		return m.CreateProjectComponentsFunc()
 	}
+
+	// Create a new mock tools manager
+	toolsManager := tools.NewMockToolsManager()
+	m.injector.Register("toolsManager", toolsManager)
 
 	// Create a new mock blueprint handler
 	blueprintHandler := blueprint.NewMockBlueprintHandler(m.injector)
