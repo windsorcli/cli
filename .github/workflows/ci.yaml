@@ -41,7 +41,7 @@ jobs:
           chmod +x windsor
           ls -al
           ./windsor version
-          cp windsor $HOME/.local/bin
+          cp ./windsor $HOME/.local/bin/windsor
           ls $HOME/.local/bin
 
       - name: Add Windsor to PATH
