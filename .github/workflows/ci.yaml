@@ -39,6 +39,8 @@ jobs:
           cd cli/cmd/windsor
           go build -o windsor
           chmod +x windsor
+          ls -al
+          ./windsor version
           cp windsor $HOME/.local/bin
           ls $HOME/.local/bin
 
