@@ -40,6 +40,7 @@ jobs:
           go build -o windsor
           chmod +x windsor
           cp windsor $HOME/.local/bin
+          ls $HOME/.local/bin
 
       - name: Add Windsor to PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
