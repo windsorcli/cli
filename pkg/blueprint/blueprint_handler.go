@@ -436,7 +436,7 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 		componentCopy := component
 
 		if isValidTerraformRemoteSource(componentCopy.Source) {
-			componentCopy.FullPath = filepath.Join(projectRoot, ".tf_modules", componentCopy.Path)
+			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", ".tf_modules", componentCopy.Path)
 		} else {
 			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", componentCopy.Path)
 		}

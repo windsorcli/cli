@@ -2,8 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
@@ -358,16 +356,3 @@ func (c *BaseController) ResolveAllGenerators() []generators.Generator {
 
 // Ensure BaseController implements the Controller interface
 var _ Controller = (*BaseController)(nil)
-
-// getCLIConfigPath returns the path to the CLI configuration file
-var getCLIConfigPath = func() (string, error) {
-	cliConfigPath := os.Getenv("WINDSORCONFIG")
-	if cliConfigPath == "" {
-		home, err := osUserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("error retrieving user home directory: %w", err)
-		}
-		cliConfigPath = filepath.Join(home, ".config", "windsor", "config.yaml")
-	}
-	return cliConfigPath, nil
-}

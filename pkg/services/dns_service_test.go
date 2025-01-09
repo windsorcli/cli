@@ -343,11 +343,11 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingConfigRoot", func(t *testing.T) {
-		// Create a mock context that returns an error on GetConfigRoot
+	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
+		// Create a mock context that returns an error on GetProjectRoot
 		mocks := createDNSServiceMocks()
-		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving config root")
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving project root")
 		}
 
 		mocks.Injector.Register("dockerService", NewMockService())
@@ -364,8 +364,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		err := service.WriteConfig()
 
 		// Then: an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "error retrieving config root") {
-			t.Fatalf("expected error retrieving config root, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error retrieving project root") {
+			t.Fatalf("expected error retrieving project root, got %v", err)
 		}
 	})
 

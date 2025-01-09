@@ -94,12 +94,12 @@ func (v *DockerVirt) Up() error {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
 
-		// Get the path to the compose.yaml file
-		configRoot, err := v.configHandler.GetConfigRoot()
+		// Get the path to the docker-compose.yaml file
+		projectRoot, err := v.shell.GetProjectRoot()
 		if err != nil {
-			return fmt.Errorf("error retrieving config root: %w", err)
+			return fmt.Errorf("error retrieving project root: %w", err)
 		}
-		composeFilePath := filepath.Join(configRoot, "compose.yaml")
+		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 		// Set the COMPOSE_FILE environment variable and handle potential error
 		if err := osSetenv("COMPOSE_FILE", composeFilePath); err != nil {
@@ -152,12 +152,12 @@ func (v *DockerVirt) Down() error {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
 
-		// Get the path to the compose.yaml file
-		configRoot, err := v.configHandler.GetConfigRoot()
+		// Get the path to the docker-compose.yaml file
+		projectRoot, err := v.shell.GetProjectRoot()
 		if err != nil {
-			return fmt.Errorf("error retrieving config root: %w", err)
+			return fmt.Errorf("error retrieving project root: %w", err)
 		}
-		composeFilePath := filepath.Join(configRoot, "compose.yaml")
+		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 		// Set the COMPOSE_FILE environment variable and handle potential error
 		if err := osSetenv("COMPOSE_FILE", composeFilePath); err != nil {
@@ -175,12 +175,12 @@ func (v *DockerVirt) Down() error {
 
 // WriteConfig writes the Docker configuration file
 func (v *DockerVirt) WriteConfig() error {
-	// Get the config root and construct the file path
-	configRoot, err := v.configHandler.GetConfigRoot()
+	// Get the project root and construct the file path
+	projectRoot, err := v.shell.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("error retrieving config root: %w", err)
+		return fmt.Errorf("error retrieving project root: %w", err)
 	}
-	composeFilePath := filepath.Join(configRoot, "compose.yaml")
+	composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 	// Ensure the parent context folder exists
 	if err := mkdirAll(filepath.Dir(composeFilePath), 0755); err != nil {
