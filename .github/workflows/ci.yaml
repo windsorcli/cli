@@ -33,6 +33,16 @@ jobs:
       - name: Install tools using Aqua
         run: aqua install
 
+      - name: Install Windsor CLI from Main Branch
+        run: |
+          git clone https://github.com/windsorcli/cli.git
+          cd cli/cmd/windsor
+          go build -o windsor
+          chmod +x windsor
+          
+      - name: Add Windsor to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
       - name: Run tests
         run: task test
 
