@@ -34,6 +34,7 @@ jobs:
         run: aqua install
 
       - name: Install Windsor CLI from Main Branch
+        shell: bash
         run: |
           git clone https://github.com/windsorcli/cli.git
           cd cli/cmd/windsor
