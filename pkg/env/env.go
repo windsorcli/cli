@@ -98,6 +98,7 @@ func AddCurrentDirToTrustedFile() error {
 	}
 
 	trustedFilePath := path.Join(trustedDirPath, ".trusted")
+	// #nosec G304 - trustedFilePath is constructed safely and is not user-controlled
 	file, err := os.OpenFile(trustedFilePath, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
 		return fmt.Errorf("Error opening or creating trusted file: %w", err)
