@@ -151,7 +151,7 @@ func CheckTrustedDirectory() error {
 	}
 
 	if !isTrusted {
-		return fmt.Errorf("Error current directory not in the trusted list")
+		return fmt.Errorf("Current directory not in the trusted list")
 	}
 
 	return nil
