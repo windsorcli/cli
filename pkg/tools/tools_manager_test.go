@@ -3,11 +3,13 @@ package tools
 import (
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
 type MockToolsComponents struct {
-	Injector di.Injector
+	Injector      di.Injector
+	ConfigHandler *config.MockConfigHandler
 }
 
 // setupToolsMocks function creates safe mocks for the tools manager
@@ -20,8 +22,15 @@ func setupToolsMocks(injector ...di.Injector) MockToolsComponents {
 		mockInjector = di.NewInjector()
 	}
 
+	// Create a mock config handler
+	mockConfigHandler := config.NewMockConfigHandler()
+
+	// Register the mock config handler in the injector
+	mockInjector.Register("configHandler", mockConfigHandler)
+
 	return MockToolsComponents{
-		Injector: mockInjector,
+		Injector:      mockInjector,
+		ConfigHandler: mockConfigHandler,
 	}
 }
 

@@ -12,7 +12,8 @@ import (
 
 // Config represents the entire configuration
 type Config struct {
-	Contexts map[string]*Context `yaml:"contexts"`
+	ToolsManager string              `yaml:"toolsManager,omitempty"`
+	Contexts     map[string]*Context `yaml:"contexts"`
 }
 
 // Context represents the context configuration

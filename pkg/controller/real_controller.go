@@ -56,27 +56,44 @@ func (c *RealController) CreateCommonComponents() error {
 	return nil
 }
 
-// CreateProjectComponents creates components required for project initialization
+// Initializes project components like generators and tools manager. Registers
+// and initializes blueprint, terraform, and kustomize generators. Determines
+// and sets the tools manager: aqua, asdf, or default, based on config or setup.
 func (c *RealController) CreateProjectComponents() error {
-	// Create a new git generator
 	gitGenerator := generators.NewGitGenerator(c.injector)
 	c.injector.Register("gitGenerator", gitGenerator)
 
-	// Create a new tools manager
-	toolsManager := tools.NewToolsManager(c.injector)
-	c.injector.Register("toolsManager", toolsManager)
-
-	// Create a new blueprint handler
 	blueprintHandler := blueprint.NewBlueprintHandler(c.injector)
 	c.injector.Register("blueprintHandler", blueprintHandler)
 
-	// Create a new terraform generator
 	terraformGenerator := generators.NewTerraformGenerator(c.injector)
 	c.injector.Register("terraformGenerator", terraformGenerator)
 
-	// Create a new kustomize generator
 	kustomizeGenerator := generators.NewKustomizeGenerator(c.injector)
 	c.injector.Register("kustomizeGenerator", kustomizeGenerator)
+
+	toolsManagerType := c.configHandler.GetString("toolsManager")
+	var toolsManager tools.ToolsManager
+
+	if toolsManagerType == "" {
+		var err error
+		toolsManagerType, err = tools.CheckExistingToolsManager(c.configHandler.GetString("projectRoot"))
+		if err != nil {
+			// Not tested as this is a static function and we can't mock it
+			return fmt.Errorf("error checking existing tools manager: %w", err)
+		}
+	}
+
+	switch toolsManagerType {
+	case "aqua":
+		// TODO: Implement aqua tools manager
+	case "asdf":
+		// TODO: Implement asdf tools manager
+	default:
+		toolsManager = tools.NewToolsManager(c.injector)
+	}
+
+	c.injector.Register("toolsManager", toolsManager)
 
 	return nil
 }
@@ -122,12 +139,9 @@ func (c *RealController) CreateEnvComponents() error {
 	return nil
 }
 
-// CreateServiceComponents initializes and registers various services based on configuration settings.
-// It checks if Docker is enabled before proceeding to create DNS, Git livereload, and Localstack services
-// if their respective configurations are enabled. It also sets up registry services for each configured
-// Docker registry, appending the DNS TLD to their names. Additionally, if the cluster is enabled and
-// uses the Talos driver, it creates and registers control plane and worker services based on the
-// specified counts.
+// CreateServiceComponents sets up services based on config, including DNS,
+// Git livereload, Localstack, and Docker registries. If Talos is used, it
+// registers control plane and worker services for the cluster.
 func (c *RealController) CreateServiceComponents() error {
 	configHandler := c.configHandler
 	contextConfig := configHandler.GetConfig()

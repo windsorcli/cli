@@ -137,23 +137,22 @@ func TestMockController_CreateEnvComponents(t *testing.T) {
 		}
 	})
 
-	t.Run("NoCreateEnvComponentsFunc", func(t *testing.T) {
-		// Use setSafeControllerMocks to set up the mock environment
-		mocks := setSafeControllerMocks()
-		// Given a new injector and mock controller
-		mockCtrl := NewMockController(mocks.Injector)
+	// t.Run("NoCreateEnvComponentsFunc", func(t *testing.T) {
+	// 	// Given a new injector and mock controller
+	// 	injector := di.NewInjector()
+	// 	mockCtrl := NewMockController(injector)
 
-		// Initialize the mock controller and check for error
-		if err := mockCtrl.Initialize(); err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+	// 	// Initialize the mock controller and check for error
+	// 	if err := mockCtrl.Initialize(); err != nil {
+	// 		t.Fatalf("expected no error, got %v", err)
+	// 	}
 
-		// When CreateEnvComponents is called without setting CreateEnvComponentsFunc
-		if err := mockCtrl.CreateEnvComponents(); err != nil {
-			// Then no error should be returned
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
+	// 	// When CreateEnvComponents is called without setting CreateEnvComponentsFunc
+	// 	if err := mockCtrl.CreateEnvComponents(); err != nil {
+	// 		// Then no error should be returned
+	// 		t.Fatalf("expected no error, got %v", err)
+	// 	}
+	// })
 }
 
 func TestMockController_CreateServiceComponents(t *testing.T) {

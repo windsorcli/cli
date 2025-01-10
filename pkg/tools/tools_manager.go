@@ -1,6 +1,9 @@
 package tools
 
 import (
+	"path/filepath"
+
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -15,7 +18,8 @@ type ToolsManager interface {
 
 // BaseToolsManager is the base implementation of the ToolsManager interface.
 type BaseToolsManager struct {
-	injector di.Injector
+	injector      di.Injector
+	configHandler config.ConfigHandler
 }
 
 // Creates a new ToolsManager instance with the given injector.
@@ -27,7 +31,10 @@ func NewToolsManager(injector di.Injector) *BaseToolsManager {
 
 // Initialize initializes the tools manager.
 func (t *BaseToolsManager) Initialize() error {
-	// Placeholder
+	// Resolve the config handler
+	configHandler := t.injector.Resolve("configHandler")
+	t.configHandler = configHandler.(config.ConfigHandler)
+
 	return nil
 }
 
@@ -43,4 +50,22 @@ func (t *BaseToolsManager) WriteManifest() error {
 func (t *BaseToolsManager) Install() error {
 	// Placeholder
 	return nil
+}
+
+// CheckExistingToolsManager checks if a tools manager is in use
+// and returns its name.
+func CheckExistingToolsManager(projectRoot string) (string, error) {
+	// Check for "aqua.yaml" in the project root
+	aquaPath := filepath.Join(projectRoot, "aqua.yaml")
+	if _, err := osStat(aquaPath); err == nil {
+		return "aqua", nil
+	}
+
+	// Check for ".tool-versions" in the project root
+	asdfPath := filepath.Join(projectRoot, ".tool-versions")
+	if _, err := osStat(asdfPath); err == nil {
+		return "asdf", nil
+	}
+
+	return "", nil
 }
