@@ -134,6 +134,7 @@ func CheckTrustedDirectory() error {
 
 	trustedDirPath := path.Join(usr.HomeDir, ".config", "windsor")
 	trustedFilePath := path.Join(trustedDirPath, ".trusted")
+	// #nosec G304 - trustedFilePath is constructed safely and is not user-controlled
 	file, err := os.OpenFile(trustedFilePath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return err
