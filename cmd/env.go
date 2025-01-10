@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/env"
 )
 
 var envCmd = &cobra.Command{
@@ -15,13 +14,13 @@ var envCmd = &cobra.Command{
 	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
 
-		// Check if current directory is in the trusted list
-		if err := env.CheckTrustedDirectory(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error checking trusted directory: %w", err)
-			}
-			return nil
-		}
+		// // Check if current directory is in the trusted list
+		// if err := env.CheckTrustedDirectory(); err != nil {
+		// 	if verbose {
+		// 		return fmt.Errorf("Error checking trusted directory: %w", err)
+		// 	}
+		// 	return nil
+		// }
 
 		// Create environment components
 		if err := controller.CreateEnvComponents(); err != nil {

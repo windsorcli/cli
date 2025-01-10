@@ -160,15 +160,15 @@ func TestEnv_Print(t *testing.T) {
 	})
 }
 
-type MockUser struct {
-	CurrentDir string
-	HomeDir    string
-}
+// type MockUser struct {
+// 	CurrentDir string
+// 	HomeDir    string
+// }
 
-// NewMockUser creates a new instance of MockUser.
-func NewMockUser() *MockUser {
-	return &MockUser{}
-}
+// // NewMockUser creates a new instance of MockUser.
+// func NewMockUser() *MockUser {
+// 	return &MockUser{}
+// }
 
 // func TestEnv_CheckTrustedDirectory(t *testing.T) {
 // 	t.Run("DirectoryTrusted", func(t *testing.T) {
