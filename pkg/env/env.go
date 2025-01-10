@@ -92,7 +92,7 @@ func AddCurrentDirToTrustedFile() error {
 	}
 
 	trustedDirPath := path.Join(usr.HomeDir, ".config", "windsor")
-	err = os.MkdirAll(trustedDirPath, 0750) // Change directory permissions to 0750
+	err = os.MkdirAll(trustedDirPath, 0750)
 	if err != nil {
 		return fmt.Errorf("Error creating directories for trusted file: %w", err)
 	}
