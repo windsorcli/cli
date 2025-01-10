@@ -42,7 +42,12 @@ jobs:
           chmod +x windsor
           ./windsor version
           echo "PWD ($PWD)"
-          echo "$PWD" >> $GITHUB_PATH
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            echo "$PWD\\windsor" >> $GITHUB_PATH
+            echo "C:\\Program Files\\Git\\usr\\bin" >> $GITHUB_PATH
+          else
+            echo "$PWD/windsor" >> $GITHUB_PATH
+          fi
           
       - name: Run tests
         run: task test
