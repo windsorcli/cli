@@ -41,58 +41,14 @@ jobs:
           chmod +x windsor
           ./windsor version
           echo "PWD ($PWD)"
-          echo "$PWD" >> $GITHUB_PATH
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "$PWD\\windsor" >> $GITHUB_PATH
+          else
+            echo "$PWD/windsor" >> $GITHUB_PATH
+          fi
 
       - name: Run tests
         run: task test
-
-      - name: Build Windsor CLI on macOS/Linux
-        if: runner.os != 'Windows'
-        run: |
-          VERSION=$(echo "${GITHUB_REF}" | sed 's/refs\/heads\///' | sed 's/refs\/tags\///')
-          echo "Building version: $VERSION"
-          COMMIT_SHA=${{ github.sha }}
-          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
-            GOOS=linux GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o dist/windsor-linux-${{ matrix.arch }} cmd/windsor/main.go
-          elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-            GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o dist/windsor-darwin-${{ matrix.arch }} cmd/windsor/main.go
-          fi
-
-      - name: Build Windsor CLI on Windows
-        if: runner.os == 'Windows'
-        run: |
-          $env:VERSION = $env:GITHUB_REF -replace 'refs/heads/', '' -replace 'refs/tags/', ''
-          echo "Building version: $env:VERSION"
-          $env:COMMIT_SHA = "${{ github.sha }}"
-          $env:GOOS = "windows"
-          $env:GOARCH = "${{ matrix.arch }}"
-          go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$env:VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$env:COMMIT_SHA'" -o dist/windsor.exe cmd/windsor/main.go
-        shell: pwsh
-
-      - name: Upload Release Asset on macOS/Linux
-        if: startsWith(github.ref, 'refs/tags/v') && runner.os != 'Windows'
-        run: |
-          for file in dist/*; do
-            if [ -f "$file" ]; then
-              echo "Uploading $file"
-              gh release upload "${GITHUB_REF#refs/tags/}" "$file" --clobber
-            fi
-          done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Release Asset on Windows
-        if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'Windows'
-        run: |
-          Get-ChildItem -Path dist\* | ForEach-Object {
-            if ($_.PSIsContainer -eq $false) {
-              Write-Host "Uploading $($_.FullName)"
-              gh release upload "${{ github.ref_name }}" "$($_.FullName)" --clobber
-            }
-          }
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   sast-scan:
     runs-on: ubuntu-latest
