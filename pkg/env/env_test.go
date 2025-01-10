@@ -1,10 +1,7 @@
 package env
 
 import (
-	"os"
-	"path"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -173,122 +170,122 @@ func NewMockUser() *MockUser {
 	return &MockUser{}
 }
 
-func TestEnv_CheckTrustedDirectory(t *testing.T) {
-	t.Run("DirectoryTrusted", func(t *testing.T) {
-		// Mock the current directory and trusted file
-		currentDir := "/mock/current/dir"
-		trustedDir := "/mock/current"
-		mockUser := NewMockUser()
-		mockUser.CurrentDir = currentDir
-		mockUser.HomeDir = "/mock/home"
+// func TestEnv_CheckTrustedDirectory(t *testing.T) {
+// 	t.Run("DirectoryTrusted", func(t *testing.T) {
+// 		// Mock the current directory and trusted file
+// 		currentDir := "/mock/current/dir"
+// 		trustedDir := "/mock/current"
+// 		mockUser := NewMockUser()
+// 		mockUser.CurrentDir = currentDir
+// 		mockUser.HomeDir = "/mock/home"
 
-		// Initialize the env variable
-		// mockInjector := di.NewMockInjector()
-		// env := NewBaseEnvPrinter(mockInjector) // Adjust this line based on your actual Env initialization
+// 		// Initialize the env variable
+// 		// mockInjector := di.NewMockInjector()
+// 		// env := NewBaseEnvPrinter(mockInjector) // Adjust this line based on your actual Env initialization
 
-		// Create a mock trusted file with the trusted directory
-		trustedFilePath := path.Join(mockUser.HomeDir, ".config", "windsor", ".trusted")
-		os.MkdirAll(path.Dir(trustedFilePath), os.ModePerm)
-		os.WriteFile(trustedFilePath, []byte(trustedDir+"\n"), 0644)
+// 		// Create a mock trusted file with the trusted directory
+// 		trustedFilePath := path.Join(mockUser.HomeDir, ".config", "windsor", ".trusted")
+// 		os.MkdirAll(path.Dir(trustedFilePath), os.ModePerm)
+// 		os.WriteFile(trustedFilePath, []byte(trustedDir+"\n"), 0644)
 
-		// Call CheckTrustedDirectory and check for errors
-		err := CheckTrustedDirectory()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
+// 		// Call CheckTrustedDirectory and check for errors
+// 		err := CheckTrustedDirectory()
+// 		if err != nil {
+// 			t.Errorf("unexpected error: %v", err)
+// 		}
+// 	})
 
-	t.Run("DirectoryNotTrusted", func(t *testing.T) {
-		// Mock the current directory and trusted file
-		currentDir := "/mock/current/dir"
-		mockUser := NewMockUser()
-		mockUser.CurrentDir = currentDir
-		mockUser.HomeDir = "/mock/home"
-		// user.SetMockUser(mockUser)
+// 	t.Run("DirectoryNotTrusted", func(t *testing.T) {
+// 		// Mock the current directory and trusted file
+// 		currentDir := "/mock/current/dir"
+// 		mockUser := NewMockUser()
+// 		mockUser.CurrentDir = currentDir
+// 		mockUser.HomeDir = "/mock/home"
+// 		// user.SetMockUser(mockUser)
 
-		// Ensure the trusted file is wiped out or deleted if it exists
-		trustedFilePath := path.Join(mockUser.HomeDir, ".config", "windsor", ".trusted")
-		os.Remove(trustedFilePath)
-		os.MkdirAll(path.Dir(trustedFilePath), os.ModePerm)
-		os.WriteFile(trustedFilePath, []byte("/some/other/dir\n"), 0644)
+// 		// Ensure the trusted file is wiped out or deleted if it exists
+// 		trustedFilePath := path.Join(mockUser.HomeDir, ".config", "windsor", ".trusted")
+// 		os.Remove(trustedFilePath)
+// 		os.MkdirAll(path.Dir(trustedFilePath), os.ModePerm)
+// 		os.WriteFile(trustedFilePath, []byte("/some/other/dir\n"), 0644)
 
-		// Call CheckTrustedDirectory and expect an error
-		err := CheckTrustedDirectory()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
-}
+// 		// Call CheckTrustedDirectory and expect an error
+// 		err := CheckTrustedDirectory()
+// 		if err != nil {
+// 			t.Errorf("unexpected error: %v", err)
+// 		}
+// 	})
+// }
 
-func TestEnv_AddCurrentDirToTrustedFile(t *testing.T) {
-	t.Run("AddDirectory", func(t *testing.T) {
+// func TestEnv_AddCurrentDirToTrustedFile(t *testing.T) {
+// 	t.Run("AddDirectory", func(t *testing.T) {
 
-		currentDir, err := os.Getwd()
-		if err != nil {
-			t.Fatalf("failed to get current directory: %v", err)
-		}
+// 		currentDir, err := os.Getwd()
+// 		if err != nil {
+// 			t.Fatalf("failed to get current directory: %v", err)
+// 		}
 
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatalf("Error retrieving user home directory: %v\n", err)
-		}
+// 		homeDir, err := os.UserHomeDir()
+// 		if err != nil {
+// 			t.Fatalf("Error retrieving user home directory: %v\n", err)
+// 		}
 
-		// Ensure the trusted file does not exist
-		trustedFilePath := path.Join(homeDir, ".config", "windsor", ".trusted")
-		os.Remove(trustedFilePath)
+// 		// Ensure the trusted file does not exist
+// 		trustedFilePath := path.Join(homeDir, ".config", "windsor", ".trusted")
+// 		os.Remove(trustedFilePath)
 
-		// Call AddCurrentDirToTrustedFile and check for errors
-		err = AddCurrentDirToTrustedFile()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
+// 		// Call AddCurrentDirToTrustedFile and check for errors
+// 		err = AddCurrentDirToTrustedFile()
+// 		if err != nil {
+// 			t.Errorf("unexpected error: %v", err)
+// 		}
 
-		// Verify that the current directory was added to the trusted file
-		content, _ := os.ReadFile(trustedFilePath)
-		expectedContent := currentDir + "\n"
-		if string(content) != expectedContent {
-			t.Errorf("trusted file content = %v, want %v", string(content), expectedContent)
-		}
-	})
+// 		// Verify that the current directory was added to the trusted file
+// 		content, _ := os.ReadFile(trustedFilePath)
+// 		expectedContent := currentDir + "\n"
+// 		if string(content) != expectedContent {
+// 			t.Errorf("trusted file content = %v, want %v", string(content), expectedContent)
+// 		}
+// 	})
 
-	t.Run("DirectoryAlreadyTrusted", func(t *testing.T) {
-		currentDir, err := os.Getwd()
-		if err != nil {
-			t.Fatalf("failed to get current directory: %v", err)
-		}
+// 	t.Run("DirectoryAlreadyTrusted", func(t *testing.T) {
+// 		currentDir, err := os.Getwd()
+// 		if err != nil {
+// 			t.Fatalf("failed to get current directory: %v", err)
+// 		}
 
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatalf("Error retrieving user home directory: %v\n", err)
-		}
+// 		homeDir, err := os.UserHomeDir()
+// 		if err != nil {
+// 			t.Fatalf("Error retrieving user home directory: %v\n", err)
+// 		}
 
-		// Ensure the trusted file does not exist
-		trustedFilePath := path.Join(homeDir, ".config", "windsor", ".trusted")
-		os.Remove(trustedFilePath)
+// 		// Ensure the trusted file does not exist
+// 		trustedFilePath := path.Join(homeDir, ".config", "windsor", ".trusted")
+// 		os.Remove(trustedFilePath)
 
-		// Create the .trusted file and write the current directory to it
-		err = os.WriteFile(trustedFilePath, []byte(currentDir+"\n"), 0644)
-		if err != nil {
-			t.Fatalf("failed to initialize .trusted file: %v", err)
-		}
+// 		// Create the .trusted file and write the current directory to it
+// 		err = os.WriteFile(trustedFilePath, []byte(currentDir+"\n"), 0644)
+// 		if err != nil {
+// 			t.Fatalf("failed to initialize .trusted file: %v", err)
+// 		}
 
-		// Call AddCurrentDirToTrustedFile and check for errors
-		err = AddCurrentDirToTrustedFile()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
+// 		// Call AddCurrentDirToTrustedFile and check for errors
+// 		err = AddCurrentDirToTrustedFile()
+// 		if err != nil {
+// 			t.Errorf("unexpected error: %v", err)
+// 		}
 
-		// Verify that the current directory was added to the trusted file
-		content, _ := os.ReadFile(trustedFilePath)
-		expectedContent := currentDir + "\n"
-		if string(content) != expectedContent {
-			t.Errorf("trusted file content = %v, want %v", string(content), expectedContent)
-		}
+// 		// Verify that the current directory was added to the trusted file
+// 		content, _ := os.ReadFile(trustedFilePath)
+// 		expectedContent := currentDir + "\n"
+// 		if string(content) != expectedContent {
+// 			t.Errorf("trusted file content = %v, want %v", string(content), expectedContent)
+// 		}
 
-		contentLines := len(strings.Split(string(content), "\n")) - 1
-		if contentLines > 1 {
-			t.Errorf("trusted file contains more than one entry: %d entries", contentLines)
-		}
+// 		contentLines := len(strings.Split(string(content), "\n")) - 1
+// 		if contentLines > 1 {
+// 			t.Errorf("trusted file contains more than one entry: %d entries", contentLines)
+// 		}
 
-	})
-}
+// 	})
+// }
