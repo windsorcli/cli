@@ -134,7 +134,7 @@ func CheckTrustedDirectory() error {
 
 	trustedDirPath := path.Join(usr.HomeDir, ".config", "windsor")
 	trustedFilePath := path.Join(trustedDirPath, ".trusted")
-	file, err := os.OpenFile(trustedFilePath, os.O_CREATE|os.O_RDWR, 0644)
+	file, err := os.OpenFile(trustedFilePath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return err
 	}
