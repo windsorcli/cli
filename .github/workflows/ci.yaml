@@ -40,10 +40,8 @@ jobs:
           go build -o windsor
           chmod +x windsor
           ./windsor version
+          echo "PWD ($PWD)"
           echo "$PWD" >> $GITHUB_PATH
-
-      # - name: Add Windsor to PATH
-      #   run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Run tests
         run: task test
