@@ -55,6 +55,11 @@ jobs:
         run: |
           echo "$(pwd)/cli/cmd/windsor" >> $GITHUB_PATH
 
+      - name: Add windsor to the path
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_PATH -Value "$(pwd)/cli/cmd/windsor"
+  
       - name: Run tests
         run: task test
 
