@@ -13,6 +13,7 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
@@ -33,6 +34,7 @@ type MockController struct {
 	ResolveAllEnvPrintersFunc          func() []env.EnvPrinter
 	ResolveShellFunc                   func() shell.Shell
 	ResolveSecureShellFunc             func() shell.Shell
+	ResolveToolsManagerFunc            func() tools.ToolsManager
 	ResolveNetworkManagerFunc          func() network.NetworkManager
 	ResolveServiceFunc                 func(name string) services.Service
 	ResolveAllServicesFunc             func() []services.Service
@@ -90,6 +92,11 @@ func (m *MockController) CreateCommonComponents() error {
 	// organize this in the future but this works for now, so we don't expect
 	// these lines to be covered by tests.
 
+	// Initialize the config handler
+	if err := configHandler.Initialize(); err != nil {
+		return fmt.Errorf("error initializing config handler: %w", err)
+	}
+
 	// Initialize the shell
 	resolvedShell := m.injector.Resolve("shell").(*shell.MockShell)
 	if err := resolvedShell.Initialize(); err != nil {
@@ -104,6 +111,10 @@ func (m *MockController) CreateProjectComponents() error {
 	if m.CreateProjectComponentsFunc != nil {
 		return m.CreateProjectComponentsFunc()
 	}
+
+	// Create a new mock tools manager
+	toolsManager := tools.NewMockToolsManager()
+	m.injector.Register("toolsManager", toolsManager)
 
 	// Create a new mock blueprint handler
 	blueprintHandler := blueprint.NewMockBlueprintHandler(m.injector)
@@ -346,6 +357,14 @@ func (c *MockController) ResolveSecureShell() shell.Shell {
 		return c.ResolveSecureShellFunc()
 	}
 	return c.BaseController.ResolveSecureShell()
+}
+
+// ResolveToolsManager calls the mock ResolveToolsManagerFunc if set, otherwise calls the parent function
+func (c *MockController) ResolveToolsManager() tools.ToolsManager {
+	if c.ResolveToolsManagerFunc != nil {
+		return c.ResolveToolsManagerFunc()
+	}
+	return c.BaseController.ResolveToolsManager()
 }
 
 // ResolveNetworkManager calls the mock ResolveNetworkManagerFunc if set, otherwise calls the parent function

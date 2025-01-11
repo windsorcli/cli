@@ -38,11 +38,10 @@ type BaseNetworkManager struct {
 }
 
 // NewNetworkManager creates a new NetworkManager
-func NewBaseNetworkManager(injector di.Injector) (*BaseNetworkManager, error) {
-	nm := &BaseNetworkManager{
+func NewBaseNetworkManager(injector di.Injector) *BaseNetworkManager {
+	return &BaseNetworkManager{
 		injector: injector,
 	}
-	return nm, nil
 }
 
 // Initialize resolves dependencies, sorts services, and assigns IPs based on network CIDR

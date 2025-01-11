@@ -55,10 +55,6 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 	if configHandler == nil {
 		return fmt.Errorf("No config handler found")
 	}
-	// Initialize the config handler
-	if err := configHandler.Initialize(); err != nil {
-		return fmt.Errorf("Error initializing config handler: %w", err)
-	}
 
 	contextName := configHandler.GetContext()
 
@@ -95,6 +91,7 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 		if _, err := osStat(yamlPath); os.IsNotExist(err) {
 			// Check if windsor.yml exists only if windsor.yaml does not exist
 			if _, err := osStat(ymlPath); err == nil {
+				// Not unit tested for now
 				cliConfigPath = ymlPath
 			}
 		} else {

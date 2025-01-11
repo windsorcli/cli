@@ -14,6 +14,7 @@ import (
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
@@ -23,6 +24,7 @@ type MockObjects struct {
 	EnvPrinter       *env.MockEnvPrinter
 	Shell            *shell.MockShell
 	SecureShell      *shell.MockShell
+	ToolsManager     *tools.MockToolsManager
 	NetworkManager   *network.MockNetworkManager
 	Service          *services.MockService
 	VirtualMachine   *virt.MockVirt
@@ -46,6 +48,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	mockEnvPrinter2 := &env.MockEnvPrinter{}
 	mockShell := &shell.MockShell{}
 	mockSecureShell := &shell.MockShell{}
+	mockToolsManager := tools.NewMockToolsManager()
 	mockNetworkManager := &network.MockNetworkManager{}
 	mockService1 := &services.MockService{}
 	mockService2 := &services.MockService{}
@@ -61,6 +64,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	injector.Register("envPrinter2", mockEnvPrinter2)
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
+	injector.Register("toolsManager", mockToolsManager)
 	injector.Register("networkManager", mockNetworkManager)
 	injector.Register("blueprintHandler", mockBlueprintHandler)
 	injector.Register("service1", mockService1)
@@ -76,6 +80,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 		EnvPrinter:       mockEnvPrinter1, // Assuming the first envPrinter is the primary one
 		Shell:            mockShell,
 		SecureShell:      mockSecureShell,
+		ToolsManager:     mockToolsManager,
 		NetworkManager:   mockNetworkManager,
 		BlueprintHandler: mockBlueprintHandler,
 		Service:          mockService1, // Assuming the first service is the primary one
@@ -201,6 +206,30 @@ func TestController_InitializeComponents(t *testing.T) {
 			t.Fatalf("expected an error, got nil")
 		} else if !strings.Contains(err.Error(), "error initializing env printer") {
 			t.Fatalf("expected error to contain 'error initializing env printer', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
+		}
+	})
+
+	t.Run("ErrorInitializingToolsManager", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.InitializeFunc = func() error {
+			return fmt.Errorf("error initializing tools manager")
+		}
+		mocks.Injector.Register("toolsManager", mockToolsManager)
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// When initializing the components
+		err := controller.InitializeComponents()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error initializing tools manager") {
+			t.Fatalf("expected error to contain 'error initializing tools manager', got %v", err)
 		} else {
 			t.Logf("expected error received: %v", err)
 		}
@@ -514,6 +543,30 @@ func TestController_WriteConfigurationFiles(t *testing.T) {
 		// Then there should be no error
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWritingToolsManifest", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.WriteManifestFunc = func() error {
+			return fmt.Errorf("error writing tools manifest")
+		}
+		mocks.Injector.Register("toolsManager", mockToolsManager)
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// When writing configuration files
+		err := controller.WriteConfigurationFiles()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error writing tools manifest") {
+			t.Fatalf("expected error to contain 'error writing tools manifest', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
 		}
 	})
 

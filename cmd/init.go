@@ -20,6 +20,7 @@ var (
 	docker         bool
 	gitLivereload  bool
 	blueprint      string
+	toolsManager   string
 )
 
 var initCmd = &cobra.Command{
@@ -63,6 +64,7 @@ var initCmd = &cobra.Command{
 			{"vm-disk", "vm.disk", disk},
 			{"vm-memory", "vm.memory", memory},
 			{"vm-arch", "vm.arch", arch},
+			{"tools-manager", "toolsManager", toolsManager},
 			{"git-livereload", "git.livereload.enabled", gitLivereload},
 		}
 
