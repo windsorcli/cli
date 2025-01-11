@@ -40,15 +40,12 @@ jobs:
           cd cli/cmd/windsor
           go build -o windsor
           chmod +x windsor
+          echo "windsor version"
           ./windsor version
 
       - name: Add windsor to the path
         run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            echo "$(pwd)" >> $GITHUB_PATH
-          else
-            echo "$PWD" >> $GITHUB_PATH
-          fi
+          echo "$(pwd)/cli/cmd/windsor" >> $GITHUB_PATH
 
       - name: Run tests
         run: task test
