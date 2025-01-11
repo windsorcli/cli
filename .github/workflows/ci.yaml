@@ -42,6 +42,7 @@ jobs:
           chmod +x windsor
           echo "windsor version"
           ./windsor version
+          ./windsor init local
 
       - name: Echo the current path (Linux/MacOS)
         if: runner.os != 'Windows'
