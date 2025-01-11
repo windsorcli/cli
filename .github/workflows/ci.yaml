@@ -74,6 +74,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $env:PATH += ";$(pwd)\\cli\\cmd\\windsor"
           Add-Content -Path $env:GITHUB_PATH -Value "$(pwd)/cli/cmd/windsor"
   
       - name: Run tests
