@@ -43,19 +43,35 @@ jobs:
           echo "windsor version"
           ./windsor version
 
-      - name: Echo the current path
+      - name: Echo the current path (Linux/MacOS)
+        if: runner.os != 'Windows'
         run: |
           echo "PATH ($PATH)"
 
-      - name: Echo the current GITHUB_PATH
+      - name: Echo the current path (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "PATH ($env:PATH)"
+
+      - name: Echo the current GITHUB_PATH (Linux/MacOS)
+        if: runner.os != 'Windows'
         run: |
           echo "GITHUB_PATH ($GITHUB_PATH)"
 
-      - name: Add windsor to the path
+      - name: Echo the current GITHUB_PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "GITHUB_PATH ($env:GITHUB_PATH)"
+
+      - name: Add windsor to the path (Linux/MacOS)
+        if: runner.os != 'Windows'
         run: |
           echo "$(pwd)/cli/cmd/windsor" >> $GITHUB_PATH
 
-      - name: Add windsor to the path
+      - name: Add windsor to the path (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Add-Content -Path $env:GITHUB_PATH -Value "$(pwd)/cli/cmd/windsor"
