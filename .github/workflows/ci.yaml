@@ -52,6 +52,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          echo "PATH ($PATH)"
           Write-Host "PATH ($env:PATH)"
 
       - name: Echo the current GITHUB_PATH (Linux/MacOS)
