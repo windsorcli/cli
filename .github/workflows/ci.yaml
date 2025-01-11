@@ -30,54 +30,18 @@ jobs:
         with:
           aqua_version: v2.42.2
 
-      - name: Install tools using Aqua
+      - name: Install tools
         run: aqua install
 
-      - name: Install Windsor CLI from Main Branch
+      - name: Install Windsor CLI from main branch
         shell: bash
         run: |
           git clone https://github.com/windsorcli/cli.git
           cd cli/cmd/windsor
           go build -o windsor
           chmod +x windsor
-          echo "windsor version"
           ./windsor version
           ./windsor init local
-
-      - name: Echo the current path (Linux/MacOS)
-        if: runner.os != 'Windows'
-        run: |
-          echo "PATH ($PATH)"
-
-      - name: Echo the current path (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          echo "PATH ($PATH)"
-          Write-Host "PATH ($env:PATH)"
-
-      - name: Echo the current GITHUB_PATH (Linux/MacOS)
-        if: runner.os != 'Windows'
-        run: |
-          echo "GITHUB_PATH ($GITHUB_PATH)"
-
-      - name: Echo the current GITHUB_PATH (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Write-Host "GITHUB_PATH ($env:GITHUB_PATH)"
-
-      - name: Add windsor to the path (Linux/MacOS)
-        if: runner.os != 'Windows'
-        run: |
-          echo "$(pwd)/cli/cmd/windsor" >> $GITHUB_PATH
-
-      - name: Add windsor to the path (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $env:PATH += ";$(pwd)\\cli\\cmd\\windsor"
-          Add-Content -Path $env:GITHUB_PATH -Value "$(pwd)/cli/cmd/windsor"
   
       - name: Run tests
         run: task test
