@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path"
 	"testing"
 
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -15,6 +17,24 @@ func TestEnvCmd(t *testing.T) {
 	t.Cleanup(func() {
 		exitFunc = originalExitFunc
 	})
+
+	// Create the .trusted file with the current directory
+	currentDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get current directory: %v", err)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("Error retrieving user home directory: %v\n", err)
+	}
+
+	trustedFilePath := path.Join(homeDir, ".config", "windsor", ".trusted")
+	os.MkdirAll(path.Dir(trustedFilePath), os.ModePerm)
+	err = os.WriteFile(trustedFilePath, []byte(currentDir+"\n"), 0644)
+	if err != nil {
+		t.Fatalf("failed to write to .trusted file: %v", err)
+	}
 
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()

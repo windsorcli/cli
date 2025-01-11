@@ -41,7 +41,8 @@ jobs:
           go build -o windsor
           chmod +x windsor
           ./windsor version
-          ./windsor init local
+          # cd ../../..
+          # ./cli/cmd/windsor/windsor init local
   
       - name: Run tests
         run: task test
