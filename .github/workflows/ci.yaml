@@ -43,6 +43,14 @@ jobs:
           echo "windsor version"
           ./windsor version
 
+      - name: Echo the current path
+        run: |
+          echo "PATH ($PATH)"
+
+      - name: Echo the current GITHUB_PATH
+        run: |
+          echo "GITHUB_PATH ($GITHUB_PATH)"
+
       - name: Add windsor to the path
         run: |
           echo "$(pwd)/cli/cmd/windsor" >> $GITHUB_PATH
