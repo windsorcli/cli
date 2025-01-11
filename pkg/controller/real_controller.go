@@ -24,7 +24,11 @@ type RealController struct {
 
 // NewRealController creates a new controller.
 func NewRealController(injector di.Injector) *RealController {
-	return &RealController{BaseController: BaseController{injector: injector}}
+	return &RealController{
+		BaseController: BaseController{
+			injector: injector,
+		},
+	}
 }
 
 // Ensure RealController implements the Controller interface
@@ -47,6 +51,11 @@ func (c *RealController) CreateCommonComponents() error {
 	// above and can't be mocked externally. There may be a better way to
 	// organize this in the future but this works for now, so we don't expect
 	// these lines to be covered by tests.
+
+	// Initialize the config handler
+	if err := configHandler.Initialize(); err != nil {
+		return fmt.Errorf("error initializing config handler: %w", err)
+	}
 
 	// Initialize the shell
 	if err := shell.Initialize(); err != nil {
@@ -99,40 +108,36 @@ func (c *RealController) CreateProjectComponents() error {
 }
 
 // CreateEnvComponents creates components required for env and exec commands
+// Registers environment printers for AWS, Docker, Kube, Omni, Sops, Talos, Terraform, and Windsor.
+// AWS and Docker printers are conditional on their respective configurations being enabled.
+// Each printer is created and registered with the dependency injector.
+// Returns nil on successful registration of all environment components.
 func (c *RealController) CreateEnvComponents() error {
-	// Create aws env printer only if aws.enabled is true
 	if c.configHandler.GetBool("aws.enabled") {
 		awsEnv := env.NewAwsEnvPrinter(c.injector)
 		c.injector.Register("awsEnv", awsEnv)
 	}
 
-	// Create docker env printer only if docker is enabled
 	if c.configHandler.GetBool("docker.enabled") {
 		dockerEnv := env.NewDockerEnvPrinter(c.injector)
 		c.injector.Register("dockerEnv", dockerEnv)
 	}
 
-	// Create kube env printer
 	kubeEnv := env.NewKubeEnvPrinter(c.injector)
 	c.injector.Register("kubeEnv", kubeEnv)
 
-	// Create omni env printer
 	omniEnv := env.NewOmniEnvPrinter(c.injector)
 	c.injector.Register("omniEnv", omniEnv)
 
-	// Create sops env printer
 	sopsEnv := env.NewSopsEnvPrinter(c.injector)
 	c.injector.Register("sopsEnv", sopsEnv)
 
-	// Create talos env printer
 	talosEnv := env.NewTalosEnvPrinter(c.injector)
 	c.injector.Register("talosEnv", talosEnv)
 
-	// Create terraform env printer
 	terraformEnv := env.NewTerraformEnvPrinter(c.injector)
 	c.injector.Register("terraformEnv", terraformEnv)
 
-	// Create windsor env printer
 	windsorEnv := env.NewWindsorEnvPrinter(c.injector)
 	c.injector.Register("windsorEnv", windsorEnv)
 
@@ -169,6 +174,7 @@ func (c *RealController) CreateServiceComponents() error {
 	}
 
 	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
+		// Not unit tested currently as we can't easily create registry entries in tests
 		for key := range contextConfig.Docker.Registries {
 			service := services.NewRegistryService(c.injector)
 			service.SetName(key)
@@ -232,10 +238,7 @@ func (c *RealController) CreateVirtualizationComponents() error {
 		c.injector.Register("networkManager", networkManager)
 	} else {
 		// Create a base network manager
-		networkManager, err := network.NewBaseNetworkManager(c.injector)
-		if err != nil {
-			return fmt.Errorf("error creating base network manager: %w", err)
-		}
+		networkManager := network.NewBaseNetworkManager(c.injector)
 		c.injector.Register("networkManager", networkManager)
 	}
 

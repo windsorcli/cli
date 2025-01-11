@@ -55,7 +55,8 @@ func NewController(injector di.Injector) *BaseController {
 	return &BaseController{injector: injector}
 }
 
-// Initialize the controller.
+// Initialize the controller. Initializes the config handler
+// as well.
 func (c *BaseController) Initialize() error {
 	configHandler := c.ResolveConfigHandler()
 	c.configHandler = configHandler

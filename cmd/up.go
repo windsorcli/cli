@@ -52,11 +52,10 @@ var upCmd = &cobra.Command{
 
 		// Resolve the tools manager and install the tools
 		toolsManager := controller.ResolveToolsManager()
-		if toolsManager == nil {
-			return fmt.Errorf("No tools manager found")
-		}
-		if err := toolsManager.Install(); err != nil {
-			return fmt.Errorf("Error installing tools: %w", err)
+		if toolsManager != nil {
+			if err := toolsManager.Install(); err != nil {
+				return fmt.Errorf("Error installing tools: %w", err)
+			}
 		}
 
 		// If the virtualization driver is 'colima', start the virtual machine and configure networking.

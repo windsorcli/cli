@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -95,6 +97,59 @@ func TestToolsManager_InstallTools(t *testing.T) {
 		// Then the InstallTools method should succeed
 		if err != nil {
 			t.Errorf("Expected InstallTools to succeed, but got error: %v", err)
+		}
+	})
+}
+
+func TestCheckExistingToolsManager(t *testing.T) {
+	t.Run("NoToolsManager", func(t *testing.T) {
+		projectRoot := "/path/to/project"
+		managerName, err := CheckExistingToolsManager(projectRoot)
+		if err != nil {
+			t.Errorf("Expected CheckExistingToolsManager to succeed, but got error: %v", err)
+		}
+		if managerName != "" {
+			t.Errorf("Expected manager name to be empty, but got: %v", managerName)
+		}
+	})
+
+	t.Run("Detects Aqua", func(t *testing.T) {
+		projectRoot := "/path/to/project/with/aqua"
+		// Mock osStat to simulate the presence of "aqua.yaml"
+		osStat = func(name string) (os.FileInfo, error) {
+			if name == filepath.Join(projectRoot, "aqua.yaml") {
+				return nil, nil // Simulate file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		managerName, err := CheckExistingToolsManager(projectRoot)
+
+		if err != nil {
+			t.Errorf("Expected CheckExistingToolsManager to succeed, but got error: %v", err)
+		}
+		if managerName != "aqua" {
+			t.Errorf("Expected manager name to be 'aqua', but got: %v", managerName)
+		}
+	})
+
+	t.Run("Detects Asdf", func(t *testing.T) {
+		projectRoot := "/path/to/project/with/asdf"
+		// Mock osStat to simulate the presence of ".tool-versions"
+		osStat = func(name string) (os.FileInfo, error) {
+			if name == filepath.Join(projectRoot, ".tool-versions") {
+				return nil, nil // Simulate file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		managerName, err := CheckExistingToolsManager(projectRoot)
+
+		if err != nil {
+			t.Errorf("Expected CheckExistingToolsManager to succeed, but got error: %v", err)
+		}
+		if managerName != "asdf" {
+			t.Errorf("Expected manager name to be 'asdf', but got: %v", managerName)
 		}
 	})
 }
