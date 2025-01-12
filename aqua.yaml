@@ -25,4 +25,4 @@ packages:
 - name: securego/gosec@v2.22.0
 - name: docker/compose@v2.32.2
 - name: google/go-jsonnet@v0.20.0
-- name: mikefarah/yq@v4.44.6
+- name: mikefarah/yq@v4.45.1
