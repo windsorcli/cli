@@ -7,15 +7,16 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
 // YamlConfigHandler implements the ConfigHandler interface using goccy/go-yaml
 type YamlConfigHandler struct {
 	BaseConfigHandler
-	config               Config
+	config               v1alpha1.Config
 	path                 string
-	defaultContextConfig Context
+	defaultContextConfig v1alpha1.Context
 }
 
 // NewYamlConfigHandler creates a new instance of YamlConfigHandler with default context configuration.
@@ -42,6 +43,14 @@ func (y *YamlConfigHandler) LoadConfig(path string) error {
 	if err := yamlUnmarshal(data, &y.config); err != nil {
 		return fmt.Errorf("error unmarshalling yaml: %w", err)
 	}
+
+	// Check and set the config version
+	if y.config.Version == "" {
+		y.config.Version = "v1alpha1"
+	} else if y.config.Version != "v1alpha1" {
+		return fmt.Errorf("unsupported config version: %s", y.config.Version)
+	}
+
 	return nil
 }
 
@@ -60,6 +69,9 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 		return fmt.Errorf("error creating directories: %w", err)
 	}
 
+	// Ensure the config version is set to "v1alpha1" before saving
+	y.config.Version = "v1alpha1"
+
 	data, err := yamlMarshal(y.config)
 	if err != nil {
 		return fmt.Errorf("error marshalling yaml: %w", err)
@@ -72,7 +84,7 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 }
 
 // SetDefault sets the given context configuration as the default. Defaults to "local" if no current context is set.
-func (y *YamlConfigHandler) SetDefault(context Context) error {
+func (y *YamlConfigHandler) SetDefault(context v1alpha1.Context) error {
 	y.defaultContextConfig = context
 	currentContext := y.GetContext()
 
@@ -168,7 +180,7 @@ func (y *YamlConfigHandler) SetContextValue(path string, value interface{}) erro
 }
 
 // GetConfig returns the context config object for the current context, or the default if none is set.
-func (y *YamlConfigHandler) GetConfig() *Context {
+func (y *YamlConfigHandler) GetConfig() *v1alpha1.Context {
 	defaultConfigCopy := y.defaultContextConfig.DeepCopy()
 	context := y.context
 

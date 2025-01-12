@@ -3,9 +3,10 @@ package controller
 import (
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/docker"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -219,8 +220,8 @@ func TestMockController_CreateServiceComponents(t *testing.T) {
 			return ""
 		}
 
-		mockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
 					Registries: map[string]docker.RegistryConfig{
 						"registry1": {Remote: "registry1"},

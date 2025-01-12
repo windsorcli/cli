@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
@@ -235,7 +236,7 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 
 		// Mock ResolveConfigHandler to return a mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetDefaultFunc = func(cfg config.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
 			if reflect.DeepEqual(cfg, config.DefaultLocalConfig) {
 				return fmt.Errorf("mocked error setting default local config")
 			}
@@ -272,7 +273,7 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 
 		// Mock ResolveConfigHandler to return a mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetDefaultFunc = func(cfg config.Context) error {
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
 			if reflect.DeepEqual(cfg, config.DefaultConfig) {
 				return fmt.Errorf("mocked error setting default config")
 			}
