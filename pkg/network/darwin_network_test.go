@@ -140,13 +140,10 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
 		// Create a networkManager using NewNetworkManager with the mock DI container
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Initialize the network manager
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -173,13 +170,10 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// Create a networkManager using NewNetworkManager with the mock DI container
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Initialize the network manager
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -213,13 +207,10 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// Create a networkManager using NewNetworkManager with the mock DI container
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Initialize the network manager
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -251,13 +242,10 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Initialize the network manager
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -285,13 +273,10 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Initialize the network manager
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -323,13 +308,10 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// Create a networkManager using NewNetworkManager with the mock DI container
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Initialize the network manager
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -365,12 +347,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -391,12 +370,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			return "some_value"
 		}
 
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -410,12 +386,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("NoDNSDomainConfigured", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -440,12 +413,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("ResolverFileAlreadyExists", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -468,12 +438,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("CreateResolverDirectoryError", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -507,12 +474,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("WriteFileError", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -534,12 +498,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("MoveResolverFileError", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -568,12 +529,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("FlushDNSCacheError", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -602,12 +560,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("RestartMDNSResponderError", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -636,12 +591,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("IsLocalhostScenario", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}

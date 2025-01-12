@@ -6,7 +6,7 @@ import "time"
 const (
 	// renovate: datasource=docker depName=ghcr.io/windsorcli/git-livereload-server
 	DEFAULT_GIT_LIVE_RELOAD_IMAGE         = "ghcr.io/windsorcli/git-livereload-server:v0.2.1"
-	DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE = ".docker-cache,.terraform,data,.volumes,.venv"
+	DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE = ".windsor,.terraform,data,.volumes,.venv"
 	DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT = "flux-system"
 	DEFAULT_GIT_LIVE_RELOAD_USERNAME      = "local"
 	DEFAULT_GIT_LIVE_RELOAD_PASSWORD      = "local"
@@ -58,4 +58,15 @@ const (
 // Default network settings
 const (
 	DEFAULT_NETWORK_CIDR = "10.5.0.0/16"
+)
+
+// Minimum versions for tools
+const (
+	MINIMUM_VERSION_COLIMA         = "0.7.0"
+	MINIMUM_VERSION_DOCKER         = "25.0.0"
+	MINIMUM_VERSION_DOCKER_COMPOSE = "2.24.0"
+	MINIMUM_VERSION_KUBECTL        = "1.32.0"
+	MINIMUM_VERSION_LIMA           = "1.0.0"
+	MINIMUM_VERSION_TALOSCTL       = "1.7.0"
+	MINIMUM_VERSION_TERRAFORM      = "1.7.0"
 )

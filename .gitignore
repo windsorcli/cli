@@ -30,9 +30,9 @@ age.public.key
 
 # Temporary development folders
 contexts/
-.tf_modules/
 kustomize/
 terraform/
+windsor.yaml
 
 # managed by windsor cli
 .windsor/
@@ -43,4 +43,3 @@ contexts/**/.tfstate/
 contexts/**/.kube/
 contexts/**/.talos/
 contexts/**/.aws/
-.docker-cache/

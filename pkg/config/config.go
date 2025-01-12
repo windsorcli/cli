@@ -10,6 +10,12 @@ import (
 	"github.com/windsorcli/cli/pkg/config/vm"
 )
 
+// Config represents the entire configuration
+type Config struct {
+	ToolsManager string              `yaml:"toolsManager,omitempty"`
+	Contexts     map[string]*Context `yaml:"contexts"`
+}
+
 // Context represents the context configuration
 type Context struct {
 	ProjectName *string                    `yaml:"projectName,omitempty"`
@@ -106,10 +112,4 @@ func (c *Context) DeepCopy() *Context {
 		Cluster:     c.Cluster.Copy(),
 		DNS:         c.DNS.Copy(),
 	}
-}
-
-// Config represents the entire configuration
-type Config struct {
-	Context  *string             `yaml:"context"`
-	Contexts map[string]*Context `yaml:"contexts"`
 }

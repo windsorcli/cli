@@ -86,7 +86,7 @@ func TestWindsorStack_Up(t *testing.T) {
 		}
 
 		// Then the expected error is contained in err
-		expectedError := "directory /mock/project/root/.tf_modules/remote/path does not exist"
+		expectedError := "directory /mock/project/root/.windsor/.tf_modules/remote/path does not exist"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}

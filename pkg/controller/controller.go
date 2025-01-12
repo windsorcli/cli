@@ -2,8 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
@@ -14,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
@@ -34,6 +33,7 @@ type Controller interface {
 	ResolveShell() shell.Shell
 	ResolveSecureShell() shell.Shell
 	ResolveNetworkManager() network.NetworkManager
+	ResolveToolsManager() tools.ToolsManager
 	ResolveBlueprintHandler() blueprint.BlueprintHandler
 	ResolveService(name string) services.Service
 	ResolveAllServices() []services.Service
@@ -55,7 +55,8 @@ func NewController(injector di.Injector) *BaseController {
 	return &BaseController{injector: injector}
 }
 
-// Initialize the controller.
+// Initialize the controller. Initializes the config handler
+// as well.
 func (c *BaseController) Initialize() error {
 	configHandler := c.ResolveConfigHandler()
 	c.configHandler = configHandler
@@ -88,6 +89,14 @@ func (c *BaseController) InitializeComponents() error {
 			if err := envPrinter.Initialize(); err != nil {
 				return fmt.Errorf("error initializing env printer: %w", err)
 			}
+		}
+	}
+
+	// Initialize the tools manager
+	toolsManager := c.ResolveToolsManager()
+	if toolsManager != nil {
+		if err := toolsManager.Initialize(); err != nil {
+			return fmt.Errorf("error initializing tools manager: %w", err)
 		}
 	}
 
@@ -198,6 +207,14 @@ func (c *BaseController) WriteConfigurationFiles() error {
 	// Resolve all services
 	resolvedServices := c.ResolveAllServices()
 
+	// Write tools manifest
+	toolsManager := c.ResolveToolsManager()
+	if toolsManager != nil {
+		if err := toolsManager.WriteManifest(); err != nil {
+			return fmt.Errorf("error writing tools manifest: %w", err)
+		}
+	}
+
 	// Write blueprint
 	blueprintHandler := c.ResolveBlueprintHandler()
 	if blueprintHandler != nil {
@@ -299,6 +316,13 @@ func (c *BaseController) ResolveNetworkManager() network.NetworkManager {
 	return networkManager
 }
 
+// ResolveToolsManager resolves the toolsManager instance.
+func (c *BaseController) ResolveToolsManager() tools.ToolsManager {
+	instance := c.injector.Resolve("toolsManager")
+	toolsManager, _ := instance.(tools.ToolsManager)
+	return toolsManager
+}
+
 // ResolveBlueprintHandler resolves the blueprintHandler instance.
 func (c *BaseController) ResolveBlueprintHandler() blueprint.BlueprintHandler {
 	instance := c.injector.Resolve("blueprintHandler")
@@ -358,16 +382,3 @@ func (c *BaseController) ResolveAllGenerators() []generators.Generator {
 
 // Ensure BaseController implements the Controller interface
 var _ Controller = (*BaseController)(nil)
-
-// getCLIConfigPath returns the path to the CLI configuration file
-var getCLIConfigPath = func() (string, error) {
-	cliConfigPath := os.Getenv("WINDSORCONFIG")
-	if cliConfigPath == "" {
-		home, err := osUserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("error retrieving user home directory: %w", err)
-		}
-		cliConfigPath = filepath.Join(home, ".config", "windsor", "config.yaml")
-	}
-	return cliConfigPath, nil
-}

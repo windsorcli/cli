@@ -72,18 +72,11 @@ func (s *DefaultShell) SetVerbosity(verbose bool) {
 	s.verbose = verbose
 }
 
-// GetProjectRoot finds the project root directory. It first checks for a cached root.
-// If not found, it tries the git root. If that fails, it searches for windsor.yaml or
-// windsor.yml up to a max depth. Returns the root path or an error.
+// GetProjectRoot finds the project root. It checks for a cached root first.
+// If not found, it looks for "windsor.yaml" or "windsor.yml" in the current
+// directory and its parents. Returns the root path or an error if not found.
 func (s *DefaultShell) GetProjectRoot() (string, error) {
 	if s.projectRoot != "" {
-		return s.projectRoot, nil
-	}
-
-	cmd := execCommand("git", "rev-parse", "--show-toplevel")
-	output, err := cmd.Output()
-	if err == nil {
-		s.projectRoot = strings.TrimSpace(string(output))
 		return s.projectRoot, nil
 	}
 
@@ -92,20 +85,15 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 		return "", err
 	}
 
-	depth := 0
 	for {
-		if depth > maxFolderSearchDepth {
-			return "", nil
-		}
-
 		windsorYaml := filepath.Join(currentDir, "windsor.yaml")
 		windsorYml := filepath.Join(currentDir, "windsor.yml")
 
-		if _, err := os.Stat(windsorYaml); err == nil {
+		if _, err := osStat(windsorYaml); err == nil {
 			s.projectRoot = currentDir
 			return s.projectRoot, nil
 		}
-		if _, err := os.Stat(windsorYml); err == nil {
+		if _, err := osStat(windsorYml); err == nil {
 			s.projectRoot = currentDir
 			return s.projectRoot, nil
 		}
@@ -115,7 +103,6 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 			return "", nil
 		}
 		currentDir = parentDir
-		depth++
 	}
 }
 
@@ -130,10 +117,10 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 		cmd.Stdin = os.Stdin
 	}
 	if err := cmdStart(cmd); err != nil {
-		return "", fmt.Errorf("command start failed: %w", err)
+		return stdoutBuf.String(), fmt.Errorf("command start failed: %w", err)
 	}
 	if err := cmdWait(cmd); err != nil {
-		return "", fmt.Errorf("command execution failed: %w", err)
+		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", err)
 	}
 	return stdoutBuf.String(), nil
 }
@@ -167,14 +154,14 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 
 	if err := cmdStart(cmd); err != nil {
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-		return "", err
+		return stdoutBuf.String(), err
 	}
 
 	err = cmdWait(cmd)
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-		return "", fmt.Errorf("command execution failed: %w", err)
+		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
@@ -196,7 +183,7 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 	cmd.Stderr = &stderrBuf
 
 	if err := cmdRun(cmd); err != nil {
-		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 	}
 
 	return stdoutBuf.String(), nil
@@ -264,14 +251,14 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	if err := cmdWait(cmd); err != nil {
 		spin.Stop()
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String())
-		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 	}
 
 	for i := 0; i < 2; i++ {
 		if err := <-errChan; err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String())
-			return "", err
+			return stdoutBuf.String(), err
 		}
 	}
 

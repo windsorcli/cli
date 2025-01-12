@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
@@ -19,6 +20,7 @@ var (
 	docker         bool
 	gitLivereload  bool
 	blueprint      string
+	toolsManager   string
 )
 
 var initCmd = &cobra.Command{
@@ -62,6 +64,7 @@ var initCmd = &cobra.Command{
 			{"vm-disk", "vm.disk", disk},
 			{"vm-memory", "vm.memory", memory},
 			{"vm-arch", "vm.arch", arch},
+			{"tools-manager", "toolsManager", toolsManager},
 			{"git-livereload", "git.livereload.enabled", gitLivereload},
 		}
 
@@ -75,10 +78,26 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		// Get the cli configuration path
-		cliConfigPath, err := getCliConfigPath()
+		// Get the cli configuration path using shell to get the project root
+		shell := controller.ResolveShell()
+		projectRoot, err := shell.GetProjectRoot()
 		if err != nil {
-			return fmt.Errorf("Error getting cli configuration path: %w", err)
+			return fmt.Errorf("Error retrieving project root: %w", err)
+		}
+		yamlPath := filepath.Join(projectRoot, "windsor.yaml")
+		ymlPath := filepath.Join(projectRoot, "windsor.yml")
+
+		// Declare cliConfigPath variable
+		var cliConfigPath string
+
+		// Check if windsor.yaml exists
+		if _, err := osStat(yamlPath); err == nil {
+			cliConfigPath = yamlPath
+		} else if _, err := osStat(ymlPath); err == nil {
+			cliConfigPath = ymlPath
+		} else {
+			// Default to windsor.yaml if neither file exists
+			cliConfigPath = yamlPath
 		}
 
 		// Save the cli configuration
