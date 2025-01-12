@@ -49,7 +49,7 @@ You will need several tools installed on your system to fully leverage the winds
     sops 3.9.2
     colima 0.8.1
     lima 1.0.3
-    docker 27.4.1
+    docker-cli 27.4.1
     docker-compose 2.32.1
     ```
 
@@ -61,7 +61,7 @@ You will need several tools installed on your system to fully leverage the winds
     asdf plugin-add sops
     asdf plugin-add colima
     asdf plugin-add lima
-    asdf plugin-add docker
+    asdf plugin-add docker-cli
     asdf plugin-add docker-compose
     ```
 
