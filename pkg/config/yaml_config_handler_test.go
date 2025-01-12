@@ -7,8 +7,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config/aws"
-	"github.com/windsorcli/cli/pkg/config/cluster"
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/aws"
+	"github.com/windsorcli/cli/api/v1alpha1/cluster"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -129,6 +130,37 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 			t.Errorf("LoadConfig() error = %v, expected '%s'", err, expectedError)
 		}
 	})
+
+	t.Run("UnsupportedConfigVersion", func(t *testing.T) {
+		// Given a set of safe mocks and a YamlConfigHandler
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+
+		// And a mocked yamlUnmarshal function that sets an unsupported version
+		originalYamlUnmarshal := yamlUnmarshal
+		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
+		yamlUnmarshal = func(data []byte, v interface{}) error {
+			if config, ok := v.(*v1alpha1.Config); ok {
+				config.Version = "unsupported_version"
+			}
+			return nil
+		}
+
+		// When LoadConfig is called with a mocked path
+		err := handler.LoadConfig("mocked_path.yaml")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("LoadConfig() expected error, got nil")
+		}
+
+		// And the error message should be as expected
+		expectedError := "unsupported config version: unsupported_version"
+		if err.Error() != expectedError {
+			t.Errorf("LoadConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
 }
 
 func TestYamlConfigHandler_Get(t *testing.T) {
@@ -140,7 +172,7 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 		// When setting the context in y.config
 		handler.Set("context", "local")
 		// When setting the default context (should not be used)
-		defaultContext := Context{
+		defaultContext := v1alpha1.Context{
 			AWS: &aws.AWSConfig{
 				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
 			},
@@ -273,7 +305,7 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		handler.config = Config{} // Assuming Config is your struct
+		handler.config = v1alpha1.Config{} // Assuming Config is your struct
 
 		// When calling SaveConfig and expect an error
 		err := handler.SaveConfig("test.yaml")
@@ -344,8 +376,8 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
 		handler.context = "local"
-		handler.config = Config{
-			Contexts: map[string]*Context{
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
 				"default": {
 					Environment: map[string]string{
 						"name":  "John Doe",
@@ -375,7 +407,7 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		}
 
 		// Then check that the YAML data matches the expected content
-		expectedContent := "contexts:\n  default:\n    environment:\n      email: john.doe@example.com\n      name: John Doe\n    aws: {}\n"
+		expectedContent := "version: v1alpha1\ncontexts:\n  default:\n    environment:\n      email: john.doe@example.com\n      name: John Doe\n    aws: {}\n"
 		if string(writtenData) != expectedContent {
 			t.Errorf("Config file content = %v, expected %v", string(writtenData), expectedContent)
 		}
@@ -423,8 +455,8 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
 		handler.context = "default"
-		handler.config = Config{
-			Contexts: map[string]*Context{
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
 				"default": {
 					Environment: map[string]string{
 						"existingKey": "existingValue",
@@ -451,8 +483,8 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
 		handler.context = "default"
-		handler.config = Config{
-			Contexts: map[string]*Context{
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
 				"default": {
 					AWS: &aws.AWSConfig{
 						AWSEndpointURL: ptrString("notAnInt"),
@@ -511,8 +543,8 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
 		handler.context = "default"
-		handler.config = Config{
-			Contexts: map[string]*Context{
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
 				"default": {
 					Cluster: &cluster.ClusterConfig{
 						ControlPlanes: struct {
@@ -546,8 +578,8 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
 		handler.context = "default"
-		handler.config = Config{
-			Contexts: map[string]*Context{
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
 				"default": {
 					AWS: &aws.AWSConfig{
 						Enabled: ptrBool(true),
@@ -626,7 +658,7 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
 		handler.context = "local"
-		handler.config.Contexts = map[string]*Context{
+		handler.config.Contexts = map[string]*v1alpha1.Context{
 			"local": {
 				Environment: map[string]string{
 					"ENV_VAR": "value",
@@ -722,7 +754,7 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 		mocks := setupSafeMocks()
 		handler := NewYamlConfigHandler(mocks.Injector)
 		handler.Initialize()
-		defaultContext := Context{
+		defaultContext := v1alpha1.Context{
 			Environment: map[string]string{
 				"ENV_VAR": "value",
 			},
@@ -752,7 +784,7 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 		handler.context = ""
 
 		// When calling SetDefault
-		defaultContext := Context{
+		defaultContext := v1alpha1.Context{
 			Environment: map[string]string{
 				"ENV_VAR": "value",
 			},
@@ -775,7 +807,7 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 		handler.Initialize()
 
 		// When calling SetDefault
-		defaultContext := Context{
+		defaultContext := v1alpha1.Context{
 			Environment: map[string]string{
 				"ENV_VAR": "value",
 			},
@@ -901,8 +933,8 @@ func TestSetValueByPath(t *testing.T) {
 
 	t.Run("MapExistingValue", func(t *testing.T) {
 		// Given a Config with an existing nested map
-		config := Config{
-			Contexts: map[string]*Context{
+		config := v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
 				"level1": {
 					Environment: map[string]string{
 						"level2": "value2",

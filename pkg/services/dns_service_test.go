@@ -8,9 +8,10 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/dns"
+	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/dns"
-	"github.com/windsorcli/cli/pkg/config/docker"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -25,9 +26,9 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 
 	// Create mock instances
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.GetConfigFunc = func() *config.Context {
+	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 		enabled := true
-		return &config.Context{
+		return &v1alpha1.Context{
 			Docker: &docker.DockerConfig{
 				Enabled: &enabled,
 			},
@@ -300,8 +301,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 
 		// Configure the mock config handler to return Docker enabled
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
 					Enabled:     ptrBool(true),
 					NetworkCIDR: ptrString("192.168.1.0/24"),
@@ -377,8 +378,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 
 		// Create a mock config handler that returns Docker and DNS enabled
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
 					Enabled: ptrBool(true),
 				},
@@ -441,8 +442,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 
 		// Create a mock config handler that returns Docker enabled
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
 					Enabled: ptrBool(true),
 				},
@@ -494,9 +495,9 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		mocks := createDNSServiceMocks()
 
 		// Mock the configHandler
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
+		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			// Return a context config where Docker is enabled
-			return &config.Context{
+			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
 					Enabled: ptrBool(true),
 				},

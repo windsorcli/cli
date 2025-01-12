@@ -1,17 +1,18 @@
-package config
+package v1alpha1
 
 import (
-	"github.com/windsorcli/cli/pkg/config/aws"
-	"github.com/windsorcli/cli/pkg/config/cluster"
-	"github.com/windsorcli/cli/pkg/config/dns"
-	"github.com/windsorcli/cli/pkg/config/docker"
-	"github.com/windsorcli/cli/pkg/config/git"
-	"github.com/windsorcli/cli/pkg/config/terraform"
-	"github.com/windsorcli/cli/pkg/config/vm"
+	"github.com/windsorcli/cli/api/v1alpha1/aws"
+	"github.com/windsorcli/cli/api/v1alpha1/cluster"
+	"github.com/windsorcli/cli/api/v1alpha1/dns"
+	"github.com/windsorcli/cli/api/v1alpha1/docker"
+	"github.com/windsorcli/cli/api/v1alpha1/git"
+	"github.com/windsorcli/cli/api/v1alpha1/terraform"
+	"github.com/windsorcli/cli/api/v1alpha1/vm"
 )
 
 // Config represents the entire configuration
 type Config struct {
+	Version      string              `yaml:"version"`
 	ToolsManager string              `yaml:"toolsManager,omitempty"`
 	Contexts     map[string]*Context `yaml:"contexts"`
 }
