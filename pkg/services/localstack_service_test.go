@@ -5,8 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/aws"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/aws"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -66,8 +67,8 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		mocks := createLocalstackServiceMocks()
 
 		// Mock GetConfig to return a valid Localstack configuration
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				AWS: &aws.AWSConfig{
 					Localstack: &aws.LocalstackConfig{
 						Enabled:  ptrBool(true),
@@ -114,8 +115,8 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		mocks := createLocalstackServiceMocks()
 
 		// Mock GetConfig to return a valid Localstack configuration
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				AWS: &aws.AWSConfig{
 					Localstack: &aws.LocalstackConfig{
 						Enabled:  ptrBool(true),

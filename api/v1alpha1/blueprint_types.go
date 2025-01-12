@@ -1,3 +1,5 @@
+// Package v1alpha1 contains types for the v1alpha1 API group
+// +groupName=blueprints.windsorcli.dev
 package v1alpha1
 
 import (
@@ -5,18 +7,30 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// A Blueprint is a collection of metadata that can be used to initialize a project
+// Blueprint is a configuration blueprint for initializing a project.
 type Blueprint struct {
-	Kind                string               `yaml:"kind"`       // The Kind of the blueprint
-	ApiVersion          string               `yaml:"apiVersion"` // The API Version of the blueprint
-	Metadata            Metadata             `yaml:"metadata"`   // The Metadata for the blueprint
-	Repository          Repository           `yaml:"repository"` // The Repository for the blueprint
-	Sources             []Source             `yaml:"sources"`    // The Sources for the blueprint
-	TerraformComponents []TerraformComponent `yaml:"terraform"`  // The Terraform components
-	Kustomizations      []Kustomization      `yaml:"kustomize"`  // The Kustomizations for the blueprint
+	// Kind is the blueprint type, following Kubernetes conventions.
+	Kind string `yaml:"kind"`
+
+	// ApiVersion is the API schema version of the blueprint.
+	ApiVersion string `yaml:"apiVersion"`
+
+	// Metadata includes the blueprint's name and description.
+	Metadata Metadata `yaml:"metadata"`
+
+	// Repository details the source repository of the blueprint.
+	Repository Repository `yaml:"repository"`
+
+	// Sources are external resources referenced by the blueprint.
+	Sources []Source `yaml:"sources"`
+
+	// TerraformComponents are Terraform modules in the blueprint.
+	TerraformComponents []TerraformComponent `yaml:"terraform"`
+
+	// Kustomizations are kustomization configs in the blueprint.
+	Kustomizations []Kustomization `yaml:"kustomize"`
 }
 
-// PartialBlueprint is a temporary struct for initial unmarshalling
 type PartialBlueprint struct {
 	Kind                string                   `yaml:"kind"`
 	ApiVersion          string                   `yaml:"apiVersion"`
@@ -27,69 +41,136 @@ type PartialBlueprint struct {
 	Kustomizations      []map[string]interface{} `yaml:"kustomize"`
 }
 
-// Metadata describes the metadata for a blueprint
+// Metadata describes a blueprint, including name and authors.
 type Metadata struct {
-	Name        string   `yaml:"name"`                  // The Name of the blueprint
-	Description string   `yaml:"description,omitempty"` // The Description of the blueprint
-	Authors     []string `yaml:"authors,omitempty"`     // The Authors of the blueprint
+	// Name is the blueprint's unique identifier.
+	Name string `yaml:"name"`
+
+	// Description is a brief overview of the blueprint.
+	Description string `yaml:"description,omitempty"`
+
+	// Authors are the creators or maintainers of the blueprint.
+	Authors []string `yaml:"authors,omitempty"`
 }
 
+// Repository contains source code repository info.
 type Repository struct {
-	Url        string    `yaml:"url"`                  // The URL of the repository
-	Ref        Reference `yaml:"ref"`                  // The Ref of the repository
-	SecretName string    `yaml:"secretName,omitempty"` // The Secret Name of the repository
+	// Url is the repository location.
+	Url string `yaml:"url"`
+
+	// Ref details the branch, tag, or commit to use.
+	Ref Reference `yaml:"ref"`
+
+	// SecretName is the secret for repository access.
+	SecretName string `yaml:"secretName,omitempty"`
 }
 
-// Source describes a source for a blueprint
+// Source is an external resource referenced by a blueprint.
 type Source struct {
-	Name       string    `yaml:"name"`                 // The Name of the source
-	Url        string    `yaml:"url"`                  // The URL of the source
-	PathPrefix string    `yaml:"pathPrefix,omitempty"` // The Path Prefix of the source
-	Ref        Reference `yaml:"ref"`                  // The Ref of the source
-	SecretName string    `yaml:"secretName,omitempty"` // The Secret Name of the source
+	// Name identifies the source.
+	Name string `yaml:"name"`
+
+	// Url is the source location.
+	Url string `yaml:"url"`
+
+	// PathPrefix is a prefix to the source path.
+	PathPrefix string `yaml:"pathPrefix,omitempty"`
+
+	// Ref details the branch, tag, or commit to use.
+	Ref Reference `yaml:"ref"`
+
+	// SecretName is the secret for source access.
+	SecretName string `yaml:"secretName,omitempty"`
 }
 
+// Reference details a specific version or state of a repository or source.
 type Reference struct {
-	Branch string `yaml:"branch,omitempty"` // The branch of the reference
-	Tag    string `yaml:"tag,omitempty"`    // The tag of the reference
-	SemVer string `yaml:"semver,omitempty"` // The semantic version of the reference
-	Name   string `yaml:"name,omitempty"`   // The name of the reference
-	Commit string `yaml:"commit,omitempty"` // The commit of the reference
+	// Branch to use.
+	Branch string `yaml:"branch,omitempty"`
+
+	// Tag to use.
+	Tag string `yaml:"tag,omitempty"`
+
+	// SemVer to use.
+	SemVer string `yaml:"semver,omitempty"`
+
+	// Name of the reference.
+	Name string `yaml:"name,omitempty"`
+
+	// Commit hash to use.
+	Commit string `yaml:"commit,omitempty"`
 }
 
-// TerraformComponent describes a Terraform component for a blueprint
+// TerraformComponent defines a Terraform module in a blueprint.
 type TerraformComponent struct {
-	Source    string                       `yaml:"source,omitempty"`    // The Source of the module
-	Path      string                       `yaml:"path"`                // The Path of the module
-	FullPath  string                       `yaml:"-"`                   // The Full Path of the module
-	Values    map[string]interface{}       `yaml:"values,omitempty"`    // The Values for the module
-	Variables map[string]TerraformVariable `yaml:"variables,omitempty"` // The Variables for the module
+	// Source of the Terraform module.
+	Source string `yaml:"source,omitempty"`
+
+	// Path of the Terraform module.
+	Path string `yaml:"path"`
+
+	// FullPath is the complete path, not serialized to YAML.
+	FullPath string `yaml:"-"`
+
+	// Values are configuration values for the module.
+	Values map[string]interface{} `yaml:"values,omitempty"`
+
+	// Variables are input variables for the module.
+	Variables map[string]TerraformVariable `yaml:"variables,omitempty"`
 }
 
-// TerraformVariable describes a Terraform variable for a Terraform component
+// TerraformVariable describes a variable in a Terraform component.
 type TerraformVariable struct {
-	Type        string      `yaml:"type,omitempty"`        // The Type of the variable
-	Default     interface{} `yaml:"default,omitempty"`     // The Default value of the variable
-	Description string      `yaml:"description,omitempty"` // The Description of the variable
-	Sensitive   bool        `yaml:"sensitive,omitempty"`   // Whether to treat the variable as sensitive
+	// Type of the variable.
+	Type string `yaml:"type,omitempty"`
+
+	// Default value for the variable.
+	Default interface{} `yaml:"default,omitempty"`
+
+	// Description of the variable's purpose.
+	Description string `yaml:"description,omitempty"`
+
+	// Sensitive indicates if the variable is sensitive.
+	Sensitive bool `yaml:"sensitive,omitempty"`
 }
 
+// Kustomization defines a kustomization config in a blueprint.
 type Kustomization struct {
-	Name          string            `yaml:"name"`
-	Path          string            `yaml:"path"`
-	Source        string            `yaml:"source,omitempty"`
-	DependsOn     []string          `yaml:"dependsOn,omitempty"`
-	Interval      *metav1.Duration  `yaml:"interval,omitempty"`
-	RetryInterval *metav1.Duration  `yaml:"retryInterval,omitempty"`
-	Timeout       *metav1.Duration  `yaml:"timeout,omitempty"`
-	Patches       []kustomize.Patch `yaml:"patches,omitempty"`
-	Wait          *bool             `yaml:"wait,omitempty"`
-	Force         *bool             `yaml:"force,omitempty"`
-	Components    []string          `yaml:"components,omitempty"`
+	// Name of the kustomization.
+	Name string `yaml:"name"`
+
+	// Path of the kustomization.
+	Path string `yaml:"path"`
+
+	// Source of the kustomization.
+	Source string `yaml:"source,omitempty"`
+
+	// DependsOn lists dependencies of this kustomization.
+	DependsOn []string `yaml:"dependsOn,omitempty"`
+
+	// Interval for applying the kustomization.
+	Interval *metav1.Duration `yaml:"interval,omitempty"`
+
+	// RetryInterval before retrying a failed kustomization.
+	RetryInterval *metav1.Duration `yaml:"retryInterval,omitempty"`
+
+	// Timeout for the kustomization to complete.
+	Timeout *metav1.Duration `yaml:"timeout,omitempty"`
+
+	// Patches to apply to the kustomization.
+	Patches []kustomize.Patch `yaml:"patches,omitempty"`
+
+	// Wait for the kustomization to be fully applied.
+	Wait *bool `yaml:"wait,omitempty"`
+
+	// Force apply the kustomization.
+	Force *bool `yaml:"force,omitempty"`
+
+	// Components to include in the kustomization.
+	Components []string `yaml:"components,omitempty"`
 }
 
-// DeepCopy creates a deep copy of the Blueprint object, including all its nested structures.
-// This function ensures that changes to the copy do not affect the original Blueprint.
+// DeepCopy creates a deep copy of the Blueprint object.
 func (b *Blueprint) DeepCopy() *Blueprint {
 	if b == nil {
 		return nil
@@ -172,8 +253,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 	}
 }
 
-// Merge integrates another Blueprint into the current one, ensuring that terraform components maintain order.
-// This function prioritizes the overlay's values and merges nested structures like Sources and Kustomizations.
+// Merge integrates another Blueprint into the current one.
 func (b *Blueprint) Merge(overlay *Blueprint) {
 	if overlay == nil {
 		return
@@ -296,8 +376,7 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 	b.Kustomizations = mergedKustomizations
 }
 
-// mergeUniqueKustomizePatches merges two slices of kustomize.Patch uniquely, ensuring no duplicates.
-// It uses a map to track unique patches based on their content and target.
+// mergeUniqueKustomizePatches merges two slices of kustomize.Patch uniquely.
 func mergeUniqueKustomizePatches(existing, overlay []kustomize.Patch) []kustomize.Patch {
 	patchMap := make(map[string]kustomize.Patch)
 	for _, patch := range existing {
@@ -321,8 +400,7 @@ func mergeUniqueKustomizePatches(existing, overlay []kustomize.Patch) []kustomiz
 	return mergedPatches
 }
 
-// mergeUniqueComponents merges two slices of strings uniquely, ensuring no duplicates.
-// It uses a map to track unique components.
+// mergeUniqueComponents merges two slices of strings uniquely.
 func mergeUniqueComponents(existing, overlay []string) []string {
 	componentSet := make(map[string]struct{})
 	for _, component := range existing {

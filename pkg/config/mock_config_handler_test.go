@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -372,7 +373,7 @@ func TestMockConfigHandler_SetDefault(t *testing.T) {
 		called := false
 
 		// And SetDefaultFunc updates the flag and checks the parameters
-		mockHandler.SetDefaultFunc = func(context Context) error {
+		mockHandler.SetDefaultFunc = func(context v1alpha1.Context) error {
 			called = true
 			if !reflect.DeepEqual(context, DefaultLocalConfig) {
 				t.Errorf("Expected value %v, got %v", DefaultLocalConfig, context)
@@ -407,8 +408,8 @@ func TestMockConfigHandler_GetConfig(t *testing.T) {
 		called := false
 
 		// And GetConfigFunc updates the flag and returns a mock context
-		mockContext := &Context{}
-		mockHandler.GetConfigFunc = func() *Context {
+		mockContext := &v1alpha1.Context{}
+		mockHandler.GetConfigFunc = func() *v1alpha1.Context {
 			called = true
 			return mockContext
 		}
@@ -435,7 +436,7 @@ func TestMockConfigHandler_GetConfig(t *testing.T) {
 
 		// Call GetConfig and expect a reasonable default context
 		config := mockHandler.GetConfig()
-		if !reflect.DeepEqual(config, &Context{}) {
+		if !reflect.DeepEqual(config, &v1alpha1.Context{}) {
 			t.Errorf("Expected GetConfig to return empty Context, got %v", config)
 		}
 	})

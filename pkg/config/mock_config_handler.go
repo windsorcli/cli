@@ -1,5 +1,7 @@
 package config
 
+import "github.com/windsorcli/cli/api/v1alpha1"
+
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
 	InitializeFunc      func() error
@@ -11,8 +13,8 @@ type MockConfigHandler struct {
 	SetContextValueFunc func(key string, value interface{}) error
 	SaveConfigFunc      func(path string) error
 	GetFunc             func(key string) interface{}
-	SetDefaultFunc      func(context Context) error
-	GetConfigFunc       func() *Context
+	SetDefaultFunc      func(context v1alpha1.Context) error
+	GetConfigFunc       func() *v1alpha1.Context
 	GetContextFunc      func() string
 	SetContextFunc      func(context string) error
 	GetConfigRootFunc   func() (string, error)
@@ -106,7 +108,7 @@ func (m *MockConfigHandler) SaveConfig(path string) error {
 }
 
 // SetDefault calls the mock SetDefaultFunc if set, otherwise does nothing
-func (m *MockConfigHandler) SetDefault(context Context) error {
+func (m *MockConfigHandler) SetDefault(context v1alpha1.Context) error {
 	if m.SetDefaultFunc != nil {
 		return m.SetDefaultFunc(context)
 	}
@@ -114,11 +116,11 @@ func (m *MockConfigHandler) SetDefault(context Context) error {
 }
 
 // GetConfig calls the mock GetConfigFunc if set, otherwise returns a reasonable default Context
-func (m *MockConfigHandler) GetConfig() *Context {
+func (m *MockConfigHandler) GetConfig() *v1alpha1.Context {
 	if m.GetConfigFunc != nil {
 		return m.GetConfigFunc()
 	}
-	return &Context{}
+	return &v1alpha1.Context{}
 }
 
 // GetContext calls the mock GetContextFunc if set, otherwise returns a reasonable default string
