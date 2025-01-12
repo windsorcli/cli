@@ -66,3 +66,24 @@ func TestMockToolsManager_Install(t *testing.T) {
 		}
 	})
 }
+
+func TestMockToolsManager_Check(t *testing.T) {
+	t.Run("Check", func(t *testing.T) {
+		mock := NewMockToolsManager()
+		mock.CheckFunc = func() error {
+			return nil
+		}
+		err := mock.Check()
+		if err != nil {
+			t.Fatalf("Expected no error, got = %v", err)
+		}
+	})
+
+	t.Run("NoCheckFunc", func(t *testing.T) {
+		mock := NewMockToolsManager()
+		err := mock.Check()
+		if err != nil {
+			t.Fatalf("Expected no error, got = %v", err)
+		}
+	})
+}

@@ -50,9 +50,12 @@ var upCmd = &cobra.Command{
 		}
 		vmDriver := configHandler.GetString("vm.driver")
 
-		// Resolve the tools manager and install the tools
+		// Resolve the tools manager, check the tools, and install them
 		toolsManager := controller.ResolveToolsManager()
 		if toolsManager != nil {
+			if err := toolsManager.Check(); err != nil {
+				return fmt.Errorf("Error checking tools: %w", err)
+			}
 			if err := toolsManager.Install(); err != nil {
 				return fmt.Errorf("Error installing tools: %w", err)
 			}

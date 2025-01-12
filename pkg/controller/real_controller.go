@@ -34,16 +34,13 @@ func NewRealController(injector di.Injector) *RealController {
 // Ensure RealController implements the Controller interface
 var _ Controller = (*RealController)(nil)
 
-// CreateCommonComponents creates components commonly used by all commands.
+// CreateCommonComponents sets up config and shell for command execution.
+// It registers and initializes these components.
 func (c *RealController) CreateCommonComponents() error {
-	// Create a new configHandler
 	configHandler := config.NewYamlConfigHandler(c.injector)
 	c.injector.Register("configHandler", configHandler)
-
-	// Set the configHandler
 	c.configHandler = configHandler
 
-	// Create a new shell
 	shell := shell.NewDefaultShell(c.injector)
 	c.injector.Register("shell", shell)
 
@@ -94,10 +91,10 @@ func (c *RealController) CreateProjectComponents() error {
 	}
 
 	switch toolsManagerType {
-	case "aqua":
-		// TODO: Implement aqua tools manager
-	case "asdf":
-		// TODO: Implement asdf tools manager
+	// case "aqua":
+	// TODO: Implement aqua tools manager
+	// case "asdf":
+	// TODO: Implement asdf tools manager
 	default:
 		toolsManager = tools.NewToolsManager(c.injector)
 	}
@@ -209,7 +206,8 @@ func (c *RealController) CreateServiceComponents() error {
 	return nil
 }
 
-// CreateVirtualizationComponents creates virtualization components
+// CreateVirtualizationComponents sets up virtualization based on config.
+// Registers network, SSH, and VM components for Colima. Adds Docker runtime if enabled.
 func (c *RealController) CreateVirtualizationComponents() error {
 	configHandler := c.configHandler
 
@@ -217,32 +215,25 @@ func (c *RealController) CreateVirtualizationComponents() error {
 	dockerEnabled := configHandler.GetBool("docker.enabled")
 
 	if vmDriver == "colima" {
-		// Create and register the RealNetworkInterfaceProvider instance
 		networkInterfaceProvider := &network.RealNetworkInterfaceProvider{}
 		c.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
 
-		// Create and register the ssh client
 		sshClient := ssh.NewSSHClient()
 		c.injector.Register("sshClient", sshClient)
 
-		// Create and register the secure shell
 		secureShell := shell.NewSecureShell(c.injector)
 		c.injector.Register("secureShell", secureShell)
 
-		// Create a colima virtual machine
 		colimaVirtualMachine := virt.NewColimaVirt(c.injector)
 		c.injector.Register("virtualMachine", colimaVirtualMachine)
 
-		// Create a colima network manager
 		networkManager := network.NewColimaNetworkManager(c.injector)
 		c.injector.Register("networkManager", networkManager)
 	} else {
-		// Create a base network manager
 		networkManager := network.NewBaseNetworkManager(c.injector)
 		c.injector.Register("networkManager", networkManager)
 	}
 
-	// Create docker container runtime
 	if dockerEnabled {
 		containerRuntime := virt.NewDockerVirt(c.injector)
 		c.injector.Register("containerRuntime", containerRuntime)
@@ -253,7 +244,6 @@ func (c *RealController) CreateVirtualizationComponents() error {
 
 // CreateStackComponents creates stack components
 func (c *RealController) CreateStackComponents() error {
-	// Create a new stack
 	stackInstance := stack.NewWindsorStack(c.injector)
 	c.injector.Register("stack", stackInstance)
 

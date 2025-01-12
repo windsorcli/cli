@@ -59,3 +59,14 @@ const (
 const (
 	DEFAULT_NETWORK_CIDR = "10.5.0.0/16"
 )
+
+// Minimum versions for tools
+const (
+	MINIMUM_VERSION_COLIMA         = "0.7.0"
+	MINIMUM_VERSION_DOCKER         = "25.0.0"
+	MINIMUM_VERSION_DOCKER_COMPOSE = "2.24.0"
+	MINIMUM_VERSION_KUBECTL        = "1.32.0"
+	MINIMUM_VERSION_LIMA           = "1.0.0"
+	MINIMUM_VERSION_TALOSCTL       = "1.7.0"
+	MINIMUM_VERSION_TERRAFORM      = "1.7.0"
+)
