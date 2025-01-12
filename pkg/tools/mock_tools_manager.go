@@ -5,6 +5,7 @@ type MockToolsManager struct {
 	InitializeFunc    func() error
 	WriteManifestFunc func() error
 	InstallFunc       func() error
+	CheckFunc         func() error
 }
 
 // NewMockToolsManager creates a new instance of MockToolsManager.
@@ -32,6 +33,14 @@ func (m *MockToolsManager) WriteManifest() error {
 func (m *MockToolsManager) Install() error {
 	if m.InstallFunc != nil {
 		return m.InstallFunc()
+	}
+	return nil
+}
+
+// Check calls the mock CheckFunc if set, otherwise returns nil.
+func (m *MockToolsManager) Check() error {
+	if m.CheckFunc != nil {
+		return m.CheckFunc()
 	}
 	return nil
 }

@@ -551,4 +551,23 @@ func TestUpCmd(t *testing.T) {
 			t.Fatalf("Expected error containing 'Error configuring host network: host route configuration failed', got %v", err)
 		}
 	})
+
+	t.Run("ErrorCheckingTools", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		mocks.MockController.ResolveToolsManagerFunc = func() tools.ToolsManager {
+			return &tools.MockToolsManager{
+				CheckFunc: func() error {
+					return fmt.Errorf("mock error checking tools")
+				},
+			}
+		}
+
+		// Given a mock tools manager that returns an error when checking tools
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error checking tools: mock error checking tools") {
+			t.Fatalf("Expected error containing 'Error checking tools: mock error checking tools', got %v", err)
+		}
+	})
 }
