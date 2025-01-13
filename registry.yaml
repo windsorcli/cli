@@ -1,0 +1,35 @@
+packages:
+  - name: windsorcli/cli
+    versions:
+      - version: "v0.2.0"
+        description: "Windsor CLI tool version 0.2.0"
+        platforms:
+          - os: darwin
+            arch: amd64
+            url: "https://github.com/windsorcli/cli/releases/download/v0.2.0/windsor-darwin-amd64"
+            files:
+              - name: windsor
+                src: windsor-darwin-amd64
+                dst: bin/windsor
+          - os: darwin
+            arch: arm64
+            url: "https://github.com/windsorcli/cli/releases/download/v0.2.0/windsor-darwin-arm64"
+            files:
+              - name: windsor
+                src: windsor-darwin-arm64
+                dst: bin/windsor
+          - os: linux
+            arch: amd64
+            url: "https://github.com/windsorcli/cli/releases/download/v0.2.0/windsor-linux-amd64"
+            files:
+              - name: windsor
+                src: windsor-linux-amd64
+                dst: bin/windsor
+          - os: linux
+            arch: arm64
+            url: "https://github.com/windsorcli/cli/releases/download/v0.2.0/windsor-linux-arm64"
+            files:
+              - name: windsor
+                src: windsor-linux-arm64
+                dst: bin/windsor
+                
