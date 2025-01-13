@@ -1,5 +1,5 @@
 packages:
-  - name: windsorcli/cli
+  - name: windsorcli
     versions:
       - version: "v0.2.0"
         description: "Windsor CLI tool version 0.2.0"
