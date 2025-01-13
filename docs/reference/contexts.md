@@ -7,7 +7,7 @@ You create your Windsor project by running `windsor init`. When doing so, it aut
 - Creates a new folder of assets in `contexts/local`
 - Adds a new entry to your project's `windsor.yaml` file at `contexts.local`
 
-Note: Not all context names are handled in the same manner. Contexts named `local` or that begin with `local-` assume that you will be running a local cloud virtualization, setting defaults accordingly. You can read more in the documentation on the [local workstation](guides/local-workstation.md)
+**Note:** Not all context names are handled in the same manner. Contexts named `local` or that begin with `local-` assume that you will be running a local cloud virtualization, setting defaults accordingly. You can read more in the documentation on the [local workstation](../guides/local-workstation.md).
 
 ## Working with contexts via the cli
 
@@ -73,23 +73,23 @@ contexts/
     └── blueprint.yaml
 ```
 
-### `.aws/` folder
+### `.aws/`
 Contains the aws config file for authenticating with the context's AWS API.
 
-### `.kube/` folder
+### `.kube/`
 Contains the kubectl config file used for authenticating with the context's Kubernetes API.
 
-### `.talos/` folder
+### `.talos/`
 Contains the talosctl config file for authenticating with the context's Talos API endpoint.
 
-### `.terraform/` folder
+### `.terraform/`
 Contains files typically used by the Terraform CLI such as modules and providers. Additionally, the `TF_DATA_DIR` resides here, along with terraform plans and state metadata files.
 
-### `terraform/` folder
-Contains terraform variables as `.tfvars` files. These are automatically passed to corresponding terraform projects deployed in the current context. These are explicitly referenced in the `blueprint.yaml` file. Please refer to the [Terraform](terraform.md) reference for more details.
-
-### `.tf_state/` folder
+### `.tf_state/`
 Used as the local file Terraform backend state. This is the default state until a proper remote state has been configured, or while working in a local development environment.
+
+### `terraform/`
+Contains terraform variables as `.tfvars` files. These are automatically passed to corresponding terraform projects deployed in the current context. These are explicitly referenced in the `blueprint.yaml` file. Please refer to the [Terraform](terraform.md) reference for more details.
 
 ### `blueprint.yaml`
 The `blueprint.yaml` file outlines references and configuration specific to the context. Please refer to the [blueprint](blueprint.md) documentation for more details.
