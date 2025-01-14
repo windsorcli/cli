@@ -1,8 +1,17 @@
 # Setup and Installation
 
-This document describes how to install the windsor CLI on your development workstation.
+This document describes how to install the windsor CLI on your development workstation. You can choose to install it using [Homebrew](#using-homebrew) or by [downloading the binary](#downloading-the-binary). Refer to the respective sections below for detailed instructions.
 
-## Downloading the Binary
+## Using Homebrew
+
+To install the Windsor CLI using Homebrew, follow the steps below:
+
+```
+brew tap windsorcli/cli
+brew install windsor
+```
+
+## Download the Binary
 
 To download the Windsor CLI binary, navigate to the [Releases](https://github.com/tvangundy/cli/releases) page of the repository. Select the version you wish to download and choose the appropriate binary for your operating system and architecture:
 
@@ -12,7 +21,7 @@ To download the Windsor CLI binary, navigate to the [Releases](https://github.co
 
 Replace `<version>` with the specific version number you are downloading.
 
-## Verifying the Signature
+### Verify the Signature
 
 Each release includes a checksum file that is signed. To verify the signature, you will need to have GPG installed on your system.
 
@@ -28,7 +37,7 @@ Each release includes a checksum file that is signed. To verify the signature, y
 
    Replace `<checksum-file>` with the actual checksum file name.
 
-## Checking the Checksums
+### Check the Checksum
 
 After downloading the binary, you should verify its integrity by checking its checksum.
 
@@ -46,7 +55,7 @@ After downloading the binary, you should verify its integrity by checking its ch
 
    Ensure that the output indicates that the checksum is correct.
 
-## Example
+### Example
 
 Here is an example of how you might download and verify a binary for Linux on an `amd64` architecture:
 
@@ -68,6 +77,27 @@ sha256sum -c checksums.txt
 ```
 
 Replace `<version>` with the specific version number you are downloading.
+
+### Extract the Binary
+
+1. **Linux/macOS**:
+   ```bash
+   tar -xzf windsorcli_<version>_linux_amd64.tar.gz
+   ```
+
+2. **Windows**:
+   Use a tool like WinRAR or 7-Zip to extract the contents of the `windsorcli_<version>_windows_amd64.zip`.
+
+### Move the Binary to Your PATH
+
+1. **Linux/macOS**:
+   Move the `windsor` binary to a directory in your `PATH`, such as `/usr/local/bin`:
+   ```bash
+   sudo mv windsor /usr/local/bin/
+   ```
+
+2. **Windows**:
+   Move the `windsor.exe` to a directory included in your `PATH`, such as `C:\Program Files\WindsorCLI`. You may need to add this directory to your `PATH` environment variable if it's not already included.
 
 
 ## Shell Integration: Seamless Environment Management
