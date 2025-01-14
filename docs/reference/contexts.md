@@ -1,13 +1,5 @@
 # Contexts
-
-In a Windsor project, you work across different deployments or environments as "contexts". You could think of a context in terms of your software development lifecycle (SDLC) environments, such as `development`, `staging`, and `production`. You could also think of a context in terms of different pieces of your organizational infrastructure -- `admin`, `web`, or `observability`. Or, some combination of schemes. You may have a `web-staging` and `web-production` as well as `observability-staging` and `observability-production`.
-
-You create your Windsor project by running `windsor init`. When doing so, it automatically creates a `local` context. This step results in the following:
-
-- Creates a new folder of assets in `contexts/local`
-- Adds a new entry to your project's `windsor.yaml` file at `contexts.local`
-
-**Note:** Not all context names are handled in the same manner. Contexts named `local` or that begin with `local-` assume that you will be running a local cloud virtualization, setting defaults accordingly. You can read more in the documentation on the [local workstation](../guides/local-workstation.md).
+Contexts represent a group of configuration details specific to a deployment environment in a Windsor project.
 
 ## Working with contexts via the cli
 

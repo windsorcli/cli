@@ -84,7 +84,6 @@ A reference to a specific git state or version
 reference:
   branch: main
   tag: v1.0.0
-  semver: "^1.0.0"
   name: refs/heads/main
   commit: 1a2b3c4d5e6f7g8h9i0j
 ```
@@ -93,7 +92,6 @@ reference:
 |---------|--------|--------------------------------------------------|
 | `branch`| `string` | Branch to use.                                 |
 | `tag`   | `string` | Tag to use.                                    |
-| `semver`| `string` | SemVer to use.                                 |
 | `name`  | `string` | Name of the reference.                         |
 | `commit`| `string` | Commit hash to use.                            |
 

@@ -54,7 +54,7 @@ aws:
 
 | Field     | Type       | Description                                                      |
 |-----------|------------|------------------------------------------------------------------|
-| `enabled` | `bool`     | Indicates whether Localstack is enabled to simulate AWS services.|
+| `enabled` | `bool`     | Indicates whether Localstack is enabled to emulate AWS services.|
 | `services`| `[]string` | Lists the AWS services to be emulated by Localstack. For more details, see [Localstack AWS Feature Coverage](https://docs.localstack.cloud/user-guide/aws/feature-coverage/). |
 
 ### Cluster
@@ -204,7 +204,7 @@ vm:
 | `disk`   | `int`    | Disk space allocated to the VM in GB. Defaults to half of the system's memory. |
 | `memory` | `int`    | Memory allocated to the VM in GB. Defaults to 60GB. |
 
-# Example: Local Context
+## Example: Local Context
 This is the default local `windsor.yaml` file created when running `windsor init local`:
 
 ```
