@@ -6,7 +6,15 @@ This guide is expected to run optimally on an Apple M2 with 8 CPU cores, 8GB of 
 
 It is assumed you have installed the windsor CLI and configured `windsor hook` in your shell. Please see the [Setup and Installation](../install/install.md) page for instructions.
 
-### Install tool dependencies
+## Initialize a folder as a git project
+
+Windsor expects to be running in a git project. You can either create a new folder and initialize it as a git repository or use an existing folder that is already a git project. If are creating a new folder be sure to initialize a git repository in the root of your project.
+
+```sh
+git init
+```
+
+## Install tool dependencies
 
 You will need several tools installed on your system to fully leverage the windsor environment. It is recommended to use a tool versions manager such as [aqua](https://github.com/aquaproj/aqua) or [asdf](https://github.com/asdf-vm/asdf). For your convenience, we have provided sample setup files for these tools. Place one of these in the root of your project.
 
@@ -70,15 +78,9 @@ You will need several tools installed on your system to fully leverage the winds
     asdf install
     ```
 
-### Initialize the "local" context
+## Initialize the "local" context
 
-If you have not done so, be sure to initialize a git repository in the root of your project.
-
-```sh
-git init
-```
-
-The windsor tool will create a few folders in your project. In particular, it will create a folder called `contexts/` where your context configurations will reside. Initialize windsor with the colima vm driver by running:
+The windsor tool will create a few folders in your project. In particular, it will create a folder called `contexts/` where your context configurations will reside. Initialize windsor with the docker driver by running:
 
 ```sh
 windsor init local
@@ -95,10 +97,10 @@ windsor context get
 Start the local environment by running:
 
 ```sh
-windsor up
+windsor up --verbose
 ```
 
-This command will start Colima, run kubernetes nodes and support services with docker compose, and bootstrap your cluster using Terraform. It can take up to 5 minutes to fully launch, so be patient!
+This command will start appropriate docker containers, run kubernetes nodes and support services with docker compose, and bootstrap your cluster using Terraform. It can take up to 5 minutes to fully launch, so be patient!
 
 ### Verify the environment
 
