@@ -1,22 +1,3 @@
-## Manual Install
-
-=== "MacOS"
-    ```bash
-    curl -L -o /usr/local/bin/windsor https://github.com/windsorcli/cli/releases/download/v0.2.1/windsor-darwin-arm64 && \
-    chmod +x /usr/local/bin/windsor
-    ```
-
-=== "Windows"
-    ```powershell
-    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v0.2.1/windsor-windows-amd64.exe" -OutFile "C:\Program Files\Windsor\windsor.exe"
-    ```
-
-=== "Linux"
-    ```bash
-    curl -L -o /usr/local/bin/windsor https://github.com/windsorcli/cli/releases/download/v0.2.1/windsor-linux-amd64 && \
-    chmod +x /usr/local/bin/windsor
-    ```
-    
 ### Verify the Signature
 
 Each release includes a checksum file that is signed. To verify the signature, you will need to have GPG installed on your system.
