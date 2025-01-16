@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
@@ -19,6 +20,7 @@ var (
 	docker         bool
 	gitLivereload  bool
 	blueprint      string
+	toolsManager   string
 )
 
 var initCmd = &cobra.Command{
@@ -29,26 +31,30 @@ var initCmd = &cobra.Command{
 	SilenceUsage: true,
 	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Resolve the context handler
-		contextHandler := controller.ResolveContextHandler()
+
+		// Add the current directory to the trusted file list
+		shell := controller.ResolveShell()
+		if err := shell.AddCurrentDirToTrustedFile(); err != nil {
+			return fmt.Errorf("Error adding current directory to trusted file: %w", err)
+		}
+
+		// Resolve the config handler
+		configHandler := controller.ResolveConfigHandler()
 
 		var contextName string
 		if len(args) == 1 {
 			contextName = args[0]
 		} else {
-			contextName = contextHandler.GetContext()
+			contextName = configHandler.GetContext()
 		}
 
 		// Set the context value
 		if contextName == "" {
 			contextName = "local"
 		}
-		if err := contextHandler.SetContext(contextName); err != nil {
+		if err := configHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("Error setting context value: %w", err)
 		}
-
-		// Resolve the config handler
-		configHandler := controller.ResolveConfigHandler()
 
 		// Create the flag to config path mapping
 		configurations := []struct {
@@ -65,6 +71,7 @@ var initCmd = &cobra.Command{
 			{"vm-disk", "vm.disk", disk},
 			{"vm-memory", "vm.memory", memory},
 			{"vm-arch", "vm.arch", arch},
+			{"tools-manager", "toolsManager", toolsManager},
 			{"git-livereload", "git.livereload.enabled", gitLivereload},
 		}
 
@@ -78,10 +85,25 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		// Get the cli configuration path
-		cliConfigPath, err := getCliConfigPath()
+		// Get the cli configuration path using shell to get the project root
+		projectRoot, err := shell.GetProjectRoot()
 		if err != nil {
-			return fmt.Errorf("Error getting cli configuration path: %w", err)
+			return fmt.Errorf("Error retrieving project root: %w", err)
+		}
+		yamlPath := filepath.Join(projectRoot, "windsor.yaml")
+		ymlPath := filepath.Join(projectRoot, "windsor.yml")
+
+		// Declare cliConfigPath variable
+		var cliConfigPath string
+
+		// Check if windsor.yaml exists
+		if _, err := osStat(yamlPath); err == nil {
+			cliConfigPath = yamlPath
+		} else if _, err := osStat(ymlPath); err == nil {
+			cliConfigPath = ymlPath
+		} else {
+			// Default to windsor.yaml if neither file exists
+			cliConfigPath = yamlPath
 		}
 
 		// Save the cli configuration

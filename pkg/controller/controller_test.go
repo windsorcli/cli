@@ -2,14 +2,11 @@ package controller
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -17,16 +14,17 @@ import (
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
 type MockObjects struct {
 	Injector         di.Injector
 	ConfigHandler    *config.MockConfigHandler
-	ContextHandler   *context.MockContext
 	EnvPrinter       *env.MockEnvPrinter
 	Shell            *shell.MockShell
 	SecureShell      *shell.MockShell
+	ToolsManager     *tools.MockToolsManager
 	NetworkManager   *network.MockNetworkManager
 	Service          *services.MockService
 	VirtualMachine   *virt.MockVirt
@@ -46,11 +44,11 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 
 	// Create necessary mocks
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockContextHandler := context.NewMockContext()
 	mockEnvPrinter1 := &env.MockEnvPrinter{}
 	mockEnvPrinter2 := &env.MockEnvPrinter{}
 	mockShell := &shell.MockShell{}
 	mockSecureShell := &shell.MockShell{}
+	mockToolsManager := tools.NewMockToolsManager()
 	mockNetworkManager := &network.MockNetworkManager{}
 	mockService1 := &services.MockService{}
 	mockService2 := &services.MockService{}
@@ -62,11 +60,11 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 
 	// Register mocks in the injector
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("contextHandler", mockContextHandler)
 	injector.Register("envPrinter1", mockEnvPrinter1)
 	injector.Register("envPrinter2", mockEnvPrinter2)
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
+	injector.Register("toolsManager", mockToolsManager)
 	injector.Register("networkManager", mockNetworkManager)
 	injector.Register("blueprintHandler", mockBlueprintHandler)
 	injector.Register("service1", mockService1)
@@ -79,10 +77,10 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	return &MockObjects{
 		Injector:         injector,
 		ConfigHandler:    mockConfigHandler,
-		ContextHandler:   mockContextHandler,
 		EnvPrinter:       mockEnvPrinter1, // Assuming the first envPrinter is the primary one
 		Shell:            mockShell,
 		SecureShell:      mockSecureShell,
+		ToolsManager:     mockToolsManager,
 		NetworkManager:   mockNetworkManager,
 		BlueprintHandler: mockBlueprintHandler,
 		Service:          mockService1, // Assuming the first service is the primary one
@@ -130,6 +128,7 @@ func TestController_InitializeComponents(t *testing.T) {
 		// Given a new controller
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -149,6 +148,7 @@ func TestController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("shell", mockShell)
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -172,6 +172,7 @@ func TestController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("secureShell", mockSecureShell)
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -195,6 +196,7 @@ func TestController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("envPrinter1", mockEnvPrinter)
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -209,10 +211,35 @@ func TestController_InitializeComponents(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorInitializingToolsManager", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.InitializeFunc = func() error {
+			return fmt.Errorf("error initializing tools manager")
+		}
+		mocks.Injector.Register("toolsManager", mockToolsManager)
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// When initializing the components
+		err := controller.InitializeComponents()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error initializing tools manager") {
+			t.Fatalf("expected error to contain 'error initializing tools manager', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
+		}
+	})
+
 	t.Run("ErrorInitializingNetworkManager", func(t *testing.T) {
 		// Given a new controller with a mock injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 		mockNetworkManager := network.NewMockNetworkManager()
 		mockNetworkManager.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing network manager")
@@ -236,6 +263,7 @@ func TestController_InitializeComponents(t *testing.T) {
 		// Given a new controller with a mock injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 		mockService := services.NewMockService()
 		mockService.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing service")
@@ -259,6 +287,7 @@ func TestController_InitializeComponents(t *testing.T) {
 		// Given a new controller with a mock injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 		mockVirtualMachine := &virt.MockVirt{}
 		mockVirtualMachine.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing virtual machine")
@@ -282,6 +311,7 @@ func TestController_InitializeComponents(t *testing.T) {
 		// Given a new controller with a mock injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 		mockContainerRuntime := &virt.MockVirt{}
 		mockContainerRuntime.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing container runtime")
@@ -305,6 +335,7 @@ func TestController_InitializeComponents(t *testing.T) {
 		// Given a new controller with a mock injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
 		mockBlueprintHandler.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing blueprint handler")
@@ -328,6 +359,7 @@ func TestController_InitializeComponents(t *testing.T) {
 		// Given a new controller with a mock injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
 		mockBlueprintHandler.LoadConfigFunc = func(path ...string) error {
 			return fmt.Errorf("error loading blueprint config")
@@ -351,6 +383,7 @@ func TestController_InitializeComponents(t *testing.T) {
 		// Given a new controller with a mock injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 		mockGenerator := generators.NewMockGenerator()
 		mockGenerator.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing generator")
@@ -374,6 +407,7 @@ func TestController_InitializeComponents(t *testing.T) {
 		// Given a new controller with a mock injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 		mockStack := stack.NewMockStack(mocks.Injector)
 		mockStack.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing stack")
@@ -399,6 +433,7 @@ func TestController_CreateCommonComponents(t *testing.T) {
 		// Given a new controller
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When creating common components
 		err := controller.CreateCommonComponents()
@@ -415,6 +450,7 @@ func TestController_CreateProjectComponents(t *testing.T) {
 		// Given a new controller
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When creating project components
 		err := controller.CreateProjectComponents()
@@ -431,6 +467,7 @@ func TestController_CreateEnvComponents(t *testing.T) {
 		// Given a new controller
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When creating env components
 		err := controller.CreateEnvComponents()
@@ -447,6 +484,7 @@ func TestController_CreateServiceComponents(t *testing.T) {
 		// Given a new controller
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When creating service components
 		err := controller.CreateServiceComponents()
@@ -463,6 +501,7 @@ func TestController_CreateVirtualizationComponents(t *testing.T) {
 		// Given a new controller
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When creating virtualization components
 		err := controller.CreateVirtualizationComponents()
@@ -479,6 +518,7 @@ func TestController_CreateStackComponents(t *testing.T) {
 		// Given a new controller
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When creating stack components
 		err := controller.CreateStackComponents()
@@ -503,6 +543,30 @@ func TestController_WriteConfigurationFiles(t *testing.T) {
 		// Then there should be no error
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWritingToolsManifest", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.WriteManifestFunc = func() error {
+			return fmt.Errorf("error writing tools manifest")
+		}
+		mocks.Injector.Register("toolsManager", mockToolsManager)
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// When writing configuration files
+		err := controller.WriteConfigurationFiles()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error writing tools manifest") {
+			t.Fatalf("expected error to contain 'error writing tools manifest', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
 		}
 	})
 
@@ -631,6 +695,7 @@ func TestController_ResolveInjector(t *testing.T) {
 		// Given a new controller and injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When resolving the injector
 		resolvedInjector := controller.ResolveInjector()
@@ -647,6 +712,7 @@ func TestController_ResolveConfigHandler(t *testing.T) {
 		// Given a new controller and injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When resolving the config handler
 		configHandler := controller.ResolveConfigHandler()
@@ -658,32 +724,12 @@ func TestController_ResolveConfigHandler(t *testing.T) {
 	})
 }
 
-func TestController_ResolveContextHandler(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a new controller and injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-
-		// When resolving the context handler
-		contextHandler := controller.ResolveContextHandler()
-
-		// Then there should be no error
-		if contextHandler == nil {
-			t.Fatalf("expected no error, got nil")
-		}
-
-		// And the resolved context handler should match the expected context handler
-		if contextHandler != mocks.ContextHandler {
-			t.Fatalf("expected %v, got %v", mocks.ContextHandler, contextHandler)
-		}
-	})
-}
-
 func TestController_ResolveEnvPrinter(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When resolving the env printer
 		envPrinter := controller.ResolveEnvPrinter("envPrinter1")
@@ -705,6 +751,7 @@ func TestController_ResolveAllEnvPrinters(t *testing.T) {
 		// Given a new controller and injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When resolving all env printers
 		envPrinters := controller.ResolveAllEnvPrinters()
@@ -739,6 +786,7 @@ func TestController_ResolveShell(t *testing.T) {
 		// Given a new controller and injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When resolving the shell
 		shellInstance := controller.ResolveShell()
@@ -761,6 +809,7 @@ func TestController_ResolveSecureShell(t *testing.T) {
 		mockInjector := di.NewMockInjector()
 		mocks := setSafeControllerMocks(mockInjector)
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When resolving the secure shell
 		secureShell := controller.ResolveSecureShell()
@@ -783,6 +832,7 @@ func TestController_ResolveBlueprintHandler(t *testing.T) {
 		mockInjector := di.NewMockInjector()
 		mocks := setSafeControllerMocks(mockInjector)
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When resolving the blueprint handler
 		blueprintHandler := controller.ResolveBlueprintHandler()
@@ -805,6 +855,7 @@ func TestController_ResolveNetworkManager(t *testing.T) {
 		mockInjector := di.NewMockInjector()
 		mocks := setSafeControllerMocks(mockInjector)
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When resolving the network manager
 		networkManager := controller.ResolveNetworkManager()
@@ -827,6 +878,7 @@ func TestController_ResolveService(t *testing.T) {
 		mockInjector := di.NewMockInjector()
 		mocks := setSafeControllerMocks(mockInjector)
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When resolving the service
 		service := controller.ResolveService("service1")
@@ -849,6 +901,7 @@ func TestController_ResolveAllServices(t *testing.T) {
 		mockInjector := di.NewMockInjector()
 		mocks := setSafeControllerMocks(mockInjector)
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When resolving all services
 		resolvedServices := controller.ResolveAllServices()
@@ -892,6 +945,7 @@ func TestController_ResolveVirtualMachine(t *testing.T) {
 		// Given a new controller and injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
 
 		// When resolving the virtual machine
 		virtualMachine := controller.ResolveVirtualMachine()
@@ -914,6 +968,8 @@ func TestController_ResolveContainerRuntime(t *testing.T) {
 		mockInjector := di.NewMockInjector()
 		mocks := setSafeControllerMocks(mockInjector)
 		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
 		// When resolving the container runtime
 		containerRuntime := controller.ResolveContainerRuntime()
 
@@ -925,68 +981,6 @@ func TestController_ResolveContainerRuntime(t *testing.T) {
 		// And the resolved container runtime should match the expected container runtime
 		if containerRuntime != mocks.ContainerRuntime {
 			t.Fatalf("expected %v, got %v", mocks.ContainerRuntime, containerRuntime)
-		}
-	})
-}
-
-func TestController_getCLIConfigPath(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given the CLI config path is set
-		os.Setenv("WINDSORCONFIG", "testdata/config.yaml")
-
-		// When getting the CLI config path
-		configPath, err := getCLIConfigPath()
-
-		// Then there should be no error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// And the config path should match the expected path
-		expectedPath := "testdata/config.yaml"
-		if configPath != expectedPath {
-			t.Fatalf("expected %v, got %v", expectedPath, configPath)
-		}
-	})
-
-	t.Run("SuccessWithNoEnvVar", func(t *testing.T) {
-		// Given the CLI config path is not set
-		os.Unsetenv("WINDSORCONFIG")
-
-		// When getting the CLI config path
-		configPath, err := getCLIConfigPath()
-
-		// Then there should be no error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// And the config path should match the default path
-		home, _ := os.UserHomeDir()
-		expectedPath := filepath.Join(home, ".config", "windsor", "config.yaml")
-		if configPath != expectedPath {
-			t.Fatalf("expected %v, got %v", expectedPath, configPath)
-		}
-	})
-
-	t.Run("UserHomeDirError", func(t *testing.T) {
-		// Given the CLI config path is not set
-		os.Unsetenv("WINDSORCONFIG")
-
-		// Given osUserHomeDir is mocked to return an error
-		originalUserHomeDir := osUserHomeDir
-		osUserHomeDir = func() (string, error) {
-			return "", fmt.Errorf("mock error")
-		}
-		defer func() { osUserHomeDir = originalUserHomeDir }()
-
-		// Execute the function
-		_, err := getCLIConfigPath()
-
-		// Verify the error
-		expectedError := "error retrieving user home directory: mock error"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("expected error %q, got %v", expectedError, err)
 		}
 	})
 }

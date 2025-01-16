@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -17,11 +17,11 @@ func setupSafeHookCmdMocks() *MockObjects {
 	mockController := ctrl.NewMockController(injector)
 
 	// Setup mock context handler
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.GetContextFunc = func() string {
 		return "test-context"
 	}
-	injector.Register("contextHandler", mockContextHandler)
+	injector.Register("configHandler", mockConfigHandler)
 
 	mockShell := shell.NewMockShell()
 	mockShell.InstallHookFunc = func(shellName string) error {

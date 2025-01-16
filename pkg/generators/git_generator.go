@@ -9,6 +9,19 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// Define the item to add to the .gitignore
+var gitIgnoreLines = []string{
+	"# managed by windsor cli",
+	".windsor/",
+	".volumes/",
+	"terraform/**/backend_override.tf",
+	"contexts/**/.terraform/",
+	"contexts/**/.tfstate/",
+	"contexts/**/.kube/",
+	"contexts/**/.talos/",
+	"contexts/**/.aws/",
+}
+
 // GitGenerator is a generator that writes Git configuration files
 type GitGenerator struct {
 	BaseGenerator
@@ -55,22 +68,8 @@ func (g *GitGenerator) Write() error {
 		unmanagedLines = append(unmanagedLines, line)
 	}
 
-	// Define the lines to add
-	linesToAdd := []string{
-		"# managed by windsor cli",
-		".volumes/",
-		".tf_modules/",
-		".docker-cache/",
-		"terraform/**/backend_override.tf",
-		"contexts/**/.terraform/",
-		"contexts/**/.tfstate/",
-		"contexts/**/.kube/",
-		"contexts/**/.talos/",
-		"contexts/**/.aws/",
-	}
-
 	// Add only the lines that are not already present
-	for _, line := range linesToAdd {
+	for _, line := range gitIgnoreLines {
 		if _, exists := existingLines[line]; !exists {
 			if line == "# managed by windsor cli" {
 				unmanagedLines = append(unmanagedLines, "")

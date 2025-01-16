@@ -7,12 +7,25 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config/aws"
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/aws"
+	"github.com/windsorcli/cli/api/v1alpha1/cluster"
+	"github.com/windsorcli/cli/pkg/di"
 )
+
+// Mock implementation of os.FileInfo
+type mockFileInfo struct{}
 
 func TestNewYamlConfigHandler(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		handler := NewYamlConfigHandler()
+		// Given a new dependency injector
+		injector := di.NewInjector()
+
+		// When creating a new YamlConfigHandler and initializing it
+		handler := NewYamlConfigHandler(injector)
+		handler.Initialize()
+
+		// Then the handler should not be nil
 		if handler == nil {
 			t.Fatal("Expected non-nil YamlConfigHandler")
 		}
@@ -20,67 +33,42 @@ func TestNewYamlConfigHandler(t *testing.T) {
 }
 
 func TestYamlConfigHandler_LoadConfig(t *testing.T) {
-	t.Run("WithPath", func(t *testing.T) {
-		handler := NewYamlConfigHandler()
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+
 		// Given a valid config path
 		tempDir := t.TempDir()
 		configPath := filepath.Join(tempDir, "config.yaml")
 
-		// Create a mock config file in the temporary directory
-		err := os.WriteFile(configPath, []byte("valid: data"), 0644)
+		// When calling LoadConfig
+		err := handler.LoadConfig(configPath)
+
+		// Then no error should be returned
 		if err != nil {
-			t.Fatalf("Failed to create mock config file: %v", err)
+			t.Fatalf("LoadConfig() unexpected error: %v", err)
 		}
 
-		// Mock yamlUnmarshal to simulate successful unmarshalling
-		originalYamlUnmarshal := yamlUnmarshal
-		yamlUnmarshal = func(data []byte, v interface{}) error {
-			return nil
-		}
-		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
-
-		err = handler.LoadConfig(configPath)
-		// Then no error should be returned and path should be set
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
+		// And the path should be set correctly
 		if handler.path != configPath {
-			t.Errorf("Expected handler.path to be %v, got %v", configPath, handler.path)
+			t.Errorf("Expected path = %v, got = %v", configPath, handler.path)
 		}
 	})
 
 	t.Run("CreateEmptyConfigFileIfNotExist", func(t *testing.T) {
+		mocks := setupSafeMocks()
+
 		// When mocking osStat to simulate a non-existent file
 		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
 		osStat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
-		defer func() { osStat = originalOsStat }()
 
-		// When mocking osWriteFile to simulate file creation
-		originalOsWriteFile := osWriteFile
-		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
-			if filename == "test_config.yaml" && string(data) == "" {
-				// Simulate successful file creation
-				return nil
-			}
-			return fmt.Errorf("unexpected write operation")
-		}
-		defer func() { osWriteFile = originalOsWriteFile }()
-
-		// When mocking osReadFile to simulate reading the created file
-		originalOsReadFile := osReadFile
-		osReadFile = func(filename string) ([]byte, error) {
-			if filename == "test_config.yaml" {
-				// Simulate reading an empty file
-				return []byte{}, nil
-			}
-			return nil, fmt.Errorf("unexpected read operation")
-		}
-		defer func() { osReadFile = originalOsReadFile }()
-
-		// Then ensure the file is considered created by the mock
-		handler := NewYamlConfigHandler()
+		// Create the handler and run LoadConfig
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
 		err := handler.LoadConfig("test_config.yaml")
 		if err != nil {
 			t.Fatalf("LoadConfig() unexpected error: %v", err)
@@ -88,14 +76,7 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 	})
 
 	t.Run("ReadFileError", func(t *testing.T) {
-		handler := NewYamlConfigHandler()
-
-		// When mocking osStat to simulate an existing file
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
-			return nil, nil
-		}
+		mocks := setupSafeMocks()
 
 		// When mocking osReadFile to return an error
 		originalOsReadFile := osReadFile
@@ -104,10 +85,12 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 			return nil, fmt.Errorf("mocked error reading file")
 		}
 
-		tempDir := t.TempDir()
-		configPath := filepath.Join(tempDir, "config.yaml")
-
+		// Create the handler and run LoadConfig
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		configPath := "mocked_config.yaml"
 		err := handler.LoadConfig(configPath)
+
 		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("LoadConfig() expected error, got nil")
@@ -120,35 +103,60 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 		}
 	})
 
-	// Mock implementation of os.FileInfo
-	type mockFileInfo struct{}
-
 	t.Run("UnmarshalError", func(t *testing.T) {
-		handler := NewYamlConfigHandler()
+		// Given a set of safe mocks and a YamlConfigHandler
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
 
-		// When mocking yamlUnmarshal to return an error
+		// And a mocked yamlUnmarshal function that returns an error
 		originalYamlUnmarshal := yamlUnmarshal
 		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
 		yamlUnmarshal = func(data []byte, v interface{}) error {
 			return fmt.Errorf("mocked error unmarshalling yaml")
 		}
 
-		tempDir := t.TempDir()
-		configPath := filepath.Join(tempDir, "config.yaml")
+		// When LoadConfig is called with a mocked path
+		err := handler.LoadConfig("mocked_path.yaml")
 
-		// Given a dummy config file
-		if err := osWriteFile(configPath, []byte("dummy: data"), 0644); err != nil {
-			t.Fatalf("Failed to create dummy config file: %v", err)
-		}
-
-		err := handler.LoadConfig(configPath)
 		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("LoadConfig() expected error, got nil")
 		}
 
-		// Then check if the error message is as expected
+		// And the error message should be as expected
 		expectedError := "error unmarshalling yaml: mocked error unmarshalling yaml"
+		if err.Error() != expectedError {
+			t.Errorf("LoadConfig() error = %v, expected '%s'", err, expectedError)
+		}
+	})
+
+	t.Run("UnsupportedConfigVersion", func(t *testing.T) {
+		// Given a set of safe mocks and a YamlConfigHandler
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+
+		// And a mocked yamlUnmarshal function that sets an unsupported version
+		originalYamlUnmarshal := yamlUnmarshal
+		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
+		yamlUnmarshal = func(data []byte, v interface{}) error {
+			if config, ok := v.(*v1alpha1.Config); ok {
+				config.Version = "unsupported_version"
+			}
+			return nil
+		}
+
+		// When LoadConfig is called with a mocked path
+		err := handler.LoadConfig("mocked_path.yaml")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("LoadConfig() expected error, got nil")
+		}
+
+		// And the error message should be as expected
+		expectedError := "unsupported config version: unsupported_version"
 		if err.Error() != expectedError {
 			t.Errorf("LoadConfig() error = %v, expected '%s'", err, expectedError)
 		}
@@ -158,11 +166,13 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 func TestYamlConfigHandler_Get(t *testing.T) {
 	t.Run("KeyNotUnderContexts", func(t *testing.T) {
 		// Given a handler with key not under 'contexts'
-		handler := NewYamlConfigHandler()
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
 		// When setting the context in y.config
 		handler.Set("context", "local")
 		// When setting the default context (should not be used)
-		defaultContext := Context{
+		defaultContext := v1alpha1.Context{
 			AWS: &aws.AWSConfig{
 				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
 			},
@@ -181,7 +191,9 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 
 	t.Run("InvalidPath", func(t *testing.T) {
 		// Given a handler
-		handler := NewYamlConfigHandler()
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
 
 		// When calling Get with an empty path
 		value := handler.Get("")
@@ -195,8 +207,10 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 }
 
 func TestYamlConfigHandler_SaveConfig(t *testing.T) {
-	t.Run("WithValidPath", func(t *testing.T) {
-		handler := NewYamlConfigHandler()
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
 		handler.Set("saveKey", "saveValue")
 		// Given a valid config path
 		tempDir := t.TempDir()
@@ -209,13 +223,15 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		}
 
 		// And the config file should exist at the specified path
-		if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		if _, err := osStat(configPath); os.IsNotExist(err) {
 			t.Fatalf("Config file was not created at %s", configPath)
 		}
 	})
 
 	t.Run("WithEmptyPath", func(t *testing.T) {
-		handler := NewYamlConfigHandler()
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
 		handler.Set("saveKey", "saveValue")
 		// Given an empty config path
 		err := handler.SaveConfig("")
@@ -231,8 +247,31 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("UsePredefinedPath", func(t *testing.T) {
+		// Given a YamlConfigHandler with a predefined path
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.path = filepath.Join(t.TempDir(), "config.yaml")
+
+		// When SaveConfig is called with an empty path
+		err := handler.SaveConfig("")
+
+		// Then it should use the predefined path and save without error
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+
+		// And the config file should exist at the specified path
+		if _, err := osStat(handler.path); os.IsNotExist(err) {
+			t.Fatalf("Config file was not created at %s", handler.path)
+		}
+	})
+
 	t.Run("CreateDirectoriesError", func(t *testing.T) {
-		handler := NewYamlConfigHandler()
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
 		handler.path = filepath.Join(t.TempDir(), "config.yaml")
 
 		// Mock osMkdirAll to simulate a directory creation error
@@ -255,7 +294,7 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 	})
 
 	t.Run("MarshallingError", func(t *testing.T) {
-		// When creating a mock for yamlMarshal
+		// Mock yamlMarshal to simulate a marshalling error
 		originalYamlMarshal := yamlMarshal
 		defer func() { yamlMarshal = originalYamlMarshal }()
 		yamlMarshal = func(v interface{}) ([]byte, error) {
@@ -263,10 +302,10 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		}
 
 		// Given a YamlConfigHandler with a sample config
-		handler := &YamlConfigHandler{
-			config: Config{}, // Assuming Config is your struct
-			path:   "test.yaml",
-		}
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.config = v1alpha1.Config{} // Assuming Config is your struct
 
 		// When calling SaveConfig and expect an error
 		err := handler.SaveConfig("test.yaml")
@@ -282,7 +321,9 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 	})
 
 	t.Run("WriteFileError", func(t *testing.T) {
-		handler := NewYamlConfigHandler()
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
 		handler.Set("saveKey", "saveValue")
 
 		// When mocking osWriteFile to return an error
@@ -309,34 +350,20 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 	})
 
 	t.Run("UsesExistingPath", func(t *testing.T) {
+		// Given a temporary directory and expected path for the config file
 		tempDir := t.TempDir()
 		expectedPath := filepath.Join(tempDir, "config.yaml")
 
-		// When creating a mock for osWriteFile
-		originalOsWriteFile := osWriteFile
-		defer func() { osWriteFile = originalOsWriteFile }()
-		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
-			if filename != expectedPath {
-				return fmt.Errorf("expected filename %s, got %s", expectedPath, filename)
-			}
-			return nil
-		}
-
-		// When creating a mock for osReadFile
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(filename string) ([]byte, error) {
-			if filename != expectedPath {
-				return nil, fmt.Errorf("expected filename %s, got %s", expectedPath, filename)
-			}
-			return []byte{}, nil
-		}
-
-		handler := NewYamlConfigHandler()
-		handler.path = expectedPath // Ensure the config handler has a path set
+		// And a YamlConfigHandler with a path set and a key-value pair
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.path = expectedPath
 		handler.Set("key", "value")
 
+		// When calling SaveConfig with an empty path
 		err := handler.SaveConfig("")
+
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("SaveConfig() unexpected error: %v", err)
@@ -344,15 +371,13 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 	})
 
 	t.Run("OmitsNullValues", func(t *testing.T) {
-		// Given a temporary directory for the test
-		tempDir := t.TempDir()
-		configPath := filepath.Join(tempDir, "config.yaml")
-
 		// Given a YamlConfigHandler with some initial configuration
-		handler := NewYamlConfigHandler()
-		handler.config = Config{
-			Context: ptrString("local"),
-			Contexts: map[string]*Context{
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "local"
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
 				"default": {
 					Environment: map[string]string{
 						"name":  "John Doe",
@@ -365,23 +390,26 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 			},
 		}
 
-		// When calling SaveConfig to write the configuration to a file
-		err := handler.SaveConfig(configPath)
+		// Mock writeFile to capture the data written
+		var writtenData []byte
+		originalWriteFile := osWriteFile
+		defer func() { osWriteFile = originalWriteFile }()
+		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		// When calling SaveConfig to write the configuration
+		err := handler.SaveConfig("mocked_path.yaml")
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("SaveConfig() unexpected error: %v", err)
 		}
 
-		// When reading the file to verify its contents
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			t.Fatalf("Failed to read config file: %v", err)
-		}
-
 		// Then check that the YAML data matches the expected content
-		expectedContent := "context: local\ncontexts:\n  default:\n    environment:\n      email: john.doe@example.com\n      name: John Doe\n    aws: {}\n"
-		if string(data) != expectedContent {
-			t.Errorf("Config file content = %v, expected %v", string(data), expectedContent)
+		expectedContent := "version: v1alpha1\ncontexts:\n  default:\n    environment:\n      email: john.doe@example.com\n      name: John Doe\n    aws: {}\n"
+		if string(writtenData) != expectedContent {
+			t.Errorf("Config file content = %v, expected %v", string(writtenData), expectedContent)
 		}
 	})
 }
@@ -389,11 +417,10 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 func TestYamlConfigHandler_GetString(t *testing.T) {
 	t.Run("WithNonExistentKey", func(t *testing.T) {
 		// Given the existing context in the configuration
-		handler := &YamlConfigHandler{
-			config: Config{
-				Context: ptrString("default"),
-			},
-		}
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
 
 		// When given a non-existent key in the config
 		got := handler.GetString("nonExistentKey")
@@ -407,11 +434,10 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 
 	t.Run("GetStringWithDefaultValue", func(t *testing.T) {
 		// Given the existing context in the configuration
-		handler := &YamlConfigHandler{
-			config: Config{
-				Context: ptrString("default"),
-			},
-		}
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
 
 		// When calling GetString with a non-existent key and a default value
 		defaultValue := "defaultString"
@@ -425,14 +451,15 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 
 	t.Run("WithExistingKey", func(t *testing.T) {
 		// Given the existing context in the configuration with a key-value pair
-		handler := &YamlConfigHandler{
-			config: Config{
-				Context: ptrString("default"),
-				Contexts: map[string]*Context{
-					"default": {
-						Environment: map[string]string{
-							"existingKey": "existingValue",
-						},
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
+				"default": {
+					Environment: map[string]string{
+						"existingKey": "existingValue",
 					},
 				},
 			},
@@ -451,24 +478,25 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 
 func TestYamlConfigHandler_GetInt(t *testing.T) {
 	t.Run("WithExistingNonIntegerKey", func(t *testing.T) {
-		// Given the existing context in the configuration
-		handler := &YamlConfigHandler{
-			config: Config{
-				Context: ptrString("default"),
-				Contexts: map[string]*Context{
-					"default": {
-						AWS: &aws.AWSConfig{
-							AWSEndpointURL: ptrString("notAnInt"),
-						},
+		// Given the existing context in the configuration with a non-integer value
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
+				"default": {
+					AWS: &aws.AWSConfig{
+						AWSEndpointURL: ptrString("notAnInt"),
 					},
 				},
 			},
 		}
 
-		// When given an existing key with a non-integer value
+		// When calling GetInt with a key that has a non-integer value
 		value := handler.GetInt("aws.aws_endpoint_url")
 
-		// Then an error should be returned indicating the value is not an integer
+		// Then the default integer value should be returned
 		expectedValue := 0
 		if value != expectedValue {
 			t.Errorf("Expected value %v, got %v", expectedValue, value)
@@ -476,36 +504,67 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 	})
 
 	t.Run("WithNonExistentKey", func(t *testing.T) {
-		// Given the existing context in the configuration
-		handler := &YamlConfigHandler{
-			config: Config{
-				Context: ptrString("default"),
-			},
-		}
+		// Given the existing context in the configuration without the key
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
 
-		// When given a non-existent key in the config
+		// When calling GetInt with a non-existent key
 		value := handler.GetInt("nonExistentKey")
+
+		// Then the default integer value should be returned
 		expectedValue := 0
 		if value != expectedValue {
 			t.Errorf("Expected value %v, got %v", expectedValue, value)
 		}
-
-		// Then an error should be returned indicating the key was not found
 	})
 
 	t.Run("WithNonExistentKeyAndDefaultValue", func(t *testing.T) {
-		// Given the existing context in the configuration
-		handler := &YamlConfigHandler{
-			config: Config{
-				Context: ptrString("default"),
+		// Given the existing context in the configuration without the key
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
+
+		// When calling GetInt with a non-existent key and a default value
+		got := handler.GetInt("nonExistentKey", 99)
+
+		// Then the provided default value should be returned
+		expectedValue := 99
+		if got != expectedValue {
+			t.Errorf("GetInt() = %v, expected %v", got, expectedValue)
+		}
+	})
+
+	t.Run("WithExistingIntegerKey", func(t *testing.T) {
+		// Given the existing context in the configuration with an integer value
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
+				"default": {
+					Cluster: &cluster.ClusterConfig{
+						ControlPlanes: struct {
+							Count  *int                          `yaml:"count,omitempty"`
+							CPU    *int                          `yaml:"cpu,omitempty"`
+							Memory *int                          `yaml:"memory,omitempty"`
+							Nodes  map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
+						}{
+							Count: ptrInt(3),
+						},
+					},
+				},
 			},
 		}
 
-		// When given a non-existent key in the config and a default value
-		got := handler.GetInt("nonExistentKey", 99)
+		// When calling GetInt with an existing integer key
+		got := handler.GetInt("cluster.controlplanes.count")
 
-		// Then the default value should be returned without error
-		expectedValue := 99
+		// Then the integer value should be returned
+		expectedValue := 3
 		if got != expectedValue {
 			t.Errorf("GetInt() = %v, expected %v", got, expectedValue)
 		}
@@ -514,15 +573,37 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 
 func TestYamlConfigHandler_GetBool(t *testing.T) {
 	t.Run("WithExistingBooleanKey", func(t *testing.T) {
+		// Given the existing context in the configuration with a boolean value
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
+		handler.config = v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
+				"default": {
+					AWS: &aws.AWSConfig{
+						Enabled: ptrBool(true),
+					},
+				},
+			},
+		}
+
+		// When calling GetBool with an existing boolean key
+		got := handler.GetBool("aws.enabled")
+
+		// Then the boolean value should be returned
+		expectedValue := true
+		if got != expectedValue {
+			t.Errorf("GetBool() = %v, expected %v", got, expectedValue)
+		}
 	})
 
 	t.Run("WithExistingNonBooleanKey", func(t *testing.T) {
 		// Given the existing context in the configuration
-		handler := &YamlConfigHandler{
-			config: Config{
-				Context: ptrString("default"),
-			},
-		}
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
 
 		// When setting a non-boolean value for the key
 		handler.Set("contexts.default.aws.aws_endpoint_url", "notABool")
@@ -539,11 +620,10 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 
 	t.Run("WithNonExistentKey", func(t *testing.T) {
 		// Given the existing context in the configuration
-		handler := &YamlConfigHandler{
-			config: Config{
-				Context: ptrString("default"),
-			},
-		}
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
 
 		// When given a non-existent key in the config
 		value := handler.GetBool("nonExistentKey")
@@ -555,11 +635,10 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 
 	t.Run("WithNonExistentKeyAndDefaultValue", func(t *testing.T) {
 		// Given the existing context in the configuration
-		handler := &YamlConfigHandler{
-			config: Config{
-				Context: ptrString("default"),
-			},
-		}
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
 
 		// When given a non-existent key in the config and a default value
 		got := handler.GetBool("nonExistentKey", false)
@@ -575,9 +654,11 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 func TestYamlConfigHandler_GetConfig(t *testing.T) {
 	t.Run("ContextIsSet", func(t *testing.T) {
 		// Given a handler with a context set
-		handler := NewYamlConfigHandler()
-		handler.config.Context = ptrString("local")
-		handler.config.Contexts = map[string]*Context{
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "local"
+		handler.config.Contexts = map[string]*v1alpha1.Context{
 			"local": {
 				Environment: map[string]string{
 					"ENV_VAR": "value",
@@ -593,38 +674,13 @@ func TestYamlConfigHandler_GetConfig(t *testing.T) {
 			t.Errorf("Expected context config with ENV_VAR 'value', got %v", config)
 		}
 	})
-
-	// t.Run("ContextIsNotSet", func(t *testing.T) {
-	// 	// Given a handler without a context set
-	// 	handler := NewYamlConfigHandler()
-
-	// 	// When calling GetConfig
-	// 	config := handler.GetConfig()
-
-	// 	// Then the default context config should be returned without error
-	// 	if config == nil || config.Environment != nil {
-	// 		t.Errorf("Expected default context config, got %v", config)
-	// 	}
-	// })
-
-	// t.Run("ContextDoesNotExist", func(t *testing.T) {
-	// 	// Given a handler with a context set that does not exist in contexts
-	// 	handler := NewYamlConfigHandler()
-	// 	handler.config.Context = ptrString("nonexistent")
-
-	// 	// When calling GetConfig
-	// 	config := handler.GetConfig()
-
-	// 	// Then the default context config should be returned without error
-	// 	if config == nil || config.Environment != nil {
-	// 		t.Errorf("Expected default context config, got %v", config)
-	// 	}
-	// })
 }
 
 func TestYamlConfigHandler_Set(t *testing.T) {
 	t.Run("SetWithInvalidPath", func(t *testing.T) {
-		handler := NewYamlConfigHandler()
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
 
 		// When attempting to set a value with an empty path
 		handler.Set("", "someValue")
@@ -639,8 +695,10 @@ func TestYamlConfigHandler_Set(t *testing.T) {
 func TestYamlConfigHandler_SetContextValue(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a handler with a valid context set
-		handler := NewYamlConfigHandler()
-		handler.config.Context = ptrString("local")
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "local"
 
 		// When calling SetContextValue with a valid path and value
 		err := handler.SetContextValue("environment.TEST_KEY", "someValue")
@@ -659,7 +717,9 @@ func TestYamlConfigHandler_SetContextValue(t *testing.T) {
 
 	t.Run("ContextNotSet", func(t *testing.T) {
 		// Given a handler without a context set
-		handler := NewYamlConfigHandler()
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
 
 		// When calling SetContextValue
 		err := handler.SetContextValue("some.path", "someValue")
@@ -673,8 +733,10 @@ func TestYamlConfigHandler_SetContextValue(t *testing.T) {
 
 	t.Run("InvalidPath", func(t *testing.T) {
 		// Given a handler with a valid context set
-		handler := NewYamlConfigHandler()
-		handler.config.Context = ptrString("local")
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "local"
 
 		// When calling SetContextValue with an empty path
 		err := handler.SetContextValue("", "someValue")
@@ -689,8 +751,10 @@ func TestYamlConfigHandler_SetContextValue(t *testing.T) {
 func TestYamlConfigHandler_SetDefault(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a YamlConfigHandler and a default context
-		handler := NewYamlConfigHandler()
-		defaultContext := Context{
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		defaultContext := v1alpha1.Context{
 			Environment: map[string]string{
 				"ENV_VAR": "value",
 			},
@@ -714,11 +778,13 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 
 	t.Run("NilContext", func(t *testing.T) {
 		// Given a handler with a nil context
-		handler := NewYamlConfigHandler()
-		handler.config.Context = nil
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = ""
 
 		// When calling SetDefault
-		defaultContext := Context{
+		defaultContext := v1alpha1.Context{
 			Environment: map[string]string{
 				"ENV_VAR": "value",
 			},
@@ -736,10 +802,12 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 
 	t.Run("ContextNotSet", func(t *testing.T) {
 		// Given a handler without a context set
-		handler := NewYamlConfigHandler()
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
 
 		// When calling SetDefault
-		defaultContext := Context{
+		defaultContext := v1alpha1.Context{
 			Environment: map[string]string{
 				"ENV_VAR": "value",
 			},
@@ -865,8 +933,8 @@ func TestSetValueByPath(t *testing.T) {
 
 	t.Run("MapExistingValue", func(t *testing.T) {
 		// Given a Config with an existing nested map
-		config := Config{
-			Contexts: map[string]*Context{
+		config := v1alpha1.Config{
+			Contexts: map[string]*v1alpha1.Context{
 				"level1": {
 					Environment: map[string]string{
 						"level2": "value2",

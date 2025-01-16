@@ -82,7 +82,7 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	contextName := n.contextHandler.GetContext()
+	contextName := n.configHandler.GetContext()
 
 	sshConfigOutput, err := n.shell.ExecSilent(
 		"colima",

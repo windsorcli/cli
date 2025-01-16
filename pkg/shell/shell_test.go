@@ -15,17 +15,12 @@ import (
 	"testing"
 	"text/template"
 
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
 func TestShell_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		injector := di.NewInjector()
-
-		// Register a mock ConfigHandler to avoid resolution errors
-		mockConfigHandler := config.NewMockConfigHandler()
-		injector.Register("configHandler", mockConfigHandler)
 
 		// Given a DefaultShell instance
 		shell := NewDefaultShell(injector)
@@ -36,17 +31,6 @@ func TestShell_Initialize(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Initialize() error = %v, wantErr %v", err, false)
-		}
-	})
-
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		injector := di.NewInjector()
-		shell := NewDefaultShell(injector)
-		err := shell.Initialize()
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		} else {
-			t.Logf("Received expected error: %v", err)
 		}
 	})
 }
@@ -70,69 +54,21 @@ func TestShell_SetVerbosity(t *testing.T) {
 }
 
 func TestShell_GetProjectRoot(t *testing.T) {
-	t.Run("GitRepo", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Given a temporary directory with a git repository
-		rootDir := createTempDir(t, "project-root")
-		subDir := filepath.Join(rootDir, "subdir")
-		if err := os.Mkdir(subDir, 0755); err != nil {
-			t.Fatalf("Failed to create subdir: %v", err)
-		}
-
-		initGitRepo(t, rootDir)
-		changeDir(t, subDir)
-
-		// When calling GetProjectRoot
-		shell := NewDefaultShell(injector)
-		projectRoot, err := shell.GetProjectRoot()
-
-		// Then the project root should be returned without error
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-		expectedRootDir := resolveSymlinks(t, rootDir)
-
-		// Normalize paths for Windows compatibility
-		expectedRootDir = normalizePath(expectedRootDir)
-		projectRoot = normalizePath(projectRoot)
-		if expectedRootDir != projectRoot {
-			t.Errorf("Expected project root %q, got %q", expectedRootDir, projectRoot)
-		}
-	})
-
 	t.Run("Cached", func(t *testing.T) {
 		injector := di.NewInjector()
 
-		// Given a temporary directory with a git repository and cached project root
+		// Given a temporary directory with a cached project root
 		rootDir := createTempDir(t, "project-root")
 		subDir := filepath.Join(rootDir, "subdir")
 		if err := os.Mkdir(subDir, 0755); err != nil {
 			t.Fatalf("Failed to create subdir: %v", err)
 		}
 
-		initGitRepo(t, rootDir)
 		changeDir(t, subDir)
 
 		// When calling GetProjectRoot
 		shell := NewDefaultShell(injector)
-		projectRoot, err := shell.GetProjectRoot()
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-
-		expectedRootDir := resolveSymlinks(t, rootDir)
-
-		// Normalize paths for Windows compatibility
-		expectedRootDir = normalizePath(expectedRootDir)
-		projectRoot = normalizePath(projectRoot)
-
-		if expectedRootDir != projectRoot {
-			t.Errorf("Expected project root %q, got %q", expectedRootDir, projectRoot)
-		}
-
-		// When calling GetProjectRoot again with cached project root
-		shell.projectRoot = expectedRootDir
+		shell.projectRoot = rootDir // Simulate cached project root
 		cachedProjectRoot, err := shell.GetProjectRoot()
 
 		// Then the cached project root should be returned without error
@@ -140,7 +76,8 @@ func TestShell_GetProjectRoot(t *testing.T) {
 			t.Fatalf("Unexpected error: %v", err)
 		}
 
-		// Normalize cached project root for Windows compatibility
+		// Normalize paths for Windows compatibility
+		expectedRootDir := normalizePath(rootDir)
 		cachedProjectRoot = normalizePath(cachedProjectRoot)
 
 		if expectedRootDir != cachedProjectRoot {
@@ -148,57 +85,64 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 	})
 
-	t.Run("MaxDepth", func(t *testing.T) {
+	t.Run("MaxDepthExceeded", func(t *testing.T) {
 		injector := di.NewInjector()
 
-		// Given a directory structure exceeding max depth
-		rootDir := createTempDir(t, "project-root")
-		currentDir := rootDir
-		for i := 0; i <= maxFolderSearchDepth; i++ {
-			subDir := filepath.Join(currentDir, "subdir")
-			if err := os.Mkdir(subDir, 0755); err != nil {
-				t.Fatalf("Failed to create subdir %d: %v", i, err)
-			}
-			currentDir = subDir
+		// Mock the getwd function to simulate directory structure
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+		getwd = func() (string, error) {
+			return "/mock/deep/directory/structure/level1/level2/level3/level4/level5/level6/level7/level8/level9/level10/level11", nil
 		}
 
-		changeDir(t, currentDir)
+		// Mock the osStat function to simulate file existence
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
 
 		// When calling GetProjectRoot
 		shell := NewDefaultShell(injector)
 		projectRoot, err := shell.GetProjectRoot()
 
-		// Then the project root should be empty
+		// Then the project root should be the original directory due to max depth exceeded
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
-		if projectRoot != "" {
-			t.Errorf("Expected project root to be empty, got %q", projectRoot)
+		expectedProjectRoot := "/mock/deep/directory/structure/level1/level2/level3/level4/level5/level6/level7/level8/level9/level10/level11"
+		if projectRoot != expectedProjectRoot {
+			t.Errorf("Expected project root to be %q, got %q", expectedProjectRoot, projectRoot)
 		}
 	})
 
 	t.Run("NoGitNoYaml", func(t *testing.T) {
 		injector := di.NewInjector()
 
-		// Given a directory without git repository or yaml file
-		rootDir := createTempDir(t, "project-root")
-		subDir := filepath.Join(rootDir, "subdir")
-		if err := os.Mkdir(subDir, 0755); err != nil {
-			t.Fatalf("Failed to create subdir: %v", err)
+		// Mock the getwd function to simulate directory structure
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+		getwd = func() (string, error) {
+			return "/mock/current/dir/subdir", nil
 		}
 
-		changeDir(t, subDir)
+		// Mock the osStat function to simulate file existence
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
 
 		// When calling GetProjectRoot
 		shell := NewDefaultShell(injector)
 		projectRoot, err := shell.GetProjectRoot()
 
-		// Then the project root should be empty
+		// Then the project root should be the original directory
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
-		if projectRoot != "" {
-			t.Errorf("Expected project root to be empty, got %q", projectRoot)
+		if projectRoot != "/mock/current/dir/subdir" {
+			t.Errorf("Expected project root to be %q, got %q", "/mock/current/dir/subdir", projectRoot)
 		}
 	})
 
@@ -211,10 +155,6 @@ func TestShell_GetProjectRoot(t *testing.T) {
 			return "", errors.New("simulated error")
 		}
 		defer func() { getwd = originalGetwd }()
-
-		originalExecCommand := execCommand
-		execCommand = mockCommand
-		defer func() { execCommand = originalExecCommand }()
 
 		// When calling GetProjectRoot
 		shell := NewDefaultShell(injector)
@@ -1061,7 +1001,7 @@ func captureStdout(t *testing.T, f func()) string {
 }
 
 // Mock execCommand to simulate git command failure
-func mockCommand(name string, arg ...string) *exec.Cmd {
+func mockCommand(_ string, _ ...string) *exec.Cmd {
 	return exec.Command("false")
 }
 
@@ -1135,4 +1075,309 @@ func captureStdoutAndStderr(t *testing.T, f func()) (string, string) {
 	os.Stderr = originalStderr
 
 	return stdoutBuf.String(), stderrBuf.String()
+}
+
+func TestEnv_CheckTrustedDirectory(t *testing.T) {
+	// Mock the getwd function
+	originalGetwd := getwd
+	originalOsUserHomeDir := osUserHomeDir
+	originalReadFile := osReadFile
+
+	defer func() {
+		getwd = originalGetwd
+		osUserHomeDir = originalOsUserHomeDir
+		osReadFile = originalReadFile
+	}()
+
+	getwd = func() (string, error) {
+		return "/mock/current/dir", nil
+	}
+
+	osUserHomeDir = func() (string, error) {
+		return "/mock/home/dir", nil
+	}
+
+	osReadFile = func(filename string) ([]byte, error) {
+		return []byte("/mock/current/dir\n"), nil
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		shell := NewDefaultShell(di.NewInjector())
+		shell.Initialize()
+
+		// Call CheckTrustedDirectory and check for errors
+		err := shell.CheckTrustedDirectory()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingCurrentDir", func(t *testing.T) {
+		// Save the original getwd function
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+
+		// Override the getwd function locally to simulate an error
+		getwd = func() (string, error) {
+			return "", fmt.Errorf("Error getting current directory: error getting current directory")
+		}
+
+		// Call CheckTrustedDirectory and expect an error
+		shell := &DefaultShell{}
+		err := shell.CheckTrustedDirectory()
+		if err == nil || !strings.Contains(err.Error(), "error getting current directory") {
+			t.Errorf("expected error containing 'error getting current directory', got %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingUserHomeDir", func(t *testing.T) {
+		// Save the original osUserHomeDir function
+		originalOsUserHomeDir := osUserHomeDir
+		defer func() { osUserHomeDir = originalOsUserHomeDir }()
+
+		// Override the osUserHomeDir function locally to simulate an error
+		osUserHomeDir = func() (string, error) {
+			return "", fmt.Errorf("Error getting user home directory: error getting user home directory")
+		}
+
+		// Call CheckTrustedDirectory and expect an error
+		shell := &DefaultShell{}
+		err := shell.CheckTrustedDirectory()
+		if err == nil || !strings.Contains(err.Error(), "Error getting user home directory") {
+			t.Errorf("expected error containing 'Error getting user home directory', got %v", err)
+		}
+	})
+
+	t.Run("ErrorReadingTrustedFile", func(t *testing.T) {
+		// Save the original osReadFile function
+		originalReadFile := osReadFile
+		defer func() { osReadFile = originalReadFile }()
+
+		// Override the osReadFile function locally to simulate an error
+		osReadFile = func(filename string) ([]byte, error) {
+			return nil, fmt.Errorf("error reading trusted file")
+		}
+
+		// Call CheckTrustedDirectory and expect an error
+		shell := &DefaultShell{}
+		err := shell.CheckTrustedDirectory()
+		if err == nil || !strings.Contains(err.Error(), "error reading trusted file") {
+			t.Errorf("expected error containing 'error reading trusted file', got %v", err)
+		}
+	})
+
+	t.Run("TrustedFileDoesNotExist", func(t *testing.T) {
+		// Save the original osReadFile function
+		originalReadFile := osReadFile
+		defer func() { osReadFile = originalReadFile }()
+
+		// Override the osReadFile function locally to simulate a non-existent trusted file
+		osReadFile = func(filename string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// Call CheckTrustedDirectory and expect an error
+		shell := &DefaultShell{}
+		err := shell.CheckTrustedDirectory()
+		if err == nil || err.Error() != "Trusted file does not exist" {
+			t.Errorf("expected error 'Trusted file does not exist', got %v", err)
+		}
+	})
+
+	t.Run("CurrentDirNotInTrustedList", func(t *testing.T) {
+		// Mock the getwd function to return a specific current directory
+		getwd = func() (string, error) {
+			return "/mock/current/dir", nil
+		}
+
+		// Mock the osReadFile function to simulate a trusted file without the current directory
+		osReadFile = func(filename string) ([]byte, error) {
+			return []byte("/mock/other/dir\n"), nil
+		}
+
+		// Execute CheckTrustedDirectory and verify it returns the expected error
+		shell := &DefaultShell{}
+		err := shell.CheckTrustedDirectory()
+		if err == nil || !strings.Contains(err.Error(), "Current directory not in the trusted list") {
+			t.Errorf("expected error 'Current directory not in the trusted list', got %v", err)
+		}
+	})
+}
+
+func TestDefaultShell_AddCurrentDirToTrustedFile(t *testing.T) {
+	shell := &DefaultShell{}
+
+	// Mock the os functions at the top
+	originalGetwd := getwd
+	originalOsUserHomeDir := osUserHomeDir
+	originalReadFile := osReadFile
+	originalMkdirAll := osMkdirAll
+	originalWriteFile := osWriteFile
+
+	defer func() {
+		getwd = originalGetwd
+		osUserHomeDir = originalOsUserHomeDir
+		osReadFile = originalReadFile
+		osMkdirAll = originalMkdirAll
+		osWriteFile = originalWriteFile
+	}()
+
+	// Default mock implementations for success scenarios
+	getwd = func() (string, error) {
+		return "/mock/current/dir", nil
+	}
+
+	osUserHomeDir = func() (string, error) {
+		return "/mock/home/dir", nil
+	}
+
+	osReadFile = func(filename string) ([]byte, error) {
+		return []byte{}, nil
+	}
+
+	osMkdirAll = func(path string, perm os.FileMode) error {
+		return nil
+	}
+
+	var capturedData []byte
+	osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
+		capturedData = data
+		return nil
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Call AddCurrentDirToTrustedFile and check for errors
+		err := shell.AddCurrentDirToTrustedFile()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that the current directory was added to the trusted file
+		expectedData := "/mock/current/dir\n"
+		if string(capturedData) != expectedData {
+			t.Errorf("capturedData = %v, want %v", string(capturedData), expectedData)
+		}
+	})
+
+	t.Run("SuccessAlreadyTrusted", func(t *testing.T) {
+		// Save the original osReadFile function
+		originalReadFile := osReadFile
+		defer func() { osReadFile = originalReadFile }()
+
+		// Override the osReadFile function locally to simulate a trusted directory already present
+		osReadFile = func(filename string) ([]byte, error) {
+			return []byte("/mock/current/dir\n"), nil
+		}
+
+		// Call AddCurrentDirToTrustedFile and check for errors
+		err := shell.AddCurrentDirToTrustedFile()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		// Save the original getwd function
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+
+		// Override the getwd function locally to simulate an error
+		getwd = func() (string, error) {
+			return "", fmt.Errorf("error getting project root directory")
+		}
+
+		// Call AddCurrentDirToTrustedFile and expect an error
+		err := shell.AddCurrentDirToTrustedFile()
+		if err == nil {
+			t.Errorf("expected error, got nil")
+		}
+		expectedError := "Error getting project root directory: error getting project root directory"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorGettingUserHomeDir", func(t *testing.T) {
+		// Save the original osUserHomeDir function
+		originalOsUserHomeDir := osUserHomeDir
+		defer func() { osUserHomeDir = originalOsUserHomeDir }()
+
+		// Override the osUserHomeDir function locally to simulate an error
+		osUserHomeDir = func() (string, error) {
+			return "", fmt.Errorf("error getting user home directory")
+		}
+
+		// Call AddCurrentDirToTrustedFile and expect an error
+		err := shell.AddCurrentDirToTrustedFile()
+		if err == nil {
+			t.Errorf("expected error, got nil")
+		}
+		expectedError := "Error getting user home directory: error getting user home directory"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorCreatingDirectories", func(t *testing.T) {
+		// Save the original osMkdirAll function
+		originalMkdirAll := osMkdirAll
+		defer func() { osMkdirAll = originalMkdirAll }()
+
+		// Override the osMkdirAll function locally to simulate an error
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("error creating directories")
+		}
+
+		// Call AddCurrentDirToTrustedFile and expect an error
+		err := shell.AddCurrentDirToTrustedFile()
+		if err == nil {
+			t.Errorf("expected error, got nil")
+		}
+		expectedError := "Error creating directories for trusted file: error creating directories"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorReadingTrustedFile", func(t *testing.T) {
+		// Save the original osReadFile function
+		originalReadFile := osReadFile
+		defer func() { osReadFile = originalReadFile }()
+
+		// Override the osReadFile function locally to simulate an error
+		osReadFile = func(filename string) ([]byte, error) {
+			return nil, fmt.Errorf("error reading trusted file")
+		}
+
+		// Call AddCurrentDirToTrustedFile and expect an error
+		err := shell.AddCurrentDirToTrustedFile()
+		if err == nil {
+			t.Errorf("expected error, got nil")
+		}
+		expectedError := "Error reading trusted file: error reading trusted file"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorWritingToTrustedFile", func(t *testing.T) {
+		// Save the original osWriteFile function
+		originalWriteFile := osWriteFile
+		defer func() { osWriteFile = originalWriteFile }()
+
+		// Override the osWriteFile function locally to simulate an error
+		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("error writing to trusted file")
+		}
+
+		// Call AddCurrentDirToTrustedFile and expect an error
+		err := shell.AddCurrentDirToTrustedFile()
+		if err == nil {
+			t.Errorf("expected error, got nil")
+		}
+		expectedError := "Error writing to trusted file: error writing to trusted file"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
 }

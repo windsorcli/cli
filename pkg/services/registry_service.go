@@ -85,7 +85,7 @@ func (s *RegistryService) GetHostname() string {
 // with the specified name, remote URL, and local URL.
 func (s *RegistryService) generateRegistryService(hostName, remoteURL, localURL string) (types.ServiceConfig, error) {
 	// Retrieve the context name
-	contextName := s.contextHandler.GetContext()
+	contextName := s.configHandler.GetContext()
 
 	// Initialize the ServiceConfig with the provided name, a predefined image,
 	// a restart policy, and labels indicating the role and manager.
@@ -120,14 +120,18 @@ func (s *RegistryService) generateRegistryService(hostName, remoteURL, localURL 
 	}
 
 	// Create a .docker-cache directory at the project root
-	cacheDir := os.Getenv("WINDSOR_PROJECT_ROOT") + "/.docker-cache"
+	projectRoot, err := s.shell.GetProjectRoot()
+	if err != nil {
+		return types.ServiceConfig{}, fmt.Errorf("error retrieving project root: %w", err)
+	}
+	cacheDir := projectRoot + "/.windsor/.docker-cache"
 	if err := mkdirAll(cacheDir, os.ModePerm); err != nil {
 		return service, fmt.Errorf("error creating .docker-cache directory: %w", err)
 	}
 
 	// Use the WINDSOR_PROJECT_ROOT environment variable for the volume mount
 	service.Volumes = []types.ServiceVolumeConfig{
-		{Type: "bind", Source: cacheDir, Target: "/var/lib/registry"},
+		{Type: "bind", Source: "${WINDSOR_PROJECT_ROOT}/.windsor/.docker-cache", Target: "/var/lib/registry"},
 	}
 
 	// Check if the address is localhost and assign ports if it is

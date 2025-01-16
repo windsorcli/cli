@@ -15,9 +15,8 @@ const (
 	gitGenTestExpectedContent   = `existing content
 
 # managed by windsor cli
+.windsor/
 .volumes/
-.tf_modules/
-.docker-cache/
 terraform/**/backend_override.tf
 contexts/**/.terraform/
 contexts/**/.tfstate/

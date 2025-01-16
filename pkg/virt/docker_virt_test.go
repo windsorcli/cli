@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/docker"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -24,13 +24,11 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 		injector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockService := services.NewMockService()
 
 	// Register mock instances in the injector
-	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("dockerService", mockService)
@@ -42,13 +40,13 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	injector.Register("service2", mockService2)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
 
 	// Set up the mock config handler to return a safe default configuration for Docker VMs
-	mockConfigHandler.GetConfigFunc = func() *config.Context {
-		return &config.Context{
+	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+		return &v1alpha1.Context{
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(true),
 				Registries: map[string]docker.RegistryConfig{
@@ -113,14 +111,13 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 		}, nil
 	}
 
-	// Mock the GetConfigRootFunc to return a mock config root path
-	mockContext.GetConfigRootFunc = func() (string, error) {
-		return "/mock/config/root", nil
+	// Mock the GetProjectRootFunc to return a mock project root path
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return "/mock/project/root", nil
 	}
 
 	return &MockComponents{
 		Injector:          injector,
-		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
 		MockService:       mockService,
@@ -291,9 +288,9 @@ func TestDockerVirt_Up(t *testing.T) {
 		dockerVirt := NewDockerVirt(mocks.Injector)
 		dockerVirt.Initialize()
 
-		// Mock the GetConfigRoot function to simulate an error
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving config root")
+		// Mock the GetProjectRoot function to simulate an error
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving project root")
 		}
 
 		// Mock the shell Exec function to simulate Docker daemon check
@@ -313,7 +310,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		}
 
 		// Verify that the error message is as expected
-		expectedErrorMsg := "error retrieving config root"
+		expectedErrorMsg := "error retrieving project root"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
@@ -326,7 +323,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the GetConfigRoot function to return a valid path
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "/valid/path", nil
 		}
 
@@ -523,8 +520,8 @@ func TestDockerVirt_Down(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the GetConfigRootFunc to return an error
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("error retrieving config root")
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("error retrieving project root")
 		}
 
 		// Mock the shell Exec function to simulate successful docker info command
@@ -544,7 +541,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 
 		// Verify that the error message is as expected
-		expectedErrorMsg := "error retrieving config root"
+		expectedErrorMsg := "error retrieving project root"
 		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
@@ -961,7 +958,8 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 		defer func() { mkdirAll = originalMkdirAll }()
 		mkdirAll = func(path string, perm os.FileMode) error {
 			// Use filepath.FromSlash to ensure compatibility with Windows file paths
-			if filepath.Clean(path) == filepath.FromSlash("/mock/config/root") {
+			expectedPath := filepath.Join("/mock/project/root", ".windsor")
+			if filepath.Clean(path) == filepath.FromSlash(expectedPath) {
 				return fmt.Errorf("read-only file system")
 			}
 			return nil
@@ -982,8 +980,8 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("error retrieving config root")
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("error retrieving project root")
 		}
 
 		dockerVirt := NewDockerVirt(mocks.Injector)
@@ -998,7 +996,7 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 		}
 
 		// Assert the error message is as expected
-		expectedErrorMsg := "error retrieving config root"
+		expectedErrorMsg := "error retrieving project root"
 		if !strings.Contains(err.Error(), expectedErrorMsg) {
 			t.Fatalf("expected error message to contain %q, got %v", expectedErrorMsg, err)
 		}
@@ -1214,8 +1212,8 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		// Setup mock components with a config handler that returns no Docker configuration
 		mockInjector := di.NewMockInjector()
 		mocks := setupSafeDockerContainerMocks(mockInjector)
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				Docker: nil, // No Docker configuration
 			}
 		}
@@ -1313,8 +1311,8 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		dockerVirt.Initialize()
 
 		// Mock the context configuration to have no NetworkCIDR defined
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
 					NetworkCIDR: nil,
 				},

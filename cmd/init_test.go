@@ -2,55 +2,61 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-// setupSafeInitCmdMocks returns a mock controller with safe mocks for the init command
-func setupSafeInitCmdMocks(existingControllers ...ctrl.Controller) *ctrl.MockController {
-	var mockController *ctrl.MockController
+func setupSafeInitCmdMocks(existingInjectors ...di.Injector) *initMockObjects {
 	var injector di.Injector
-
-	if len(existingControllers) > 0 {
-		// Use the passed controller and its injector
-		mockController = existingControllers[0].(*ctrl.MockController)
-		injector = mockController.ResolveInjector()
+	if len(existingInjectors) > 0 {
+		injector = existingInjectors[0]
 	} else {
-		// Create a new injector and mock controller
 		injector = di.NewInjector()
-		mockController = ctrl.NewMockController(injector)
 	}
 
-	// Manually override and set up components
-	mockController.CreateCommonComponentsFunc = func() error {
-		return nil
-	}
+	mockController := ctrl.NewMockController(injector)
+	controller = mockController
 
-	// Setup mock context handler
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
-		return "test-context"
-	}
-	injector.Register("contextHandler", mockContextHandler)
+	mockController.CreateCommonComponentsFunc = func() error { return nil }
+	mockController.InitializeComponentsFunc = func() error { return nil }
 
-	// Setup mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-		return nil
-	}
+	mockConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+	mockConfigHandler.GetContextFunc = func() string { return "test-context" }
+	mockConfigHandler.SetContextFunc = func(contextName string) error { return nil }
+	mockConfigHandler.InitializeFunc = func() error { return nil }
+	mockConfigHandler.LoadConfigFunc = func(path string) error { return nil }
 	injector.Register("configHandler", mockConfigHandler)
 
-	// Setup mock shell
 	mockShell := shell.NewMockShell()
+	mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
 	injector.Register("shell", mockShell)
 
-	return mockController
+	osStat = func(_ string) (os.FileInfo, error) { return nil, nil }
+
+	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler { return mockConfigHandler }
+	mockController.ResolveShellFunc = func() shell.Shell { return mockShell }
+
+	return &initMockObjects{
+		Controller:    mockController,
+		Injector:      injector,
+		ConfigHandler: mockConfigHandler,
+		Shell:         mockShell,
+	}
+}
+
+// initMockObjects encapsulates all mock objects used in the init command tests
+type initMockObjects struct {
+	Controller    *ctrl.MockController
+	Injector      di.Injector
+	ConfigHandler *config.MockConfigHandler
+	Shell         *shell.MockShell
 }
 
 // TestInitCmd tests the init command
@@ -70,12 +76,12 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Setup mocks
-		controller := setupSafeInitCmdMocks()
+		mocks := setupSafeInitCmdMocks()
 
 		// Execute the init command and capture output
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			if err := Execute(controller); err != nil {
+			if err := Execute(mocks.Controller); err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
 		})
@@ -89,7 +95,7 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("AllFlagsSet", func(t *testing.T) {
 		// Given a valid config handler
-		controller := setupSafeInitCmdMocks()
+		mocks := setupSafeInitCmdMocks()
 
 		// When the init command is executed with all flags set
 		output := captureStderr(func() {
@@ -105,7 +111,7 @@ func TestInitCmd(t *testing.T) {
 				"--vm-memory", "4096",
 				"--vm-arch", "x86_64",
 			})
-			err := Execute(controller)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
@@ -118,14 +124,44 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorAddingCurrentDirToTrustedFile", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock shell that returns an error when adding current directory to trusted file
+		injector := di.NewInjector()
+		mockShell := shell.NewMockShell(injector)
+		mockShell.AddCurrentDirToTrustedFileFunc = func() error {
+			return fmt.Errorf("error adding current directory to trusted file")
+		}
+
+		// Set the shell in the controller to the mock shell
+		mocks := setupSafeInitCmdMocks()
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		// When the init command is executed
+		rootCmd.SetArgs([]string{"init", "test-context"})
+		err := Execute(mocks.Controller)
+
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error adding current directory to trusted file: error adding current directory to trusted file"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
 	t.Run("NoContextProvided", func(t *testing.T) {
 		// Given a valid config handler
-		controller := setupSafeInitCmdMocks()
+		mocks := setupSafeInitCmdMocks()
 
 		// When the init command is executed without a context
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init"})
-			err := Execute(controller)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -140,12 +176,12 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("EmptyContextName", func(t *testing.T) {
 		// Given a valid config handler
-		controller := setupSafeInitCmdMocks()
+		mocks := setupSafeInitCmdMocks()
 
 		// When the init command is executed with an empty context name
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", ""})
-			err := Execute(controller)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -160,12 +196,12 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ContextNameProvided", func(t *testing.T) {
 		// Given a valid config handler
-		controller := setupSafeInitCmdMocks()
+		mocks := setupSafeInitCmdMocks()
 
 		// When the init command is executed with a context name provided
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(controller)
+			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -178,44 +214,18 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolveContextHandlerError", func(t *testing.T) {
-		// Given a mock controller with ResolveContextHandlerFunc set to fail
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		controller.ResolveContextHandlerFunc = func() context.ContextHandler {
-			return nil
-		}
-
-		// When the init command is executed
-		rootCmd.SetArgs([]string{"init"})
-		err := Execute(controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then the error should be present
-		expectedError := "No context handler found"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
-		}
-	})
-
 	t.Run("SetContextError", func(t *testing.T) {
 		// Given a valid config handler
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
+		mocks := setupSafeInitCmdMocks()
 
 		// Mock SetContext to return an error
-		contextHandler := context.NewMockContext()
-		contextHandler.SetContextFunc = func(contextName string) error {
+		mocks.ConfigHandler.SetContextFunc = func(contextName string) error {
 			return fmt.Errorf("mocked error setting context")
 		}
-		injector.Register("contextHandler", contextHandler)
 
 		// When the init command is executed
 		rootCmd.SetArgs([]string{"init", "test-context"})
-		err := Execute(controller)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -227,103 +237,85 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorSettingConfig", func(t *testing.T) {
-		// Given a mock config handler with SetFunc set to fail for specific configs
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-		mockConfigHandler := config.NewMockConfigHandler()
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		// Given a valid config handler
+		mocks := setupSafeInitCmdMocks()
 
-		// Define the flags and expected errors
-		flags := []struct {
-			arg           string
-			key           string
-			value         interface{}
-			expectedError string
-			isSingleParam bool
-		}{
-			{"--aws-endpoint-url", "aws.aws_endpoint_url", "value", "Error setting aws-endpoint-url configuration: set aws.aws_endpoint_url config error", true},
-			{"--aws-profile", "aws.aws_profile", "value", "Error setting aws-profile configuration: set aws.aws_profile config error", true},
-			{"--docker", "docker.enabled", true, "Error setting docker configuration: set docker.enabled config error", false},
-			{"--backend", "terraform.backend", "value", "Error setting backend configuration: set terraform.backend config error", true},
-			{"--vm-driver", "vm.driver", "value", "Error setting vm-driver configuration: set vm.driver config error", true},
-			{"--vm-cpu", "vm.cpu", 1, "Error setting vm-cpu configuration: set vm.cpu config error", true},
-			{"--vm-disk", "vm.disk", 1, "Error setting vm-disk configuration: set vm.disk config error", true},
-			{"--vm-memory", "vm.memory", 1, "Error setting vm-memory configuration: set vm.memory config error", true},
-			{"--vm-arch", "vm.arch", "value", "Error setting vm-arch configuration: set vm.arch config error", true},
-			{"--git-livereload", "git.livereload.enabled", true, "Error setting git-livereload configuration: set git.livereload.enabled config error", false},
+		// Mock GetProjectRoot to return an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mocked error retrieving project root")
 		}
 
-		// Loop through each flag and check for errors
-		for _, flag := range flags {
-			mockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
-				if key == flag.key {
-					return fmt.Errorf("set %s config error", key)
-				}
-				return nil
-			}
-			injector.Register("configHandler", mockConfigHandler)
+		// When the init command is executed
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
 
-			if flag.isSingleParam {
-				rootCmd.SetArgs([]string{"init", "test-context", flag.arg, fmt.Sprintf("%v", flag.value)})
-			} else {
-				rootCmd.SetArgs([]string{"init", "test-context", flag.arg})
-			}
-			err := Execute(controller)
-			if err == nil {
-				t.Fatalf("Expected error for flag %q, got nil", flag.arg)
-			}
-
-			if err.Error() != flag.expectedError {
-				t.Errorf("For flag %q, expected error %q, got %q", flag.arg, flag.expectedError, err.Error())
-			}
+		// Then the error should be present
+		expectedError := "error retrieving project root: mocked error retrieving project root"
+		if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(expectedError)) {
+			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("ErrorGettingCliConfigPath", func(t *testing.T) { // Given a mock controller with GetCliConfigPath set to fail
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
+	t.Run("ErrorSettingFlagConfig", func(t *testing.T) {
+		// Given a valid config handler
+		mocks := setupSafeInitCmdMocks()
 
-		// Override getCliConfigPath to return an error on the second call
-		originalGetCliConfigPath := getCliConfigPath
-		callCount := 0
-		getCliConfigPath = func() (string, error) {
-			callCount++
-			if callCount == 2 {
-				return "", fmt.Errorf("get cli config path error")
+		// Mock SetContextValue to return an error for a specific flag
+		mocks.ConfigHandler.SetContextValueFunc = func(configPath string, value interface{}) error {
+			if configPath == "aws.aws_endpoint_url" {
+				return fmt.Errorf("mocked error setting aws-endpoint-url configuration")
 			}
-			return "/mock/path/to/config.yaml", nil
+			return nil
 		}
-		defer func() { getCliConfigPath = originalGetCliConfigPath }()
 
-		// When the init command is executed twice
-		rootCmd.SetArgs([]string{"init", "test-context"})
-		err := Execute(controller)
+		// When the init command is executed with the aws-endpoint-url flag set
+		rootCmd.SetArgs([]string{"init", "test-context", "--aws-endpoint-url", "http://mock-url"})
+		err := Execute(mocks.Controller)
 		if err == nil {
-			t.Fatalf("Expected error on first execution, got nil")
+			t.Fatalf("Expected error, got nil")
 		}
 
-		// Then the error should be as expected
-		expectedError := "Error getting cli configuration path: get cli config path error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		// Then the error should be present
+		expectedError := "mocked error setting aws-endpoint-url configuration"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
+		// Given a valid config handler
+		mocks := setupSafeInitCmdMocks()
+
+		// Mock GetProjectRoot to return an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mocked error retrieving project root")
+		}
+
+		// When the init command is executed
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then the error should be present
+		expectedError := "error retrieving project root: mocked error retrieving project root"
+		if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(expectedError)) {
+			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
 		}
 	})
 
 	t.Run("SaveConfigError", func(t *testing.T) {
 		// Given a config handler that returns an error on SaveConfig
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SaveConfigFunc = func(path string) error { return fmt.Errorf("save config error") }
-		injector.Register("configHandler", mockConfigHandler)
+		mocks := setupSafeInitCmdMocks()
+		mocks.ConfigHandler.SaveConfigFunc = func(path string) error { return fmt.Errorf("save config error") }
 
 		// When the init command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(controller)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -338,15 +330,13 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorCreatingProjectComponents", func(t *testing.T) {
 		// Given a mock controller with CreateProjectComponents set to fail
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-		controller.CreateProjectComponentsFunc = func() error { return fmt.Errorf("create project components error") }
+		mocks := setupSafeInitCmdMocks()
+		mocks.Controller.CreateProjectComponentsFunc = func() error { return fmt.Errorf("create project components error") }
 
 		// When the init command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(controller)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -361,15 +351,13 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorCreatingServiceComponents", func(t *testing.T) {
 		// Given a mock controller with CreateServiceComponents set to fail
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-		controller.CreateServiceComponentsFunc = func() error { return fmt.Errorf("create service components error") }
+		mocks := setupSafeInitCmdMocks()
+		mocks.Controller.CreateServiceComponentsFunc = func() error { return fmt.Errorf("create service components error") }
 
 		// When the init command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(controller)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -384,15 +372,13 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorCreatingVirtualizationComponents", func(t *testing.T) {
 		// Given a mock controller with CreateVirtualizationComponents set to fail
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-		controller.CreateVirtualizationComponentsFunc = func() error { return fmt.Errorf("create virtualization components error") }
+		mocks := setupSafeInitCmdMocks()
+		mocks.Controller.CreateVirtualizationComponentsFunc = func() error { return fmt.Errorf("create virtualization components error") }
 
 		// When the init command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(controller)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -407,15 +393,13 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorCreatingStackComponents", func(t *testing.T) {
 		// Given a mock controller with CreateStackComponents set to fail
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-		controller.CreateStackComponentsFunc = func() error { return fmt.Errorf("create stack components error") }
+		mocks := setupSafeInitCmdMocks()
+		mocks.Controller.CreateStackComponentsFunc = func() error { return fmt.Errorf("create stack components error") }
 
 		// When the init command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(controller)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -430,17 +414,15 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorInitializingComponents", func(t *testing.T) {
 		// Given a mock controller with InitializeComponents set to fail
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-		controller.InitializeComponentsFunc = func() error {
+		mocks := setupSafeInitCmdMocks()
+		mocks.Controller.InitializeComponentsFunc = func() error {
 			return fmt.Errorf("initialize components error")
 		}
 
 		// When the init command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(controller)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
@@ -455,10 +437,8 @@ func TestInitCmd(t *testing.T) {
 
 	t.Run("ErrorWritingConfigurationFiles", func(t *testing.T) {
 		// Given a mock controller with WriteConfigurationFiles set to fail
-		injector := di.NewInjector()
-		controller := ctrl.NewMockController(injector)
-		setupSafeInitCmdMocks(controller)
-		controller.WriteConfigurationFilesFunc = func() error {
+		mocks := setupSafeInitCmdMocks()
+		mocks.Controller.WriteConfigurationFilesFunc = func() error {
 			return fmt.Errorf("write configuration files error")
 		}
 

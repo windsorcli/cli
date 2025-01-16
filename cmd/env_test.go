@@ -7,6 +7,7 @@ import (
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 func TestEnvCmd(t *testing.T) {
@@ -46,6 +47,62 @@ func TestEnvCmd(t *testing.T) {
 		expectedOutput := "export VAR=value\n"
 		if output != expectedOutput {
 			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorCheckingTrustedDirectory", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock shell that returns an error when checking trusted directory
+		injector := di.NewInjector()
+		mockShell := shell.NewMockShell(injector)
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("error checking trusted directory")
+		}
+
+		// Set the shell in the controller to the mock shell
+		mockController := ctrl.NewMockController(injector)
+		mockController.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		// When the env command is executed with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mockController)
+
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error checking trusted directory: error checking trusted directory"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorCheckingTrustedDirectoryWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock shell that returns an error when checking trusted directory
+		injector := di.NewInjector()
+		mockShell := shell.NewMockShell(injector)
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("error checking trusted directory")
+		}
+
+		// Set the shell in the controller to the mock shell
+		mockController := ctrl.NewMockController(injector)
+		mockController.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		// When the env command is executed without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute(mockController)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
 	})
 
@@ -201,7 +258,7 @@ func TestEnvCmd(t *testing.T) {
 		}
 		expectedError := "Error resolving environment printers: no printers returned"
 		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+			t.Fatalf("Expected error %q, got %v", expectedError, err)
 		}
 	})
 

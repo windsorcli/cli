@@ -38,7 +38,7 @@ func (g *TerraformGenerator) Write() error {
 	}
 
 	// Get the context path
-	contextPath, err := g.contextHandler.GetConfigRoot()
+	contextPath, err := g.configHandler.GetConfigRoot()
 	if err != nil {
 		return err
 	}

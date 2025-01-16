@@ -7,7 +7,6 @@ import (
 
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -33,18 +32,16 @@ type BaseNetworkManager struct {
 	shell                    shell.Shell
 	secureShell              shell.Shell
 	configHandler            config.ConfigHandler
-	contextHandler           context.ContextHandler
 	networkInterfaceProvider NetworkInterfaceProvider
 	services                 []services.Service
 	isLocalhost              bool
 }
 
 // NewNetworkManager creates a new NetworkManager
-func NewBaseNetworkManager(injector di.Injector) (*BaseNetworkManager, error) {
-	nm := &BaseNetworkManager{
+func NewBaseNetworkManager(injector di.Injector) *BaseNetworkManager {
+	return &BaseNetworkManager{
 		injector: injector,
 	}
-	return nm, nil
 }
 
 // Initialize resolves dependencies, sorts services, and assigns IPs based on network CIDR
@@ -60,12 +57,6 @@ func (n *BaseNetworkManager) Initialize() error {
 		return fmt.Errorf("error resolving configHandler")
 	}
 	n.configHandler = configHandler
-
-	contextHandler, ok := n.injector.Resolve("contextHandler").(context.ContextHandler)
-	if !ok {
-		return fmt.Errorf("failed to resolve context handler")
-	}
-	n.contextHandler = contextHandler
 
 	resolvedServices, err := n.injector.ResolveAll(new(services.Service))
 	if err != nil {

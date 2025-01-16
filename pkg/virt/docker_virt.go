@@ -94,12 +94,12 @@ func (v *DockerVirt) Up() error {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
 
-		// Get the path to the compose.yaml file
-		configRoot, err := v.contextHandler.GetConfigRoot()
+		// Get the path to the docker-compose.yaml file
+		projectRoot, err := v.shell.GetProjectRoot()
 		if err != nil {
-			return fmt.Errorf("error retrieving config root: %w", err)
+			return fmt.Errorf("error retrieving project root: %w", err)
 		}
-		composeFilePath := filepath.Join(configRoot, "compose.yaml")
+		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 		// Set the COMPOSE_FILE environment variable and handle potential error
 		if err := osSetenv("COMPOSE_FILE", composeFilePath); err != nil {
@@ -152,12 +152,12 @@ func (v *DockerVirt) Down() error {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
 
-		// Get the path to the compose.yaml file
-		configRoot, err := v.contextHandler.GetConfigRoot()
+		// Get the path to the docker-compose.yaml file
+		projectRoot, err := v.shell.GetProjectRoot()
 		if err != nil {
-			return fmt.Errorf("error retrieving config root: %w", err)
+			return fmt.Errorf("error retrieving project root: %w", err)
 		}
-		composeFilePath := filepath.Join(configRoot, "compose.yaml")
+		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 		// Set the COMPOSE_FILE environment variable and handle potential error
 		if err := osSetenv("COMPOSE_FILE", composeFilePath); err != nil {
@@ -175,12 +175,12 @@ func (v *DockerVirt) Down() error {
 
 // WriteConfig writes the Docker configuration file
 func (v *DockerVirt) WriteConfig() error {
-	// Get the config root and construct the file path
-	configRoot, err := v.contextHandler.GetConfigRoot()
+	// Get the project root and construct the file path
+	projectRoot, err := v.shell.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("error retrieving config root: %w", err)
+		return fmt.Errorf("error retrieving project root: %w", err)
 	}
-	composeFilePath := filepath.Join(configRoot, "compose.yaml")
+	composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 	// Ensure the parent context folder exists
 	if err := mkdirAll(filepath.Dir(composeFilePath), 0755); err != nil {
@@ -211,7 +211,7 @@ func (v *DockerVirt) WriteConfig() error {
 // GetContainerInfo returns a list of information about the Docker containers, including their labels
 func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 	// Get the context name
-	contextName := v.contextHandler.GetContext()
+	contextName := v.configHandler.GetContext()
 
 	command := "docker"
 	args := []string{"ps", "--filter", "label=managed_by=windsor", "--filter", fmt.Sprintf("label=context=%s", contextName), "--format", "{{.ID}}"}
@@ -314,15 +314,13 @@ func (v *DockerVirt) checkDockerDaemon() error {
 	return err
 }
 
-// getFullComposeConfig constructs a Docker Compose configuration for DockerVirt. It retrieves the
-// context name and configuration, and checks if Docker is defined. If not, it returns nil. It
-// initializes combined configurations for services, volumes, and networks. It defines a network
-// name and configuration, assigning IPAM settings if a NetworkCIDR is specified. It iterates over
-// services, retrieving their configurations and addresses, appending them to the combined list,
-// and setting IP addresses if applicable. Finally, it creates and returns a Project with these
-// combined configurations.
+// getFullComposeConfig builds a Docker Compose configuration for DockerVirt. It retrieves the
+// context name and configuration, checks if Docker is defined, and returns nil if not. It sets up
+// combined configurations for services, volumes, and networks, defining a network with IPAM if a
+// NetworkCIDR is specified. It iterates over services, gathering their configurations and IPs,
+// and returns a Project with these combined settings.
 func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
-	contextName := v.contextHandler.GetContext()
+	contextName := v.configHandler.GetContext()
 	contextConfig := v.configHandler.GetConfig()
 
 	if contextConfig.Docker == nil {

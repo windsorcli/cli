@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -20,7 +19,6 @@ type NetworkManagerMocks struct {
 	MockShell                    *shell.MockShell
 	MockSecureShell              *shell.MockShell
 	MockConfigHandler            *config.MockConfigHandler
-	MockContextHandler           *context.MockContext
 	MockSSHClient                *ssh.MockClient
 	MockNetworkInterfaceProvider *MockNetworkInterfaceProvider
 }
@@ -59,9 +57,6 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 		}
 	}
 
-	// Create a mock context handler
-	mockContextHandler := context.NewMockContext()
-
 	// Create a mock SSH client
 	mockSSHClient := &ssh.MockClient{}
 
@@ -69,7 +64,6 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("contextHandler", mockContextHandler)
 	injector.Register("sshClient", mockSSHClient)
 
 	// Create a mock network interface provider with mock functions
@@ -127,7 +121,6 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 		MockShell:                    mockShell,
 		MockSecureShell:              mockSecureShell,
 		MockConfigHandler:            mockConfigHandler,
-		MockContextHandler:           mockContextHandler,
 		MockSSHClient:                mockSSHClient,
 		MockNetworkInterfaceProvider: mockNetworkInterfaceProvider,
 	}
@@ -136,12 +129,9 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 func TestNetworkManager_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupNetworkManagerMocks()
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -153,10 +143,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 
 	t.Run("SuccessLocalhost", func(t *testing.T) {
 		mocks := setupNetworkManagerMocks()
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Set the configuration to simulate docker-desktop
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -176,7 +163,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		}
 		mocks.Injector.Register("service", mockService)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -188,10 +175,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 
 	t.Run("SetAddressFailure", func(t *testing.T) {
 		mocks := setupNetworkManagerMocks()
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Mock a failure in SetAddress using SetAddressFunc
 		mockService := services.NewMockService()
@@ -200,7 +184,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		}
 		mocks.Injector.Register("service", mockService)
 
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err == nil {
 			t.Fatalf("expected error during Initialize, got nil")
 		}
@@ -218,13 +202,10 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		mocks.Injector.Register("shell", "invalid")
 
 		// Create a new NetworkManager
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Run Initialize on the NetworkManager
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err == nil {
 			t.Fatalf("expected an error during Initialize, got nil")
 		} else if err.Error() != "resolved shell instance is not of type shell.Shell" {
@@ -239,38 +220,13 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		mocks.Injector.Register("configHandler", "invalid")
 
 		// Create a new NetworkManager
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Run Initialize on the NetworkManager
-		err = nm.Initialize()
+		err := nm.Initialize()
 		if err == nil {
 			t.Fatalf("expected an error during Initialize, got nil")
 		} else if err.Error() != "error resolving configHandler" {
-			t.Fatalf("unexpected error message: got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupNetworkManagerMocks()
-
-		// Register a mock contextHandler with incorrect type
-		mocks.Injector.Register("contextHandler", "incorrectType")
-
-		// Create a new NetworkManager
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
-
-		// Run Initialize on the NetworkManager
-		err = nm.Initialize()
-		if err == nil {
-			t.Fatalf("expected an error during Initialize, got nil")
-		} else if err.Error() != "failed to resolve context handler" {
 			t.Fatalf("unexpected error message: got %v", err)
 		}
 	})
@@ -279,16 +235,13 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		// Setup mock components
 		injector := di.NewMockInjector()
 		mocks := setupNetworkManagerMocks(injector)
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Mock ResolveAll to return an error
 		injector.SetResolveAllError(new(services.Service), fmt.Errorf("mock error resolving services"))
 
 		// Call the Initialize method
-		err = nm.Initialize()
+		err := nm.Initialize()
 
 		// Assert that an error occurred
 		if err == nil {
@@ -305,10 +258,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 	t.Run("ErrorSettingLocalhostAddresses", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupNetworkManagerMocks()
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Set the configuration to simulate docker-desktop
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -329,7 +279,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		mocks.Injector.Register("service", mockService)
 
 		// Call the Initialize method
-		err = nm.Initialize()
+		err := nm.Initialize()
 
 		// Assert that an error occurred
 		if err == nil {
@@ -351,10 +301,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 	t.Run("ErrorSettingNetworkCidr", func(t *testing.T) {
 		// Setup mock components
 		mocks := setupNetworkManagerMocks()
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Mock GetString to return an empty string for docker.network_cidr
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -373,7 +320,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		}
 
 		// Call the Initialize method
-		err = nm.Initialize()
+		err := nm.Initialize()
 
 		// Assert that an error occurred
 		if err == nil {
@@ -391,10 +338,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		// Setup mock components
 		injector := di.NewMockInjector()
 		mocks := setupNetworkManagerMocks(injector)
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error when creating NetworkManager, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
 
 		// Simulate an error during IP address assignment
 		originalAssignIPAddresses := assignIPAddresses
@@ -404,7 +348,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		}
 
 		// Call the Initialize method
-		err = nm.Initialize()
+		err := nm.Initialize()
 
 		// Assert that an error occurred
 		if err == nil {
@@ -420,16 +364,18 @@ func TestNetworkManager_Initialize(t *testing.T) {
 }
 
 func TestNetworkManager_NewNetworkManager(t *testing.T) {
-	// Given: a DI container
-	injector := di.NewInjector()
+	t.Run("Success", func(t *testing.T) {
+		// Given: a DI container
+		injector := di.NewInjector()
 
-	// When: attempting to create NetworkManager
-	_, err := NewBaseNetworkManager(injector)
+		// When: creating a new BaseNetworkManager
+		nm := NewBaseNetworkManager(injector)
 
-	// Then: no error should be returned
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+		// Then: the NetworkManager should not be nil
+		if nm == nil {
+			t.Fatalf("expected NetworkManager to be created, got nil")
+		}
+	})
 }
 
 func TestNetworkManager_ConfigureGuest(t *testing.T) {
@@ -437,11 +383,9 @@ func TestNetworkManager_ConfigureGuest(t *testing.T) {
 	injector := di.NewInjector()
 
 	// When: creating a NetworkManager and configuring the guest
-	nm, err := NewBaseNetworkManager(injector)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	err = nm.ConfigureGuest()
+	nm := NewBaseNetworkManager(injector)
+
+	err := nm.ConfigureGuest()
 
 	// Then: no error should be returned
 	if err != nil {

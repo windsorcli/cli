@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
@@ -60,10 +59,7 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 			return ""
 		}
 	}
-
-	// Create a mock context handler
-	mockContext := context.NewMockContext()
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mocked context"
 	}
 
@@ -77,7 +73,6 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("contextHandler", mockContext)
 	injector.Register("sshClient", mockSSHClient)
 	injector.Register("networkInterfaceProvider", mockNetworkInterfaceProvider)
 
@@ -98,11 +93,8 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupWindowsNetworkManagerMocks()
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		err = nm.Initialize()
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -121,7 +113,8 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupWindowsNetworkManagerMocks()
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -153,11 +146,8 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupWindowsNetworkManagerMocks()
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		err = nm.Initialize()
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -188,11 +178,8 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupWindowsNetworkManagerMocks()
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		err = nm.Initialize()
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -231,11 +218,8 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupWindowsNetworkManagerMocks()
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		err = nm.Initialize()
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
@@ -321,12 +305,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		err = nm.Initialize()
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 		if err != nil {
 			t.Errorf("expected no error during initialization, got %v", err)
 		}
@@ -358,7 +338,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -418,10 +399,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 
 		err = nm.Initialize()
 		if err != nil {
@@ -468,7 +447,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -516,10 +496,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 
 		err = nm.Initialize()
 		if err != nil {
@@ -559,7 +537,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", nil
 		}
 
-		nm, err := NewBaseNetworkManager(mocks.Injector)
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -618,10 +597,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 
 		err = nm.Initialize()
 		if err != nil {
@@ -661,10 +638,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
-		nm, err := NewBaseNetworkManager(mocks.Injector)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
 
 		// Initialize the network manager
 		err = nm.Initialize()
