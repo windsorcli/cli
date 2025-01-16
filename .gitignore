@@ -29,9 +29,10 @@ age.key
 age.public.key
 
 # Temporary development folders
-contexts/
-kustomize/
-terraform/
+/contexts/
+/kustomize/
+/terraform/
+/windsor.yaml
 
 # managed by windsor cli
 .windsor/

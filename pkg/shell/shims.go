@@ -29,6 +29,9 @@ var cmdStart = func(cmd *exec.Cmd) error {
 	return cmd.Start()
 }
 
+// osUserHomeDir is a variable that points to os.UserHomeDir, allowing it to be overridden in tests
+var osUserHomeDir = os.UserHomeDir
+
 // osStat is a variable that points to os.Stat, allowing it to be overridden in tests
 var osStat = os.Stat
 
@@ -37,6 +40,12 @@ var osOpenFile = os.OpenFile
 
 // osReadFile is a variable that points to os.ReadFile, allowing it to be overridden in tests
 var osReadFile = os.ReadFile
+
+// osWriteFile is a variable that points to os.WriteFile, allowing it to be overridden in tests
+var osWriteFile = os.WriteFile
+
+// osMkdirAll is a variable that points to os.MkdirAll, allowing it to be overridden in tests
+var osMkdirAll = os.MkdirAll
 
 // cmdWait is a variable that points to cmd.Wait, allowing it to be overridden in tests
 var cmdWait = func(cmd *exec.Cmd) error {

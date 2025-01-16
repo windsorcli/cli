@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/env"
 )
 
 var (
@@ -33,11 +32,9 @@ var initCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 
 		// Add the current directory to the trusted file list
-		if err := env.AddCurrentDirToTrustedFile(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error adding current directory to trusted file: %w", err)
-			}
-			return nil
+		shell := controller.ResolveShell()
+		if err := shell.AddCurrentDirToTrustedFile(); err != nil {
+			return fmt.Errorf("Error adding current directory to trusted file: %w", err)
 		}
 
 		// Resolve the config handler
@@ -87,7 +84,6 @@ var initCmd = &cobra.Command{
 		}
 
 		// Get the cli configuration path using shell to get the project root
-		shell := controller.ResolveShell()
 		projectRoot, err := shell.GetProjectRoot()
 		if err != nil {
 			return fmt.Errorf("Error retrieving project root: %w", err)

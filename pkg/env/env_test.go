@@ -1,10 +1,7 @@
 package env
 
 import (
-	"os"
-	"path"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -12,42 +9,53 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// Mocks holds all the mock objects used in the tests.
+type Mocks struct {
+	Injector      *di.MockInjector
+	Shell         *shell.MockShell
+	ConfigHandler *config.MockConfigHandler
+	Env           *BaseEnvPrinter
+}
+
+// setupEnvMockTests sets up the mock injector and returns the Mocks object.
+// It takes an optional injector and only creates one if it's not provided.
+func setupEnvMockTests(injector *di.MockInjector) *Mocks {
+	if injector == nil {
+		injector = di.NewMockInjector()
+	}
+	mockShell := shell.NewMockShell()
+	mockConfigHandler := config.NewMockConfigHandler()
+	injector.Register("shell", mockShell)
+	injector.Register("configHandler", mockConfigHandler)
+	env := NewBaseEnvPrinter(injector)
+	return &Mocks{
+		Injector:      injector,
+		Shell:         mockShell,
+		ConfigHandler: mockConfigHandler,
+		Env:           env,
+	}
+}
+
 // TestEnv_Initialize tests the Initialize method of the Env struct
 func TestEnv_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-
-		// Create and register mock versions of shell and configHandler
-		mockShell := shell.NewMockShell()
-		mockInjector.Register("shell", mockShell)
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("configHandler", mockConfigHandler)
-
-		env := NewBaseEnvPrinter(mockInjector)
+		mocks := setupEnvMockTests(nil)
 
 		// Call Initialize and check for errors
-		err := env.Initialize()
+		err := mocks.Env.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-
-		// Register mock version of configHandler
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("configHandler", mockConfigHandler)
+		mocks := setupEnvMockTests(nil)
 
 		// Register an invalid shell that cannot be cast to shell.Shell
-		mockInjector.Register("shell", "invalid")
-
-		env := NewBaseEnvPrinter(mockInjector)
+		mocks.Injector.Register("shell", "invalid")
 
 		// Call Initialize and expect an error
-		err := env.Initialize()
+		err := mocks.Env.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if err.Error() != "error resolving or casting shell to shell.Shell" {
@@ -56,20 +64,13 @@ func TestEnv_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorCastingCliConfigHandler", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-
-		// Register mock version of shell
-		mockShell := shell.NewMockShell()
-		mockInjector.Register("shell", mockShell)
+		mocks := setupEnvMockTests(nil)
 
 		// Register an invalid configHandler that cannot be cast to config.ConfigHandler
-		mockInjector.Register("configHandler", "invalid")
-
-		env := NewBaseEnvPrinter(mockInjector)
+		mocks.Injector.Register("configHandler", "invalid")
 
 		// Call Initialize and expect an error
-		err := env.Initialize()
+		err := mocks.Env.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if err.Error() != "error resolving or casting configHandler to config.ConfigHandler" {
@@ -81,13 +82,11 @@ func TestEnv_Initialize(t *testing.T) {
 // TestEnv_GetEnvVars tests the GetEnvVars method of the Env struct
 func TestEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-		env := NewBaseEnvPrinter(mockInjector)
-		env.Initialize()
+		mocks := setupEnvMockTests(nil)
+		mocks.Env.Initialize()
 
 		// Call GetEnvVars and check for errors
-		envVars, err := env.GetEnvVars()
+		envVars, err := mocks.Env.GetEnvVars()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -103,24 +102,18 @@ func TestEnv_GetEnvVars(t *testing.T) {
 // TestEnv_Print tests the Print method of the Env struct
 func TestEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-		mockShell := shell.NewMockShell()
-		mockInjector.Register("shell", mockShell)
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("configHandler", mockConfigHandler)
-		env := NewBaseEnvPrinter(mockInjector)
-		env.Initialize()
+		mocks := setupEnvMockTests(nil)
+		mocks.Env.Initialize()
 
 		// Mock the PrintEnvVarsFunc to verify it is called
 		var capturedEnvVars map[string]string
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
 			capturedEnvVars = envVars
 			return nil
 		}
 
 		// Call Print and check for errors
-		err := env.Print(map[string]string{"TEST_VAR": "test_value"})
+		err := mocks.Env.Print(map[string]string{"TEST_VAR": "test_value"})
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -133,24 +126,18 @@ func TestEnv_Print(t *testing.T) {
 	})
 
 	t.Run("NoCustomVars", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-		mockShell := shell.NewMockShell()
-		mockInjector.Register("shell", mockShell)
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("configHandler", mockConfigHandler)
-		env := NewBaseEnvPrinter(mockInjector)
-		env.Initialize()
+		mocks := setupEnvMockTests(nil)
+		mocks.Env.Initialize()
 
 		// Mock the PrintEnvVarsFunc to verify it is called
 		var capturedEnvVars map[string]string
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
 			capturedEnvVars = envVars
 			return nil
 		}
 
 		// Call Print without custom vars and check for errors
-		err := env.Print()
+		err := mocks.Env.Print()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -160,127 +147,5 @@ func TestEnv_Print(t *testing.T) {
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
 		}
-	})
-}
-
-func TestEnv_CheckTrustedDirectory(t *testing.T) {
-	t.Run("DirectoryTrusted", func(t *testing.T) {
-		currentDir, err := os.Getwd()
-		if err != nil {
-			t.Fatalf("failed to get current directory: %v", err)
-		}
-
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatalf("Error retrieving user home directory: %v\n", err)
-		}
-
-		// Delete the .trusted file if it already exists
-		trustedFilePath := path.Join(homeDir, ".config", "windsor", ".trusted")
-		os.Remove(trustedFilePath)
-
-		// Create a mock trusted file with the current directory
-		os.MkdirAll(path.Dir(trustedFilePath), os.ModePerm)
-		os.WriteFile(trustedFilePath, []byte(currentDir+"\n"), 0644)
-
-		// Call CheckTrustedDirectory and check for errors
-		err = CheckTrustedDirectory()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("DirectoryNotTrusted", func(t *testing.T) {
-
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatalf("Error retrieving user home directory: %v\n", err)
-		}
-
-		// Delete the .trusted file if it already exists
-		trustedFilePath := path.Join(homeDir, ".config", "windsor", ".trusted")
-		os.Remove(trustedFilePath)
-
-		// Create a mock trusted file with the current directory
-		os.MkdirAll(path.Dir(trustedFilePath), os.ModePerm)
-
-		// Call CheckTrustedDirectory and check for errors
-		err = CheckTrustedDirectory()
-		if err == nil {
-			t.Errorf("Error was expected, got folder trusted when it shouldn't be")
-		}
-	})
-}
-
-func TestEnv_AddCurrentDirToTrustedFile(t *testing.T) {
-	t.Run("AddDirectory", func(t *testing.T) {
-
-		currentDir, err := os.Getwd()
-		if err != nil {
-			t.Fatalf("failed to get current directory: %v", err)
-		}
-
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatalf("Error retrieving user home directory: %v\n", err)
-		}
-
-		// Ensure the trusted file does not exist
-		trustedFilePath := path.Join(homeDir, ".config", "windsor", ".trusted")
-		os.Remove(trustedFilePath)
-
-		// Call AddCurrentDirToTrustedFile and check for errors
-		err = AddCurrentDirToTrustedFile()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		// Verify that the current directory was added to the trusted file
-		content, _ := os.ReadFile(trustedFilePath)
-		expectedContent := currentDir + "\n"
-		if string(content) != expectedContent {
-			t.Errorf("trusted file content = %v, want %v", string(content), expectedContent)
-		}
-	})
-
-	t.Run("DirectoryAlreadyTrusted", func(t *testing.T) {
-		currentDir, err := os.Getwd()
-		if err != nil {
-			t.Fatalf("failed to get current directory: %v", err)
-		}
-
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatalf("Error retrieving user home directory: %v\n", err)
-		}
-
-		// Ensure the trusted file does not exist
-		trustedFilePath := path.Join(homeDir, ".config", "windsor", ".trusted")
-		os.Remove(trustedFilePath)
-
-		// Create the .trusted file and write the current directory to it
-		err = os.WriteFile(trustedFilePath, []byte(currentDir+"\n"), 0644)
-		if err != nil {
-			t.Fatalf("failed to initialize .trusted file: %v", err)
-		}
-
-		// Call AddCurrentDirToTrustedFile and check for errors
-		err = AddCurrentDirToTrustedFile()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		// Verify that the current directory was added to the trusted file
-		content, _ := os.ReadFile(trustedFilePath)
-		expectedContent := currentDir + "\n"
-		if string(content) != expectedContent {
-			t.Errorf("trusted file content = %v, want %v", string(content), expectedContent)
-		}
-
-		contentLines := len(strings.Split(string(content), "\n")) - 1
-		if contentLines > 1 {
-			t.Errorf("trusted file contains more than one entry: %d entries", contentLines)
-		}
-
 	})
 }

@@ -124,6 +124,36 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorAddingCurrentDirToTrustedFile", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock shell that returns an error when adding current directory to trusted file
+		injector := di.NewInjector()
+		mockShell := shell.NewMockShell(injector)
+		mockShell.AddCurrentDirToTrustedFileFunc = func() error {
+			return fmt.Errorf("error adding current directory to trusted file")
+		}
+
+		// Set the shell in the controller to the mock shell
+		mocks := setupSafeInitCmdMocks()
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		// When the init command is executed
+		rootCmd.SetArgs([]string{"init", "test-context"})
+		err := Execute(mocks.Controller)
+
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error adding current directory to trusted file: error adding current directory to trusted file"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
 	t.Run("NoContextProvided", func(t *testing.T) {
 		// Given a valid config handler
 		mocks := setupSafeInitCmdMocks()
@@ -203,6 +233,28 @@ func TestInitCmd(t *testing.T) {
 		// Then the error should be present
 		expectedError := "mocked error setting context"
 		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		// Given a valid config handler
+		mocks := setupSafeInitCmdMocks()
+
+		// Mock GetProjectRoot to return an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mocked error retrieving project root")
+		}
+
+		// When the init command is executed
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then the error should be present
+		expectedError := "error retrieving project root: mocked error retrieving project root"
+		if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(expectedError)) {
 			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
 		}
 	})

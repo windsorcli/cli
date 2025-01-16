@@ -7,16 +7,18 @@ import (
 // MockShell is a struct that simulates a shell environment for testing purposes.
 type MockShell struct {
 	DefaultShell
-	InitializeFunc     func() error
-	PrintEnvVarsFunc   func(envVars map[string]string) error
-	PrintAliasFunc     func(envVars map[string]string) error
-	GetProjectRootFunc func() (string, error)
-	ExecFunc           func(command string, args ...string) (string, error)
-	ExecSilentFunc     func(command string, args ...string) (string, error)
-	ExecProgressFunc   func(message string, command string, args ...string) (string, error)
-	ExecSudoFunc       func(message string, command string, args ...string) (string, error)
-	InstallHookFunc    func(shellName string) error
-	SetVerbosityFunc   func(verbose bool)
+	InitializeFunc                 func() error
+	PrintEnvVarsFunc               func(envVars map[string]string) error
+	PrintAliasFunc                 func(envVars map[string]string) error
+	GetProjectRootFunc             func() (string, error)
+	ExecFunc                       func(command string, args ...string) (string, error)
+	ExecSilentFunc                 func(command string, args ...string) (string, error)
+	ExecProgressFunc               func(message string, command string, args ...string) (string, error)
+	ExecSudoFunc                   func(message string, command string, args ...string) (string, error)
+	InstallHookFunc                func(shellName string) error
+	SetVerbosityFunc               func(verbose bool)
+	AddCurrentDirToTrustedFileFunc func() error
+	CheckTrustedDirectoryFunc      func() error
 }
 
 // NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
@@ -109,6 +111,22 @@ func (s *MockShell) SetVerbosity(verbose bool) {
 	if s.SetVerbosityFunc != nil {
 		s.SetVerbosityFunc(verbose)
 	}
+}
+
+// AddCurrentDirToTrustedFile calls the custom AddCurrentDirToTrustedFileFunc if provided.
+func (s *MockShell) AddCurrentDirToTrustedFile() error {
+	if s.AddCurrentDirToTrustedFileFunc != nil {
+		return s.AddCurrentDirToTrustedFileFunc()
+	}
+	return nil
+}
+
+// CheckTrustedDirectory calls the custom CheckTrustedDirectoryFunc if provided.
+func (s *MockShell) CheckTrustedDirectory() error {
+	if s.CheckTrustedDirectoryFunc != nil {
+		return s.CheckTrustedDirectoryFunc()
+	}
+	return nil
 }
 
 // Ensure MockShell implements the Shell interface
