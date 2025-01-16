@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -46,10 +47,15 @@ type Shell interface {
 	ExecProgress(message string, command string, args ...string) (string, error)
 	// InstallHook installs a shell hook for the specified shell name
 	InstallHook(shellName string) error
+	// AddCurrentDirToTrustedFile adds the current directory to a trusted list stored in a file.
+	AddCurrentDirToTrustedFile() error
+	// CheckTrustedDirectory verifies if the current directory is in the trusted file list.
+	CheckTrustedDirectory() error
 }
 
 // DefaultShell is the default implementation of the Shell interface
 type DefaultShell struct {
+	Shell
 	projectRoot string
 	injector    di.Injector
 	verbose     bool
@@ -74,18 +80,24 @@ func (s *DefaultShell) SetVerbosity(verbose bool) {
 
 // GetProjectRoot finds the project root. It checks for a cached root first.
 // If not found, it looks for "windsor.yaml" or "windsor.yml" in the current
-// directory and its parents. Returns the root path or an error if not found.
+// directory and its parents up to a maximum depth. Returns the root path or an empty string if not found.
 func (s *DefaultShell) GetProjectRoot() (string, error) {
 	if s.projectRoot != "" {
 		return s.projectRoot, nil
 	}
 
-	currentDir, err := getwd()
+	originalDir, err := getwd()
 	if err != nil {
 		return "", err
 	}
 
+	currentDir := originalDir
+	depth := 0
 	for {
+		if depth > maxFolderSearchDepth {
+			return originalDir, nil
+		}
+
 		windsorYaml := filepath.Join(currentDir, "windsor.yaml")
 		windsorYml := filepath.Join(currentDir, "windsor.yml")
 
@@ -100,9 +112,10 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 
 		parentDir := filepath.Dir(currentDir)
 		if parentDir == currentDir {
-			return "", nil
+			return originalDir, nil
 		}
 		currentDir = parentDir
+		depth++
 	}
 }
 
@@ -296,6 +309,88 @@ func (s *DefaultShell) InstallHook(shellName string) error {
 	err = hookTemplateExecute(hookTemplate, os.Stdout, ctx)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// Adds the current directory to a trusted list stored in a file.
+// Creates necessary directories if they don't exist.
+// Checks if the directory is already trusted before adding.
+func (s *DefaultShell) AddCurrentDirToTrustedFile() error {
+	projectRoot, err := s.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("Error getting project root directory: %w", err)
+	}
+
+	homeDir, err := osUserHomeDir()
+	if err != nil {
+		return fmt.Errorf("Error getting user home directory: %w", err)
+	}
+
+	trustedDirPath := path.Join(homeDir, ".config", "windsor")
+	err = osMkdirAll(trustedDirPath, 0750)
+	if err != nil {
+		return fmt.Errorf("Error creating directories for trusted file: %w", err)
+	}
+
+	trustedFilePath := path.Join(trustedDirPath, ".trusted")
+
+	data, err := osReadFile(trustedFilePath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("Error reading trusted file: %w", err)
+	}
+
+	trustedDirs := strings.Split(strings.TrimSpace(string(data)), "\n")
+	for _, dir := range trustedDirs {
+		if strings.TrimSpace(dir) == projectRoot {
+			return nil
+		}
+	}
+
+	data = append(data, []byte(projectRoot+"\n")...)
+	if err := osWriteFile(trustedFilePath, data, 0600); err != nil {
+		return fmt.Errorf("Error writing to trusted file: %w", err)
+	}
+
+	return nil
+}
+
+// Check if the current directory is in the trusted file list.
+func (s *DefaultShell) CheckTrustedDirectory() error {
+	projectRoot, err := s.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("Error getting project root directory: %w", err)
+	}
+
+	homeDir, err := osUserHomeDir()
+	if err != nil {
+		return fmt.Errorf("Error getting user home directory: %w", err)
+	}
+
+	trustedDirPath := path.Join(homeDir, ".config", "windsor")
+	trustedFilePath := path.Join(trustedDirPath, ".trusted")
+
+	data, err := osReadFile(trustedFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("Trusted file does not exist")
+		}
+		return fmt.Errorf("Error reading trusted file: %w", err)
+	}
+
+	isTrusted := false
+	trustedDirs := strings.Split(strings.TrimSpace(string(data)), "\n")
+	for _, trustedDir := range trustedDirs {
+		trimmedDir := strings.TrimSpace(trustedDir)
+		if trimmedDir != "" && strings.HasPrefix(projectRoot, trimmedDir) {
+			isTrusted = true
+			break
+		}
+	}
+
+	if !isTrusted {
+		return fmt.Errorf("Current directory not in the trusted list")
 	}
 
 	return nil

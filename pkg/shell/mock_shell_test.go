@@ -432,3 +432,57 @@ func TestMockShell_SetVerbosity(t *testing.T) {
 		// Then no panic or error should occur
 	})
 }
+
+func TestMockShell_AddCurrentDirToTrustedFile(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with a custom AddCurrentDirToTrustedFileFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		mockShell.AddCurrentDirToTrustedFileFunc = func() error {
+			return nil
+		}
+		// When calling AddCurrentDirToTrustedFile
+		err := mockShell.AddCurrentDirToTrustedFile()
+		// Then no error should be returned
+		assertError(t, err, false)
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with no AddCurrentDirToTrustedFileFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		// When calling AddCurrentDirToTrustedFile
+		err := mockShell.AddCurrentDirToTrustedFile()
+		// Then no error should be returned
+		assertError(t, err, false)
+	})
+}
+
+func TestMockShell_CheckTrustedDirectory(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with a custom CheckTrustedDirectoryFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
+
+		// When calling CheckTrustedDirectory
+		err := mockShell.CheckTrustedDirectory()
+
+		// Then no error should be returned
+		assertError(t, err, false)
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with no CheckTrustedDirectoryFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// When calling CheckTrustedDirectory
+		err := mockShell.CheckTrustedDirectory()
+
+		// Then no error should be returned
+		assertError(t, err, false)
+	})
+}

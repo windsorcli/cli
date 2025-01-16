@@ -9,42 +9,53 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// Mocks holds all the mock objects used in the tests.
+type Mocks struct {
+	Injector      *di.MockInjector
+	Shell         *shell.MockShell
+	ConfigHandler *config.MockConfigHandler
+	Env           *BaseEnvPrinter
+}
+
+// setupEnvMockTests sets up the mock injector and returns the Mocks object.
+// It takes an optional injector and only creates one if it's not provided.
+func setupEnvMockTests(injector *di.MockInjector) *Mocks {
+	if injector == nil {
+		injector = di.NewMockInjector()
+	}
+	mockShell := shell.NewMockShell()
+	mockConfigHandler := config.NewMockConfigHandler()
+	injector.Register("shell", mockShell)
+	injector.Register("configHandler", mockConfigHandler)
+	env := NewBaseEnvPrinter(injector)
+	return &Mocks{
+		Injector:      injector,
+		Shell:         mockShell,
+		ConfigHandler: mockConfigHandler,
+		Env:           env,
+	}
+}
+
 // TestEnv_Initialize tests the Initialize method of the Env struct
 func TestEnv_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-
-		// Create and register mock versions of shell and configHandler
-		mockShell := shell.NewMockShell()
-		mockInjector.Register("shell", mockShell)
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("configHandler", mockConfigHandler)
-
-		env := NewBaseEnvPrinter(mockInjector)
+		mocks := setupEnvMockTests(nil)
 
 		// Call Initialize and check for errors
-		err := env.Initialize()
+		err := mocks.Env.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-
-		// Register mock version of configHandler
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("configHandler", mockConfigHandler)
+		mocks := setupEnvMockTests(nil)
 
 		// Register an invalid shell that cannot be cast to shell.Shell
-		mockInjector.Register("shell", "invalid")
-
-		env := NewBaseEnvPrinter(mockInjector)
+		mocks.Injector.Register("shell", "invalid")
 
 		// Call Initialize and expect an error
-		err := env.Initialize()
+		err := mocks.Env.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if err.Error() != "error resolving or casting shell to shell.Shell" {
@@ -53,20 +64,13 @@ func TestEnv_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorCastingCliConfigHandler", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-
-		// Register mock version of shell
-		mockShell := shell.NewMockShell()
-		mockInjector.Register("shell", mockShell)
+		mocks := setupEnvMockTests(nil)
 
 		// Register an invalid configHandler that cannot be cast to config.ConfigHandler
-		mockInjector.Register("configHandler", "invalid")
-
-		env := NewBaseEnvPrinter(mockInjector)
+		mocks.Injector.Register("configHandler", "invalid")
 
 		// Call Initialize and expect an error
-		err := env.Initialize()
+		err := mocks.Env.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if err.Error() != "error resolving or casting configHandler to config.ConfigHandler" {
@@ -78,13 +82,11 @@ func TestEnv_Initialize(t *testing.T) {
 // TestEnv_GetEnvVars tests the GetEnvVars method of the Env struct
 func TestEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-		env := NewBaseEnvPrinter(mockInjector)
-		env.Initialize()
+		mocks := setupEnvMockTests(nil)
+		mocks.Env.Initialize()
 
 		// Call GetEnvVars and check for errors
-		envVars, err := env.GetEnvVars()
+		envVars, err := mocks.Env.GetEnvVars()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -100,24 +102,18 @@ func TestEnv_GetEnvVars(t *testing.T) {
 // TestEnv_Print tests the Print method of the Env struct
 func TestEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-		mockShell := shell.NewMockShell()
-		mockInjector.Register("shell", mockShell)
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("configHandler", mockConfigHandler)
-		env := NewBaseEnvPrinter(mockInjector)
-		env.Initialize()
+		mocks := setupEnvMockTests(nil)
+		mocks.Env.Initialize()
 
 		// Mock the PrintEnvVarsFunc to verify it is called
 		var capturedEnvVars map[string]string
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
 			capturedEnvVars = envVars
 			return nil
 		}
 
 		// Call Print and check for errors
-		err := env.Print(map[string]string{"TEST_VAR": "test_value"})
+		err := mocks.Env.Print(map[string]string{"TEST_VAR": "test_value"})
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -130,24 +126,18 @@ func TestEnv_Print(t *testing.T) {
 	})
 
 	t.Run("NoCustomVars", func(t *testing.T) {
-		// Create a mock injector and Env instance
-		mockInjector := di.NewMockInjector()
-		mockShell := shell.NewMockShell()
-		mockInjector.Register("shell", mockShell)
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockInjector.Register("configHandler", mockConfigHandler)
-		env := NewBaseEnvPrinter(mockInjector)
-		env.Initialize()
+		mocks := setupEnvMockTests(nil)
+		mocks.Env.Initialize()
 
 		// Mock the PrintEnvVarsFunc to verify it is called
 		var capturedEnvVars map[string]string
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
 			capturedEnvVars = envVars
 			return nil
 		}
 
 		// Call Print without custom vars and check for errors
-		err := env.Print()
+		err := mocks.Env.Print()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}

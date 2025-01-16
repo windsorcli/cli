@@ -30,9 +30,18 @@ jobs:
         with:
           aqua_version: v2.42.2
 
-      - name: Install tools using Aqua
+      - name: Install tools
         run: aqua install
 
+      - name: Install Windsor CLI from main branch
+        shell: bash
+        run: |
+          git clone https://github.com/windsorcli/cli.git
+          cd cli/cmd/windsor
+          go build -o windsor
+          chmod +x windsor
+          ./windsor version
+  
       - name: Run tests
         run: task test
 

@@ -13,6 +13,16 @@ var envCmd = &cobra.Command{
 	SilenceUsage: true,
 	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+
+		// Check if current directory is in the trusted list
+		shell := controller.ResolveShell()
+		if err := shell.CheckTrustedDirectory(); err != nil {
+			if verbose {
+				return fmt.Errorf("Error checking trusted directory: %w", err)
+			}
+			return nil
+		}
+
 		// Create environment components
 		if err := controller.CreateEnvComponents(); err != nil {
 			if verbose {

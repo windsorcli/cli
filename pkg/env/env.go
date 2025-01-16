@@ -29,16 +29,14 @@ func NewBaseEnvPrinter(injector di.Injector) *BaseEnvPrinter {
 	return &BaseEnvPrinter{injector: injector}
 }
 
-// Initialize initializes the environment.
+// Initialize resolves and assigns the shell and configHandler from the injector.
 func (e *BaseEnvPrinter) Initialize() error {
-	// Resolve the shell
 	shell, ok := e.injector.Resolve("shell").(shell.Shell)
 	if !ok {
 		return fmt.Errorf("error resolving or casting shell to shell.Shell")
 	}
 	e.shell = shell
 
-	// Resolve the configHandler
 	configInterface, ok := e.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
 		return fmt.Errorf("error resolving or casting configHandler to config.ConfigHandler")
@@ -48,14 +46,13 @@ func (e *BaseEnvPrinter) Initialize() error {
 	return nil
 }
 
-// Print prints the environment variables to the console.
-// It can optionally take a map of key:value strings and prints those.
+// Print outputs the environment variables to the console.
+// If a map of key:value strings is provided, it prints those instead.
 func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
 	var envVars map[string]string
 
-	// Use only the passed vars
 	if len(customVars) > 0 {
-		envVars = customVars[0]
+		envVars = customVars[0] // Use only the passed vars
 	} else {
 		envVars = make(map[string]string)
 	}
