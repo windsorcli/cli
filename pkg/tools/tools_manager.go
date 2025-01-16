@@ -169,6 +169,10 @@ func (t *BaseToolsManager) checkDocker() error {
 		if _, err := execLookPath("docker-compose"); err == nil {
 			output, _ = t.shell.ExecSilent("docker-compose", "version", "--short")
 			dockerComposeVersion = extractVersion(output)
+		} else {
+			if _, err := execLookPath("docker-cli-plugin-docker-compose"); err == nil {
+				output, _ = t.shell.ExecSilent("docker-cli-plugin-docker-compose", "version", "--short")
+				dockerComposeVersion = extractVersion(output)	
 		}
 	}
 
