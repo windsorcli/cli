@@ -56,6 +56,7 @@ jobs:
           elif [ "${{ matrix.os }}" == "macos-latest" ]; then
             GOOS=darwin GOARCH=${{ matrix.arch }} go build -ldflags "-X 'github.com/${{ github.repository }}/cmd.version=$VERSION' -X 'github.com/${{ github.repository }}/cmd.commitSHA=$COMMIT_SHA'" -o dist/windsor-darwin-${{ matrix.arch }} cmd/windsor/main.go
           fi
+
       - name: Build Windsor CLI on Windows
         if: runner.os == 'Windows'
         run: |
