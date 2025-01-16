@@ -14,11 +14,11 @@ builds:
       - CGO_ENABLED=0
     main: ./cmd/windsor
     goos:
-      # - linux
-      # - windows
+      - linux
+      - windows
       - darwin
     goarch:
-      # - amd64
+      - amd64
       - arm64
     ldflags:
       - "-s -w -X main.version={{ .Version }}"
@@ -46,20 +46,20 @@ release:
   draft: false
   prerelease: false
 
-# binary_signs:
-#   - {}
+binary_signs:
+  - {}
 
-# signs:
-#   - artifacts: checksum
+signs:
+  - artifacts: checksum
 
-# brews:
-#   - name: windsor
-#     directory: Formula
-#     skip_upload: false
-#     repository:
-#       owner: windsorcli
-#       name: homebrew-cli
-#       branch: main
-#       token: "{{ .Env.HOMEBREW_ACCESS }}"
-#     homepage: "https://windsorcli.github.io"      
-#     description: "The Windsor Command Line Interface"
+brews:
+  - name: windsor
+    directory: Formula
+    skip_upload: false
+    repository:
+      owner: windsorcli
+      name: homebrew-cli
+      branch: main
+      token: "{{ .Env.HOMEBREW_CLI_WRITE_PAT }}"
+    homepage: "https://windsorcli.github.io"      
+    description: "The Windsor Command Line Interface"
