@@ -3,13 +3,9 @@ name: CI
 on:
   push:
     branches:
-      - main
-      - enable-go-releaser
+      - '*'
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
-  pull_request:
-    branches:
-      - main
       
 permissions:
   contents: write  # Allows creating releases
@@ -131,7 +127,7 @@ jobs:
           echo "GPG_FINGERPRINT=$fingerprint" >> $GITHUB_ENV
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@9ed2f89a662bf1735a48bc8557fd212fa902bebf
+        uses: goreleaser/goreleaser-action@a167e697a0334766bd4085b38508406ab9528b1b # v2.5.1
         with:
           version: "~> v2"
           args: release --clean
@@ -139,4 +135,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ env.GPG_FINGERPRINT }}
           HOMEBREW_CLI_WRITE_PAT: ${{ secrets.HOMEBREW_CLI_WRITE_PAT }}
-
