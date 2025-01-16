@@ -9,6 +9,7 @@ import (
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
@@ -22,6 +23,7 @@ type MockSafeUpCmdComponents struct {
 	MockConfigHandler    *config.MockConfigHandler
 	MockShell            *shell.MockShell
 	MockNetworkManager   *network.MockNetworkManager
+	MockToolsManager     *tools.MockToolsManager
 	MockVirtualMachine   *virt.MockVirt
 	MockContainerRuntime *virt.MockVirt
 }
@@ -72,12 +74,17 @@ func setupSafeUpCmdMocks(optionalInjector ...di.Injector) MockSafeUpCmdComponent
 	mockContainerRuntime := virt.NewMockVirt()
 	injector.Register("containerRuntime", mockContainerRuntime)
 
+	// Setup mock tools manager
+	mockToolsManager := tools.NewMockToolsManager()
+	injector.Register("toolsManager", mockToolsManager)
+
 	return MockSafeUpCmdComponents{
 		Injector:             injector,
 		MockController:       mockController,
 		MockConfigHandler:    mockConfigHandler,
 		MockShell:            mockShell,
 		MockNetworkManager:   mockNetworkManager,
+		MockToolsManager:     mockToolsManager,
 		MockVirtualMachine:   mockVirtualMachine,
 		MockContainerRuntime: mockContainerRuntime,
 	}
@@ -232,6 +239,25 @@ func TestUpCmd(t *testing.T) {
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "No config handler found") {
 			t.Fatalf("Expected error containing 'No config handler found', got %v", err)
+		}
+	})
+
+	t.Run("ErrorInstallingTools", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		mocks.MockController.ResolveToolsManagerFunc = func() tools.ToolsManager {
+			return &tools.MockToolsManager{
+				InstallFunc: func() error {
+					return fmt.Errorf("error installing tools")
+				},
+			}
+		}
+
+		// Given a mock controller that returns a mock tools manager with an error when installing tools
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error installing tools: error installing tools") {
+			t.Fatalf("Expected error containing 'Error installing tools: error installing tools', got %v", err)
 		}
 	})
 
@@ -523,6 +549,25 @@ func TestUpCmd(t *testing.T) {
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error configuring host network: host route configuration failed") {
 			t.Fatalf("Expected error containing 'Error configuring host network: host route configuration failed', got %v", err)
+		}
+	})
+
+	t.Run("ErrorCheckingTools", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		mocks.MockController.ResolveToolsManagerFunc = func() tools.ToolsManager {
+			return &tools.MockToolsManager{
+				CheckFunc: func() error {
+					return fmt.Errorf("mock error checking tools")
+				},
+			}
+		}
+
+		// Given a mock tools manager that returns an error when checking tools
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error checking tools: mock error checking tools") {
+			t.Fatalf("Expected error containing 'Error checking tools: mock error checking tools', got %v", err)
 		}
 	})
 }

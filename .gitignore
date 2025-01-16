@@ -32,7 +32,7 @@ age.public.key
 /contexts/
 /kustomize/
 /terraform/
-/windsor.yaml
+windsor.yaml
 
 # managed by windsor cli
 .windsor/

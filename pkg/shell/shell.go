@@ -130,10 +130,10 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 		cmd.Stdin = os.Stdin
 	}
 	if err := cmdStart(cmd); err != nil {
-		return "", fmt.Errorf("command start failed: %w", err)
+		return stdoutBuf.String(), fmt.Errorf("command start failed: %w", err)
 	}
 	if err := cmdWait(cmd); err != nil {
-		return "", fmt.Errorf("command execution failed: %w", err)
+		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", err)
 	}
 	return stdoutBuf.String(), nil
 }
@@ -167,14 +167,14 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 
 	if err := cmdStart(cmd); err != nil {
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-		return "", err
+		return stdoutBuf.String(), err
 	}
 
 	err = cmdWait(cmd)
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-		return "", fmt.Errorf("command execution failed: %w", err)
+		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
@@ -196,7 +196,7 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 	cmd.Stderr = &stderrBuf
 
 	if err := cmdRun(cmd); err != nil {
-		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 	}
 
 	return stdoutBuf.String(), nil
@@ -264,14 +264,14 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	if err := cmdWait(cmd); err != nil {
 		spin.Stop()
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String())
-		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 	}
 
 	for i := 0; i < 2; i++ {
 		if err := <-errChan; err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String())
-			return "", err
+			return stdoutBuf.String(), err
 		}
 	}
 

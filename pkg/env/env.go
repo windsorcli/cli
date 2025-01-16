@@ -13,6 +13,7 @@ type EnvPrinter interface {
 	Initialize() error
 	Print() error
 	GetEnvVars() (map[string]string, error)
+	GetAlias() (map[string]string, error)
 	PostEnvHook() error
 }
 
@@ -61,6 +62,12 @@ func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
 
 // GetEnvVars is a placeholder for retrieving environment variables.
 func (e *BaseEnvPrinter) GetEnvVars() (map[string]string, error) {
+	// Placeholder implementation
+	return map[string]string{}, nil
+}
+
+// GetAlias is a placeholder for creating an alias for a command.
+func (e *BaseEnvPrinter) GetAlias() (map[string]string, error) {
 	// Placeholder implementation
 	return map[string]string{}, nil
 }

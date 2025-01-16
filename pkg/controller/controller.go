@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
@@ -32,6 +33,7 @@ type Controller interface {
 	ResolveShell() shell.Shell
 	ResolveSecureShell() shell.Shell
 	ResolveNetworkManager() network.NetworkManager
+	ResolveToolsManager() tools.ToolsManager
 	ResolveBlueprintHandler() blueprint.BlueprintHandler
 	ResolveService(name string) services.Service
 	ResolveAllServices() []services.Service
@@ -53,7 +55,8 @@ func NewController(injector di.Injector) *BaseController {
 	return &BaseController{injector: injector}
 }
 
-// Initialize the controller.
+// Initialize the controller. Initializes the config handler
+// as well.
 func (c *BaseController) Initialize() error {
 	configHandler := c.ResolveConfigHandler()
 	c.configHandler = configHandler
@@ -86,6 +89,14 @@ func (c *BaseController) InitializeComponents() error {
 			if err := envPrinter.Initialize(); err != nil {
 				return fmt.Errorf("error initializing env printer: %w", err)
 			}
+		}
+	}
+
+	// Initialize the tools manager
+	toolsManager := c.ResolveToolsManager()
+	if toolsManager != nil {
+		if err := toolsManager.Initialize(); err != nil {
+			return fmt.Errorf("error initializing tools manager: %w", err)
 		}
 	}
 
@@ -196,6 +207,14 @@ func (c *BaseController) WriteConfigurationFiles() error {
 	// Resolve all services
 	resolvedServices := c.ResolveAllServices()
 
+	// Write tools manifest
+	toolsManager := c.ResolveToolsManager()
+	if toolsManager != nil {
+		if err := toolsManager.WriteManifest(); err != nil {
+			return fmt.Errorf("error writing tools manifest: %w", err)
+		}
+	}
+
 	// Write blueprint
 	blueprintHandler := c.ResolveBlueprintHandler()
 	if blueprintHandler != nil {
@@ -295,6 +314,13 @@ func (c *BaseController) ResolveNetworkManager() network.NetworkManager {
 	instance := c.injector.Resolve("networkManager")
 	networkManager, _ := instance.(network.NetworkManager)
 	return networkManager
+}
+
+// ResolveToolsManager resolves the toolsManager instance.
+func (c *BaseController) ResolveToolsManager() tools.ToolsManager {
+	instance := c.injector.Resolve("toolsManager")
+	toolsManager, _ := instance.(tools.ToolsManager)
+	return toolsManager
 }
 
 // ResolveBlueprintHandler resolves the blueprintHandler instance.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -44,10 +45,11 @@ type ConfigHandler interface {
 	SaveConfig(path string) error
 
 	// SetDefault sets the default context configuration
-	SetDefault(context Context) error
+	SetDefault(context v1alpha1.Context) error
 
 	// GetConfig returns the context config object
-	GetConfig() *Context
+	GetConfig() *v1alpha1.Context
+
 	// GetContext retrieves the current context
 	GetContext() string
 

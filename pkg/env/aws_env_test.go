@@ -8,8 +8,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/aws"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/aws"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -31,8 +32,8 @@ func setupSafeAwsEnvMocks(injector ...di.Injector) *AwsEnvMocks {
 
 	// Create a mock ConfigHandler using its constructor
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.GetConfigFunc = func() *config.Context {
-		return &config.Context{
+	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+		return &v1alpha1.Context{
 			AWS: &aws.AWSConfig{
 				AWSProfile:     stringPtr("default"),
 				AWSEndpointURL: stringPtr("https://aws.endpoint"),
@@ -96,8 +97,8 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeAwsEnvMocks()
 
 		// Override the GetConfigFunc to return nil for AWS configuration
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{AWS: nil}
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{AWS: nil}
 		}
 
 		mockInjector := mocks.Injector
@@ -126,8 +127,8 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeAwsEnvMocks()
 
 		// Override the GetConfigFunc to return a valid AWS configuration
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				AWS: &aws.AWSConfig{
 					AWSProfile:     stringPtr("default"),
 					AWSEndpointURL: stringPtr("https://example.com"),
@@ -240,8 +241,8 @@ func TestAwsEnv_Print(t *testing.T) {
 		mocks := setupSafeAwsEnvMocks()
 
 		// Set AWS configuration to nil to simulate the error condition
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				AWS: nil,
 			}
 		}
