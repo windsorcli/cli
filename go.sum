@@ -20,6 +20,8 @@ cloud.google.com/go/longrunning v0.6.4 h1:3tyw9rO3E2XVXzSApn1gyEEnH2K9SynNQjMlBi
 cloud.google.com/go/longrunning v0.6.4/go.mod h1:ttZpLCe6e7EXvn9OxpBRx7kZEB0efv8yBO6YnVMfhJs=
 cloud.google.com/go/monitoring v1.22.1 h1:KQbnAC4IAH+5x3iWuPZT5iN9VXqKMzzOgqcYB6fqPDE=
 cloud.google.com/go/monitoring v1.22.1/go.mod h1:AuZZXAoN0WWWfsSvET1Cpc4/1D8LXq8KRDU87fMS6XY=
+cloud.google.com/go/monitoring v1.23.0 h1:M3nXww2gn9oZ/qWN2bZ35CjolnVHM3qnSbu6srCPgjk=
+cloud.google.com/go/monitoring v1.23.0/go.mod h1:034NnlQPDzrQ64G2Gavhl0LUHZs9H3rRmhtnp7jiJgg=
 cloud.google.com/go/storage v1.50.0 h1:3TbVkzTooBvnZsk7WaAQfOsNrdoM8QHusXA1cpk6QJs=
 cloud.google.com/go/storage v1.50.0/go.mod h1:l7XeiD//vx5lfqE3RavfmU9yvk5Pp0Zhcv482poyafY=
 cloud.google.com/go/trace v1.11.3 h1:c+I4YFjxRQjvAhRmSsmjpASUKq88chOX854ied0K/pE=
@@ -453,6 +455,8 @@ golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543/go.mod h1:I/5z698sn9Ka8T
 golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
 google.golang.org/api v0.216.0 h1:xnEHy+xWFrtYInWPy8OdGFsyIfWJjtVnO39g7pz2BFY=
 google.golang.org/api v0.216.0/go.mod h1:K9wzQMvWi47Z9IU7OgdOofvZuw75Ge3PPITImZR/UyI=
+google.golang.org/api v0.217.0 h1:GYrUtD289o4zl1AhiTZL0jvQGa2RDLyC+kX1N/lfGOU=
+google.golang.org/api v0.217.0/go.mod h1:qMc2E8cBAbQlRypBTBWHklNJlaZZJBwDv81B1Iu8oSI=
 google.golang.org/genproto v0.0.0-20250115164207-1a7da9e5054f h1:387Y+JbxF52bmesc8kq1NyYIp33dnxCw6eiA7JMsTmw=
 google.golang.org/genproto v0.0.0-20250115164207-1a7da9e5054f/go.mod h1:0joYwWwLQh18AOj8zMYeZLjzuqcYTU3/nC5JdCvC3JI=
 google.golang.org/genproto/googleapis/api v0.0.0-20250115164207-1a7da9e5054f h1:gap6+3Gk41EItBuyi4XX/bp4oqJ3UwuIMl25yGinuAA=
