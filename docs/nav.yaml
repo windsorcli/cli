@@ -11,7 +11,6 @@ nav:
   - 'Tutorial': 
     - 'Hello, World!': tutorial/hello-world.md
   - 'Security':
-    - 'Signature Verification': security/signature-verification.md
     - 'Trusted Folders': security/trusted-folders.md
   - 'Reference':
     - 'Blueprint': reference/blueprint.md
