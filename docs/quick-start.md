@@ -1,4 +1,6 @@
-# MacOS Quick Start Guide
+# Quick Start
+
+## MacOS Quick Start
 
 This guide will walk you through launching the windsor environment in your project. At the end of this guide, you should be running a local Kubernetes cluster with a single worker and controlplane.
 
