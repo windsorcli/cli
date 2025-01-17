@@ -10,7 +10,7 @@ It is assumed you have installed the windsor CLI and configured `windsor hook` i
 
 ## Initialize a folder as a git project
 
-Windsor expects to be running in a git project. You can either create a new folder and initialize it as a git repository or use an existing folder that is already a git project. If are creating a new folder be sure to initialize a git repository in the root of your project.
+Windsor expects to be running in a git project. You can either create a new folder and initialize it as a git repository or use an existing folder that is already a git project. If you are creating a new folder be sure to initialize a git repository in the root of your project.
 
 ```sh
 git init
@@ -120,19 +120,12 @@ Windsor provides a command to help you tear down your development environment. T
 windsor down --clean
 ```
 
-To destroy the virtual machine, run:
-
-```sh
-colima stop windsor-local
-colima delete windsor-local
-```
-
 <div>
-{{ previous_footer('Installation', '../../install/install/index.html') }}
+{{ previous_footer('Installation', '../install/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../install/install/index.html'; 
+    window.location.href = '../install/index.html'; 
   });
 </script>

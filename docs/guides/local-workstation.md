@@ -154,7 +154,7 @@ This should pull down the contents of your repository in to a new folder.
 ## Kubernetes Cluster
 A container based Kubernetes cluster is run locally. Currently, Windsor supports clusters running [Sidero Talos](https://github.com/siderolabs/talos).
 
-You can configure the cluster's controlplanes and workers as follows:
+You can configure the cluster's controlplanes and workers in the windsor.yaml as follows:
 
 ```yaml
 cluster:
