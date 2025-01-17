@@ -2,22 +2,7 @@
 A key feature of the Windsor CLI is its ability to contextually manage your environment while working within a Windsor project. You may have encountered similar tools, in particular [direnv](https://github.com/direnv/direnv), that make it possible to dynamically configure environment variables while you're inside a project folder. The `windsor hook` & `windsor env` system does the same, while continuing to manage your environment variables as you move throughout the subfolders within your project.
 
 ## About the Mechanism
-You should have set up the hook during [installation](../install/install.md). If configured correctly, the hook causes `windsor env` to inject into your environment prior to loading each prompt. The `windsor env` command will only be activated while you are in a trusted Windsor project. By managing your environment variables dynamically, the Windsor CLI is able to manage the behavior and context configuration of the tools in your toolchain as you switch contexts or move amongst your project folders.
-
-## Injecting your own environment variables
-As the Windsor CLI already manages environment variables for you, it also allows you to add your own. In the `windsor.yaml` file, under a context, you may add an `environment` section as follows:
-
-```yaml
-contexts:
-  local:
-    environment:
-      ENV_NAME: development
-  production:
-    environment:
-      ENV_NAME: production      
-```
-
-Now, as you switch between `windsor set-context local` and `windsor set-context production`, you should see `ENV_NAME` set appropriately if you print your environment variables.
+You should have set up the hook during [installation](../install/install.md). If configured correctly, the hook causes `windsor env` to inject into your environment prior to loading each prompt. The `windsor env` command will only be activated while you are in a [trusted Windsor project](../security/trusted-folders.md). By managing your environment variables dynamically, the Windsor CLI is able to manage the behavior and context configuration of the tools in your toolchain as you switch contexts or move amongst your project folders.
 
 ## Supported Tools
 Several tools are presently supported by Windsor's environment management system. The following outlines what to expect for each of these tools.

@@ -1,6 +1,6 @@
 # Installation
 
-This document describes how to install the windsor CLI on your development workstation. You can choose to install it using [Homebrew](#using-homebrew) or a [manual installing](#manual-install). Refer to the respective sections below for detailed instructions.
+This document describes how to install the Windsor CLI on your development workstation. This includes downloading the binary from Github, as well as configuring `windsor hook` in your shell.
 
 ## Manual Install
 

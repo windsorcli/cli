@@ -18,7 +18,13 @@ git init
 
 ## Install tool dependencies
 
-You will need several tools installed on your system to fully leverage the windsor environment. It is recommended to use a tool versions manager such as [aqua](https://github.com/aquaproj/aqua) or [asdf](https://github.com/asdf-vm/asdf). For your convenience, we have provided sample setup files for these tools. Place one of these in the root of your project.
+You will need several tools installed on your system to successfuly run the Windsor environment. You may already have the required tools installed. To check, run:
+
+```
+windsor check
+```
+
+It is recommended to use a tool versions manager such as [aqua](https://github.com/aquaproj/aqua) or [asdf](https://github.com/asdf-vm/asdf). For your convenience, we have provided sample setup files for these tools. If your system has been configured with a tool versions manager, place one of these in the root of your project.
 
 === "aqua"
     Create an `aqua.yaml` file in your project's root directory with the following content:
@@ -114,17 +120,10 @@ kubectl get nodes
 
 ### Tear down the environment
 
-Windsor provides a command to help you tear down your development environment. To destroy the cluster and support services, while still leaving the Colima virtual machine in tact, run:
+Windsor provides a command to help you tear down your development environment. To destroy the cluster and support services, run:
 
 ```sh
 windsor down --clean
-```
-
-To destroy the virtual machine, run:
-
-```sh
-colima stop windsor-local
-colima delete windsor-local
 ```
 
 <div>
