@@ -113,3 +113,16 @@ As well as the git repository resources:
 ```
 kubectl get gitrepository -A
 ```
+
+<div>
+  {{ footer('Kustomize', '../../guides/kustomize/index.html', 'Trusted Folders', '../../security/trusted-folders/index.html') }}
+</div>
+
+<script>
+  document.getElementById('previousButton').addEventListener('click', function() {
+    window.location.href = '../../guides/kustomize/index.html'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../../security/trusted-folders/index.html'; 
+  });
+</script>

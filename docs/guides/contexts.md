@@ -77,3 +77,17 @@ To visualize the active Windsor context in your shell prompt, you can modify you
 
 
 These changes will allow you to see the active Windsor context directly in your shell prompt, making it easier to manage and switch between different contexts.
+
+<div>
+  {{ footer('Quick Start', '../../quick-start/index.html', 'Environment Injection', '../../guides/environment-injection/index.html') }}
+</div>
+
+<script>
+  document.getElementById('previousButton').addEventListener('click', function() {
+    window.location.href = '../../quick-start/index.html'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../../guides/environment-injection/index.html'; 
+  });
+</script>
+

@@ -5,7 +5,7 @@ This guide will walk you through launching the windsor environment in your proje
 
 This guide is expected to run optimally on an Apple M2 with 8 CPU cores, 8GB of RAM, and 60GB of free storage space available.
 
-It is assumed you have installed the windsor CLI and configured `windsor hook` in your shell. Please see the [Setup and Installation](../install/install.md) page for instructions.
+It is assumed you have installed the windsor CLI and configured `windsor hook` in your shell. Please see the [Setup and Installation](./install.md) page for instructions.
 
 ## Initialize a folder as a git project
 
@@ -121,11 +121,14 @@ windsor down --clean
 ```
 
 <div>
-{{ previous_footer('Installation', '../install/index.html') }}
+  {{ footer('Installation', '../install/index.html', 'Contexts', '../guides/contexts/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../install/index.html'; 
+    window.location.href = '../install/index.htm'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../guides/contexts/index.html'; 
   });
 </script>

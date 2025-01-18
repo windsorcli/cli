@@ -53,3 +53,13 @@ Windsor CLI is licensed under the Mozilla Public License Version 2.0. See the [L
 ## Contact Information
 
 If you have any questions or need further assistance, please feel free to open an issue on our GitHub repository.
+
+<div>
+  {{ next_footer('Installation', './install/index.html') }}
+</div>
+
+<script>
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = './install/index.html'; 
+  });
+</script>

@@ -184,3 +184,16 @@ NAME             STATUS   ROLES           AGE     VERSION
 controlplane-1   Ready    control-plane   1m      v1.31.4
 worker-1         Ready    <none>          1m      v1.31.4
 ```
+
+<div>
+  {{ footer('Environment Injection', '../../guides/environment-injection/index.html', 'Terraform', '../../guides/terraform/index.html') }}
+</div>
+
+<script>
+  document.getElementById('previousButton').addEventListener('click', function() {
+    window.location.href = '../../guides/environment-injection/index.html'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../../guides/terraform/index.html'; 
+  });
+</script>
