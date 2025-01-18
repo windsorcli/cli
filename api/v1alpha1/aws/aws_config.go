@@ -2,12 +2,23 @@ package aws
 
 // AWSConfig represents the AWS configuration
 type AWSConfig struct {
-	Enabled        *bool             `yaml:"enabled,omitempty"`
-	AWSEndpointURL *string           `yaml:"aws_endpoint_url,omitempty"`
-	AWSProfile     *string           `yaml:"aws_profile,omitempty"`
-	S3Hostname     *string           `yaml:"s3_hostname,omitempty"`
-	MWAAEndpoint   *string           `yaml:"mwaa_endpoint,omitempty"`
-	Localstack     *LocalstackConfig `yaml:"localstack,omitempty"`
+	// Enabled indicates whether AWS integration is enabled.
+	Enabled *bool `yaml:"enabled,omitempty"`
+
+	// AWSEndpointURL specifies the custom endpoint URL for AWS services.
+	AWSEndpointURL *string `yaml:"aws_endpoint_url,omitempty"`
+
+	// AWSProfile defines the AWS CLI profile to use for authentication.
+	AWSProfile *string `yaml:"aws_profile,omitempty"`
+
+	// S3Hostname sets the custom hostname for the S3 service.
+	S3Hostname *string `yaml:"s3_hostname,omitempty"`
+
+	// MWAAEndpoint specifies the endpoint for Managed Workflows for Apache Airflow.
+	MWAAEndpoint *string `yaml:"mwaa_endpoint,omitempty"`
+
+	// Localstack contains the configuration for Localstack, a local AWS cloud emulator.
+	Localstack *LocalstackConfig `yaml:"localstack,omitempty"`
 }
 
 // LocalstackConfig represents the Localstack configuration
