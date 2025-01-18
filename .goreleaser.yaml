@@ -1,0 +1,66 @@
+---
+
+project_name: windsor
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    main: ./cmd/windsor
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
+      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
+
+# Archive configuration
+archives:
+  - id: default
+    format: tar.gz
+    files:
+      - LICENSE
+      - README.md
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+# Release configuration
+release:
+  github:
+    owner: windsorcli
+    name: cli
+  draft: false
+  prerelease: false
+
+binary_signs:
+  - {}
+
+signs:
+  - artifacts: checksum
+
+brews:
+  - name: windsor
+    directory: Formula
+    skip_upload: false
+    repository:
+      owner: windsorcli
+      name: homebrew-cli
+      branch: main
+      token: "{{ .Env.HOMEBREW_CLI_WRITE_PAT }}"
+    homepage: "https://windsorcli.github.io"      
+    description: "The Windsor Command Line Interface"
