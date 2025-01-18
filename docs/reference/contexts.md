@@ -81,7 +81,7 @@ Contains files typically used by the Terraform CLI such as modules and providers
 Used as the local file Terraform backend state. This is the default state until a proper remote state has been configured, or while working in a local development environment.
 
 ### `terraform/`
-Contains terraform variables as `.tfvars` files. These are automatically passed to corresponding terraform projects deployed in the current context. These are explicitly referenced in the `blueprint.yaml` file. Please refer to the [Terraform](terraform.md) reference for more details.
+Contains terraform variables as `.tfvars` files. These are automatically passed to corresponding terraform projects deployed in the current context. These are explicitly referenced in the `blueprint.yaml` file. Please refer to the [Terraform](../guides/terraform.md) reference for more details.
 
 ### `blueprint.yaml`
 The `blueprint.yaml` file outlines references and configuration specific to the context. Please refer to the [blueprint](blueprint.md) documentation for more details.
