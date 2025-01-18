@@ -8,7 +8,8 @@ This guide is expected to run optimally on an Apple M2 with 8 CPU cores, 8GB of 
 It is assumed you have installed the windsor CLI and configured `windsor hook` in your shell. Please see the [Setup and Installation](../install/install.md) page for instructions.
 
 ## Initialize a folder as a git project
-Windsor expects to be running in a git project. You can either create a new folder and initialize it as a git repository or use an existing folder that is already a git project. If are creating a new folder be sure to initialize a git repository in the root of your project.
+
+Windsor expects to be running in a git project. You can either create a new folder and initialize it as a git repository or use an existing folder that is already a git project. If you are creating a new folder be sure to initialize a git repository in the root of your project.
 
 ```sh
 git init
@@ -120,11 +121,11 @@ windsor down --clean
 ```
 
 <div>
-{{ previous_footer('Installation', '../../install/install/index.html') }}
+{{ previous_footer('Installation', '../install/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../install/install/index.html'; 
+    window.location.href = '../install/index.html'; 
   });
 </script>
