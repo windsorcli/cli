@@ -1,8 +1,8 @@
-# Setup and Installation
+# Installation
 
-This document describes how to install the windsor CLI on your development workstation.
+This document describes how to install the Windsor CLI on your development workstation. This includes downloading the binary from Github, as well as configuring `windsor hook` in your shell.
 
-## Download and Install The Windsor Binary
+## Manual Install
 
 === "MacOS"
     ```bash
@@ -20,7 +20,7 @@ This document describes how to install the windsor CLI on your development works
     curl -L -o /usr/local/bin/windsor https://github.com/windsorcli/cli/releases/download/v0.2.1/windsor-linux-amd64 && \
     chmod +x /usr/local/bin/windsor
     ```
-
+    
 ## Shell Integration: Seamless Environment Management
 
 Windsor acts as an environment variable manager in your shell. It dynamically injects environment variables into your shell as you switch contexts and work on various components in your project.
@@ -73,14 +73,14 @@ windsor version
 ```
 
 <div>
-  {{ footer('Home', '../../index.html', 'Quick Start', '../../tutorial/macos-quick-start/index.html') }}
+  {{ footer('Home', '../index.html', 'Quick Start', '../quick-start/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../index.html'; 
+    window.location.href = '../index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../../tutorial/macos-quick-start/index.html'; 
+    window.location.href = '../quick-start/index.html'; 
   });
 </script>
