@@ -44,40 +44,6 @@ windsor context get
 
 Additionally, the `WINDSOR_CONTEXT` enviroment variable is available to you.
 
-
-### Displaying the Active Context in Your Shell Prompt
-
-To visualize the active Windsor context in your shell prompt, you can modify your shell configuration file to include the `WINDSOR_CONTEXT` environment variable.
-
-=== "BASH"
-    To include the active context in your prompt, add the following line to your `~/.bashrc` file:
-    ```bash
-    export PS1="\[\e[32m\]${WINDSOR_CONTEXT:+(\$WINDSOR_CONTEXT)}\[\e[0m\] $PS1"
-    ```
-    This will prepend the context in green to your existing prompt if `WINDSOR_CONTEXT` is defined.
-
-=== "ZSH"
-    To include the active context in your prompt, add the following line to your `~/.zshrc` file:
-    ```zsh
-    PROMPT="%F{green}${WINDSOR_CONTEXT:+(\$WINDSOR_CONTEXT)}%f $PROMPT"
-    ```
-    This will prepend the context in green to your existing prompt if `WINDSOR_CONTEXT` is defined.
-
-=== "POWERSHELL"
-    To include the active context in your prompt, modify your PowerShell profile script as follows:
-    ```powershell
-    function prompt {
-        if ($env:WINDSOR_CONTEXT) {
-            Write-Host "($env:WINDSOR_CONTEXT)" -ForegroundColor Green -NoNewline
-        }
-        & { $function:prompt }  # Call the original prompt function
-    }
-    ```
-    This will prepend the context in green to your existing prompt if `WINDSOR_CONTEXT` is defined.
-
-
-These changes will allow you to see the active Windsor context directly in your shell prompt, making it easier to manage and switch between different contexts.
-
 <div>
   {{ footer('Quick Start', '../../quick-start/index.html', 'Environment Injection', '../../guides/environment-injection/index.html') }}
 </div>
