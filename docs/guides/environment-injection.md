@@ -25,10 +25,11 @@ The Windsor CLI provides several functionalities to manage Docker environments e
 
 Below is a table summarizing the driver configurations:
 
-| Driver         | DOCKER_HOST Path                                                                 |
-|----------------|----------------------------------------------------------------------------------|
-| Colima         | `unix://<home-directory>/.colima/windsor-<context-name>/docker.sock`              |
-| Docker Desktop | `npipe:////./pipe/docker_engine` (Windows) or `unix://<home-directory>/.docker/run/docker.sock` (Other OS) |
+| Driver                  | DOCKER_HOST Path                                                      |
+|-------------------------|-----------------------------------------------------------------------|
+| Colima                  | `unix://<home-directory>/.colima/windsor-<context-name>/docker.sock`  |
+| Docker Desktop | `unix://<home-directory>/.docker/run/docker.sock`                              |
+| Docker Desktop (Windows) | `npipe:////./pipe/docker_engine`                                     |
 
 These features ensure that your Docker environment is configured correctly and consistently, regardless of the underlying virtualization driver you are using.
 

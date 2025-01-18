@@ -1,0 +1,21 @@
+/* assets/css/extra.css */
+table {
+  word-break: normal; /* Prevents breaking words */
+  white-space: nowrap; /* Prevents wrapping */
+}
+
+table th, table td {
+  overflow-wrap: normal; /* Prevents breaking words */
+  word-break: normal; /* Prevents breaking words */
+  white-space: nowrap; /* Prevents wrapping */
+}
+
+table th:last-child, table td:last-child {
+  white-space: normal; /* Allows wrapping for the last column */
+  overflow-wrap: break-word; /* Allows wrapping without breaking words */
+}
+
+/* Increase font size for left and right navigation */
+.md-nav__item {
+  font-size: 1.2em; /* Adjusts the font size */
+}

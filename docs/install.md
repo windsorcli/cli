@@ -73,7 +73,7 @@ windsor version
 ```
 
 <div>
-  {{ footer('Home', '../../index.html', 'Quick Start', '../../tutorial/macos-quick-start/index.html') }}
+  {{ footer('Home', '../../index.html', 'Quick Start', '../../quick-start/index.html') }}
 </div>
 
 <script>
@@ -81,6 +81,6 @@ windsor version
     window.location.href = '../../index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../../tutorial/macos-quick-start/index.html'; 
+    window.location.href = '../../quick-start/index.html'; 
   });
 </script>

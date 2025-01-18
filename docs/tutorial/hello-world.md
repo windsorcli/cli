@@ -1,7 +1,7 @@
 # Hello, World!
 We'll begin with a simple "Hello, World!" demonstration to get you started with Windsor. In this tutorial, you will create a simple Pod spec that serves up the message "Hello, World!" running on the local cluster.
 
-It is assumed you have already been through the [quick start](macos-quick-start.md). You have created a repository, and are able to access a local cluster. To verify this, run:
+It is assumed you have already been through the [quick start](../quick-start.md). You have created a repository, and are able to access a local cluster. To verify this, run:
 
 ```
 kubectl get nodes

@@ -26,8 +26,8 @@ Windsor addresses several challenges common in building and running software pla
 
 ## Quick Start
 
-- **[Setup and Installation](install/install.md)**
-- **[Quick Start](tutorial/macos-quick-start.md)**
+- **[Setup and Installation](install.md)**
+- **[Quick Start](quick-start.md)**
 
 ## Supported Tools
 
