@@ -26,7 +26,7 @@ func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Determine the root directory for configuration files.
-	configRoot, err := e.contextHandler.GetConfigRoot()
+	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 	}

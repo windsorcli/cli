@@ -13,7 +13,6 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 
@@ -50,7 +49,6 @@ type BlueprintHandler interface {
 // BaseBlueprintHandler is a base implementation of the BlueprintHandler interface
 type BaseBlueprintHandler struct {
 	injector       di.Injector
-	contextHandler context.ContextHandler
 	configHandler  config.ConfigHandler
 	shell          shell.Shell
 	localBlueprint blueprintv1alpha1.Blueprint
@@ -64,21 +62,16 @@ func NewBlueprintHandler(injector di.Injector) *BaseBlueprintHandler {
 	return &BaseBlueprintHandler{injector: injector}
 }
 
-// Initialize sets up the blueprint handler by resolving its dependencies.
-// It retrieves the configHandler, contextHandler, and shell from the injector.
-// It also determines the project root directory using the shell.
+// Initialize sets up the BaseBlueprintHandler by resolving and assigning its dependencies,
+// including the configHandler, contextHandler, and shell, from the provided dependency injector.
+// It also determines the project root directory using the shell and sets the project name
+// in the configuration. If any of these steps fail, it returns an error.
 func (b *BaseBlueprintHandler) Initialize() error {
 	configHandler, ok := b.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
 		return fmt.Errorf("error resolving configHandler")
 	}
 	b.configHandler = configHandler
-
-	contextHandler, ok := b.injector.Resolve("contextHandler").(context.ContextHandler)
-	if !ok {
-		return fmt.Errorf("error resolving contextHandler")
-	}
-	b.contextHandler = contextHandler
 
 	shell, ok := b.injector.Resolve("shell").(shell.Shell)
 	if !ok {
@@ -92,6 +85,10 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	}
 	b.projectRoot = projectRoot
 
+	if err := b.configHandler.SetContextValue("projectName", filepath.Base(projectRoot)); err != nil {
+		return fmt.Errorf("error setting project name in config: %w", err)
+	}
+
 	return nil
 }
 
@@ -104,7 +101,7 @@ var localJsonnetTemplate string
 // processes the configuration context, evaluates Jsonnet if present, and integrates
 // the resulting blueprint with any local blueprint data.
 func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
-	configRoot, err := b.contextHandler.GetConfigRoot()
+	configRoot, err := b.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
@@ -140,7 +137,7 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	}
 
 	var evaluatedJsonnet string
-	context := b.contextHandler.GetContext()
+	context := b.configHandler.GetContext()
 
 	if len(jsonnetData) > 0 {
 		vm := jsonnetMakeVM()
@@ -190,7 +187,7 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 	if len(path) > 0 && path[0] != "" {
 		finalPath = path[0]
 	} else {
-		configRoot, err := b.contextHandler.GetConfigRoot()
+		configRoot, err := b.configHandler.GetConfigRoot()
 		if err != nil {
 			return fmt.Errorf("error getting config root: %w", err)
 		}
@@ -229,11 +226,28 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 // over the sources and kustomizations, applying each to the cluster using the
 // Kubernetes client.
 func (b *BaseBlueprintHandler) Install() error {
+	context := b.configHandler.GetContext()
+
 	message := "📐 Installing blueprint components"
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 	spin.Suffix = " " + message
 	spin.Start()
 	defer spin.Stop()
+
+	repository := b.GetRepository()
+	if repository.Url != "" {
+		source := blueprintv1alpha1.Source{
+			Name:       context,
+			Url:        repository.Url,
+			Ref:        repository.Ref,
+			SecretName: repository.SecretName,
+		}
+		if err := b.applyGitRepository(source); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+			return fmt.Errorf("failed to apply GitRepository: %w", err)
+		}
+	}
 
 	for _, source := range b.GetSources() {
 		if err := b.applyGitRepository(source); err != nil {
@@ -262,6 +276,22 @@ func (b *BaseBlueprintHandler) Install() error {
 func (b *BaseBlueprintHandler) GetMetadata() blueprintv1alpha1.Metadata {
 	resolvedBlueprint := b.blueprint
 	return resolvedBlueprint.Metadata
+}
+
+// GetRepository retrieves the repository configuration for the current blueprint.
+// It returns the repository details, including the URL and reference branch.
+func (b *BaseBlueprintHandler) GetRepository() blueprintv1alpha1.Repository {
+	resolvedBlueprint := b.blueprint
+	repository := resolvedBlueprint.Repository
+
+	if repository.Url == "" {
+		repository.Url = ""
+	}
+	if repository.Ref == (blueprintv1alpha1.Reference{}) {
+		repository.Ref = blueprintv1alpha1.Reference{Branch: "main"}
+	}
+
+	return repository
 }
 
 // GetSources retrieves the source configurations for the current blueprint.
@@ -296,6 +326,12 @@ func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomiza
 	copy(kustomizations, resolvedBlueprint.Kustomizations)
 
 	for i := range kustomizations {
+		if kustomizations[i].Path == "" {
+			kustomizations[i].Path = "kustomize"
+		} else {
+			kustomizations[i].Path = filepath.Join("kustomize", kustomizations[i].Path)
+		}
+
 		if kustomizations[i].Interval == nil || kustomizations[i].Interval.Duration == 0 {
 			kustomizations[i].Interval = &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL}
 		}
@@ -322,6 +358,13 @@ func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomiza
 // It replaces the existing metadata with the provided metadata information.
 func (b *BaseBlueprintHandler) SetMetadata(metadata blueprintv1alpha1.Metadata) error {
 	b.blueprint.Metadata = metadata
+	return nil
+}
+
+// SetRepository updates the repository for the current blueprint.
+// It replaces the existing repository with the provided repository information.
+func (b *BaseBlueprintHandler) SetRepository(repository blueprintv1alpha1.Repository) error {
+	b.blueprint.Repository = repository
 	return nil
 }
 
@@ -360,7 +403,19 @@ func (b *BaseBlueprintHandler) resolveComponentSources(blueprint *blueprintv1alp
 				if pathPrefix == "" {
 					pathPrefix = "terraform"
 				}
-				resolvedComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "?ref=" + source.Ref
+
+				ref := source.Ref.Commit
+				if ref == "" {
+					ref = source.Ref.SemVer
+				}
+				if ref == "" {
+					ref = source.Ref.Tag
+				}
+				if ref == "" {
+					ref = source.Ref.Branch
+				}
+
+				resolvedComponents[i].Source = source.Url + "//" + pathPrefix + "/" + component.Path + "?ref=" + ref
 				break
 			}
 		}
@@ -381,7 +436,7 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 		componentCopy := component
 
 		if isValidTerraformRemoteSource(componentCopy.Source) {
-			componentCopy.FullPath = filepath.Join(projectRoot, ".tf_modules", componentCopy.Path)
+			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", ".tf_modules", componentCopy.Path)
 		} else {
 			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", componentCopy.Path)
 		}
@@ -429,6 +484,7 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blue
 		Sources:             newBlueprint.Sources,
 		TerraformComponents: newBlueprint.TerraformComponents,
 		Kustomizations:      kustomizations,
+		Repository:          newBlueprint.Repository,
 	}
 
 	blueprint.Merge(completeBlueprint)
@@ -677,6 +733,9 @@ func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Sourc
 	if !strings.HasPrefix(sourceUrl, "http://") && !strings.HasPrefix(sourceUrl, "https://") {
 		sourceUrl = "https://" + sourceUrl
 	}
+	if !strings.HasSuffix(sourceUrl, ".git") {
+		sourceUrl = sourceUrl + ".git"
+	}
 
 	gitRepository := &sourcev1.GitRepository{
 		TypeMeta: metav1.TypeMeta{
@@ -690,11 +749,21 @@ func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Sourc
 		Spec: sourcev1.GitRepositorySpec{
 			URL: sourceUrl,
 			Reference: &sourcev1.GitRepositoryRef{
-				Branch: source.Ref,
+				Commit: source.Ref.Commit,
+				Name:   source.Ref.Name,
+				SemVer: source.Ref.SemVer,
+				Tag:    source.Ref.Tag,
+				Branch: source.Ref.Branch,
 			},
 			Interval: metav1Duration{Duration: constants.DEFAULT_FLUX_SOURCE_INTERVAL},
 			Timeout:  &metav1Duration{Duration: constants.DEFAULT_FLUX_SOURCE_TIMEOUT},
 		},
+	}
+
+	if source.SecretName != "" {
+		gitRepository.Spec.SecretRef = &meta.LocalObjectReference{
+			Name: source.SecretName,
+		}
 	}
 
 	// Ensure the status field is not included in the request body
@@ -719,6 +788,12 @@ func (b *BaseBlueprintHandler) applyGitRepository(source blueprintv1alpha1.Sourc
 // The function uses a PUT request to update the resource if it exists, or a POST request to create it
 // if not, allowing safe retries without creating duplicates.
 func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha1.Kustomization) error {
+	// If the kustomization doesn't have a source, use the repository source
+	if kustomization.Source == "" {
+		context := b.configHandler.GetContext()
+		kustomization.Source = context
+	}
+
 	kustomizeObj := &kustomizev1.Kustomization{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "kustomize.toolkit.fluxcd.io/v1",
@@ -750,7 +825,7 @@ func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha
 		},
 	}
 
-	// Ensure the status field is not included in the request body
+	// Ensure the status field is not included in the request body, it breaks the request
 	kustomizeObj.Status = kustomizev1.KustomizationStatus{}
 
 	config := ResourceOperationConfig{

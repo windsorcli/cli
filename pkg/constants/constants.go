@@ -5,8 +5,8 @@ import "time"
 // Default git livereload settings
 const (
 	// renovate: datasource=docker depName=ghcr.io/windsorcli/git-livereload-server
-	DEFAULT_GIT_LIVE_RELOAD_IMAGE         = "ghcr.io/windsorcli/git-livereload-server:v0.2.1"
-	DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE = ".docker-cache,.terraform,data,.volumes,.tf_modules,.venv"
+	DEFAULT_GIT_LIVE_RELOAD_IMAGE         = "ghcr.io/windsorcli/git-livereload:v0.1.0"
+	DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE = ".windsor,.terraform,data,.volumes,.venv"
 	DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT = "flux-system"
 	DEFAULT_GIT_LIVE_RELOAD_USERNAME      = "local"
 	DEFAULT_GIT_LIVE_RELOAD_PASSWORD      = "local"
@@ -16,7 +16,7 @@ const (
 // Default Talos settings
 const (
 	// renovate: datasource=docker depName=ghcr.io/siderolabs/talos
-	DEFAULT_TALOS_IMAGE             = "ghcr.io/siderolabs/talos:v1.7.6"
+	DEFAULT_TALOS_IMAGE             = "ghcr.io/siderolabs/talos:v1.9.1"
 	DEFAULT_TALOS_WORKER_CPU        = 4
 	DEFAULT_TALOS_WORKER_RAM        = 4
 	DEFAULT_TALOS_CONTROL_PLANE_CPU = 2
@@ -53,4 +53,20 @@ const (
 const (
 	// renovate: datasource=docker depName=registry
 	REGISTRY_DEFAULT_IMAGE = "registry:2.8.3"
+)
+
+// Default network settings
+const (
+	DEFAULT_NETWORK_CIDR = "10.5.0.0/16"
+)
+
+// Minimum versions for tools
+const (
+	MINIMUM_VERSION_COLIMA         = "0.7.0"
+	MINIMUM_VERSION_DOCKER         = "25.0.0"
+	MINIMUM_VERSION_DOCKER_COMPOSE = "2.24.0"
+	MINIMUM_VERSION_KUBECTL        = "1.32.0"
+	MINIMUM_VERSION_LIMA           = "1.0.0"
+	MINIMUM_VERSION_TALOSCTL       = "1.7.0"
+	MINIMUM_VERSION_TERRAFORM      = "1.7.0"
 )

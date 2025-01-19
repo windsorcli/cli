@@ -7,7 +7,6 @@ import (
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -35,16 +34,18 @@ type Service interface {
 
 	// Initialize performs any necessary initialization for the service.
 	Initialize() error
+
+	// GetHostname returns the name plus the tld from the config
+	GetHostname() string
 }
 
 // BaseService is a base implementation of the Service interface
 type BaseService struct {
-	injector       di.Injector
-	configHandler  config.ConfigHandler
-	shell          shell.Shell
-	contextHandler context.ContextHandler
-	address        string
-	name           string
+	injector      di.Injector
+	configHandler config.ConfigHandler
+	shell         shell.Shell
+	address       string
+	name          string
 }
 
 // Initialize is a no-op for the Service interface
@@ -63,13 +64,6 @@ func (s *BaseService) Initialize() error {
 	}
 	s.shell = shell
 
-	// Resolve the contextHandler dependency
-	contextHandler, ok := s.injector.Resolve("contextHandler").(context.ContextHandler)
-	if !ok {
-		return fmt.Errorf("error resolving contextHandler")
-	}
-	s.contextHandler = contextHandler
-
 	return nil
 }
 
@@ -81,7 +75,7 @@ func (s *BaseService) WriteConfig() error {
 
 // SetAddress sets the address if it is a valid IPv4 address
 func (s *BaseService) SetAddress(address string) error {
-	if net.ParseIP(address) == nil || net.ParseIP(address).To4() == nil {
+	if address != "localhost" && (net.ParseIP(address) == nil || net.ParseIP(address).To4() == nil) {
 		return errors.New("invalid IPv4 address")
 	}
 	s.address = address
@@ -101,4 +95,21 @@ func (s *BaseService) SetName(name string) {
 // GetName returns the current name of the service
 func (s *BaseService) GetName() string {
 	return s.name
+}
+
+// GetHostname returns the name plus the tld from the config
+func (s *BaseService) GetHostname() string {
+	tld := s.configHandler.GetString("dns.name", "test")
+	return fmt.Sprintf("%s.%s", s.name, tld)
+}
+
+// isLocalhost checks if the given address is a localhost address
+func isLocalhost(address string) bool {
+	localhostAddresses := []string{"localhost", "127.0.0.1", "::1"}
+	for _, localhost := range localhostAddresses {
+		if address == localhost {
+			return true
+		}
+	}
+	return false
 }

@@ -1,15 +1,15 @@
-package config
+package v1alpha1
 
 import (
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config/aws"
-	"github.com/windsorcli/cli/pkg/config/cluster"
-	"github.com/windsorcli/cli/pkg/config/dns"
-	"github.com/windsorcli/cli/pkg/config/docker"
-	"github.com/windsorcli/cli/pkg/config/git"
-	"github.com/windsorcli/cli/pkg/config/terraform"
-	"github.com/windsorcli/cli/pkg/config/vm"
+	"github.com/windsorcli/cli/api/v1alpha1/aws"
+	"github.com/windsorcli/cli/api/v1alpha1/cluster"
+	"github.com/windsorcli/cli/api/v1alpha1/dns"
+	"github.com/windsorcli/cli/api/v1alpha1/docker"
+	"github.com/windsorcli/cli/api/v1alpha1/git"
+	"github.com/windsorcli/cli/api/v1alpha1/terraform"
+	"github.com/windsorcli/cli/api/v1alpha1/vm"
 )
 
 func TestConfig_Merge(t *testing.T) {
@@ -233,7 +233,7 @@ func TestConfig_Copy(t *testing.T) {
 			},
 		}
 
-		copy := original.Copy()
+		copy := original.DeepCopy()
 
 		// Ensure all fields are deeply equal by comparing values
 		if original.Environment["KEY"] != copy.Environment["KEY"] {
@@ -285,7 +285,7 @@ func TestConfig_Copy(t *testing.T) {
 			DNS:         nil,
 		}
 
-		copy := original.Copy()
+		copy := original.DeepCopy()
 
 		if copy.Environment != nil {
 			t.Errorf("Environment should be nil, got %v", copy.Environment)
@@ -315,7 +315,7 @@ func TestConfig_Copy(t *testing.T) {
 
 	t.Run("CopyNilContext", func(t *testing.T) {
 		var original *Context = nil
-		copy := original.Copy()
+		copy := original.DeepCopy()
 		if copy != nil {
 			t.Errorf("Expected nil copy for nil original, got %v", copy)
 		}

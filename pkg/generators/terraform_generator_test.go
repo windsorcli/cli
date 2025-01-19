@@ -47,13 +47,13 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGetConfigRoot", func(t *testing.T) {
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
 		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
-		// Mock GetConfigRoot to return an error
-		mocks.MockContextHandler.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error")
+		// Mock the shell's GetProjectRoot method to return an error
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mocked error in GetProjectRoot")
 		}
 
 		// When a new TerraformGenerator is created
@@ -75,9 +75,64 @@ func TestTerraformGenerator_Write(t *testing.T) {
 		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
-		// Mock osMkdirAll to return an error when called
+		// Mock osMkdirAll to return an error on the second call
 		osMkdirAll = func(_ string, _ os.FileMode) error {
 			return fmt.Errorf("mock error")
+		}
+
+		// When a new TerraformGenerator is created
+		generator := NewTerraformGenerator(mocks.Injector)
+		if err := generator.Initialize(); err != nil {
+			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
+		}
+
+		// And the Write method is called
+		err := generator.Write()
+
+		// Then it should return an error
+		if err == nil {
+			t.Errorf("Expected TerraformGenerator.Write to return an error")
+		}
+	})
+
+	t.Run("ErrorGetConfigRoot", func(t *testing.T) {
+		// Given a set of safe mocks
+		mocks := setupSafeMocks()
+
+		// Mock GetConfigRoot to return an error
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error")
+		}
+
+		// When a new TerraformGenerator is created
+		generator := NewTerraformGenerator(mocks.Injector)
+		if err := generator.Initialize(); err != nil {
+			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
+		}
+
+		// And the Write method is called
+		err := generator.Write()
+
+		// Then it should return an error
+		if err == nil {
+			t.Errorf("Expected TerraformGenerator.Write to return an error")
+		}
+	})
+
+	t.Run("ErrorMkdirAllComponentFolder", func(t *testing.T) {
+		// Given a set of safe mocks
+		mocks := setupSafeMocks()
+
+		// Counter to track the number of times osMkdirAll is called
+		callCount := 0
+
+		// Mock osMkdirAll to return an error on the second call
+		osMkdirAll = func(_ string, _ os.FileMode) error {
+			callCount++
+			if callCount == 2 {
+				return fmt.Errorf("mock error")
+			}
+			return nil
 		}
 
 		// When a new TerraformGenerator is created
@@ -201,8 +256,8 @@ func TestTerraformGenerator_writeModuleFile(t *testing.T) {
 		err := generator.writeModuleFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
 			Source: "fake-source",
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
-				"var1": {Type: "string", Default: "default1", Description: "description1"},
-				"var2": {Type: "number", Default: 2, Description: "description2"},
+				"var1": {Type: "string", Default: "default1", Description: "description1", Sensitive: false},
+				"var2": {Type: "number", Default: 2, Description: "description2", Sensitive: true},
 			},
 		})
 
@@ -227,8 +282,8 @@ func TestTerraformGenerator_writeVariableFile(t *testing.T) {
 		// And the writeVariableFile method is called
 		err := generator.writeVariableFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
-				"var1": {Type: "string", Default: "default1", Description: "description1"},
-				"var2": {Type: "number", Default: 2, Description: "description2"},
+				"var1": {Type: "string", Default: "default1", Description: "description1", Sensitive: false},
+				"var2": {Type: "number", Default: 2, Description: "description2", Sensitive: true},
 			},
 		})
 
@@ -254,8 +309,8 @@ func TestTerraformGenerator_writeTfvarsFile(t *testing.T) {
 		// And the writeTfvarsFile method is called with no existing tfvars file
 		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
-				"var1": {Type: "string", Default: "default1", Description: "desc1"},
-				"var2": {Type: "bool", Default: true, Description: "desc2"},
+				"var1": {Type: "string", Default: "default1", Description: "desc1", Sensitive: false},
+				"var2": {Type: "bool", Default: true, Description: "desc2", Sensitive: true},
 			},
 			Values: map[string]interface{}{
 				"var1": "newval1",
@@ -305,8 +360,8 @@ var1 = "oldval1"
 		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
 			Source: "some-module-source", // to test source comment insertion
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
-				"var1": {Type: "string", Default: "default1", Description: "desc1"},
-				"var2": {Type: "list", Default: []interface{}{"item1"}, Description: "desc2"},
+				"var1": {Type: "string", Default: "default1", Description: "desc1", Sensitive: false},
+				"var2": {Type: "list", Default: []interface{}{"item1"}, Description: "desc2", Sensitive: true},
 			},
 			Values: map[string]interface{}{
 				"var1": "value1",
@@ -342,7 +397,7 @@ var1 = "oldval1"
 		// And the writeTfvarsFile method is called
 		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
-				"var1": {Type: "string", Default: "defval", Description: "desc"},
+				"var1": {Type: "string", Default: "defval", Description: "desc", Sensitive: false},
 			},
 			Values: map[string]interface{}{
 				"var1": "someval",
@@ -492,7 +547,7 @@ var1 = "oldval1"
 		// And the writeTfvarsFile method is called
 		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
-				"var1": {Type: "string", Default: "default1", Description: "description1"},
+				"var1": {Type: "string", Default: "default1", Description: "description1", Sensitive: false},
 			},
 			Values: map[string]interface{}{
 				"var1": "value1",

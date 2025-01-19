@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/dns"
+	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/dns"
-	"github.com/windsorcli/cli/pkg/config/docker"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -26,9 +26,9 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 
 	// Create mock instances
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.GetConfigFunc = func() *config.Context {
+	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 		enabled := true
-		return &config.Context{
+		return &v1alpha1.Context{
 			Docker: &docker.DockerConfig{
 				Enabled: &enabled,
 			},
@@ -40,11 +40,10 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 	}
 
 	mockShell := shell.NewMockShell()
-	mockContext := context.NewMockContext()
-	mockContext.GetConfigRootFunc = func() (string, error) {
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
 	}
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
 
@@ -55,14 +54,12 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 
 	// Register mocks in the injector
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 
 	return &MockComponents{
 		Injector:          injector,
 		MockConfigHandler: mockConfigHandler,
 		MockShell:         mockShell,
-		MockContext:       mockContext,
 		MockService:       mockService,
 	}
 }
@@ -248,7 +245,46 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 			t.Errorf("Expected 1 service, got %d", len(cfg.Services))
 		}
 		if cfg.Services[0].Name != "dns.test" {
-			t.Errorf("Expected service name to be 'dns', got %s", cfg.Services[0].Name)
+			t.Errorf("Expected service name to be 'dns.test', got %s", cfg.Services[0].Name)
+		}
+	})
+
+	t.Run("LocalhostPorts", func(t *testing.T) {
+		// Create a mock injector with necessary mocks
+		mocks := createDNSServiceMocks()
+
+		// Given: a DNSService with the mock injector
+		service := NewDNSService(mocks.Injector)
+
+		// Initialize the service
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Set the address to localhost
+		service.SetAddress("127.0.0.1")
+
+		// When: GetComposeConfig is called
+		cfg, err := service.GetComposeConfig()
+
+		// Then: no error should be returned, and cfg should be correctly populated
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
+		if cfg == nil {
+			t.Fatalf("Expected cfg to be non-nil when GetComposeConfig succeeds")
+		}
+		if len(cfg.Services) != 1 {
+			t.Errorf("Expected 1 service, got %d", len(cfg.Services))
+		}
+		if len(cfg.Services[0].Ports) != 2 {
+			t.Errorf("Expected 2 ports, got %d", len(cfg.Services[0].Ports))
+		}
+		if cfg.Services[0].Ports[0].Published != "53" || cfg.Services[0].Ports[0].Protocol != "tcp" {
+			t.Errorf("Expected port 53 with protocol tcp, got port %s with protocol %s", cfg.Services[0].Ports[0].Published, cfg.Services[0].Ports[0].Protocol)
+		}
+		if cfg.Services[0].Ports[1].Published != "53" || cfg.Services[0].Ports[1].Protocol != "udp" {
+			t.Errorf("Expected port 53 with protocol udp, got port %s with protocol %s", cfg.Services[0].Ports[1].Published, cfg.Services[0].Ports[1].Protocol)
 		}
 	})
 }
@@ -257,16 +293,16 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create mocks and set up the mock context
 		mocks := createDNSServiceMocks()
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
-		mocks.MockContext.GetContextFunc = func() string {
+		mocks.MockConfigHandler.GetContextFunc = func() string {
 			return "test"
 		}
 
 		// Configure the mock config handler to return Docker enabled
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
 					Enabled:     ptrBool(true),
 					NetworkCIDR: ptrString("192.168.1.0/24"),
@@ -308,11 +344,11 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRetrievingConfigRoot", func(t *testing.T) {
-		// Create a mock context that returns an error on GetConfigRoot
+	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
+		// Create a mock context that returns an error on GetProjectRoot
 		mocks := createDNSServiceMocks()
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving config root")
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving project root")
 		}
 
 		mocks.Injector.Register("dockerService", NewMockService())
@@ -329,21 +365,21 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		err := service.WriteConfig()
 
 		// Then: an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "error retrieving config root") {
-			t.Fatalf("expected error retrieving config root, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error retrieving project root") {
+			t.Fatalf("expected error retrieving project root, got %v", err)
 		}
 	})
 
 	t.Run("ValidAddress", func(t *testing.T) {
 		// Create a mock context and config handler
 		mocks := createDNSServiceMocks()
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
 
 		// Create a mock config handler that returns Docker and DNS enabled
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
 					Enabled: ptrBool(true),
 				},
@@ -365,6 +401,9 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 		mockService.GetAddressFunc = func() string {
 			return "192.168.1.1"
+		}
+		mockService.GetHostnameFunc = func() string {
+			return "mockService.test"
 		}
 		mocks.Injector.Register("dockerService", mockService)
 
@@ -398,13 +437,13 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	t.Run("ErrorWritingCorefile", func(t *testing.T) {
 		// Mock the GetConfigRoot function to return a mock path
 		mocks := createDNSServiceMocks()
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "/mock/config/root", nil
 		}
 
 		// Create a mock config handler that returns Docker enabled
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
 					Enabled: ptrBool(true),
 				},
@@ -456,9 +495,9 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		mocks := createDNSServiceMocks()
 
 		// Mock the configHandler
-		mocks.MockConfigHandler.GetConfigFunc = func() *config.Context {
+		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			// Return a context config where Docker is enabled
-			return &config.Context{
+			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
 					Enabled: ptrBool(true),
 				},
@@ -469,10 +508,10 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 
 		// Mock the context
-		mocks.MockContext.GetConfigRootFunc = func() (string, error) {
+		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return filepath.FromSlash("/invalid/path"), nil
 		}
-		mocks.MockContext.GetContextFunc = func() string {
+		mocks.MockConfigHandler.GetContextFunc = func() string {
 			return "test-context"
 		}
 

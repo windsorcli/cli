@@ -11,7 +11,6 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -24,19 +23,17 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 		injector = di.NewInjector()
 	}
 
-	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
 
 	// Register mock instances in the injector
-	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
 
 	mockConfigHandler.LoadConfigFunc = func(path string) error { return nil }
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
 
@@ -90,7 +87,6 @@ func setupSafeColimaVmMocks(optionalInjector ...di.Injector) *MockComponents {
 
 	return &MockComponents{
 		Injector:          injector,
-		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
 	}

@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -43,10 +42,9 @@ type Virt interface {
 }
 
 type BaseVirt struct {
-	injector       di.Injector
-	shell          shell.Shell
-	contextHandler context.ContextHandler
-	configHandler  config.ConfigHandler
+	injector      di.Injector
+	shell         shell.Shell
+	configHandler config.ConfigHandler
 }
 
 // VirtualMachine defines methods for VirtualMachine operations
@@ -73,12 +71,6 @@ func (v *BaseVirt) Initialize() error {
 		return fmt.Errorf("error resolving shell")
 	}
 	v.shell = shellInstance
-
-	contextHandlerInstance, ok := v.injector.Resolve("contextHandler").(context.ContextHandler)
-	if !ok {
-		return fmt.Errorf("error resolving context handler")
-	}
-	v.contextHandler = contextHandlerInstance
 
 	configHandler, ok := v.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {

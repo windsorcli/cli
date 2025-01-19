@@ -8,15 +8,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/context"
+	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type OmniEnvPrinterMocks struct {
-	Injector       di.Injector
-	ContextHandler *context.MockContext
-	Shell          *shell.MockShell
+	Injector      di.Injector
+	Shell         *shell.MockShell
+	ConfigHandler *config.MockConfigHandler
 }
 
 func setupSafeOmniEnvPrinterMocks(injector ...di.Injector) *OmniEnvPrinterMocks {
@@ -27,20 +27,20 @@ func setupSafeOmniEnvPrinterMocks(injector ...di.Injector) *OmniEnvPrinterMocks 
 		mockInjector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
-	mockContext.GetConfigRootFunc = func() (string, error) {
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
 	}
 
 	mockShell := shell.NewMockShell()
 
-	mockInjector.Register("contextHandler", mockContext)
+	mockInjector.Register("configHandler", mockConfigHandler)
 	mockInjector.Register("shell", mockShell)
 
 	return &OmniEnvPrinterMocks{
-		Injector:       mockInjector,
-		ContextHandler: mockContext,
-		Shell:          mockShell,
+		Injector:      mockInjector,
+		ConfigHandler: mockConfigHandler,
+		Shell:         mockShell,
 	}
 }
 
@@ -95,7 +95,7 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 
 	t.Run("GetConfigRootError", func(t *testing.T) {
 		mocks := setupSafeOmniEnvPrinterMocks()
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock context error")
 		}
 
@@ -153,7 +153,7 @@ func TestOmniEnvPrinter_Print(t *testing.T) {
 		mocks := setupSafeOmniEnvPrinterMocks()
 
 		// Override the GetConfigFunc to simulate an error
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock config error")
 		}
 

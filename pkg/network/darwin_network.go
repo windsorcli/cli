@@ -9,31 +9,26 @@ import (
 	"strings"
 )
 
-// ConfigureHostRoute sets up the local development network
+// ConfigureHostRoute ensures that a network route from the host to the VM guest is established.
+// It first checks if a route for the specified network CIDR already exists with the guest IP as the gateway.
+// If the route does not exist, it adds a new route using elevated permissions to facilitate communication
+// between the host and the guest VM.
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
-	// Access the Docker configuration
 	networkCIDR := n.configHandler.GetString("docker.network_cidr")
 	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}
 
-	// Access the VM configuration
 	guestIP := n.configHandler.GetString("vm.address")
 	if guestIP == "" {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	// Use the shell to execute a command that checks the routing table for the specific route
-	output, err := n.shell.ExecSilent(
-		"route",
-		"get",
-		networkCIDR,
-	)
+	output, err := n.shell.ExecSilent("route", "get", networkCIDR)
 	if err != nil {
 		return fmt.Errorf("failed to check if route exists: %w", err)
 	}
 
-	// Check if the output contains the gateway IP, indicating the route exists
 	lines := strings.Split(output, "\n")
 	routeExists := false
 	for _, line := range lines {
@@ -50,7 +45,6 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return nil
 	}
 
-	// Add route on the host to VM guest
 	output, err = n.shell.ExecSudo(
 		"🔐 Adding host route",
 		"route",
@@ -66,19 +60,16 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS sets up the DNS configuration
+// ConfigureDNS sets up DNS by modifying system files to route DNS queries.
+// It creates a resolver file for a specified DNS IP. It ensures directories exist,
+// updates files, and flushes the DNS cache to apply changes.
 func (n *BaseNetworkManager) ConfigureDNS() error {
-	// Access the DNS configuration using GetString
-	dnsDomain := n.configHandler.GetString("dns.name")
-	if dnsDomain == "" {
-		return fmt.Errorf("DNS domain is not configured")
+	tld := n.configHandler.GetString("dns.name")
+	if tld == "" {
+		return fmt.Errorf("DNS TLD is not configured")
 	}
 	dnsIP := n.configHandler.GetString("dns.address")
-	if dnsIP == "" {
-		return fmt.Errorf("DNS address is not configured")
-	}
 
-	// Ensure the /etc/resolver directory exists
 	resolverDir := "/etc/resolver"
 	if _, err := stat(resolverDir); os.IsNotExist(err) {
 		if _, err := n.shell.ExecSilent(
@@ -91,23 +82,19 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		}
 	}
 
-	// Check if the resolver file already exists with the correct content
-	resolverFile := fmt.Sprintf("%s/%s", resolverDir, dnsDomain)
+	resolverFile := fmt.Sprintf("%s/%s", resolverDir, tld)
+	content := fmt.Sprintf("nameserver %s\n", dnsIP)
+
 	existingContent, err := readFile(resolverFile)
-	if err == nil && string(existingContent) == fmt.Sprintf("nameserver %s\n", dnsIP) {
-		// The resolver file already exists with the correct content, no need to update
+	if err == nil && string(existingContent) == content {
 		return nil
 	}
 
-	// Write the DNS server to a temporary file
-	tempResolverFile := fmt.Sprintf("/tmp/%s", dnsDomain)
-	content := fmt.Sprintf("nameserver %s\n", dnsIP)
-	// #nosec G306 - /etc/resolver files require 0644 permissions
+	tempResolverFile := fmt.Sprintf("/tmp/%s", tld)
 	if err := writeFile(tempResolverFile, []byte(content), 0644); err != nil {
 		return fmt.Errorf("Error writing to temporary resolver file: %w", err)
 	}
 
-	// Move the temporary file to the /etc/resolver/<tld> file
 	if _, err := n.shell.ExecSudo(
 		fmt.Sprintf("🔐 Configuring DNS resolver at %s\n", resolverFile),
 		"mv",
@@ -117,7 +104,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("Error moving resolver file: %w", err)
 	}
 
-	// Flush the DNS cache
 	if _, err := n.shell.ExecSudo(
 		"🔐 Flushing DNS cache",
 		"dscacheutil",
@@ -126,7 +112,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("Error flushing DNS cache: %w", err)
 	}
 
-	// Restart mDNSResponder
 	if _, err := n.shell.ExecSudo(
 		"🔐 Restarting mDNSResponder",
 		"killall",

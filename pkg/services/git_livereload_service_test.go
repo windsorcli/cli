@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/git"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/git"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -21,25 +21,23 @@ func setupSafeGitLivereloadServiceMocks(optionalInjector ...di.Injector) *MockCo
 		injector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockService := NewMockService()
 
 	// Register mock instances in the injector
-	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("gitService", mockService)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
 
 	// Set up the mock config handler to return minimal configuration for Git
-	mockConfigHandler.GetConfigFunc = func() *config.Context {
-		return &config.Context{
+	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+		return &v1alpha1.Context{
 			Git: &git.GitConfig{
 				Livereload: &git.GitLivereloadConfig{
 					Enabled: ptrBool(true),
@@ -50,7 +48,6 @@ func setupSafeGitLivereloadServiceMocks(optionalInjector ...di.Injector) *MockCo
 
 	return &MockComponents{
 		Injector:          injector,
-		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
 		MockService:       mockService,

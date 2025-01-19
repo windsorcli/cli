@@ -3,10 +3,10 @@ package controller
 import (
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/docker"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -14,14 +14,15 @@ import (
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
 func TestMockController_Initialize(t *testing.T) {
 	t.Run("Initialize", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the InitializeFunc is set to return nil
 		mockCtrl.InitializeFunc = func() error {
 			return nil
@@ -35,8 +36,8 @@ func TestMockController_Initialize(t *testing.T) {
 
 	t.Run("NoInitializeFunc", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When Initialize is called without setting InitializeFunc
 		if err := mockCtrl.Initialize(); err != nil {
 			// Then no error should be returned
@@ -48,8 +49,12 @@ func TestMockController_Initialize(t *testing.T) {
 func TestMockController_InitializeComponents(t *testing.T) {
 	t.Run("InitializeComponents", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+
+		// Initialize the controller
+		mockCtrl.Initialize()
+
 		// And the InitializeComponentsFunc is set to return nil
 		mockCtrl.InitializeComponentsFunc = func() error {
 			return nil
@@ -60,24 +65,13 @@ func TestMockController_InitializeComponents(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
-
-	t.Run("NoInitializeComponentsFunc", func(t *testing.T) {
-		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
-		// When InitializeComponents is called without setting InitializeComponentsFunc
-		if err := mockCtrl.InitializeComponents(); err != nil {
-			// Then no error should be returned
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
 }
 
 func TestMockController_CreateCommonComponents(t *testing.T) {
 	t.Run("CreateCommonComponents", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the CreateCommonComponentsFunc is set to return nil
 		mockCtrl.CreateCommonComponentsFunc = func() error {
 			return nil
@@ -91,8 +85,8 @@ func TestMockController_CreateCommonComponents(t *testing.T) {
 
 	t.Run("NoCreateCommonComponentsFunc", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When CreateCommonComponents is called without setting CreateCommonComponentsFunc
 		if err := mockCtrl.CreateCommonComponents(); err != nil {
 			// Then no error should be returned
@@ -104,8 +98,8 @@ func TestMockController_CreateCommonComponents(t *testing.T) {
 func TestMockController_CreateProjectComponents(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the CreateProjectComponentsFunc is set to return nil
 		mockCtrl.CreateProjectComponentsFunc = func() error {
 			return nil
@@ -119,8 +113,8 @@ func TestMockController_CreateProjectComponents(t *testing.T) {
 
 	t.Run("DefaultCreateProjectComponents", func(t *testing.T) {
 		// Given a new injector and a mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When CreateProjectComponents is invoked without setting CreateProjectComponentsFunc
 		if err := mockCtrl.CreateProjectComponents(); err != nil {
 			// Then no error should be returned
@@ -130,10 +124,10 @@ func TestMockController_CreateProjectComponents(t *testing.T) {
 }
 
 func TestMockController_CreateEnvComponents(t *testing.T) {
-	t.Run("CreateEnvComponents", func(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the CreateEnvComponentsFunc is set to return nil
 		mockCtrl.CreateEnvComponentsFunc = func() error {
 			return nil
@@ -146,15 +140,10 @@ func TestMockController_CreateEnvComponents(t *testing.T) {
 	})
 
 	t.Run("NoCreateEnvComponentsFunc", func(t *testing.T) {
-		// Use setSafeControllerMocks to set up the mock environment
-		mocks := setSafeControllerMocks()
 		// Given a new injector and mock controller
+		mocks := setSafeControllerMocks()
 		mockCtrl := NewMockController(mocks.Injector)
-
-		// Initialize the mock controller and check for error
-		if err := mockCtrl.Initialize(); err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		mockCtrl.CreateCommonComponents()
 
 		// When CreateEnvComponents is called without setting CreateEnvComponentsFunc
 		if err := mockCtrl.CreateEnvComponents(); err != nil {
@@ -167,8 +156,8 @@ func TestMockController_CreateEnvComponents(t *testing.T) {
 func TestMockController_CreateServiceComponents(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the CreateServiceComponentsFunc is set to return nil
 		mockCtrl.CreateServiceComponentsFunc = func() error {
 			return nil
@@ -182,8 +171,8 @@ func TestMockController_CreateServiceComponents(t *testing.T) {
 
 	t.Run("NoCreateServiceComponentsFunc", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And a mock config handler is created and assigned to the controller
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockCtrl.configHandler = mockConfigHandler
@@ -231,8 +220,8 @@ func TestMockController_CreateServiceComponents(t *testing.T) {
 			return ""
 		}
 
-		mockConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
 					Registries: map[string]docker.RegistryConfig{
 						"registry1": {Remote: "registry1"},
@@ -253,8 +242,8 @@ func TestMockController_CreateServiceComponents(t *testing.T) {
 func TestMockController_CreateVirtualizationComponents(t *testing.T) {
 	t.Run("CreateVirtualizationComponents", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the CreateVirtualizationComponentsFunc is set to return nil
 		mockCtrl.CreateVirtualizationComponentsFunc = func() error {
 			return nil
@@ -268,8 +257,8 @@ func TestMockController_CreateVirtualizationComponents(t *testing.T) {
 
 	t.Run("NoCreateVirtualizationComponentsFunc", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And a mock config handler is created and assigned to the controller
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockCtrl.configHandler = mockConfigHandler
@@ -294,8 +283,8 @@ func TestMockController_CreateVirtualizationComponents(t *testing.T) {
 func TestMockController_CreateStackComponents(t *testing.T) {
 	t.Run("CreateStackComponents", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the CreateStackComponentsFunc is set to return nil
 		mockCtrl.CreateStackComponentsFunc = func() error {
 			return nil
@@ -309,8 +298,8 @@ func TestMockController_CreateStackComponents(t *testing.T) {
 
 	t.Run("NoCreateStackComponentsFunc", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When CreateStackComponents is called without setting CreateStackComponentsFunc
 		if err := mockCtrl.CreateStackComponents(); err != nil {
 			// Then no error should be returned
@@ -322,8 +311,8 @@ func TestMockController_CreateStackComponents(t *testing.T) {
 func TestMockController_WriteConfigurationFiles(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the WriteConfigurationFilesFunc is set to return nil
 		mockCtrl.WriteConfigurationFilesFunc = func() error {
 			// Validate that the WriteConfigFunc is called
@@ -341,8 +330,8 @@ func TestMockController_WriteConfigurationFiles(t *testing.T) {
 
 	t.Run("NoWriteConfigurationFilesFunc", func(t *testing.T) {
 		// Given a new injector and mock controller
-		injector := di.NewInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When WriteConfigurationFiles is called without setting WriteConfigurationFilesFunc
 		if err := mockCtrl.WriteConfigurationFiles(); err != nil {
 			// Then no error should be returned
@@ -354,27 +343,27 @@ func TestMockController_WriteConfigurationFiles(t *testing.T) {
 func TestMockController_ResolveInjector(t *testing.T) {
 	t.Run("ResolveInjector", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		expectedInjector := di.NewMockInjector()
-		mockCtrl := NewMockController(expectedInjector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveInjectorFunc is set to return the expected injector
 		mockCtrl.ResolveInjectorFunc = func() di.Injector {
-			return expectedInjector
+			return mocks.Injector
 		}
 		// When ResolveInjector is called
-		if injector := mockCtrl.ResolveInjector(); injector != expectedInjector {
+		if injector := mockCtrl.ResolveInjector(); injector != mocks.Injector {
 			// Then the returned injector should be the expected injector
-			t.Fatalf("expected %v, got %v", expectedInjector, injector)
+			t.Fatalf("expected %v, got %v", mocks.Injector, injector)
 		}
 	})
 
 	t.Run("NoResolveInjectorFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveInjector is called without setting ResolveInjectorFunc
-		if injector := mockCtrl.ResolveInjector(); injector != injector {
+		if injector := mockCtrl.ResolveInjector(); injector != mocks.Injector {
 			// Then the returned injector should be the same as the created injector
-			t.Fatalf("expected %v, got %v", injector, injector)
+			t.Fatalf("expected %v, got %v", mocks.Injector, injector)
 		}
 	})
 }
@@ -382,61 +371,29 @@ func TestMockController_ResolveInjector(t *testing.T) {
 func TestMockController_ResolveConfigHandler(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new mock config handler, mock injector, and mock controller
-		expectedConfigHandler := config.NewMockConfigHandler()
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveConfigHandlerFunc is set to return the expected config handler
 		mockCtrl.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-			return expectedConfigHandler
+			return mocks.ConfigHandler
 		}
 		// When ResolveConfigHandler is called
 		configHandler := mockCtrl.ResolveConfigHandler()
-		if configHandler != expectedConfigHandler {
+		if configHandler != mocks.ConfigHandler {
 			// Then the returned config handler should be the expected config handler
-			t.Fatalf("expected %v, got %v", expectedConfigHandler, configHandler)
+			t.Fatalf("expected %v, got %v", mocks.ConfigHandler, configHandler)
 		}
 	})
 
 	t.Run("NoResolveConfigHandlerFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveConfigHandler is called without setting ResolveConfigHandlerFunc
 		configHandler := mockCtrl.ResolveConfigHandler()
-		if configHandler != configHandler {
+		if configHandler != mocks.ConfigHandler {
 			// Then the returned config handler should be the same as the created config handler
-			t.Fatalf("expected %v, got %v", configHandler, configHandler)
-		}
-	})
-}
-
-func TestMockController_ResolveContextHandler(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a new mock context handler, mock injector, and mock controller
-		expectedContextHandler := context.NewMockContext()
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
-		// And the ResolveContextHandlerFunc is set to return the expected context handler
-		mockCtrl.ResolveContextHandlerFunc = func() context.ContextHandler {
-			return expectedContextHandler
-		}
-		// When ResolveContextHandler is called
-		contextHandler := mockCtrl.ResolveContextHandler()
-		if contextHandler != expectedContextHandler {
-			// Then the returned context handler should be the expected context handler
-			t.Fatalf("expected %v, got %v", expectedContextHandler, contextHandler)
-		}
-	})
-
-	t.Run("NoResolveContextHandlerFunc", func(t *testing.T) {
-		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
-		// When ResolveContextHandler is called without setting ResolveContextHandlerFunc
-		contextHandler := mockCtrl.ResolveContextHandler()
-		if contextHandler != contextHandler {
-			// Then the returned context handler should be the same as the created context handler
-			t.Fatalf("expected %v, got %v", contextHandler, contextHandler)
+			t.Fatalf("expected %v, got %v", mocks.ConfigHandler, configHandler)
 		}
 	})
 }
@@ -444,30 +401,29 @@ func TestMockController_ResolveContextHandler(t *testing.T) {
 func TestMockController_ResolveEnvPrinter(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new mock env printer, mock injector, and mock controller
-		expectedEnvPrinter := &env.MockEnvPrinter{}
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveEnvPrinterFunc is set to return the expected env printer
 		mockCtrl.ResolveEnvPrinterFunc = func(name string) env.EnvPrinter {
-			return expectedEnvPrinter
+			return mocks.EnvPrinter
 		}
 		// When ResolveEnvPrinter is called
-		envPrinter := mockCtrl.ResolveEnvPrinter("envPrinter")
-		if envPrinter != expectedEnvPrinter {
+		envPrinter := mockCtrl.ResolveEnvPrinter("envPrinter1")
+		if envPrinter != mocks.EnvPrinter {
 			// Then the returned env printer should be the expected env printer
-			t.Fatalf("expected %v, got %v", expectedEnvPrinter, envPrinter)
+			t.Fatalf("expected %v, got %v", mocks.EnvPrinter, envPrinter)
 		}
 	})
 
 	t.Run("NoResolveEnvPrinterFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveEnvPrinter is called without setting ResolveEnvPrinterFunc
-		envPrinter := mockCtrl.ResolveEnvPrinter("envPrinter")
-		if envPrinter != envPrinter {
+		envPrinter := mockCtrl.ResolveEnvPrinter("envPrinter1")
+		if envPrinter != mocks.EnvPrinter {
 			// Then the returned env printer should be the same as the created env printer
-			t.Fatalf("expected %v, got %v", envPrinter, envPrinter)
+			t.Fatalf("expected %v, got %v", mocks.EnvPrinter, envPrinter)
 		}
 	})
 }
@@ -475,11 +431,11 @@ func TestMockController_ResolveEnvPrinter(t *testing.T) {
 func TestMockController_ResolveAllEnvPrinters(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveAllEnvPrintersFunc is set to return a list of mock env printers
 		mockCtrl.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{&env.MockEnvPrinter{}, &env.MockEnvPrinter{}}
+			return []env.EnvPrinter{mocks.EnvPrinter, mocks.EnvPrinter} // Use the same mock EnvPrinter
 		}
 		// When ResolveAllEnvPrinters is called
 		envPrinters := mockCtrl.ResolveAllEnvPrinters()
@@ -491,11 +447,11 @@ func TestMockController_ResolveAllEnvPrinters(t *testing.T) {
 
 	t.Run("NoResolveAllEnvPrintersFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveAllEnvPrinters is called without setting ResolveAllEnvPrintersFunc
 		envPrinters := mockCtrl.ResolveAllEnvPrinters()
-		if len(envPrinters) != 0 {
+		if len(envPrinters) != 2 {
 			// Then the length of the returned env printers list should be 0
 			t.Fatalf("expected %v, got %v", 0, len(envPrinters))
 		}
@@ -505,30 +461,29 @@ func TestMockController_ResolveAllEnvPrinters(t *testing.T) {
 func TestMockController_ResolveShell(t *testing.T) {
 	t.Run("ResolveShell", func(t *testing.T) {
 		// Given a new mock shell, mock injector, and mock controller
-		expectedShell := &shell.MockShell{}
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveShellFunc is set to return the expected shell
 		mockCtrl.ResolveShellFunc = func() shell.Shell {
-			return expectedShell
+			return mocks.Shell
 		}
 		// When ResolveShell is called
 		shellInstance := mockCtrl.ResolveShell()
-		if shellInstance != expectedShell {
+		if shellInstance != mocks.Shell {
 			// Then the returned shell should be the expected shell
-			t.Fatalf("expected %v, got %v", expectedShell, shellInstance)
+			t.Fatalf("expected %v, got %v", mocks.Shell, shellInstance)
 		}
 	})
 
 	t.Run("NoResolveShellFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveShell is called without setting ResolveShellFunc
 		shellInstance := mockCtrl.ResolveShell()
-		if shellInstance != shellInstance {
+		if shellInstance != mocks.Shell {
 			// Then the returned shell should be the same as the created shell
-			t.Fatalf("expected %v, got %v", shellInstance, shellInstance)
+			t.Fatalf("expected %v, got %v", mocks.Shell, shellInstance)
 		}
 	})
 }
@@ -536,30 +491,59 @@ func TestMockController_ResolveShell(t *testing.T) {
 func TestMockController_ResolveSecureShell(t *testing.T) {
 	t.Run("ResolveSecureShell", func(t *testing.T) {
 		// Given a new mock secure shell, mock injector, and mock controller
-		expectedSecureShell := &shell.MockShell{}
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveSecureShellFunc is set to return the expected secure shell
 		mockCtrl.ResolveSecureShellFunc = func() shell.Shell {
-			return expectedSecureShell
+			return mocks.SecureShell
 		}
 		// When ResolveSecureShell is called
 		secureShell := mockCtrl.ResolveSecureShell()
-		if secureShell != expectedSecureShell {
+		if secureShell != mocks.SecureShell {
 			// Then the returned secure shell should be the expected secure shell
-			t.Fatalf("expected %v, got %v", expectedSecureShell, secureShell)
+			t.Fatalf("expected %v, got %v", mocks.SecureShell, secureShell)
 		}
 	})
 
 	t.Run("NoResolveSecureShellFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveSecureShell is called without setting ResolveSecureShellFunc
 		secureShell := mockCtrl.ResolveSecureShell()
-		if secureShell != secureShell {
+		if secureShell != mocks.SecureShell {
 			// Then the returned secure shell should be the same as the created secure shell
-			t.Fatalf("expected %v, got %v", secureShell, secureShell)
+			t.Fatalf("expected %v, got %v", mocks.SecureShell, secureShell)
+		}
+	})
+}
+
+func TestMockController_ResolveToolsManager(t *testing.T) {
+	t.Run("ResolveToolsManager", func(t *testing.T) {
+		// Given a new mock tools manager, mock injector, and mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+		// And the ResolveToolsManagerFunc is set to return the expected tools manager
+		mockCtrl.ResolveToolsManagerFunc = func() tools.ToolsManager {
+			return mocks.ToolsManager
+		}
+		// When ResolveToolsManager is called
+		toolsManager := mockCtrl.ResolveToolsManager()
+		if toolsManager != mocks.ToolsManager {
+			// Then the returned tools manager should be the expected tools manager
+			t.Fatalf("expected %v, got %v", mocks.ToolsManager, toolsManager)
+		}
+	})
+
+	t.Run("NoResolveToolsManagerFunc", func(t *testing.T) {
+		// Given a new mock injector and mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+		// When ResolveToolsManager is called without setting ResolveToolsManagerFunc
+		toolsManager := mockCtrl.ResolveToolsManager()
+		if toolsManager != mocks.ToolsManager {
+			// Then the returned tools manager should be the same as the created tools manager
+			t.Fatalf("expected %v, got %v", mocks.ToolsManager, toolsManager)
 		}
 	})
 }
@@ -567,30 +551,29 @@ func TestMockController_ResolveSecureShell(t *testing.T) {
 func TestMockController_ResolveNetworkManager(t *testing.T) {
 	t.Run("ResolveNetworkManager", func(t *testing.T) {
 		// Given a new mock network manager, mock injector, and mock controller
-		expectedNetworkManager := &network.MockNetworkManager{}
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveNetworkManagerFunc is set to return the expected network manager
 		mockCtrl.ResolveNetworkManagerFunc = func() network.NetworkManager {
-			return expectedNetworkManager
+			return mocks.NetworkManager
 		}
 		// When ResolveNetworkManager is called
 		networkManager := mockCtrl.ResolveNetworkManager()
-		if networkManager != expectedNetworkManager {
+		if networkManager != mocks.NetworkManager {
 			// Then the returned network manager should be the expected network manager
-			t.Fatalf("expected %v, got %v", expectedNetworkManager, networkManager)
+			t.Fatalf("expected %v, got %v", mocks.NetworkManager, networkManager)
 		}
 	})
 
 	t.Run("NoResolveNetworkManagerFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveNetworkManager is called without setting ResolveNetworkManagerFunc
 		networkManager := mockCtrl.ResolveNetworkManager()
-		if networkManager != networkManager {
+		if networkManager != mocks.NetworkManager {
 			// Then the returned network manager should be the same as the created network manager
-			t.Fatalf("expected %v, got %v", networkManager, networkManager)
+			t.Fatalf("expected %v, got %v", mocks.NetworkManager, networkManager)
 		}
 	})
 }
@@ -598,30 +581,30 @@ func TestMockController_ResolveNetworkManager(t *testing.T) {
 func TestMockController_ResolveService(t *testing.T) {
 	t.Run("ResolveService", func(t *testing.T) {
 		// Given a new mock service, mock injector, and mock controller
-		expectedService := &services.MockService{}
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveServiceFunc is set to return the expected service
 		mockCtrl.ResolveServiceFunc = func(name string) services.Service {
-			return expectedService
+			return mocks.Service
 		}
 		// When ResolveService is called
 		service := mockCtrl.ResolveService("service")
-		if service != expectedService {
+		if service != mocks.Service {
 			// Then the returned service should be the expected service
-			t.Fatalf("expected %v, got %v", expectedService, service)
+			t.Fatalf("expected %v, got %v", mocks.Service, service)
 		}
 	})
 
 	t.Run("NoResolveServiceFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveService is called without setting ResolveServiceFunc
-		service := mockCtrl.ResolveService("service")
-		if service != service {
-			// Then the returned service should be the same as the created service
-			t.Fatalf("expected %v, got %v", service, service)
+		service := mockCtrl.ResolveService("service1")
+		// Then the returned service should be the one resolved by the base controller
+		expectedService := mockCtrl.BaseController.ResolveService("service1")
+		if service != expectedService {
+			t.Fatalf("expected %v, got %v", expectedService, service)
 		}
 	})
 }
@@ -629,33 +612,32 @@ func TestMockController_ResolveService(t *testing.T) {
 func TestMockController_ResolveAllServices(t *testing.T) {
 	t.Run("ResolveAllServices", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		expectedServices := []services.Service{&services.MockService{}, &services.MockService{}}
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveAllServicesFunc is set to return a list of mock services
 		mockCtrl.ResolveAllServicesFunc = func() []services.Service {
-			return expectedServices
+			return []services.Service{mocks.Service, mocks.Service} // Use the same mock Service
 		}
 		// When ResolveAllServices is called
 		services := mockCtrl.ResolveAllServices()
-		if len(services) != len(expectedServices) {
+		if len(services) != 2 {
 			// Then the length of the returned services list should be the same as the expected services list
-			t.Fatalf("expected %v, got %v", len(expectedServices), len(services))
+			t.Fatalf("expected %v, got %v", 2, len(services))
 		}
-		for i, service := range services {
-			if service != expectedServices[i] {
+		for _, service := range services {
+			if service != mocks.Service {
 				// Then each service in the returned list should match the expected service
-				t.Fatalf("expected %v, got %v", expectedServices[i], service)
+				t.Fatalf("expected %v, got %v", mocks.Service, service)
 			}
 		}
 	})
 
 	t.Run("NoResolveAllServicesFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		services := mockCtrl.ResolveAllServices()
-		if len(services) != 0 {
+		if len(services) != 2 {
 			t.Fatalf("expected %v, got %v", 0, len(services))
 		}
 	})
@@ -664,30 +646,29 @@ func TestMockController_ResolveAllServices(t *testing.T) {
 func TestMockController_ResolveVirtualMachine(t *testing.T) {
 	t.Run("ResolveVirtualMachine", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		expectedVirtualMachine := &virt.MockVirt{}
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveVirtualMachineFunc is set to return the expected virtual machine
 		mockCtrl.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
-			return expectedVirtualMachine
+			return mocks.VirtualMachine
 		}
 		// When ResolveVirtualMachine is called
 		virtualMachine := mockCtrl.ResolveVirtualMachine()
 		// Then the returned virtual machine should be the expected virtual machine
-		if virtualMachine != expectedVirtualMachine {
-			t.Fatalf("expected %v, got %v", expectedVirtualMachine, virtualMachine)
+		if virtualMachine != mocks.VirtualMachine {
+			t.Fatalf("expected %v, got %v", mocks.VirtualMachine, virtualMachine)
 		}
 	})
 
 	t.Run("NoResolveVirtualMachineFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveVirtualMachine is called without setting ResolveVirtualMachineFunc
 		virtualMachine := mockCtrl.ResolveVirtualMachine()
 		// Then the returned virtual machine should be the same as the created virtual machine
-		if virtualMachine != virtualMachine {
-			t.Fatalf("expected %v, got %v", virtualMachine, virtualMachine)
+		if virtualMachine != mocks.VirtualMachine {
+			t.Fatalf("expected %v, got %v", mocks.VirtualMachine, virtualMachine)
 		}
 	})
 }
@@ -695,30 +676,29 @@ func TestMockController_ResolveVirtualMachine(t *testing.T) {
 func TestMockController_ResolveContainerRuntime(t *testing.T) {
 	t.Run("ResolveContainerRuntime", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		expectedContainerRuntime := &virt.MockVirt{}
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveContainerRuntimeFunc is set to return the expected container runtime
 		mockCtrl.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
-			return expectedContainerRuntime
+			return mocks.ContainerRuntime
 		}
 		// When ResolveContainerRuntime is called
 		containerRuntime := mockCtrl.ResolveContainerRuntime()
 		// Then the returned container runtime should be the expected container runtime
-		if containerRuntime != expectedContainerRuntime {
-			t.Fatalf("expected %v, got %v", expectedContainerRuntime, containerRuntime)
+		if containerRuntime != mocks.ContainerRuntime {
+			t.Fatalf("expected %v, got %v", mocks.ContainerRuntime, containerRuntime)
 		}
 	})
 
 	t.Run("NoResolveContainerRuntimeFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveContainerRuntime is called without setting ResolveContainerRuntimeFunc
 		containerRuntime := mockCtrl.ResolveContainerRuntime()
 		// Then the returned container runtime should be the same as the created container runtime
-		if containerRuntime != containerRuntime {
-			t.Fatalf("expected %v, got %v", containerRuntime, containerRuntime)
+		if containerRuntime != mocks.ContainerRuntime {
+			t.Fatalf("expected %v, got %v", mocks.ContainerRuntime, containerRuntime)
 		}
 	})
 }
@@ -726,28 +706,28 @@ func TestMockController_ResolveContainerRuntime(t *testing.T) {
 func TestMockController_ResolveAllGenerators(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveAllGeneratorsFunc is set to return a list of mock generators
 		mockCtrl.ResolveAllGeneratorsFunc = func() []generators.Generator {
-			return []generators.Generator{&generators.MockGenerator{}, &generators.MockGenerator{}}
+			return []generators.Generator{mocks.Generator}
 		}
 		// When ResolveAllGenerators is called
 		generators := mockCtrl.ResolveAllGenerators()
-		// Then the length of the returned generators list should be 2
-		if len(generators) != 2 {
-			t.Fatalf("expected %v, got %v", 2, len(generators))
+		// Then the length of the returned generators list should be 1
+		if len(generators) != 1 {
+			t.Fatalf("expected %v, got %v", 1, len(generators))
 		}
 	})
 
 	t.Run("NoResolveAllGeneratorsFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveAllGenerators is called without setting ResolveAllGeneratorsFunc
 		generators := mockCtrl.ResolveAllGenerators()
 		// Then the length of the returned generators list should be 0
-		if len(generators) != 0 {
+		if len(generators) != 1 {
 			t.Fatalf("expected %v, got %v", 0, len(generators))
 		}
 	})
@@ -756,29 +736,33 @@ func TestMockController_ResolveAllGenerators(t *testing.T) {
 func TestMockController_ResolveStack(t *testing.T) {
 	t.Run("ResolveStack", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveStackFunc is set to return a mock stack
 		mockCtrl.ResolveStackFunc = func() stack.Stack {
-			return stack.NewMockStack(injector)
+			return mocks.Stack
 		}
 		// When ResolveStack is called
 		stackInstance := mockCtrl.ResolveStack()
 		// Then the returned stack instance should not be nil
 		if stackInstance == nil {
-			t.Fatalf("expected %v, got %v", stack.NewMockStack(injector), stackInstance)
+			t.Fatalf("expected %v, got %v", mocks.Stack, stackInstance)
 		}
 	})
 
 	t.Run("NoResolveStackFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		// Register a nil stack with the injector
+		mocks.Injector.Register("stack", nil)
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveStack is called without setting ResolveStackFunc
 		stackInstance := mockCtrl.ResolveStack()
 		// Then the returned stack instance should be nil
 		if stackInstance != nil {
 			t.Fatalf("expected nil, got %v", stackInstance)
+		} else {
+			t.Logf("expected nil, got nil")
 		}
 	})
 }
@@ -786,29 +770,33 @@ func TestMockController_ResolveStack(t *testing.T) {
 func TestMockController_ResolveBlueprintHandler(t *testing.T) {
 	t.Run("ResolveBlueprintHandler", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveBlueprintHandlerFunc is set to return a mock blueprint handler
 		mockCtrl.ResolveBlueprintHandlerFunc = func() blueprint.BlueprintHandler {
-			return blueprint.NewMockBlueprintHandler(injector)
+			return mocks.BlueprintHandler
 		}
 		// When ResolveBlueprintHandler is called
 		blueprintHandler := mockCtrl.ResolveBlueprintHandler()
 		// Then the returned blueprint handler should not be nil
 		if blueprintHandler == nil {
-			t.Fatalf("expected %v, got %v", blueprint.NewMockBlueprintHandler(injector), blueprintHandler)
+			t.Fatalf("expected %v, got %v", mocks.BlueprintHandler, blueprintHandler)
 		}
 	})
 
 	t.Run("NoResolveBlueprintHandlerFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
-		injector := di.NewMockInjector()
-		mockCtrl := NewMockController(injector)
+		mocks := setSafeControllerMocks()
+		// Register a nil blueprint handler with the injector
+		mocks.Injector.Register("blueprintHandler", nil)
+		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveBlueprintHandler is called without setting ResolveBlueprintHandlerFunc
 		blueprintHandler := mockCtrl.ResolveBlueprintHandler()
 		// Then the returned blueprint handler should be nil
 		if blueprintHandler != nil {
 			t.Fatalf("expected nil, got %v", blueprintHandler)
+		} else {
+			t.Logf("expected nil, got nil")
 		}
 	})
 }

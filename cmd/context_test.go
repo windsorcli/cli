@@ -6,16 +6,14 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
 type MockSafeContextCmdComponents struct {
-	Injector           di.Injector
-	MockController     *ctrl.MockController
-	MockContextHandler *context.MockContext
-	MockConfigHandler  *config.MockConfigHandler
+	Injector          di.Injector
+	MockController    *ctrl.MockController
+	MockConfigHandler *config.MockConfigHandler
 }
 
 // setupSafeContextCmdMocks creates mock components for testing the context command
@@ -33,25 +31,20 @@ func setupSafeContextCmdMocks(optionalInjector ...di.Injector) MockSafeContextCm
 	// Use the injector to create a mock controller
 	mockController = ctrl.NewMockController(injector)
 
-	// Setup mock context handler
-	mockContextHandler := context.NewMockContext()
-	mockContextHandler.GetContextFunc = func() string {
-		return "mock-context"
-	}
-	injector.Register("contextHandler", mockContextHandler)
-
 	// Setup mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.SetFunc = func(key string, value interface{}) error {
 		return nil
 	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "mock-context"
+	}
 	injector.Register("configHandler", mockConfigHandler)
 
 	return MockSafeContextCmdComponents{
-		Injector:           injector,
-		MockController:     mockController,
-		MockContextHandler: mockContextHandler,
-		MockConfigHandler:  mockConfigHandler,
+		Injector:          injector,
+		MockController:    mockController,
+		MockConfigHandler: mockConfigHandler,
 	}
 }
 
@@ -108,27 +101,6 @@ func TestContext_Get(t *testing.T) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
-
-	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		// Given a controller with a mocked ResolveContextHandler that returns nil
-		mocks := setupSafeContextCmdMocks()
-		mocks.MockController.ResolveContextHandlerFunc = func() context.ContextHandler {
-			return nil
-		}
-
-		// When the get context command is executed
-		rootCmd.SetArgs([]string{"context", "get"})
-		err := Execute(mocks.MockController)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then the error should indicate the issue
-		expectedError := "No context handler found"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
 }
 
 func TestContext_Set(t *testing.T) {
@@ -179,41 +151,19 @@ func TestContext_Set(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingContextHandler", func(t *testing.T) {
-		// Given a controller that returns nil for ResolveContextHandler
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
-			return nil
-		}
-
-		// When the set context command is executed
-		rootCmd.SetArgs([]string{"context", "set", "new-context"})
-		err := Execute(mockController)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then the output should indicate the error
-		expectedOutput := "No context handler found"
-		if !strings.Contains(err.Error(), expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
-		}
-	})
-
 	t.Run("SetContextError", func(t *testing.T) {
-		// Given a context instance that returns an error on SetContext
+		// Given a config handler instance that returns an error on SetContext
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
 
-		// Mock and register contextHandler
-		mockContextHandler := context.NewMockContext()
-		mockContextHandler.SetContextFunc = func(contextName string) error { return fmt.Errorf("set context error") }
-		injector.Register("contextHandler", mockContextHandler)
+		// Mock and register configHandler
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.SetContextFunc = func(contextName string) error { return fmt.Errorf("set context error") }
+		injector.Register("configHandler", mockConfigHandler)
 
-		// Ensure the mock controller returns the mock context handler
-		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
-			return mockContextHandler
+		// Ensure the mock controller returns the mock config handler
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return mockConfigHandler
 		}
 
 		// When the set context command is executed
@@ -274,9 +224,7 @@ func TestContext_SetAlias(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.SaveConfigFunc = func(path string) error { return nil }
 		injector.Register("configHandler", mockConfigHandler)
-		mockContextHandler := context.NewMockContext()
-		mockContextHandler.SetContextFunc = func(contextName string) error { return nil }
-		injector.Register("contextHandler", mockContextHandler)
+		mockConfigHandler.SetContextFunc = func(contextName string) error { return nil }
 
 		// When the set-context alias command is executed with a valid context
 		output := captureStdout(func() {
@@ -294,16 +242,16 @@ func TestContext_SetAlias(t *testing.T) {
 		}
 	})
 
-	t.Run("SetContextError", func(t *testing.T) { // Given a context instance that returns an error on SetContext
+	t.Run("SetContextError", func(t *testing.T) { // Given a config handler instance that returns an error on SetContext
 		injector := di.NewInjector()
-		mockContextHandler := context.NewMockContext()
-		mockContextHandler.SetContextFunc = func(contextName string) error { return fmt.Errorf("set context error") }
-		injector.Register("contextHandler", mockContextHandler)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.SetContextFunc = func(contextName string) error { return fmt.Errorf("set context error") }
+		injector.Register("configHandler", mockConfigHandler)
 
-		// Modify MockController to return the mockContextHandler for ResolveContextHandler
+		// Modify MockController to return the mockConfigHandler for ResolveConfigHandler
 		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveContextHandlerFunc = func() context.ContextHandler {
-			return mockContextHandler
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return mockConfigHandler
 		}
 
 		// When the set-context alias command is executed

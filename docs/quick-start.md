@@ -1,14 +1,28 @@
-# MacOS Quick Start Guide
+# Quick Start
 
+## MacOS Quick Start
 This guide will walk you through launching the windsor environment in your project. At the end of this guide, you should be running a local Kubernetes cluster with a single worker and controlplane.
 
 This guide is expected to run optimally on an Apple M2 with 8 CPU cores, 8GB of RAM, and 60GB of free storage space available.
 
-It is assumed you have installed the windsor CLI and configured `windsor hook` in your shell. Please see the [Setup and Installation](../install/install.md) page for instructions.
+It is assumed you have installed the windsor CLI and configured `windsor hook` in your shell. Please see the [Setup and Installation](./install.md) page for instructions.
 
-### Install tool dependencies
+## Initialize a folder as a git project
 
-You will need several tools installed on your system to fully leverage the windsor environment. It is recommended to use a tool versions manager such as [aqua](https://github.com/aquaproj/aqua) or [asdf](https://github.com/asdf-vm/asdf). For your convenience, we have provided sample setup files for these tools. Place one of these in the root of your project.
+Windsor expects to be running in a git project. You can either create a new folder and initialize it as a git repository or use an existing folder that is already a git project. If you are creating a new folder be sure to initialize a git repository in the root of your project.
+
+```sh
+git init
+```
+
+## Install tool dependencies
+You will need several tools installed on your system to successfuly run the Windsor environment. You may already have the required tools installed. To check, run:
+
+```
+windsor check
+```
+
+It is recommended to use a tool versions manager such as [aqua](https://github.com/aquaproj/aqua) or [asdf](https://github.com/asdf-vm/asdf). For your convenience, we have provided sample setup files for these tools. If your system has been configured with a tool versions manager, place one of these in the root of your project.
 
 === "aqua"
     Create an `aqua.yaml` file in your project's root directory with the following content:
@@ -49,7 +63,7 @@ You will need several tools installed on your system to fully leverage the winds
     sops 3.9.2
     colima 0.8.1
     lima 1.0.3
-    docker 27.4.1
+    docker-cli 27.4.1
     docker-compose 2.32.1
     ```
 
@@ -61,7 +75,7 @@ You will need several tools installed on your system to fully leverage the winds
     asdf plugin-add sops
     asdf plugin-add colima
     asdf plugin-add lima
-    asdf plugin-add docker
+    asdf plugin-add docker-cli
     asdf plugin-add docker-compose
     ```
 
@@ -70,20 +84,11 @@ You will need several tools installed on your system to fully leverage the winds
     asdf install
     ```
 
-### Initialize the "local" context
-
-If you have not done so, be sure to initialize a git repository in the root of your project.
-
-```sh
-git init
-```
-
-See [Creating a repository from a template](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template)
-
-The windsor tool will create a few folders in your project. In particular, it will create a folder called `contexts/` where your context configurations will reside. Initialize windsor with the colima vm driver by running:
+## Initialize the "local" context
+The windsor tool will create a few folders in your project. In particular, it will create a folder called `contexts/` where your context configurations will reside. Initialize windsor with the docker driver by running:
 
 ```sh
-windsor init local --vm-driver colima
+windsor init local
 ```
 
 Verify that the default 'local' context was selected:
@@ -93,17 +98,15 @@ windsor context get
 ```
 
 ### Start the environment
-
 Start the local environment by running:
 
 ```sh
-windsor up
+windsor up --verbose
 ```
 
-This command will start Colima, run kubernetes nodes and support services with docker compose, and bootstrap your cluster using Terraform. It can take up to 5 minutes to fully launch, so be patient!
+This command will start appropriate docker containers, run kubernetes nodes and support services with docker compose, and bootstrap your cluster using Terraform. It can take up to 5 minutes to fully launch, so be patient!
 
 ### Verify the environment
-
 Display the list of Kubernetes nodes:
 
 ```sh
@@ -111,26 +114,21 @@ kubectl get nodes
 ```
 
 ### Tear down the environment
-
-Windsor provides a command to help you tear down your development environment. To destroy the cluster and support services, while still leaving the Colima virtual machine in tact, run:
+Windsor provides a command to help you tear down your development environment. To destroy the cluster and support services, run:
 
 ```sh
 windsor down --clean
 ```
 
-To destroy the virtual machine, run:
-
-```sh
-colima stop windsor-local
-colima delete windsor-local
-```
-
 <div>
-{{ previous_footer('Installation', '../../install/install/index.html') }}
+  {{ footer('Installation', '../install/index.html', 'Contexts', '../guides/contexts/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../install/install/index.html'; 
+    window.location.href = '../install/index.htm'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../guides/contexts/index.html'; 
   });
 </script>

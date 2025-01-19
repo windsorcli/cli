@@ -2,12 +2,13 @@ package services
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/docker"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -23,25 +24,23 @@ func setupSafeRegistryServiceMocks(optionalInjector ...di.Injector) *MockCompone
 		injector = di.NewMockInjector()
 	}
 
-	mockContext := context.NewMockContext()
 	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockService := NewMockService()
 
 	// Register mock instances in the injector
-	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("registryService", mockService)
 
 	// Implement GetContextFunc on mock context
-	mockContext.GetContextFunc = func() string {
+	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
 
 	// Set up the mock config handler to return a safe default configuration for Registry
-	mockConfigHandler.GetConfigFunc = func() *config.Context {
-		return &config.Context{
+	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+		return &v1alpha1.Context{
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(true),
 				Registries: map[string]docker.RegistryConfig{
@@ -70,7 +69,6 @@ func setupSafeRegistryServiceMocks(optionalInjector ...di.Injector) *MockCompone
 
 	return &MockComponents{
 		Injector:          injector,
-		MockContext:       mockContext,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
 		MockService:       mockService,
@@ -157,6 +155,110 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("expected error indicating no registry found, got %v", err)
 		}
 	})
+
+	t.Run("MkdirAllFailure", func(t *testing.T) {
+		// Mock mkdirAll to simulate a failure
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mock error creating directory")
+		}
+
+		// Given: a mock config handler, shell, context, and service
+		mocks := setupSafeRegistryServiceMocks()
+		registryService := NewRegistryService(mocks.Injector)
+		registryService.SetName("registry")
+		err := registryService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetComposeConfig is called
+		_, err = registryService.GetComposeConfig()
+
+		// Then: an error should be returned indicating directory creation failure
+		if err == nil || !strings.Contains(err.Error(), "mock error creating directory") {
+			t.Fatalf("expected error indicating directory creation failure, got %v", err)
+		}
+	})
+
+	t.Run("LocalhostPortAssignment", func(t *testing.T) {
+		// Mock mkdirAll to simulate successful directory creation
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		// Given: a mock config handler, shell, context, and service
+		mocks := setupSafeRegistryServiceMocks()
+		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				Docker: &docker.DockerConfig{
+					Enabled: ptrBool(true),
+					Registries: map[string]docker.RegistryConfig{
+						"registry": {
+							Remote: "",
+							Local:  "",
+						},
+					},
+					NetworkCIDR: ptrString("10.5.0.0/16"),
+				},
+			}
+		}
+		registryService := NewRegistryService(mocks.Injector)
+		err := registryService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+		registryService.SetName("registry")
+		registryService.SetAddress("127.0.0.1")
+
+		// When: GetComposeConfig is called
+		composeConfig, err := registryService.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
+
+		// Then: check if a port greater than or equal to 5000 is assigned
+		found := false
+		for _, config := range composeConfig.Services {
+			if config.Name == "registry.test" {
+				for _, portConfig := range config.Ports {
+					if portConfig.Published >= "5000" {
+						found = true
+						break
+					}
+				}
+			}
+		}
+
+		if !found {
+			t.Errorf("expected a port >= 5000 to be assigned for localhost, but none was found in the configuration:\n%+v", composeConfig.Services)
+		}
+	})
+
+	t.Run("ProjectRootRetrievalFailure", func(t *testing.T) {
+		// Given: a mock config handler, shell, context, and service
+		mocks := setupSafeRegistryServiceMocks()
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error retrieving project root")
+		}
+		registryService := NewRegistryService(mocks.Injector)
+		registryService.SetName("registry")
+		err := registryService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetComposeConfig is called
+		_, err = registryService.GetComposeConfig()
+
+		// Then: an error should be returned indicating project root retrieval failure
+		if err == nil || !strings.Contains(err.Error(), "mock error retrieving project root") {
+			t.Fatalf("expected error indicating project root retrieval failure, got %v", err)
+		}
+	})
 }
 
 func TestRegistryService_SetAddress(t *testing.T) {
@@ -230,6 +332,28 @@ func TestRegistryService_SetAddress(t *testing.T) {
 		// Then: an error should be returned
 		if err == nil || !strings.Contains(err.Error(), "failed to set hostname for registry") {
 			t.Fatalf("expected error indicating failure to set hostname, got %v", err)
+		}
+	})
+}
+
+func TestRegistryService_GetHostname(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock config handler, shell, context, and service
+		mocks := setupSafeRegistryServiceMocks()
+		registryService := NewRegistryService(mocks.Injector)
+		registryService.SetName("registry.oldtld")
+		err := registryService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetHostname is called
+		hostname := registryService.GetHostname()
+
+		// Then: the hostname should be as expected, with the old TLD removed
+		expectedHostname := "registry.test"
+		if hostname != expectedHostname {
+			t.Fatalf("expected hostname '%s', got %v", expectedHostname, hostname)
 		}
 	})
 }

@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	// Import the blueprint package
 )
 
 var (
@@ -19,52 +18,51 @@ var upCmd = &cobra.Command{
 	SilenceUsage: true,
 	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Create project components
+		// Create and initialize all necessary components for the Windsor environment.
+		// This includes project, environment, virtualization, service, and stack components.
 		if err := controller.CreateProjectComponents(); err != nil {
 			return fmt.Errorf("Error creating project components: %w", err)
 		}
-
-		// Create environment components
 		if err := controller.CreateEnvComponents(); err != nil {
 			return fmt.Errorf("Error creating environment components: %w", err)
 		}
-
-		// Create virtualization components
 		if err := controller.CreateVirtualizationComponents(); err != nil {
 			return fmt.Errorf("Error creating virtualization components: %w", err)
 		}
-
-		// Create service components
 		if err := controller.CreateServiceComponents(); err != nil {
 			return fmt.Errorf("Error creating services components: %w", err)
 		}
-
-		// Create stack components
 		if err := controller.CreateStackComponents(); err != nil {
 			return fmt.Errorf("Error creating stack components: %w", err)
 		}
-
-		// Initialize all components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)
 		}
-
-		// Write configuration files
 		if err := controller.WriteConfigurationFiles(); err != nil {
 			return fmt.Errorf("Error writing configuration files: %w", err)
 		}
 
-		// Resolve the config handler
+		// Resolve configuration settings and determine if specific virtualization or container runtime
+		// actions are required based on the configuration.
 		configHandler := controller.ResolveConfigHandler()
 		if configHandler == nil {
 			return fmt.Errorf("No config handler found")
 		}
-
-		// Determine if a virtualization driver is being used
 		vmDriver := configHandler.GetString("vm.driver")
 
-		// Start the virtual machine if enabled in configuration
-		if vmDriver != "" {
+		// Resolve the tools manager, check the tools, and install them
+		toolsManager := controller.ResolveToolsManager()
+		if toolsManager != nil {
+			if err := toolsManager.Check(); err != nil {
+				return fmt.Errorf("Error checking tools: %w", err)
+			}
+			if err := toolsManager.Install(); err != nil {
+				return fmt.Errorf("Error installing tools: %w", err)
+			}
+		}
+
+		// If the virtualization driver is 'colima', start the virtual machine and configure networking.
+		if vmDriver == "colima" {
 			virtualMachine := controller.ResolveVirtualMachine()
 			if virtualMachine == nil {
 				return fmt.Errorf("No virtual machine found")
@@ -74,54 +72,40 @@ var upCmd = &cobra.Command{
 			}
 		}
 
-		// Start the container runtime if enabled in configuration
+		// If the container runtime is enabled in the configuration, start it.
 		containerRuntimeEnabled := configHandler.GetBool("docker.enabled")
-
-		// Configure container runtime if enabled in configuration
 		if containerRuntimeEnabled {
-			// Resolve container runtime
 			containerRuntime := controller.ResolveContainerRuntime()
 			if containerRuntime == nil {
 				return fmt.Errorf("No container runtime found")
 			}
-
-			// Run the container runtime Up command
 			if err := containerRuntime.Up(); err != nil {
 				return fmt.Errorf("Error running container runtime Up command: %w", err)
 			}
 		}
 
-		// Configure networking only if a VM driver is defined
-		if vmDriver != "" {
-			// Get the DNS name and address
-			dnsName := configHandler.GetString("dns.name")
-			dnsAddress := configHandler.GetString("dns.address")
+		// Resolve the network manager
+		networkManager := controller.ResolveNetworkManager()
+		if networkManager == nil {
+			return fmt.Errorf("No network manager found")
+		}
 
-			// Resolve networkManager
-			networkManager := controller.ResolveNetworkManager()
-			if networkManager == nil {
-				return fmt.Errorf("No network manager found")
-			}
-
-			// Configure the guest network
+		// Configure networking for the virtual machine
+		if vmDriver == "colima" {
 			if err := networkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("Error configuring guest network: %w", err)
 			}
-
-			// Configure the host route for the network
 			if err := networkManager.ConfigureHostRoute(); err != nil {
 				return fmt.Errorf("Error configuring host network: %w", err)
 			}
-
-			// Configure DNS if dns.name is set
-			if dnsName != "" && dnsAddress != "" {
-				if err := networkManager.ConfigureDNS(); err != nil {
-					return fmt.Errorf("Error configuring DNS: %w", err)
-				}
-			}
 		}
 
-		// Stack up
+		// Configure DNS settings
+		if err := networkManager.ConfigureDNS(); err != nil {
+			return fmt.Errorf("Error configuring DNS: %w", err)
+		}
+
+		// Start the stack components
 		stack := controller.ResolveStack()
 		if stack == nil {
 			return fmt.Errorf("No stack found")
@@ -130,7 +114,7 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("Error running stack Up command: %w", err)
 		}
 
-		// Check if the install flag is set
+		// If the install flag is set, install the blueprint to finalize the setup process.
 		if installFlag {
 			blueprintHandler := controller.ResolveBlueprintHandler()
 			if blueprintHandler == nil {
@@ -141,7 +125,7 @@ var upCmd = &cobra.Command{
 			}
 		}
 
-		// Print success message
+		// Indicate successful setup of the Windsor environment.
 		fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
 
 		return nil

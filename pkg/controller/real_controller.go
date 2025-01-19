@@ -5,7 +5,6 @@ import (
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -14,6 +13,7 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
@@ -24,26 +24,23 @@ type RealController struct {
 
 // NewRealController creates a new controller.
 func NewRealController(injector di.Injector) *RealController {
-	return &RealController{BaseController: BaseController{injector: injector}}
+	return &RealController{
+		BaseController: BaseController{
+			injector: injector,
+		},
+	}
 }
 
 // Ensure RealController implements the Controller interface
 var _ Controller = (*RealController)(nil)
 
-// CreateCommonComponents creates components commonly used by all commands.
+// CreateCommonComponents sets up config and shell for command execution.
+// It registers and initializes these components.
 func (c *RealController) CreateCommonComponents() error {
-	// Create a new configHandler
-	configHandler := config.NewYamlConfigHandler()
+	configHandler := config.NewYamlConfigHandler(c.injector)
 	c.injector.Register("configHandler", configHandler)
-
-	// Set the configHandler
 	c.configHandler = configHandler
 
-	// Create a new contextHandler
-	contextHandler := context.NewContextHandler(c.injector)
-	c.injector.Register("contextHandler", contextHandler)
-
-	// Create a new shell
 	shell := shell.NewDefaultShell(c.injector)
 	c.injector.Register("shell", shell)
 
@@ -52,9 +49,9 @@ func (c *RealController) CreateCommonComponents() error {
 	// organize this in the future but this works for now, so we don't expect
 	// these lines to be covered by tests.
 
-	// Initialize the contextHandler
-	if err := contextHandler.Initialize(); err != nil {
-		return fmt.Errorf("error initializing context handler: %w", err)
+	// Initialize the config handler
+	if err := configHandler.Initialize(); err != nil {
+		return fmt.Errorf("error initializing config handler: %w", err)
 	}
 
 	// Initialize the shell
@@ -65,97 +62,116 @@ func (c *RealController) CreateCommonComponents() error {
 	return nil
 }
 
-// CreateProjectComponents creates components required for project initialization
+// Initializes project components like generators and tools manager. Registers
+// and initializes blueprint, terraform, and kustomize generators. Determines
+// and sets the tools manager: aqua, asdf, or default, based on config or setup.
 func (c *RealController) CreateProjectComponents() error {
-	// Create a new git generator
 	gitGenerator := generators.NewGitGenerator(c.injector)
 	c.injector.Register("gitGenerator", gitGenerator)
 
-	// Create a new blueprint handler
 	blueprintHandler := blueprint.NewBlueprintHandler(c.injector)
 	c.injector.Register("blueprintHandler", blueprintHandler)
 
-	// Create a new terraform generator
 	terraformGenerator := generators.NewTerraformGenerator(c.injector)
 	c.injector.Register("terraformGenerator", terraformGenerator)
+
+	kustomizeGenerator := generators.NewKustomizeGenerator(c.injector)
+	c.injector.Register("kustomizeGenerator", kustomizeGenerator)
+
+	toolsManagerType := c.configHandler.GetString("toolsManager")
+	var toolsManager tools.ToolsManager
+
+	if toolsManagerType == "" {
+		var err error
+		toolsManagerType, err = tools.CheckExistingToolsManager(c.configHandler.GetString("projectRoot"))
+		if err != nil {
+			// Not tested as this is a static function and we can't mock it
+			return fmt.Errorf("error checking existing tools manager: %w", err)
+		}
+	}
+
+	switch toolsManagerType {
+	// case "aqua":
+	// TODO: Implement aqua tools manager
+	// case "asdf":
+	// TODO: Implement asdf tools manager
+	default:
+		toolsManager = tools.NewToolsManager(c.injector)
+	}
+
+	c.injector.Register("toolsManager", toolsManager)
 
 	return nil
 }
 
 // CreateEnvComponents creates components required for env and exec commands
+// Registers environment printers for AWS, Docker, Kube, Omni, Sops, Talos, Terraform, and Windsor.
+// AWS and Docker printers are conditional on their respective configurations being enabled.
+// Each printer is created and registered with the dependency injector.
+// Returns nil on successful registration of all environment components.
 func (c *RealController) CreateEnvComponents() error {
-	// Create aws env printer only if aws.enabled is true
 	if c.configHandler.GetBool("aws.enabled") {
 		awsEnv := env.NewAwsEnvPrinter(c.injector)
 		c.injector.Register("awsEnv", awsEnv)
 	}
 
-	// Create docker env printer only if docker is enabled
 	if c.configHandler.GetBool("docker.enabled") {
 		dockerEnv := env.NewDockerEnvPrinter(c.injector)
 		c.injector.Register("dockerEnv", dockerEnv)
 	}
 
-	// Create kube env printer
 	kubeEnv := env.NewKubeEnvPrinter(c.injector)
 	c.injector.Register("kubeEnv", kubeEnv)
 
-	// Create omni env printer
 	omniEnv := env.NewOmniEnvPrinter(c.injector)
 	c.injector.Register("omniEnv", omniEnv)
 
-	// Create sops env printer
 	sopsEnv := env.NewSopsEnvPrinter(c.injector)
 	c.injector.Register("sopsEnv", sopsEnv)
 
-	// Create talos env printer
 	talosEnv := env.NewTalosEnvPrinter(c.injector)
 	c.injector.Register("talosEnv", talosEnv)
 
-	// Create terraform env printer
 	terraformEnv := env.NewTerraformEnvPrinter(c.injector)
 	c.injector.Register("terraformEnv", terraformEnv)
 
-	// Create windsor env printer
 	windsorEnv := env.NewWindsorEnvPrinter(c.injector)
 	c.injector.Register("windsorEnv", windsorEnv)
 
 	return nil
 }
 
-// CreateServiceComponents creates components required for services
+// CreateServiceComponents sets up services based on config, including DNS,
+// Git livereload, Localstack, and Docker registries. If Talos is used, it
+// registers control plane and worker services for the cluster.
 func (c *RealController) CreateServiceComponents() error {
 	configHandler := c.configHandler
 	contextConfig := configHandler.GetConfig()
 
-	// Don't create services if docker is not enabled
 	if !configHandler.GetBool("docker.enabled") {
 		return nil
 	}
 
-	// Create dns service
 	dnsEnabled := configHandler.GetBool("dns.enabled")
 	if dnsEnabled {
 		dnsService := services.NewDNSService(c.injector)
 		c.injector.Register("dnsService", dnsService)
 	}
 
-	// Create git livereload service
 	gitLivereloadEnabled := configHandler.GetBool("git.livereload.enabled")
 	if gitLivereloadEnabled {
 		gitLivereloadService := services.NewGitLivereloadService(c.injector)
 		c.injector.Register("gitLivereloadService", gitLivereloadService)
 	}
 
-	// Create localstack service
 	localstackEnabled := configHandler.GetBool("aws.localstack.enabled")
 	if localstackEnabled {
 		localstackService := services.NewLocalstackService(c.injector)
 		c.injector.Register("localstackService", localstackService)
 	}
 
-	// Create registry services
 	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
+		// Not unit tested currently as we can't easily create registry entries in tests
 		for key := range contextConfig.Docker.Registries {
 			service := services.NewRegistryService(c.injector)
 			service.SetName(key)
@@ -164,7 +180,6 @@ func (c *RealController) CreateServiceComponents() error {
 		}
 	}
 
-	// Create cluster services
 	clusterEnabled := configHandler.GetBool("cluster.enabled")
 	if clusterEnabled {
 		controlPlaneCount := configHandler.GetInt("cluster.controlplanes.count")
@@ -172,7 +187,6 @@ func (c *RealController) CreateServiceComponents() error {
 
 		clusterDriver := configHandler.GetString("cluster.driver")
 
-		// Create a talos cluster
 		if clusterDriver == "talos" {
 			for i := 1; i <= controlPlaneCount; i++ {
 				controlPlaneService := services.NewTalosControlPlaneService(c.injector)
@@ -192,39 +206,34 @@ func (c *RealController) CreateServiceComponents() error {
 	return nil
 }
 
-// CreateVirtualizationComponents creates virtualization components
+// CreateVirtualizationComponents sets up virtualization based on config.
+// Registers network, SSH, and VM components for Colima. Adds Docker runtime if enabled.
 func (c *RealController) CreateVirtualizationComponents() error {
 	configHandler := c.configHandler
 
 	vmDriver := configHandler.GetString("vm.driver")
 	dockerEnabled := configHandler.GetBool("docker.enabled")
 
-	if vmDriver != "" {
-		// Create and register the RealNetworkInterfaceProvider instance
+	if vmDriver == "colima" {
 		networkInterfaceProvider := &network.RealNetworkInterfaceProvider{}
 		c.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
 
-		// Create and register the ssh client
 		sshClient := ssh.NewSSHClient()
 		c.injector.Register("sshClient", sshClient)
 
-		// Create and register the secure shell
 		secureShell := shell.NewSecureShell(c.injector)
 		c.injector.Register("secureShell", secureShell)
-	}
 
-	// Create colima components
-	if vmDriver == "colima" {
-		// Create a colima virtual machine
 		colimaVirtualMachine := virt.NewColimaVirt(c.injector)
 		c.injector.Register("virtualMachine", colimaVirtualMachine)
 
-		// Create a colima network manager
 		networkManager := network.NewColimaNetworkManager(c.injector)
+		c.injector.Register("networkManager", networkManager)
+	} else {
+		networkManager := network.NewBaseNetworkManager(c.injector)
 		c.injector.Register("networkManager", networkManager)
 	}
 
-	// Create docker container runtime
 	if dockerEnabled {
 		containerRuntime := virt.NewDockerVirt(c.injector)
 		c.injector.Register("containerRuntime", containerRuntime)
@@ -235,7 +244,6 @@ func (c *RealController) CreateVirtualizationComponents() error {
 
 // CreateStackComponents creates stack components
 func (c *RealController) CreateStackComponents() error {
-	// Create a new stack
 	stackInstance := stack.NewWindsorStack(c.injector)
 	c.injector.Register("stack", stackInstance)
 

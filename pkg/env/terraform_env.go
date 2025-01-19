@@ -29,7 +29,7 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	// Get the configuration root directory
-	configRoot, err := e.contextHandler.GetConfigRoot()
+	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error getting config root: %w", err)
 	}
@@ -72,7 +72,7 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars["TF_CLI_ARGS_apply"] = strings.TrimSpace(filepath.Join(configRoot, ".terraform", projectPath, "terraform.tfplan"))
 	envVars["TF_CLI_ARGS_import"] = strings.TrimSpace(strings.Join(varFileArgs, " "))
 	envVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(strings.Join(varFileArgs, " "))
-	envVars["TF_VAR_context_path"] = strings.TrimSpace(configRoot)
+	envVars["TF_VAR_context_path"] = strings.TrimSpace(filepath.FromSlash(configRoot))
 
 	// Set TF_VAR_os_type based on the operating system
 	if goos() == "windows" {
@@ -190,7 +190,7 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 	}
 
 	// Get the configuration root directory
-	configRoot, err := e.contextHandler.GetConfigRoot()
+	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
 		return fmt.Errorf("error getting config root: %w", err)
 	}

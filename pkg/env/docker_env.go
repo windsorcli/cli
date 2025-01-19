@@ -2,6 +2,9 @@ package env
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -20,32 +23,81 @@ func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
 	}
 }
 
-// GetEnvVars retrieves the environment variables for the Docker environment.
+// GetEnvVars returns Docker-specific env vars, setting DOCKER_HOST based on vm.driver config.
+// It uses the user's home directory for Docker paths, defaulting WINDSORCONFIG if unset.
+// Ensures Docker config directory exists and writes config if content differs.
+// Adds DOCKER_CONFIG to env vars and returns the map.
 func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Set DOCKER_HOST if vm.driver is colima
-	if e.configHandler.GetString("vm.driver") == "colima" {
-		homeDir, err := osUserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
-		}
-		contextName := e.contextHandler.GetContext()
+	vmDriver := e.configHandler.GetString("vm.driver")
+	homeDir, err := osUserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving user home directory: %w", err)
+	}
+
+	windsorConfigDir := os.Getenv("WINDSORCONFIG")
+	if windsorConfigDir == "" {
+		windsorConfigDir = filepath.Join(homeDir, ".config", "windsor")
+	}
+	dockerConfigDir := filepath.Join(windsorConfigDir, "docker")
+	dockerConfigPath := filepath.Join(dockerConfigDir, "config.json")
+	dockerConfigContent := `{
+		"auths": {},
+		"currentContext": "%s",
+		"plugins": {},
+		"features": {}
+	}`
+
+	switch vmDriver {
+	case "colima":
+		contextName := e.configHandler.GetContext()
 		dockerHostPath := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, contextName)
 		envVars["DOCKER_HOST"] = dockerHostPath
+		dockerConfigContent = fmt.Sprintf(dockerConfigContent, fmt.Sprintf("colima-windsor-%s", contextName))
+
+	case "docker-desktop":
+		if goos() == "windows" {
+			envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
+		} else {
+			dockerHostPath := fmt.Sprintf("unix://%s/.docker/run/docker.sock", homeDir)
+			envVars["DOCKER_HOST"] = dockerHostPath
+		}
+		dockerConfigContent = fmt.Sprintf(dockerConfigContent, "desktop-linux")
 	}
+
+	if err := mkdirAll(dockerConfigDir, 0755); err != nil {
+		return nil, fmt.Errorf("error creating docker config directory: %w", err)
+	}
+
+	existingContent, err := readFile(dockerConfigPath)
+	if err != nil || string(existingContent) != dockerConfigContent {
+		if err := writeFile(dockerConfigPath, []byte(dockerConfigContent), 0644); err != nil {
+			return nil, fmt.Errorf("error writing docker config file: %w", err)
+		}
+	}
+	envVars["DOCKER_CONFIG"] = dockerConfigDir
 
 	return envVars, nil
 }
 
-// Print prints the environment variables for the Docker environment.
+// GetAlias creates an alias for a command and returns it in a map. In
+// this case, it looks for docker-cli-plugin-docker-compose and creates an
+// alias for docker-compose.
+func (e *DockerEnvPrinter) GetAlias() (map[string]string, error) {
+	aliasMap := make(map[string]string)
+	if _, err := exec.LookPath("docker-cli-plugin-docker-compose"); err == nil {
+		aliasMap["docker-compose"] = "docker-cli-plugin-docker-compose"
+	}
+	return aliasMap, nil
+}
+
+// Print retrieves and prints the environment variables for the Docker environment.
 func (e *DockerEnvPrinter) Print() error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
-		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded envPrinter struct with the retrieved environment variables
 	return e.BaseEnvPrinter.Print(envVars)
 }
 

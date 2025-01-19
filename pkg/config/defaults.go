@@ -1,17 +1,19 @@
 package config
 
 import (
-	"github.com/windsorcli/cli/pkg/config/aws"
-	"github.com/windsorcli/cli/pkg/config/cluster"
-	"github.com/windsorcli/cli/pkg/config/dns"
-	"github.com/windsorcli/cli/pkg/config/docker"
-	"github.com/windsorcli/cli/pkg/config/git"
-	"github.com/windsorcli/cli/pkg/config/terraform"
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/aws"
+	"github.com/windsorcli/cli/api/v1alpha1/cluster"
+	"github.com/windsorcli/cli/api/v1alpha1/dns"
+	"github.com/windsorcli/cli/api/v1alpha1/docker"
+	"github.com/windsorcli/cli/api/v1alpha1/git"
+	"github.com/windsorcli/cli/api/v1alpha1/terraform"
+	"github.com/windsorcli/cli/api/v1alpha1/vm"
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
 // DefaultConfig returns the default configuration
-var DefaultConfig = Context{
+var DefaultConfig = v1alpha1.Context{
 	Environment: map[string]string{},
 	AWS: &aws.AWSConfig{
 		Enabled:        nil,
@@ -30,6 +32,7 @@ var DefaultConfig = Context{
 		NetworkCIDR: nil,
 	},
 	Terraform: &terraform.TerraformConfig{
+		Enabled: nil,
 		Backend: nil,
 	},
 	Cluster: nil,
@@ -41,30 +44,30 @@ var DefaultConfig = Context{
 }
 
 // DefaultLocalConfig returns the default configuration for the "local" context
-var DefaultLocalConfig = Context{
+var DefaultLocalConfig = v1alpha1.Context{
 	Environment: map[string]string{},
 	Docker: &docker.DockerConfig{
 		Enabled: ptrBool(true),
 		Registries: map[string]docker.RegistryConfig{
-			"registry": {},
-			"registry-1.docker": {
+			"registry.test": {},
+			"registry-1.docker.io": {
 				Remote: "https://registry-1.docker.io",
 				Local:  "https://docker.io",
 			},
-			"registry.k8s": {
+			"registry.k8s.io": {
 				Remote: "https://registry.k8s.io",
 			},
-			"gcr": {
+			"gcr.io": {
 				Remote: "https://gcr.io",
 			},
-			"ghcr": {
+			"ghcr.io": {
 				Remote: "https://ghcr.io",
 			},
-			"quay": {
+			"quay.io": {
 				Remote: "https://quay.io",
 			},
 		},
-		NetworkCIDR: ptrString("10.5.0.0/16"),
+		NetworkCIDR: nil,
 	},
 	Git: &git.GitConfig{
 		Livereload: &git.GitLivereloadConfig{
@@ -79,6 +82,7 @@ var DefaultLocalConfig = Context{
 		},
 	},
 	Terraform: &terraform.TerraformConfig{
+		Enabled: ptrBool(true),
 		Backend: ptrString("local"),
 	},
 	Cluster: &cluster.ClusterConfig{
@@ -111,5 +115,8 @@ var DefaultLocalConfig = Context{
 		Enabled: ptrBool(true),
 		Name:    ptrString("test"),
 		Address: nil,
+	},
+	VM: &vm.VMConfig{
+		Driver: ptrString("docker-desktop"),
 	},
 }

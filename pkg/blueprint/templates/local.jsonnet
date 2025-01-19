@@ -11,23 +11,14 @@ local firstNode = if std.length(cpNodes) > 0 then cpNodes[0] else null;
 // Build the mirrors dynamically
 local registryMirrors = std.foldl(
   function(acc, key)
-    local regData = context.docker.registries[key];
-
-    // Figure out which endpoint to use:
-    //   1) local, if present
-    //   2) remote, if present
-    local endpointsVal =
-      if std.objectHas(regData, "local") && regData["local"] != "" then regData["local"]
-      else if std.objectHas(regData, "remote") && regData["remote"] != "" then regData["remote"]
-      else null;
-
-    // Must have a non-empty hostname, and endpointsVal must be non-null
-    if !(std.objectHas(regData, "hostname")) || regData.hostname == "" || endpointsVal == null then
+    local registryInfo = context.docker.registries[key];
+    // Must have a non-empty hostname
+    if !(std.objectHas(registryInfo, "hostname")) || registryInfo.hostname == "" then
       acc
     else
       acc + {
-        [regData["hostname"]]: {
-          endpoints: [endpointsVal],
+        [key]: {
+          endpoints: ["http://" + registryInfo["hostname"] + ":5000"],
         },
       },
   std.objectFields(context.docker.registries),
@@ -41,11 +32,21 @@ local registryMirrors = std.foldl(
     name: "local",
     description: "This blueprint outlines resources in the local context",
   },
+  repository: {
+    url: "http://git.test/git/" + context.projectName,
+    ref: {
+      branch: "main",
+    },
+    secretName: "flux-system",
+  },
   sources: [
     {
       name: "core",
       url: "github.com/windsorcli/core",
-      ref: "v0.1.0",
+      ref: {
+        // renovate: datasource=github-branches depName=windsorcli/core
+        branch: "v0.1.1",
+      },
     },
   ],
   terraform: if firstNode != null then [
@@ -67,7 +68,7 @@ local registryMirrors = std.foldl(
           std.objectValues(context.cluster.controlplanes.nodes)
         ),
 
-        // Create a list of worker nodes
+        // Create a list of worker nodesq
         workers: std.map(
           function(v) {
             endpoint: v.endpoint,
@@ -89,6 +90,10 @@ local registryMirrors = std.foldl(
                   firstNode.node,
                 ],
               },
+              extraManifests: [
+                // renovate: datasource=github-releases depName=kubelet-serving-cert-approver package=alex1989hu/kubelet-serving-cert-approver
+                "https://raw.githubusercontent.com/alex1989hu/kubelet-serving-cert-approver/v0.8.7/deploy/standalone-install.yaml",
+              ],
             },
           }
           +
@@ -111,6 +116,11 @@ local registryMirrors = std.foldl(
                     interface: "eth0",
                   },
                 ],
+              },
+              kubelet: {
+                extraArgs: {
+                  "rotate-server-certificates": "true",
+                },
               },
             },
           }
@@ -246,4 +256,10 @@ local registryMirrors = std.foldl(
       }
     }
   ] else [],
+  kustomize: [
+    {
+      name: "local",
+      path: "",
+    }
+  ]
 }

@@ -61,7 +61,7 @@ func (s *DNSService) SetAddress(address string) error {
 // GetComposeConfig returns the compose configuration
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name
-	contextName := s.contextHandler.GetContext()
+	contextName := s.configHandler.GetContext()
 
 	// Get the TLD from the configuration
 	tld := s.configHandler.GetString("dns.name", "test")
@@ -75,13 +75,29 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 		Restart:       "always",
 		Command:       []string{"-conf", "/etc/coredns/Corefile"},
 		Volumes: []types.ServiceVolumeConfig{
-			{Type: "bind", Source: "./Corefile", Target: "/etc/coredns/Corefile"},
+			{Type: "bind", Source: "${WINDSOR_PROJECT_ROOT}/.windsor/Corefile", Target: "/etc/coredns/Corefile"},
 		},
 		Labels: map[string]string{
 			"managed_by": "windsor",
 			"context":    contextName,
 			"role":       "dns",
 		},
+	}
+
+	// Forward port 53 to the host
+	if isLocalhost(s.address) {
+		corednsConfig.Ports = []types.ServicePortConfig{
+			{
+				Target:    53,
+				Published: "53",
+				Protocol:  "tcp",
+			},
+			{
+				Target:    53,
+				Published: "53",
+				Protocol:  "udp",
+			},
+		}
 	}
 
 	services := []types.ServiceConfig{corednsConfig}
@@ -91,16 +107,16 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 
 // WriteConfig writes any necessary configuration files needed by the service
 func (s *DNSService) WriteConfig() error {
-	// Retrieve the configuration directory for the current context
-	configDir, err := s.contextHandler.GetConfigRoot()
+	// Retrieve the project root directory using shell.GetProjectRoot
+	projectRoot, err := s.shell.GetProjectRoot()
 	if err != nil {
-		return fmt.Errorf("error retrieving config root: %w", err)
+		return fmt.Errorf("error retrieving project root: %w", err)
 	}
 
 	// Get the TLD from the configuration
 	tld := s.configHandler.GetString("dns.name", "test")
 
-	// Gather the IP address of each service using the Address field
+	// Gather the IP address of each service using the GetHostname method
 	var hostEntries string
 	for _, service := range s.services {
 		composeConfig, err := service.GetComposeConfig()
@@ -109,12 +125,10 @@ func (s *DNSService) WriteConfig() error {
 		}
 		for _, svc := range composeConfig.Services {
 			if svc.Name != "" {
-				if addressService, ok := service.(interface{ GetAddress() string }); ok {
-					address := addressService.GetAddress()
-					if address != "" {
-						fullName := svc.Name
-						hostEntries += fmt.Sprintf("        %s %s\n", address, fullName)
-					}
+				address := service.GetAddress()
+				if address != "" {
+					hostname := service.GetHostname()
+					hostEntries += fmt.Sprintf("        %s %s\n", address, hostname)
 				}
 			}
 		}
@@ -131,7 +145,7 @@ func (s *DNSService) WriteConfig() error {
 }
 `, tld, hostEntries)
 
-	corefilePath := filepath.Join(configDir, "Corefile")
+	corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
 
 	// Ensure the parent folders exist
 	if err := mkdirAll(filepath.Dir(corefilePath), 0755); err != nil {

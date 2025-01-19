@@ -8,18 +8,17 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/aws"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/aws"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type AwsEnvMocks struct {
-	Injector       di.Injector
-	ConfigHandler  *config.MockConfigHandler
-	ContextHandler *context.MockContext
-	Shell          *shell.MockShell
+	Injector      di.Injector
+	ConfigHandler *config.MockConfigHandler
+	Shell         *shell.MockShell
 }
 
 func setupSafeAwsEnvMocks(injector ...di.Injector) *AwsEnvMocks {
@@ -33,8 +32,8 @@ func setupSafeAwsEnvMocks(injector ...di.Injector) *AwsEnvMocks {
 
 	// Create a mock ConfigHandler using its constructor
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.GetConfigFunc = func() *config.Context {
-		return &config.Context{
+	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+		return &v1alpha1.Context{
 			AWS: &aws.AWSConfig{
 				AWSProfile:     stringPtr("default"),
 				AWSEndpointURL: stringPtr("https://aws.endpoint"),
@@ -43,9 +42,11 @@ func setupSafeAwsEnvMocks(injector ...di.Injector) *AwsEnvMocks {
 			},
 		}
 	}
-	mockContext := context.NewMockContext()
-	mockContext.GetConfigRootFunc = func() (string, error) {
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return filepath.FromSlash("/mock/config/root"), nil
+	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "test-context"
 	}
 
 	// Create a mock Shell using its constructor
@@ -53,14 +54,12 @@ func setupSafeAwsEnvMocks(injector ...di.Injector) *AwsEnvMocks {
 
 	// Register the mocks in the DI injector
 	mockInjector.Register("configHandler", mockConfigHandler)
-	mockInjector.Register("contextHandler", mockContext)
 	mockInjector.Register("shell", mockShell)
 
 	return &AwsEnvMocks{
-		Injector:       mockInjector,
-		ConfigHandler:  mockConfigHandler,
-		ContextHandler: mockContext,
-		Shell:          mockShell,
+		Injector:      mockInjector,
+		ConfigHandler: mockConfigHandler,
+		Shell:         mockShell,
 	}
 }
 
@@ -98,8 +97,8 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeAwsEnvMocks()
 
 		// Override the GetConfigFunc to return nil for AWS configuration
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{AWS: nil}
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{AWS: nil}
 		}
 
 		mockInjector := mocks.Injector
@@ -128,8 +127,8 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeAwsEnvMocks()
 
 		// Override the GetConfigFunc to return a valid AWS configuration
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				AWS: &aws.AWSConfig{
 					AWSProfile:     stringPtr("default"),
 					AWSEndpointURL: stringPtr("https://example.com"),
@@ -140,7 +139,7 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// Override the GetConfigRootFunc to return a valid path
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "/non/existent/path", nil
 		}
 
@@ -169,7 +168,7 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeAwsEnvMocks()
 
 		// Override the GetConfigRootFunc to simulate an error
-		mocks.ContextHandler.GetConfigRootFunc = func() (string, error) {
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock context error")
 		}
 
@@ -242,8 +241,8 @@ func TestAwsEnv_Print(t *testing.T) {
 		mocks := setupSafeAwsEnvMocks()
 
 		// Set AWS configuration to nil to simulate the error condition
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				AWS: nil,
 			}
 		}

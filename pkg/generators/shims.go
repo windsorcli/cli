@@ -2,6 +2,8 @@ package generators
 
 import (
 	"os"
+
+	"github.com/goccy/go-yaml"
 )
 
 // osWriteFile is a shim for os.WriteFile
@@ -15,3 +17,6 @@ var osMkdirAll = os.MkdirAll
 
 // osStat is a shim for os.Stat
 var osStat = os.Stat
+
+// yamlMarshal is a shim for yaml.Marshal
+var yamlMarshal = yaml.Marshal

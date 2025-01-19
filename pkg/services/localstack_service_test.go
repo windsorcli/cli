@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/aws"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/config/aws"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
@@ -16,7 +16,6 @@ type LocalstackServiceMocks struct {
 	Injector      di.Injector
 	ConfigHandler *config.MockConfigHandler
 	Shell         *shell.MockShell
-	Context       *context.MockContext
 }
 
 func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServiceMocks {
@@ -47,21 +46,18 @@ func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServic
 	}
 	mockShell.GetProjectRootFunc = func() (string, error) { return filepath.FromSlash("/mock/project/root"), nil }
 
-	mockContext := context.NewMockContext()
-	mockContext.GetContextFunc = func() string { return "mock-context" }
-	mockContext.SetContextFunc = func(context string) error { return nil }
-	mockContext.GetConfigRootFunc = func() (string, error) { return filepath.FromSlash("/mock/config/root"), nil }
+	mockConfigHandler.GetContextFunc = func() string { return "mock-context" }
+	mockConfigHandler.SetContextFunc = func(context string) error { return nil }
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) { return filepath.FromSlash("/mock/config/root"), nil }
 
 	// Register mocks in the injector
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("contextHandler", mockContext)
 	injector.Register("shell", mockShell)
 
 	return &LocalstackServiceMocks{
 		Injector:      injector,
 		ConfigHandler: mockConfigHandler,
 		Shell:         mockShell,
-		Context:       mockContext,
 	}
 }
 
@@ -71,8 +67,8 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		mocks := createLocalstackServiceMocks()
 
 		// Mock GetConfig to return a valid Localstack configuration
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				AWS: &aws.AWSConfig{
 					Localstack: &aws.LocalstackConfig{
 						Enabled:  ptrBool(true),
@@ -119,8 +115,8 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		mocks := createLocalstackServiceMocks()
 
 		// Mock GetConfig to return a valid Localstack configuration
-		mocks.ConfigHandler.GetConfigFunc = func() *config.Context {
-			return &config.Context{
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
 				AWS: &aws.AWSConfig{
 					Localstack: &aws.LocalstackConfig{
 						Enabled:  ptrBool(true),

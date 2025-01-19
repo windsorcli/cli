@@ -5,7 +5,6 @@ import (
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/context"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
@@ -14,6 +13,7 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
 	"github.com/windsorcli/cli/pkg/stack"
+	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
@@ -30,11 +30,11 @@ type MockController struct {
 	CreateStackComponentsFunc          func() error
 	ResolveInjectorFunc                func() di.Injector
 	ResolveConfigHandlerFunc           func() config.ConfigHandler
-	ResolveContextHandlerFunc          func() context.ContextHandler
 	ResolveEnvPrinterFunc              func(name string) env.EnvPrinter
 	ResolveAllEnvPrintersFunc          func() []env.EnvPrinter
 	ResolveShellFunc                   func() shell.Shell
 	ResolveSecureShellFunc             func() shell.Shell
+	ResolveToolsManagerFunc            func() tools.ToolsManager
 	ResolveNetworkManagerFunc          func() network.NetworkManager
 	ResolveServiceFunc                 func(name string) services.Service
 	ResolveAllServicesFunc             func() []services.Service
@@ -83,10 +83,6 @@ func (m *MockController) CreateCommonComponents() error {
 	// Set the configHandler
 	m.configHandler = configHandler
 
-	// Create a new mock contextHandler
-	contextHandler := context.NewMockContext()
-	m.injector.Register("contextHandler", contextHandler)
-
 	// Create a new mock shell
 	shellInstance := shell.NewMockShell()
 	m.injector.Register("shell", shellInstance)
@@ -96,10 +92,9 @@ func (m *MockController) CreateCommonComponents() error {
 	// organize this in the future but this works for now, so we don't expect
 	// these lines to be covered by tests.
 
-	// Initialize the contextHandler
-	resolvedContextHandler := m.injector.Resolve("contextHandler").(*context.MockContext)
-	if err := resolvedContextHandler.Initialize(); err != nil {
-		return fmt.Errorf("error initializing context handler: %w", err)
+	// Initialize the config handler
+	if err := configHandler.Initialize(); err != nil {
+		return fmt.Errorf("error initializing config handler: %w", err)
 	}
 
 	// Initialize the shell
@@ -117,6 +112,10 @@ func (m *MockController) CreateProjectComponents() error {
 		return m.CreateProjectComponentsFunc()
 	}
 
+	// Create a new mock tools manager
+	toolsManager := tools.NewMockToolsManager()
+	m.injector.Register("toolsManager", toolsManager)
+
 	// Create a new mock blueprint handler
 	blueprintHandler := blueprint.NewMockBlueprintHandler(m.injector)
 	m.injector.Register("blueprintHandler", blueprintHandler)
@@ -128,6 +127,10 @@ func (m *MockController) CreateProjectComponents() error {
 	// Create a new mock terraform generator
 	terraformGenerator := generators.NewMockGenerator()
 	m.injector.Register("terraformGenerator", terraformGenerator)
+
+	// Create a new mock kustomize generator
+	kustomizeGenerator := generators.NewMockGenerator()
+	m.injector.Register("kustomizeGenerator", kustomizeGenerator)
 
 	return nil
 }
@@ -324,14 +327,6 @@ func (c *MockController) ResolveConfigHandler() config.ConfigHandler {
 	return c.BaseController.ResolveConfigHandler()
 }
 
-// ResolveContextHandler calls the mock ResolveContextHandlerFunc if set, otherwise calls the parent function
-func (c *MockController) ResolveContextHandler() context.ContextHandler {
-	if c.ResolveContextHandlerFunc != nil {
-		return c.ResolveContextHandlerFunc()
-	}
-	return c.BaseController.ResolveContextHandler()
-}
-
 // ResolveEnvPrinter calls the mock ResolveEnvPrinterFunc if set, otherwise calls the parent function
 func (c *MockController) ResolveEnvPrinter(name string) env.EnvPrinter {
 	if c.ResolveEnvPrinterFunc != nil {
@@ -362,6 +357,14 @@ func (c *MockController) ResolveSecureShell() shell.Shell {
 		return c.ResolveSecureShellFunc()
 	}
 	return c.BaseController.ResolveSecureShell()
+}
+
+// ResolveToolsManager calls the mock ResolveToolsManagerFunc if set, otherwise calls the parent function
+func (c *MockController) ResolveToolsManager() tools.ToolsManager {
+	if c.ResolveToolsManagerFunc != nil {
+		return c.ResolveToolsManagerFunc()
+	}
+	return c.BaseController.ResolveToolsManager()
 }
 
 // ResolveNetworkManager calls the mock ResolveNetworkManagerFunc if set, otherwise calls the parent function

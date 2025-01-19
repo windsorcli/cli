@@ -129,4 +129,33 @@ func TestInstallCmd(t *testing.T) {
 			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
+
+	t.Run("ErrorInitializingComponents", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller that returns an error when initializing components
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockController.InitializeComponentsFunc = func() error {
+			return fmt.Errorf("error initializing components")
+		}
+
+		// Use a mock blueprint handler
+		mockController.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
+			return bp.NewMockBlueprintHandler(injector)
+		}
+
+		// When the install command is executed
+		rootCmd.SetArgs([]string{"install"})
+		err := Execute(mockController)
+
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error initializing components: error initializing components"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
 }

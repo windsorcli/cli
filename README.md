@@ -15,7 +15,7 @@
 
 The Windsor CLI is designed to streamline the cloud-native developer experience. Built in Go, it runs seamlessly on Linux, macOS, and Windows.
 
-Windsor addresses several challenges common in building and running software platforms by integrating various tools into a cohesive workflow:
+Windsor addresses several challenges common when building and running software platforms by integrating various tools into a cohesive workflow:
 
 - **Complete Local Cloud**: Simulates complete cloud-native infrastructure locally using a native virtualization platform (currently supports Colima).
 - **Support Services**: Push and pull containers to local image registries, and browse your local services at `*.local.test` domains.
@@ -24,14 +24,14 @@ Windsor addresses several challenges common in building and running software pla
 
 ## Quick Start
 
-- **[Setup and Installation](./docs/install/install.md)**
-- **[Quick Start](./docs/tutorial/macos-quick-start.md)**
+- **[Installation](./docs/install.md)**
+- **[Quick Start](./docs/quick-start.md)**
 
 ## Supported Tools
 
 The following tools are supported by the Windsor CLI:
 
-- [**Docker**](https://github.com/docker/docker-ce)
+- [**Docker**](https://www.docker.com/)
 - [**Kubernetes**](https://github.com/kubernetes/kubernetes)
 - [**AWS**](https://github.com/aws/aws-cli)
 - [**Terraform**](https://github.com/hashicorp/terraform)
