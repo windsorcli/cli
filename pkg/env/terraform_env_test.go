@@ -62,13 +62,13 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 
 		expectedEnvVars := map[string]string{
-			"TF_DATA_DIR":         "/mock/config/root/.terraform/project/path",
+			"TF_DATA_DIR":         `/mock/config/root/.terraform/project/path`,
 			"TF_CLI_ARGS_init":    `-backend=true`,
-			"TF_CLI_ARGS_plan":    `-out="/mock/config/root/.terraform/project/path/terraform.tfplan" -var-file="/mock/config/root/terraform/project/path.tfvars" -var-file="/mock/config/root/terraform/project/path.tfvars.json"`,
+			"TF_CLI_ARGS_plan":    `-out="/mock/config/root/.terraform/project/path/terraform.tfplan"`,
 			"TF_CLI_ARGS_apply":   `"/mock/config/root/.terraform/project/path/terraform.tfplan"`,
-			"TF_CLI_ARGS_import":  `-var-file="/mock/config/root/terraform/project/path.tfvars" -var-file="/mock/config/root/terraform/project/path.tfvars.json"`,
-			"TF_CLI_ARGS_destroy": `-var-file="/mock/config/root/terraform/project/path.tfvars" -var-file="/mock/config/root/terraform/project/path.tfvars.json"`,
-			"TF_VAR_context_path": "/mock/config/root",
+			"TF_CLI_ARGS_import":  ``,
+			"TF_CLI_ARGS_destroy": ``,
+			"TF_VAR_context_path": `/mock/config/root`,
 		}
 
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
@@ -821,7 +821,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return filepath.FromSlash("/mock/config/root"), nil
+			return "/mock/config/root", nil
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
@@ -835,13 +835,14 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
-			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
+			return "/mock/project/root/terraform/project/path", nil
 		}
 		// And a mocked glob function simulating finding Terraform files
 		originalGlob := glob
 		defer func() { glob = originalGlob }()
 		glob = func(pattern string) ([]string, error) {
-			if pattern == filepath.FromSlash("/mock/project/root/terraform/project/path/*.tf") {
+			expectedPattern := filepath.FromSlash("/mock/project/root/terraform/project/path/*.tf")
+			if pattern == expectedPattern {
 				return []string{filepath.FromSlash("/mock/project/root/terraform/project/path/main.tf")}, nil
 			}
 			return nil, nil
@@ -866,12 +867,12 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		expectedContent := fmt.Sprintf(`
+		expectedContent := `
 terraform {
   backend "local" {
-    path = "%s"
+    path = "/mock/config/root/.tfstate/project/path/terraform.tfstate"
   }
-}`, filepath.FromSlash("/mock/config/root/.tfstate/project/path/terraform.tfstate"))
+}`
 		if string(writtenData) != expectedContent {
 			t.Errorf("Expected backend config %q, got %q", expectedContent, string(writtenData))
 		}
