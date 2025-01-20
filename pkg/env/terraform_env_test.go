@@ -62,13 +62,13 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 
 		expectedEnvVars := map[string]string{
-			"TF_DATA_DIR":         filepath.FromSlash("/mock/config/root/.terraform/project/path"),
+			"TF_DATA_DIR":         "/mock/config/root/.terraform/project/path",
 			"TF_CLI_ARGS_init":    `-backend=true`,
 			"TF_CLI_ARGS_plan":    `-out="/mock/config/root/.terraform/project/path/terraform.tfplan" -var-file="/mock/config/root/terraform/project/path.tfvars" -var-file="/mock/config/root/terraform/project/path.tfvars.json"`,
 			"TF_CLI_ARGS_apply":   `"/mock/config/root/.terraform/project/path/terraform.tfplan"`,
 			"TF_CLI_ARGS_import":  `-var-file="/mock/config/root/terraform/project/path.tfvars" -var-file="/mock/config/root/terraform/project/path.tfvars.json"`,
 			"TF_CLI_ARGS_destroy": `-var-file="/mock/config/root/terraform/project/path.tfvars" -var-file="/mock/config/root/terraform/project/path.tfvars.json"`,
-			"TF_VAR_context_path": filepath.FromSlash("/mock/config/root"),
+			"TF_VAR_context_path": "/mock/config/root",
 		}
 
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
@@ -79,7 +79,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		defer func() { glob = originalGlob }()
 		glob = func(pattern string) ([]string, error) {
 			if strings.Contains(pattern, "*.tf") {
-				return []string{filepath.FromSlash("real/terraform/project/path/file1.tf"), filepath.FromSlash("real/terraform/project/path/file2.tf")}, nil
+				return []string{"real/terraform/project/path/file1.tf", "real/terraform/project/path/file2.tf"}, nil
 			}
 			return nil, nil
 		}
@@ -88,7 +88,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
-			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
+			return "/mock/project/root/terraform/project/path", nil
 		}
 
 		// And a mocked stat function simulating file existence with varied tfvars files
@@ -96,13 +96,13 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		defer func() { stat = originalStat }()
 		stat = func(name string) (os.FileInfo, error) {
 			switch name {
-			case filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars"):
+			case "/mock/config/root/terraform/project/path.tfvars":
 				return nil, nil // Simulate file exists
-			case filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars.json"):
+			case "/mock/config/root/terraform/project/path.tfvars.json":
 				return nil, nil // Simulate file exists
-			case filepath.FromSlash("/mock/config/root/terraform/project/path_generated.tfvars"):
+			case "/mock/config/root/terraform/project/path_generated.tfvars":
 				return nil, os.ErrNotExist // Simulate file does not exist
-			case filepath.FromSlash("/mock/config/root/terraform/project/path_generated.tfvars.json"):
+			case "/mock/config/root/terraform/project/path_generated.tfvars.json":
 				return nil, os.ErrNotExist // Simulate file does not exist
 			default:
 				return nil, os.ErrNotExist // Simulate file does not exist
@@ -549,13 +549,13 @@ func TestTerraformEnv_Print(t *testing.T) {
 
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{
-			"TF_DATA_DIR":         filepath.FromSlash("/mock/config/root/.terraform/project/path"),
+			"TF_DATA_DIR":         "/mock/config/root/.terraform/project/path",
 			"TF_CLI_ARGS_init":    "-backend=true",
-			"TF_CLI_ARGS_plan":    `-out="` + filepath.FromSlash("/mock/config/root/.terraform/project/path/terraform.tfplan") + `"`,
-			"TF_CLI_ARGS_apply":   `"` + filepath.FromSlash("/mock/config/root/.terraform/project/path/terraform.tfplan") + `"`,
+			"TF_CLI_ARGS_plan":    `-out="/mock/config/root/.terraform/project/path/terraform.tfplan"`,
+			"TF_CLI_ARGS_apply":   `"/mock/config/root/.terraform/project/path/terraform.tfplan"`,
 			"TF_CLI_ARGS_import":  "",
 			"TF_CLI_ARGS_destroy": "",
-			"TF_VAR_context_path": filepath.FromSlash("/mock/config/root"),
+			"TF_VAR_context_path": "/mock/config/root",
 			"TF_VAR_os_type":      expectedOSType,
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {

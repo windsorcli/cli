@@ -59,9 +59,9 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS sets up a per-domain DNS rule using Windows NRPT (Name Resolution
-// Policy Table). This ensures only the specified TLD queries are sent to the
-// local DNS server.
+// ConfigureDNS sets up a per-domain DNS rule for a specific host name using Windows
+// Name Resolution Policy Table (NRPT). This ensures only the specified TLD queries
+// are sent to the local DNS server.
 func (n *BaseNetworkManager) ConfigureDNS() error {
 	tld := n.configHandler.GetString("dns.name")
 	if tld == "" {
@@ -74,7 +74,10 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return nil
 	}
 
-	// Check if the NRPT rule is already set
+	// Prepend a "." to the TLD for the namespace
+	namespace := "." + tld
+
+	// Check if the DNS rule for the host name is already set
 	checkScript := fmt.Sprintf(`
 $namespace = '%s'
 $allRules = Get-DnsClientNrptRule
@@ -88,7 +91,7 @@ if ($existingRule) {
 } else {
   $false
 }
-`, tld, dnsIP)
+`, namespace, dnsIP)
 
 	output, err := n.shell.ExecSilent(
 		"powershell",
@@ -96,11 +99,11 @@ if ($existingRule) {
 		checkScript,
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring NRPT - Failed\033[0m\n")
-		return fmt.Errorf("failed to check existing NRPT rules for %s: %w", tld, err)
+		fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring DNS for '*.%s' - Failed\033[0m\n", tld)
+		return fmt.Errorf("failed to check existing DNS rules for %s: %w", tld, err)
 	}
 
-	// Add or update the NRPT rule if necessary
+	// Add or update the DNS rule for the host name if necessary
 	if strings.TrimSpace(output) == "False" || output == "" {
 		addOrUpdateScript := fmt.Sprintf(`
 $namespace = '%s'
@@ -113,17 +116,17 @@ if ($existingRule) {
 if ($?) {
   Clear-DnsClientCache
 }
-`, tld, dnsIP, dnsIP, tld)
+`, namespace, dnsIP, dnsIP, tld)
 
 		_, err = n.shell.ExecProgress(
-			"🔐 Configuring NRPT",
+			fmt.Sprintf("🔐 Configuring DNS for '*.%s'", tld),
 			"powershell",
 			"-Command",
 			addOrUpdateScript,
 		)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring NRPT for %s - Failed\033[0m\n", tld)
-			return fmt.Errorf("failed to add or update NRPT rule for %s: %w", tld, err)
+			fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring DNS for '*.%s' - Failed\033[0m\n", tld)
+			return fmt.Errorf("failed to add or update DNS rule for %s: %w", tld, err)
 		}
 	}
 
