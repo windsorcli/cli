@@ -820,6 +820,23 @@ func TestShell_InstallHook(t *testing.T) {
 		}
 	})
 
+	t.Run("PowerShellSuccess", func(t *testing.T) {
+		shell := NewDefaultShell(nil)
+
+		// Capture stdout to validate the output
+		output := captureStdout(t, func() {
+			if err := shell.InstallHook("powershell"); err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+		})
+
+		// Validate the output contains expected content
+		expectedOutput := "function prompt" // Replace with actual expected output for PowerShell
+		if !strings.Contains(output, expectedOutput) {
+			t.Fatalf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
 	t.Run("UnsupportedShell", func(t *testing.T) {
 		shell := NewDefaultShell(nil)
 		err := shell.InstallHook("unsupported-shell")

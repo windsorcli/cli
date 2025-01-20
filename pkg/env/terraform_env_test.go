@@ -63,11 +63,11 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":         filepath.FromSlash("/mock/config/root/.terraform/project/path"),
-			"TF_CLI_ARGS_init":    "-backend=true -backend-config=path=" + filepath.FromSlash("/mock/config/root/.tfstate/project/path/terraform.tfstate"),
-			"TF_CLI_ARGS_plan":    "-out=" + filepath.FromSlash("/mock/config/root/.terraform/project/path/terraform.tfplan") + " -var-file=" + filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars") + " -var-file=" + filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars.json"),
-			"TF_CLI_ARGS_apply":   filepath.FromSlash("/mock/config/root/.terraform/project/path/terraform.tfplan"),
-			"TF_CLI_ARGS_import":  "-var-file=" + filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars") + " -var-file=" + filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars.json"),
-			"TF_CLI_ARGS_destroy": "-var-file=" + filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars") + " -var-file=" + filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars.json"),
+			"TF_CLI_ARGS_init":    `-backend=true`,
+			"TF_CLI_ARGS_plan":    `-out="/mock/config/root/.terraform/project/path/terraform.tfplan" -var-file="/mock/config/root/terraform/project/path.tfvars" -var-file="/mock/config/root/terraform/project/path.tfvars.json"`,
+			"TF_CLI_ARGS_apply":   `"/mock/config/root/.terraform/project/path/terraform.tfplan"`,
+			"TF_CLI_ARGS_import":  `-var-file="/mock/config/root/terraform/project/path.tfvars" -var-file="/mock/config/root/terraform/project/path.tfvars.json"`,
+			"TF_CLI_ARGS_destroy": `-var-file="/mock/config/root/terraform/project/path.tfvars" -var-file="/mock/config/root/terraform/project/path.tfvars.json"`,
 			"TF_VAR_context_path": filepath.FromSlash("/mock/config/root"),
 		}
 
@@ -550,9 +550,9 @@ func TestTerraformEnv_Print(t *testing.T) {
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":         filepath.FromSlash("/mock/config/root/.terraform/project/path"),
-			"TF_CLI_ARGS_init":    "-backend=true -backend-config=path=" + filepath.FromSlash("/mock/config/root/.tfstate/project/path/terraform.tfstate"),
-			"TF_CLI_ARGS_plan":    "-out=" + filepath.FromSlash("/mock/config/root/.terraform/project/path/terraform.tfplan"),
-			"TF_CLI_ARGS_apply":   filepath.FromSlash("/mock/config/root/.terraform/project/path/terraform.tfplan"),
+			"TF_CLI_ARGS_init":    "-backend=true",
+			"TF_CLI_ARGS_plan":    `-out="` + filepath.FromSlash("/mock/config/root/.terraform/project/path/terraform.tfplan") + `"`,
+			"TF_CLI_ARGS_apply":   `"` + filepath.FromSlash("/mock/config/root/.terraform/project/path/terraform.tfplan") + `"`,
 			"TF_CLI_ARGS_import":  "",
 			"TF_CLI_ARGS_destroy": "",
 			"TF_VAR_context_path": filepath.FromSlash("/mock/config/root"),
