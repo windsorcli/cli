@@ -45,7 +45,7 @@ local registryMirrors = std.foldl(
       url: "github.com/windsorcli/core",
       ref: {
         // renovate: datasource=github-branches depName=windsorcli/core
-        branch: "fix-windows-talos-check",
+        branch: "v0.1.2",
       },
     },
   ],
