@@ -4,11 +4,17 @@ This guide will walk you through launching the windsor environment in your proje
 
 This guide is expected to run optimally on a machine with 8 CPU cores, 8GB of RAM, and 60GB of free storage space available.
 
-It is assumed you have installed the Windsor CLI and configured `windsor hook` in your shell. Please see the [Installation](../install/install.md) page for instructions.
+It is assumed you have installed the Windsor CLI and configured `windsor hook` in your shell. Please see the [Installation](./install.md) page for instructions.
 
 ### Install tool dependencies
 
-You will need several tools installed on your system to fully leverage the windsor environment. It is recommended to use a tool versions manager such as [aqua](https://github.com/aquaproj/aqua) or [asdf](https://github.com/asdf-vm/asdf). For your convenience, we have provided sample setup files for these tools. Place one of these in the root of your project.
+You will need several tools installed on your system to fully leverage the Windsor environment. It is recommended to use a tool versions manager such as [aqua](https://github.com/aquaproj/aqua) or [asdf](https://github.com/asdf-vm/asdf). For your convenience, we have provided sample setup files for these tools. Place one of these in the root of your project.
+
+To validate your toolchain, run:
+
+```
+windsor check
+```
 
 === "aqua"
     Create an `aqua.yaml` file in your project's root directory with the following content:

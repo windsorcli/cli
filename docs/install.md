@@ -2,7 +2,7 @@
 
 This document describes how to install the Windsor CLI on your development workstation as well as configuring `windsor hook` in your shell.
 
-## Installing with Brew
+## Installing with Homebrew
 
 ```
 brew update
