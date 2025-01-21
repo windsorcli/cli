@@ -59,7 +59,7 @@ brew install windsor
     ```
 
     <details>
-    <summary><strong>Verify the integrity of your Windsor CLI installation</strong></summary>
+    <summary><strong>Verify the signature and checksum of the Windsor binary</strong></summary>
 
     To enhance security and confirm the integrity of your Windsor CLI installation, it is crucial to verify the downloaded binary. This involves checking the signature and checksum of the binary to ensure it has not been tampered with and is safe for use on your system. Follow the steps below to perform these verifications.
 
