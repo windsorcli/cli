@@ -5,7 +5,11 @@ package network
 
 import (
 	"fmt"
+	"os"
 	"strings"
+	"time"
+
+	"github.com/briandowns/spinner"
 )
 
 // ConfigureHostRoute sets up the local development network. It checks if the route
@@ -22,74 +26,107 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	spin.Suffix = " 🔐 Configuring host route"
+	spin.Start()
+
 	output, err := n.shell.ExecSilent(
 		"powershell",
 		"-Command",
 		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s | Where-Object { $_.NextHop -eq '%s' }", networkCIDR, guestIP),
 	)
 	if err != nil {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring host route - Failed\033[0m\n")
 		return fmt.Errorf("failed to check if route exists: %w", err)
 	}
 
-	if output != "" {
-		return nil
+	if output == "" {
+		output, err = n.shell.ExecSilent(
+			"powershell",
+			"-Command",
+			fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", networkCIDR, guestIP),
+		)
+		if err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring host route - Failed\033[0m\n")
+			return fmt.Errorf("failed to add route: %w, output: %s", err, output)
+		}
 	}
 
-	fmt.Println("🔐 Adding route on the host to VM guest")
-	output, err = n.shell.ExecSilent(
-		"powershell",
-		"-Command",
-		fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", networkCIDR, guestIP),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to add route: %w, output: %s", err, output)
-	}
-
+	spin.Stop()
+	fmt.Fprintf(os.Stderr, "\033[32m✔ 🔐 Configuring host route - Done\033[0m\n")
 	return nil
 }
 
-// ConfigureDNS sets up the DNS configuration. If the DNS address is configured,
-// it sets the DNS server using PowerShell and flushes the DNS cache to ensure changes take
-// effect.
+// ConfigureDNS sets up a per-domain DNS rule for a specific host name using Windows
+// Name Resolution Policy Table (NRPT). This ensures only the specified TLD queries
+// are sent to the local DNS server.
 func (n *BaseNetworkManager) ConfigureDNS() error {
 	tld := n.configHandler.GetString("dns.name")
 	if tld == "" {
 		return fmt.Errorf("DNS TLD is not configured")
 	}
+
 	dnsIP := n.configHandler.GetString("dns.address")
+	if dnsIP == "" {
+		// If there's no DNS address to configure, we simply skip
+		return nil
+	}
 
-	// Proceed with DNS server configuration if DNS IP is provided
-	if dnsIP != "" {
-		currentDNSOutput, err := n.shell.ExecSilent(
+	// Prepend a "." to the TLD for the namespace
+	namespace := "." + tld
+
+	// Check if the DNS rule for the host name is already set
+	checkScript := fmt.Sprintf(`
+$namespace = '%s'
+$allRules = Get-DnsClientNrptRule
+$existingRule = $allRules | Where-Object { $_.Namespace -eq $namespace }
+if ($existingRule) {
+  if ($existingRule.NameServers -ne "%s") {
+    $false
+  } else {
+    $true
+  }
+} else {
+  $false
+}
+`, namespace, dnsIP)
+
+	output, err := n.shell.ExecSilent(
+		"powershell",
+		"-Command",
+		checkScript,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring DNS for '*.%s' - Failed\033[0m\n", tld)
+		return fmt.Errorf("failed to check existing DNS rules for %s: %w", tld, err)
+	}
+
+	// Add or update the DNS rule for the host name if necessary
+	if strings.TrimSpace(output) == "False" || output == "" {
+		addOrUpdateScript := fmt.Sprintf(`
+$namespace = '%s'
+$existingRule = Get-DnsClientNrptRule | Where-Object { $_.Namespace -eq $namespace }
+if ($existingRule) {
+  Set-DnsClientNrptRule -Namespace $namespace -NameServers "%s"
+} else {
+  Add-DnsClientNrptRule -Namespace $namespace -NameServers "%s" -DisplayName "Local DNS for %s"
+}
+if ($?) {
+  Clear-DnsClientCache
+}
+`, namespace, dnsIP, dnsIP, tld)
+
+		_, err = n.shell.ExecProgress(
+			fmt.Sprintf("🔐 Configuring DNS for '*.%s'", tld),
 			"powershell",
 			"-Command",
-			"Get-DnsClientServerAddress -InterfaceAlias 'Ethernet' | Select-Object -ExpandProperty ServerAddresses",
+			addOrUpdateScript,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to get current DNS server: %w", err)
-		}
-
-		if strings.Contains(currentDNSOutput, dnsIP) {
-			return nil
-		}
-
-		fmt.Println("🔐 Setting DNS server")
-		output, err := n.shell.ExecSilent(
-			"powershell",
-			"-Command",
-			fmt.Sprintf("Set-DnsClientServerAddress -InterfaceAlias 'Ethernet' -ServerAddresses %s", dnsIP),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to set DNS server: %w, output: %s", err, output)
-		}
-
-		_, err = n.shell.ExecSilent(
-			"powershell",
-			"-Command",
-			"Clear-DnsClientCache",
-		)
-		if err != nil {
-			return fmt.Errorf("failed to flush DNS cache: %w", err)
+			fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring DNS for '*.%s' - Failed\033[0m\n", tld)
+			return fmt.Errorf("failed to add or update DNS rule for %s: %w", tld, err)
 		}
 	}
 
