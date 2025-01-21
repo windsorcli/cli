@@ -1,10 +1,10 @@
-# MacOS Quick Start Guide
+# Quick Start Guide
 
 This guide will walk you through launching the windsor environment in your project. At the end of this guide, you should be running a local Kubernetes cluster with a single worker and controlplane.
 
-This guide is expected to run optimally on an Apple M2 with 8 CPU cores, 8GB of RAM, and 60GB of free storage space available.
+This guide is expected to run optimally on a machine with 8 CPU cores, 8GB of RAM, and 60GB of free storage space available.
 
-It is assumed you have installed the windsor CLI and configured `windsor hook` in your shell. Please see the [Setup and Installation](../install/install.md) page for instructions.
+It is assumed you have installed the Windsor CLI and configured `windsor hook` in your shell. Please see the [Installation](../install/install.md) page for instructions.
 
 ### Install tool dependencies
 
@@ -114,13 +114,6 @@ Windsor provides a command to help you tear down your development environment. T
 
 ```sh
 windsor down --clean
-```
-
-To destroy the virtual machine, run:
-
-```sh
-colima stop windsor-local
-colima delete windsor-local
 ```
 
 <div>
