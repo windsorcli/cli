@@ -4,7 +4,7 @@ This guide will walk you through launching the windsor environment in your proje
 
 This guide is expected to run optimally on an Apple M2 with 8 CPU cores, 8GB of RAM, and 60GB of free storage space available.
 
-It is assumed you have installed the windsor CLI and configured `windsor hook` in your shell. Please see the [Setup and Installation](../install/install.md) page for instructions.
+It is assumed you have installed the windsor CLI and configured `windsor hook` in your shell. Please see the [Setup and Installation](./install.md) page for instructions.
 
 ### Install tool dependencies
 
