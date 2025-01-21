@@ -88,21 +88,23 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
-			return "/mock/project/root/terraform/project/path", nil
+			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
 		}
 
 		// And a mocked stat function simulating file existence with varied tfvars files
 		originalStat := stat
 		defer func() { stat = originalStat }()
 		stat = func(name string) (os.FileInfo, error) {
+			// Debugging: Print the path being checked
+			t.Logf("Checking file: %s", name)
 			switch name {
-			case "/mock/config/root/terraform/project/path.tfvars":
+			case filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars"):
 				return nil, nil // Simulate file exists
-			case "/mock/config/root/terraform/project/path.tfvars.json":
+			case filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars.json"):
 				return nil, nil // Simulate file exists
-			case "/mock/config/root/terraform/project/path_generated.tfvars":
+			case filepath.FromSlash("/mock/config/root/terraform/project/path_generated.tfvars"):
 				return nil, os.ErrNotExist // Simulate file does not exist
-			case "/mock/config/root/terraform/project/path_generated.tfvars.json":
+			case filepath.FromSlash("/mock/config/root/terraform/project/path_generated.tfvars.json"):
 				return nil, os.ErrNotExist // Simulate file does not exist
 			default:
 				return nil, os.ErrNotExist // Simulate file does not exist
@@ -113,6 +115,11 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		envVars, err := terraformEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Debugging: Print the actual envVars on Windows
+		for key, value := range envVars {
+			t.Logf("envVar[%s] = %s", key, value)
 		}
 
 		// Then the expected environment variables should be set
