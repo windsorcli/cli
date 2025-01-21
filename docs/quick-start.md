@@ -78,7 +78,7 @@ If you have not done so, be sure to initialize a git repository in the root of y
 git init
 ```
 
-The windsor tool will create a few folders in your project. In particular, it will create a folder called `contexts/` where your context configurations will reside. Initialize windsor with the colima vm driver by running:
+The windsor tool will create a few folders in your project. In particular, it will create a folder called `contexts/` where your context configurations will reside. Initialize windsor with the docker vm driver by running:
 
 ```sh
 windsor init local
@@ -98,7 +98,7 @@ Start the local environment by running:
 windsor up
 ```
 
-This command will start Colima, run kubernetes nodes and support services with docker compose, and bootstrap your cluster using Terraform. It can take up to 5 minutes to fully launch, so be patient!
+This command will start appropriate docker containers, run kubernetes nodes and support services with docker compose, and bootstrap your cluster using Terraform. It can take up to 5 minutes to fully launch, so be patient!
 
 ### Verify the environment
 
@@ -110,7 +110,7 @@ kubectl get nodes
 
 ### Tear down the environment
 
-Windsor provides a command to help you tear down your development environment. To destroy the cluster and support services, while still leaving the Colima virtual machine in tact, run:
+Windsor provides a command to help you tear down your development environment. To destroy the cluster and support services, run:
 
 ```sh
 windsor down --clean
