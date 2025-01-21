@@ -110,7 +110,7 @@ kubectl get nodes
 
 ### Tear down the environment
 
-Windsor provides a command to help you tear down your development environment. To destroy the cluster and support services, run:
+Windsor provides a command to help you tear down your development environment. To destroy the cluster and support services by running:
 
 ```sh
 windsor down --clean
