@@ -1,15 +1,6 @@
 # Installation
 
-This document describes how to install the windsor CLI on your development workstation. You can choose to install it using [Homebrew](#using-homebrew) or a [manual installing](#manual-install). Refer to the respective sections below for detailed instructions.
-
-## Using Homebrew
-
-To install the Windsor CLI using Homebrew, follow the steps below:
-
-```
-brew tap windsorcli/cli
-brew install windsor
-```
+This document describes how to install the Windsor CLI on your development workstation. This includes downloading the binary from Github, as well as configuring `windsor hook` in your shell.
 
 ## Manual Install
 
@@ -82,14 +73,14 @@ windsor version
 ```
 
 <div>
-  {{ footer('Home', '../../index.html', 'Quick Start', '../../tutorial/macos-quick-start/index.html') }}
+  {{ footer('Home', '../index.html', 'Quick Start', '../quick-start/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../index.html'; 
+    window.location.href = '../index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../../tutorial/macos-quick-start/index.html'; 
+    window.location.href = '../quick-start/index.html'; 
   });
 </script>

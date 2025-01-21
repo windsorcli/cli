@@ -24,14 +24,14 @@ Windsor addresses several challenges common when building and running software p
 
 ## Quick Start
 
-- **[Setup and Installation](./docs/install/install.md)**
-- **[Quick Start](./docs/tutorial/macos-quick-start.md)**
+- **[Installation](./docs/install.md)**
+- **[Quick Start](./docs/quick-start.md)**
 
 ## Supported Tools
 
 The following tools are supported by the Windsor CLI:
 
-- [**Docker**](https://github.com/docker/docker-ce)
+- [**Docker**](https://www.docker.com/)
 - [**Kubernetes**](https://github.com/kubernetes/kubernetes)
 - [**AWS**](https://github.com/aws/aws-cli)
 - [**Terraform**](https://github.com/hashicorp/terraform)

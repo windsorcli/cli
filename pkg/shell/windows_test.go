@@ -52,7 +52,7 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 	}
 
 	// Expected output for PowerShell
-	expectedOutputPowerShell := "$env:VAR1=\"value1\"\n$env:VAR2=\"value2\"\nRemove-Item Env:VAR3\n"
+	expectedOutputPowerShell := "$env:VAR1='value1'\n$env:VAR2='value2'\nRemove-Item Env:VAR3\n"
 
 	// Capture the output
 	var output bytes.Buffer

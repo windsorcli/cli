@@ -4,14 +4,13 @@ nav:
   - 'Quick Start': quick-start.md
   - 'Guides':
     - 'Contexts': guides/contexts.md
-    - 'Environment Injection': guides/windsor-env.md
+    - 'Environment Injection': guides/environment-injection.md
     - 'Local Workstation': guides/local-workstation.md
     - 'Terraform': guides/terraform.md
     - 'Kustomize': guides/kustomize.md
   - 'Tutorial': 
     - 'Hello, World!': tutorial/hello-world.md
   - 'Security':
-    - 'Signature Verification': security/signature-verification.md
     - 'Trusted Folders': security/trusted-folders.md
   - 'Reference':
     - 'Blueprint': reference/blueprint.md

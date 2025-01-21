@@ -281,8 +281,8 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	return stdoutBuf.String(), nil
 }
 
-// InstallHook installs a shell hook if it exists for the given shell name.
-// It executes the hook command silently and returns an error if the shell is unsupported.
+// InstallHook sets up a shell hook for a specified shell using a template with the Windsor path.
+// It returns an error if the shell is unsupported. For PowerShell, it formats the script into a single line.
 func (s *DefaultShell) InstallHook(shellName string) error {
 	hookCommand, exists := shellHooks[shellName]
 	if !exists {
@@ -293,25 +293,41 @@ func (s *DefaultShell) InstallHook(shellName string) error {
 	if err != nil {
 		return err
 	}
+	selfPath = strings.ReplaceAll(selfPath, "\\", "/")
 
-	selfPath = strings.Replace(selfPath, "\\", "/", -1)
-	ctx := HookContext{selfPath}
+	ctx := HookContext{SelfPath: selfPath}
 
 	hookTemplate := hookTemplateNew("hook")
 	if hookTemplate == nil {
 		return fmt.Errorf("failed to create new template")
 	}
-	hookTemplate, err = hookTemplateParse(hookTemplate, string(hookCommand))
+
+	hookTemplate, err = hookTemplateParse(hookTemplate, hookCommand)
 	if err != nil {
 		return err
 	}
 
-	err = hookTemplateExecute(hookTemplate, os.Stdout, ctx)
-	if err != nil {
+	var buf bytes.Buffer
+	if err := hookTemplateExecute(hookTemplate, &buf, ctx); err != nil {
 		return err
 	}
 
-	return nil
+	hookScript := buf.String()
+
+	if shellName == "powershell" {
+		lines := strings.Split(hookScript, "\n")
+		var cleaned []string
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				cleaned = append(cleaned, line)
+			}
+		}
+		hookScript = strings.Join(cleaned, "; ")
+	}
+
+	_, err = os.Stdout.WriteString(hookScript)
+	return err
 }
 
 // Adds the current directory to a trusted list stored in a file.

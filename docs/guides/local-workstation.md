@@ -2,7 +2,7 @@
 A significant feature of the Windsor CLI is its ability to configure your local workstation. Every attempt is made to configure this workstation to closely mimic true production workloads. While working with your local workstation, you can expect to have DNS, Docker registries, Kubernetes clusters, an AWS emulator (Localstack), and a local reflection of your repository available via a local git server.
 
 ## Prerequisites
-To fully follow this guide, you should already have a local Windsor environment running, having followed through the [quick start tutorial](../tutorial/macos-quick-start.md). With the Windsor CLI installed, you can create your local environment by running:
+To fully follow this guide, you should already have a local Windsor environment running, having followed through the [quick start tutorial](../quick-start.md). With the Windsor CLI installed, you can create your local environment by running:
 
 ```
 windsor init local
@@ -154,7 +154,7 @@ This should pull down the contents of your repository in to a new folder.
 ## Kubernetes Cluster
 A container based Kubernetes cluster is run locally. Currently, Windsor supports clusters running [Sidero Talos](https://github.com/siderolabs/talos).
 
-You can configure the cluster's controlplanes and workers as follows:
+You can configure the cluster's controlplanes and workers in the windsor.yaml as follows:
 
 ```yaml
 cluster:
@@ -184,3 +184,16 @@ NAME             STATUS   ROLES           AGE     VERSION
 controlplane-1   Ready    control-plane   1m      v1.31.4
 worker-1         Ready    <none>          1m      v1.31.4
 ```
+
+<div>
+  {{ footer('Environment Injection', '../../guides/environment-injection/index.html', 'Terraform', '../../guides/terraform/index.html') }}
+</div>
+
+<script>
+  document.getElementById('previousButton').addEventListener('click', function() {
+    window.location.href = '../../guides/environment-injection/index.html'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../../guides/terraform/index.html'; 
+  });
+</script>

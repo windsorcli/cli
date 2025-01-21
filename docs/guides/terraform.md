@@ -126,3 +126,16 @@ terraform init
 terraform plan
 terraform apply
 ```
+
+<div>
+  {{ footer('Local Workstation', '../../guides/local-workstation/index.html', 'Kustomize', '../../guides/kustomize/index.html') }}
+</div>
+
+<script>
+  document.getElementById('previousButton').addEventListener('click', function() {
+    window.location.href = '../../guides/local-workstation/index.html'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../../guides/kustomize/index.html'; 
+  });
+</script>

@@ -45,17 +45,22 @@ var shellHooks = map[string]string{
 		eval (eval "$("{{.SelfPath}}" env)"; export elvish | slurp)
 		`,
 	"powershell": `
-		$DirenvPrompt = {
-			Invoke-Expression (& eval "$("{{.SelfPath}}" env)"; export powershell)
+		$originalPromptFunction = Get-Item function:\prompt -ErrorAction SilentlyContinue
+		if ($originalPromptFunction) {
+				$originalPromptBlock = $originalPromptFunction.ScriptBlock
+		} else {
+				$originalPromptBlock = $null
 		}
-		If ($global:Prompt -is [scriptblock]) {
-			$oldPrompt = $global:Prompt
-			$global:Prompt = {
-				& $DirenvPrompt
-				& $oldPrompt
-			}
-		} Else {
-			$global:Prompt = $DirenvPrompt
+		function prompt {
+				$windsorEnvScript = & "{{.SelfPath}}" env | Out-String
+				if ($windsorEnvScript) {
+						Invoke-Expression $windsorEnvScript
+				}
+				if ($originalPromptBlock) {
+						& $originalPromptBlock
+				} else {
+						"PS $($pwd)> "
+				}
 		}
 		`,
 }
