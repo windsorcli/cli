@@ -1,4 +1,4 @@
-# MacOS Quick Start Guide
+# Quick Start
 
 This guide will walk you through launching the windsor environment in your project. At the end of this guide, you should be running a local Kubernetes cluster with a single worker and controlplane.
 
@@ -116,19 +116,15 @@ Windsor provides a command to help you tear down your development environment. T
 windsor down --clean
 ```
 
-To destroy the virtual machine, run:
-
-```sh
-colima stop windsor-local
-colima delete windsor-local
-```
-
 <div>
-{{ previous_footer('Installation', '../../install/install/index.html') }}
+  {{ footer('Installation', '../install/index.html', 'Contexts', '../guides/contexts/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../install/install/index.html'; 
+    window.location.href = '../install/index.html'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../guides/contexts/index.html'; 
   });
 </script>
