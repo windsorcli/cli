@@ -2,7 +2,7 @@
 
 This document describes how to install the Windsor CLI on your development workstation as well as configuring `windsor hook` in your shell.
 
-## Installing with Brew
+## Installing with Homebrew
 
 ```
 brew update
@@ -20,7 +20,7 @@ brew install windsor
     ```
 
     <details>
-    <summary><strong>Verify the integrity of your Windsor CLI installation</strong></summary>
+    <summary><strong>Verify the signature and checksum of the Windsor binary</strong></summary>
 
     To enhance security and confirm the integrity of your Windsor CLI installation, it is crucial to verify the downloaded binary. This involves checking the signature and checksum of the binary to ensure it has not been tampered with and is safe for use on your system. Follow the steps below to perform these verifications.
 
@@ -53,13 +53,12 @@ brew install windsor
 
 === "Windows"
     ```powershell
-    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_windows_amd64.tar.gz" -OutFile "windsor_{{ config.extra.version }}_windows_amd64.tar.gz" ; \
-    tar -xzf windsor_{{ config.extra.version }}_windows_amd64.tar.gz -C "C:\Program Files\Windsor" ; \
-    Rename-Item "C:\Program Files\Windsor\windsor.exe" -NewName "windsor.exe"
+    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_windows_amd64.tar.gz" -Headers @{"Accept"="application/octet-stream"} -OutFile "windsor_{{ config.extra.version }}_windows_amd64.tar.gz" ;
+    tar -xzf windsor_{{ config.extra.version }}_windows_amd64.tar.gz -C "C:\Program Files\Windsor" ;
     ```
 
     <details>
-    <summary><strong>Verify the integrity of your Windsor CLI installation</strong></summary>
+    <summary><strong>Verify the signature and checksum of the Windsor binary</strong></summary>
 
     To enhance security and confirm the integrity of your Windsor CLI installation, it is crucial to verify the downloaded binary. This involves checking the signature and checksum of the binary to ensure it has not been tampered with and is safe for use on your system. Follow the steps below to perform these verifications.
 
@@ -92,12 +91,12 @@ brew install windsor
 === "Linux"
     ```bash
     curl -L -o windsor_{{ config.extra.version }}_linux_amd64.tar.gz https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_linux_amd64.tar.gz && \
-    tar -xzf windsor_{{ config.extra.version }}_linux_amd64.tar.gz -C /usr/local/bin && \
-    chmod +x /usr/local/bin/windsor
+    sudo tar -xzf windsor_{{ config.extra.version }}_linux_amd64.tar.gz -C /usr/local/bin && \
+    sudo chmod +x /usr/local/bin/windsor
     ```
 
     <details>
-    <summary><strong>Verify the integrity of your Windsor CLI installation</strong></summary>
+    <summary><strong>Verify the signature and checksum of the Windsor binary</strong></summary>
 
     To enhance security and confirm the integrity of your Windsor CLI installation, it is crucial to verify the downloaded binary. This involves checking the signature and checksum of the binary to ensure it has not been tampered with and is safe for use on your system. Follow the steps below to perform these verifications.
 
@@ -108,12 +107,12 @@ brew install windsor
 
     2. **Download the signature file**:
     ```bash
-    wget -O windsor_{{ config.extra.version }}_checksums.txt.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_checksums.txt.sig
+    curl -L -o windsor_{{ config.extra.version }}_checksums.txt.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_checksums.txt.sig
     ```
 
     3. **Download the checksum file**:
     ```bash
-    wget -O windsor_{{ config.extra.version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_checksums.txt
+    curl -L -o windsor_{{ config.extra.version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_checksums.txt
     ```
 
     4. **Verify the Signature**:

@@ -17,9 +17,9 @@
 
 The Windsor CLI is designed to streamline the cloud-native developer experience. Built in Go, it runs seamlessly on Linux, macOS, and Windows.
 
-Windsor addresses several challenges common in building and running software platforms by integrating various tools into a cohesive workflow:
+Windsor addresses several challenges common when building and running software platforms by integrating various tools into a cohesive workflow:
 
-- **Complete Local Cloud**: Simulates complete cloud-native infrastructure locally using a native virtualization platform (currently supports Colima).
+- **Complete Local Cloud**: Simulates complete cloud-native infrastructure locally using virtualization drivers (currently supports Docker Desktop & Colima).
 - **Support Services**: Push and pull containers to local image registries, and browse your local services at `*.local.test` domains.
 - **Livereload GitOps**: Reflects your source via a local git repository, enabling you to work with GitOps tooling locally.
 - **Contextual Workflow**: Code once, deploy-to-many with an elegant contextual workflow, dynamically reconfiguring your toolchain as you target different deployment environments.
