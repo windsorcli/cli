@@ -14,8 +14,8 @@ brew install windsor
 
 === "MacOS"
     ```bash
-    curl -L -o windsor_{{ config.extra.version }}_darwin_arm64.tar.gz https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_darwin_arm64.tar.gz && \
-    tar -xzf windsor_{{ config.extra.version }}_darwin_arm64.tar.gz -C /usr/local/bin && \
+    curl -L -o windsor_{{ config.extra.release_version }}_darwin_arm64.tar.gz https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_darwin_arm64.tar.gz && \
+    tar -xzf windsor_{{ config.extra.release_version }}_darwin_arm64.tar.gz -C /usr/local/bin && \
     chmod +x /usr/local/bin/windsor
     ```
 
@@ -31,30 +31,30 @@ brew install windsor
 
     2. **Download the signature file**:
     ```bash
-    curl -L -o windsor_{{ config.extra.version }}_checksums.txt.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_checksums.txt.sig
+    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt.sig
     ```
 
     3. **Download the checksum file**:
     ```bash
-    curl -L -o windsor_{{ config.extra.version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_checksums.txt
+    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
     4. **Verify the Signature**:
     ```bash
-    gpg --verify windsor_{{ config.extra.version }}_checksums.txt.sig windsor_{{ config.extra.version }}_checksums.txt
+    gpg --verify windsor_{{ config.extra.release_version }}_checksums.txt.sig windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
     5. **Verify the Checksum**:
     ```bash
-    shasum -a 256 -c windsor_{{ config.extra.version }}_checksums.txt
+    shasum -a 256 -c windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
     </details>
 
 === "Windows"
     ```powershell
-    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_windows_amd64.tar.gz" -Headers @{"Accept"="application/octet-stream"} -OutFile "windsor_{{ config.extra.version }}_windows_amd64.tar.gz" ;
-    tar -xzf windsor_{{ config.extra.version }}_windows_amd64.tar.gz -C "C:\Program Files\Windsor" ;
+    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_windows_amd64.tar.gz" -Headers @{"Accept"="application/octet-stream"} -OutFile "windsor_{{ config.extra.release_version }}_windows_amd64.tar.gz" ;
+    tar -xzf windsor_{{ config.extra.release_version }}_windows_amd64.tar.gz -C "C:\Program Files\Windsor" ;
     ```
 
     <details>
@@ -69,29 +69,29 @@ brew install windsor
 
     2. **Download the signature file**:
     ```powershell
-    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_checksums.txt.sig" -OutFile "windsor_{{ config.extra.version }}_checksums.txt.sig"
+    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt.sig" -OutFile "windsor_{{ config.extra.release_version }}_checksums.txt.sig"
     ```
 
     3. **Download the checksum file**:
     ```powershell
-    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_checksums.txt" -OutFile "windsor_{{ config.extra.version }}_checksums.txt"
+    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt" -OutFile "windsor_{{ config.extra.release_version }}_checksums.txt"
     ```
 
     4. **Verify the Signature**:
     ```powershell
-    gpg --verify windsor_{{ config.extra.version }}_checksums.txt.sig windsor_{{ config.extra.version }}_checksums.txt
+    gpg --verify windsor_{{ config.extra.release_version }}_checksums.txt.sig windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
     5. **Verify the Checksum**:
     ```powershell
-    Get-FileHash -Algorithm SHA256 -Path "windsor_{{ config.extra.version }}_checksums.txt" | Format-List
+    Get-FileHash -Algorithm SHA256 -Path "windsor_{{ config.extra.release_version }}_checksums.txt" | Format-List
     ```
     </details>
 
 === "Linux"
     ```bash
-    curl -L -o windsor_{{ config.extra.version }}_linux_amd64.tar.gz https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_linux_amd64.tar.gz && \
-    sudo tar -xzf windsor_{{ config.extra.version }}_linux_amd64.tar.gz -C /usr/local/bin && \
+    curl -L -o windsor_{{ config.extra.release_version }}_linux_amd64.tar.gz https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_linux_amd64.tar.gz && \
+    sudo tar -xzf windsor_{{ config.extra.release_version }}_linux_amd64.tar.gz -C /usr/local/bin && \
     sudo chmod +x /usr/local/bin/windsor
     ```
 
@@ -107,22 +107,22 @@ brew install windsor
 
     2. **Download the signature file**:
     ```bash
-    curl -L -o windsor_{{ config.extra.version }}_checksums.txt.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_checksums.txt.sig
+    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt.sig
     ```
 
     3. **Download the checksum file**:
     ```bash
-    curl -L -o windsor_{{ config.extra.version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.version }}/windsor_{{ config.extra.version }}_checksums.txt
+    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
     4. **Verify the Signature**:
     ```bash
-    gpg --verify windsor_{{ config.extra.version }}_checksums.txt.sig windsor_{{ config.extra.version }}_checksums.txt
+    gpg --verify windsor_{{ config.extra.release_version }}_checksums.txt.sig windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
     5. **Verify the Checksum**:
     ```bash
-    sha256sum -c windsor_{{ config.extra.version }}_checksums.txt
+    sha256sum -c windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
     </details>
