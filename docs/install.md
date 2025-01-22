@@ -52,7 +52,10 @@ brew install windsor
     </details>
 
 === "Windows"
+    Execute the following commands in PowerShell with administrative privileges:
+
     ```powershell
+    New-Item -Path "C:\Program Files\Windsor" -ItemType Directory -Force ;
     Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_windows_amd64.tar.gz" -Headers @{"Accept"="application/octet-stream"} -OutFile "windsor_{{ config.extra.release_version }}_windows_amd64.tar.gz" ;
     tar -xzf windsor_{{ config.extra.release_version }}_windows_amd64.tar.gz -C "C:\Program Files\Windsor" ;
     ```
