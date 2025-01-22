@@ -8,7 +8,7 @@ It is assumed you have installed the Windsor CLI and configured `windsor hook` i
 
 ### Install tool dependencies
 
-You will need several tools installed on your system to fully leverage the Windsor environment. It is recommended to use a tool versions manager such as [aqua](https://github.com/aquaproj/aqua) or [asdf](https://github.com/asdf-vm/asdf). For your convenience, we have provided sample setup files for these tools. Place one of these in the root of your project.
+To fully leverage the Windsor environment, you will need several tools installed on your system. You may install these tools manually or using your preferred tools manager (_e.g._ Homebrew). The Windsor project recommends [aqua](https://github.com/aquaproj/aqua). For your convenience, we have provided a sample setup file for aqua. Place this file in the root of your project.
 
 To validate your toolchain, run:
 
@@ -16,65 +16,31 @@ To validate your toolchain, run:
 windsor check
 ```
 
-=== "aqua"
-    Create an `aqua.yaml` file in your project's root directory with the following content:
-    ```yaml
-    # yaml-language-server: $schema=https://raw.githubusercontent.com/aquaproj/aqua/main/json-schema/aqua-yaml.json
-    # aqua - Declarative CLI Version Manager
-    # https://aquaproj.github.io/
-    # checksum:
-    #   enabled: true
-    #   require_checksum: true
-    #   supported_envs:
-    #   - all
-    registries:
-      - type: standard
-        ref: v4.285.0 # renovate: depName=aquaproj/aqua-registry
-    packages:
-    - name: hashicorp/terraform@v1.10.3
-    - name: siderolabs/talos@v1.9.1
-    - name: kubernetes/kubectl@v1.32.0
-    - name: getsops/sops@v3.9.2
-    - name: abiosoft/colima@v0.8.1
-    - name: lima-vm/lima@v1.0.3
-    - name: docker/cli@v27.4.1
-    - name: docker/compose@v2.32.1
-    ```
+Create an `aqua.yaml` file in your project's root directory with the following content:
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/aquaproj/aqua/main/json-schema/aqua-yaml.json
+# aqua - Declarative CLI Version Manager
+# https://aquaproj.github.io/
+# checksum:
+#   enabled: true
+#   require_checksum: true
+#   supported_envs:
+#   - all
+registries:
+  - type: standard
+    ref: v4.285.0
+packages:
+- name: hashicorp/terraform@v1.10.3
+- name: siderolabs/talos@v1.9.1
+- name: kubernetes/kubectl@v1.32.0
+- name: docker/cli@v27.4.1
+- name: docker/compose@v2.32.1
+```
 
-    To install the tools specified in `aqua.yaml`, run:
-    ```bash
-    aqua install
-    ```
-
-=== "asdf"
-    Create a `.tool-versions` file in your project's root directory with the following content:
-    ```plaintext
-    terraform 1.10.3
-    talos 1.9.1
-    kubectl 1.32.0
-    sops 3.9.2
-    colima 0.8.1
-    lima 1.0.3
-    docker 27.4.1
-    docker-compose 2.32.1
-    ```
-
-    Additionally, ensure you add the necessary plugins for each tool before installation by executing the following commands:
-    ```bash
-    asdf plugin-add terraform
-    asdf plugin-add talos
-    asdf plugin-add kubectl
-    asdf plugin-add sops
-    asdf plugin-add colima
-    asdf plugin-add lima
-    asdf plugin-add docker
-    asdf plugin-add docker-compose
-    ```
-
-    To install the tools specified in `.tool-versions`, execute:
-    ```bash
-    asdf install
-    ```
+To install the tools specified in `aqua.yaml`, run:
+```bash
+aqua install
+```
 
 ### Initialize the "local" context
 
