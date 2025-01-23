@@ -80,6 +80,14 @@ kustomize:
 
 If this is in your `blueprint.yaml`, your blueprint already includes the `hello-world.yaml` example. The `path` field is always relative to the `kustomize/` folder. So, this configuration results in the `kustomization.yaml` residing at `kustomize/kustomization.yaml` being processed and your pod spec loaded.
 
+## Install the Hello World Pod
+
+To install the Hello World pod, run the following command:
+
+```
+windsor install
+```
+
 ## Validate your resources
 The Windsor environment runs a [livereload gitops](../guides/local-workstation.md#local-gitops) server. As such, the Flux Kustomization operator should have begun sync'ing your new pod spec. You can verify this by running:
 
