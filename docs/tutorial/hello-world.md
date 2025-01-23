@@ -80,11 +80,9 @@ kustomize:
 
 If this is in your `blueprint.yaml`, your blueprint already includes the `hello-world.yaml` example. The `path` field is always relative to the `kustomize/` folder. So, this configuration results in the `kustomization.yaml` residing at `kustomize/kustomization.yaml` being processed and your pod spec loaded.
 
-## Install the Hello World Pod
+If you did not initially run `windsor up` with the `--install` flag, you may install the blueprint's Kubernetes resources now by running:
 
-To install the Hello World pod, run the following command:
-
-```
+```sh
 windsor install
 ```
 
