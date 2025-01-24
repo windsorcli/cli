@@ -822,6 +822,8 @@ func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha
 				Name:      kustomization.Source,
 				Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
 			},
+			Patches:    kustomization.Patches,
+			Components: kustomization.Components,
 		},
 	}
 
