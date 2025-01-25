@@ -4,7 +4,7 @@ go 1.23.1
 
 require (
 	github.com/abiosoft/colima v0.8.1
-	github.com/aws/smithy-go v1.22.1
+	github.com/aws/smithy-go v1.22.2
 	github.com/briandowns/spinner v1.23.1
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/fluxcd/kustomize-controller/api v1.4.0
