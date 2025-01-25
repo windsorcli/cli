@@ -5,15 +5,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// Initialize the global port for all workers
+var (
+	globalPort     = 50001
+	globalPortLock sync.Mutex
+)
+
 type TalosWorkerService struct {
 	BaseService
-	nextPort int
 }
 
 // NewTalosWorkerService is a constructor for TalosWorkerService
@@ -22,7 +28,6 @@ func NewTalosWorkerService(injector di.Injector) *TalosWorkerService {
 		BaseService: BaseService{
 			injector: injector,
 		},
-		nextPort: 50001, // Initialize the next available port
 	}
 }
 
@@ -40,9 +45,11 @@ func (s *TalosWorkerService) SetAddress(address string) error {
 	}
 
 	port := 50000
-	if address == "127.0.0.1" {
-		port = s.nextPort
-		s.nextPort++
+	if isLocalhost(address) {
+		globalPortLock.Lock()
+		port = globalPort
+		globalPort++
+		globalPortLock.Unlock()
 	}
 
 	if err := s.configHandler.SetContextValue("cluster.workers.nodes."+s.name+".endpoint", fmt.Sprintf("%s:%d", address, port)); err != nil {
