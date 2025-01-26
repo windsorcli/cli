@@ -72,20 +72,24 @@ cluster:
     count: 1
     cpu: 4
     memory: 4
+  nodeports:
+    - 8080:30080/tcp
+    - 8443:30443/tcp
 ```
 
-| Field                     | Type     | Description                                                                 |
-|---------------------------|----------|-----------------------------------------------------------------------------|
-| `enabled`                 | `bool`   | Indicates whether the cluster is enabled.                                   |
-| `driver`                  | `string` | Specifies the driver used for the cluster. Only supports 'talos'.           |
-| `controlplanes`           | `struct` | Configuration for the control plane nodes.                                  |
-| `controlplanes.count`     | `int`    | Number of control plane nodes.                                              |
-| `controlplanes.cpu`       | `int`    | CPU allocation for each control plane node.                                 |
-| `controlplanes.memory`    | `int`    | Memory allocation for each control plane node.                              |
-| `workers`                 | `struct` | Configuration for the worker nodes.                                         |
-| `workers.count`           | `int`    | Number of worker nodes.                                                     |
-| `workers.cpu`             | `int`    | CPU allocation for each worker node.                                        |
-| `workers.memory`          | `int`    | Memory allocation for each worker node.                                     |
+| Field                  | Type       | Description                                                        |
+|------------------------|------------|--------------------------------------------------------------------|
+| `enabled`              | `bool`     | Indicates if the cluster is active.                                |
+| `driver`               | `string`   | Defines the cluster driver. Currently, only 'talos' is supported.  |
+| `controlplanes`        | `struct`   | Settings for control plane nodes.                                  |
+| `controlplanes.count`  | `int`      | Total number of control plane nodes.                               |
+| `controlplanes.cpu`    | `int`      | CPU resources allocated per control plane node.                    |
+| `controlplanes.memory` | `int`      | Memory resources allocated per control plane node.                 |
+| `workers`              | `struct`   | Settings for worker nodes.                                         |
+| `workers.count`        | `int`      | Total number of worker nodes.                                      |
+| `workers.cpu`          | `int`      | CPU resources allocated per worker node.                           |
+| `workers.memory`       | `int`      | Memory resources allocated per worker node.                        |
+| `nodeports`            | `[]string` | List of nodeports for host forwarding.                             |
 
 ### DNS
 Configures details related to the local DNS service. The service is available at `dns.test:53`. Presently, the local DNS server runs CoreDNS.
@@ -252,6 +256,9 @@ contexts:
         count: 1
         cpu: 4
         memory: 4
+      nodeports:
+        - 8080:30080
+        - 8443:30443
     dns:
       enabled: true
       name: test

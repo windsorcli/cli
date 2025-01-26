@@ -110,6 +110,7 @@ var DefaultLocalConfig = v1alpha1.Context{
 			Memory: ptrInt(4),
 			Nodes:  make(map[string]cluster.NodeConfig),
 		},
+		NodePorts: []string{"8080:30080/tcp", "8443:30443/tcp"},
 	},
 	DNS: &dns.DNSConfig{
 		Enabled: ptrBool(true),

@@ -20,8 +20,9 @@ func ptrInt(i int) *int {
 func TestClusterConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNoNils", func(t *testing.T) {
 		base := &ClusterConfig{
-			Enabled: ptrBool(true),
-			Driver:  ptrString("base-driver"),
+			Enabled:   ptrBool(true),
+			Driver:    ptrString("base-driver"),
+			NodePorts: []string{"8080", "9090"},
 			ControlPlanes: struct {
 				Count  *int                  `yaml:"count,omitempty"`
 				CPU    *int                  `yaml:"cpu,omitempty"`
@@ -51,8 +52,9 @@ func TestClusterConfig_Merge(t *testing.T) {
 		}
 
 		overlay := &ClusterConfig{
-			Enabled: ptrBool(false),
-			Driver:  ptrString("overlay-driver"),
+			Enabled:   ptrBool(false),
+			Driver:    ptrString("overlay-driver"),
+			NodePorts: []string{"8082", "9092"},
 			ControlPlanes: struct {
 				Count  *int                  `yaml:"count,omitempty"`
 				CPU    *int                  `yaml:"cpu,omitempty"`
@@ -89,6 +91,9 @@ func TestClusterConfig_Merge(t *testing.T) {
 		if base.Driver == nil || *base.Driver != "overlay-driver" {
 			t.Errorf("Driver mismatch: expected 'overlay-driver', got '%s'", *base.Driver)
 		}
+		if len(base.NodePorts) != 2 || base.NodePorts[0] != "8082" || base.NodePorts[1] != "9092" {
+			t.Errorf("NodePorts mismatch: expected ['8082', '9092'], got %v", base.NodePorts)
+		}
 		if base.ControlPlanes.Count == nil || *base.ControlPlanes.Count != 1 {
 			t.Errorf("ControlPlanes Count mismatch: expected 1, got %v", *base.ControlPlanes.Count)
 		}
@@ -117,8 +122,9 @@ func TestClusterConfig_Merge(t *testing.T) {
 
 	t.Run("MergeWithAllNils", func(t *testing.T) {
 		base := &ClusterConfig{
-			Enabled: nil,
-			Driver:  nil,
+			Enabled:   nil,
+			Driver:    nil,
+			NodePorts: nil,
 			ControlPlanes: struct {
 				Count  *int                  `yaml:"count,omitempty"`
 				CPU    *int                  `yaml:"cpu,omitempty"`
@@ -144,8 +150,9 @@ func TestClusterConfig_Merge(t *testing.T) {
 		}
 
 		overlay := &ClusterConfig{
-			Enabled: nil,
-			Driver:  nil,
+			Enabled:   nil,
+			Driver:    nil,
+			NodePorts: nil,
 			ControlPlanes: struct {
 				Count  *int                  `yaml:"count,omitempty"`
 				CPU    *int                  `yaml:"cpu,omitempty"`
@@ -178,6 +185,9 @@ func TestClusterConfig_Merge(t *testing.T) {
 		if base.Driver != nil {
 			t.Errorf("Driver mismatch: expected nil, got '%s'", *base.Driver)
 		}
+		if base.NodePorts != nil {
+			t.Errorf("NodePorts mismatch: expected nil, got %v", base.NodePorts)
+		}
 		if base.ControlPlanes.Count != nil {
 			t.Errorf("ControlPlanes Count mismatch: expected nil, got %v", *base.ControlPlanes.Count)
 		}
@@ -208,8 +218,9 @@ func TestClusterConfig_Merge(t *testing.T) {
 func TestClusterConfig_Copy(t *testing.T) {
 	t.Run("CopyWithNonNilValues", func(t *testing.T) {
 		original := &ClusterConfig{
-			Enabled: ptrBool(true),
-			Driver:  ptrString("original-driver"),
+			Enabled:   ptrBool(true),
+			Driver:    ptrString("original-driver"),
+			NodePorts: []string{"8080", "9090"},
 			ControlPlanes: struct {
 				Count  *int                  `yaml:"count,omitempty"`
 				CPU    *int                  `yaml:"cpu,omitempty"`
@@ -245,6 +256,9 @@ func TestClusterConfig_Copy(t *testing.T) {
 		}
 		if original.Driver == nil || copy.Driver == nil || *original.Driver != *copy.Driver {
 			t.Errorf("Driver mismatch: expected %v, got %v", *original.Driver, *copy.Driver)
+		}
+		if len(original.NodePorts) != len(copy.NodePorts) || original.NodePorts[0] != copy.NodePorts[0] || original.NodePorts[1] != copy.NodePorts[1] {
+			t.Errorf("NodePorts mismatch: expected %v, got %v", original.NodePorts, copy.NodePorts)
 		}
 		if original.ControlPlanes.Count == nil || copy.ControlPlanes.Count == nil || *original.ControlPlanes.Count != *copy.ControlPlanes.Count {
 			t.Errorf("ControlPlanes Count mismatch: expected %v, got %v", *original.ControlPlanes.Count, *copy.ControlPlanes.Count)

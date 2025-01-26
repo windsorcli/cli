@@ -9,6 +9,7 @@ type MockConfigHandler struct {
 	GetStringFunc       func(key string, defaultValue ...string) string
 	GetIntFunc          func(key string, defaultValue ...int) int
 	GetBoolFunc         func(key string, defaultValue ...bool) bool
+	GetStringSliceFunc  func(key string, defaultValue ...[]string) []string
 	SetFunc             func(key string, value interface{}) error
 	SetContextValueFunc func(key string, value interface{}) error
 	SaveConfigFunc      func(path string) error
@@ -73,6 +74,17 @@ func (m *MockConfigHandler) GetBool(key string, defaultValue ...bool) bool {
 		return defaultValue[0]
 	}
 	return true
+}
+
+// GetStringSlice calls the mock GetStringSliceFunc if set, otherwise returns a reasonable default slice of strings
+func (m *MockConfigHandler) GetStringSlice(key string, defaultValue ...[]string) []string {
+	if m.GetStringSliceFunc != nil {
+		return m.GetStringSliceFunc(key, defaultValue...)
+	}
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
+	return []string{}
 }
 
 // Set calls the mock SetFunc if set, otherwise returns nil

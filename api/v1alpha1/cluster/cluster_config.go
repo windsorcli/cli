@@ -16,13 +16,15 @@ type ClusterConfig struct {
 		Memory *int                  `yaml:"memory,omitempty"`
 		Nodes  map[string]NodeConfig `yaml:"nodes,omitempty"`
 	} `yaml:"workers,omitempty"`
+	NodePorts []string `yaml:"nodeports,omitempty"`
 }
 
 // NodeConfig represents the node configuration
 type NodeConfig struct {
-	Hostname *string `yaml:"hostname"`
-	Node     *string `yaml:"node,omitempty"`
-	Endpoint *string `yaml:"endpoint,omitempty"`
+	Hostname  *string  `yaml:"hostname"`
+	Node      *string  `yaml:"node,omitempty"`
+	Endpoint  *string  `yaml:"endpoint,omitempty"`
+	NodePorts []string `yaml:"nodeports,omitempty"`
 }
 
 // Merge performs a deep merge of the current ClusterConfig with another ClusterConfig.
@@ -63,6 +65,10 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 			base.Workers.Nodes[key] = node
 		}
 	}
+	if overlay.NodePorts != nil {
+		base.NodePorts = make([]string, len(overlay.NodePorts))
+		copy(base.NodePorts, overlay.NodePorts)
+	}
 }
 
 // Copy creates a deep copy of the ClusterConfig object
@@ -73,19 +79,23 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 	controlPlanesNodesCopy := make(map[string]NodeConfig, len(c.ControlPlanes.Nodes))
 	for key, node := range c.ControlPlanes.Nodes {
 		controlPlanesNodesCopy[key] = NodeConfig{
-			Hostname: node.Hostname,
-			Node:     node.Node,
-			Endpoint: node.Endpoint,
+			Hostname:  node.Hostname,
+			Node:      node.Node,
+			Endpoint:  node.Endpoint,
+			NodePorts: append([]string{}, node.NodePorts...), // Copy NodePorts for each node
 		}
 	}
 	workersNodesCopy := make(map[string]NodeConfig, len(c.Workers.Nodes))
 	for key, node := range c.Workers.Nodes {
 		workersNodesCopy[key] = NodeConfig{
-			Hostname: node.Hostname,
-			Node:     node.Node,
-			Endpoint: node.Endpoint,
+			Hostname:  node.Hostname,
+			Node:      node.Node,
+			Endpoint:  node.Endpoint,
+			NodePorts: append([]string{}, node.NodePorts...), // Copy NodePorts for each node
 		}
 	}
+	NodePortsCopy := make([]string, len(c.NodePorts))
+	copy(NodePortsCopy, c.NodePorts)
 	return &ClusterConfig{
 		Enabled: c.Enabled,
 		Driver:  c.Driver,
@@ -111,5 +121,6 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 			Memory: c.Workers.Memory,
 			Nodes:  workersNodesCopy,
 		},
+		NodePorts: NodePortsCopy,
 	}
 }

@@ -32,6 +32,9 @@ type ConfigHandler interface {
 	// GetBool retrieves a boolean value for the specified key from the configuration
 	GetBool(key string, defaultValue ...bool) bool
 
+	// GetStringSlice retrieves a slice of strings for the specified key from the configuration
+	GetStringSlice(key string, defaultValue ...[]string) []string
+
 	// Set sets the value for the specified key in the configuration
 	Set(key string, value interface{}) error
 
