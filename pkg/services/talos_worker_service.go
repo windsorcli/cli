@@ -64,8 +64,8 @@ func (s *TalosWorkerService) SetAddress(address string) error {
 	}
 
 	config := s.configHandler.GetConfig()
-	if config.Cluster != nil {
-		nodePorts := config.Cluster.NodePorts
+	if config.Cluster != nil && config.Cluster.Workers.Count != nil {
+		nodePorts := config.Cluster.Workers.NodePorts
 		if nodePorts != nil && (nextNodePorts == nil || len(nextNodePorts) == 0) {
 			nextNodePorts = make([]string, len(nodePorts))
 			copy(nextNodePorts, nodePorts)

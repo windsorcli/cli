@@ -661,13 +661,24 @@ func TestYamlConfigHandler_GetStringSlice(t *testing.T) {
 		handler.config.Contexts = map[string]*v1alpha1.Context{
 			"default": {
 				Cluster: &cluster.ClusterConfig{
-					NodePorts: []string{"50000:50002/tcp", "30080:8080/tcp", "30443:8443/tcp"},
+					Workers: struct {
+						Count     *int                          `yaml:"count,omitempty"`
+						CPU       *int                          `yaml:"cpu,omitempty"`
+						Memory    *int                          `yaml:"memory,omitempty"`
+						Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
+						NodePorts []string                      `yaml:"nodeports,omitempty"`
+					}{
+						NodePorts: []string{"50000:50002/tcp", "30080:8080/tcp", "30443:8443/tcp"},
+						Count:     ptrInt(1),
+						CPU:       ptrInt(2),
+						Memory:    ptrInt(2),
+					},
 				},
 			},
 		}
 
 		// When retrieving the slice value using GetStringSlice
-		value := handler.GetStringSlice("cluster.nodeports")
+		value := handler.GetStringSlice("cluster.workers.nodeports")
 
 		// Then the returned slice should match the expected slice
 		expectedSlice := []string{"50000:50002/tcp", "30080:8080/tcp", "30443:8443/tcp"}

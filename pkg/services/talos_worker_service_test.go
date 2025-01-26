@@ -79,7 +79,18 @@ func setupSafeTalosWorkerServiceMocks(optionalInjector ...di.Injector) *MockComp
 	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 		return &v1alpha1.Context{
 			Cluster: &cluster.ClusterConfig{
-				NodePorts: []string{"30000:30000/tcp", "30001:30001/udp"},
+				Workers: struct {
+					Count     *int                          `yaml:"count,omitempty"`
+					CPU       *int                          `yaml:"cpu,omitempty"`
+					Memory    *int                          `yaml:"memory,omitempty"`
+					Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
+					NodePorts []string                      `yaml:"nodeports,omitempty"`
+				}{
+					NodePorts: []string{"30000:30000/tcp", "30001:30001/udp"},
+					Count:     ptrInt(1),
+					CPU:       ptrInt(2),
+					Memory:    ptrInt(2),
+				},
 			},
 		}
 	}
@@ -270,7 +281,7 @@ func TestTalosWorkerService_SetAddress(t *testing.T) {
 		// Simulate an error when setting node ports with non-integer values
 		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
 			if key == "cluster.workers.nodes."+service.name+".nodeports" {
-				return fmt.Errorf("mock error setting node ports")
+				return fmt.Errorf("mock error setting node ports") // Return an error for setting node ports
 			}
 			return nil
 		}
@@ -352,7 +363,18 @@ func TestTalosWorkerService_SetAddress(t *testing.T) {
 				mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 					return &v1alpha1.Context{
 						Cluster: &cluster.ClusterConfig{
-							NodePorts: tt.nodePorts,
+							Workers: struct {
+								Count     *int                          `yaml:"count,omitempty"`
+								CPU       *int                          `yaml:"cpu,omitempty"`
+								Memory    *int                          `yaml:"memory,omitempty"`
+								Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
+								NodePorts []string                      `yaml:"nodeports,omitempty"`
+							}{
+								NodePorts: tt.nodePorts,
+								Count:     ptrInt(1),
+								CPU:       ptrInt(2),
+								Memory:    ptrInt(2),
+							},
 						},
 					}
 				}

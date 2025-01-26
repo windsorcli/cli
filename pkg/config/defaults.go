@@ -100,17 +100,18 @@ var DefaultLocalConfig = v1alpha1.Context{
 			Nodes:  make(map[string]cluster.NodeConfig),
 		},
 		Workers: struct {
-			Count  *int                          `yaml:"count,omitempty"`
-			CPU    *int                          `yaml:"cpu,omitempty"`
-			Memory *int                          `yaml:"memory,omitempty"`
-			Nodes  map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
+			Count     *int                          `yaml:"count,omitempty"`
+			CPU       *int                          `yaml:"cpu,omitempty"`
+			Memory    *int                          `yaml:"memory,omitempty"`
+			Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
+			NodePorts []string                      `yaml:"nodeports,omitempty"`
 		}{
-			Count:  ptrInt(1),
-			CPU:    ptrInt(4),
-			Memory: ptrInt(4),
-			Nodes:  make(map[string]cluster.NodeConfig),
+			Count:     ptrInt(1),
+			CPU:       ptrInt(4),
+			Memory:    ptrInt(4),
+			Nodes:     make(map[string]cluster.NodeConfig),
+			NodePorts: []string{"8080:30080/tcp", "8443:30443/tcp"},
 		},
-		NodePorts: []string{"8080:30080/tcp", "8443:30443/tcp"},
 	},
 	DNS: &dns.DNSConfig{
 		Enabled: ptrBool(true),
