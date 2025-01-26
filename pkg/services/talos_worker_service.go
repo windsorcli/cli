@@ -207,13 +207,13 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 	nodePorts := s.configHandler.GetStringSlice(nodePortsKey)
 	for _, nodePortStr := range nodePorts {
 		parts := strings.Split(nodePortStr, ":")
-		hostPort, err := strconv.Atoi(parts[0])
-		if err != nil {
+		hostPort, err := strconv.ParseUint(parts[0], 10, 32)
+		if err != nil || hostPort > math.MaxUint32 {
 			return nil, fmt.Errorf("invalid hostPort value: %s", parts[0])
 		}
 		nodePortProtocol := strings.Split(parts[1], "/")
-		nodePort, err := strconv.Atoi(nodePortProtocol[0])
-		if err != nil {
+		nodePort, err := strconv.ParseUint(nodePortProtocol[0], 10, 32)
+		if err != nil || nodePort > math.MaxUint32 {
 			return nil, fmt.Errorf("invalid nodePort value: %s", nodePortProtocol[0])
 		}
 		protocol := "tcp"
