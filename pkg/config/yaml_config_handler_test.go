@@ -651,6 +651,65 @@ func TestYamlConfigHandler_GetBool(t *testing.T) {
 	})
 }
 
+func TestYamlConfigHandler_GetStringSlice(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a handler with a context containing a slice value
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			"default": {
+				Cluster: &cluster.ClusterConfig{
+					NodePorts: []string{"50000:50002/tcp", "30080:8080/tcp", "30443:8443/tcp"},
+				},
+			},
+		}
+
+		// When retrieving the slice value using GetStringSlice
+		value := handler.GetStringSlice("cluster.nodeports")
+
+		// Then the returned slice should match the expected slice
+		expectedSlice := []string{"50000:50002/tcp", "30080:8080/tcp", "30443:8443/tcp"}
+		if !reflect.DeepEqual(value, expectedSlice) {
+			t.Errorf("Expected GetStringSlice to return %v, got %v", expectedSlice, value)
+		}
+	})
+
+	t.Run("WithNonExistentKey", func(t *testing.T) {
+		// Given a handler with a context set
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
+
+		// When retrieving a non-existent key using GetStringSlice
+		value := handler.GetStringSlice("nonExistentKey")
+
+		// Then the returned value should be an empty slice
+		if len(value) != 0 {
+			t.Errorf("Expected GetStringSlice with non-existent key to return an empty slice, got %v", value)
+		}
+	})
+
+	t.Run("WithNonExistentKeyAndDefaultValue", func(t *testing.T) {
+		// Given a handler with a context set
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
+		defaultValue := []string{"default1", "default2"}
+
+		// When retrieving a non-existent key with a default value
+		value := handler.GetStringSlice("nonExistentKey", defaultValue)
+
+		// Then the returned value should match the default value
+		if !reflect.DeepEqual(value, defaultValue) {
+			t.Errorf("Expected GetStringSlice with default to return %v, got %v", defaultValue, value)
+		}
+	})
+}
+
 func TestYamlConfigHandler_GetConfig(t *testing.T) {
 	t.Run("ContextIsSet", func(t *testing.T) {
 		// Given a handler with a context set

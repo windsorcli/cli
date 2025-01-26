@@ -254,6 +254,50 @@ func TestMockConfigHandler_GetBool(t *testing.T) {
 	})
 }
 
+func TestMockConfigHandler_GetStringSlice(t *testing.T) {
+	t.Run("WithKey", func(t *testing.T) {
+		// Given a mock config handler with GetStringSliceFunc set to return a specific slice
+		handler := NewMockConfigHandler()
+		expectedSlice := []string{"value1", "value2"}
+		handler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string { return expectedSlice }
+
+		// When GetStringSlice is called with a key
+		value := handler.GetStringSlice("someKey")
+
+		// Then the returned value should match the expected slice
+		if !reflect.DeepEqual(value, expectedSlice) {
+			t.Errorf("Expected GetStringSlice with key to return %v, got %v", expectedSlice, value)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without GetStringSliceFunc set
+		handler := NewMockConfigHandler()
+
+		// When GetStringSlice is called with a key
+		value := handler.GetStringSlice("someKey")
+
+		// Then the returned value should be the default empty slice
+		if len(value) != 0 {
+			t.Errorf("Expected GetStringSlice with no func set to return an empty slice, got %v", value)
+		}
+	})
+
+	t.Run("WithDefaultValue", func(t *testing.T) {
+		// Given a mock config handler
+		handler := NewMockConfigHandler()
+		defaultValue := []string{"default1", "default2"}
+
+		// When GetStringSlice is called with a key and a default value
+		value := handler.GetStringSlice("someKey", defaultValue)
+
+		// Then the returned value should match the default value
+		if !reflect.DeepEqual(value, defaultValue) {
+			t.Errorf("Expected GetStringSlice with default to return %v, got %v", defaultValue, value)
+		}
+	})
+}
+
 func TestMockConfigHandler_Set(t *testing.T) {
 	t.Run("WithKeyAndValue", func(t *testing.T) {
 		// Given a mock config handler with SetFunc set to do nothing

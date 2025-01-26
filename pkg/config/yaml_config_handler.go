@@ -158,6 +158,19 @@ func (y *YamlConfigHandler) GetBool(key string, defaultValue ...bool) bool {
 	return false
 }
 
+// GetStringSlice retrieves a slice of strings for the specified key from the configuration, with an optional default value.
+func (y *YamlConfigHandler) GetStringSlice(key string, defaultValue ...[]string) []string {
+	contextKey := fmt.Sprintf("contexts.%s.%s", y.context, key)
+	value := y.Get(contextKey)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return []string{}
+	}
+	return value.([]string)
+}
+
 // Set updates the value at the specified path in the configuration using reflection.
 func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 	if path == "" {
