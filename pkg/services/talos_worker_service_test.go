@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -545,6 +546,34 @@ func TestTalosWorkerService_GetComposeConfig(t *testing.T) {
 		}
 		if config != nil {
 			t.Fatalf("expected config to be nil, got %v", config)
+		}
+	})
+
+	t.Run("InvalidDefaultAPIPort", func(t *testing.T) {
+		// Setup mocks for this test
+		mocks := setupSafeTalosWorkerServiceMocks()
+		service := NewTalosWorkerService(mocks.Injector)
+
+		// Set the defaultAPIPort to an invalid value exceeding MaxUint32
+		originalDefaultAPIPort := defaultAPIPort
+		defaultAPIPort = int(math.MaxUint32) + 1
+		defer func() { defaultAPIPort = originalDefaultAPIPort }()
+
+		// Initialize the service
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// When the GetComposeConfig method is called
+		_, err = service.GetComposeConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error due to invalid default API port, got nil")
+		}
+		if err.Error() != fmt.Sprintf("defaultAPIPort value out of range: %d", defaultAPIPort) {
+			t.Fatalf("expected error message 'defaultAPIPort value out of range: %d', got %v", defaultAPIPort, err)
 		}
 	})
 

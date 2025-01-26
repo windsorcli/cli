@@ -198,6 +198,12 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 	}
 
 	var ports []types.ServicePortConfig
+
+	// Ensure defaultAPIPort is within the valid range for uint32
+	if defaultAPIPort < 0 || defaultAPIPort > math.MaxUint32 {
+		return nil, fmt.Errorf("defaultAPIPort value out of range: %d", defaultAPIPort)
+	}
+
 	ports = append(ports, types.ServicePortConfig{
 		Target:    uint32(defaultAPIPort),
 		Published: publishedPort,
