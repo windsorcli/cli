@@ -98,13 +98,16 @@ Configures details related to the local DNS service. The service is available at
 dns:
   enabled: true
   domain: test
+  records:
+    - 127.0.0.1 flux-webhook.test
 ```
 
-| Field     | Type     | Description                                           |
-|-----------|----------|-------------------------------------------------------|
-| `enabled` | `bool`   | Indicates whether the DNS service is enabled.         |
-| `domain`  | `string` | Specifies the domain name of the DNS service.         |
-| `address` | `string` | Overrides the default address of the DNS service.     |
+| Field     | Type       | Description                                                |
+|-----------|------------|------------------------------------------------------------|
+| `enabled` | `bool`     | Specifies if the DNS service is active.                    |
+| `domain`  | `string`   | Defines the domain name used by the DNS service.           |
+| `address` | `string`   | Custom address for the DNS service, overriding the default.|
+| `records` | `[]string` | Additional DNS records to include in the Corefile.         |
 
 ### Docker
 Configures details related to using Docker locally.
@@ -237,9 +240,9 @@ contexts:
         rsync_protect: flux-system
         username: local
         password: local
-        webhook_url: http://flux-webhook.private.test
+        webhook_url: http://flux-webhook.test:8080/hook/abcd1234
         verify_ssl: false
-        image: ghcr.io/windsorcli/git-livereload-server:v0.2.1
+        image: ghcr.io/windsorcli/git-livereload:v0.1.1
     terraform:
       enabled: true
       backend: local
@@ -262,6 +265,8 @@ contexts:
     dns:
       enabled: true
       domain: test
+      records:
+        - 127.0.0.1 flux-webhook.test
 ```
 
 <div>
