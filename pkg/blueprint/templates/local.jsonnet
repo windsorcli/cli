@@ -45,7 +45,7 @@ local registryMirrors = std.foldl(
       url: "github.com/windsorcli/core",
       ref: {
         // renovate: datasource=github-branches depName=windsorcli/core
-        branch: "v0.1.2",
+        branch: "main",
       },
     },
   ],
@@ -202,6 +202,7 @@ local registryMirrors = std.foldl(
       values: {
         git_username: "local",
         git_password: "local",
+        webhook_token: "abcdef123456",
       },
       variables: {
         flux_namespace: {
@@ -253,13 +254,36 @@ local registryMirrors = std.foldl(
           default: "",
           sensitive: true,
         },
+        webhook_token: {
+          description: "The token to use for the webhook",
+          type: "string",
+          default: "",
+          sensitive: true,
+        },
       }
     }
   ] else [],
   kustomize: [
     {
-      name: "local",
-      path: "",
-    }
+      name: "ingress-base",
+      path: "ingress/base",
+      source: "core",
+      components: [
+        "nginx",
+        "nginx/nodeport-web",
+        "nginx/nodeport-flux-webhook"
+      ],
+    },
+    {
+      name: "gitops",
+      path: "gitops/flux",
+      source: "core",
+      dependsOn: [
+        "ingress-base",
+      ],
+      components: [
+        "webhook",
+      ],
+    },
   ]
 }
