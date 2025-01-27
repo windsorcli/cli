@@ -200,6 +200,21 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 		return "/mock/config/root", nil
 	}
 
+	// Ensure DOMAIN and CONTEXT are defined
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		if key == "dns.domain" {
+			return "mock.domain.com"
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return ""
+	}
+
+	mockConfigHandler.GetContextFunc = func() string {
+		return "mock-context"
+	}
+
 	// Mock the shell method to return a mock project root
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return "/mock/project/root", nil
@@ -1420,6 +1435,57 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		err = blueprintHandler.Install()
 		if err == nil || !strings.Contains(err.Error(), "mock error applying ConfigMap") {
 			t.Fatalf("Expected error when applying ConfigMap, but got: %v", err)
+		}
+	})
+
+	t.Run("SuccessApplyingConfigMap", func(t *testing.T) {
+		// Mock the kubeClientResourceOperation function for success
+		configMapApplied := false
+		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+			if config.ResourceName == "configmaps" {
+				configMapApplied = true
+
+				// Check that the DOMAIN and CONTEXT values are as expected
+				configMap, ok := config.ResourceObject.(*corev1.ConfigMap)
+				if !ok {
+					return fmt.Errorf("unexpected resource object type")
+				}
+				if configMap.Data["DOMAIN"] != "mock.domain.com" {
+					return fmt.Errorf("unexpected DOMAIN value: got %s, want %s", configMap.Data["DOMAIN"], "mock.domain.com")
+				}
+				if configMap.Data["CONTEXT"] != "mock-context" {
+					return fmt.Errorf("unexpected CONTEXT value: got %s, want %s", configMap.Data["CONTEXT"], "mock-context")
+				}
+			}
+			return nil
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		err := blueprintHandler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Set the sources for the blueprint
+		expectedSources := []blueprintv1alpha1.Source{
+			{
+				Name: "source1",
+				Url:  "git::https://example.com/source1.git",
+				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+			},
+		}
+		blueprintHandler.SetSources(expectedSources)
+
+		// Attempt to install the blueprint components
+		err = blueprintHandler.Install()
+		if err != nil {
+			t.Fatalf("Expected successful installation, but got error: %v", err)
+		}
+
+		// Verify that the ConfigMap was applied
+		if !configMapApplied {
+			t.Fatalf("Expected ConfigMap to be applied, but it was not")
 		}
 	})
 }

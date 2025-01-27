@@ -881,9 +881,10 @@ func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha
 }
 
 // applyConfigMap creates and applies a ConfigMap resource to the Kubernetes cluster.
-// It retrieves the DOMAIN value from the config and populates the ConfigMap with this key/value pair.
+// This configmap contains context specific information that is used by the blueprint to configure the cluster.
 func (b *BaseBlueprintHandler) applyConfigMap() error {
 	domain := b.configHandler.GetString("dns.domain")
+	context := b.configHandler.GetContext()
 
 	configMap := &corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
@@ -895,7 +896,8 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 			Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
 		},
 		Data: map[string]string{
-			"DOMAIN": domain,
+			"DOMAIN":  domain,
+			"CONTEXT": context,
 		},
 	}
 
