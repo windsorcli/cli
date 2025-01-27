@@ -38,7 +38,7 @@ var DefaultConfig = v1alpha1.Context{
 	Cluster: nil,
 	DNS: &dns.DNSConfig{
 		Enabled: nil,
-		Name:    nil,
+		Domain:  nil,
 		Address: nil,
 	},
 }
@@ -114,7 +114,7 @@ var DefaultLocalConfig = v1alpha1.Context{
 	},
 	DNS: &dns.DNSConfig{
 		Enabled: ptrBool(true),
-		Name:    ptrString("test"),
+		Domain:  ptrString("test"),
 		Address: nil,
 	},
 	VM: &vm.VMConfig{

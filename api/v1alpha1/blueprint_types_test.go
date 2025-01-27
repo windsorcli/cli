@@ -50,6 +50,14 @@ func TestBlueprint_Merge(t *testing.T) {
 					Name:       "kustomization1",
 					Path:       "kustomize/path1",
 					Components: []string{"component1"},
+					PostBuild: &PostBuild{
+						Substitute: map[string]string{
+							"key1": "value1",
+						},
+						SubstituteFrom: []SubstituteReference{
+							{Kind: "ConfigMap", Name: "config1"},
+						},
+					},
 				},
 			},
 		}
@@ -107,6 +115,14 @@ func TestBlueprint_Merge(t *testing.T) {
 					Name:       "kustomization2",
 					Path:       "kustomize/path2",
 					Components: []string{"component2"},
+					PostBuild: &PostBuild{
+						Substitute: map[string]string{
+							"key2": "value2",
+						},
+						SubstituteFrom: []SubstituteReference{
+							{Kind: "Secret", Name: "secret1"},
+						},
+					},
 				},
 			},
 		}
@@ -173,8 +189,8 @@ func TestBlueprint_Merge(t *testing.T) {
 		}
 
 		expectedKustomizations := map[string]Kustomization{
-			"kustomization1": {Name: "kustomization1", Path: "kustomize/path1", Components: []string{"component1"}},
-			"kustomization2": {Name: "kustomization2", Path: "kustomize/path2", Components: []string{"component2"}},
+			"kustomization1": {Name: "kustomization1", Path: "kustomize/path1", Components: []string{"component1"}, PostBuild: &PostBuild{Substitute: map[string]string{"key1": "value1"}, SubstituteFrom: []SubstituteReference{{Kind: "ConfigMap", Name: "config1"}}}},
+			"kustomization2": {Name: "kustomization2", Path: "kustomize/path2", Components: []string{"component2"}, PostBuild: &PostBuild{Substitute: map[string]string{"key2": "value2"}, SubstituteFrom: []SubstituteReference{{Kind: "Secret", Name: "secret1"}}}},
 		}
 		if len(dst.Kustomizations) != len(expectedKustomizations) {
 			t.Fatalf("Expected %d Kustomizations, but got %d", len(expectedKustomizations), len(dst.Kustomizations))
@@ -270,6 +286,11 @@ func TestBlueprint_Merge(t *testing.T) {
 					Name:       "kustomization1",
 					Path:       "kustomize/path1",
 					Components: []string{"component1"},
+					PostBuild: &PostBuild{
+						SubstituteFrom: []SubstituteReference{
+							{Kind: "ConfigMap", Name: "config1"},
+						},
+					},
 				},
 			},
 		}
@@ -449,6 +470,11 @@ func TestBlueprint_Merge(t *testing.T) {
 					Patches: []kustomize.Patch{
 						{Patch: "patch1", Target: &kustomize.Selector{Group: "group1", Version: "v1", Kind: "Kind1", Namespace: "namespace1", Name: "name1"}},
 					},
+					PostBuild: &PostBuild{
+						SubstituteFrom: []SubstituteReference{
+							{Kind: "ConfigMap", Name: "config1"},
+						},
+					},
 				},
 			},
 		}
@@ -462,6 +488,11 @@ func TestBlueprint_Merge(t *testing.T) {
 					Patches: []kustomize.Patch{
 						{Patch: "patch2", Target: &kustomize.Selector{Group: "group2", Version: "v2", Kind: "Kind2", Namespace: "namespace2", Name: "name2"}},
 					},
+					PostBuild: &PostBuild{
+						SubstituteFrom: []SubstituteReference{
+							{Kind: "Secret", Name: "secret1"},
+						},
+					},
 				},
 				{
 					Name:       "kustomization2",
@@ -469,6 +500,11 @@ func TestBlueprint_Merge(t *testing.T) {
 					Components: []string{"component3"},
 					Patches: []kustomize.Patch{
 						{Patch: "patch3", Target: &kustomize.Selector{Group: "group3", Version: "v3", Kind: "Kind3", Namespace: "namespace3", Name: "name3"}},
+					},
+					PostBuild: &PostBuild{
+						SubstituteFrom: []SubstituteReference{
+							{Kind: "ConfigMap", Name: "config2"},
+						},
 					},
 				},
 			},
@@ -487,6 +523,9 @@ func TestBlueprint_Merge(t *testing.T) {
 		if len(kustomization1.Patches) != 2 || !containsAllPatches(kustomization1.Patches, []string{"patch1", "patch2"}) {
 			t.Errorf("Expected Kustomization1 Patches to contain ['patch1', 'patch2'], but got %v", kustomization1.Patches)
 		}
+		if len(kustomization1.PostBuild.SubstituteFrom) != 2 || !containsAllSubstitutes(kustomization1.PostBuild.SubstituteFrom, []SubstituteReference{{Kind: "ConfigMap", Name: "config1"}, {Kind: "Secret", Name: "secret1"}}) {
+			t.Errorf("Expected Kustomization1 SubstituteFrom to contain ['ConfigMap:config1', 'Secret:secret1'], but got %v", kustomization1.PostBuild.SubstituteFrom)
+		}
 
 		kustomization2 := dst.Kustomizations[1]
 		if len(kustomization2.Components) != 1 || kustomization2.Components[0] != "component3" {
@@ -494,6 +533,9 @@ func TestBlueprint_Merge(t *testing.T) {
 		}
 		if len(kustomization2.Patches) != 1 || kustomization2.Patches[0].Patch != "patch3" {
 			t.Errorf("Expected Kustomization2 Patches to be ['patch3'], but got %v", kustomization2.Patches)
+		}
+		if len(kustomization2.PostBuild.SubstituteFrom) != 1 || kustomization2.PostBuild.SubstituteFrom[0].Kind != "ConfigMap" || kustomization2.PostBuild.SubstituteFrom[0].Name != "config2" {
+			t.Errorf("Expected Kustomization2 SubstituteFrom to be ['ConfigMap:config2'], but got %v", kustomization2.PostBuild.SubstituteFrom)
 		}
 	})
 
@@ -746,6 +788,112 @@ func TestBlueprint_Merge(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("PostBuildMerge", func(t *testing.T) {
+		dst := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name: "kustomization1",
+					PostBuild: &PostBuild{
+						Substitute: map[string]string{
+							"key1": "value1",
+						},
+						SubstituteFrom: []SubstituteReference{
+							{Kind: "ConfigMap", Name: "config1"},
+						},
+					},
+				},
+			},
+		}
+
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name: "kustomization1",
+					PostBuild: &PostBuild{
+						Substitute: map[string]string{
+							"key2": "value2",
+						},
+						SubstituteFrom: []SubstituteReference{
+							{Kind: "Secret", Name: "secret1"},
+						},
+					},
+				},
+			},
+		}
+
+		dst.Merge(overlay)
+
+		if len(dst.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 Kustomization, but got %d", len(dst.Kustomizations))
+		}
+
+		postBuild := dst.Kustomizations[0].PostBuild
+		if postBuild == nil {
+			t.Fatalf("Expected PostBuild to be non-nil")
+		}
+
+		if len(postBuild.Substitute) != 2 || postBuild.Substitute["key1"] != "value1" || postBuild.Substitute["key2"] != "value2" {
+			t.Errorf("Expected Substitute to contain ['key1', 'key2'], but got %v", postBuild.Substitute)
+		}
+
+		if len(postBuild.SubstituteFrom) != 2 {
+			t.Errorf("Expected SubstituteFrom to contain 2 items, but got %d", len(postBuild.SubstituteFrom))
+		}
+	})
+
+	t.Run("MergePostBuild_NilChecks", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			existing *PostBuild
+			overlay  *PostBuild
+			expected *PostBuild
+		}{
+			{
+				name:     "BothNil",
+				existing: nil,
+				overlay:  nil,
+				expected: nil,
+			},
+			{
+				name:     "ExistingNil",
+				existing: nil,
+				overlay: &PostBuild{
+					Substitute: map[string]string{
+						"key1": "value1",
+					},
+				},
+				expected: &PostBuild{
+					Substitute: map[string]string{
+						"key1": "value1",
+					},
+				},
+			},
+			{
+				name: "OverlayNil",
+				existing: &PostBuild{
+					Substitute: map[string]string{
+						"key2": "value2",
+					},
+				},
+				overlay: nil,
+				expected: &PostBuild{
+					Substitute: map[string]string{
+						"key2": "value2",
+					},
+				},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := mergePostBuild(tt.existing, tt.overlay)
+				if !reflect.DeepEqual(result, tt.expected) {
+					t.Errorf("Expected %v, but got %v", tt.expected, result)
+				}
+			})
+		}
+	})
 }
 
 func TestBlueprint_DeepCopy(t *testing.T) {
@@ -785,6 +933,14 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 					Name:       "kustomization1",
 					Path:       "kustomize/path1",
 					Components: []string{"component1"},
+					PostBuild: &PostBuild{
+						Substitute: map[string]string{
+							"key1": "value1",
+						},
+						SubstituteFrom: []SubstituteReference{
+							{Kind: "ConfigMap", Name: "config1"},
+						},
+					},
 				},
 			},
 		}
@@ -812,6 +968,12 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 		}
 		if len(copy.Kustomizations[0].Components) != 1 || copy.Kustomizations[0].Components[0] != "component1" {
 			t.Errorf("Expected copy to have kustomization component 'component1', but got %v", copy.Kustomizations[0].Components)
+		}
+		if len(copy.Kustomizations[0].PostBuild.Substitute) != 1 || copy.Kustomizations[0].PostBuild.Substitute["key1"] != "value1" {
+			t.Errorf("Expected copy to have Substitute 'key1:value1', but got %v", copy.Kustomizations[0].PostBuild.Substitute)
+		}
+		if len(copy.Kustomizations[0].PostBuild.SubstituteFrom) != 1 || copy.Kustomizations[0].PostBuild.SubstituteFrom[0].Kind != "ConfigMap" || copy.Kustomizations[0].PostBuild.SubstituteFrom[0].Name != "config1" {
+			t.Errorf("Expected copy to have SubstituteFrom 'ConfigMap:config1', but got %v", copy.Kustomizations[0].PostBuild.SubstituteFrom)
 		}
 	})
 
@@ -845,6 +1007,19 @@ func containsAllPatches(slice []kustomize.Patch, patches []string) bool {
 	}
 	for _, patch := range patches {
 		if !patchMap[patch] {
+			return false
+		}
+	}
+	return true
+}
+
+func containsAllSubstitutes(slice []SubstituteReference, substitutes []SubstituteReference) bool {
+	substituteMap := make(map[string]bool)
+	for _, sub := range slice {
+		substituteMap[sub.Kind+":"+sub.Name] = true
+	}
+	for _, sub := range substitutes {
+		if !substituteMap[sub.Kind+":"+sub.Name] {
 			return false
 		}
 	}

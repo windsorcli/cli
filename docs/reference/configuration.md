@@ -103,7 +103,7 @@ dns:
 | Field     | Type     | Description                                           |
 |-----------|----------|-------------------------------------------------------|
 | `enabled` | `bool`   | Indicates whether the DNS service is enabled.         |
-| `name`    | `string` | Specifies the domain name (TLD) of the DNS service.   |
+| `name`    | `string` | Specifies the domain name (domain) of the DNS service.   |
 | `address` | `string` | Overrides the default address of the DNS service.     |
 
 ### Docker

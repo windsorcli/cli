@@ -42,7 +42,7 @@ func NewTalosWorkerService(injector di.Injector) *TalosWorkerService {
 // the port for each localhost node. Node ports are adjusted to avoid conflicts.
 // Each node is assigned a unique host port by incrementing the port number.
 func (s *TalosWorkerService) SetAddress(address string) error {
-	tld := s.configHandler.GetString("dns.name", "test")
+	tld := s.configHandler.GetString("dns.domain", "test")
 
 	if err := s.configHandler.SetContextValue("cluster.workers.nodes."+s.name+".hostname", s.name+"."+tld); err != nil {
 		return err
@@ -129,7 +129,7 @@ func (s *TalosWorkerService) SetAddress(address string) error {
 // GetComposeConfig creates a docker-compose setup for Talos workers. It fetches CPU/RAM settings,
 // determines endpoint ports, and ensures the .volumes directory exists. The function configures
 // the container with image, environment, security, and volume settings. It constructs the service
-// name using the TLD and sets up port mappings for network communication, including default and
+// name using the domain and sets up port mappings for network communication, including default and
 // node-specific ports. The final configuration includes service and volume details for deployment.
 func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 	config := s.configHandler.GetConfig()
@@ -185,7 +185,7 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
-	tld := s.configHandler.GetString("dns.name", "test")
+	tld := s.configHandler.GetString("dns.domain", "test")
 	fullName := nodeName + "." + tld
 
 	workerConfig := commonConfig

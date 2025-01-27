@@ -44,9 +44,9 @@ aws:
 This will enable Localstack, which will launch on running `windsor up`. The AWS API endpoint may then be reached at http://aws.test:4566.
 
 ## DNS
-The Windsor CLI configures your local DNS resolver to route requests to services running on the local cloud. The CLI configures the resolver for a reserved local TLD (defaults to `test`) at a local CoreDNS container. This setup allows routing to development services (http://aws.test, http://git.test, etc) as well as services running in the local cluster.
+The Windsor CLI configures your local DNS resolver to route requests to services running on the local cloud. The CLI configures the resolver for a reserved local domain (defaults to `test`) at a local CoreDNS container. This setup allows routing to development services (http://aws.test, http://git.test, etc) as well as services running in the local cluster.
 
-The `.test` TLD is reserved by the Internet Assigned Numbers Authority (IANA) for testing purposes. It is ideal for a local development or CI/CD pipeline. If you would like to change it, you may do so in the `windsor.yaml` file:
+The `.test` domain is reserved by the Internet Assigned Numbers Authority (IANA) for testing purposes. It is ideal for a local development or CI/CD pipeline. If you would like to change it, you may do so in the `windsor.yaml` file:
 
 ```
 dns:

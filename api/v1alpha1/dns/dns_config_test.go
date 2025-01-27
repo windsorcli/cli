@@ -15,13 +15,13 @@ func TestDNSConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNonNilValues", func(t *testing.T) {
 		base := &DNSConfig{
 			Enabled: ptrBool(true),
-			Name:    ptrString("base-name"),
+			Domain:  ptrString("base-domain"),
 			Address: ptrString("base-address"),
 		}
 
 		overlay := &DNSConfig{
 			Enabled: ptrBool(false),
-			Name:    ptrString("overlay-name"),
+			Domain:  ptrString("overlay-domain"),
 			Address: ptrString("overlay-address"),
 		}
 
@@ -30,8 +30,8 @@ func TestDNSConfig_Merge(t *testing.T) {
 		if base.Enabled == nil || *base.Enabled != false {
 			t.Errorf("Enabled mismatch: expected %v, got %v", false, *base.Enabled)
 		}
-		if base.Name == nil || *base.Name != "overlay-name" {
-			t.Errorf("Name mismatch: expected %v, got %v", "overlay-name", *base.Name)
+		if base.Domain == nil || *base.Domain != "overlay-domain" {
+			t.Errorf("Domain mismatch: expected %v, got %v", "overlay-domain", *base.Domain)
 		}
 		if base.Address == nil || *base.Address != "overlay-address" {
 			t.Errorf("Address mismatch: expected %v, got %v", "overlay-address", *base.Address)
@@ -41,13 +41,13 @@ func TestDNSConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNilValues", func(t *testing.T) {
 		base := &DNSConfig{
 			Enabled: ptrBool(true),
-			Name:    ptrString("base-name"),
+			Domain:  ptrString("base-domain"),
 			Address: ptrString("base-address"),
 		}
 
 		overlay := &DNSConfig{
 			Enabled: nil,
-			Name:    nil,
+			Domain:  nil,
 			Address: nil,
 		}
 
@@ -56,8 +56,8 @@ func TestDNSConfig_Merge(t *testing.T) {
 		if base.Enabled == nil || *base.Enabled != true {
 			t.Errorf("Enabled mismatch: expected %v, got %v", true, *base.Enabled)
 		}
-		if base.Name == nil || *base.Name != "base-name" {
-			t.Errorf("Name mismatch: expected %v, got %v", "base-name", *base.Name)
+		if base.Domain == nil || *base.Domain != "base-domain" {
+			t.Errorf("Domain mismatch: expected %v, got %v", "base-domain", *base.Domain)
 		}
 		if base.Address == nil || *base.Address != "base-address" {
 			t.Errorf("Address mismatch: expected %v, got %v", "base-address", *base.Address)
@@ -69,7 +69,7 @@ func TestDNSConfig_Copy(t *testing.T) {
 	t.Run("CopyWithNonNilValues", func(t *testing.T) {
 		original := &DNSConfig{
 			Enabled: ptrBool(true),
-			Name:    ptrString("original-name"),
+			Domain:  ptrString("original-domain"),
 			Address: ptrString("original-address"),
 		}
 
@@ -78,8 +78,8 @@ func TestDNSConfig_Copy(t *testing.T) {
 		if original.Enabled == nil || copy.Enabled == nil || *original.Enabled != *copy.Enabled {
 			t.Errorf("Enabled mismatch: expected %v, got %v", *original.Enabled, *copy.Enabled)
 		}
-		if original.Name == nil || copy.Name == nil || *original.Name != *copy.Name {
-			t.Errorf("Name mismatch: expected %v, got %v", *original.Name, *copy.Name)
+		if original.Domain == nil || copy.Domain == nil || *original.Domain != *copy.Domain {
+			t.Errorf("Domain mismatch: expected %v, got %v", *original.Domain, *copy.Domain)
 		}
 		if original.Address == nil || copy.Address == nil || *original.Address != *copy.Address {
 			t.Errorf("Address mismatch: expected %v, got %v", *original.Address, *copy.Address)
@@ -90,9 +90,9 @@ func TestDNSConfig_Copy(t *testing.T) {
 		if original.Enabled == nil || *original.Enabled == *copy.Enabled {
 			t.Errorf("Original Enabled was modified: expected %v, got %v", true, *copy.Enabled)
 		}
-		copy.Name = ptrString("modified-name")
-		if original.Name == nil || *original.Name == *copy.Name {
-			t.Errorf("Original Name was modified: expected %v, got %v", "original-name", *copy.Name)
+		copy.Domain = ptrString("modified-domain")
+		if original.Domain == nil || *original.Domain == *copy.Domain {
+			t.Errorf("Original Domain was modified: expected %v, got %v", "original-domain", *copy.Domain)
 		}
 		copy.Address = ptrString("modified-address")
 		if original.Address == nil || *original.Address == *copy.Address {
@@ -103,7 +103,7 @@ func TestDNSConfig_Copy(t *testing.T) {
 	t.Run("CopyWithNilValues", func(t *testing.T) {
 		original := &DNSConfig{
 			Enabled: nil,
-			Name:    nil,
+			Domain:  nil,
 			Address: nil,
 		}
 
@@ -112,8 +112,8 @@ func TestDNSConfig_Copy(t *testing.T) {
 		if copy.Enabled != nil {
 			t.Errorf("Enabled mismatch: expected nil, got %v", copy.Enabled)
 		}
-		if copy.Name != nil {
-			t.Errorf("Name mismatch: expected nil, got %v", copy.Name)
+		if copy.Domain != nil {
+			t.Errorf("Domain mismatch: expected nil, got %v", copy.Domain)
 		}
 		if copy.Address != nil {
 			t.Errorf("Address mismatch: expected nil, got %v", copy.Address)

@@ -17,6 +17,7 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 )
@@ -1158,15 +1159,22 @@ func TestBlueprintHandler_Install(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Mock the kubeClientResourceOperation function for success
 		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
-			// Verify the ResourceType is correct for both Kustomization and GitRepository
-			if config.ResourceName == "kustomizations" {
+			// Verify the ResourceType is correct for Kustomization, GitRepository, and ConfigMap
+			switch config.ResourceName {
+			case "kustomizations":
 				if _, ok := config.ResourceType().(*kustomizev1.Kustomization); !ok {
 					return fmt.Errorf("unexpected resource type for Kustomization")
 				}
-			} else if config.ResourceName == "gitrepositories" {
+			case "gitrepositories":
 				if _, ok := config.ResourceType().(*sourcev1.GitRepository); !ok {
 					return fmt.Errorf("unexpected resource type for GitRepository")
 				}
+			case "configmaps":
+				if _, ok := config.ResourceType().(*corev1.ConfigMap); !ok {
+					return fmt.Errorf("unexpected resource type for ConfigMap")
+				}
+			default:
+				return fmt.Errorf("unexpected resource name: %s", config.ResourceName)
 			}
 			return nil
 		}
@@ -1381,6 +1389,39 @@ func TestBlueprintHandler_Install(t *testing.T) {
 			t.Fatalf("Expected error when applying Kustomization, but got: %v", err)
 		}
 	})
+
+	t.Run("ErrorApplyingConfigMap", func(t *testing.T) {
+		// Mock the kubeClientResourceOperation function for ConfigMap error
+		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+			if config.ResourceName == "configmaps" {
+				return fmt.Errorf("mock error applying ConfigMap")
+			}
+			return nil
+		}
+
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		err := blueprintHandler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+
+		// Set the sources for the blueprint
+		expectedSources := []blueprintv1alpha1.Source{
+			{
+				Name: "source1",
+				Url:  "git::https://example.com/source1.git",
+				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+			},
+		}
+		blueprintHandler.SetSources(expectedSources)
+
+		// Attempt to install the blueprint components
+		err = blueprintHandler.Install()
+		if err == nil || !strings.Contains(err.Error(), "mock error applying ConfigMap") {
+			t.Fatalf("Expected error when applying ConfigMap, but got: %v", err)
+		}
+	})
 }
 
 func TestBlueprintHandler_GetMetadata(t *testing.T) {
@@ -1501,6 +1542,16 @@ func TestBlueprintHandler_GetKustomizations(t *testing.T) {
 				Timeout:       &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT},
 				Wait:          ptr.Bool(constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT),  // Use ptr.Bool to set default value
 				Force:         ptr.Bool(constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE), // Use ptr.Bool to set default value
+				Components:    nil,                                                  // Expected default value from blueprint_handler.go
+				PostBuild: &blueprintv1alpha1.PostBuild{
+					SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
+						{
+							Name:     "blueprint",
+							Kind:     "ConfigMap",
+							Optional: false,
+						},
+					},
+				},
 			},
 		}
 		blueprintHandler.SetKustomizations(expectedKustomizations)
@@ -1635,40 +1686,72 @@ func TestBlueprintHandler_SetTerraformComponents(t *testing.T) {
 }
 
 func TestBlueprintHandler_SetKustomizations(t *testing.T) {
-	// t.Run("Success", func(t *testing.T) {
-	// 	// Given a mock injector
-	// 	mocks := setupSafeMocks()
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock injector
+		mocks := setupSafeMocks()
 
-	// 	// When a new BlueprintHandler is created and initialized
-	// 	blueprintHandler := NewBlueprintHandler(mocks.Injector)
-	// 	err := blueprintHandler.Initialize()
-	// 	if err != nil {
-	// 		t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
-	// 	}
+		// When a new BlueprintHandler is created and initialized
+		blueprintHandler := NewBlueprintHandler(mocks.Injector)
+		err := blueprintHandler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
 
-	// 	// Set the Kustomizations for the blueprint
-	// 	expectedKustomizations := []blueprintv1alpha1.Kustomization{
-	// 		{
-	// 			Name:          "kustomization1",
-	// 			Path:          "overlays/dev",
-	// 			Source:        "source1",
-	// 			Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
-	// 			RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
-	// 			Timeout:       &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT},
-	// 			Wait:          ptr.Bool(constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT),
-	// 			Force:         ptr.Bool(constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE),
-	// 		},
-	// 	}
-	// 	blueprintHandler.SetKustomizations(expectedKustomizations)
+		// Set the Kustomizations for the blueprint
+		inputKustomizations := []blueprintv1alpha1.Kustomization{
+			{
+				Name:          "kustomization1",
+				Path:          "overlays/dev",
+				Source:        "source1",
+				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
+				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
+				Timeout:       &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT},
+				Wait:          ptr.Bool(constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT),
+				Force:         ptr.Bool(constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE),
+				PostBuild: &blueprintv1alpha1.PostBuild{
+					SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
+						{
+							Kind:     "ConfigMap",
+							Name:     "blueprint",
+							Optional: false,
+						},
+					},
+				},
+			},
+		}
+		blueprintHandler.SetKustomizations(inputKustomizations)
 
-	// 	// Retrieve the Kustomizations
-	// 	actualKustomizations := blueprintHandler.GetKustomizations()
+		// Retrieve the Kustomizations
+		actualKustomizations := blueprintHandler.GetKustomizations()
 
-	// 	// Then the Kustomizations should match the expected Kustomizations
-	// 	if !reflect.DeepEqual(actualKustomizations, expectedKustomizations) {
-	// 		t.Errorf("Expected Kustomizations to be %v, but got %v", expectedKustomizations, actualKustomizations)
-	// 	}
-	// })
+		// Adjust the expected Kustomizations to match the internal representation
+		expectedKustomizations := []blueprintv1alpha1.Kustomization{
+			{
+				Name:          "kustomization1",
+				Path:          "kustomize/overlays/dev", // Prepend "kustomize" to the path
+				Source:        "source1",
+				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
+				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
+				Timeout:       &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_TIMEOUT},
+				Wait:          ptr.Bool(constants.DEFAULT_FLUX_KUSTOMIZATION_WAIT),
+				Force:         ptr.Bool(constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE),
+				PostBuild: &blueprintv1alpha1.PostBuild{
+					SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
+						{
+							Kind:     "ConfigMap",
+							Name:     "blueprint",
+							Optional: false,
+						},
+					},
+				},
+			},
+		}
+
+		// Then the Kustomizations should match the expected Kustomizations
+		if !reflect.DeepEqual(actualKustomizations, expectedKustomizations) {
+			t.Errorf("Expected Kustomizations to be %v, but got %v", expectedKustomizations, actualKustomizations)
+		}
+	})
 
 	t.Run("NilKustomizations", func(t *testing.T) {
 		// Given a mock injector

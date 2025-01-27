@@ -168,6 +168,30 @@ type Kustomization struct {
 
 	// Components to include in the kustomization.
 	Components []string `yaml:"components,omitempty"`
+
+	// PostBuild is a post-build step to run after the kustomization is applied.
+	PostBuild *PostBuild `yaml:"postBuild,omitempty"`
+}
+
+// PostBuild is a post-build step to run after the kustomization is applied.
+type PostBuild struct {
+	// Substitute is a map of resources to substitute from.
+	Substitute map[string]string `yaml:"substitute,omitempty"`
+
+	// SubstituteFrom is a list of resources to substitute from.
+	SubstituteFrom []SubstituteReference `yaml:"substituteFrom,omitempty"`
+}
+
+// SubstituteReference is a reference to a resource to substitute from.
+type SubstituteReference struct {
+	// Kind of the resource to substitute from.
+	Kind string `yaml:"kind"`
+
+	// Name of the resource to substitute from.
+	Name string `yaml:"name"`
+
+	// Optional indicates if the resource is optional.
+	Optional bool `yaml:"optional,omitempty"`
 }
 
 // DeepCopy creates a deep copy of the Blueprint object.
@@ -239,7 +263,36 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 
 	kustomizationsCopy := make([]Kustomization, len(b.Kustomizations))
 	for i, kustomization := range b.Kustomizations {
-		kustomizationsCopy[i] = kustomization
+		var substituteFromCopy []SubstituteReference
+		if kustomization.PostBuild != nil {
+			substituteFromCopy = make([]SubstituteReference, len(kustomization.PostBuild.SubstituteFrom))
+			copy(substituteFromCopy, kustomization.PostBuild.SubstituteFrom)
+		}
+
+		postBuildCopy := &PostBuild{
+			Substitute:     make(map[string]string),
+			SubstituteFrom: substituteFromCopy,
+		}
+		if kustomization.PostBuild != nil {
+			for key, value := range kustomization.PostBuild.Substitute {
+				postBuildCopy.Substitute[key] = value
+			}
+		}
+
+		kustomizationsCopy[i] = Kustomization{
+			Name:          kustomization.Name,
+			Path:          kustomization.Path,
+			Source:        kustomization.Source,
+			DependsOn:     append([]string{}, kustomization.DependsOn...),
+			Interval:      kustomization.Interval,
+			RetryInterval: kustomization.RetryInterval,
+			Timeout:       kustomization.Timeout,
+			Patches:       append([]kustomize.Patch{}, kustomization.Patches...),
+			Wait:          kustomization.Wait,
+			Force:         kustomization.Force,
+			Components:    append([]string{}, kustomization.Components...),
+			PostBuild:     postBuildCopy,
+		}
 	}
 
 	return &Blueprint{
@@ -364,6 +417,7 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 			if existingKustomization.Name == overlayKustomization.Name {
 				mergedKustomizations[i].Patches = mergeUniqueKustomizePatches(existingKustomization.Patches, overlayKustomization.Patches)
 				mergedKustomizations[i].Components = mergeUniqueComponents(existingKustomization.Components, overlayKustomization.Components)
+				mergedKustomizations[i].PostBuild = mergePostBuild(existingKustomization.PostBuild, overlayKustomization.PostBuild)
 				found = true
 				break
 			}
@@ -414,4 +468,47 @@ func mergeUniqueComponents(existing, overlay []string) []string {
 		mergedComponents = append(mergedComponents, component)
 	}
 	return mergedComponents
+}
+
+// mergeUniqueSubstituteReferences merges two slices of SubstituteReference uniquely.
+func mergeUniqueSubstituteReferences(existing, overlay []SubstituteReference) []SubstituteReference {
+	substituteMap := make(map[string]SubstituteReference)
+	for _, substitute := range existing {
+		key := substitute.Kind + substitute.Name
+		substituteMap[key] = substitute
+	}
+	for _, overlaySubstitute := range overlay {
+		key := overlaySubstitute.Kind + overlaySubstitute.Name
+		substituteMap[key] = overlaySubstitute
+	}
+	mergedSubstitutes := make([]SubstituteReference, 0, len(substituteMap))
+	for _, substitute := range substituteMap {
+		mergedSubstitutes = append(mergedSubstitutes, substitute)
+	}
+	return mergedSubstitutes
+}
+
+// mergePostBuild merges two PostBuild objects.
+func mergePostBuild(existing, overlay *PostBuild) *PostBuild {
+	if existing == nil {
+		return overlay
+	}
+	if overlay == nil {
+		return existing
+	}
+
+	mergedSubstitute := make(map[string]string)
+	for k, v := range existing.Substitute {
+		mergedSubstitute[k] = v
+	}
+	for k, v := range overlay.Substitute {
+		mergedSubstitute[k] = v
+	}
+
+	mergedSubstituteFrom := mergeUniqueSubstituteReferences(existing.SubstituteFrom, overlay.SubstituteFrom)
+
+	return &PostBuild{
+		Substitute:     mergedSubstitute,
+		SubstituteFrom: mergedSubstituteFrom,
+	}
 }

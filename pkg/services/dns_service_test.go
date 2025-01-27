@@ -34,7 +34,7 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 			},
 			DNS: &dns.DNSConfig{
 				Enabled: &enabled,
-				Name:    ptrString("test1"),
+				Domain:  ptrString("test1"),
 			},
 		}
 	}
@@ -385,7 +385,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 				},
 				DNS: &dns.DNSConfig{
 					Enabled: ptrBool(true),
-					Name:    ptrString("test"),
+					Domain:  ptrString("test"),
 				},
 			}
 		}

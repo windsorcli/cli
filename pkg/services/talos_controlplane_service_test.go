@@ -32,7 +32,7 @@ func setupSafeTalosControlPlaneServiceMocks(optionalInjector ...di.Injector) *Mo
 
 	// Mock the functions that are actually called in talos_controlplane_service.go
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-		if key == "dns.name" {
+		if key == "dns.domain" {
 			return "test"
 		}
 		if key == "cluster.driver" {

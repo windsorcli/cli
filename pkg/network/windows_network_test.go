@@ -262,7 +262,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks := setupWindowsNetworkManagerMocks()
 
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.name" {
+			if key == "dns.domain" {
 				return "example.com"
 			}
 			if key == "dns.address" {
@@ -331,9 +331,9 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		// When call the method under test
 		err = nm.ConfigureDNS()
 
-		// Then expect error 'DNS TLD is not configured'
-		if err == nil || err.Error() != "DNS TLD is not configured" {
-			t.Errorf("expected error 'DNS TLD is not configured', got %v", err)
+		// Then expect error 'DNS domain is not configured'
+		if err == nil || err.Error() != "DNS domain is not configured" {
+			t.Errorf("expected error 'DNS domain is not configured', got %v", err)
 		}
 	})
 
@@ -342,7 +342,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks := setupWindowsNetworkManagerMocks()
 
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.name" {
+			if key == "dns.domain" {
 				return "example.com"
 			}
 			if key == "dns.address" {
@@ -379,7 +379,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
-			case "dns.name":
+			case "dns.domain":
 				return "example.com"
 			case "dns.address":
 				return "192.168.1.1"
@@ -428,7 +428,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks := setupWindowsNetworkManagerMocks()
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
-			case "dns.name":
+			case "dns.domain":
 				return "example.com"
 			case "dns.address":
 				return "8.8.8.8"

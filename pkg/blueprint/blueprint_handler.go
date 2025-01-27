@@ -22,6 +22,7 @@ import (
 	"github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -220,10 +221,10 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 }
 
 // Install initializes the Kubernetes client if not already set, and applies all
-// GitRepositories and Kustomizations defined in the blueprint to the cluster.
+// GitRepositories, Kustomizations, and ConfigMaps defined in the blueprint to the cluster.
 // It first checks for a KUBECONFIG environment variable to configure the client,
 // falling back to in-cluster configuration if not found. The function iterates
-// over the sources and kustomizations, applying each to the cluster using the
+// over the sources, kustomizations, and configmaps, applying each to the cluster using the
 // Kubernetes client.
 func (b *BaseBlueprintHandler) Install() error {
 	context := b.configHandler.GetContext()
@@ -263,6 +264,12 @@ func (b *BaseBlueprintHandler) Install() error {
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 			return fmt.Errorf("failed to apply Kustomization: %w", err)
 		}
+	}
+
+	if err := b.applyConfigMap(); err != nil {
+		spin.Stop()
+		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+		return fmt.Errorf("failed to apply ConfigMap: %w", err)
 	}
 
 	spin.Stop()
@@ -348,6 +355,17 @@ func (b *BaseBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomiza
 		if kustomizations[i].Force == nil {
 			defaultForce := constants.DEFAULT_FLUX_KUSTOMIZATION_FORCE
 			kustomizations[i].Force = &defaultForce
+		}
+
+		// Add the substituteFrom configuration
+		kustomizations[i].PostBuild = &blueprintv1alpha1.PostBuild{
+			SubstituteFrom: []blueprintv1alpha1.SubstituteReference{
+				{
+					Kind:     "ConfigMap",
+					Name:     "blueprint",
+					Optional: false,
+				},
+			},
 		}
 	}
 
@@ -824,6 +842,18 @@ func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha
 			},
 			Patches:    kustomization.Patches,
 			Components: kustomization.Components,
+			PostBuild: &kustomizev1.PostBuild{
+				SubstituteFrom: func() []kustomizev1.SubstituteReference {
+					substituteFrom := make([]kustomizev1.SubstituteReference, len(kustomization.PostBuild.SubstituteFrom))
+					for i, sub := range kustomization.PostBuild.SubstituteFrom {
+						substituteFrom[i] = kustomizev1.SubstituteReference{
+							Kind: sub.Kind,
+							Name: sub.Name,
+						}
+					}
+					return substituteFrom
+				}(),
+			},
 		},
 	}
 
@@ -837,6 +867,40 @@ func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha
 		ResourceInstanceName: kustomizeObj.Name,
 		ResourceObject:       kustomizeObj,
 		ResourceType:         func() runtime.Object { return &kustomizev1.Kustomization{} },
+	}
+
+	kubeconfig := os.Getenv("KUBECONFIG")
+	return kubeClientResourceOperation(kubeconfig, config)
+}
+
+// applyConfigMap creates and applies a ConfigMap resource to the Kubernetes cluster.
+// It retrieves the DOMAIN value from the config and populates the ConfigMap with this key/value pair.
+func (b *BaseBlueprintHandler) applyConfigMap() error {
+	domain := b.configHandler.GetString("dns.domain")
+
+	configMap := &corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "blueprint",
+			Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
+		},
+		Data: map[string]string{
+			"DOMAIN": domain,
+		},
+	}
+
+	config := ResourceOperationConfig{
+		ApiPath:              "/api/v1",
+		Namespace:            configMap.Namespace,
+		ResourceName:         "configmaps",
+		ResourceInstanceName: configMap.Name,
+		ResourceObject:       configMap,
+		ResourceType: func() runtime.Object {
+			return &corev1.ConfigMap{}
+		},
 	}
 
 	kubeconfig := os.Getenv("KUBECONFIG")

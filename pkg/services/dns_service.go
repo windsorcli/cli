@@ -63,8 +63,8 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	// Retrieve the context name
 	contextName := s.configHandler.GetContext()
 
-	// Get the TLD from the configuration
-	tld := s.configHandler.GetString("dns.name", "test")
+	// Get the domain from the configuration
+	tld := s.configHandler.GetString("dns.domain", "test")
 	fullName := s.name + "." + tld
 
 	// Common configuration for CoreDNS container
@@ -113,8 +113,8 @@ func (s *DNSService) WriteConfig() error {
 		return fmt.Errorf("error retrieving project root: %w", err)
 	}
 
-	// Get the TLD from the configuration
-	tld := s.configHandler.GetString("dns.name", "test")
+	// Get the domain from the configuration
+	tld := s.configHandler.GetString("dns.domain", "test")
 
 	// Gather the IP address of each service using the GetHostname method
 	var hostEntries string

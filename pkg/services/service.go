@@ -99,7 +99,7 @@ func (s *BaseService) GetName() string {
 
 // GetHostname returns the name plus the tld from the config
 func (s *BaseService) GetHostname() string {
-	tld := s.configHandler.GetString("dns.name", "test")
+	tld := s.configHandler.GetString("dns.domain", "test")
 	return fmt.Sprintf("%s.%s", s.name, tld)
 }
 
