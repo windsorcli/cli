@@ -1701,7 +1701,7 @@ func TestBlueprintHandler_SetKustomizations(t *testing.T) {
 		inputKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name:          "kustomization1",
-				Path:          "overlays/dev",
+				Path:          filepath.FromSlash("overlays/dev"),
 				Source:        "source1",
 				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
 				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
@@ -1728,7 +1728,7 @@ func TestBlueprintHandler_SetKustomizations(t *testing.T) {
 		expectedKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name:          "kustomization1",
-				Path:          "kustomize/overlays/dev", // Prepend "kustomize" to the path
+				Path:          filepath.FromSlash("kustomize/overlays/dev"), // Prepend "kustomize" to the path
 				Source:        "source1",
 				Interval:      &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_INTERVAL},
 				RetryInterval: &metav1.Duration{Duration: constants.DEFAULT_FLUX_KUSTOMIZATION_RETRY_INTERVAL},
