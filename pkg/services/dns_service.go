@@ -25,49 +25,37 @@ func NewDNSService(injector di.Injector) *DNSService {
 	}
 }
 
-// Initialize resolves and sets all the things resolved from the DI
+// Initialize sets up DNSService by resolving dependencies via DI.
 func (s *DNSService) Initialize() error {
-	// Call the base Initialize method
 	if err := s.BaseService.Initialize(); err != nil {
 		return err
 	}
-
-	// Resolve all services from the injector
 	resolvedServices, err := s.injector.ResolveAll(new(Service))
 	if err != nil {
 		return fmt.Errorf("error resolving services: %w", err)
 	}
-
-	// Set each service on the class
 	for _, serviceInterface := range resolvedServices {
 		service, _ := serviceInterface.(Service)
 		s.services = append(s.services, service)
 	}
-
 	return nil
 }
 
-// SetAddress sets the address for the DNS service
+// SetAddress updates DNS address in config and calls BaseService's SetAddress.
 func (s *DNSService) SetAddress(address string) error {
-	// Set the value of the DNS address in the configuration
 	err := s.configHandler.SetContextValue("dns.address", address)
 	if err != nil {
 		return fmt.Errorf("error setting DNS address: %w", err)
 	}
-
 	return s.BaseService.SetAddress(address)
 }
 
-// GetComposeConfig returns the compose configuration
+// GetComposeConfig sets up CoreDNS with context and domain, configures ports if localhost.
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
-	// Retrieve the context name
 	contextName := s.configHandler.GetContext()
-
-	// Get the domain from the configuration
 	tld := s.configHandler.GetString("dns.domain", "test")
 	fullName := s.name + "." + tld
 
-	// Common configuration for CoreDNS container
 	corednsConfig := types.ServiceConfig{
 		Name:          fullName,
 		ContainerName: fullName,
@@ -84,7 +72,6 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
-	// Forward port 53 to the host
 	if isLocalhost(s.address) {
 		corednsConfig.Ports = []types.ServicePortConfig{
 			{
@@ -105,18 +92,17 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	return &types.Config{Services: services}, nil
 }
 
-// WriteConfig writes any necessary configuration files needed by the service
+// WriteConfig generates a Corefile for DNS setup by retrieving the project root,
+// domain, and service IPs. It includes DNS records, templates the Corefile,
+// ensures directory existence, and writes the file.
 func (s *DNSService) WriteConfig() error {
-	// Retrieve the project root directory using shell.GetProjectRoot
 	projectRoot, err := s.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("error retrieving project root: %w", err)
 	}
 
-	// Get the domain from the configuration
 	tld := s.configHandler.GetString("dns.domain", "test")
 
-	// Gather the IP address of each service using the GetHostname method
 	var hostEntries string
 	for _, service := range s.services {
 		composeConfig, err := service.GetComposeConfig()
@@ -134,7 +120,11 @@ func (s *DNSService) WriteConfig() error {
 		}
 	}
 
-	// Template out the Corefile with information from the services
+	dnsRecords := s.configHandler.GetStringSlice("dns.records", nil)
+	for _, record := range dnsRecords {
+		hostEntries += fmt.Sprintf("        %s\n", record)
+	}
+
 	corefileContent := fmt.Sprintf(`
 %s:53 {
     hosts {
@@ -147,7 +137,6 @@ func (s *DNSService) WriteConfig() error {
 
 	corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
 
-	// Ensure the parent folders exist
 	if err := mkdirAll(filepath.Dir(corefilePath), 0755); err != nil {
 		return fmt.Errorf("error creating parent folders: %w", err)
 	}

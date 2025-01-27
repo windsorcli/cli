@@ -207,6 +207,13 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 		fullBlueprint.TerraformComponents[i].Values = nil
 	}
 
+	for i := range fullBlueprint.Kustomizations {
+		postBuild := fullBlueprint.Kustomizations[i].PostBuild
+		if postBuild != nil && len(postBuild.Substitute) == 0 && len(postBuild.SubstituteFrom) == 0 {
+			fullBlueprint.Kustomizations[i].PostBuild = nil
+		}
+	}
+
 	fullBlueprint.Merge(&b.localBlueprint)
 
 	data, err := yamlMarshalNonNull(fullBlueprint)

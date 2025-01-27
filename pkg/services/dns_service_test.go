@@ -35,8 +35,19 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 			DNS: &dns.DNSConfig{
 				Enabled: &enabled,
 				Domain:  ptrString("test1"),
+				Records: []string{"127.0.0.1 test1", "192.168.1.1 test1"},
 			},
 		}
+	}
+
+	mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+		if key == "dns.records" {
+			return []string{"127.0.0.1 test1", "192.168.1.1 test1"}
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return nil
 	}
 
 	mockShell := shell.NewMockShell()
