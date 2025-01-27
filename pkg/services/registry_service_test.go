@@ -54,10 +54,10 @@ func setupSafeRegistryServiceMocks(optionalInjector ...di.Injector) *MockCompone
 		}
 	}
 
-	// Ensure the GetString method returns "test" for the key "dns.name"
+	// Ensure the GetString method returns "test" for the key "dns.domain"
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 		switch key {
-		case "dns.name":
+		case "dns.domain":
 			return "test"
 		default:
 			if len(defaultValue) > 0 {
@@ -350,7 +350,7 @@ func TestRegistryService_GetHostname(t *testing.T) {
 		// When: GetHostname is called
 		hostname := registryService.GetHostname()
 
-		// Then: the hostname should be as expected, with the old TLD removed
+		// Then: the hostname should be as expected, with the old domain removed
 		expectedHostname := "registry.test"
 		if hostname != expectedHostname {
 			t.Fatalf("expected hostname '%s', got %v", expectedHostname, hostname)

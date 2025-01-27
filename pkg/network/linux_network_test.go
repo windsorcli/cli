@@ -56,7 +56,7 @@ func setupLinuxNetworkManagerMocks() *LinuxNetworkManagerMocks {
 			return "192.168.5.0/24"
 		case "vm.address":
 			return "192.168.5.100"
-		case "dns.name":
+		case "dns.domain":
 			return "example.com"
 		case "dns.address":
 			return "1.2.3.4"
@@ -338,12 +338,12 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("TLDNotConfigured", func(t *testing.T) {
+	t.Run("domainNotConfigured", func(t *testing.T) {
 		mocks := setupLinuxNetworkManagerMocks()
 
-		// Mock the GetString function to simulate missing TLD configuration
+		// Mock the GetString function to simulate missing domain configuration
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.name" {
+			if key == "dns.domain" {
 				return ""
 			}
 			return ""
@@ -356,12 +356,12 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureDNS method and expect an error due to missing TLD
+		// Call the ConfigureDNS method and expect an error due to missing domain
 		err = nm.ConfigureDNS()
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := "DNS TLD is not configured"
+		expectedError := "DNS domain is not configured"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}

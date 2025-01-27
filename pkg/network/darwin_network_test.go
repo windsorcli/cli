@@ -63,7 +63,7 @@ func setupDarwinNetworkManagerMocks() *DarwinNetworkManagerMocks {
 			return "192.168.5.0/24"
 		case "vm.address":
 			return "192.168.5.100"
-		case "dns.name":
+		case "dns.domain":
 			return "example.com"
 		case "dns.address":
 			return "1.2.3.4"
@@ -394,7 +394,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.name" {
+			if key == "dns.domain" {
 				return ""
 			}
 			return "some_value"
@@ -404,7 +404,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := "DNS TLD is not configured"
+		expectedError := "DNS domain is not configured"
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
@@ -423,7 +423,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		originalReadFile := readFile
 		defer func() { readFile = originalReadFile }()
 		readFile = func(filename string) ([]byte, error) {
-			if filename == fmt.Sprintf("/etc/resolver/%s", mocks.MockConfigHandler.GetStringFunc("dns.name")) {
+			if filename == fmt.Sprintf("/etc/resolver/%s", mocks.MockConfigHandler.GetStringFunc("dns.domain")) {
 				return []byte(fmt.Sprintf("nameserver %s\n", mocks.MockConfigHandler.GetStringFunc("dns.address"))), nil
 			}
 			return nil, nil // Return nil error to simulate file existing

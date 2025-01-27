@@ -34,7 +34,7 @@ func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServic
 	mockConfigHandler.SaveConfigFunc = func(path string) error { return nil }
 
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-		if key == "dns.name" {
+		if key == "dns.domain" {
 			return "test"
 		}
 		return "mock-value"

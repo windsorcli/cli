@@ -64,9 +64,9 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 // It creates a resolver file for a specified DNS IP. It ensures directories exist,
 // updates files, and flushes the DNS cache to apply changes.
 func (n *BaseNetworkManager) ConfigureDNS() error {
-	tld := n.configHandler.GetString("dns.name")
+	tld := n.configHandler.GetString("dns.domain")
 	if tld == "" {
-		return fmt.Errorf("DNS TLD is not configured")
+		return fmt.Errorf("DNS domain is not configured")
 	}
 	dnsIP := n.configHandler.GetString("dns.address")
 

@@ -52,7 +52,7 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 }
 
 // SetAddress configures the registry address, forms a hostname, updates the
-// registry config, and returns an error if any step fails. It appends the TLD
+// registry config, and returns an error if any step fails. It appends the domain
 // to the service name to form the hostname.
 func (s *RegistryService) SetAddress(address string) error {
 	if err := s.BaseService.SetAddress(address); err != nil {
@@ -71,14 +71,14 @@ func (s *RegistryService) SetAddress(address string) error {
 }
 
 // GetHostname returns the hostname of the registry service. This is constructed
-// by removing the existing tld from the name and appending the configured tld.
+// by removing the existing domain from the name and appending the configured domain.
 func (s *RegistryService) GetHostname() string {
-	tld := s.configHandler.GetString("dns.name", "test")
-	nameWithoutTLD := s.name
+	domain := s.configHandler.GetString("dns.domain", "test")
+	nameWithoutDomain := s.name
 	if dotIndex := strings.LastIndex(s.name, "."); dotIndex != -1 {
-		nameWithoutTLD = s.name[:dotIndex]
+		nameWithoutDomain = s.name[:dotIndex]
 	}
-	return nameWithoutTLD + "." + tld
+	return nameWithoutDomain + "." + domain
 }
 
 // generateRegistryService creates a ServiceConfig for a Registry service

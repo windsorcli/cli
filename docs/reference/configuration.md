@@ -97,13 +97,13 @@ Configures details related to the local DNS service. The service is available at
 ```yaml
 dns:
   enabled: true
-  name: test
+  domain: test
 ```
 
 | Field     | Type     | Description                                           |
 |-----------|----------|-------------------------------------------------------|
 | `enabled` | `bool`   | Indicates whether the DNS service is enabled.         |
-| `name`    | `string` | Specifies the domain name (TLD) of the DNS service.   |
+| `domain`  | `string` | Specifies the domain name of the DNS service.         |
 | `address` | `string` | Overrides the default address of the DNS service.     |
 
 ### Docker
@@ -261,7 +261,7 @@ contexts:
         - 8443:30443
     dns:
       enabled: true
-      name: test
+      domain: test
 ```
 
 <div>

@@ -25,7 +25,7 @@ func NewTalosControlPlaneService(injector di.Injector) *TalosControlPlaneService
 // SetAddress sets the address of the service
 // This turns out to be a convenient place to set node information
 func (s *TalosControlPlaneService) SetAddress(address string) error {
-	tld := s.configHandler.GetString("dns.name")
+	tld := s.configHandler.GetString("dns.domain")
 
 	if err := s.configHandler.SetContextValue("cluster.controlplanes.nodes."+s.name+".hostname", s.name+"."+tld); err != nil {
 		return err
@@ -80,8 +80,8 @@ func (s *TalosControlPlaneService) GetComposeConfig() (*types.Config, error) {
 		}
 	}
 
-	// Get the TLD from the configuration
-	tld := s.configHandler.GetString("dns.name", "test")
+	// Get the domain from the configuration
+	tld := s.configHandler.GetString("dns.domain", "test")
 	fullName := s.name + "." + tld
 	if s.name == "" {
 		fullName = "controlplane" + "." + tld

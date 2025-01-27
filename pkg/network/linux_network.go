@@ -70,9 +70,9 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 // systemd-resolved and restarts the service if necessary. It handles errors at each step to ensure
 // proper DNS configuration.
 func (n *BaseNetworkManager) ConfigureDNS() error {
-	tld := n.configHandler.GetString("dns.name")
+	tld := n.configHandler.GetString("dns.domain")
 	if tld == "" {
-		return fmt.Errorf("DNS TLD is not configured")
+		return fmt.Errorf("DNS domain is not configured")
 	}
 	dnsIP := n.configHandler.GetString("dns.address")
 

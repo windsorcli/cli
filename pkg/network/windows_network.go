@@ -60,12 +60,12 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 }
 
 // ConfigureDNS sets up a per-domain DNS rule for a specific host name using Windows
-// Name Resolution Policy Table (NRPT). This ensures only the specified TLD queries
+// Name Resolution Policy Table (NRPT). This ensures only the specified domain queries
 // are sent to the local DNS server.
 func (n *BaseNetworkManager) ConfigureDNS() error {
-	tld := n.configHandler.GetString("dns.name")
+	tld := n.configHandler.GetString("dns.domain")
 	if tld == "" {
-		return fmt.Errorf("DNS TLD is not configured")
+		return fmt.Errorf("DNS domain is not configured")
 	}
 
 	dnsIP := n.configHandler.GetString("dns.address")
@@ -74,7 +74,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return nil
 	}
 
-	// Prepend a "." to the TLD for the namespace
+	// Prepend a "." to the domain for the namespace
 	namespace := "." + tld
 
 	// Check if the DNS rule for the host name is already set

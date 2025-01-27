@@ -3,7 +3,7 @@ package dns
 // DNSConfig represents the DNS configuration
 type DNSConfig struct {
 	Enabled *bool   `yaml:"enabled"`
-	Name    *string `yaml:"name,omitempty"`
+	Domain  *string `yaml:"domain,omitempty"`
 	Address *string `yaml:"address,omitempty"`
 }
 
@@ -12,8 +12,8 @@ func (base *DNSConfig) Merge(overlay *DNSConfig) {
 	if overlay.Enabled != nil {
 		base.Enabled = overlay.Enabled
 	}
-	if overlay.Name != nil {
-		base.Name = overlay.Name
+	if overlay.Domain != nil {
+		base.Domain = overlay.Domain
 	}
 	if overlay.Address != nil {
 		base.Address = overlay.Address
@@ -27,7 +27,7 @@ func (c *DNSConfig) Copy() *DNSConfig {
 	}
 	return &DNSConfig{
 		Enabled: c.Enabled,
-		Name:    c.Name,
+		Domain:  c.Domain,
 		Address: c.Address,
 	}
 }

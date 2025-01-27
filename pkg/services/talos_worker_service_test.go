@@ -54,7 +54,7 @@ func setupSafeTalosWorkerServiceMocks(optionalInjector ...di.Injector) *MockComp
 		switch key {
 		case "cluster.workers.nodes.worker.endpoint":
 			return "192.168.1.1:50000"
-		case "dns.name":
+		case "dns.domain":
 			return "test"
 		default:
 			if len(defaultValue) > 0 {

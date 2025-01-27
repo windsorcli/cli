@@ -173,7 +173,7 @@ func TestBaseService_GetHostname(t *testing.T) {
 		service := &BaseService{injector: mocks.Injector}
 		service.SetName("TestService")
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.name" {
+			if key == "dns.domain" {
 				return "example"
 			}
 			return ""
