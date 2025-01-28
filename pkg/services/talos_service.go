@@ -16,56 +16,87 @@ import (
 
 // Initialize the global port settings
 var (
-	localhostAPIPort = 50001
-	defaultAPIPort   = 50000
-	portLock         sync.Mutex
-	extraPortIndex   = 0
-	nextNodePorts    = []string{}
+	nextLocalhostAPIPort = 50001
+	defaultAPIPort       = 50000
+	portLock             sync.Mutex
+	extraPortIndex       = 0
+	nextNodePorts        = []string{}
+	controlPlaneLeader   *TalosService
 )
 
-type TalosWorkerService struct {
+type TalosService struct {
 	BaseService
+	mode     string
+	isLeader bool
 }
 
-// NewTalosWorkerService is a constructor for TalosWorkerService
-func NewTalosWorkerService(injector di.Injector) *TalosWorkerService {
-	return &TalosWorkerService{
+// NewTalosService is a constructor for TalosService
+func NewTalosService(injector di.Injector, mode string) *TalosService {
+	service := &TalosService{
 		BaseService: BaseService{
 			injector: injector,
 		},
+		mode: mode,
 	}
+
+	// Elect a leader for the first controlplane
+	if mode == "controlplane" {
+		portLock.Lock()
+		defer portLock.Unlock()
+		if controlPlaneLeader == nil {
+			controlPlaneLeader = service
+			service.isLeader = true
+		}
+	}
+
+	return service
 }
 
-// SetAddress configures the Talos worker's hostname and endpoint using the
-// provided address. For localhost addresses, it assigns unique ports starting
-// from 50001, incrementing for each node. A mutex is used to safely increment
-// the port for each localhost node. Node ports are adjusted to avoid conflicts.
-// Each node is assigned a unique host port by incrementing the port number.
-func (s *TalosWorkerService) SetAddress(address string) error {
+// SetAddress configures the Talos service's hostname and endpoint using the
+// provided address. For localhost addresses, it assigns unique API ports starting
+// from 50001, incrementing for each node. A mutex is used to safely manage concurrent
+// access to the port allocation. The leader controlplane is assigned the default API port.
+// Node ports are configured based on the cluster configuration, ensuring no conflicts.
+func (s *TalosService) SetAddress(address string) error {
 	tld := s.configHandler.GetString("dns.domain", "test")
+	nodeType := "workers"
+	if s.mode == "controlplane" {
+		nodeType = "controlplanes"
+	}
 
-	if err := s.configHandler.SetContextValue("cluster.workers.nodes."+s.name+".hostname", s.name+"."+tld); err != nil {
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.hostname", nodeType, s.name), s.name+"."+tld); err != nil {
 		return err
 	}
-	if err := s.configHandler.SetContextValue("cluster.workers.nodes."+s.name+".node", address); err != nil {
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.node", nodeType, s.name), address); err != nil {
 		return err
 	}
+
+	portLock.Lock()
+	defer portLock.Unlock()
 
 	port := defaultAPIPort
 	if isLocalhost(address) {
-		portLock.Lock()
-		port = localhostAPIPort
-		localhostAPIPort++
-		portLock.Unlock()
+		port = nextLocalhostAPIPort
+		nextLocalhostAPIPort++
 	}
 
-	if err := s.configHandler.SetContextValue("cluster.workers.nodes."+s.name+".endpoint", fmt.Sprintf("%s:%d", address, port)); err != nil {
+	if s.isLeader {
+		port = defaultAPIPort // Reserve 50000 for the leader controlplane
+	}
+
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, s.name), fmt.Sprintf("%s:%d", address, port)); err != nil {
 		return err
 	}
 
 	config := s.configHandler.GetConfig()
 	if config.Cluster != nil {
-		nodePorts := config.Cluster.NodePorts
+		var nodePorts []string
+		if s.mode == "controlplane" {
+			nodePorts = config.Cluster.ControlPlanes.NodePorts
+		} else {
+			nodePorts = config.Cluster.Workers.NodePorts
+		}
+
 		if nodePorts != nil && (nextNodePorts == nil || len(nextNodePorts) == 0) {
 			nextNodePorts = make([]string, len(nodePorts))
 			copy(nextNodePorts, nodePorts)
@@ -118,7 +149,7 @@ func (s *TalosWorkerService) SetAddress(address string) error {
 			}
 		}
 
-		if err := s.configHandler.SetContextValue("cluster.workers.nodes."+s.name+".nodeports", currentNodePorts); err != nil {
+		if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.nodeports", nodeType, s.name), currentNodePorts); err != nil {
 			return err
 		}
 	}
@@ -126,12 +157,13 @@ func (s *TalosWorkerService) SetAddress(address string) error {
 	return s.BaseService.SetAddress(address)
 }
 
-// GetComposeConfig creates a docker-compose setup for Talos workers. It fetches CPU/RAM settings,
-// determines endpoint ports, and ensures the .volumes directory exists. The function configures
-// the container with image, environment, security, and volume settings. It constructs the service
-// name using the domain and sets up port mappings for network communication, including default and
-// node-specific ports. The final configuration includes service and volume details for deployment.
-func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
+// GetComposeConfig generates a docker-compose configuration for Talos services. It retrieves CPU and RAM
+// settings based on the node type (worker or control plane) and identifies the endpoint ports for service
+// communication. The function ensures necessary volume directories are defined and configures the container
+// with the appropriate image, environment variables, security options, and volume mounts. It constructs the
+// service name using the node name and sets up port mappings, including both default and node-specific ports.
+// The resulting configuration includes detailed service and volume specifications for deployment.
+func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	config := s.configHandler.GetConfig()
 	if config.Cluster == nil {
 		return &types.Config{
@@ -140,30 +172,27 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 		}, nil
 	}
 
-	workerCPU := s.configHandler.GetInt("cluster.workers.cpu", constants.DEFAULT_TALOS_WORKER_CPU)
-	workerRAM := s.configHandler.GetInt("cluster.workers.memory", constants.DEFAULT_TALOS_WORKER_RAM)
+	var cpu, ram int
+	nodeType := "workers"
+	if s.mode == "controlplane" {
+		nodeType = "controlplanes"
+		cpu = s.configHandler.GetInt("cluster.controlplanes.cpu", constants.DEFAULT_TALOS_CONTROL_PLANE_CPU)
+		ram = s.configHandler.GetInt("cluster.controlplanes.memory", constants.DEFAULT_TALOS_CONTROL_PLANE_RAM)
+	} else {
+		cpu = s.configHandler.GetInt("cluster.workers.cpu", constants.DEFAULT_TALOS_WORKER_CPU)
+		ram = s.configHandler.GetInt("cluster.workers.memory", constants.DEFAULT_TALOS_WORKER_RAM)
+	}
 
 	// Define a default name if s.name is not set
 	nodeName := s.name
 	if nodeName == "" {
-		nodeName = "worker"
+		nodeName = nodeType[:len(nodeType)-1] // remove 's' from nodeType
 	}
 
-	endpoint := s.configHandler.GetString("cluster.workers.nodes."+nodeName+".endpoint", fmt.Sprintf("%d", defaultAPIPort))
+	endpoint := s.configHandler.GetString(fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, nodeName), fmt.Sprintf("%d", defaultAPIPort))
 	publishedPort := fmt.Sprintf("%d", defaultAPIPort)
 	if parts := strings.Split(endpoint, ":"); len(parts) == 2 {
 		publishedPort = parts[1]
-	}
-
-	projectRoot, err := s.shell.GetProjectRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving project root: %w", err)
-	}
-	volumesPath := filepath.Join(projectRoot, ".volumes")
-	if _, err := stat(volumesPath); os.IsNotExist(err) {
-		if err := mkdir(volumesPath, os.ModePerm); err != nil {
-			return nil, fmt.Errorf("error creating .volumes directory: %w", err)
-		}
 	}
 
 	commonConfig := types.ServiceConfig{
@@ -181,20 +210,41 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 			{Type: "volume", Source: strings.ReplaceAll(nodeName+"_etc_kubernetes", "-", "_"), Target: "/etc/kubernetes"},
 			{Type: "volume", Source: strings.ReplaceAll(nodeName+"_usr_libexec_kubernetes", "-", "_"), Target: "/usr/libexec/kubernetes"},
 			{Type: "volume", Source: strings.ReplaceAll(nodeName+"_opt", "-", "_"), Target: "/opt"},
-			{Type: "bind", Source: "${WINDSOR_PROJECT_ROOT}/.volumes", Target: "/var/local"},
 		},
+	}
+
+	// Add bind mount for workers
+	if s.mode != "controlplane" {
+		projectRoot, err := s.shell.GetProjectRoot()
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving project root: %w", err)
+		}
+		volumesPath := filepath.Join(projectRoot, ".volumes")
+		if _, err := stat(volumesPath); os.IsNotExist(err) {
+			if err := mkdir(volumesPath, os.ModePerm); err != nil {
+				return nil, fmt.Errorf("error creating .volumes directory: %w", err)
+			}
+		}
+		commonConfig.Volumes = append(commonConfig.Volumes, types.ServiceVolumeConfig{
+			Type:   "bind",
+			Source: "${WINDSOR_PROJECT_ROOT}/.volumes",
+			Target: "/var/local",
+		})
 	}
 
 	tld := s.configHandler.GetString("dns.domain", "test")
 	fullName := nodeName + "." + tld
+	if s.name == "" {
+		fullName = nodeType[:len(nodeType)-1] + "." + tld
+	}
 
-	workerConfig := commonConfig
-	workerConfig.Name = fullName
-	workerConfig.ContainerName = fullName
-	workerConfig.Hostname = fullName
-	workerConfig.Environment = map[string]*string{
+	serviceConfig := commonConfig
+	serviceConfig.Name = fullName
+	serviceConfig.ContainerName = fullName
+	serviceConfig.Hostname = fullName
+	serviceConfig.Environment = map[string]*string{
 		"PLATFORM": ptrString("container"),
-		"TALOSSKU": ptrString(fmt.Sprintf("%dCPU-%dRAM", workerCPU, workerRAM*1024)),
+		"TALOSSKU": ptrString(fmt.Sprintf("%dCPU-%dRAM", cpu, ram*1024)),
 	}
 
 	var ports []types.ServicePortConfig
@@ -210,7 +260,16 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 		Protocol:  "tcp",
 	})
 
-	nodePortsKey := "cluster.workers.nodes." + nodeName + ".nodeports"
+	// Add port 6443 forwarding for the leader controlplane
+	if s.isLeader {
+		ports = append(ports, types.ServicePortConfig{
+			Target:    6443,
+			Published: "6443",
+			Protocol:  "tcp",
+		})
+	}
+
+	nodePortsKey := fmt.Sprintf("cluster.%s.nodes.%s.nodeports", nodeType, nodeName)
 	nodePorts := s.configHandler.GetStringSlice(nodePortsKey)
 	for _, nodePortStr := range nodePorts {
 		parts := strings.Split(nodePortStr, ":")
@@ -234,7 +293,7 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 		})
 	}
 
-	workerConfig.Ports = ports
+	serviceConfig.Ports = ports
 
 	volumes := map[string]types.VolumeConfig{
 		strings.ReplaceAll(nodeName+"_system_state", "-", "_"):           {},
@@ -246,7 +305,7 @@ func (s *TalosWorkerService) GetComposeConfig() (*types.Config, error) {
 	}
 
 	return &types.Config{
-		Services: []types.ServiceConfig{workerConfig},
+		Services: []types.ServiceConfig{serviceConfig},
 		Volumes:  volumes,
 	}, nil
 }

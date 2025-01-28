@@ -189,13 +189,13 @@ func (c *RealController) CreateServiceComponents() error {
 
 		if clusterDriver == "talos" {
 			for i := 1; i <= controlPlaneCount; i++ {
-				controlPlaneService := services.NewTalosControlPlaneService(c.injector)
+				controlPlaneService := services.NewTalosService(c.injector, "controlplane")
 				controlPlaneService.SetName(fmt.Sprintf("controlplane-%d", i))
 				serviceName := fmt.Sprintf("clusterNode.controlplane-%d", i)
 				c.injector.Register(serviceName, controlPlaneService)
 			}
 			for i := 1; i <= workerCount; i++ {
-				workerService := services.NewTalosWorkerService(c.injector)
+				workerService := services.NewTalosService(c.injector, "worker")
 				workerService.SetName(fmt.Sprintf("worker-%d", i))
 				serviceName := fmt.Sprintf("clusterNode.worker-%d", i)
 				c.injector.Register(serviceName, workerService)
