@@ -8,6 +8,7 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/dns"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/api/v1alpha1/git"
+	"github.com/windsorcli/cli/api/v1alpha1/network"
 	"github.com/windsorcli/cli/api/v1alpha1/terraform"
 	"github.com/windsorcli/cli/api/v1alpha1/vm"
 )
@@ -230,6 +231,16 @@ func TestConfig_Copy(t *testing.T) {
 			},
 			DNS: &dns.DNSConfig{
 				Enabled: ptrBool(true),
+			},
+			Network: &network.NetworkConfig{
+				CIDRBlock: ptrString("192.168.0.0/16"),
+				LoadBalancerIPs: &struct {
+					Start *string `yaml:"start,omitempty"`
+					End   *string `yaml:"end,omitempty"`
+				}{
+					Start: ptrString("192.168.0.1"),
+					End:   ptrString("192.168.0.255"),
+				},
 			},
 		}
 

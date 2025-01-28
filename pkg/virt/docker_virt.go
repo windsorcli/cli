@@ -341,17 +341,6 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 		Driver: "bridge",
 	}
 
-	if contextConfig.Docker.NetworkCIDR != nil {
-		networkConfig.Ipam = types.IPAMConfig{
-			Driver: "default",
-			Config: []*types.IPAMPool{
-				{
-					Subnet: *contextConfig.Docker.NetworkCIDR,
-				},
-			},
-		}
-	}
-
 	combinedNetworks[networkName] = networkConfig
 
 	// Iterate over each service and collect container configs
@@ -378,7 +367,7 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 						networkName: {},
 					}
 
-					if contextConfig.Docker.NetworkCIDR != nil && ipAddress != "127.0.0.1" && ipAddress != "" {
+					if v.configHandler.GetString("network.cidr_block") != "" && ipAddress != "127.0.0.1" && ipAddress != "" {
 						containerConfig.Networks[networkName].Ipv4Address = ipAddress
 					}
 

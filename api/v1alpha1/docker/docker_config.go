@@ -2,9 +2,8 @@ package docker
 
 // DockerConfig represents the Docker configuration
 type DockerConfig struct {
-	Enabled     *bool                     `yaml:"enabled"`
-	Registries  map[string]RegistryConfig `yaml:"registries,omitempty"`
-	NetworkCIDR *string                   `yaml:"network_cidr,omitempty"`
+	Enabled    *bool                     `yaml:"enabled"`
+	Registries map[string]RegistryConfig `yaml:"registries,omitempty"`
 }
 
 // RegistryConfig represents the registry configuration
@@ -18,9 +17,6 @@ type RegistryConfig struct {
 func (base *DockerConfig) Merge(overlay *DockerConfig) {
 	if overlay.Enabled != nil {
 		base.Enabled = overlay.Enabled
-	}
-	if overlay.NetworkCIDR != nil {
-		base.NetworkCIDR = overlay.NetworkCIDR
 	}
 
 	// Overwrite base.Registries entirely with overlay.Registries if defined, otherwise keep base.Registries
@@ -40,11 +36,6 @@ func (c *DockerConfig) Copy() *DockerConfig {
 		enabledCopy = ptrBool(*c.Enabled)
 	}
 
-	var networkCIDRCopy *string
-	if c.NetworkCIDR != nil {
-		networkCIDRCopy = ptrString(*c.NetworkCIDR)
-	}
-
 	registriesCopy := make(map[string]RegistryConfig)
 	for name, registry := range c.Registries {
 		registriesCopy[name] = RegistryConfig{
@@ -55,9 +46,8 @@ func (c *DockerConfig) Copy() *DockerConfig {
 	}
 
 	return &DockerConfig{
-		Enabled:     enabledCopy,
-		Registries:  registriesCopy,
-		NetworkCIDR: networkCIDRCopy,
+		Enabled:    enabledCopy,
+		Registries: registriesCopy,
 	}
 }
 

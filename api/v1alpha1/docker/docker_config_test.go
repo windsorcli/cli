@@ -7,8 +7,7 @@ import (
 func TestDockerConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNonNilValues", func(t *testing.T) {
 		base := &DockerConfig{
-			Enabled:     ptrBool(true),
-			NetworkCIDR: ptrString("192.168.1.0/24"),
+			Enabled: ptrBool(true),
 			Registries: map[string]RegistryConfig{
 				"base-registry1": {Remote: "base-remote1", Local: "base-local1", Hostname: "base-hostname1"},
 				"base-registry2": {Remote: "base-remote2", Local: "base-local2", Hostname: "base-hostname2"},
@@ -16,8 +15,7 @@ func TestDockerConfig_Merge(t *testing.T) {
 		}
 
 		overlay := &DockerConfig{
-			Enabled:     ptrBool(false),
-			NetworkCIDR: ptrString("10.0.0.0/16"),
+			Enabled: ptrBool(false),
 			Registries: map[string]RegistryConfig{
 				"base-registry1": {Remote: "overlay-remote1", Local: "overlay-local1", Hostname: "overlay-hostname1"},
 				"new-registry":   {Remote: "overlay-remote2", Local: "overlay-local2", Hostname: "overlay-hostname2"},
@@ -28,9 +26,6 @@ func TestDockerConfig_Merge(t *testing.T) {
 
 		if base.Enabled == nil || *base.Enabled != false {
 			t.Errorf("Enabled mismatch: expected %v, got %v", false, *base.Enabled)
-		}
-		if base.NetworkCIDR == nil || *base.NetworkCIDR != "10.0.0.0/16" {
-			t.Errorf("NetworkCIDR mismatch: expected %v, got %v", "10.0.0.0/16", *base.NetworkCIDR)
 		}
 		if len(base.Registries) != 2 {
 			t.Errorf("Registries length mismatch: expected %v, got %v", 2, len(base.Registries))
@@ -56,26 +51,21 @@ func TestDockerConfig_Merge(t *testing.T) {
 
 	t.Run("MergeWithNilValues", func(t *testing.T) {
 		base := &DockerConfig{
-			Enabled:     ptrBool(true),
-			NetworkCIDR: ptrString("192.168.1.0/24"),
+			Enabled: ptrBool(true),
 			Registries: map[string]RegistryConfig{
 				"base-registry1": {Remote: "base-remote1", Local: "base-local1", Hostname: "base-hostname1"},
 			},
 		}
 
 		overlay := &DockerConfig{
-			Enabled:     nil,
-			NetworkCIDR: nil,
-			Registries:  nil,
+			Enabled:    nil,
+			Registries: nil,
 		}
 
 		base.Merge(overlay)
 
 		if base.Enabled == nil || *base.Enabled != true {
 			t.Errorf("Enabled mismatch: expected %v, got %v", true, *base.Enabled)
-		}
-		if base.NetworkCIDR == nil || *base.NetworkCIDR != "192.168.1.0/24" {
-			t.Errorf("NetworkCIDR mismatch: expected %v, got %v", "192.168.1.0/24", *base.NetworkCIDR)
 		}
 		if len(base.Registries) != 1 || base.Registries["base-registry1"].Remote != "base-remote1" || base.Registries["base-registry1"].Local != "base-local1" || base.Registries["base-registry1"].Hostname != "base-hostname1" {
 			t.Errorf("Registries mismatch: expected %v, got %v", "base-registry1", base.Registries["base-registry1"])
@@ -86,8 +76,7 @@ func TestDockerConfig_Merge(t *testing.T) {
 func TestDockerConfig_Copy(t *testing.T) {
 	t.Run("CopyWithNonNilValues", func(t *testing.T) {
 		original := &DockerConfig{
-			Enabled:     ptrBool(true),
-			NetworkCIDR: ptrString("192.168.1.0/24"),
+			Enabled: ptrBool(true),
 			Registries: map[string]RegistryConfig{
 				"registry1": {Remote: "remote1", Local: "local1", Hostname: "hostname1"},
 				"registry2": {Remote: "remote2", Local: "local2", Hostname: "hostname2"},
@@ -98,9 +87,6 @@ func TestDockerConfig_Copy(t *testing.T) {
 
 		if original.Enabled == nil || copy.Enabled == nil || *original.Enabled != *copy.Enabled {
 			t.Errorf("Enabled mismatch: expected %v, got %v", *original.Enabled, *copy.Enabled)
-		}
-		if original.NetworkCIDR == nil || copy.NetworkCIDR == nil || *original.NetworkCIDR != *copy.NetworkCIDR {
-			t.Errorf("NetworkCIDR mismatch: expected %v, got %v", *original.NetworkCIDR, *copy.NetworkCIDR)
 		}
 		if len(original.Registries) != len(copy.Registries) {
 			t.Errorf("Registries length mismatch: expected %d, got %d", len(original.Registries), len(copy.Registries))

@@ -315,8 +315,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
-					Enabled:     ptrBool(true),
-					NetworkCIDR: ptrString("192.168.1.0/24"),
+					Enabled: ptrBool(true),
 					Registries: map[string]docker.RegistryConfig{
 						"service1": {Remote: "remote1", Local: "local1"},
 						"service2": {Remote: "remote2", Local: "local2"},
