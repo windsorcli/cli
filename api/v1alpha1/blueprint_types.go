@@ -416,7 +416,7 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 		for i, existingKustomization := range mergedKustomizations {
 			if existingKustomization.Name == overlayKustomization.Name {
 				mergedKustomizations[i].Patches = mergeUniqueKustomizePatches(existingKustomization.Patches, overlayKustomization.Patches)
-				mergedKustomizations[i].Components = mergeUniqueComponents(existingKustomization.Components, overlayKustomization.Components)
+				mergedKustomizations[i].Components = mergeOrderedComponents(existingKustomization.Components, overlayKustomization.Components)
 				mergedKustomizations[i].PostBuild = mergePostBuild(existingKustomization.PostBuild, overlayKustomization.PostBuild)
 				found = true
 				break
@@ -454,19 +454,25 @@ func mergeUniqueKustomizePatches(existing, overlay []kustomize.Patch) []kustomiz
 	return mergedPatches
 }
 
-// mergeUniqueComponents merges two slices of strings uniquely.
-func mergeUniqueComponents(existing, overlay []string) []string {
+// mergeOrderedComponents combines two string slices, maintaining order and uniqueness of elements.
+func mergeOrderedComponents(existing, overlay []string) []string {
 	componentSet := make(map[string]struct{})
+	mergedComponents := make([]string, 0, len(existing)+len(overlay))
+
 	for _, component := range existing {
-		componentSet[component] = struct{}{}
+		if _, exists := componentSet[component]; !exists {
+			componentSet[component] = struct{}{}
+			mergedComponents = append(mergedComponents, component)
+		}
 	}
+
 	for _, overlayComponent := range overlay {
-		componentSet[overlayComponent] = struct{}{}
+		if _, exists := componentSet[overlayComponent]; !exists {
+			componentSet[overlayComponent] = struct{}{}
+			mergedComponents = append(mergedComponents, overlayComponent)
+		}
 	}
-	mergedComponents := make([]string, 0, len(componentSet))
-	for component := range componentSet {
-		mergedComponents = append(mergedComponents, component)
-	}
+
 	return mergedComponents
 }
 
