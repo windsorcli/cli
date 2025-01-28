@@ -200,15 +200,21 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 		return "/mock/config/root", nil
 	}
 
-	// Ensure DOMAIN and CONTEXT are defined
+	// Ensure DOMAIN, CONTEXT, and LOADBALANCER_IP_RANGE are defined
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-		if key == "dns.domain" {
+		switch key {
+		case "dns.domain":
 			return "mock.domain.com"
+		case "network.load_balancer_ips.start":
+			return "192.168.1.1"
+		case "network.load_balancer_ips.end":
+			return "192.168.1.100"
+		default:
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
-		if len(defaultValue) > 0 {
-			return defaultValue[0]
-		}
-		return ""
 	}
 
 	mockConfigHandler.GetContextFunc = func() string {
@@ -1445,7 +1451,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 			if config.ResourceName == "configmaps" {
 				configMapApplied = true
 
-				// Check that the DOMAIN and CONTEXT values are as expected
+				// Check that the DOMAIN, CONTEXT, and LOADBALANCER_IP_RANGE values are as expected
 				configMap, ok := config.ResourceObject.(*corev1.ConfigMap)
 				if !ok {
 					return fmt.Errorf("unexpected resource object type")
@@ -1455,6 +1461,9 @@ func TestBlueprintHandler_Install(t *testing.T) {
 				}
 				if configMap.Data["CONTEXT"] != "mock-context" {
 					return fmt.Errorf("unexpected CONTEXT value: got %s, want %s", configMap.Data["CONTEXT"], "mock-context")
+				}
+				if configMap.Data["LOADBALANCER_IP_RANGE"] != "192.168.1.1-192.168.1.100" {
+					return fmt.Errorf("unexpected LOADBALANCER_IP_RANGE value: got %s, want %s", configMap.Data["LOADBALANCER_IP_RANGE"], "192.168.1.1-192.168.1.100")
 				}
 			}
 			return nil
