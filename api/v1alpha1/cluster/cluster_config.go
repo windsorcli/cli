@@ -5,18 +5,19 @@ type ClusterConfig struct {
 	Enabled       *bool   `yaml:"enabled"`
 	Driver        *string `yaml:"driver"`
 	ControlPlanes struct {
-		Count  *int                  `yaml:"count,omitempty"`
-		CPU    *int                  `yaml:"cpu,omitempty"`
-		Memory *int                  `yaml:"memory,omitempty"`
-		Nodes  map[string]NodeConfig `yaml:"nodes,omitempty"`
+		Count     *int                  `yaml:"count,omitempty"`
+		CPU       *int                  `yaml:"cpu,omitempty"`
+		Memory    *int                  `yaml:"memory,omitempty"`
+		Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+		NodePorts []string              `yaml:"nodeports,omitempty"`
 	} `yaml:"controlplanes,omitempty"`
 	Workers struct {
-		Count  *int                  `yaml:"count,omitempty"`
-		CPU    *int                  `yaml:"cpu,omitempty"`
-		Memory *int                  `yaml:"memory,omitempty"`
-		Nodes  map[string]NodeConfig `yaml:"nodes,omitempty"`
+		Count     *int                  `yaml:"count,omitempty"`
+		CPU       *int                  `yaml:"cpu,omitempty"`
+		Memory    *int                  `yaml:"memory,omitempty"`
+		Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+		NodePorts []string              `yaml:"nodeports,omitempty"`
 	} `yaml:"workers,omitempty"`
-	NodePorts []string `yaml:"nodeports,omitempty"`
 }
 
 // NodeConfig represents the node configuration
@@ -65,9 +66,9 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 			base.Workers.Nodes[key] = node
 		}
 	}
-	if overlay.NodePorts != nil {
-		base.NodePorts = make([]string, len(overlay.NodePorts))
-		copy(base.NodePorts, overlay.NodePorts)
+	if overlay.Workers.NodePorts != nil {
+		base.Workers.NodePorts = make([]string, len(overlay.Workers.NodePorts))
+		copy(base.Workers.NodePorts, overlay.Workers.NodePorts)
 	}
 }
 
@@ -76,6 +77,7 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 	if c == nil {
 		return nil
 	}
+
 	controlPlanesNodesCopy := make(map[string]NodeConfig, len(c.ControlPlanes.Nodes))
 	for key, node := range c.ControlPlanes.Nodes {
 		controlPlanesNodesCopy[key] = NodeConfig{
@@ -85,6 +87,9 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 			NodePorts: append([]string{}, node.NodePorts...), // Copy NodePorts for each node
 		}
 	}
+	controlPlanesNodePortsCopy := make([]string, len(c.ControlPlanes.NodePorts))
+	copy(controlPlanesNodePortsCopy, c.ControlPlanes.NodePorts)
+
 	workersNodesCopy := make(map[string]NodeConfig, len(c.Workers.Nodes))
 	for key, node := range c.Workers.Nodes {
 		workersNodesCopy[key] = NodeConfig{
@@ -94,33 +99,37 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 			NodePorts: append([]string{}, node.NodePorts...), // Copy NodePorts for each node
 		}
 	}
-	NodePortsCopy := make([]string, len(c.NodePorts))
-	copy(NodePortsCopy, c.NodePorts)
+	workersNodePortsCopy := make([]string, len(c.Workers.NodePorts))
+	copy(workersNodePortsCopy, c.Workers.NodePorts)
+
 	return &ClusterConfig{
 		Enabled: c.Enabled,
 		Driver:  c.Driver,
 		ControlPlanes: struct {
-			Count  *int                  `yaml:"count,omitempty"`
-			CPU    *int                  `yaml:"cpu,omitempty"`
-			Memory *int                  `yaml:"memory,omitempty"`
-			Nodes  map[string]NodeConfig `yaml:"nodes,omitempty"`
+			Count     *int                  `yaml:"count,omitempty"`
+			CPU       *int                  `yaml:"cpu,omitempty"`
+			Memory    *int                  `yaml:"memory,omitempty"`
+			Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+			NodePorts []string              `yaml:"nodeports,omitempty"`
 		}{
-			Count:  c.ControlPlanes.Count,
-			CPU:    c.ControlPlanes.CPU,
-			Memory: c.ControlPlanes.Memory,
-			Nodes:  controlPlanesNodesCopy,
+			Count:     c.ControlPlanes.Count,
+			CPU:       c.ControlPlanes.CPU,
+			Memory:    c.ControlPlanes.Memory,
+			Nodes:     controlPlanesNodesCopy,
+			NodePorts: controlPlanesNodePortsCopy,
 		},
 		Workers: struct {
-			Count  *int                  `yaml:"count,omitempty"`
-			CPU    *int                  `yaml:"cpu,omitempty"`
-			Memory *int                  `yaml:"memory,omitempty"`
-			Nodes  map[string]NodeConfig `yaml:"nodes,omitempty"`
+			Count     *int                  `yaml:"count,omitempty"`
+			CPU       *int                  `yaml:"cpu,omitempty"`
+			Memory    *int                  `yaml:"memory,omitempty"`
+			Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+			NodePorts []string              `yaml:"nodeports,omitempty"`
 		}{
-			Count:  c.Workers.Count,
-			CPU:    c.Workers.CPU,
-			Memory: c.Workers.Memory,
-			Nodes:  workersNodesCopy,
+			Count:     c.Workers.Count,
+			CPU:       c.Workers.CPU,
+			Memory:    c.Workers.Memory,
+			Nodes:     workersNodesCopy,
+			NodePorts: workersNodePortsCopy,
 		},
-		NodePorts: NodePortsCopy,
 	}
 }
