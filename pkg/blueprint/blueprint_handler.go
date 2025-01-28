@@ -885,6 +885,11 @@ func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha
 func (b *BaseBlueprintHandler) applyConfigMap() error {
 	domain := b.configHandler.GetString("dns.domain")
 	context := b.configHandler.GetContext()
+	lbStart := b.configHandler.GetString("network.load_balancer_ips.start")
+	lbEnd := b.configHandler.GetString("network.load_balancer_ips.end")
+
+	// Generate LOADBALANCER_IP_RANGE from the start and end IPs for network
+	loadBalancerIPRange := fmt.Sprintf("%s-%s", lbStart, lbEnd)
 
 	configMap := &corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
@@ -896,8 +901,9 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 			Namespace: constants.DEFAULT_FLUX_SYSTEM_NAMESPACE,
 		},
 		Data: map[string]string{
-			"DOMAIN":  domain,
-			"CONTEXT": context,
+			"DOMAIN":                domain,
+			"CONTEXT":               context,
+			"LOADBALANCER_IP_RANGE": loadBalancerIPRange,
 		},
 	}
 

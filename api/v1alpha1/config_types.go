@@ -6,6 +6,7 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/dns"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/api/v1alpha1/git"
+	"github.com/windsorcli/cli/api/v1alpha1/network"
 	"github.com/windsorcli/cli/api/v1alpha1/terraform"
 	"github.com/windsorcli/cli/api/v1alpha1/vm"
 )
@@ -27,6 +28,7 @@ type Context struct {
 	Terraform   *terraform.TerraformConfig `yaml:"terraform,omitempty"`
 	VM          *vm.VMConfig               `yaml:"vm,omitempty"`
 	Cluster     *cluster.ClusterConfig     `yaml:"cluster,omitempty"`
+	Network     *network.NetworkConfig     `yaml:"network,omitempty"`
 	DNS         *dns.DNSConfig             `yaml:"dns,omitempty"`
 }
 
@@ -82,6 +84,12 @@ func (base *Context) Merge(overlay *Context) {
 		}
 		base.Cluster.Merge(overlay.Cluster)
 	}
+	if overlay.Network != nil {
+		if base.Network == nil {
+			base.Network = &network.NetworkConfig{}
+		}
+		base.Network.Merge(overlay.Network)
+	}
 	if overlay.DNS != nil {
 		if base.DNS == nil {
 			base.DNS = &dns.DNSConfig{}
@@ -111,6 +119,7 @@ func (c *Context) DeepCopy() *Context {
 		Terraform:   c.Terraform.Copy(),
 		VM:          c.VM.Copy(),
 		Cluster:     c.Cluster.Copy(),
+		Network:     c.Network.Copy(),
 		DNS:         c.DNS.Copy(),
 	}
 }

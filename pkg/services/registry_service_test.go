@@ -49,7 +49,6 @@ func setupSafeRegistryServiceMocks(optionalInjector ...di.Injector) *MockCompone
 						Local:  "registry.local",
 					},
 				},
-				NetworkCIDR: ptrString("10.5.0.0/16"),
 			},
 		}
 	}
@@ -202,7 +201,6 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 							Local:  "",
 						},
 					},
-					NetworkCIDR: ptrString("10.5.0.0/16"),
 				},
 			}
 		}

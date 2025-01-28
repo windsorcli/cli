@@ -7,6 +7,7 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/dns"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/api/v1alpha1/git"
+	"github.com/windsorcli/cli/api/v1alpha1/network"
 	"github.com/windsorcli/cli/api/v1alpha1/terraform"
 	"github.com/windsorcli/cli/api/v1alpha1/vm"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -27,15 +28,15 @@ var DefaultConfig = v1alpha1.Context{
 		},
 	},
 	Docker: &docker.DockerConfig{
-		Enabled:     nil,
-		Registries:  map[string]docker.RegistryConfig{},
-		NetworkCIDR: nil,
+		Enabled:    nil,
+		Registries: map[string]docker.RegistryConfig{},
 	},
 	Terraform: &terraform.TerraformConfig{
 		Enabled: nil,
 		Backend: nil,
 	},
 	Cluster: nil,
+	Network: nil,
 	DNS: &dns.DNSConfig{
 		Enabled: nil,
 		Domain:  nil,
@@ -67,7 +68,6 @@ var DefaultLocalConfig = v1alpha1.Context{
 				Remote: "https://quay.io",
 			},
 		},
-		NetworkCIDR: nil,
 	},
 	Git: &git.GitConfig{
 		Livereload: &git.GitLivereloadConfig{
@@ -112,6 +112,16 @@ var DefaultLocalConfig = v1alpha1.Context{
 			Memory:    ptrInt(4),
 			Nodes:     make(map[string]cluster.NodeConfig),
 			NodePorts: []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp"},
+		},
+	},
+	Network: &network.NetworkConfig{
+		CIDRBlock: ptrString("10.5.0.0/16"),
+		LoadBalancerIPs: &struct {
+			Start *string `yaml:"start,omitempty"`
+			End   *string `yaml:"end,omitempty"`
+		}{
+			Start: ptrString("10.5.1.1"),
+			End:   ptrString("10.5.1.10"),
 		},
 	},
 	DNS: &dns.DNSConfig{
