@@ -40,6 +40,12 @@ func TestConfig_Merge(t *testing.T) {
 			DNS: &dns.DNSConfig{
 				Enabled: ptrBool(true),
 			},
+			Environment: map[string]string{
+				"KEY1": "value1",
+			},
+			Network: &network.NetworkConfig{
+				CIDRBlock: ptrString("192.168.0.0/16"),
+			},
 		}
 
 		overlay := &Context{
@@ -66,6 +72,12 @@ func TestConfig_Merge(t *testing.T) {
 			DNS: &dns.DNSConfig{
 				Enabled: ptrBool(false),
 			},
+			Environment: map[string]string{
+				"KEY2": "value2",
+			},
+			Network: &network.NetworkConfig{
+				CIDRBlock: ptrString("10.0.0.0/8"),
+			},
 		}
 
 		base.Merge(overlay)
@@ -90,6 +102,12 @@ func TestConfig_Merge(t *testing.T) {
 		}
 		if base.DNS.Enabled == nil || *base.DNS.Enabled != false {
 			t.Errorf("DNS Enabled mismatch: expected false, got %v", *base.DNS.Enabled)
+		}
+		if len(base.Environment) != 2 || base.Environment["KEY1"] != "value1" || base.Environment["KEY2"] != "value2" {
+			t.Errorf("Environment merge mismatch: expected map with 'KEY1' and 'KEY2', got %v", base.Environment)
+		}
+		if base.Network.CIDRBlock == nil || *base.Network.CIDRBlock != "10.0.0.0/8" {
+			t.Errorf("Network CIDRBlock mismatch: expected '10.0.0.0/8', got '%s'", *base.Network.CIDRBlock)
 		}
 	})
 
@@ -119,6 +137,12 @@ func TestConfig_Merge(t *testing.T) {
 			DNS: &dns.DNSConfig{
 				Enabled: ptrBool(true),
 			},
+			Environment: map[string]string{
+				"KEY1": "value1",
+			},
+			Network: &network.NetworkConfig{
+				CIDRBlock: ptrString("192.168.0.0/16"),
+			},
 		}
 
 		var overlay *Context = nil
@@ -144,6 +168,12 @@ func TestConfig_Merge(t *testing.T) {
 		}
 		if base.DNS.Enabled == nil || *base.DNS.Enabled != true {
 			t.Errorf("DNS Enabled mismatch: expected true, got %v", *base.DNS.Enabled)
+		}
+		if len(base.Environment) != 1 || base.Environment["KEY1"] != "value1" {
+			t.Errorf("Environment mismatch: expected map with 'KEY1', got %v", base.Environment)
+		}
+		if base.Network.CIDRBlock == nil || *base.Network.CIDRBlock != "192.168.0.0/16" {
+			t.Errorf("Network CIDRBlock mismatch: expected '192.168.0.0/16', got '%s'", *base.Network.CIDRBlock)
 		}
 	})
 
@@ -174,6 +204,12 @@ func TestConfig_Merge(t *testing.T) {
 			DNS: &dns.DNSConfig{
 				Enabled: ptrBool(false),
 			},
+			Environment: map[string]string{
+				"KEY2": "value2",
+			},
+			Network: &network.NetworkConfig{
+				CIDRBlock: ptrString("10.0.0.0/8"),
+			},
 		}
 
 		base.Merge(overlay)
@@ -198,6 +234,28 @@ func TestConfig_Merge(t *testing.T) {
 		}
 		if base.DNS.Enabled == nil || *base.DNS.Enabled != false {
 			t.Errorf("DNS Enabled mismatch: expected false, got %v", *base.DNS.Enabled)
+		}
+		if len(base.Environment) != 1 || base.Environment["KEY2"] != "value2" {
+			t.Errorf("Environment mismatch: expected map with 'KEY2', got %v", base.Environment)
+		}
+		if base.Network.CIDRBlock == nil || *base.Network.CIDRBlock != "10.0.0.0/8" {
+			t.Errorf("Network CIDRBlock mismatch: expected '10.0.0.0/8', got '%s'", *base.Network.CIDRBlock)
+		}
+	})
+
+	t.Run("MergeWithProjectName", func(t *testing.T) {
+		base := &Context{
+			ProjectName: ptrString("BaseProject"),
+		}
+
+		overlay := &Context{
+			ProjectName: ptrString("OverlayProject"),
+		}
+
+		base.Merge(overlay)
+
+		if base.ProjectName == nil || *base.ProjectName != "OverlayProject" {
+			t.Errorf("ProjectName mismatch: expected 'OverlayProject', got '%s'", *base.ProjectName)
 		}
 	})
 }

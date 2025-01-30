@@ -92,6 +92,17 @@ cluster:
 | `workers.memory`             | `int`      | Memory resources allocated per worker node.                        |
 | `workers.nodeports`          | `[]string` | List of nodeports for host forwarding specific to workers.         |
 
+### Network
+Configures details related to local networking. This includes both the CIDR block range used by the network, as well as the range of IPs to be used when acquiring load balancer IP addresses.
+
+```yaml
+network:
+  cidr_block: 10.5.0.0/16
+  loadbalancer_ips:
+    start: 10.5.1.1
+    end: 10.5.1.10
+```
+
 ### DNS
 Configures details related to the local DNS service. The service is available at `dns.test:53`. Presently, the local DNS server runs CoreDNS.
 
@@ -116,14 +127,12 @@ Configures details related to using Docker locally.
 ```yaml
 docker:
   enabled: true
-  network_cidr: 10.5.0.0/16
   registries: #...
 ```
 
 | Field          | Type                       | Description                                                                 |
 |----------------|----------------------------|-----------------------------------------------------------------------------|
 | `enabled`      | `bool`                     | Indicates whether the Docker service is enabled.                            |
-| `network_cidr` | `string`                   | Specifies the network CIDR for Docker.                                      |
 | `registries`   | `map[string]RegistryConfig`| Configuration for Docker registries, mapping registry names to their config.|
 
 #### RegistryConfig
@@ -263,6 +272,11 @@ contexts:
         nodeports:
           - 8080:30080
           - 8443:30443
+    network:
+      cidr_block: 10.5.0.0/16
+      loadbalancer_ips:
+        start: 10.5.1.1
+        end: 10.5.1.10
     dns:
       enabled: true
       domain: test

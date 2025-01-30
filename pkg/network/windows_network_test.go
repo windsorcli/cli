@@ -47,7 +47,7 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 		switch key {
-		case "docker.network_cidr":
+		case "network.cidr_block":
 			return "192.168.1.0/24"
 		case "vm.address":
 			return "192.168.1.10"
@@ -122,7 +122,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "docker.network_cidr" {
+			if key == "network.cidr_block" {
 				return ""
 			}
 			if len(defaultValue) > 0 {
@@ -151,7 +151,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "docker.network_cidr" {
+			if key == "network.cidr_block" {
 				return "192.168.1.0/24"
 			}
 			if key == "vm.address" {
@@ -183,7 +183,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "docker.network_cidr" {
+			if key == "network.cidr_block" {
 				return "192.168.1.0/24"
 			}
 			if key == "vm.address" {
@@ -223,7 +223,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "docker.network_cidr" {
+			if key == "network.cidr_block" {
 				return "192.168.1.0/24"
 			}
 			if key == "vm.address" {

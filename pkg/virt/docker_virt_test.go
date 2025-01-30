@@ -8,8 +8,6 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
@@ -40,19 +38,25 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 		return "mock-context"
 	}
 
-	// Set up the mock config handler to return a safe default configuration for Docker VMs
-	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-		return &v1alpha1.Context{
-			Docker: &docker.DockerConfig{
-				Enabled: ptrBool(true),
-				Registries: map[string]docker.RegistryConfig{
-					"registry.test": {
-						Remote: "https://registry.test",
-						Local:  "https://local.registry.test",
-					},
-				},
-			},
+	// Set up the mock config handler to return specific values for Docker configuration
+	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+		if key == "docker.enabled" {
+			return true
 		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return false
+	}
+
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		if key == "network.cidr_block" {
+			return "192.168.1.0/24"
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return "default-value"
 	}
 
 	// Mock the shell Exec function to return generic JSON structures for two containers
@@ -1226,10 +1230,14 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		// Setup mock components with a config handler that returns no Docker configuration
 		mockInjector := di.NewMockInjector()
 		mocks := setupSafeDockerContainerMocks(mockInjector)
-		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Docker: nil, // No Docker configuration
+		mocks.MockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return false
 			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
 		}
 		dockerVirt := NewDockerVirt(mockInjector)
 		dockerVirt.Initialize()
@@ -1324,7 +1332,7 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		dockerVirt := NewDockerVirt(mockInjector)
 		dockerVirt.Initialize()
 
-		// Mock the GetString function to return an empty string for network.cidr_block
+		// Mock the network.cidr_block to return an empty string
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "network.cidr_block" {
 				return ""

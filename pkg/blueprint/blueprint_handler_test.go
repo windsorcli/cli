@@ -205,9 +205,9 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 		switch key {
 		case "dns.domain":
 			return "mock.domain.com"
-		case "network.load_balancer_ips.start":
+		case "network.loadbalancer_ips.start":
 			return "192.168.1.1"
-		case "network.load_balancer_ips.end":
+		case "network.loadbalancer_ips.end":
 			return "192.168.1.100"
 		default:
 			if len(defaultValue) > 0 {

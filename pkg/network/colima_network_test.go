@@ -44,7 +44,7 @@ func setupColimaNetworkManagerMocks() *ColimaNetworkManagerMocks {
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 		switch key {
-		case "docker.network_cidr":
+		case "network.cidr_block":
 			return "192.168.5.0/24"
 		case "vm.driver":
 			return "colima"
@@ -150,7 +150,7 @@ func TestColimaNetworkManager_Initialize(t *testing.T) {
 
 		// Mock the configHandler to return a specific CIDR for testing
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "docker.network_cidr" {
+			if key == "network.cidr_block" {
 				return "10.5.0.0/16"
 			}
 			if len(defaultValue) > 0 {
@@ -159,9 +159,9 @@ func TestColimaNetworkManager_Initialize(t *testing.T) {
 			return ""
 		}
 
-		// Verify that docker.network_cidr is set to the mocked value
-		if actualCIDR := nm.configHandler.GetString("docker.network_cidr"); actualCIDR != "10.5.0.0/16" {
-			t.Fatalf("expected docker.network_cidr to be 10.5.0.0/16, got %s", actualCIDR)
+		// Verify that network.cidr_block is set to the mocked value
+		if actualCIDR := nm.configHandler.GetString("network.cidr_block"); actualCIDR != "10.5.0.0/16" {
+			t.Fatalf("expected network.cidr_block to be 10.5.0.0/16, got %s", actualCIDR)
 		}
 	})
 
@@ -224,9 +224,9 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		// Setup mocks using setupColimaNetworkManagerMocks
 		mocks := setupColimaNetworkManagerMocks()
 
-		// Override the GetString method to return an empty string for "docker.network_cidr"
+		// Override the GetString method to return an empty string for "network.cidr_block"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "docker.network_cidr" {
+			if key == "network.cidr_block" {
 				return ""
 			}
 			if len(defaultValue) > 0 {
@@ -261,7 +261,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 
 		// Override the GetString method to return an empty string for "vm.address"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "docker.network_cidr" {
+			if key == "network.cidr_block" {
 				return "192.168.5.0/24"
 			}
 			if key == "vm.address" {

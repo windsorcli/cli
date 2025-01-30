@@ -45,7 +45,7 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 		switch key {
-		case "docker.network_cidr":
+		case "network.cidr_block":
 			return "192.168.1.0/24"
 		case "vm.address":
 			return "192.168.1.10"
@@ -303,17 +303,17 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		mocks := setupNetworkManagerMocks()
 		nm := NewBaseNetworkManager(mocks.Injector)
 
-		// Mock GetString to return an empty string for docker.network_cidr
+		// Mock GetString to return an empty string for network.cidr_block
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "docker.network_cidr" {
+			if key == "network.cidr_block" {
 				return ""
 			}
 			return ""
 		}
 
-		// Mock SetContextValue to return an error when setting docker.network_cidr
+		// Mock SetContextValue to return an error when setting network.cidr_block
 		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
-			if key == "docker.network_cidr" {
+			if key == "network.cidr_block" {
 				return fmt.Errorf("mock error setting network CIDR")
 			}
 			return nil

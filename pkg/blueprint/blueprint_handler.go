@@ -885,8 +885,8 @@ func (b *BaseBlueprintHandler) applyKustomization(kustomization blueprintv1alpha
 func (b *BaseBlueprintHandler) applyConfigMap() error {
 	domain := b.configHandler.GetString("dns.domain")
 	context := b.configHandler.GetContext()
-	lbStart := b.configHandler.GetString("network.load_balancer_ips.start")
-	lbEnd := b.configHandler.GetString("network.load_balancer_ips.end")
+	lbStart := b.configHandler.GetString("network.loadbalancer_ips.start")
+	lbEnd := b.configHandler.GetString("network.loadbalancer_ips.end")
 
 	// Generate LOADBALANCER_IP_RANGE from the start and end IPs for network
 	loadBalancerIPRange := fmt.Sprintf("%s-%s", lbStart, lbEnd)

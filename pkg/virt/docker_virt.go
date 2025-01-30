@@ -53,9 +53,8 @@ func (v *DockerVirt) Initialize() error {
 		return fmt.Sprintf("%T", serviceSlice[i]) < fmt.Sprintf("%T", serviceSlice[j])
 	})
 
-	// Get the context configuration
-	contextConfig := v.configHandler.GetConfig()
-	if contextConfig == nil || contextConfig.Docker == nil {
+	// Check if Docker is enabled using configHandler
+	if !v.configHandler.GetBool("docker.enabled") {
 		return fmt.Errorf("Docker configuration is not defined")
 	}
 
@@ -84,11 +83,8 @@ func (v *DockerVirt) determineComposeCommand() error {
 
 // Up starts docker compose
 func (v *DockerVirt) Up() error {
-	// Get the context configuration
-	contextConfig := v.configHandler.GetConfig()
-
 	// Check if Docker is enabled and run "docker compose up" in daemon mode if necessary
-	if contextConfig != nil && contextConfig.Docker != nil && *contextConfig.Docker.Enabled {
+	if v.configHandler.GetBool("docker.enabled") {
 		// Ensure Docker daemon is running
 		if err := v.checkDockerDaemon(); err != nil {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
@@ -321,9 +317,8 @@ func (v *DockerVirt) checkDockerDaemon() error {
 // and returns a Project with these combined settings.
 func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	contextName := v.configHandler.GetContext()
-	contextConfig := v.configHandler.GetConfig()
 
-	if contextConfig.Docker == nil {
+	if v.configHandler.GetBool("docker.enabled") == false {
 		return nil, nil
 	}
 
@@ -339,6 +334,18 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 
 	networkConfig := types.NetworkConfig{
 		Driver: "bridge",
+	}
+
+	networkCIDR := v.configHandler.GetString("network.cidr_block")
+	if networkCIDR != "" {
+		networkConfig.Ipam = types.IPAMConfig{
+			Driver: "default",
+			Config: []*types.IPAMPool{
+				{
+					Subnet: networkCIDR,
+				},
+			},
+		}
 	}
 
 	combinedNetworks[networkName] = networkConfig
@@ -367,7 +374,8 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 						networkName: {},
 					}
 
-					if v.configHandler.GetString("network.cidr_block") != "" && ipAddress != "127.0.0.1" && ipAddress != "" {
+					networkCIDR := v.configHandler.GetString("network.cidr_block")
+					if networkCIDR != "" && ipAddress != "127.0.0.1" && ipAddress != "" {
 						containerConfig.Networks[networkName].Ipv4Address = ipAddress
 					}
 
