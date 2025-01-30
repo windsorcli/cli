@@ -13,20 +13,8 @@ tasks:
   build:
     desc: Build the Windsor CLI for the current platform
     cmds:
-      - cmd: mkdir -p dist
-        platforms: [linux, darwin]
-      - cmd: powershell -Command "New-Item -ItemType Directory -Force -Path dist"
-        platforms: [windows]
-      - cmd: GOOS=linux GOARCH=amd64 go build -o dist/windsor ./cmd/windsor/main.go
-        platforms: [linux]
-      - cmd: GOOS=linux GOARCH=arm64 go build -o dist/windsor ./cmd/windsor/main.go
-        platforms: [linux]
-      - cmd: GOOS=darwin GOARCH=amd64 go build -o dist/windsor ./cmd/windsor/main.go
-        platforms: [darwin]
-      - cmd: GOOS=darwin GOARCH=arm64 go build -o dist/windsor ./cmd/windsor/main.go
-        platforms: [darwin]
-      - cmd: GOOS=windows GOARCH=amd64 go build -o dist/windsor.exe ./cmd/windsor/main.go
-        platforms: [windows]
+      - mkdir -p dist
+      - go build -o dist/windsor{{ if eq .OS "windows" }}.exe{{ end }} ./cmd/windsor/main.go
 
   clean:
     desc: Clean build artifacts

@@ -60,7 +60,8 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 		if goos() == "windows" {
 			envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
 		} else {
-			dockerHostPath := fmt.Sprintf("unix://%s/.docker/run/docker.sock", homeDir)
+			// dockerHostPath := fmt.Sprintf("unix://%s/.docker/run/docker.sock", homeDir)
+			dockerHostPath := "unix:///var/run/docker.sock"
 			envVars["DOCKER_HOST"] = dockerHostPath
 		}
 		dockerConfigContent = fmt.Sprintf(dockerConfigContent, "desktop-linux")
