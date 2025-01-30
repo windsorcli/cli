@@ -38,8 +38,8 @@ func (n *ColimaNetworkManager) Initialize() error {
 	}
 
 	// Set docker.NetworkCIDR to the default value if it's not set
-	if n.configHandler.GetString("docker.network_cidr") == "" {
-		return n.configHandler.SetContextValue("docker.network_cidr", constants.DEFAULT_NETWORK_CIDR)
+	if n.configHandler.GetString("network.cidr_block") == "" {
+		return n.configHandler.SetContextValue("network.cidr_block", constants.DEFAULT_NETWORK_CIDR)
 	}
 
 	return nil
@@ -72,7 +72,7 @@ func (n *ColimaNetworkManager) resolveDependencies() error {
 // It identifies the Docker bridge interface and ensures iptables rules are set.
 // If the rule doesn't exist, it adds a new one to allow traffic forwarding.
 func (n *ColimaNetworkManager) ConfigureGuest() error {
-	networkCIDR := n.configHandler.GetString("docker.network_cidr")
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}

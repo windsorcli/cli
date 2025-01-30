@@ -85,10 +85,10 @@ func (n *BaseNetworkManager) Initialize() error {
 			}
 		}
 	} else {
-		networkCIDR := n.configHandler.GetString("docker.network_cidr")
+		networkCIDR := n.configHandler.GetString("network.cidr_block")
 		if networkCIDR == "" {
 			networkCIDR = constants.DEFAULT_NETWORK_CIDR
-			if err := n.configHandler.SetContextValue("docker.network_cidr", networkCIDR); err != nil {
+			if err := n.configHandler.SetContextValue("network.cidr_block", networkCIDR); err != nil {
 				return fmt.Errorf("error setting default network CIDR: %w", err)
 			}
 		}

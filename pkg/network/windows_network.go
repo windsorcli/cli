@@ -16,7 +16,7 @@ import (
 // already exists using a PowerShell command. If not, it adds a new route on the host
 // to the VM guest using another PowerShell command.
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
-	networkCIDR := n.configHandler.GetString("docker.network_cidr")
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}

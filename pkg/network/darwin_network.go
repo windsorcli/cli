@@ -14,7 +14,7 @@ import (
 // If the route does not exist, it adds a new route using elevated permissions to facilitate communication
 // between the host and the guest VM.
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
-	networkCIDR := n.configHandler.GetString("docker.network_cidr")
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}

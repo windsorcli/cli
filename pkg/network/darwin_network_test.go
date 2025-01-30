@@ -59,7 +59,7 @@ func setupDarwinNetworkManagerMocks() *DarwinNetworkManagerMocks {
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 		switch key {
-		case "docker.network_cidr":
+		case "network.cidr_block":
 			return "192.168.5.0/24"
 		case "vm.address":
 			return "192.168.5.100"
@@ -158,9 +158,9 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("NoNetworkCIDRConfigured", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
-		// Mock the GetString function to return an empty string for "docker.network_cidr"
+		// Mock the GetString function to return an empty string for "network.cidr_block"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "docker.network_cidr" {
+			if key == "network.cidr_block" {
 				return ""
 			}
 			if len(defaultValue) > 0 {
@@ -194,7 +194,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		// Mock the GetString function to return valid CIDR but an empty string for "vm.address"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "docker.network_cidr" {
+			if key == "network.cidr_block" {
 				return "192.168.1.0/24"
 			}
 			if key == "vm.address" {

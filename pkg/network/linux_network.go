@@ -11,7 +11,7 @@ import (
 // ConfigureHostRoute sets up the local development network for Linux
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	// Access the Docker configuration
-	networkCIDR := n.configHandler.GetString("docker.network_cidr")
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}

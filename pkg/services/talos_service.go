@@ -16,12 +16,12 @@ import (
 
 // Initialize the global port settings
 var (
-	nextLocalhostAPIPort = 50001
-	defaultAPIPort       = 50000
-	portLock             sync.Mutex
-	extraPortIndex       = 0
-	nextNodePorts        = []string{}
-	controlPlaneLeader   *TalosService
+	nextAPIPort        = 50001
+	defaultAPIPort     = 50000
+	portLock           sync.Mutex
+	extraPortIndex     = 0
+	nextNodePorts      = []string{}
+	controlPlaneLeader *TalosService
 )
 
 type TalosService struct {
@@ -53,10 +53,10 @@ func NewTalosService(injector di.Injector, mode string) *TalosService {
 }
 
 // SetAddress configures the Talos service's hostname and endpoint using the
-// provided address. For localhost addresses, it assigns unique API ports starting
-// from 50001, incrementing for each node. A mutex is used to safely manage concurrent
-// access to the port allocation. The leader controlplane is assigned the default API port.
-// Node ports are configured based on the cluster configuration, ensuring no conflicts.
+// provided address. It assigns unique API ports starting from 50001, incrementing
+// for each node. A mutex is used to safely manage concurrent access to the port allocation.
+// The leader controlplane is assigned the default API port. Node ports are configured
+// based on the cluster configuration, ensuring no conflicts.
 func (s *TalosService) SetAddress(address string) error {
 	tld := s.configHandler.GetString("dns.domain", "test")
 	nodeType := "workers"
@@ -74,14 +74,12 @@ func (s *TalosService) SetAddress(address string) error {
 	portLock.Lock()
 	defer portLock.Unlock()
 
-	port := defaultAPIPort
-	if isLocalhost(address) {
-		port = nextLocalhostAPIPort
-		nextLocalhostAPIPort++
-	}
-
+	var port int
 	if s.isLeader {
 		port = defaultAPIPort // Reserve 50000 for the leader controlplane
+	} else {
+		port = nextAPIPort
+		nextAPIPort++
 	}
 
 	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, s.name), fmt.Sprintf("%s:%d", address, port)); err != nil {
@@ -141,11 +139,7 @@ func (s *TalosService) SetAddress(address string) error {
 					return fmt.Errorf("invalid nodePort format: %s", nextNodePorts[i])
 				}
 
-				if isLocalhost(address) {
-					nextNodePorts[i] = fmt.Sprintf("%d:%d/%s", hostPort+1, nodePort, protocol)
-				} else {
-					nextNodePorts[i] = fmt.Sprintf("%d:%d/%s", hostPort, nodePort, protocol)
-				}
+				nextNodePorts[i] = fmt.Sprintf("%d:%d/%s", hostPort, nodePort, protocol)
 			}
 		}
 
