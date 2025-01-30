@@ -20,8 +20,8 @@ var (
 	defaultAPIPort     = 50000
 	portLock           sync.Mutex
 	extraPortIndex     = 0
-	nextNodePorts      = []string{}
 	controlPlaneLeader *TalosService
+	usedHostPorts      = make(map[int]bool)
 )
 
 type TalosService struct {
@@ -39,7 +39,7 @@ func NewTalosService(injector di.Injector, mode string) *TalosService {
 		mode: mode,
 	}
 
-	// Elect a leader for the first controlplane
+	// Elect a "leader" for the first controlplane
 	if mode == "controlplane" {
 		portLock.Lock()
 		defer portLock.Unlock()
@@ -53,10 +53,11 @@ func NewTalosService(injector di.Injector, mode string) *TalosService {
 }
 
 // SetAddress configures the Talos service's hostname and endpoint using the
-// provided address. It assigns unique API ports starting from 50001, incrementing
-// for each node. A mutex is used to safely manage concurrent access to the port allocation.
-// The leader controlplane is assigned the default API port. Node ports are configured
-// based on the cluster configuration, ensuring no conflicts.
+// provided address. It assigns the default API port to the leader controlplane
+// or a unique port if the address is not local. For other nodes, it assigns
+// unique API ports starting from 50001, incrementing for each node. A mutex
+// is used to safely manage concurrent access to the port allocation. Node ports
+// are configured based on the cluster configuration, ensuring no conflicts.
 func (s *TalosService) SetAddress(address string) error {
 	tld := s.configHandler.GetString("dns.domain", "test")
 	nodeType := "workers"
@@ -75,8 +76,8 @@ func (s *TalosService) SetAddress(address string) error {
 	defer portLock.Unlock()
 
 	var port int
-	if s.isLeader {
-		port = defaultAPIPort // Reserve 50000 for the leader controlplane
+	if s.isLeader || !isLocalhost(address) {
+		port = defaultAPIPort
 	} else {
 		port = nextAPIPort
 		nextAPIPort++
@@ -86,77 +87,70 @@ func (s *TalosService) SetAddress(address string) error {
 		return err
 	}
 
-	config := s.configHandler.GetConfig()
-	if config.Cluster != nil {
-		var nodePorts []string
-		if s.mode == "controlplane" {
-			nodePorts = config.Cluster.ControlPlanes.NodePorts
-		} else {
-			nodePorts = config.Cluster.Workers.NodePorts
-		}
+	nodePorts := s.configHandler.GetStringSlice(fmt.Sprintf("cluster.%s.nodeports", nodeType), []string{})
 
-		if nodePorts != nil && (nextNodePorts == nil || len(nextNodePorts) == 0) {
-			nextNodePorts = make([]string, len(nodePorts))
-			copy(nextNodePorts, nodePorts)
-		}
+	nodePortsCopy := make([]string, len(nodePorts))
+	copy(nodePortsCopy, nodePorts)
 
-		currentNodePorts := make([]string, len(nextNodePorts))
-		copy(currentNodePorts, nextNodePorts)
+	for i := 0; i < len(nodePortsCopy); i++ {
+		parts := strings.Split(nodePortsCopy[i], ":")
+		var hostPort, nodePort int
+		protocol := "tcp"
 
-		if nextNodePorts != nil {
-			for i := 0; i < len(nextNodePorts); i++ {
-				parts := strings.Split(nextNodePorts[i], ":")
-				var hostPort, nodePort int
-				protocol := "tcp"
-
-				switch len(parts) {
-				case 1: // nodePort only
-					var err error
-					nodePort, err = strconv.Atoi(parts[0])
-					if err != nil {
-						return fmt.Errorf("invalid nodePort value: %s", parts[0])
-					}
-					hostPort = nodePort
-				case 2: // hostPort and nodePort/protocol
-					var err error
-					hostPort, err = strconv.Atoi(parts[0])
-					if err != nil {
-						return fmt.Errorf("invalid hostPort value: %s", parts[0])
-					}
-					nodePortProtocol := strings.Split(parts[1], "/")
-					nodePort, err = strconv.Atoi(nodePortProtocol[0])
-					if err != nil {
-						return fmt.Errorf("invalid nodePort value: %s", nodePortProtocol[0])
-					}
-					if len(nodePortProtocol) == 2 {
-						if nodePortProtocol[1] == "tcp" || nodePortProtocol[1] == "udp" {
-							protocol = nodePortProtocol[1]
-						} else {
-							return fmt.Errorf("invalid protocol value: %s", nodePortProtocol[1])
-						}
-					}
-				default:
-					return fmt.Errorf("invalid nodePort format: %s", nextNodePorts[i])
-				}
-
-				nextNodePorts[i] = fmt.Sprintf("%d:%d/%s", hostPort, nodePort, protocol)
+		switch len(parts) {
+		case 1: // nodePort only
+			var err error
+			nodePort, err = strconv.Atoi(parts[0])
+			if err != nil {
+				return fmt.Errorf("invalid nodePort value: %s", parts[0])
 			}
+			hostPort = nodePort
+		case 2: // hostPort and nodePort/protocol
+			var err error
+			hostPort, err = strconv.Atoi(parts[0])
+			if err != nil {
+				return fmt.Errorf("invalid hostPort value: %s", parts[0])
+			}
+			nodePortProtocol := strings.Split(parts[1], "/")
+			nodePort, err = strconv.Atoi(nodePortProtocol[0])
+			if err != nil {
+				return fmt.Errorf("invalid nodePort value: %s", nodePortProtocol[0])
+			}
+			if len(nodePortProtocol) == 2 {
+				if nodePortProtocol[1] == "tcp" || nodePortProtocol[1] == "udp" {
+					protocol = nodePortProtocol[1]
+				} else {
+					return fmt.Errorf("invalid protocol value: %s", nodePortProtocol[1])
+				}
+			}
+		default:
+			return fmt.Errorf("invalid nodePort format: %s", nodePortsCopy[i])
 		}
 
-		if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.nodeports", nodeType, s.name), currentNodePorts); err != nil {
-			return err
+		// Check for conflicts in hostPort
+		for usedHostPorts[hostPort] {
+			hostPort++
 		}
+		usedHostPorts[hostPort] = true
+
+		nodePortsCopy[i] = fmt.Sprintf("%d:%d/%s", hostPort, nodePort, protocol)
+	}
+
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.nodeports", nodeType, s.name), nodePortsCopy); err != nil {
+		return err
 	}
 
 	return s.BaseService.SetAddress(address)
 }
 
-// GetComposeConfig generates a docker-compose configuration for Talos services. It retrieves CPU and RAM
-// settings based on the node type (worker or control plane) and identifies the endpoint ports for service
-// communication. The function ensures necessary volume directories are defined and configures the container
-// with the appropriate image, environment variables, security options, and volume mounts. It constructs the
-// service name using the node name and sets up port mappings, including both default and node-specific ports.
-// The resulting configuration includes detailed service and volume specifications for deployment.
+// GetComposeConfig creates a Docker Compose configuration for Talos services.
+// It dynamically retrieves CPU and RAM settings based on whether the node is a worker
+// or part of the control plane. The function identifies endpoint ports for service communication and ensures
+// that all necessary volume directories are defined. It configures the container with the latest image,
+// environment variables, security options, and volume mounts. The service name is constructed using the node
+// name, and port mappings are set up, including both default and node-specific ports. The resulting configuration
+// provides comprehensive service and volume specifications for deployment, ensuring compatibility with the
+// docker-compose.yml file.
 func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	config := s.configHandler.GetConfig()
 	if config.Cluster == nil {
@@ -177,7 +171,6 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		ram = s.configHandler.GetInt("cluster.workers.memory", constants.DEFAULT_TALOS_WORKER_RAM)
 	}
 
-	// Define a default name if s.name is not set
 	nodeName := s.name
 	if nodeName == "" {
 		nodeName = nodeType[:len(nodeType)-1] // remove 's' from nodeType
@@ -207,7 +200,6 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
-	// Add bind mount for workers
 	if s.mode != "controlplane" {
 		projectRoot, err := s.shell.GetProjectRoot()
 		if err != nil {
@@ -243,24 +235,24 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 
 	var ports []types.ServicePortConfig
 
-	// Ensure defaultAPIPort is within the valid range for uint32
 	if defaultAPIPort < 0 || defaultAPIPort > math.MaxUint32 {
 		return nil, fmt.Errorf("defaultAPIPort value out of range: %d", defaultAPIPort)
 	}
 
-	ports = append(ports, types.ServicePortConfig{
-		Target:    uint32(defaultAPIPort),
-		Published: publishedPort,
-		Protocol:  "tcp",
-	})
-
-	// Add port 6443 forwarding for the leader controlplane
-	if s.isLeader {
+	if isLocalhost(s.address) {
 		ports = append(ports, types.ServicePortConfig{
-			Target:    6443,
-			Published: "6443",
+			Target:    uint32(defaultAPIPort),
+			Published: publishedPort,
 			Protocol:  "tcp",
 		})
+
+		if s.isLeader {
+			ports = append(ports, types.ServicePortConfig{
+				Target:    6443,
+				Published: "6443",
+				Protocol:  "tcp",
+			})
+		}
 	}
 
 	nodePortsKey := fmt.Sprintf("cluster.%s.nodes.%s.nodeports", nodeType, nodeName)
