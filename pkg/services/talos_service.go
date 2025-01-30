@@ -235,13 +235,15 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 
 	var ports []types.ServicePortConfig
 
+	// Convert defaultAPIPort to uint32 safely
 	if defaultAPIPort < 0 || defaultAPIPort > math.MaxUint32 {
 		return nil, fmt.Errorf("defaultAPIPort value out of range: %d", defaultAPIPort)
 	}
+	defaultAPIPortUint32 := uint32(defaultAPIPort)
 
 	if isLocalhost(s.address) {
 		ports = append(ports, types.ServicePortConfig{
-			Target:    uint32(defaultAPIPort),
+			Target:    defaultAPIPortUint32,
 			Published: publishedPort,
 			Protocol:  "tcp",
 		})
