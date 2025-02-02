@@ -192,7 +192,7 @@ func TestBaseService_GetHostname(t *testing.T) {
 	})
 }
 
-func TestBaseService_isLocalhost(t *testing.T) {
+func TestBaseService_IsLocalhost(t *testing.T) {
 	tests := []struct {
 		name          string
 		address       string
@@ -208,12 +208,16 @@ func TestBaseService_isLocalhost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// When: isLocalhost is called with the test address
-			isLocal := isLocalhost(tt.address)
+			// Given: a new BaseService with a mocked IsLocalhost method
+			service := &BaseService{}
+			service.address = tt.address
+
+			// Mocking IsLocalhost by directly setting the address
+			isLocal := service.IsLocalhost()
 
 			// Then: the result should match the expected outcome
 			if isLocal != tt.expectedLocal {
-				t.Fatalf("expected isLocalhost to be %v for address '%s', got %v", tt.expectedLocal, tt.address, isLocal)
+				t.Fatalf("expected IsLocalhost to be %v for address '%s', got %v", tt.expectedLocal, tt.address, isLocal)
 			}
 		})
 	}
