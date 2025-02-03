@@ -887,6 +887,7 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 	context := b.configHandler.GetContext()
 	lbStart := b.configHandler.GetString("network.loadbalancer_ips.start")
 	lbEnd := b.configHandler.GetString("network.loadbalancer_ips.end")
+	registryURL := b.configHandler.GetString("docker.registry_url")
 
 	// Generate LOADBALANCER_IP_RANGE from the start and end IPs for network
 	loadBalancerIPRange := fmt.Sprintf("%s-%s", lbStart, lbEnd)
@@ -904,6 +905,7 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 			"DOMAIN":                domain,
 			"CONTEXT":               context,
 			"LOADBALANCER_IP_RANGE": loadBalancerIPRange,
+			"REGISTRY_URL":          registryURL,
 		},
 	}
 
