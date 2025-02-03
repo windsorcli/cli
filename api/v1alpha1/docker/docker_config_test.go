@@ -9,16 +9,16 @@ func TestDockerConfig_Merge(t *testing.T) {
 		base := &DockerConfig{
 			Enabled: ptrBool(true),
 			Registries: map[string]RegistryConfig{
-				"base-registry1": {Remote: "base-remote1", Local: "base-local1", Hostname: "base-hostname1"},
-				"base-registry2": {Remote: "base-remote2", Local: "base-local2", Hostname: "base-hostname2"},
+				"base-registry1": {Remote: "base-remote1", Local: "base-local1", HostName: "base-hostname1"},
+				"base-registry2": {Remote: "base-remote2", Local: "base-local2", HostName: "base-hostname2"},
 			},
 		}
 
 		overlay := &DockerConfig{
 			Enabled: ptrBool(false),
 			Registries: map[string]RegistryConfig{
-				"base-registry1": {Remote: "overlay-remote1", Local: "overlay-local1", Hostname: "overlay-hostname1"},
-				"new-registry":   {Remote: "overlay-remote2", Local: "overlay-local2", Hostname: "overlay-hostname2"},
+				"base-registry1": {Remote: "overlay-remote1", Local: "overlay-local1", HostName: "overlay-hostname1"},
+				"new-registry":   {Remote: "overlay-remote2", Local: "overlay-local2", HostName: "overlay-hostname2"},
 			},
 		}
 
@@ -33,8 +33,8 @@ func TestDockerConfig_Merge(t *testing.T) {
 
 		// Create a map to verify registries without relying on order
 		expectedRegistries := map[string]RegistryConfig{
-			"base-registry1": {Remote: "overlay-remote1", Local: "overlay-local1", Hostname: "overlay-hostname1"},
-			"new-registry":   {Remote: "overlay-remote2", Local: "overlay-local2", Hostname: "overlay-hostname2"},
+			"base-registry1": {Remote: "overlay-remote1", Local: "overlay-local1", HostName: "overlay-hostname1"},
+			"new-registry":   {Remote: "overlay-remote2", Local: "overlay-local2", HostName: "overlay-hostname2"},
 		}
 
 		for name, registry := range base.Registries {
@@ -43,8 +43,8 @@ func TestDockerConfig_Merge(t *testing.T) {
 				t.Errorf("Unexpected registry: %v", name)
 				continue
 			}
-			if registry.Remote != expected.Remote || registry.Local != expected.Local || registry.Hostname != expected.Hostname {
-				t.Errorf("Registry %v mismatch: expected remote %v, local %v, hostname %v, got remote %v, local %v, hostname %v", name, expected.Remote, expected.Local, expected.Hostname, registry.Remote, registry.Local, registry.Hostname)
+			if registry.Remote != expected.Remote || registry.Local != expected.Local || registry.HostName != expected.HostName {
+				t.Errorf("Registry %v mismatch: expected remote %v, local %v, hostname %v, got remote %v, local %v, hostname %v", name, expected.Remote, expected.Local, expected.HostName, registry.Remote, registry.Local, registry.HostName)
 			}
 		}
 	})
@@ -53,7 +53,7 @@ func TestDockerConfig_Merge(t *testing.T) {
 		base := &DockerConfig{
 			Enabled: ptrBool(true),
 			Registries: map[string]RegistryConfig{
-				"base-registry1": {Remote: "base-remote1", Local: "base-local1", Hostname: "base-hostname1"},
+				"base-registry1": {Remote: "base-remote1", Local: "base-local1", HostName: "base-hostname1"},
 			},
 		}
 
@@ -67,7 +67,7 @@ func TestDockerConfig_Merge(t *testing.T) {
 		if base.Enabled == nil || *base.Enabled != true {
 			t.Errorf("Enabled mismatch: expected %v, got %v", true, *base.Enabled)
 		}
-		if len(base.Registries) != 1 || base.Registries["base-registry1"].Remote != "base-remote1" || base.Registries["base-registry1"].Local != "base-local1" || base.Registries["base-registry1"].Hostname != "base-hostname1" {
+		if len(base.Registries) != 1 || base.Registries["base-registry1"].Remote != "base-remote1" || base.Registries["base-registry1"].Local != "base-local1" || base.Registries["base-registry1"].HostName != "base-hostname1" {
 			t.Errorf("Registries mismatch: expected %v, got %v", "base-registry1", base.Registries["base-registry1"])
 		}
 	})
@@ -78,8 +78,8 @@ func TestDockerConfig_Copy(t *testing.T) {
 		original := &DockerConfig{
 			Enabled: ptrBool(true),
 			Registries: map[string]RegistryConfig{
-				"registry1": {Remote: "remote1", Local: "local1", Hostname: "hostname1"},
-				"registry2": {Remote: "remote2", Local: "local2", Hostname: "hostname2"},
+				"registry1": {Remote: "remote1", Local: "local1", HostName: "hostname1"},
+				"registry2": {Remote: "remote2", Local: "local2", HostName: "hostname2"},
 			},
 		}
 
@@ -98,8 +98,8 @@ func TestDockerConfig_Copy(t *testing.T) {
 			if registry.Local != copy.Registries[name].Local {
 				t.Errorf("Registry Local mismatch for %v: expected %v, got %v", name, registry.Local, copy.Registries[name].Local)
 			}
-			if registry.Hostname != copy.Registries[name].Hostname {
-				t.Errorf("Registry Hostname mismatch for %v: expected %v, got %v", name, registry.Hostname, copy.Registries[name].Hostname)
+			if registry.HostName != copy.Registries[name].HostName {
+				t.Errorf("Registry HostName mismatch for %v: expected %v, got %v", name, registry.HostName, copy.Registries[name].HostName)
 			}
 		}
 
@@ -109,7 +109,7 @@ func TestDockerConfig_Copy(t *testing.T) {
 			t.Errorf("Original Enabled was modified: expected %v, got %v", true, *copy.Enabled)
 		}
 
-		copy.Registries["new-registry"] = RegistryConfig{Remote: "new-remote", Local: "new-local", Hostname: "new-hostname"}
+		copy.Registries["new-registry"] = RegistryConfig{Remote: "new-remote", Local: "new-local", HostName: "new-hostname"}
 		if len(original.Registries) == len(copy.Registries) {
 			t.Errorf("Original Registries were modified: expected length %d, got %d", len(original.Registries), len(copy.Registries))
 		}

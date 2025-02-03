@@ -37,6 +37,9 @@ type Service interface {
 
 	// GetHostname returns the name plus the tld from the config
 	GetHostname() string
+
+	// IsLocalhost checks if the current address is a localhost address
+	IsLocalhost() bool
 }
 
 // BaseService is a base implementation of the Service interface
@@ -48,16 +51,14 @@ type BaseService struct {
 	name          string
 }
 
-// Initialize is a no-op for the Service interface
+// Initialize resolves and assigns configHandler and shell dependencies using the injector.
 func (s *BaseService) Initialize() error {
-	// Resolve the configHandler dependency
 	configHandler, ok := s.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
 		return fmt.Errorf("error resolving configHandler")
 	}
 	s.configHandler = configHandler
 
-	// Resolve the shell dependency
 	shell, ok := s.injector.Resolve("shell").(shell.Shell)
 	if !ok {
 		return fmt.Errorf("error resolving shell")
@@ -103,11 +104,11 @@ func (s *BaseService) GetHostname() string {
 	return fmt.Sprintf("%s.%s", s.name, tld)
 }
 
-// isLocalhost checks if the given address is a localhost address
-func isLocalhost(address string) bool {
+// IsLocalhost checks if the current address is a localhost address
+func (s *BaseService) IsLocalhost() bool {
 	localhostAddresses := []string{"localhost", "127.0.0.1", "::1"}
 	for _, localhost := range localhostAddresses {
-		if address == localhost {
+		if s.address == localhost {
 			return true
 		}
 	}

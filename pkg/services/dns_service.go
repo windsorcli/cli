@@ -72,7 +72,7 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
-	if isLocalhost(s.address) {
+	if s.IsLocalhost() {
 		corednsConfig.Ports = []types.ServicePortConfig{
 			{
 				Target:    53,

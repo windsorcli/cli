@@ -106,6 +106,96 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
+	for _, verbose := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ErrorCreatingVirtualizationComponentsWithVerbose=%v", verbose), func(t *testing.T) {
+			defer resetRootCmd()
+
+			// Save the original controller and restore it after the test
+			originalController := controller
+			defer func() {
+				controller = originalController
+			}()
+
+			// Given a mock controller that returns an error when creating virtualization components
+			injector := di.NewInjector()
+			mockController := ctrl.NewMockController(injector)
+			mockController.CreateVirtualizationComponentsFunc = func() error {
+				return fmt.Errorf("error creating virtualization components")
+			}
+
+			// Set the global controller to the mock controller
+			controller = mockController
+
+			// When the env command is executed with or without verbose flag
+			if verbose {
+				rootCmd.SetArgs([]string{"env", "--verbose"})
+			} else {
+				rootCmd.SetArgs([]string{"env"})
+			}
+			err := Execute(mockController)
+
+			// Then check the error contents
+			if verbose {
+				if err == nil {
+					t.Fatalf("Expected an error, got nil")
+				}
+				expectedError := "Error creating virtualization components: error creating virtualization components"
+				if err.Error() != expectedError {
+					t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("Expected no error, got %v", err)
+				}
+			}
+		})
+	}
+
+	for _, verbose := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ErrorCreatingServiceComponentsWithVerbose=%v", verbose), func(t *testing.T) {
+			defer resetRootCmd()
+
+			// Save the original controller and restore it after the test
+			originalController := controller
+			defer func() {
+				controller = originalController
+			}()
+
+			// Given a mock controller that returns an error when creating service components
+			injector := di.NewInjector()
+			mockController := ctrl.NewMockController(injector)
+			mockController.CreateServiceComponentsFunc = func() error {
+				return fmt.Errorf("error creating service components")
+			}
+
+			// Set the global controller to the mock controller
+			controller = mockController
+
+			// When the env command is executed with or without verbose flag
+			if verbose {
+				rootCmd.SetArgs([]string{"env", "--verbose"})
+			} else {
+				rootCmd.SetArgs([]string{"env"})
+			}
+			err := Execute(mockController)
+
+			// Then check the error contents
+			if verbose {
+				if err == nil {
+					t.Fatalf("Expected an error, got nil")
+				}
+				expectedError := "Error creating service components: error creating service components"
+				if err.Error() != expectedError {
+					t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("Expected no error, got %v", err)
+				}
+			}
+		})
+	}
+
 	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
 		defer resetRootCmd()
 

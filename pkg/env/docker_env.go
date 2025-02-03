@@ -2,6 +2,7 @@ package env
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,7 +27,7 @@ func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
 // GetEnvVars returns Docker-specific env vars, setting DOCKER_HOST based on vm.driver config.
 // It uses the user's home directory for Docker paths, defaulting WINDSORCONFIG if unset.
 // Ensures Docker config directory exists and writes config if content differs.
-// Adds DOCKER_CONFIG to env vars and returns the map.
+// Adds DOCKER_CONFIG and REGISTRY_URL to env vars and returns the map.
 func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
@@ -78,6 +79,11 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 	envVars["DOCKER_CONFIG"] = dockerConfigDir
 
+	registryURL, err := e.getRegistryURL()
+	if registryURL != "" {
+		envVars["REGISTRY_URL"] = registryURL
+	}
+
 	return envVars, nil
 }
 
@@ -99,6 +105,29 @@ func (e *DockerEnvPrinter) Print() error {
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
 	return e.BaseEnvPrinter.Print(envVars)
+}
+
+// getRegistryURL retrieves a registry URL, appending a port if not present.
+// It retrieves the URL from the configuration and checks if it already includes a port.
+// If not, it looks for a matching registry configuration to append the host port.
+// Returns the constructed URL or an empty string if no URL is configured.
+func (e *DockerEnvPrinter) getRegistryURL() (string, error) {
+	config := e.configHandler.GetConfig()
+	registryURL := e.configHandler.GetString("docker.registry_url")
+	if registryURL == "" {
+		return "", nil
+	}
+	if _, _, err := net.SplitHostPort(registryURL); err == nil {
+		return registryURL, nil
+	}
+	if config.Docker != nil && config.Docker.Registries != nil {
+		if registryConfig, exists := config.Docker.Registries[registryURL]; exists {
+			if registryConfig.HostPort != 0 {
+				registryURL = fmt.Sprintf("%s:%d", registryURL, registryConfig.HostPort)
+			}
+		}
+	}
+	return registryURL, nil
 }
 
 // Ensure dockerEnv implements the EnvPrinter interface
