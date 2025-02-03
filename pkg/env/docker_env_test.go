@@ -110,7 +110,7 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-mock-context/docker.sock", os.Getenv("HOME"))
+		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-mock-context/docker.sock", filepath.ToSlash(os.Getenv("HOME")))
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
@@ -141,7 +141,7 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", "/mock/home", "test-context")
+		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", filepath.ToSlash("/mock/home"), "test-context")
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
@@ -207,7 +207,7 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		expectedDockerHost := fmt.Sprintf("unix://%s/.docker/run/docker.sock", "/mock/home")
+		expectedDockerHost := fmt.Sprintf("unix://%s/.docker/run/docker.sock", filepath.ToSlash("/mock/home"))
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
@@ -220,7 +220,7 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		if !mkdirAllCalled {
 			t.Error("mkdirAll was not called")
 		} else {
-			expectedMkdirAllPath := "/mock/home/.config/windsor/docker"
+			expectedMkdirAllPath := filepath.ToSlash("/mock/home/.config/windsor/docker")
 			if mkdirAllPath != expectedMkdirAllPath {
 				t.Errorf("mkdirAll path = %v, want %v", mkdirAllPath, expectedMkdirAllPath)
 			}
@@ -229,7 +229,7 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		if !writeFileCalled {
 			t.Error("writeFile was not called")
 		} else {
-			expectedWriteFilePath := "/mock/home/.config/windsor/docker/config.json"
+			expectedWriteFilePath := filepath.ToSlash("/mock/home/.config/windsor/docker/config.json")
 			if writeFilePath != expectedWriteFilePath {
 				t.Errorf("writeFile path = %v, want %v", writeFilePath, expectedWriteFilePath)
 			}
