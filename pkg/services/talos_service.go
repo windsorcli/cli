@@ -59,6 +59,10 @@ func NewTalosService(injector di.Injector, mode string) *TalosService {
 // is used to safely manage concurrent access to the port allocation. Node ports
 // are configured based on the cluster configuration, ensuring no conflicts.
 func (s *TalosService) SetAddress(address string) error {
+	if err := s.BaseService.SetAddress(address); err != nil {
+		return err
+	}
+
 	tld := s.configHandler.GetString("dns.domain", "test")
 	nodeType := "workers"
 	if s.mode == "controlplane" {
@@ -76,7 +80,7 @@ func (s *TalosService) SetAddress(address string) error {
 	defer portLock.Unlock()
 
 	var port int
-	if s.isLeader || !isLocalhost(address) {
+	if s.isLeader || !s.IsLocalhost() {
 		port = defaultAPIPort
 	} else {
 		port = nextAPIPort
@@ -140,7 +144,7 @@ func (s *TalosService) SetAddress(address string) error {
 		return err
 	}
 
-	return s.BaseService.SetAddress(address)
+	return nil
 }
 
 // GetComposeConfig creates a Docker Compose configuration for Talos services.
@@ -241,7 +245,7 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	}
 	defaultAPIPortUint32 := uint32(defaultAPIPort)
 
-	if isLocalhost(s.address) {
+	if s.IsLocalhost() {
 		ports = append(ports, types.ServicePortConfig{
 			Target:    defaultAPIPortUint32,
 			Published: publishedPort,

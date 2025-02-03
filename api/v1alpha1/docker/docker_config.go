@@ -2,15 +2,17 @@ package docker
 
 // DockerConfig represents the Docker configuration
 type DockerConfig struct {
-	Enabled    *bool                     `yaml:"enabled"`
-	Registries map[string]RegistryConfig `yaml:"registries,omitempty"`
+	Enabled     *bool                     `yaml:"enabled"`
+	RegistryURL string                    `yaml:"registry_url,omitempty"`
+	Registries  map[string]RegistryConfig `yaml:"registries,omitempty"`
 }
 
 // RegistryConfig represents the registry configuration
 type RegistryConfig struct {
 	Remote   string `yaml:"remote,omitempty"`
 	Local    string `yaml:"local,omitempty"`
-	Hostname string `yaml:"hostname,omitempty"`
+	HostName string `yaml:"hostname,omitempty"`
+	HostPort int    `yaml:"hostport,omitempty"`
 }
 
 // Merge performs a deep merge of the current DockerConfig with another DockerConfig.
@@ -41,7 +43,8 @@ func (c *DockerConfig) Copy() *DockerConfig {
 		registriesCopy[name] = RegistryConfig{
 			Remote:   registry.Remote,
 			Local:    registry.Local,
-			Hostname: registry.Hostname,
+			HostName: registry.HostName,
+			HostPort: registry.HostPort,
 		}
 	}
 

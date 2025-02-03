@@ -209,6 +209,8 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 			return "192.168.1.1"
 		case "network.loadbalancer_ips.end":
 			return "192.168.1.100"
+		case "docker.registry_url":
+			return "mock.registry.com"
 		default:
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -1464,6 +1466,9 @@ func TestBlueprintHandler_Install(t *testing.T) {
 				}
 				if configMap.Data["LOADBALANCER_IP_RANGE"] != "192.168.1.1-192.168.1.100" {
 					return fmt.Errorf("unexpected LOADBALANCER_IP_RANGE value: got %s, want %s", configMap.Data["LOADBALANCER_IP_RANGE"], "192.168.1.1-192.168.1.100")
+				}
+				if configMap.Data["REGISTRY_URL"] != "mock.registry.com" {
+					return fmt.Errorf("unexpected REGISTRY_URL value: got %s, want %s", configMap.Data["REGISTRY_URL"], "mock.registry.com")
 				}
 			}
 			return nil

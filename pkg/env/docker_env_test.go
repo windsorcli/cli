@@ -9,8 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -25,24 +28,72 @@ func setupSafeDockerEnvPrinterMocks(injector ...di.Injector) *DockerEnvPrinterMo
 	if len(injector) > 0 {
 		mockInjector = injector[0]
 	} else {
-		mockInjector = di.NewMockInjector()
+		mockInjector = di.NewInjector()
 	}
 
 	mockShell := shell.NewMockShell()
 
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-		return "mock-value"
+		switch key {
+		case "vm.driver":
+			return "colima"
+		case "dns.domain":
+			return "mock-domain"
+		case "docker.registry_url":
+			return "mock-registry-url"
+		default:
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
 	}
 	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-		return filepath.FromSlash("/mock/config/root"), nil
+		return filepath.Join("mock", "config", "root"), nil
 	}
 	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
+	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+		return &v1alpha1.Context{
+			Docker: &docker.DockerConfig{
+				Registries: map[string]docker.RegistryConfig{
+					"mock-registry-url": {
+						HostPort: 5000,
+					},
+				},
+			},
+		}
+	}
+
+	mkdirAll = func(path string, perm os.FileMode) error {
+		return nil
+	}
+
+	writeFile = func(filename string, data []byte, perm os.FileMode) error {
+		return nil
+	}
+
+	readFile = func(_ string) ([]byte, error) {
+		return nil, nil
+	}
+
+	osUserHomeDir = func() (string, error) {
+		return filepath.ToSlash("/mock/home"), nil
+	}
+
+	// Use the real RegistryService
+	registryService := services.NewRegistryService(mockInjector)
+	registryService.SetName("mock-registry")
+	registryService.SetAddress("mock-registry-url")
 
 	mockInjector.Register("shell", mockShell)
 	mockInjector.Register("configHandler", mockConfigHandler)
+	mockInjector.Register("registryService", registryService)
+
+	// Initialize the RegistryService
+	registryService.Initialize()
 
 	return &DockerEnvPrinterMocks{
 		Injector:      mockInjector,
@@ -63,8 +114,13 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		if envVars["DOCKER_HOST"] != "" {
-			t.Errorf("DOCKER_HOST = %v, want empty", envVars["DOCKER_HOST"])
+		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-mock-context/docker.sock", filepath.ToSlash("/mock/home"))
+		if envVars["DOCKER_HOST"] != expectedDockerHost {
+			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		}
+
+		if envVars["REGISTRY_URL"] != "mock-registry-url:5000" {
+			t.Errorf("REGISTRY_URL = %v, want mock-registry-url:5000", envVars["REGISTRY_URL"])
 		}
 	})
 
@@ -72,39 +128,6 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
 		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "test-context"
-		}
-
-		// Mock osUserHomeDir function
-		originalUserHomeDir := osUserHomeDir
-		defer func() { osUserHomeDir = originalUserHomeDir }()
-		osUserHomeDir = func() (string, error) {
-			return "/mock/home", nil
-		}
-
-		// Mock mkdirAll function
-		originalMkdirAll := mkdirAll
-		defer func() { mkdirAll = originalMkdirAll }()
-		mkdirAllCalled := false
-		mkdirAll = func(path string, perm os.FileMode) error {
-			mkdirAllCalled = true
-			return nil
-		}
-
-		// Mock writeFile function
-		originalWriteFile := writeFile
-		defer func() { writeFile = originalWriteFile }()
-		writeFileCalled := false
-		writeFile = func(filename string, data []byte, perm os.FileMode) error {
-			writeFileCalled = true
-			return nil
-		}
-
-		// Use the existing mockConfigHandler from mocks
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "colima"
-			}
-			return ""
 		}
 
 		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
@@ -115,29 +138,18 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", "/mock/home", "test-context")
+		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", filepath.ToSlash("/mock/home"), "test-context")
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
 
-		if !mkdirAllCalled {
-			t.Error("mkdirAll was not called")
-		}
-
-		if !writeFileCalled {
-			t.Error("writeFile was not called")
+		if envVars["REGISTRY_URL"] != "mock-registry-url:5000" {
+			t.Errorf("REGISTRY_URL = %v, want mock-registry-url:5000", envVars["REGISTRY_URL"])
 		}
 	})
 
 	t.Run("DockerDesktopDriver", func(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
-
-		// Mock osUserHomeDir function
-		originalUserHomeDir := osUserHomeDir
-		defer func() { osUserHomeDir = originalUserHomeDir }()
-		osUserHomeDir = func() (string, error) {
-			return "/mock/home", nil
-		}
 
 		// Mock goos function to simulate different OS environments
 		originalGoos := goos
@@ -150,8 +162,10 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		originalMkdirAll := mkdirAll
 		defer func() { mkdirAll = originalMkdirAll }()
 		mkdirAllCalled := false
+		mkdirAllPath := ""
 		mkdirAll = func(path string, perm os.FileMode) error {
 			mkdirAllCalled = true
+			mkdirAllPath = filepath.ToSlash(path)
 			return nil
 		}
 
@@ -159,17 +173,20 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		originalWriteFile := writeFile
 		defer func() { writeFile = originalWriteFile }()
 		writeFileCalled := false
+		writeFilePath := ""
 		writeFile = func(filename string, data []byte, perm os.FileMode) error {
 			writeFileCalled = true
+			writeFilePath = filepath.ToSlash(filename)
 			return nil
 		}
 
 		// Use the existing mockConfigHandler from mocks
+		originalGetStringFunc := mocks.ConfigHandler.GetStringFunc
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
 				return "docker-desktop"
 			}
-			return ""
+			return originalGetStringFunc(key, defaultValue...)
 		}
 
 		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
@@ -180,17 +197,32 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		expectedDockerHost := fmt.Sprintf("unix://%s/.docker/run/docker.sock", "/mock/home")
+		expectedDockerHost := fmt.Sprintf("unix://%s/.docker/run/docker.sock", filepath.ToSlash("/mock/home"))
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
 
+		expectedRegistryURL := "mock-registry-url:5000"
+		if envVars["REGISTRY_URL"] != expectedRegistryURL {
+			t.Errorf("REGISTRY_URL = %v, want %v", envVars["REGISTRY_URL"], expectedRegistryURL)
+		}
+
 		if !mkdirAllCalled {
 			t.Error("mkdirAll was not called")
+		} else {
+			expectedMkdirAllPath := filepath.ToSlash("/mock/home/.config/windsor/docker")
+			if mkdirAllPath != expectedMkdirAllPath {
+				t.Errorf("mkdirAll path = %v, want %v", mkdirAllPath, expectedMkdirAllPath)
+			}
 		}
 
 		if !writeFileCalled {
 			t.Error("writeFile was not called")
+		} else {
+			expectedWriteFilePath := filepath.ToSlash("/mock/home/.config/windsor/docker/config.json")
+			if writeFilePath != expectedWriteFilePath {
+				t.Errorf("writeFile path = %v, want %v", writeFilePath, expectedWriteFilePath)
+			}
 		}
 	})
 
@@ -286,10 +318,16 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Run(tc.osName, func(t *testing.T) {
 				mocks := setupSafeDockerEnvPrinterMocks()
 				mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-					if key == "vm.driver" {
+					switch key {
+					case "vm.driver":
 						return "docker-desktop"
+					case "dns.domain":
+						return "mock-domain"
+					case "docker.registry_url":
+						return "mock-registry-url"
+					default:
+						return ""
 					}
-					return ""
 				}
 
 				originalGoos := goos
@@ -301,19 +339,7 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 				originalUserHomeDir := osUserHomeDir
 				defer func() { osUserHomeDir = originalUserHomeDir }()
 				osUserHomeDir = func() (string, error) {
-					return "/home/user", nil
-				}
-
-				originalMkdirAll := mkdirAll
-				defer func() { mkdirAll = originalMkdirAll }()
-				mkdirAll = func(path string, perm os.FileMode) error {
-					return nil
-				}
-
-				originalWriteFile := writeFile
-				defer func() { writeFile = originalWriteFile }()
-				writeFile = func(filename string, data []byte, perm os.FileMode) error {
-					return nil
+					return filepath.ToSlash("/home/user"), nil
 				}
 
 				dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
@@ -326,6 +352,10 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 
 				if envVars["DOCKER_HOST"] != tc.expectedHost {
 					t.Fatalf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], tc.expectedHost)
+				}
+
+				if envVars["REGISTRY_URL"] != "mock-registry-url:5000" {
+					t.Errorf("REGISTRY_URL = %v, want mock-registry-url:5000", envVars["REGISTRY_URL"])
 				}
 			})
 		}
