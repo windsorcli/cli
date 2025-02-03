@@ -50,7 +50,7 @@ func setupSafeDockerEnvPrinterMocks(injector ...di.Injector) *DockerEnvPrinterMo
 		}
 	}
 	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-		return filepath.FromSlash("/mock/config/root"), nil
+		return filepath.Join("mock", "config", "root"), nil
 	}
 	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
@@ -77,6 +77,10 @@ func setupSafeDockerEnvPrinterMocks(injector ...di.Injector) *DockerEnvPrinterMo
 
 	readFile = func(_ string) ([]byte, error) {
 		return nil, nil
+	}
+
+	osUserHomeDir = func() (string, error) {
+		return filepath.ToSlash("/mock/home"), nil
 	}
 
 	// Use the real RegistryService
@@ -110,7 +114,7 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-mock-context/docker.sock", filepath.ToSlash(os.Getenv("HOME")))
+		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-mock-context/docker.sock", filepath.ToSlash("/mock/home"))
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
@@ -124,13 +128,6 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
 		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "test-context"
-		}
-
-		// Mock osUserHomeDir function
-		originalUserHomeDir := osUserHomeDir
-		defer func() { osUserHomeDir = originalUserHomeDir }()
-		osUserHomeDir = func() (string, error) {
-			return "/mock/home", nil
 		}
 
 		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
@@ -154,13 +151,6 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 	t.Run("DockerDesktopDriver", func(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
 
-		// Mock osUserHomeDir function
-		originalUserHomeDir := osUserHomeDir
-		defer func() { osUserHomeDir = originalUserHomeDir }()
-		osUserHomeDir = func() (string, error) {
-			return "/mock/home", nil
-		}
-
 		// Mock goos function to simulate different OS environments
 		originalGoos := goos
 		defer func() { goos = originalGoos }()
@@ -175,7 +165,7 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		mkdirAllPath := ""
 		mkdirAll = func(path string, perm os.FileMode) error {
 			mkdirAllCalled = true
-			mkdirAllPath = path
+			mkdirAllPath = filepath.ToSlash(path)
 			return nil
 		}
 
@@ -186,7 +176,7 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		writeFilePath := ""
 		writeFile = func(filename string, data []byte, perm os.FileMode) error {
 			writeFileCalled = true
-			writeFilePath = filename
+			writeFilePath = filepath.ToSlash(filename)
 			return nil
 		}
 
@@ -349,7 +339,7 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 				originalUserHomeDir := osUserHomeDir
 				defer func() { osUserHomeDir = originalUserHomeDir }()
 				osUserHomeDir = func() (string, error) {
-					return "/home/user", nil
+					return filepath.ToSlash("/home/user"), nil
 				}
 
 				dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
