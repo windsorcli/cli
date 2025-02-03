@@ -344,13 +344,6 @@ func TestRegistryService_SetAddress(t *testing.T) {
 	})
 
 	t.Run("NoHostPortSetAndLocalhost", func(t *testing.T) {
-		// Mock isPortAvailable to always return true
-		originalIsPortAvailable := isPortAvailable
-		defer func() { isPortAvailable = originalIsPortAvailable }()
-		isPortAvailable = func(port int) bool {
-			return true
-		}
-
 		// Given a mock config handler, shell, context, and service with no HostPort set
 		mocks := setupSafeRegistryServiceMocks()
 		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
@@ -383,13 +376,6 @@ func TestRegistryService_SetAddress(t *testing.T) {
 	})
 
 	t.Run("HostPortSetAndAvailable", func(t *testing.T) {
-		// Mock isPortAvailable to always return true
-		originalIsPortAvailable := isPortAvailable
-		defer func() { isPortAvailable = originalIsPortAvailable }()
-		isPortAvailable = func(port int) bool {
-			return true
-		}
-
 		// Given a mock config handler, shell, context, and service with HostPort set
 		mocks := setupSafeRegistryServiceMocks()
 		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
@@ -421,50 +407,7 @@ func TestRegistryService_SetAddress(t *testing.T) {
 		}
 	})
 
-	t.Run("HostPortSetAndUnavailable", func(t *testing.T) {
-		// Mock isPortAvailable to return false for port 1
-		originalIsPortAvailable := isPortAvailable
-		defer func() { isPortAvailable = originalIsPortAvailable }()
-		isPortAvailable = func(port int) bool {
-			return port != 1
-		}
-
-		// Given a mock config handler, shell, context, and service with HostPort set to an unavailable port
-		mocks := setupSafeRegistryServiceMocks()
-		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Docker: &docker.DockerConfig{
-					Registries: map[string]docker.RegistryConfig{
-						"registry": {HostPort: 1}, // Port 1 is typically unavailable
-					},
-				},
-			}
-		}
-		registryService := NewRegistryService(mocks.Injector)
-		registryService.SetName("registry")
-		err := registryService.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When SetAddress is called
-		address := "192.168.1.1"
-		err = registryService.SetAddress(address)
-
-		// Then an error should be returned indicating port is not available
-		if err == nil || !strings.Contains(err.Error(), "port 1 is not available") {
-			t.Fatalf("expected error indicating port is not available, got %v", err)
-		}
-	})
-
 	t.Run("SetRegistryURLAndHostPort", func(t *testing.T) {
-		// Mock isPortAvailable to always return true
-		originalIsPortAvailable := isPortAvailable
-		defer func() { isPortAvailable = originalIsPortAvailable }()
-		isPortAvailable = func(port int) bool {
-			return true
-		}
-
 		// Given a mock config handler, shell, context, and service with no HostPort and no Remote
 		mocks := setupSafeRegistryServiceMocks()
 		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
@@ -509,13 +452,6 @@ func TestRegistryService_SetAddress(t *testing.T) {
 	})
 
 	t.Run("SetContextValueErrorForHostPort", func(t *testing.T) {
-		// Mock isPortAvailable to always return true
-		originalIsPortAvailable := isPortAvailable
-		defer func() { isPortAvailable = originalIsPortAvailable }()
-		isPortAvailable = func(port int) bool {
-			return true
-		}
-
 		// Given a mock config handler that will fail to set context value for host port
 		mocks := setupSafeRegistryServiceMocks()
 		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
@@ -551,13 +487,6 @@ func TestRegistryService_SetAddress(t *testing.T) {
 	})
 
 	t.Run("SetContextValueErrorForRegistryURL", func(t *testing.T) {
-		// Mock isPortAvailable to always return true
-		originalIsPortAvailable := isPortAvailable
-		defer func() { isPortAvailable = originalIsPortAvailable }()
-		isPortAvailable = func(port int) bool {
-			return true
-		}
-
 		// Given a mock config handler that will fail to set context value for registry URL
 		mocks := setupSafeRegistryServiceMocks()
 		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {

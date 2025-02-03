@@ -2,7 +2,6 @@ package services
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"strings"
 
@@ -78,14 +77,10 @@ func (s *RegistryService) SetAddress(address string) error {
 	}
 
 	if hostPort != 0 {
-		if isPortAvailable(hostPort) {
-			s.HostPort = hostPort
-			err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostport", s.name), hostPort)
-			if err != nil {
-				return fmt.Errorf("failed to set host port for registry %s: %w", s.name, err)
-			}
-		} else {
-			return fmt.Errorf("port %d is not available", hostPort)
+		s.HostPort = hostPort
+		err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostport", s.name), hostPort)
+		if err != nil {
+			return fmt.Errorf("failed to set host port for registry %s: %w", s.name, err)
 		}
 	}
 
@@ -160,16 +155,6 @@ func (s *RegistryService) generateRegistryService(hostname string, registry dock
 	}
 
 	return service, nil
-}
-
-// isPortAvailable checks if a port is available for use
-var isPortAvailable = func(port int) bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return false
-	}
-	defer ln.Close()
-	return true
 }
 
 // Ensure RegistryService implements Service interface
