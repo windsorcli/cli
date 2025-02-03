@@ -23,6 +23,14 @@ var envCmd = &cobra.Command{
 			return nil
 		}
 
+		// Create service components
+		if err := controller.CreateServiceComponents(); err != nil {
+			if verbose {
+				return fmt.Errorf("Error creating service components: %w", err)
+			}
+			return nil
+		}
+
 		// Create environment components
 		if err := controller.CreateEnvComponents(); err != nil {
 			if verbose {

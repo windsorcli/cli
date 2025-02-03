@@ -15,7 +15,7 @@ import (
 // RegistryService is a service struct that provides Registry-specific utility functions
 type RegistryService struct {
 	BaseService
-	HostPort int
+	HostPort int // If set, this port is routed to the registry port from the host
 }
 
 // NewRegistryService is a constructor for RegistryService
@@ -48,8 +48,9 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 
 // SetAddress configures the registry's address, forms a hostname, and updates the registry config.
 // It selects a port by checking the registry's HostPort; if unset and on localhost, it defaults to
-// REGISTRY_DEFAULT_HOST_PORT. The port's availability is verified before assignment. Errors in any
-// step result in a returned error.
+// REGISTRY_DEFAULT_HOST_PORT. The port's availability is verified before assignment. If the registry
+// is not a proxy ("remote" is not set), and it is localhost, it attempts to set HostPort to
+// the default registry port.
 func (s *RegistryService) SetAddress(address string) error {
 	if err := s.BaseService.SetAddress(address); err != nil {
 		return fmt.Errorf("failed to set address for base service: %w", err)
@@ -64,16 +65,23 @@ func (s *RegistryService) SetAddress(address string) error {
 	}
 
 	registryConfig := s.configHandler.GetConfig().Docker.Registries[s.name]
-	portToCheck := registryConfig.HostPort
-	if portToCheck == 0 && s.IsLocalhost() {
-		portToCheck = defaultPort
+	hostPort := 0
+
+	if registryConfig.HostPort != 0 {
+		hostPort = registryConfig.HostPort
+	} else if registryConfig.Remote == "" && s.IsLocalhost() {
+		hostPort = defaultPort
 	}
 
-	if portToCheck != 0 {
-		if isPortAvailable(portToCheck) {
-			s.HostPort = portToCheck
+	if hostPort != 0 {
+		if isPortAvailable(hostPort) {
+			s.HostPort = hostPort
+			err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostport", s.name), hostPort)
+			if err != nil {
+				return fmt.Errorf("failed to set host port for registry %s: %w", s.name, err)
+			}
 		} else {
-			return fmt.Errorf("port %d is not available", portToCheck)
+			return fmt.Errorf("port %d is not available", hostPort)
 		}
 	}
 
