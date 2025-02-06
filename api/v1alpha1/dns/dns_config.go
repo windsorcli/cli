@@ -5,6 +5,7 @@ type DNSConfig struct {
 	Enabled *bool    `yaml:"enabled"`
 	Domain  *string  `yaml:"domain,omitempty"`
 	Address *string  `yaml:"address,omitempty"`
+	Forward []string `yaml:"forward,omitempty"`
 	Records []string `yaml:"records,omitempty"`
 }
 
@@ -18,6 +19,9 @@ func (base *DNSConfig) Merge(overlay *DNSConfig) {
 	}
 	if overlay.Address != nil {
 		base.Address = overlay.Address
+	}
+	if overlay.Forward != nil {
+		base.Forward = overlay.Forward
 	}
 	if overlay.Records != nil {
 		base.Records = overlay.Records
@@ -33,6 +37,7 @@ func (c *DNSConfig) Copy() *DNSConfig {
 		Enabled: c.Enabled,
 		Domain:  c.Domain,
 		Address: c.Address,
+		Forward: c.Forward,
 		Records: c.Records,
 	}
 }

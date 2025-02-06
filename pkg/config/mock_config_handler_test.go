@@ -419,14 +419,14 @@ func TestMockConfigHandler_SetDefault(t *testing.T) {
 		// And SetDefaultFunc updates the flag and checks the parameters
 		mockHandler.SetDefaultFunc = func(context v1alpha1.Context) error {
 			called = true
-			if !reflect.DeepEqual(context, DefaultLocalConfig) {
-				t.Errorf("Expected value %v, got %v", DefaultLocalConfig, context)
+			if !reflect.DeepEqual(context, DefaultConfig_Containerized) {
+				t.Errorf("Expected value %v, got %v", DefaultConfig_Containerized, context)
 			}
 			return nil
 		}
 
 		// When SetDefault is called
-		mockHandler.SetDefault(DefaultLocalConfig)
+		mockHandler.SetDefault(DefaultConfig_Containerized)
 
 		// Then the function should be called
 		if !called {
@@ -439,7 +439,7 @@ func TestMockConfigHandler_SetDefault(t *testing.T) {
 		mockHandler := NewMockConfigHandler()
 
 		// When SetDefault is called
-		mockHandler.SetDefault(DefaultLocalConfig)
+		mockHandler.SetDefault(DefaultConfig_Containerized)
 
 		// Then no error should occur
 	})

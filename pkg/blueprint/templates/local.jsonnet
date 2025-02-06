@@ -263,27 +263,113 @@ local registryMirrors = std.foldl(
       }
     }
   ] else [],
-  kustomize: [
-    {
-      name: "ingress-base",
-      path: "ingress/base",
-      source: "core",
-      components: [
-        "nginx",
-        "nginx/nodeport-web",
-        "nginx/nodeport-flux-webhook"
-      ],
-    },
-    {
-      name: "gitops",
-      path: "gitops/flux",
-      source: "core",
-      dependsOn: [
-        "ingress-base",
-      ],
-      components: [
-        "webhook",
-      ],
-    },
-  ]
+kustomize: [
+  {
+    name: "policy-base",
+    path: "policy/base",
+    components: [
+      "kyverno"
+    ],
+  },
+  {
+    name: "policy-resources",
+    path: "policy/resources",
+    dependsOn: [
+      "policy-base"
+    ],
+  },
+  {
+    name: "pki-base",
+    path: "pki/base",
+    dependsOn: [
+      "policy-resources"
+    ],
+    force: true,
+    components: [
+      "cert-manager",
+      "trust-manager"
+    ],
+  },
+  {
+    name: "pki-resources",
+    path: "pki/resources",
+    dependsOn: [
+      "pki-base"
+    ],
+    force: true,
+    components: [
+      "private-issuer/ca",
+      "public-issuer/selfsigned"
+    ],
+  },
+  {
+    name: "ingress-base",
+    path: "ingress/base",
+    dependsOn: [
+      "pki-resources"
+    ],
+    force: true,
+    components: if context.vm.driver == "colima" then [
+      "nginx",
+      "nginx/loadbalancer",
+      "nginx/coredns",
+      "nginx/flux-webhook",
+      "nginx/web"
+    ] else [
+      "nginx",
+      "nginx/nodeport",
+      "nginx/flux-webhook",
+      "nginx/web"
+    ],
+  },
+  {
+    name: "gitops",
+    path: "gitops/flux",
+    dependsOn: [
+      "ingress-base"
+    ],
+    force: true,
+    components: [
+      "webhook"
+    ],
+  },
+] + (if context.vm.driver == "colima" then [
+  {
+    name: "dns",
+    path: "dns",
+    dependsOn: [
+      "pki-base"
+    ],
+    force: true,
+    components: [
+      "coredns",
+      "coredns/etcd",
+      "external-dns",
+      "external-dns/coredns",
+      "external-dns/ingress"
+    ],
+  },
+  {
+    name: "lb-base",
+    path: "lb/base",
+    dependsOn: [
+      "policy-resources"
+    ],
+    force: true,
+    components: [
+      "metallb"
+    ],
+  },
+  {
+    name: "lb-resources",
+    path: "lb/resources",
+    dependsOn: [
+      "lb-base"
+    ],
+    force: true,
+    components: [
+      "metallb/layer2"
+    ],
+  }
+] else []),
 }

@@ -237,7 +237,7 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 		// Mock ResolveConfigHandler to return a mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
-			if reflect.DeepEqual(cfg, config.DefaultLocalConfig) {
+			if reflect.DeepEqual(cfg, config.DefaultConfig_Containerized) {
 				return fmt.Errorf("mocked error setting default local config")
 			}
 			return nil

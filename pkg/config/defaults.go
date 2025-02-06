@@ -1,3 +1,11 @@
+// This file defines default configurations for various components of the Windsor CLI application.
+// It includes configurations for AWS, Docker, Terraform, Cluster, DNS, and VM settings.
+// The configurations are structured using the v1alpha1.Context type, which aggregates settings
+// from different modules like AWS, Docker, and others. The file also defines common configurations
+// that can be reused across different contexts, such as commonDockerConfig, commonGitConfig, etc.
+// These common configurations are used to create specific default configurations like
+// DefaultConfig_Containerized and DefaultConfig_FullVM.
+
 package config
 
 import (
@@ -44,47 +52,86 @@ var DefaultConfig = v1alpha1.Context{
 	},
 }
 
-// DefaultLocalConfig returns the default configuration for the "local" context
-var DefaultLocalConfig = v1alpha1.Context{
+var commonDockerConfig = docker.DockerConfig{
+	Enabled: ptrBool(true),
+	Registries: map[string]docker.RegistryConfig{
+		"registry.test": {},
+		"registry-1.docker.io": {
+			Remote: "https://registry-1.docker.io",
+			Local:  "https://docker.io",
+		},
+		"registry.k8s.io": {
+			Remote: "https://registry.k8s.io",
+		},
+		"gcr.io": {
+			Remote: "https://gcr.io",
+		},
+		"ghcr.io": {
+			Remote: "https://ghcr.io",
+		},
+		"quay.io": {
+			Remote: "https://quay.io",
+		},
+	},
+}
+
+var commonGitConfig = git.GitConfig{
+	Livereload: &git.GitLivereloadConfig{
+		Enabled:      ptrBool(true),
+		RsyncExclude: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE),
+		RsyncProtect: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT),
+		Username:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME),
+		Password:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD),
+		WebhookUrl:   ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL),
+		Image:        ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE),
+		VerifySsl:    ptrBool(false),
+	},
+}
+
+var commonTerraformConfig = terraform.TerraformConfig{
+	Enabled: ptrBool(true),
+	Backend: ptrString("local"),
+}
+
+var commonClusterConfig = cluster.ClusterConfig{
+	Enabled: ptrBool(true),
+	Driver:  ptrString("talos"),
+	ControlPlanes: struct {
+		Count     *int                          `yaml:"count,omitempty"`
+		CPU       *int                          `yaml:"cpu,omitempty"`
+		Memory    *int                          `yaml:"memory,omitempty"`
+		Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
+		HostPorts []string                      `yaml:"hostports,omitempty"`
+	}{
+		Count:  ptrInt(1),
+		CPU:    ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_CPU),
+		Memory: ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_RAM),
+		Nodes:  make(map[string]cluster.NodeConfig),
+	},
+	Workers: struct {
+		Count     *int                          `yaml:"count,omitempty"`
+		CPU       *int                          `yaml:"cpu,omitempty"`
+		Memory    *int                          `yaml:"memory,omitempty"`
+		Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
+		HostPorts []string                      `yaml:"hostports,omitempty"`
+	}{
+		Count:  ptrInt(1),
+		CPU:    ptrInt(constants.DEFAULT_TALOS_WORKER_CPU),
+		Memory: ptrInt(constants.DEFAULT_TALOS_WORKER_RAM),
+		Nodes:  make(map[string]cluster.NodeConfig),
+	},
+}
+
+var commonDNSConfig = dns.DNSConfig{
+	Enabled: ptrBool(true),
+	Domain:  ptrString("test"),
+}
+
+var DefaultConfig_Containerized = v1alpha1.Context{
 	Environment: map[string]string{},
-	Docker: &docker.DockerConfig{
-		Enabled: ptrBool(true),
-		Registries: map[string]docker.RegistryConfig{
-			"registry.test": {},
-			"registry-1.docker.io": {
-				Remote: "https://registry-1.docker.io",
-				Local:  "https://docker.io",
-			},
-			"registry.k8s.io": {
-				Remote: "https://registry.k8s.io",
-			},
-			"gcr.io": {
-				Remote: "https://gcr.io",
-			},
-			"ghcr.io": {
-				Remote: "https://ghcr.io",
-			},
-			"quay.io": {
-				Remote: "https://quay.io",
-			},
-		},
-	},
-	Git: &git.GitConfig{
-		Livereload: &git.GitLivereloadConfig{
-			Enabled:      ptrBool(true),
-			RsyncExclude: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_EXCLUDE),
-			RsyncProtect: ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_RSYNC_PROTECT),
-			Username:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_USERNAME),
-			Password:     ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_PASSWORD),
-			WebhookUrl:   ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_WEBHOOK_URL),
-			Image:        ptrString(constants.DEFAULT_GIT_LIVE_RELOAD_IMAGE),
-			VerifySsl:    ptrBool(false),
-		},
-	},
-	Terraform: &terraform.TerraformConfig{
-		Enabled: ptrBool(true),
-		Backend: ptrString("local"),
-	},
+	Docker:      commonDockerConfig.Copy(),
+	Git:         commonGitConfig.Copy(),
+	Terraform:   commonTerraformConfig.Copy(),
 	Cluster: &cluster.ClusterConfig{
 		Enabled: ptrBool(true),
 		Driver:  ptrString("talos"),
@@ -93,11 +140,11 @@ var DefaultLocalConfig = v1alpha1.Context{
 			CPU       *int                          `yaml:"cpu,omitempty"`
 			Memory    *int                          `yaml:"memory,omitempty"`
 			Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-			NodePorts []string                      `yaml:"nodeports,omitempty"`
+			HostPorts []string                      `yaml:"hostports,omitempty"`
 		}{
 			Count:  ptrInt(1),
-			CPU:    ptrInt(2),
-			Memory: ptrInt(2),
+			CPU:    ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_CPU),
+			Memory: ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_RAM),
 			Nodes:  make(map[string]cluster.NodeConfig),
 		},
 		Workers: struct {
@@ -105,17 +152,33 @@ var DefaultLocalConfig = v1alpha1.Context{
 			CPU       *int                          `yaml:"cpu,omitempty"`
 			Memory    *int                          `yaml:"memory,omitempty"`
 			Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-			NodePorts []string                      `yaml:"nodeports,omitempty"`
+			HostPorts []string                      `yaml:"hostports,omitempty"`
 		}{
 			Count:     ptrInt(1),
-			CPU:       ptrInt(4),
-			Memory:    ptrInt(4),
+			CPU:       ptrInt(constants.DEFAULT_TALOS_WORKER_CPU),
+			Memory:    ptrInt(constants.DEFAULT_TALOS_WORKER_RAM),
 			Nodes:     make(map[string]cluster.NodeConfig),
-			NodePorts: []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp"},
+			HostPorts: []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp"},
 		},
 	},
+	DNS: commonDNSConfig.Copy(),
+	VM: &vm.VMConfig{
+		Driver: ptrString("docker-desktop"),
+	},
+}
+
+var DefaultConfig_FullVM = v1alpha1.Context{
+	Environment: map[string]string{},
+	Docker:      commonDockerConfig.Copy(),
+	Git:         commonGitConfig.Copy(),
+	Terraform:   commonTerraformConfig.Copy(),
+	Cluster:     commonClusterConfig.Copy(),
+	DNS:         commonDNSConfig.Copy(),
+	VM: &vm.VMConfig{
+		Driver: ptrString("colima"),
+	},
 	Network: &network.NetworkConfig{
-		CIDRBlock: ptrString("10.5.0.0/16"),
+		CIDRBlock: ptrString(constants.DEFAULT_NETWORK_CIDR),
 		LoadBalancerIPs: &struct {
 			Start *string `yaml:"start,omitempty"`
 			End   *string `yaml:"end,omitempty"`
@@ -123,13 +186,5 @@ var DefaultLocalConfig = v1alpha1.Context{
 			Start: ptrString("10.5.1.1"),
 			End:   ptrString("10.5.1.10"),
 		},
-	},
-	DNS: &dns.DNSConfig{
-		Enabled: ptrBool(true),
-		Domain:  ptrString("test"),
-		Address: nil,
-	},
-	VM: &vm.VMConfig{
-		Driver: ptrString("docker-desktop"),
 	},
 }

@@ -92,9 +92,11 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	return &types.Config{Services: services}, nil
 }
 
-// WriteConfig generates a Corefile for DNS setup by retrieving the project root,
-// domain, and service IPs. It includes DNS records, templates the Corefile,
-// ensures directory existence, and writes the file.
+// WriteConfig generates a Corefile for DNS configuration by gathering project root, TLD, and service IPs,
+// constructing DNS host entries, and appending static DNS records. It adapts the Corefile for localhost
+// by adding a template for local DNS resolution. Additionally, it configures DNS forwarding by including
+// specified forward addresses, ensuring DNS queries are directed appropriately. The final Corefile is
+// written to the .windsor config directory
 func (s *DNSService) WriteConfig() error {
 	projectRoot, err := s.shell.GetProjectRoot()
 	if err != nil {
@@ -125,15 +127,38 @@ func (s *DNSService) WriteConfig() error {
 		hostEntries += fmt.Sprintf("        %s\n", record)
 	}
 
-	corefileContent := fmt.Sprintf(`
+	forwardAddresses := s.configHandler.GetStringSlice("dns.forward", nil)
+	if len(forwardAddresses) == 0 {
+		forwardAddresses = []string{"1.1.1.1", "8.8.8.8"}
+	}
+	forwardAddressesStr := fmt.Sprintf("%s", forwardAddresses[0])
+	for _, addr := range forwardAddresses[1:] {
+		forwardAddressesStr += fmt.Sprintf(" %s", addr)
+	}
+
+	var corefileContent string
+	if s.IsLocalhost() {
+		corefileContent = fmt.Sprintf(`
+%s:53 {
+    template IN A {
+        match .*\.%s
+        answer "{{ .Name }} 60 IN A 127.0.0.1"
+    }
+
+    forward . %s
+}
+`, tld, tld, forwardAddressesStr)
+	} else {
+		corefileContent = fmt.Sprintf(`
 %s:53 {
     hosts {
 %s        fallthrough
     }
 
-    forward . 1.1.1.1 8.8.8.8
+    forward . %s
 }
-`, tld, hostEntries)
+`, tld, hostEntries, forwardAddressesStr)
+	}
 
 	corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
 

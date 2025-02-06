@@ -91,22 +91,22 @@ func (s *TalosService) SetAddress(address string) error {
 		return err
 	}
 
-	nodePorts := s.configHandler.GetStringSlice(fmt.Sprintf("cluster.%s.nodeports", nodeType), []string{})
+	hostPorts := s.configHandler.GetStringSlice(fmt.Sprintf("cluster.%s.hostports", nodeType), []string{})
 
-	nodePortsCopy := make([]string, len(nodePorts))
-	copy(nodePortsCopy, nodePorts)
+	hostPortsCopy := make([]string, len(hostPorts))
+	copy(hostPortsCopy, hostPorts)
 
-	for i := 0; i < len(nodePortsCopy); i++ {
-		parts := strings.Split(nodePortsCopy[i], ":")
+	for i := 0; i < len(hostPortsCopy); i++ {
+		parts := strings.Split(hostPortsCopy[i], ":")
 		var hostPort, nodePort int
 		protocol := "tcp"
 
 		switch len(parts) {
-		case 1: // nodePort only
+		case 1: // hostPort only
 			var err error
 			nodePort, err = strconv.Atoi(parts[0])
 			if err != nil {
-				return fmt.Errorf("invalid nodePort value: %s", parts[0])
+				return fmt.Errorf("invalid hostPort value: %s", parts[0])
 			}
 			hostPort = nodePort
 		case 2: // hostPort and nodePort/protocol
@@ -118,7 +118,7 @@ func (s *TalosService) SetAddress(address string) error {
 			nodePortProtocol := strings.Split(parts[1], "/")
 			nodePort, err = strconv.Atoi(nodePortProtocol[0])
 			if err != nil {
-				return fmt.Errorf("invalid nodePort value: %s", nodePortProtocol[0])
+				return fmt.Errorf("invalid hostPort value: %s", nodePortProtocol[0])
 			}
 			if len(nodePortProtocol) == 2 {
 				if nodePortProtocol[1] == "tcp" || nodePortProtocol[1] == "udp" {
@@ -128,7 +128,7 @@ func (s *TalosService) SetAddress(address string) error {
 				}
 			}
 		default:
-			return fmt.Errorf("invalid nodePort format: %s", nodePortsCopy[i])
+			return fmt.Errorf("invalid hostPort format: %s", hostPortsCopy[i])
 		}
 
 		// Check for conflicts in hostPort
@@ -137,10 +137,10 @@ func (s *TalosService) SetAddress(address string) error {
 		}
 		usedHostPorts[hostPort] = true
 
-		nodePortsCopy[i] = fmt.Sprintf("%d:%d/%s", hostPort, nodePort, protocol)
+		hostPortsCopy[i] = fmt.Sprintf("%d:%d/%s", hostPort, nodePort, protocol)
 	}
 
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.nodeports", nodeType, s.name), nodePortsCopy); err != nil {
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.hostports", nodeType, s.name), hostPortsCopy); err != nil {
 		return err
 	}
 
@@ -261,10 +261,10 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		}
 	}
 
-	nodePortsKey := fmt.Sprintf("cluster.%s.nodes.%s.nodeports", nodeType, nodeName)
-	nodePorts := s.configHandler.GetStringSlice(nodePortsKey)
-	for _, nodePortStr := range nodePorts {
-		parts := strings.Split(nodePortStr, ":")
+	hostPortsKey := fmt.Sprintf("cluster.%s.nodes.%s.hostports", nodeType, nodeName)
+	hostPorts := s.configHandler.GetStringSlice(hostPortsKey)
+	for _, hostPortStr := range hostPorts {
+		parts := strings.Split(hostPortStr, ":")
 		hostPort, err := strconv.ParseUint(parts[0], 10, 32)
 		if err != nil || hostPort > math.MaxUint32 {
 			return nil, fmt.Errorf("invalid hostPort value: %s", parts[0])
@@ -272,7 +272,7 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		nodePortProtocol := strings.Split(parts[1], "/")
 		nodePort, err := strconv.ParseUint(nodePortProtocol[0], 10, 32)
 		if err != nil || nodePort > math.MaxUint32 {
-			return nil, fmt.Errorf("invalid nodePort value: %s", nodePortProtocol[0])
+			return nil, fmt.Errorf("invalid hostPort value: %s", nodePortProtocol[0])
 		}
 		protocol := "tcp"
 		if len(nodePortProtocol) == 2 {

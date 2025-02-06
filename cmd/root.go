@@ -66,7 +66,7 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 
 	// If the context is local or starts with "local-", set the defaults to the default local config
 	if contextName == "local" || len(contextName) > 6 && contextName[:6] == "local-" {
-		err := configHandler.SetDefault(config.DefaultLocalConfig)
+		err := configHandler.SetDefault(config.DefaultConfig_Containerized)
 		if err != nil {
 			return fmt.Errorf("error setting default local config: %w", err)
 		}
