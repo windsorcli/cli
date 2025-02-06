@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/config"
 )
 
 var (
@@ -82,6 +83,20 @@ var initCmd = &cobra.Command{
 				if err != nil {
 					return fmt.Errorf("Error setting %s configuration: %w", config.flagName, err)
 				}
+			}
+		}
+
+		// Set appropriate default windsor.yaml configuration
+		vmDriverConfig := configHandler.GetString("vm.driver")
+		if vmDriverConfig == "docker-desktop" {
+			err := configHandler.SetDefault(config.DefaultConfig_Containerized)
+			if err != nil {
+				return fmt.Errorf("Error setting default containerized config: %w", err)
+			}
+		} else if vmDriverConfig == "colima" {
+			err := configHandler.SetDefault(config.DefaultConfig_FullVM)
+			if err != nil {
+				return fmt.Errorf("Error setting default full VM config: %w", err)
 			}
 		}
 

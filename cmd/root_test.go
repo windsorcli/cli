@@ -22,6 +22,7 @@ func resetRootCmd() {
 	rootCmd.SetArgs([]string{})
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
+	controller = nil
 	verbose = false // Reset the verbose flag
 }
 
@@ -217,43 +218,6 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 
 		// Then an error should be returned
 		expectedError := "mocked error loading config"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("ErrorSettingDefaultLocalConfig", func(t *testing.T) {
-		// Mock the global controller
-		originalController := controller
-		defer func() { controller = originalController }()
-
-		// Mock the injector
-		injector := di.NewInjector()
-
-		// Mock the controller
-		mockController := ctrl.NewMockController(injector)
-		controller = mockController
-
-		// Mock ResolveConfigHandler to return a mock config handler
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
-			if reflect.DeepEqual(cfg, config.DefaultConfig_Containerized) {
-				return fmt.Errorf("mocked error setting default local config")
-			}
-			return nil
-		}
-		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-			return mockConfigHandler
-		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "local"
-		}
-
-		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(nil, nil)
-
-		// Then an error should be returned
-		expectedError := "mocked error setting default local config"
 		if err == nil || !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
 		}
