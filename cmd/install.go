@@ -4,13 +4,15 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
 var installCmd = &cobra.Command{
-	Use:     "install",
-	Short:   "Install the blueprint's cluster-level services",
-	PreRunE: preRunEInitializeCommonComponents,
+	Use:   "install",
+	Short: "Install the blueprint's cluster-level services",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+
 		// Create project components
 		if err := controller.CreateProjectComponents(); err != nil {
 			return fmt.Errorf("Error creating project components: %w", err)

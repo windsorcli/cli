@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
 var (
@@ -29,8 +30,8 @@ var initCmd = &cobra.Command{
 	Long:         "Initialize the application by setting up necessary configurations and environment",
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
-	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
 		// Add the current directory to the trusted file list
 		shell := controller.ResolveShell()

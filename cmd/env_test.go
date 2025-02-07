@@ -110,21 +110,12 @@ func TestEnvCmd(t *testing.T) {
 		t.Run(fmt.Sprintf("ErrorCreatingVirtualizationComponentsWithVerbose=%v", verbose), func(t *testing.T) {
 			defer resetRootCmd()
 
-			// Save the original controller and restore it after the test
-			originalController := controller
-			defer func() {
-				controller = originalController
-			}()
-
 			// Given a mock controller that returns an error when creating virtualization components
 			injector := di.NewInjector()
 			mockController := ctrl.NewMockController(injector)
 			mockController.CreateVirtualizationComponentsFunc = func() error {
 				return fmt.Errorf("error creating virtualization components")
 			}
-
-			// Set the global controller to the mock controller
-			controller = mockController
 
 			// When the env command is executed with or without verbose flag
 			if verbose {
@@ -155,21 +146,12 @@ func TestEnvCmd(t *testing.T) {
 		t.Run(fmt.Sprintf("ErrorCreatingServiceComponentsWithVerbose=%v", verbose), func(t *testing.T) {
 			defer resetRootCmd()
 
-			// Save the original controller and restore it after the test
-			originalController := controller
-			defer func() {
-				controller = originalController
-			}()
-
 			// Given a mock controller that returns an error when creating service components
 			injector := di.NewInjector()
 			mockController := ctrl.NewMockController(injector)
 			mockController.CreateServiceComponentsFunc = func() error {
 				return fmt.Errorf("error creating service components")
 			}
-
-			// Set the global controller to the mock controller
-			controller = mockController
 
 			// When the env command is executed with or without verbose flag
 			if verbose {
@@ -199,21 +181,12 @@ func TestEnvCmd(t *testing.T) {
 	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
 		defer resetRootCmd()
 
-		// Save the original controller and restore it after the test
-		originalController := controller
-		defer func() {
-			controller = originalController
-		}()
-
 		// Given a mock controller that returns an error when creating environment components
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
 		mockController.CreateEnvComponentsFunc = func() error {
 			return fmt.Errorf("error creating environment components")
 		}
-
-		// Set the global controller to the mock controller
-		controller = mockController
 
 		// When the env command is executed with verbose flag
 		rootCmd.SetArgs([]string{"env", "--verbose"})
@@ -239,9 +212,6 @@ func TestEnvCmd(t *testing.T) {
 			return fmt.Errorf("error creating environment components")
 		}
 
-		// Set the global controller to the mock controller
-		controller = mockController
-
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
 		err := Execute(mockController)
@@ -261,9 +231,6 @@ func TestEnvCmd(t *testing.T) {
 		mockController.InitializeComponentsFunc = func() error {
 			return fmt.Errorf("error initializing components")
 		}
-
-		// Set the global controller to the mock controller
-		controller = mockController
 
 		// When the env command is executed with verbose flag
 		rootCmd.SetArgs([]string{"env", "--verbose"})
@@ -289,9 +256,6 @@ func TestEnvCmd(t *testing.T) {
 			return fmt.Errorf("error initializing components")
 		}
 
-		// Set the global controller to the mock controller
-		controller = mockController
-
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
 		err := Execute(mockController)
@@ -312,9 +276,6 @@ func TestEnvCmd(t *testing.T) {
 			return nil
 		}
 
-		// Set the global controller to the mock controller
-		controller = mockController
-
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
 		err := Execute(mockController)
@@ -334,9 +295,6 @@ func TestEnvCmd(t *testing.T) {
 		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
 			return []env.EnvPrinter{}
 		}
-
-		// Set the global controller to the mock controller
-		controller = mockController
 
 		// When the env command is executed with verbose flag
 		rootCmd.SetArgs([]string{"env", "--verbose"})
@@ -366,9 +324,6 @@ func TestEnvCmd(t *testing.T) {
 			return []env.EnvPrinter{mockEnvPrinter}
 		}
 
-		// Set the global controller to the mock controller
-		controller = mockController
-
 		// When the env command is executed with verbose flag
 		rootCmd.SetArgs([]string{"env", "--verbose"})
 		err := Execute(mockController)
@@ -397,9 +352,6 @@ func TestEnvCmd(t *testing.T) {
 			return []env.EnvPrinter{mockEnvPrinter}
 		}
 
-		// Set the global controller to the mock controller
-		controller = mockController
-
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})
 		err := Execute(mockController)
@@ -423,9 +375,6 @@ func TestEnvCmd(t *testing.T) {
 		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
 			return []env.EnvPrinter{mockEnvPrinter}
 		}
-
-		// Set the global controller to the mock controller
-		controller = mockController
 
 		// When the env command is executed with verbose flag
 		rootCmd.SetArgs([]string{"env", "--verbose"})
@@ -454,9 +403,6 @@ func TestEnvCmd(t *testing.T) {
 		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
 			return []env.EnvPrinter{mockEnvPrinter}
 		}
-
-		// Set the global controller to the mock controller
-		controller = mockController
 
 		// When the env command is executed without verbose flag
 		rootCmd.SetArgs([]string{"env"})

@@ -21,7 +21,6 @@ func setupSafeInitCmdMocks(existingInjectors ...di.Injector) *initMockObjects {
 	}
 
 	mockController := ctrl.NewMockController(injector)
-	controller = mockController
 
 	mockController.CreateCommonComponentsFunc = func() error { return nil }
 	mockController.InitializeComponentsFunc = func() error { return nil }
@@ -445,7 +444,7 @@ func TestInitCmd(t *testing.T) {
 		// When the init command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
-			err := Execute(controller)
+			err := Execute(mocks.Controller)
 			if err == nil {
 				t.Fatalf("Expected error, got nil")
 			}
