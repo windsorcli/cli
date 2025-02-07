@@ -24,7 +24,6 @@ func resetRootCmd() {
 	rootCmd.SetArgs([]string{})
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
-	controller = nil
 	verbose = false // Reset the verbose flag
 }
 
