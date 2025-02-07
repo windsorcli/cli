@@ -266,6 +266,7 @@ local registryMirrors = std.foldl(
 kustomize: [
   {
     name: "policy-base",
+    source: "core",
     path: "policy/base",
     components: [
       "kyverno"
@@ -273,6 +274,7 @@ kustomize: [
   },
   {
     name: "policy-resources",
+    source: "core",
     path: "policy/resources",
     dependsOn: [
       "policy-base"
@@ -280,6 +282,7 @@ kustomize: [
   },
   {
     name: "pki-base",
+    source: "core",
     path: "pki/base",
     dependsOn: [
       "policy-resources"
@@ -292,6 +295,7 @@ kustomize: [
   },
   {
     name: "pki-resources",
+    source: "core",
     path: "pki/resources",
     dependsOn: [
       "pki-base"
@@ -304,6 +308,7 @@ kustomize: [
   },
   {
     name: "ingress-base",
+    source: "core",
     path: "ingress/base",
     dependsOn: [
       "pki-resources"
@@ -324,6 +329,7 @@ kustomize: [
   },
   {
     name: "gitops",
+    source: "core",
     path: "gitops/flux",
     dependsOn: [
       "ingress-base"
@@ -336,6 +342,7 @@ kustomize: [
 ] + (if context.vm.driver == "colima" then [
   {
     name: "dns",
+    source: "core",
     path: "dns",
     dependsOn: [
       "pki-base"
@@ -351,6 +358,7 @@ kustomize: [
   },
   {
     name: "lb-base",
+    source: "core",
     path: "lb/base",
     dependsOn: [
       "policy-resources"
@@ -362,6 +370,7 @@ kustomize: [
   },
   {
     name: "lb-resources",
+    source: "core",
     path: "lb/resources",
     dependsOn: [
       "lb-base"
