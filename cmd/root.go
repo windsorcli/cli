@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
@@ -62,12 +61,6 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 		shell.SetVerbosity(verbose)
 	}
 
-	// Always set the same default config
-	err := configHandler.SetDefault(config.DefaultConfig)
-	if err != nil {
-		return fmt.Errorf("error setting default config: %w", err)
-	}
-
 	// Determine the cliConfig path
 	var cliConfigPath string
 	if cliConfigPath = os.Getenv("WINDSORCONFIG"); cliConfigPath == "" {
@@ -89,6 +82,9 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 			cliConfigPath = yamlPath
 		}
 	}
+
+	// Load the current context
+	configHandler.GetContext()
 
 	// Load the configuration if a config path was determined
 	if cliConfigPath != "" {

@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
@@ -40,25 +42,44 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error adding current directory to trusted file: %w", err)
 		}
 
-		// Resolve the config handler
+		// Resolve the config handler and determine the context name
 		configHandler := controller.ResolveConfigHandler()
-
-		var contextName string
+		contextName := "local"
 		if len(args) == 1 {
 			contextName = args[0]
-		} else {
-			contextName = configHandler.GetContext()
+		} else if currentContext := configHandler.GetContext(); currentContext != "" {
+			contextName = currentContext
 		}
 
 		// Set the context value
-		if contextName == "" {
-			contextName = "local"
-		}
 		if err := configHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("Error setting context value: %w", err)
 		}
 
-		// Create the flag to config path mapping
+		// Determine the default configuration based on the vm-driver flag
+		vmDriverConfig := vmDriver
+		if vmDriverConfig == "" {
+			vmDriverConfig = configHandler.GetString("vm.driver")
+			if vmDriverConfig == "" && (contextName == "local" || strings.HasPrefix(contextName, "local-")) {
+				vmDriverConfig = "docker-desktop"
+			}
+		}
+
+		// Set the default configuration if applicable
+		var defaultConfig *v1alpha1.Context
+		switch vmDriverConfig {
+		case "docker-desktop":
+			defaultConfig = &config.DefaultConfig_Containerized
+		case "colima":
+			defaultConfig = &config.DefaultConfig_FullVM
+		}
+		if defaultConfig != nil {
+			if err := configHandler.SetDefault(*defaultConfig); err != nil {
+				return fmt.Errorf("Error setting default config: %w", err)
+			}
+		}
+
+		// Create the flag to config path mapping and set the configurations
 		configurations := []struct {
 			flagName   string
 			configPath string
@@ -77,7 +98,6 @@ var initCmd = &cobra.Command{
 			{"git-livereload", "git.livereload.enabled", gitLivereload},
 		}
 
-		// Set the configurations
 		for _, config := range configurations {
 			if cmd.Flags().Changed(config.flagName) {
 				err := configHandler.SetContextValue(config.configPath, config.value)
@@ -87,21 +107,7 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		// Set appropriate default windsor.yaml configuration
-		vmDriverConfig := configHandler.GetString("vm.driver")
-		if vmDriverConfig == "docker-desktop" {
-			err := configHandler.SetDefault(config.DefaultConfig_Containerized)
-			if err != nil {
-				return fmt.Errorf("Error setting default containerized config: %w", err)
-			}
-		} else if vmDriverConfig == "colima" {
-			err := configHandler.SetDefault(config.DefaultConfig_FullVM)
-			if err != nil {
-				return fmt.Errorf("Error setting default full VM config: %w", err)
-			}
-		}
-
-		// Get the cli configuration path using shell to get the project root
+		// Determine the cli configuration path
 		projectRoot, err := shell.GetProjectRoot()
 		if err != nil {
 			return fmt.Errorf("Error retrieving project root: %w", err)
@@ -109,16 +115,12 @@ var initCmd = &cobra.Command{
 		yamlPath := filepath.Join(projectRoot, "windsor.yaml")
 		ymlPath := filepath.Join(projectRoot, "windsor.yml")
 
-		// Declare cliConfigPath variable
 		var cliConfigPath string
-
-		// Check if windsor.yaml exists
 		if _, err := osStat(yamlPath); err == nil {
 			cliConfigPath = yamlPath
 		} else if _, err := osStat(ymlPath); err == nil {
 			cliConfigPath = ymlPath
 		} else {
-			// Default to windsor.yaml if neither file exists
 			cliConfigPath = yamlPath
 		}
 
@@ -127,27 +129,19 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error saving config file: %w", err)
 		}
 
-		// Create project components
+		// Create and initialize components
 		if err := controller.CreateProjectComponents(); err != nil {
 			return fmt.Errorf("Error creating project components: %w", err)
 		}
-
-		// Create service components
 		if err := controller.CreateServiceComponents(); err != nil {
 			return fmt.Errorf("Error creating service components: %w", err)
 		}
-
-		// Create virtualization components
 		if err := controller.CreateVirtualizationComponents(); err != nil {
 			return fmt.Errorf("Error creating virtualization components: %w", err)
 		}
-
-		// Create stack components
 		if err := controller.CreateStackComponents(); err != nil {
 			return fmt.Errorf("Error creating stack components: %w", err)
 		}
-
-		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)
 		}

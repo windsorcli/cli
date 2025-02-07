@@ -22,7 +22,7 @@
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/windsor/main.go",
-      "args": ["init", "local"]
+      "args": ["init", "local", "--vm-driver", "colima"]
     },
     {
       "name": "Windsor Up",

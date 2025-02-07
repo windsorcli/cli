@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
@@ -221,39 +219,39 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorSettingDefaultConfig", func(t *testing.T) {
-		// Mock the injector
-		injector := di.NewInjector()
+	// t.Run("ErrorSettingDefaultConfig", func(t *testing.T) {
+	// 	// Mock the injector
+	// 	injector := di.NewInjector()
 
-		// Mock the controller
-		mockController := ctrl.NewMockController(injector)
+	// 	// Mock the controller
+	// 	mockController := ctrl.NewMockController(injector)
 
-		// Mock ResolveConfigHandler to return a mock config handler
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
-			if reflect.DeepEqual(cfg, config.DefaultConfig) {
-				return fmt.Errorf("mocked error setting default config")
-			}
-			return nil
-		}
-		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-			return mockConfigHandler
-		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "production"
-		}
+	// 	// Mock ResolveConfigHandler to return a mock config handler
+	// 	mockConfigHandler := config.NewMockConfigHandler()
+	// 	mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+	// 		if reflect.DeepEqual(cfg, config.DefaultConfig) {
+	// 			return fmt.Errorf("mocked error setting default config")
+	// 		}
+	// 		return nil
+	// 	}
+	// 	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+	// 		return mockConfigHandler
+	// 	}
+	// 	mockConfigHandler.GetContextFunc = func() string {
+	// 		return "production"
+	// 	}
 
-		// Create a new command and register the controller
-		cmd := &cobra.Command{}
-		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mockController))
+	// 	// Create a new command and register the controller
+	// 	cmd := &cobra.Command{}
+	// 	cmd.SetContext(context.WithValue(context.Background(), controllerKey, mockController))
 
-		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(cmd, nil)
+	// 	// When preRunEInitializeCommonComponents is called
+	// 	err := preRunEInitializeCommonComponents(cmd, nil)
 
-		// Then an error should be returned
-		expectedError := "mocked error setting default config"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
-		}
-	})
+	// 	// Then an error should be returned
+	// 	expectedError := "mocked error setting default config"
+	// 	if err == nil || !strings.Contains(err.Error(), expectedError) {
+	// 		t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
+	// 	}
+	// })
 }

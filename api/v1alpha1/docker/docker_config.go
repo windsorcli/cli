@@ -2,7 +2,7 @@ package docker
 
 // DockerConfig represents the Docker configuration
 type DockerConfig struct {
-	Enabled     *bool                     `yaml:"enabled"`
+	Enabled     *bool                     `yaml:"enabled,omitempty"`
 	RegistryURL string                    `yaml:"registry_url,omitempty"`
 	Registries  map[string]RegistryConfig `yaml:"registries,omitempty"`
 }

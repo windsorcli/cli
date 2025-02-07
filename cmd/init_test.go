@@ -67,6 +67,7 @@ func TestInitCmd(t *testing.T) {
 	t.Cleanup(func() {
 		rootCmd.Args = originalArgs
 		exitFunc = originalExitFunc
+		resetRootCmd()
 	})
 
 	// Mock the exit function to prevent the test from exiting
@@ -75,6 +76,7 @@ func TestInitCmd(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
+
 		// Setup mocks
 		mocks := setupSafeInitCmdMocks()
 
@@ -94,6 +96,7 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("AllFlagsSet", func(t *testing.T) {
+
 		// Given a valid config handler
 		mocks := setupSafeInitCmdMocks()
 
@@ -125,6 +128,7 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("VMDriverDockerDesktop", func(t *testing.T) {
+
 		// Given a valid config handler
 		mocks := setupSafeInitCmdMocks()
 
@@ -139,15 +143,15 @@ func TestInitCmd(t *testing.T) {
 		// Track if SetDefault is called with the correct config
 		setDefaultCalled := false
 		mocks.ConfigHandler.SetDefaultFunc = func(contextConfig v1alpha1.Context) error {
-			if contextConfig.VM != nil && *contextConfig.VM.Driver == "docker-desktop" {
+			if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "docker-desktop" {
 				setDefaultCalled = true
 			}
 			return nil
 		}
 
-		// When the init command is executed
+		// When the init command is executed with vm.driver set to "docker-desktop"
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
+			rootCmd.SetArgs([]string{"init", "test-context", "--vm-driver", "docker-desktop"})
 			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Execute() error = %v", err)
@@ -167,7 +171,6 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingDefaultContainerizedConfig", func(t *testing.T) {
-		defer resetRootCmd()
 
 		// Given a mock config handler that returns an error when setting default containerized config
 		mocks := setupSafeInitCmdMocks()
@@ -217,9 +220,9 @@ func TestInitCmd(t *testing.T) {
 			return nil
 		}
 
-		// When the init command is executed
+		// When the init command is executed with vm.driver set to "colima"
+		rootCmd.SetArgs([]string{"init", "test-context", "--vm-driver", "colima"})
 		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context"})
 			err := Execute(mocks.Controller)
 			if err != nil {
 				t.Fatalf("Execute() error = %v", err)
@@ -239,7 +242,6 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingDefaultFullVMConfig", func(t *testing.T) {
-		defer resetRootCmd()
 
 		// Given a mock config handler that returns an error when setting default full VM config
 		mocks := setupSafeInitCmdMocks()
@@ -269,7 +271,6 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorAddingCurrentDirToTrustedFile", func(t *testing.T) {
-		defer resetRootCmd()
 
 		// Given a mock shell that returns an error when adding current directory to trusted file
 		injector := di.NewInjector()

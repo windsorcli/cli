@@ -71,6 +71,7 @@ type BaseConfigHandler struct {
 	ConfigHandler
 	injector di.Injector
 	shell    shell.Shell
+	config   v1alpha1.Config
 	context  string
 }
 

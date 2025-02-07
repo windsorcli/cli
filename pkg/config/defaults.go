@@ -10,7 +10,6 @@ package config
 
 import (
 	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/api/v1alpha1/aws"
 	"github.com/windsorcli/cli/api/v1alpha1/cluster"
 	"github.com/windsorcli/cli/api/v1alpha1/dns"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
@@ -22,35 +21,7 @@ import (
 )
 
 // DefaultConfig returns the default configuration
-var DefaultConfig = v1alpha1.Context{
-	Environment: map[string]string{},
-	AWS: &aws.AWSConfig{
-		Enabled:        nil,
-		AWSEndpointURL: nil,
-		AWSProfile:     nil,
-		S3Hostname:     nil,
-		MWAAEndpoint:   nil,
-		Localstack: &aws.LocalstackConfig{
-			Enabled:  nil,
-			Services: nil,
-		},
-	},
-	Docker: &docker.DockerConfig{
-		Enabled:    nil,
-		Registries: map[string]docker.RegistryConfig{},
-	},
-	Terraform: &terraform.TerraformConfig{
-		Enabled: nil,
-		Backend: nil,
-	},
-	Cluster: nil,
-	Network: nil,
-	DNS: &dns.DNSConfig{
-		Enabled: nil,
-		Domain:  nil,
-		Address: nil,
-	},
-}
+var DefaultConfig = v1alpha1.Context{}
 
 var commonDockerConfig = docker.DockerConfig{
 	Enabled: ptrBool(true),
@@ -173,7 +144,6 @@ var DefaultConfig_FullVM = v1alpha1.Context{
 	Git:         commonGitConfig.Copy(),
 	Terraform:   commonTerraformConfig.Copy(),
 	Cluster:     commonClusterConfig.Copy(),
-	DNS:         commonDNSConfig.Copy(),
 	VM: &vm.VMConfig{
 		Driver: ptrString("colima"),
 	},
@@ -185,6 +155,15 @@ var DefaultConfig_FullVM = v1alpha1.Context{
 		}{
 			Start: ptrString("10.5.1.1"),
 			End:   ptrString("10.5.1.10"),
+		},
+	},
+	DNS: &dns.DNSConfig{
+		Enabled: ptrBool(true),
+		Domain:  ptrString("test"),
+		Forward: []string{
+			"10.5.1.1",
+			"1.1.1.1",
+			"8.8.8.8",
 		},
 	},
 }

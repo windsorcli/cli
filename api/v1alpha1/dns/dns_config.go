@@ -2,7 +2,7 @@ package dns
 
 // DNSConfig represents the DNS configuration
 type DNSConfig struct {
-	Enabled *bool    `yaml:"enabled"`
+	Enabled *bool    `yaml:"enabled,omitempty"`
 	Domain  *string  `yaml:"domain,omitempty"`
 	Address *string  `yaml:"address,omitempty"`
 	Forward []string `yaml:"forward,omitempty"`

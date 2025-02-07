@@ -2,7 +2,7 @@ package terraform
 
 // TerraformConfig represents the Terraform configuration
 type TerraformConfig struct {
-	Enabled *bool   `yaml:"enabled"`
+	Enabled *bool   `yaml:"enabled,omitempty"`
 	Backend *string `yaml:"backend,omitempty"`
 }
 
