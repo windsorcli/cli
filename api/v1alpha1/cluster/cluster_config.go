@@ -9,14 +9,14 @@ type ClusterConfig struct {
 		CPU       *int                  `yaml:"cpu,omitempty"`
 		Memory    *int                  `yaml:"memory,omitempty"`
 		Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
-		NodePorts []string              `yaml:"nodeports,omitempty"`
+		HostPorts []string              `yaml:"hostports,omitempty"`
 	} `yaml:"controlplanes,omitempty"`
 	Workers struct {
 		Count     *int                  `yaml:"count,omitempty"`
 		CPU       *int                  `yaml:"cpu,omitempty"`
 		Memory    *int                  `yaml:"memory,omitempty"`
 		Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
-		NodePorts []string              `yaml:"nodeports,omitempty"`
+		HostPorts []string              `yaml:"hostports,omitempty"`
 	} `yaml:"workers,omitempty"`
 }
 
@@ -25,7 +25,7 @@ type NodeConfig struct {
 	Hostname  *string  `yaml:"hostname"`
 	Node      *string  `yaml:"node,omitempty"`
 	Endpoint  *string  `yaml:"endpoint,omitempty"`
-	NodePorts []string `yaml:"nodeports,omitempty"`
+	HostPorts []string `yaml:"hostports,omitempty"`
 }
 
 // Merge performs a deep merge of the current ClusterConfig with another ClusterConfig.
@@ -66,9 +66,9 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 			base.Workers.Nodes[key] = node
 		}
 	}
-	if overlay.Workers.NodePorts != nil {
-		base.Workers.NodePorts = make([]string, len(overlay.Workers.NodePorts))
-		copy(base.Workers.NodePorts, overlay.Workers.NodePorts)
+	if overlay.Workers.HostPorts != nil {
+		base.Workers.HostPorts = make([]string, len(overlay.Workers.HostPorts))
+		copy(base.Workers.HostPorts, overlay.Workers.HostPorts)
 	}
 }
 
@@ -84,11 +84,11 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 			Hostname:  node.Hostname,
 			Node:      node.Node,
 			Endpoint:  node.Endpoint,
-			NodePorts: append([]string{}, node.NodePorts...), // Copy NodePorts for each node
+			HostPorts: append([]string{}, node.HostPorts...), // Copy HostPorts for each node
 		}
 	}
-	controlPlanesNodePortsCopy := make([]string, len(c.ControlPlanes.NodePorts))
-	copy(controlPlanesNodePortsCopy, c.ControlPlanes.NodePorts)
+	controlPlanesHostPortsCopy := make([]string, len(c.ControlPlanes.HostPorts))
+	copy(controlPlanesHostPortsCopy, c.ControlPlanes.HostPorts)
 
 	workersNodesCopy := make(map[string]NodeConfig, len(c.Workers.Nodes))
 	for key, node := range c.Workers.Nodes {
@@ -96,11 +96,11 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 			Hostname:  node.Hostname,
 			Node:      node.Node,
 			Endpoint:  node.Endpoint,
-			NodePorts: append([]string{}, node.NodePorts...), // Copy NodePorts for each node
+			HostPorts: append([]string{}, node.HostPorts...), // Copy HostPorts for each node
 		}
 	}
-	workersNodePortsCopy := make([]string, len(c.Workers.NodePorts))
-	copy(workersNodePortsCopy, c.Workers.NodePorts)
+	workersHostPortsCopy := make([]string, len(c.Workers.HostPorts))
+	copy(workersHostPortsCopy, c.Workers.HostPorts)
 
 	return &ClusterConfig{
 		Enabled: c.Enabled,
@@ -110,26 +110,26 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 			CPU       *int                  `yaml:"cpu,omitempty"`
 			Memory    *int                  `yaml:"memory,omitempty"`
 			Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
-			NodePorts []string              `yaml:"nodeports,omitempty"`
+			HostPorts []string              `yaml:"hostports,omitempty"`
 		}{
 			Count:     c.ControlPlanes.Count,
 			CPU:       c.ControlPlanes.CPU,
 			Memory:    c.ControlPlanes.Memory,
 			Nodes:     controlPlanesNodesCopy,
-			NodePorts: controlPlanesNodePortsCopy,
+			HostPorts: controlPlanesHostPortsCopy,
 		},
 		Workers: struct {
 			Count     *int                  `yaml:"count,omitempty"`
 			CPU       *int                  `yaml:"cpu,omitempty"`
 			Memory    *int                  `yaml:"memory,omitempty"`
 			Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
-			NodePorts []string              `yaml:"nodeports,omitempty"`
+			HostPorts []string              `yaml:"hostports,omitempty"`
 		}{
 			Count:     c.Workers.Count,
 			CPU:       c.Workers.CPU,
 			Memory:    c.Workers.Memory,
 			Nodes:     workersNodesCopy,
-			NodePorts: workersNodePortsCopy,
+			HostPorts: workersHostPortsCopy,
 		},
 	}
 }

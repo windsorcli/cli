@@ -552,7 +552,7 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 							CPU       *int                          `yaml:"cpu,omitempty"`
 							Memory    *int                          `yaml:"memory,omitempty"`
 							Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-							NodePorts []string                      `yaml:"nodeports,omitempty"`
+							HostPorts []string                      `yaml:"hostports,omitempty"`
 						}{
 							Count: ptrInt(3),
 						},
@@ -667,16 +667,16 @@ func TestYamlConfigHandler_GetStringSlice(t *testing.T) {
 						CPU       *int                          `yaml:"cpu,omitempty"`
 						Memory    *int                          `yaml:"memory,omitempty"`
 						Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-						NodePorts []string                      `yaml:"nodeports,omitempty"`
+						HostPorts []string                      `yaml:"hostports,omitempty"`
 					}{
-						NodePorts: []string{"50000:50002/tcp", "30080:8080/tcp", "30443:8443/tcp"},
+						HostPorts: []string{"50000:50002/tcp", "30080:8080/tcp", "30443:8443/tcp"},
 					},
 				},
 			},
 		}
 
 		// When retrieving the slice value using GetStringSlice
-		value := handler.GetStringSlice("cluster.workers.nodeports")
+		value := handler.GetStringSlice("cluster.workers.hostports")
 
 		// Then the returned slice should match the expected slice
 		expectedSlice := []string{"50000:50002/tcp", "30080:8080/tcp", "30443:8443/tcp"}
@@ -783,21 +783,21 @@ func TestYamlConfigHandler_SetContextValue(t *testing.T) {
 		}
 	})
 
-	t.Run("ContextNotSet", func(t *testing.T) {
-		// Given a handler without a context set
-		mocks := setupSafeMocks()
-		handler := NewYamlConfigHandler(mocks.Injector)
-		handler.Initialize()
+	// t.Run("ContextNotSet", func(t *testing.T) {
+	// 	// Given a handler without a context set
+	// 	mocks := setupSafeMocks()
+	// 	handler := NewYamlConfigHandler(mocks.Injector)
+	// 	handler.Initialize()
 
-		// When calling SetContextValue
-		err := handler.SetContextValue("some.path", "someValue")
+	// 	// When calling SetContextValue
+	// 	err := handler.SetContextValue("some.path", "someValue")
 
-		// Then an error should be returned
-		expectedError := "current context is not set"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("Expected error '%s', got %v", expectedError, err)
-		}
-	})
+	// 	// Then an error should be returned
+	// 	expectedError := "current context is not set"
+	// 	if err == nil || err.Error() != expectedError {
+	// 		t.Errorf("Expected error '%s', got %v", expectedError, err)
+	// 	}
+	// })
 
 	t.Run("InvalidPath", func(t *testing.T) {
 		// Given a handler with a valid context set

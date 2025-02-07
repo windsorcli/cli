@@ -66,11 +66,11 @@ func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 
 	mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
 		switch key {
-		case "cluster.workers.nodes.worker1.nodeports":
+		case "cluster.workers.nodes.worker1.hostports":
 			return []string{"30000:30000", "30001:30001/udp"}
-		case "cluster.workers.nodes.worker2.nodeports":
+		case "cluster.workers.nodes.worker2.hostports":
 			return []string{"30002:30002/tcp", "30003:30003"}
-		case "cluster.workers.nodeports":
+		case "cluster.workers.hostports":
 			return []string{"30000:30000", "30001:30001/udp", "30002:30002/tcp", "30003:30003"}
 		default:
 			if len(defaultValue) > 0 {
@@ -88,13 +88,13 @@ func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 					CPU       *int                          `yaml:"cpu,omitempty"`
 					Memory    *int                          `yaml:"memory,omitempty"`
 					Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-					NodePorts []string                      `yaml:"nodeports,omitempty"`
+					HostPorts []string                      `yaml:"hostports,omitempty"`
 				}{
 					Nodes: map[string]cluster.NodeConfig{
 						"worker1": {},
 						"worker2": {},
 					},
-					NodePorts: []string{"30000:30000/tcp", "30001:30001/udp", "30002:30002/tcp", "30003:30003/udp"},
+					HostPorts: []string{"30000:30000/tcp", "30001:30001/udp", "30002:30002/tcp", "30003:30003/udp"},
 				},
 			},
 		}
@@ -351,7 +351,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorSettingNodePorts", func(t *testing.T) {
+	t.Run("ErrorSettingHostPorts", func(t *testing.T) {
 		// Setup mocks for this test
 		mocks := setupTalosServiceMocks()
 		service := NewTalosService(mocks.Injector, "worker")
@@ -361,10 +361,10 @@ func TestTalosService_SetAddress(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Simulate an error when setting node ports with non-integer values
+		// Simulate an error when setting host ports with non-integer values
 		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
-			if key == "cluster.workers.nodes."+service.name+".nodeports" {
-				return fmt.Errorf("mock error setting node ports")
+			if key == "cluster.workers.nodes."+service.name+".hostports" {
+				return fmt.Errorf("mock error setting host ports")
 			}
 			return nil
 		}
@@ -372,58 +372,58 @@ func TestTalosService_SetAddress(t *testing.T) {
 		// Attempt to set the address, expecting an error
 		if err := service.SetAddress("localhost"); err == nil {
 			t.Fatalf("expected an error, got nil")
-		} else if err.Error() != "mock error setting node ports" {
-			t.Fatalf("expected error message 'mock error setting node ports', got %v", err)
+		} else if err.Error() != "mock error setting host ports" {
+			t.Fatalf("expected error message 'mock error setting host ports', got %v", err)
 		}
 	})
 
-	t.Run("NodePortValidation", func(t *testing.T) {
+	t.Run("HostPortValidation", func(t *testing.T) {
 		tests := []struct {
 			name          string
-			nodePorts     []string
+			hostPorts     []string
 			expectedError string
 			expectSuccess bool
 		}{
 			{
-				name:          "NodePortOnly",
-				nodePorts:     []string{"30000"},
+				name:          "HostPortOnly",
+				hostPorts:     []string{"30000"},
 				expectedError: "",
 				expectSuccess: true,
 			},
 			{
-				name:          "InvalidSingleNodePort",
-				nodePorts:     []string{"abc"},
-				expectedError: "invalid nodePort value: abc",
-				expectSuccess: false,
-			},
-			{
-				name:          "InvalidNodePortFormat",
-				nodePorts:     []string{"abc:123"},
+				name:          "InvalidSingleHostPort",
+				hostPorts:     []string{"abc"},
 				expectedError: "invalid hostPort value: abc",
 				expectSuccess: false,
 			},
 			{
-				name:          "NonIntegerNodePort",
-				nodePorts:     []string{"123:abc"},
-				expectedError: "invalid nodePort value: abc",
+				name:          "InvalidHostPortFormat",
+				hostPorts:     []string{"abc:123"},
+				expectedError: "invalid hostPort value: abc",
 				expectSuccess: false,
 			},
 			{
-				name:          "ValidNodePort",
-				nodePorts:     []string{"8080:80/tcp"},
+				name:          "NonIntegerHostPort",
+				hostPorts:     []string{"123:abc"},
+				expectedError: "invalid hostPort value: abc",
+				expectSuccess: false,
+			},
+			{
+				name:          "ValidHostPort",
+				hostPorts:     []string{"8080:80/tcp"},
 				expectedError: "",
 				expectSuccess: true,
 			},
 			{
 				name:          "InvalidProtocol",
-				nodePorts:     []string{"8080:80/http"},
+				hostPorts:     []string{"8080:80/http"},
 				expectedError: "invalid protocol value: http",
 				expectSuccess: false,
 			},
 			{
-				name:          "IncorrectNodePortFormat",
-				nodePorts:     []string{"8080:80:tcp"},
-				expectedError: "invalid nodePort format: 8080:80:tcp",
+				name:          "IncorrectHostPortFormat",
+				hostPorts:     []string{"8080:80:tcp"},
+				expectedError: "invalid hostPort format: 8080:80:tcp",
 				expectSuccess: false,
 			},
 		}
@@ -439,10 +439,10 @@ func TestTalosService_SetAddress(t *testing.T) {
 					t.Fatalf("expected no error during initialization, got %v", err)
 				}
 
-				// Simulate node port configuration
+				// Simulate host port configuration
 				mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
-					if key == "cluster.workers.nodeports" {
-						return tt.nodePorts
+					if key == "cluster.workers.hostports" {
+						return tt.hostPorts
 					}
 					if len(defaultValue) > 0 {
 						return defaultValue[0]
@@ -755,7 +755,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 		// Mock the GetStringSlice method to return an invalid host port
 		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
-			if key == "cluster.workers.nodes.worker.nodeports" {
+			if key == "cluster.workers.nodes.worker.hostports" {
 				return []string{"invalidPort:30000/tcp"}
 			}
 			return nil
@@ -779,15 +779,15 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("InvalidNodePort", func(t *testing.T) {
+	t.Run("InvalidHostPort", func(t *testing.T) {
 		// Setup mocks for this test
 		mocks := setupTalosServiceMocks()
 		service := NewTalosService(mocks.Injector, "worker")
 
-		// Mock the GetStringSlice method to return an invalid node port
+		// Mock the GetStringSlice method to return an invalid host port
 		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
-			if key == "cluster.workers.nodes.worker.nodeports" {
-				return []string{"30000:invalidNodePort/tcp"}
+			if key == "cluster.workers.nodes.worker.hostports" {
+				return []string{"30000:invalidHostPort/tcp"}
 			}
 			return nil
 		}
@@ -803,10 +803,10 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 		// Then an error should be returned
 		if err == nil {
-			t.Fatalf("expected an error due to invalid node port, got nil")
+			t.Fatalf("expected an error due to invalid host port, got nil")
 		}
-		if err.Error() != "invalid nodePort value: invalidNodePort" {
-			t.Fatalf("expected error message 'invalid nodePort value: invalidNodePort', got %v", err)
+		if err.Error() != "invalid hostPort value: invalidHostPort" {
+			t.Fatalf("expected error message 'invalid hostPort value: invalidHostPort', got %v", err)
 		}
 	})
 
@@ -815,9 +815,9 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		mocks := setupTalosServiceMocks()
 		service := NewTalosService(mocks.Injector, "worker")
 
-		// Mock the GetStringSlice method to return a valid node port configuration
+		// Mock the GetStringSlice method to return a valid host port configuration
 		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
-			if key == "cluster.workers.nodes.worker.nodeports" {
+			if key == "cluster.workers.nodes.worker.hostports" {
 				return []string{"30000:30000/tcp"}
 			}
 			return nil

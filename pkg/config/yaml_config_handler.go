@@ -83,7 +83,7 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 	return nil
 }
 
-// SetDefault sets the given context configuration as the default. Defaults to "local" if no current context is set.
+// SetDefault sets the given context configuration as the default.
 func (y *YamlConfigHandler) SetDefault(context v1alpha1.Context) error {
 	y.defaultContextConfig = context
 	currentContext := y.GetContext()
@@ -183,9 +183,7 @@ func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 
 // SetContextValue sets a configuration value within the current context.
 func (y *YamlConfigHandler) SetContextValue(path string, value interface{}) error {
-	if y.context == "" {
-		return fmt.Errorf("current context is not set")
-	}
+	y.GetContext()
 
 	currentContext := y.context
 	fullPath := fmt.Sprintf("contexts.%s.%s", currentContext, path)

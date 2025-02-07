@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
@@ -66,6 +67,7 @@ func TestInitCmd(t *testing.T) {
 	t.Cleanup(func() {
 		rootCmd.Args = originalArgs
 		exitFunc = originalExitFunc
+		resetRootCmd()
 	})
 
 	// Mock the exit function to prevent the test from exiting
@@ -74,6 +76,7 @@ func TestInitCmd(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
+
 		// Setup mocks
 		mocks := setupSafeInitCmdMocks()
 
@@ -93,6 +96,7 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("AllFlagsSet", func(t *testing.T) {
+
 		// Given a valid config handler
 		mocks := setupSafeInitCmdMocks()
 
@@ -123,8 +127,150 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("VMDriverDockerDesktop", func(t *testing.T) {
+
+		// Given a valid config handler
+		mocks := setupSafeInitCmdMocks()
+
+		// Mock the GetString method to return "docker-desktop" for vm.driver
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			return ""
+		}
+
+		// Track if SetDefault is called with the correct config
+		setDefaultCalled := false
+		mocks.ConfigHandler.SetDefaultFunc = func(contextConfig v1alpha1.Context) error {
+			if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "docker-desktop" {
+				setDefaultCalled = true
+			}
+			return nil
+		}
+
+		// When the init command is executed with vm.driver set to "docker-desktop"
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context", "--vm-driver", "docker-desktop"})
+			err := Execute(mocks.Controller)
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+		})
+
+		// Then the output should indicate success
+		expectedOutput := "Initialization successful\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+
+		// Check if SetDefault was called correctly
+		if !setDefaultCalled {
+			t.Errorf("Expected SetDefault to be called with vm.driver 'docker-desktop'")
+		}
+	})
+
+	t.Run("ErrorSettingDefaultContainerizedConfig", func(t *testing.T) {
+
+		// Given a mock config handler that returns an error when setting default containerized config
+		mocks := setupSafeInitCmdMocks()
+		mocks.ConfigHandler.SetDefaultFunc = func(contextConfig v1alpha1.Context) error {
+			if contextConfig.VM != nil && *contextConfig.VM.Driver == "docker-desktop" {
+				return fmt.Errorf("error setting default containerized config")
+			}
+			return nil
+		}
+
+		// Mock the GetString method to return "docker-desktop" for vm.driver
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			return ""
+		}
+
+		// When the init command is executed with vm.driver set to "docker-desktop"
+		rootCmd.SetArgs([]string{"init", "test-context", "--vm-driver", "docker-desktop"})
+		err := Execute(mocks.Controller)
+
+		// Then an error should be returned
+		if err == nil || !strings.Contains(err.Error(), "error setting default containerized config") {
+			t.Fatalf("Expected error setting default containerized config, got %v", err)
+		}
+	})
+
+	t.Run("VMDriverColima", func(t *testing.T) {
+		// Given a valid config handler
+		mocks := setupSafeInitCmdMocks()
+
+		// Mock the GetString method to return "colima" for vm.driver
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
+		}
+
+		// Track if SetDefault is called with the correct config
+		setDefaultCalled := false
+		mocks.ConfigHandler.SetDefaultFunc = func(contextConfig v1alpha1.Context) error {
+			if contextConfig.VM != nil && *contextConfig.VM.Driver == "colima" {
+				setDefaultCalled = true
+			}
+			return nil
+		}
+
+		// When the init command is executed with vm.driver set to "colima"
+		rootCmd.SetArgs([]string{"init", "test-context", "--vm-driver", "colima"})
+		output := captureStderr(func() {
+			err := Execute(mocks.Controller)
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+		})
+
+		// Then the output should indicate success
+		expectedOutput := "Initialization successful\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+
+		// Validate that SetDefault was called with the correct configuration
+		if !setDefaultCalled {
+			t.Error("Expected SetDefault to be called with DefaultConfig_FullVM, but it was not")
+		}
+	})
+
+	t.Run("ErrorSettingDefaultFullVMConfig", func(t *testing.T) {
+
+		// Given a mock config handler that returns an error when setting default full VM config
+		mocks := setupSafeInitCmdMocks()
+		mocks.ConfigHandler.SetDefaultFunc = func(contextConfig v1alpha1.Context) error {
+			if contextConfig.VM != nil && *contextConfig.VM.Driver == "colima" {
+				return fmt.Errorf("error setting default full VM config")
+			}
+			return nil
+		}
+
+		// Mock the GetString method to return "colima" for vm.driver
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			return ""
+		}
+
+		// When the init command is executed with vm.driver set to "colima"
+		rootCmd.SetArgs([]string{"init", "test-context", "--vm-driver", "colima"})
+		err := Execute(mocks.Controller)
+
+		// Then an error should be returned
+		if err == nil || !strings.Contains(err.Error(), "error setting default full VM config") {
+			t.Fatalf("Expected error setting default full VM config, got %v", err)
+		}
+	})
+
 	t.Run("ErrorAddingCurrentDirToTrustedFile", func(t *testing.T) {
-		defer resetRootCmd()
 
 		// Given a mock shell that returns an error when adding current directory to trusted file
 		injector := di.NewInjector()
@@ -240,9 +386,16 @@ func TestInitCmd(t *testing.T) {
 		// Given a valid config handler
 		mocks := setupSafeInitCmdMocks()
 
-		// Mock GetProjectRoot to return an error
+		// Counter to track the number of times GetProjectRootFunc is called
+		callCount := 0
+
+		// Mock GetProjectRoot to return an error only on the second call
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mocked error retrieving project root")
+			callCount++
+			if callCount == 2 {
+				return "", fmt.Errorf("mocked error retrieving project root")
+			}
+			return "/mock/project/root", nil
 		}
 
 		// When the init command is executed

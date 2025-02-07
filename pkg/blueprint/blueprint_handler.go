@@ -905,6 +905,8 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 			"DOMAIN":                domain,
 			"CONTEXT":               context,
 			"LOADBALANCER_IP_RANGE": loadBalancerIPRange,
+			"LOADBALANCER_IP_START": lbStart,
+			"LOADBALANCER_IP_END":   lbEnd,
 			"REGISTRY_URL":          registryURL,
 		},
 	}
