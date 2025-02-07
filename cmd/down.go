@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
 var (
@@ -16,8 +17,9 @@ var downCmd = &cobra.Command{
 	Short:        "Tear down the Windsor environment",
 	Long:         "Tear down the Windsor environment by executing necessary shell commands.",
 	SilenceUsage: true,
-	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+
 		// Create virtualization components
 		if err := controller.CreateVirtualizationComponents(); err != nil {
 			return fmt.Errorf("Error creating virtualization components: %w", err)

@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
 var (
@@ -16,8 +17,9 @@ var upCmd = &cobra.Command{
 	Short:        "Set up the Windsor environment",
 	Long:         "Set up the Windsor environment by executing necessary shell commands.",
 	SilenceUsage: true,
-	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+
 		// Create and initialize all necessary components for the Windsor environment.
 		// This includes project, environment, virtualization, service, and stack components.
 		if err := controller.CreateProjectComponents(); err != nil {

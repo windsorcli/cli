@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
 var checkCmd = &cobra.Command{
@@ -11,8 +12,9 @@ var checkCmd = &cobra.Command{
 	Short:        "Check the tool versions",
 	Long:         "Check the tool versions required by the project",
 	SilenceUsage: true,
-	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+
 		// Create project components
 		if err := controller.CreateProjectComponents(); err != nil {
 			return fmt.Errorf("Error creating project components: %w", err)

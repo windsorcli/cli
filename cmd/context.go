@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
 // getContextCmd represents the get command
@@ -12,8 +13,9 @@ var getContextCmd = &cobra.Command{
 	Short:        "Get the current context",
 	Long:         "Retrieve and display the current context from the configuration",
 	SilenceUsage: true,
-	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+
 		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)
@@ -33,12 +35,12 @@ var getContextCmd = &cobra.Command{
 
 // setContextCmd represents the set command
 var setContextCmd = &cobra.Command{
-	Use:     "set [context]",
-	Short:   "Set the current context",
-	Long:    "Set the current context in the configuration and save it",
-	Args:    cobra.ExactArgs(1), // Ensure exactly one argument is provided
-	PreRunE: preRunEInitializeCommonComponents,
+	Use:   "set [context]",
+	Short: "Set the current context",
+	Long:  "Set the current context in the configuration and save it",
+	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
 	RunE: func(cmd *cobra.Command, args []string) error {
+		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)
