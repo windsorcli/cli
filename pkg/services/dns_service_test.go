@@ -34,15 +34,21 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 			},
 			DNS: &dns.DNSConfig{
 				Enabled: &enabled,
-				Domain:  ptrString("test1"),
-				Records: []string{"127.0.0.1 test1", "192.168.1.1 test1"},
+				Domain:  ptrString("test"),
+				Records: []string{"127.0.0.1 test", "192.168.1.1 test"},
 			},
 		}
+	}
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+		return filepath.FromSlash("/invalid/path"), nil
+	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "test-context"
 	}
 
 	mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
 		if key == "dns.records" {
-			return []string{"127.0.0.1 test1", "192.168.1.1 test1"}
+			return []string{"127.0.0.1 test", "192.168.1.1 test"}
 		}
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
@@ -66,6 +72,16 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 	// Register mocks in the injector
 	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("shell", mockShell)
+
+	// Mock the writeFile function to avoid writing to the real file system
+	writeFile = func(filename string, data []byte, perm os.FileMode) error {
+		return nil
+	}
+
+	// Mock the mkdirAll function to avoid creating directories in the real file system
+	mkdirAll = func(path string, perm os.FileMode) error {
+		return nil
+	}
 
 	return &MockComponents{
 		Injector:          injector,
@@ -304,28 +320,6 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create mocks and set up the mock context
 		mocks := createDNSServiceMocks()
-		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
-		}
-		mocks.MockConfigHandler.GetContextFunc = func() string {
-			return "test"
-		}
-
-		// Configure the mock config handler to return Docker enabled
-		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Docker: &docker.DockerConfig{
-					Enabled: ptrBool(true),
-					Registries: map[string]docker.RegistryConfig{
-						"service1": {Remote: "remote1", Local: "local1"},
-						"service2": {Remote: "remote2", Local: "local2"},
-					},
-				},
-				DNS: &dns.DNSConfig{
-					Enabled: ptrBool(true),
-				},
-			}
-		}
 
 		// Given: a DNSService with the mock config handler, context, and real DockerService
 		service := NewDNSService(mocks.Injector)
@@ -335,13 +329,10 @@ func TestDNSService_WriteConfig(t *testing.T) {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
-		// Mock the writeFile function to avoid writing to the real file system
+		// Mock the writeFile function to capture the content written
+		var writtenContent []byte
 		writeFile = func(filename string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-
-		// Mock the mkdirAll function to avoid creating directories in the real file system
-		mkdirAll = func(path string, perm os.FileMode) error {
+			writtenContent = data
 			return nil
 		}
 
@@ -351,6 +342,68 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		// Then: no error should be returned
 		if err != nil {
 			t.Fatalf("WriteConfig() error = %v", err)
+		}
+
+		// Verify that the Corefile content is correctly formatted
+		expectedCorefileContent := `
+test:53 {
+    hosts {
+        127.0.0.1 test
+        192.168.1.1 test
+        fallthrough
+    }
+
+    forward . 1.1.1.1 8.8.8.8
+}
+`
+		if string(writtenContent) != expectedCorefileContent {
+			t.Errorf("Expected Corefile content:\n%s\nGot:\n%s", expectedCorefileContent, string(writtenContent))
+		}
+	})
+
+	t.Run("SuccessLocalhost", func(t *testing.T) {
+		// Create mocks and set up the mock context
+		mocks := createDNSServiceMocks()
+
+		// Given: a DNSService with the mock config handler, context, and real DockerService
+		service := NewDNSService(mocks.Injector)
+
+		// Initialize the service
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Set the address to localhost to mock IsLocalhost behavior
+		service.SetAddress("127.0.0.1")
+
+		// Mock the writeFile function to capture the content written
+		var writtenContent []byte
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenContent = data
+			return nil
+		}
+
+		// When: WriteConfig is called
+		err := service.WriteConfig()
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Fatalf("WriteConfig() error = %v", err)
+		}
+
+		// Verify that the Corefile content is correctly formatted for localhost
+		expectedCorefileContent := `
+test:53 {
+    template IN A {
+        match .*\.test
+        answer "{{ .Name }} 60 IN A 127.0.0.1"
+    }
+
+    forward . 1.1.1.1 8.8.8.8
+}
+`
+		if string(writtenContent) != expectedCorefileContent {
+			t.Errorf("Expected Corefile content:\n%s\nGot:\n%s", expectedCorefileContent, string(writtenContent))
 		}
 	})
 
@@ -383,22 +436,6 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	t.Run("ValidAddress", func(t *testing.T) {
 		// Create a mock context and config handler
 		mocks := createDNSServiceMocks()
-		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
-		}
-
-		// Create a mock config handler that returns Docker and DNS enabled
-		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Docker: &docker.DockerConfig{
-					Enabled: ptrBool(true),
-				},
-				DNS: &dns.DNSConfig{
-					Enabled: ptrBool(true),
-					Domain:  ptrString("test"),
-				},
-			}
-		}
 
 		// Create a mock service that returns a valid address
 		mockService := NewMockService()
@@ -425,16 +462,6 @@ func TestDNSService_WriteConfig(t *testing.T) {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
-		// Mock the writeFile function to avoid writing to the real file system
-		writeFile = func(filename string, data []byte, perm os.FileMode) error {
-			return nil
-		}
-
-		// Mock the mkdirAll function to avoid creating directories in the real file system
-		mkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-
 		// When: WriteConfig is called
 		err := service.WriteConfig()
 
@@ -447,23 +474,6 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	t.Run("ErrorWritingCorefile", func(t *testing.T) {
 		// Mock the GetConfigRoot function to return a mock path
 		mocks := createDNSServiceMocks()
-		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
-		}
-
-		// Create a mock config handler that returns Docker enabled
-		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Docker: &docker.DockerConfig{
-					Enabled: ptrBool(true),
-				},
-				DNS: &dns.DNSConfig{
-					Enabled: ptrBool(true),
-				},
-			}
-		}
-
-		mocks.Injector.Register("dockerService", NewMockService())
 
 		// Given: a DNSService with the mock config handler, context, and DockerService
 		service := NewDNSService(mocks.Injector)
@@ -488,6 +498,9 @@ func TestDNSService_WriteConfig(t *testing.T) {
 	})
 
 	t.Run("MkdirAllError", func(t *testing.T) {
+		// Setup injector with mocks
+		mocks := createDNSServiceMocks()
+
 		// Save the original mkdirAll function
 		originalMkdirAll := mkdirAll
 
@@ -500,30 +513,6 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		defer func() {
 			mkdirAll = originalMkdirAll
 		}()
-
-		// Setup injector with mocks
-		mocks := createDNSServiceMocks()
-
-		// Mock the configHandler
-		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			// Return a context config where Docker is enabled
-			return &v1alpha1.Context{
-				Docker: &docker.DockerConfig{
-					Enabled: ptrBool(true),
-				},
-				DNS: &dns.DNSConfig{
-					Enabled: ptrBool(true),
-				},
-			}
-		}
-
-		// Mock the context
-		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return filepath.FromSlash("/invalid/path"), nil
-		}
-		mocks.MockConfigHandler.GetContextFunc = func() string {
-			return "test-context"
-		}
 
 		// Create the DNSService instance
 		service := NewDNSService(mocks.Injector)
