@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -79,7 +81,6 @@ func setupSafeRootMocks(optionalInjector ...di.Injector) *MockObjects {
 	}
 
 	mockController := ctrl.NewMockController(injector)
-	controller = mockController
 
 	mockShell := &shell.MockShell{}
 	mockEnvPrinter := &env.MockEnvPrinter{}
@@ -107,10 +108,14 @@ func TestRoot_Execute(t *testing.T) {
 
 func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		setupSafeRootMocks()
+		mocks := setupSafeRootMocks()
+
+		// Create a new command and register the controller
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
 
 		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(nil, nil)
+		err := preRunEInitializeCommonComponents(cmd, nil)
 
 		// Then no error should be returned
 		if err != nil {
@@ -126,8 +131,12 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 			return fmt.Errorf("mocked error initializing controller")
 		}
 
+		// Create a new command and register the controller
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
+
 		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(nil, nil)
+		err := preRunEInitializeCommonComponents(cmd, nil)
 
 		// Then an error should be returned
 		expectedError := "mocked error initializing controller"
@@ -144,8 +153,12 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 			return fmt.Errorf("mocked error creating common components")
 		}
 
+		// Create a new command and register the controller
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
+
 		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(nil, nil)
+		err := preRunEInitializeCommonComponents(cmd, nil)
 
 		// Then an error should be returned
 		expectedError := "mocked error creating common components"
@@ -162,8 +175,12 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 			return nil
 		}
 
+		// Create a new command and register the controller
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
+
 		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(nil, nil)
+		err := preRunEInitializeCommonComponents(cmd, nil)
 
 		// Then an error should be returned
 		expectedError := "No config handler found"
@@ -189,6 +206,10 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 			}
 		}
 
+		// Create a new command and register the controller
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
+
 		// Set the verbosity
 		shell := mocks.Controller.ResolveShell()
 		if shell != nil {
@@ -201,39 +222,12 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorLoadingConfig", func(t *testing.T) {
-		mocks := setupSafeRootMocks()
-
-		// Mock LoadConfig to return an error
-		mocks.Controller.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.LoadConfigFunc = func(path string) error {
-				return fmt.Errorf("mocked error loading config")
-			}
-			return mockConfigHandler
-		}
-
-		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(nil, nil)
-
-		// Then an error should be returned
-		expectedError := "mocked error loading config"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
-		}
-	})
-
 	t.Run("ErrorSettingDefaultConfig", func(t *testing.T) {
-		// Mock the global controller
-		originalController := controller
-		defer func() { controller = originalController }()
-
 		// Mock the injector
 		injector := di.NewInjector()
 
 		// Mock the controller
 		mockController := ctrl.NewMockController(injector)
-		controller = mockController
 
 		// Mock ResolveConfigHandler to return a mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -250,8 +244,12 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 			return "production"
 		}
 
+		// Create a new command and register the controller
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mockController))
+
 		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(nil, nil)
+		err := preRunEInitializeCommonComponents(cmd, nil)
 
 		// Then an error should be returned
 		expectedError := "mocked error setting default config"

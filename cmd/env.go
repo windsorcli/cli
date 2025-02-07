@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
 var envCmd = &cobra.Command{
@@ -11,8 +12,8 @@ var envCmd = &cobra.Command{
 	Short:        "Output commands to set environment variables",
 	Long:         "Output commands to set environment variables for the application.",
 	SilenceUsage: true,
-	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
 		// Check if current directory is in the trusted list
 		shell := controller.ResolveShell()

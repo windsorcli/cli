@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,36 +11,35 @@ import (
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
-// controller is the global controller
-var controller ctrl.Controller
+// Define a custom type for context keys
+type contextKey string
+
+const controllerKey = contextKey("controller")
 
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute(controllerInstance ctrl.Controller) error {
-	// Set the controller
-	controller = controllerInstance
+	// Create a context with the controller
+	ctx := context.WithValue(context.Background(), controllerKey, controllerInstance)
 
-	// Execute the root command
-	if err := rootCmd.Execute(); err != nil {
-		return err
-	}
-
-	return nil
+	// Execute the root command with the context
+	return rootCmd.ExecuteContext(ctx)
 }
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "windsor",
-	Short: "A command line interface to assist in a context flow development environment",
-	Long:  "A command line interface to assist in a context flow development environment",
+	Use:               "windsor",
+	Short:             "A command line interface to assist your cloud native development workflow",
+	Long:              "A command line interface to assist your cloud native development workflow",
+	PersistentPreRunE: preRunEInitializeCommonComponents,
 }
 
-func init() {
-	// Define the --verbose flag
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
-}
-
-// initializeCommonComponents initializes the controller and creates common components
+// preRunEInitializeCommonComponents initializes the controller and creates common components
 func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error {
+	cmd.SetContext(cmd.Root().Context())
+
+	// Retrieve the controller from the context
+	controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+
 	// Initialize the controller
 	if err := controller.Initialize(); err != nil {
 		return fmt.Errorf("Error initializing controller: %w", err)
@@ -97,4 +97,9 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 		}
 	}
 	return nil
+}
+
+func init() {
+	// Define the --verbose flag
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 }

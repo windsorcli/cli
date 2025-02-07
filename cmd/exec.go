@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
 var execCmd = &cobra.Command{
@@ -11,8 +12,9 @@ var execCmd = &cobra.Command{
 	Short:        "Execute a shell command with environment variables",
 	Long:         "Execute a shell command with environment variables set for the application.",
 	SilenceUsage: true,
-	PreRunE:      preRunEInitializeCommonComponents,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+
 		if len(args) == 0 {
 			return fmt.Errorf("no command provided")
 		}
