@@ -137,28 +137,18 @@ func (s *DNSService) WriteConfig() error {
 	}
 
 	var corefileContent string
-	if s.IsLocalhost() {
-		corefileContent = fmt.Sprintf(`
-%s:53 {
-    template IN A {
-        match .*\.%s
-        answer "{{ .Name }} 60 IN A 127.0.0.1"
-    }
-
-    forward . %s
-}
-`, tld, tld, forwardAddressesStr)
-	} else {
-		corefileContent = fmt.Sprintf(`
+	corefileContent = fmt.Sprintf(`
 %s:53 {
     hosts {
 %s        fallthrough
     }
 
+		reload
+		loop
+
     forward . %s
 }
 `, tld, hostEntries, forwardAddressesStr)
-	}
 
 	corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
 
