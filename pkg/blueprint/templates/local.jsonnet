@@ -12,15 +12,20 @@ local firstNode = if std.length(cpNodes) > 0 then cpNodes[0] else null;
 local registryMirrors = std.foldl(
   function(acc, key)
     local registryInfo = context.docker.registries[key];
-    // Must have a non-empty hostname
-    if !(std.objectHas(registryInfo, "hostname")) || registryInfo.hostname == "" then
-      acc
-    else
+    local localOverride = if std.objectHas(registryInfo, "local")
+                          then
+                            local parts = std.split(registryInfo["local"], "//");
+                            if std.length(parts) > 1 then parts[1] else registryInfo["local"]
+                          else "";
+    
+    if std.objectHas(registryInfo, "hostname") && registryInfo.hostname != "" then
       acc + {
-        [key]: {
-          endpoints: ["http://" + registryInfo["hostname"] + ":5000"],
+        [(if localOverride != "" then localOverride else key)]: {
+          endpoints: ["http://" + registryInfo.hostname + ":5000"],
         },
-      },
+      }
+    else
+      acc,
   std.objectFields(context.docker.registries),
   {}
 );
@@ -68,7 +73,7 @@ local registryMirrors = std.foldl(
           std.objectValues(context.cluster.controlplanes.nodes)
         ),
 
-        // Create a list of worker nodesq
+        // Create a list of worker nodes
         workers: std.map(
           function(v) {
             endpoint: v.endpoint,
