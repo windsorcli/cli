@@ -331,6 +331,8 @@ func TestDNSService_WriteConfig(t *testing.T) {
 
 		// Mock the writeFile function to capture the content written
 		var writtenContent []byte
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
 		writeFile = func(filename string, data []byte, perm os.FileMode) error {
 			writtenContent = data
 			return nil
@@ -353,6 +355,9 @@ test:53 {
         fallthrough
     }
 
+    reload
+    loop
+
     forward . 1.1.1.1 8.8.8.8
 }
 `
@@ -360,7 +365,6 @@ test:53 {
 			t.Errorf("Expected Corefile content:\n%s\nGot:\n%s", expectedCorefileContent, string(writtenContent))
 		}
 	})
-
 	t.Run("SuccessLocalhost", func(t *testing.T) {
 		// Create mocks and set up the mock context
 		mocks := createDNSServiceMocks()
@@ -378,6 +382,8 @@ test:53 {
 
 		// Mock the writeFile function to capture the content written
 		var writtenContent []byte
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
 		writeFile = func(filename string, data []byte, perm os.FileMode) error {
 			writtenContent = data
 			return nil
@@ -394,10 +400,14 @@ test:53 {
 		// Verify that the Corefile content is correctly formatted for localhost
 		expectedCorefileContent := `
 test:53 {
-    template IN A {
-        match .*\.test
-        answer "{{ .Name }} 60 IN A 127.0.0.1"
+    hosts {
+        127.0.0.1 test
+        192.168.1.1 test
+        fallthrough
     }
+
+    reload
+    loop
 
     forward . 1.1.1.1 8.8.8.8
 }

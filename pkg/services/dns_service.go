@@ -143,8 +143,8 @@ func (s *DNSService) WriteConfig() error {
 %s        fallthrough
     }
 
-		reload
-		loop
+    reload
+    loop
 
     forward . %s
 }
