@@ -268,122 +268,144 @@ local registryMirrors = std.foldl(
       }
     }
   ] else [],
-kustomize: [
-  {
-    name: "policy-base",
-    source: "core",
-    path: "policy/base",
-    components: [
-      "kyverno"
-    ],
-  },
-  {
-    name: "policy-resources",
-    source: "core",
-    path: "policy/resources",
-    dependsOn: [
-      "policy-base"
-    ],
-  },
-  {
-    name: "pki-base",
-    source: "core",
-    path: "pki/base",
-    dependsOn: [
-      "policy-resources"
-    ],
-    force: true,
-    components: [
-      "cert-manager",
-      "trust-manager"
-    ],
-  },
-  {
-    name: "pki-resources",
-    source: "core",
-    path: "pki/resources",
-    dependsOn: [
-      "pki-base"
-    ],
-    force: true,
-    components: [
-      "private-issuer/ca",
-      "public-issuer/selfsigned"
-    ],
-  },
-  {
-    name: "ingress-base",
-    source: "core",
-    path: "ingress/base",
-    dependsOn: [
-      "pki-resources"
-    ],
-    force: true,
-    components: if context.vm.driver == "colima" then [
-      "nginx",
-      "nginx/loadbalancer",
-      "nginx/coredns",
-      "nginx/flux-webhook",
-      "nginx/web"
-    ] else [
-      "nginx",
-      "nginx/nodeport",
-      "nginx/flux-webhook",
-      "nginx/web"
-    ],
-  },
-  {
-    name: "gitops",
-    source: "core",
-    path: "gitops/flux",
-    dependsOn: [
-      "ingress-base"
-    ],
-    force: true,
-    components: [
-      "webhook"
-    ],
-  },
-] + (if context.vm.driver == "colima" then [
-  {
-    name: "dns",
-    source: "core",
-    path: "dns",
-    dependsOn: [
-      "pki-base"
-    ],
-    force: true,
-    components: [
-      "coredns",
-      "coredns/etcd",
-      "external-dns",
-      "external-dns/coredns",
-      "external-dns/ingress"
-    ],
-  },
-  {
-    name: "lb-base",
-    source: "core",
-    path: "lb/base",
-    dependsOn: [
-      "policy-resources"
-    ],
-    force: true,
-    components: [
-      "metallb"
-    ],
-  },
-  {
-    name: "lb-resources",
-    source: "core",
-    path: "lb/resources",
-    dependsOn: [
-      "lb-base"
-    ],
-    force: true,
-    components: [
-      "metallb/layer2"
-    ],
-  }
-] else []),
+  kustomize: [
+    {
+      name: "policy-base",
+      source: "core",
+      path: "policy/base",
+      components: [
+        "kyverno"
+      ],
+    },
+    {
+      name: "policy-resources",
+      source: "core",
+      path: "policy/resources",
+      dependsOn: [
+        "policy-base"
+      ],
+    },
+  ] + (if context.vm.driver != "docker-desktop" then [
+    {
+      name: "lb-base",
+      source: "core",
+      path: "lb/base",
+      dependsOn: [
+        "policy-resources"
+      ],
+      force: true,
+      components: [
+        "metallb"
+      ],
+    },
+    {
+      name: "lb-resources",
+      source: "core",
+      path: "lb/resources",
+      dependsOn: [
+        "lb-base"
+      ],
+      force: true,
+      components: [
+        "metallb/layer2"
+      ],
+    }
+  ] else []) + [
+    {
+      name: "ingress-base",
+      source: "core",
+      path: "ingress/base",
+      dependsOn: [
+        "pki-resources"
+      ],
+      force: true,
+      components: if context.vm.driver == "docker-desktop" then [
+        "nginx",
+        "nginx/nodeport",
+        "nginx/coredns",
+        "nginx/flux-webhook",
+        "nginx/web"
+      ] else [
+        "nginx",
+        "nginx/loadbalancer",
+        "nginx/coredns",
+        "nginx/flux-webhook",
+        "nginx/web"
+      ],
+    },
+    {
+      name: "pki-base",
+      source: "core",
+      path: "pki/base",
+      dependsOn: [
+        "policy-resources"
+      ],
+      force: true,
+      components: [
+        "cert-manager",
+        "trust-manager"
+      ],
+    },
+    {
+      name: "pki-resources",
+      source: "core",
+      path: "pki/resources",
+      dependsOn: [
+        "pki-base"
+      ],
+      force: true,
+      components: [
+        "private-issuer/ca",
+        "public-issuer/selfsigned"
+      ],
+    },
+    {
+      name: "dns",
+      source: "core",
+      path: "dns",
+      dependsOn: [
+        "ingress-base",
+        "pki-base"
+      ],
+      force: true,
+      components: if context.vm.driver == "docker-desktop" then [
+        "coredns",
+        "coredns/etcd",
+        "external-dns",
+        "external-dns/localhost",
+        "external-dns/coredns",
+        "external-dns/ingress"
+      ] else [
+        "coredns",
+        "coredns/etcd",
+        "external-dns",
+        "external-dns/coredns",
+        "external-dns/ingress"
+      ],
+    },
+    {
+      name: "gitops",
+      source: "core",
+      path: "gitops/flux",
+      dependsOn: [
+        "ingress-base"
+      ],
+      force: true,
+      components: [
+        "webhook"
+      ],
+    },
+    {
+      name: "demo",
+      source: "core",
+      path: "demo/bookinfo",
+      dependsOn: [
+        "ingress-base"
+      ],
+      force: true,
+      components: [
+        "ingress"
+      ],
+    }
+  ],
 }

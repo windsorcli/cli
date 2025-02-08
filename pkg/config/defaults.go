@@ -129,7 +129,7 @@ var DefaultConfig_Containerized = v1alpha1.Context{
 			CPU:       ptrInt(constants.DEFAULT_TALOS_WORKER_CPU),
 			Memory:    ptrInt(constants.DEFAULT_TALOS_WORKER_RAM),
 			Nodes:     make(map[string]cluster.NodeConfig),
-			HostPorts: []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp"},
+			HostPorts: []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp", "8053:30053/udp"},
 		},
 	},
 	VM: &vm.VMConfig{
@@ -138,7 +138,13 @@ var DefaultConfig_Containerized = v1alpha1.Context{
 	Network: &network.NetworkConfig{
 		CIDRBlock: ptrString(constants.DEFAULT_NETWORK_CIDR),
 	},
-	DNS: commonDNSConfig.Copy(),
+	DNS: &dns.DNSConfig{
+		Enabled: ptrBool(true),
+		Domain:  ptrString("test"),
+		Forward: []string{
+			"10.5.0.1:8053",
+		},
+	},
 }
 
 var DefaultConfig_FullVM = v1alpha1.Context{
@@ -165,8 +171,6 @@ var DefaultConfig_FullVM = v1alpha1.Context{
 		Domain:  ptrString("test"),
 		Forward: []string{
 			"10.5.1.1",
-			"1.1.1.1",
-			"8.8.8.8",
 		},
 	},
 }
