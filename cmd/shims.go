@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 )
 
 // exitFunc is a function to exit the program
@@ -29,3 +30,8 @@ var execCommand = exec.Command
 
 // netInterfaces retrieves the network interfaces
 var netInterfaces = net.Interfaces
+
+// Define a variable for runtime.GOOS for easier testing
+var goos = func() string {
+	return runtime.GOOS
+}

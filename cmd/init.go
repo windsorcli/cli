@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
@@ -56,27 +55,32 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error setting context value: %w", err)
 		}
 
-		// Determine the default configuration based on the vm-driver flag
+		// Determine the default vm driver to use if not set
 		vmDriverConfig := vmDriver
 		if vmDriverConfig == "" {
 			vmDriverConfig = configHandler.GetString("vm.driver")
 			if vmDriverConfig == "" && (contextName == "local" || strings.HasPrefix(contextName, "local-")) {
-				vmDriverConfig = "docker-desktop"
+				switch goos() {
+				case "darwin", "windows":
+					vmDriverConfig = "docker-desktop"
+				default:
+					vmDriverConfig = "docker"
+				}
 			}
 		}
 
 		// Set the default configuration if applicable
-		var defaultConfig *v1alpha1.Context
-		switch vmDriverConfig {
-		case "docker-desktop":
-			defaultConfig = &config.DefaultConfig_Containerized
-		case "colima":
-			defaultConfig = &config.DefaultConfig_FullVM
+		defaultConfig := &config.DefaultConfig_Full
+		if vmDriverConfig == "docker-desktop" {
+			defaultConfig = &config.DefaultConfig_Localhost
 		}
-		if defaultConfig != nil {
-			if err := configHandler.SetDefault(*defaultConfig); err != nil {
-				return fmt.Errorf("Error setting default config: %w", err)
-			}
+		if err := configHandler.SetDefault(*defaultConfig); err != nil {
+			return fmt.Errorf("Error setting default config: %w", err)
+		}
+
+		// Set the vm driver
+		if err := configHandler.SetContextValue("vm.driver", vmDriverConfig); err != nil {
+			return fmt.Errorf("Error setting vm driver: %w", err)
 		}
 
 		// Create the flag to config path mapping and set the configurations
@@ -89,7 +93,6 @@ var initCmd = &cobra.Command{
 			{"aws-profile", "aws.aws_profile", awsProfile},
 			{"docker", "docker.enabled", docker},
 			{"backend", "terraform.backend", backend},
-			{"vm-driver", "vm.driver", vmDriver},
 			{"vm-cpu", "vm.cpu", cpu},
 			{"vm-disk", "vm.disk", disk},
 			{"vm-memory", "vm.memory", memory},

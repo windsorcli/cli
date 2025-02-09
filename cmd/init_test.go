@@ -43,6 +43,20 @@ func setupSafeInitCmdMocks(existingInjectors ...di.Injector) *initMockObjects {
 	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler { return mockConfigHandler }
 	mockController.ResolveShellFunc = func() shell.Shell { return mockShell }
 
+	// Reset global variables in init.go
+	backend = ""
+	awsProfile = ""
+	awsEndpointURL = ""
+	vmDriver = ""
+	cpu = 0
+	disk = 0
+	memory = 0
+	arch = ""
+	docker = false
+	gitLivereload = false
+	blueprint = ""
+	toolsManager = ""
+
 	return &initMockObjects{
 		Controller:    mockController,
 		Injector:      injector,
@@ -127,58 +141,14 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("VMDriverDockerDesktop", func(t *testing.T) {
-
-		// Given a valid config handler
-		mocks := setupSafeInitCmdMocks()
-
-		// Mock the GetString method to return "docker-desktop" for vm.driver
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "docker-desktop"
-			}
-			return ""
-		}
-
-		// Track if SetDefault is called with the correct config
-		setDefaultCalled := false
-		mocks.ConfigHandler.SetDefaultFunc = func(contextConfig v1alpha1.Context) error {
-			if contextConfig.VM != nil && contextConfig.VM.Driver != nil && *contextConfig.VM.Driver == "docker-desktop" {
-				setDefaultCalled = true
-			}
-			return nil
-		}
-
-		// When the init command is executed with vm.driver set to "docker-desktop"
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"init", "test-context", "--vm-driver", "docker-desktop"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
-		})
-
-		// Then the output should indicate success
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
-		}
-
-		// Check if SetDefault was called correctly
-		if !setDefaultCalled {
-			t.Errorf("Expected SetDefault to be called with vm.driver 'docker-desktop'")
-		}
-	})
-
 	t.Run("ErrorSettingDefaultContainerizedConfig", func(t *testing.T) {
-
 		// Given a mock config handler that returns an error when setting default containerized config
 		mocks := setupSafeInitCmdMocks()
 		mocks.ConfigHandler.SetDefaultFunc = func(contextConfig v1alpha1.Context) error {
-			if contextConfig.VM != nil && *contextConfig.VM.Driver == "docker-desktop" {
-				return fmt.Errorf("error setting default containerized config")
+			if contextConfig.Docker == nil || !*contextConfig.Docker.Enabled {
+				return nil
 			}
-			return nil
+			return fmt.Errorf("error setting default containerized config")
 		}
 
 		// Mock the GetString method to return "docker-desktop" for vm.driver
@@ -199,74 +169,79 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("VMDriverColima", func(t *testing.T) {
-		// Given a valid config handler
+	t.Run("DefaultVMDriverBasedOnGOOS", func(t *testing.T) {
+		// Given a valid config handler and a mock for goos
 		mocks := setupSafeInitCmdMocks()
 
-		// Mock the GetString method to return "colima" for vm.driver
+		// Mock GetStringFunc to return an empty string for "vm.driver"
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
-				return "colima"
+				return ""
 			}
-			return ""
+			return "mock-string"
 		}
 
-		// Track if SetDefault is called with the correct config
+		// Track if SetDefault and SetContextValue are called with the correct config
 		setDefaultCalled := false
+		setContextValueCalled := false
 		mocks.ConfigHandler.SetDefaultFunc = func(contextConfig v1alpha1.Context) error {
-			if contextConfig.VM != nil && *contextConfig.VM.Driver == "colima" {
+			if contextConfig.Cluster != nil && len(contextConfig.Cluster.Workers.HostPorts) == 4 &&
+				contextConfig.Cluster.Workers.HostPorts[0] == "8080:30080/tcp" {
 				setDefaultCalled = true
 			}
 			return nil
 		}
-
-		// When the init command is executed with vm.driver set to "colima"
-		rootCmd.SetArgs([]string{"init", "test-context", "--vm-driver", "colima"})
-		output := captureStderr(func() {
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
-		})
-
-		// Then the output should indicate success
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
-		}
-
-		// Validate that SetDefault was called with the correct configuration
-		if !setDefaultCalled {
-			t.Error("Expected SetDefault to be called with DefaultConfig_FullVM, but it was not")
-		}
-	})
-
-	t.Run("ErrorSettingDefaultFullVMConfig", func(t *testing.T) {
-
-		// Given a mock config handler that returns an error when setting default full VM config
-		mocks := setupSafeInitCmdMocks()
-		mocks.ConfigHandler.SetDefaultFunc = func(contextConfig v1alpha1.Context) error {
-			if contextConfig.VM != nil && *contextConfig.VM.Driver == "colima" {
-				return fmt.Errorf("error setting default full VM config")
+		mocks.ConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "vm.driver" && value == "docker-desktop" {
+				setContextValueCalled = true
 			}
 			return nil
 		}
 
-		// Mock the GetString method to return "colima" for vm.driver
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "colima"
-			}
-			return ""
+		// Mock ResolveConfigHandlerFunc to return the mocked config handler
+		mocks.Controller.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return mocks.ConfigHandler
 		}
 
-		// When the init command is executed with vm.driver set to "colima"
-		rootCmd.SetArgs([]string{"init", "test-context", "--vm-driver", "colima"})
-		err := Execute(mocks.Controller)
+		// Test for specific goos options: darwin, windows, and linux
+		goosOptions := map[string]string{
+			"darwin":  "docker-desktop",
+			"windows": "docker-desktop",
+			"linux":   "docker",
+		}
 
-		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "error setting default full VM config") {
-			t.Fatalf("Expected error setting default full VM config, got %v", err)
+		for os, expectedDriver := range goosOptions {
+			t.Run("GOOS="+os, func(t *testing.T) {
+				// Mock goos function to simulate different OS environments
+				originalGoos := goos
+				defer func() { goos = originalGoos }()
+				goos = func() string {
+					return os
+				}
+
+				// When the init command is executed without specifying vm.driver
+				rootCmd.SetArgs([]string{"init", "local"})
+				output := captureStderr(func() {
+					err := Execute(mocks.Controller)
+					if err != nil {
+						t.Fatalf("Execute() error = %v", err)
+					}
+				})
+
+				// Then the output should indicate success
+				expectedOutput := "Initialization successful\n"
+				if output != expectedOutput {
+					t.Errorf("Expected output %q, got %q", expectedOutput, output)
+				}
+
+				// Validate that SetDefault and SetContextValue were called with the correct configuration
+				if !setDefaultCalled {
+					t.Error("Expected SetDefault to be called with DefaultConfig_Localhost, but it was not")
+				}
+				if !setContextValueCalled {
+					t.Errorf("Expected SetContextValue to be called with vm.driver '%s', but it was not", expectedDriver)
+				}
+			})
 		}
 	})
 
@@ -356,6 +331,32 @@ func TestInitCmd(t *testing.T) {
 		expectedOutput := "Initialization successful\n"
 		if output != expectedOutput {
 			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorSettingVMDriver", func(t *testing.T) {
+		// Given a valid config handler
+		mocks := setupSafeInitCmdMocks()
+
+		// Mock SetContextValue to return an error
+		mocks.ConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "vm.driver" {
+				return fmt.Errorf("mocked error setting vm driver")
+			}
+			return nil
+		}
+
+		// When the init command is executed
+		rootCmd.SetArgs([]string{"init", "test-context"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then the error should be present
+		expectedError := "mocked error setting vm driver"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, but got %q", expectedError, err.Error())
 		}
 	})
 

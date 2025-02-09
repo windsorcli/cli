@@ -226,6 +226,33 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 		}
 	})
 
+	t.Run("DockerDriver", func(t *testing.T) {
+		mocks := setupSafeDockerEnvPrinterMocks()
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker"
+			}
+			return ""
+		}
+
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		envVars, err := dockerEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		expectedDockerHost := "unix:///var/run/docker.sock"
+		if envVars["DOCKER_HOST"] != expectedDockerHost {
+			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		}
+
+		if envVars["REGISTRY_URL"] != "" {
+			t.Errorf("REGISTRY_URL = %v, want empty", envVars["REGISTRY_URL"])
+		}
+	})
+
 	t.Run("GetUserHomeDirError", func(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
@@ -358,6 +385,54 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 					t.Errorf("REGISTRY_URL = %v, want mock-registry-url:5000", envVars["REGISTRY_URL"])
 				}
 			})
+		}
+	})
+}
+
+func TestDockerEnvPrinter_GetAlias(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupSafeDockerEnvPrinterMocks()
+		originalExecLookPath := execLookPath
+		defer func() { execLookPath = originalExecLookPath }()
+		execLookPath = func(file string) (string, error) {
+			if file == "docker-cli-plugin-docker-compose" {
+				return "/usr/local/bin/docker-cli-plugin-docker-compose", nil
+			}
+			return "", fmt.Errorf("not found")
+		}
+
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		aliasMap, err := dockerEnvPrinter.GetAlias()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		expectedAlias := "docker-cli-plugin-docker-compose"
+		if aliasMap["docker-compose"] != expectedAlias {
+			t.Errorf("aliasMap[docker-compose] = %v, want %v", aliasMap["docker-compose"], expectedAlias)
+		}
+	})
+
+	t.Run("Failure", func(t *testing.T) {
+		mocks := setupSafeDockerEnvPrinterMocks()
+		originalExecLookPath := execLookPath
+		defer func() { execLookPath = originalExecLookPath }()
+		execLookPath = func(file string) (string, error) {
+			return "", fmt.Errorf("not found")
+		}
+
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		aliasMap, err := dockerEnvPrinter.GetAlias()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(aliasMap) != 0 {
+			t.Errorf("aliasMap = %v, want empty map", aliasMap)
 		}
 	})
 }

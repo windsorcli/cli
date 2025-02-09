@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/di"
@@ -65,6 +64,10 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 			envVars["DOCKER_HOST"] = dockerHostPath
 		}
 		dockerConfigContent = fmt.Sprintf(dockerConfigContent, "desktop-linux")
+
+	case "docker":
+		envVars["DOCKER_HOST"] = "unix:///var/run/docker.sock"
+		dockerConfigContent = fmt.Sprintf(dockerConfigContent, "default")
 	}
 
 	if err := mkdirAll(dockerConfigDir, 0755); err != nil {
@@ -92,7 +95,7 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 // alias for docker-compose.
 func (e *DockerEnvPrinter) GetAlias() (map[string]string, error) {
 	aliasMap := make(map[string]string)
-	if _, err := exec.LookPath("docker-cli-plugin-docker-compose"); err == nil {
+	if _, err := execLookPath("docker-cli-plugin-docker-compose"); err == nil {
 		aliasMap["docker-compose"] = "docker-cli-plugin-docker-compose"
 	}
 	return aliasMap, nil
