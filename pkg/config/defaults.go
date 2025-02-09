@@ -4,7 +4,7 @@
 // from different modules like AWS, Docker, and others. The file also defines common configurations
 // that can be reused across different contexts, such as commonDockerConfig, commonGitConfig, etc.
 // These common configurations are used to create specific default configurations like
-// DefaultConfig_Containerized and DefaultConfig_FullVM.
+// DefaultConfig_Localhost and DefaultConfig_Full.
 
 package config
 
@@ -16,7 +16,6 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/git"
 	"github.com/windsorcli/cli/api/v1alpha1/network"
 	"github.com/windsorcli/cli/api/v1alpha1/terraform"
-	"github.com/windsorcli/cli/api/v1alpha1/vm"
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
@@ -98,7 +97,7 @@ var commonDNSConfig = dns.DNSConfig{
 	Domain:  ptrString("test"),
 }
 
-var DefaultConfig_Containerized = v1alpha1.Context{
+var DefaultConfig_Localhost = v1alpha1.Context{
 	Environment: map[string]string{},
 	Docker:      commonDockerConfig.Copy(),
 	Git:         commonGitConfig.Copy(),
@@ -132,9 +131,6 @@ var DefaultConfig_Containerized = v1alpha1.Context{
 			HostPorts: []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp", "8053:30053/udp"},
 		},
 	},
-	VM: &vm.VMConfig{
-		Driver: ptrString("docker-desktop"),
-	},
 	Network: &network.NetworkConfig{
 		CIDRBlock: ptrString(constants.DEFAULT_NETWORK_CIDR),
 	},
@@ -147,15 +143,12 @@ var DefaultConfig_Containerized = v1alpha1.Context{
 	},
 }
 
-var DefaultConfig_FullVM = v1alpha1.Context{
+var DefaultConfig_Full = v1alpha1.Context{
 	Environment: map[string]string{},
 	Docker:      commonDockerConfig.Copy(),
 	Git:         commonGitConfig.Copy(),
 	Terraform:   commonTerraformConfig.Copy(),
 	Cluster:     commonClusterConfig.Copy(),
-	VM: &vm.VMConfig{
-		Driver: ptrString("colima"),
-	},
 	Network: &network.NetworkConfig{
 		CIDRBlock: ptrString(constants.DEFAULT_NETWORK_CIDR),
 		LoadBalancerIPs: &struct {

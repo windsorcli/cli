@@ -2,6 +2,7 @@ package env
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 
@@ -41,3 +42,6 @@ var mkdirAll = os.MkdirAll
 
 // Define a variable for os.ReadFile for easier testing
 var readFile = os.ReadFile
+
+// Define a variable for exec.LookPath for easier testing
+var execLookPath = exec.LookPath
