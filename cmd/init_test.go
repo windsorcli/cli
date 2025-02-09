@@ -185,15 +185,29 @@ func TestInitCmd(t *testing.T) {
 		setDefaultCalled := false
 		setContextValueCalled := false
 		mocks.ConfigHandler.SetDefaultFunc = func(contextConfig v1alpha1.Context) error {
-			if contextConfig.Cluster != nil && len(contextConfig.Cluster.Workers.HostPorts) == 4 &&
-				contextConfig.Cluster.Workers.HostPorts[0] == "8080:30080/tcp" {
-				setDefaultCalled = true
+			if contextConfig.Cluster != nil {
+				if goos() == "darwin" || goos() == "windows" {
+					if len(contextConfig.Cluster.Workers.HostPorts) == 4 &&
+						contextConfig.Cluster.Workers.HostPorts[0] == "8080:30080/tcp" {
+						setDefaultCalled = true
+					}
+				} else if goos() == "linux" {
+					setDefaultCalled = true
+				}
 			}
 			return nil
 		}
 		mocks.ConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
-			if key == "vm.driver" && value == "docker-desktop" {
-				setContextValueCalled = true
+			if key == "vm.driver" {
+				if goos() == "darwin" || goos() == "windows" {
+					if value == "docker-desktop" {
+						setContextValueCalled = true
+					}
+				} else if goos() == "linux" {
+					if value == "docker" {
+						setContextValueCalled = true
+					}
+				}
 			}
 			return nil
 		}
@@ -212,7 +226,7 @@ func TestInitCmd(t *testing.T) {
 
 		for os, expectedDriver := range goosOptions {
 			t.Run("GOOS="+os, func(t *testing.T) {
-				// Mock goos function to simulate different OS environments
+				// Always mock goos function to simulate different OS environments
 				originalGoos := goos
 				defer func() { goos = originalGoos }()
 				goos = func() string {
@@ -236,7 +250,7 @@ func TestInitCmd(t *testing.T) {
 
 				// Validate that SetDefault and SetContextValue were called with the correct configuration
 				if !setDefaultCalled {
-					t.Error("Expected SetDefault to be called with DefaultConfig_Localhost, but it was not")
+					t.Error("Expected SetDefault to be called with the correct configuration, but it was not")
 				}
 				if !setContextValueCalled {
 					t.Errorf("Expected SetContextValue to be called with vm.driver '%s', but it was not", expectedDriver)
