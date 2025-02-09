@@ -56,6 +56,8 @@ func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 			return "192.168.1.2:50001"
 		case "dns.domain":
 			return "test"
+		case "cluster.workers.local_volume_path":
+			return "/var/local"
 		default:
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -84,17 +86,19 @@ func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 		return &v1alpha1.Context{
 			Cluster: &cluster.ClusterConfig{
 				Workers: struct {
-					Count     *int                          `yaml:"count,omitempty"`
-					CPU       *int                          `yaml:"cpu,omitempty"`
-					Memory    *int                          `yaml:"memory,omitempty"`
-					Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-					HostPorts []string                      `yaml:"hostports,omitempty"`
+					Count           *int                          `yaml:"count,omitempty"`
+					CPU             *int                          `yaml:"cpu,omitempty"`
+					Memory          *int                          `yaml:"memory,omitempty"`
+					Nodes           map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
+					HostPorts       []string                      `yaml:"hostports,omitempty"`
+					LocalVolumePath *string                       `yaml:"local_volume_path,omitempty"`
 				}{
 					Nodes: map[string]cluster.NodeConfig{
 						"worker1": {},
 						"worker2": {},
 					},
-					HostPorts: []string{"30000:30000/tcp", "30001:30001/udp", "30002:30002/tcp", "30003:30003/udp"},
+					HostPorts:       []string{"30000:30000/tcp", "30001:30001/udp", "30002:30002/tcp", "30003:30003/udp"},
+					LocalVolumePath: ptrString("/var/local"),
 				},
 			},
 		}

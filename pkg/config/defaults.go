@@ -79,16 +79,19 @@ var commonClusterConfig = cluster.ClusterConfig{
 		Nodes:  make(map[string]cluster.NodeConfig),
 	},
 	Workers: struct {
-		Count     *int                          `yaml:"count,omitempty"`
-		CPU       *int                          `yaml:"cpu,omitempty"`
-		Memory    *int                          `yaml:"memory,omitempty"`
-		Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-		HostPorts []string                      `yaml:"hostports,omitempty"`
+		Count           *int                          `yaml:"count,omitempty"`
+		CPU             *int                          `yaml:"cpu,omitempty"`
+		Memory          *int                          `yaml:"memory,omitempty"`
+		Nodes           map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
+		HostPorts       []string                      `yaml:"hostports,omitempty"`
+		LocalVolumePath *string                       `yaml:"local_volume_path,omitempty"`
 	}{
-		Count:  ptrInt(1),
-		CPU:    ptrInt(constants.DEFAULT_TALOS_WORKER_CPU),
-		Memory: ptrInt(constants.DEFAULT_TALOS_WORKER_RAM),
-		Nodes:  make(map[string]cluster.NodeConfig),
+		Count:           ptrInt(1),
+		CPU:             ptrInt(constants.DEFAULT_TALOS_WORKER_CPU),
+		Memory:          ptrInt(constants.DEFAULT_TALOS_WORKER_RAM),
+		Nodes:           make(map[string]cluster.NodeConfig),
+		HostPorts:       []string{},
+		LocalVolumePath: ptrString("/var/local"),
 	},
 }
 
@@ -118,11 +121,12 @@ var DefaultConfig_Localhost = v1alpha1.Context{
 			Nodes:  make(map[string]cluster.NodeConfig),
 		},
 		Workers: struct {
-			Count     *int                          `yaml:"count,omitempty"`
-			CPU       *int                          `yaml:"cpu,omitempty"`
-			Memory    *int                          `yaml:"memory,omitempty"`
-			Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-			HostPorts []string                      `yaml:"hostports,omitempty"`
+			Count           *int                          `yaml:"count,omitempty"`
+			CPU             *int                          `yaml:"cpu,omitempty"`
+			Memory          *int                          `yaml:"memory,omitempty"`
+			Nodes           map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
+			HostPorts       []string                      `yaml:"hostports,omitempty"`
+			LocalVolumePath *string                       `yaml:"local_volume_path,omitempty"`
 		}{
 			Count:     ptrInt(1),
 			CPU:       ptrInt(constants.DEFAULT_TALOS_WORKER_CPU),

@@ -663,13 +663,15 @@ func TestYamlConfigHandler_GetStringSlice(t *testing.T) {
 			"default": {
 				Cluster: &cluster.ClusterConfig{
 					Workers: struct {
-						Count     *int                          `yaml:"count,omitempty"`
-						CPU       *int                          `yaml:"cpu,omitempty"`
-						Memory    *int                          `yaml:"memory,omitempty"`
-						Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-						HostPorts []string                      `yaml:"hostports,omitempty"`
+						Count           *int                          `yaml:"count,omitempty"`
+						CPU             *int                          `yaml:"cpu,omitempty"`
+						Memory          *int                          `yaml:"memory,omitempty"`
+						Nodes           map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
+						HostPorts       []string                      `yaml:"hostports,omitempty"`
+						LocalVolumePath *string                       `yaml:"local_volume_path,omitempty"`
 					}{
-						HostPorts: []string{"50000:50002/tcp", "30080:8080/tcp", "30443:8443/tcp"},
+						HostPorts:       []string{"50000:50002/tcp", "30080:8080/tcp", "30443:8443/tcp"},
+						LocalVolumePath: ptrString("/var/local"),
 					},
 				},
 			},

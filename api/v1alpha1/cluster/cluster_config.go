@@ -12,11 +12,12 @@ type ClusterConfig struct {
 		HostPorts []string              `yaml:"hostports,omitempty"`
 	} `yaml:"controlplanes,omitempty"`
 	Workers struct {
-		Count     *int                  `yaml:"count,omitempty"`
-		CPU       *int                  `yaml:"cpu,omitempty"`
-		Memory    *int                  `yaml:"memory,omitempty"`
-		Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
-		HostPorts []string              `yaml:"hostports,omitempty"`
+		Count           *int                  `yaml:"count,omitempty"`
+		CPU             *int                  `yaml:"cpu,omitempty"`
+		Memory          *int                  `yaml:"memory,omitempty"`
+		Nodes           map[string]NodeConfig `yaml:"nodes,omitempty"`
+		HostPorts       []string              `yaml:"hostports,omitempty"`
+		LocalVolumePath *string               `yaml:"local_volume_path,omitempty"`
 	} `yaml:"workers,omitempty"`
 }
 
@@ -70,6 +71,9 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 		base.Workers.HostPorts = make([]string, len(overlay.Workers.HostPorts))
 		copy(base.Workers.HostPorts, overlay.Workers.HostPorts)
 	}
+	if overlay.Workers.LocalVolumePath != nil {
+		base.Workers.LocalVolumePath = overlay.Workers.LocalVolumePath
+	}
 }
 
 // Copy creates a deep copy of the ClusterConfig object
@@ -84,7 +88,7 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 			Hostname:  node.Hostname,
 			Node:      node.Node,
 			Endpoint:  node.Endpoint,
-			HostPorts: append([]string{}, node.HostPorts...), // Copy HostPorts for each node
+			HostPorts: append([]string{}, node.HostPorts...),
 		}
 	}
 	controlPlanesHostPortsCopy := make([]string, len(c.ControlPlanes.HostPorts))
@@ -96,7 +100,7 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 			Hostname:  node.Hostname,
 			Node:      node.Node,
 			Endpoint:  node.Endpoint,
-			HostPorts: append([]string{}, node.HostPorts...), // Copy HostPorts for each node
+			HostPorts: append([]string{}, node.HostPorts...),
 		}
 	}
 	workersHostPortsCopy := make([]string, len(c.Workers.HostPorts))
@@ -119,17 +123,19 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 			HostPorts: controlPlanesHostPortsCopy,
 		},
 		Workers: struct {
-			Count     *int                  `yaml:"count,omitempty"`
-			CPU       *int                  `yaml:"cpu,omitempty"`
-			Memory    *int                  `yaml:"memory,omitempty"`
-			Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
-			HostPorts []string              `yaml:"hostports,omitempty"`
+			Count           *int                  `yaml:"count,omitempty"`
+			CPU             *int                  `yaml:"cpu,omitempty"`
+			Memory          *int                  `yaml:"memory,omitempty"`
+			Nodes           map[string]NodeConfig `yaml:"nodes,omitempty"`
+			HostPorts       []string              `yaml:"hostports,omitempty"`
+			LocalVolumePath *string               `yaml:"local_volume_path,omitempty"`
 		}{
-			Count:     c.Workers.Count,
-			CPU:       c.Workers.CPU,
-			Memory:    c.Workers.Memory,
-			Nodes:     workersNodesCopy,
-			HostPorts: workersHostPortsCopy,
+			Count:           c.Workers.Count,
+			CPU:             c.Workers.CPU,
+			Memory:          c.Workers.Memory,
+			Nodes:           workersNodesCopy,
+			HostPorts:       workersHostPortsCopy,
+			LocalVolumePath: c.Workers.LocalVolumePath,
 		},
 	}
 }

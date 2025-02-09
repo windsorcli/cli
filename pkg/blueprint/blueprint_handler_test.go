@@ -211,6 +211,8 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 			return "192.168.1.100"
 		case "docker.registry_url":
 			return "mock.registry.com"
+		case "cluster.workers.local_volume_path":
+			return "/var/local"
 		default:
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -1469,6 +1471,9 @@ func TestBlueprintHandler_Install(t *testing.T) {
 				}
 				if configMap.Data["REGISTRY_URL"] != "mock.registry.com" {
 					return fmt.Errorf("unexpected REGISTRY_URL value: got %s, want %s", configMap.Data["REGISTRY_URL"], "mock.registry.com")
+				}
+				if configMap.Data["LOCAL_VOLUME_PATH"] != "/var/local" {
+					return fmt.Errorf("unexpected LOCAL_VOLUME_PATH value: got %s, want %s", configMap.Data["LOCAL_VOLUME_PATH"], "/var/local")
 				}
 			}
 			return nil

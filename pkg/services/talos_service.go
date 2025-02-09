@@ -218,7 +218,7 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		commonConfig.Volumes = append(commonConfig.Volumes, types.ServiceVolumeConfig{
 			Type:   "bind",
 			Source: "${WINDSOR_PROJECT_ROOT}/.volumes",
-			Target: "/var/local",
+			Target: s.configHandler.GetString("cluster.workers.local_volume_path", "/var/local"),
 		})
 	}
 
