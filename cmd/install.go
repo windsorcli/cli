@@ -18,6 +18,16 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("Error creating project components: %w", err)
 		}
 
+		// Create service components
+		if err := controller.CreateServiceComponents(); err != nil {
+			return fmt.Errorf("Error creating service components: %w", err)
+		}
+
+		// Create virtualization components
+		if err := controller.CreateVirtualizationComponents(); err != nil {
+			return fmt.Errorf("Error creating virtualization components: %w", err)
+		}
+
 		// Initialize all components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)
