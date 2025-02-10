@@ -219,6 +219,17 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 		}
 	}
 
+	// Return mock volume paths
+	mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+		if key == "cluster.workers.volumes" {
+			return []string{"${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"}
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return nil
+	}
+
 	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
@@ -1469,6 +1480,9 @@ func TestBlueprintHandler_Install(t *testing.T) {
 				}
 				if configMap.Data["REGISTRY_URL"] != "mock.registry.com" {
 					return fmt.Errorf("unexpected REGISTRY_URL value: got %s, want %s", configMap.Data["REGISTRY_URL"], "mock.registry.com")
+				}
+				if configMap.Data["LOCAL_VOLUME_PATH"] != "/var/local" {
+					return fmt.Errorf("unexpected LOCAL_VOLUME_PATH value: got %s, want %s", configMap.Data["LOCAL_VOLUME_PATH"], "/var/local")
 				}
 			}
 			return nil

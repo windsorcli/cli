@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -36,6 +37,9 @@ var downCmd = &cobra.Command{
 			return fmt.Errorf("No config handler found")
 		}
 
+		// Resolve the shell
+		shell := controller.ResolveShell()
+
 		// Determine if the container runtime is enabled
 		containerRuntimeEnabled := configHandler.GetBool("docker.enabled")
 
@@ -55,8 +59,18 @@ var downCmd = &cobra.Command{
 
 		// Clean up context specific artifacts if --clean flag is set
 		if cleanFlag {
-			if err := controller.ResolveConfigHandler().Clean(); err != nil {
+			if err := configHandler.Clean(); err != nil {
 				return fmt.Errorf("Error cleaning up context specific artifacts: %w", err)
+			}
+
+			// Delete everything in the .volumes folder
+			projectRoot, err := shell.GetProjectRoot()
+			if err != nil {
+				return fmt.Errorf("Error retrieving project root: %w", err)
+			}
+			volumesPath := filepath.Join(projectRoot, ".volumes")
+			if err := osRemoveAll(volumesPath); err != nil {
+				return fmt.Errorf("Error deleting .volumes folder: %w", err)
 			}
 		}
 

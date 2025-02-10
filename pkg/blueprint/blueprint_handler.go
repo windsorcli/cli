@@ -888,9 +888,18 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 	lbStart := b.configHandler.GetString("network.loadbalancer_ips.start")
 	lbEnd := b.configHandler.GetString("network.loadbalancer_ips.end")
 	registryURL := b.configHandler.GetString("docker.registry_url")
+	localVolumePaths := b.configHandler.GetStringSlice("cluster.workers.volumes")
 
 	// Generate LOADBALANCER_IP_RANGE from the start and end IPs for network
 	loadBalancerIPRange := fmt.Sprintf("%s-%s", lbStart, lbEnd)
+
+	// Handle the case where localVolumePaths might not be defined
+	var localVolumePath string
+	if len(localVolumePaths) > 0 {
+		localVolumePath = strings.Split(localVolumePaths[0], ":")[1]
+	} else {
+		localVolumePath = ""
+	}
 
 	configMap := &corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
@@ -908,6 +917,7 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 			"LOADBALANCER_IP_START": lbStart,
 			"LOADBALANCER_IP_END":   lbEnd,
 			"REGISTRY_URL":          registryURL,
+			"LOCAL_VOLUME_PATH":     localVolumePath,
 		},
 	}
 

@@ -21,6 +21,9 @@ var glob = filepath.Glob
 // Wrapper function for os.WriteFile
 var writeFile = os.WriteFile
 
+// Wrapper function for os.ReadDir
+var readDir = os.ReadDir
+
 // Wrapper function for yaml.Unmarshal
 var yamlUnmarshal = yaml.Unmarshal
 

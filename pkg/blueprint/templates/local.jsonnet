@@ -131,7 +131,7 @@ local registryMirrors = std.foldl(
           }
           +
           // Conditionally add 'machine.registries' only if registryMirrors is non-empty
-          if std.length(std.objectFields(registryMirrors)) == 0 then
+          (if std.length(std.objectFields(registryMirrors)) == 0 then
             {}
           else
             {
@@ -140,7 +140,32 @@ local registryMirrors = std.foldl(
                   mirrors: registryMirrors,
                 },
               },
+            })
+        ),
+        worker_config_patches: std.manifestYamlDoc(
+          if std.objectHas(context.cluster.workers, "volumes") then
+            {
+              machine: {
+                kubelet: {
+                  extraMounts: std.map(
+                    function(volume)
+                      local parts = std.split(volume, ":");
+                      {
+                        destination: parts[1],
+                        type: "bind",
+                        source: parts[1],
+                        options: [
+                          "rbind",
+                          "rw",
+                        ],
+                      },
+                    context.cluster.workers.volumes
+                  ),
+                },
+              },
             }
+          else
+            {}
         ),
       },
       variables: {
@@ -283,6 +308,19 @@ local registryMirrors = std.foldl(
       path: "policy/resources",
       dependsOn: [
         "policy-base"
+      ],
+    },
+    {
+      name: "csi",
+      source: "core",
+      path: "csi",
+      dependsOn: [
+        "policy-resources"
+      ],
+      force: true,
+      components: [
+        "openebs",
+        "openebs/dynamic-localpv",
       ],
     },
   ] + (if context.vm.driver != "docker-desktop" then [

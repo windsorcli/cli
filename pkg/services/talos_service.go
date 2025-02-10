@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -204,21 +203,28 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
-	if s.mode != "controlplane" {
-		projectRoot, err := s.shell.GetProjectRoot()
-		if err != nil {
-			return nil, fmt.Errorf("error retrieving project root: %w", err)
+	// Use volumes from cluster configuration
+	volumesKey := fmt.Sprintf("cluster.%s.volumes", nodeType)
+	volumes := s.configHandler.GetStringSlice(volumesKey, []string{})
+	for _, volume := range volumes {
+		parts := strings.Split(volume, ":")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid volume format: %s", volume)
 		}
-		volumesPath := filepath.Join(projectRoot, ".volumes")
-		if _, err := stat(volumesPath); os.IsNotExist(err) {
-			if err := mkdir(volumesPath, os.ModePerm); err != nil {
-				return nil, fmt.Errorf("error creating .volumes directory: %w", err)
-			}
+
+		// Expand environment variables in the source path for directory creation
+		expandedSourcePath := os.ExpandEnv(parts[0])
+
+		// Create the directory if it doesn't exist
+		if err := mkdirAll(expandedSourcePath, os.ModePerm); err != nil {
+			return nil, fmt.Errorf("failed to create directory %s: %v", expandedSourcePath, err)
 		}
+
+		// Use the original, pre-expanded source path in the volume configuration
 		commonConfig.Volumes = append(commonConfig.Volumes, types.ServiceVolumeConfig{
 			Type:   "bind",
-			Source: "${WINDSOR_PROJECT_ROOT}/.volumes",
-			Target: "/var/local",
+			Source: parts[0],
+			Target: parts[1],
 		})
 	}
 
@@ -287,7 +293,7 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 
 	serviceConfig.Ports = ports
 
-	volumes := map[string]types.VolumeConfig{
+	volumesMap := map[string]types.VolumeConfig{
 		strings.ReplaceAll(nodeName+"_system_state", "-", "_"):           {},
 		strings.ReplaceAll(nodeName+"_var", "-", "_"):                    {},
 		strings.ReplaceAll(nodeName+"_etc_cni", "-", "_"):                {},
@@ -298,6 +304,6 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 
 	return &types.Config{
 		Services: []types.ServiceConfig{serviceConfig},
-		Volumes:  volumes,
+		Volumes:  volumesMap,
 	}, nil
 }

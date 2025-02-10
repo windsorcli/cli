@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -208,6 +209,78 @@ func TestDownCmd(t *testing.T) {
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error cleaning up context specific artifacts: error cleaning context artifacts") {
 			t.Fatalf("Expected error containing 'Error cleaning up context specific artifacts: error cleaning context artifacts', got %v", err)
+		}
+	})
+
+	t.Run("ErrorDeletingVolumes", func(t *testing.T) {
+		mocks := setupSafeDownCmdMocks()
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return filepath.Join("mock", "project", "root"), nil
+		}
+
+		// Mock the osRemoveAll function to simulate an error when attempting to delete the .volumes folder
+		originalOsRemoveAll := osRemoveAll
+		defer func() { osRemoveAll = originalOsRemoveAll }()
+		osRemoveAll = func(path string) error {
+			if path == filepath.Join("mock", "project", "root", ".volumes") {
+				return fmt.Errorf("Error deleting .volumes folder")
+			}
+			return nil
+		}
+
+		// Given a mock osRemoveAll that returns an error when deleting the .volumes folder
+		rootCmd.SetArgs([]string{"down", "--clean"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error deleting .volumes folder") {
+			t.Fatalf("Expected error containing 'Error deleting .volumes folder', got %v", err)
+		}
+	})
+
+	t.Run("SuccessDeletingVolumes", func(t *testing.T) {
+		mocks := setupSafeDownCmdMocks()
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return filepath.Join("mock", "project", "root"), nil
+		}
+
+		// Mock the shell's Exec function to simulate successful deletion of the .volumes folder
+		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
+			if command == "cmd" && len(args) > 0 && args[0] == "/C" && args[1] == "rmdir" && args[2] == "/S" && args[3] == "/Q" && args[4] == filepath.Join("mock", "project", "root", ".volumes") {
+				return "", nil
+			}
+			return "", fmt.Errorf("Unexpected command: %s %v", command, args)
+		}
+
+		// Given a mock shell that successfully deletes the .volumes folder
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"down", "--clean"})
+			if err := Execute(mocks.MockController); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+		})
+
+		// Then the output should indicate success
+		expectedOutput := "Windsor environment torn down successfully.\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		mocks := setupSafeDownCmdMocks()
+		callCount := 0
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			callCount++
+			if callCount == 2 {
+				return "", fmt.Errorf("Error retrieving project root")
+			}
+			return filepath.Join("mock", "project", "root"), nil
+		}
+
+		rootCmd.SetArgs([]string{"down", "--clean"})
+		err := Execute(mocks.MockController)
+		if err == nil || !strings.Contains(err.Error(), "Error retrieving project root") {
+			t.Fatalf("Expected error containing 'Error retrieving project root', got %v", err)
 		}
 	})
 }
