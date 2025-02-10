@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -214,14 +215,14 @@ func TestDownCmd(t *testing.T) {
 	t.Run("ErrorDeletingVolumes", func(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project/root", nil
+			return filepath.Join("mock", "project", "root"), nil
 		}
 
 		// Mock the osRemoveAll function to simulate an error when attempting to delete the .volumes folder
 		originalOsRemoveAll := osRemoveAll
 		defer func() { osRemoveAll = originalOsRemoveAll }()
 		osRemoveAll = func(path string) error {
-			if path == "/mock/project/root/.volumes" {
+			if path == filepath.Join("mock", "project", "root", ".volumes") {
 				return fmt.Errorf("Error deleting .volumes folder")
 			}
 			return nil
@@ -239,12 +240,12 @@ func TestDownCmd(t *testing.T) {
 	t.Run("SuccessDeletingVolumes", func(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project/root", nil
+			return filepath.Join("mock", "project", "root"), nil
 		}
 
 		// Mock the shell's Exec function to simulate successful deletion of the .volumes folder
 		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
-			if command == "rm" && len(args) > 0 && args[0] == "-rf" && args[1] == "/mock/project/root/.volumes" {
+			if command == "cmd" && len(args) > 0 && args[0] == "/C" && args[1] == "rmdir" && args[2] == "/S" && args[3] == "/Q" && args[4] == filepath.Join("mock", "project", "root", ".volumes") {
 				return "", nil
 			}
 			return "", fmt.Errorf("Unexpected command: %s %v", command, args)
@@ -273,7 +274,7 @@ func TestDownCmd(t *testing.T) {
 			if callCount == 2 {
 				return "", fmt.Errorf("Error retrieving project root")
 			}
-			return "/mock/project/root", nil
+			return filepath.Join("mock", "project", "root"), nil
 		}
 
 		rootCmd.SetArgs([]string{"down", "--clean"})
