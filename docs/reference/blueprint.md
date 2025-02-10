@@ -149,6 +149,19 @@ kustomize:
 | `force`       | `*bool`             | Force apply the kustomization.                   |
 | `components`  | `[]string`          | Components to include in the kustomization.      |
 
+## Cluster Variables
+When running `windsor install`, Kubernetes resources are applied. These resources include a configmap that introduces [post-build variables](https://fluxcd.io/flux/components/kustomize/kustomizations/#post-build-variable-substitution) into the Kubernetes manifests. These variables are outlined as follows:
+
+| Key                     | Description                                                        |
+|-------------------------|--------------------------------------------------------------------|
+| `CONTEXT`               | Specifies the context name, e.g., local.                           |
+| `DOMAIN`                | The domain used for subdomain registration, e.g., test.            |
+| `LOADBALANCER_IP_END`   | The final IP in the range for load balancer assignments.           |
+| `LOADBALANCER_IP_RANGE` | Complete range of load balancer IPs, e.g., 10.5.1.1-10.5.1.10.     |
+| `LOADBALANCER_IP_START` | The initial IP in the range for load balancer assignments.         |
+| `LOCAL_VOLUME_PATH`     | Directory path for local volume storage, e.g., /var/local.         |
+| `REGISTRY_URL`          | Base URL for the container image registry, e.g., registry.test.    |
+
 ## Example: Local Blueprint
 When you run `windsor init local`, a default local blueprint is generated:
 
@@ -157,9 +170,9 @@ kind: Blueprint
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: local
-  description: This blueprint outlines resources in the local context
+  description: This blueprint configures core for running on docker desktop
 repository:
-  url: http://git.test/git/my-app # Points to the local git livereload server
+  url: http://git.test/git/core
   ref:
     branch: main
   secretName: flux-system
@@ -167,15 +180,81 @@ sources:
 - name: core
   url: github.com/windsorcli/core
   ref:
-    tag: v0.3.0
+    branch: main
 terraform:
-- source: core 
-  path: cluster/talos # Bootstraps a local talos cluster
-- source: core
-  path: gitops/flux # Bootstraps flux gitops controllers
+- path: cluster/talos
+- path: gitops/flux
 kustomize:
-- name: local
-  path: "" # Begins reflecting k8s manifests from the kustomize/ folder
+- name: policy-base
+  path: policy/base
+  components:
+  - kyverno
+- name: policy-resources
+  path: policy/resources
+  dependsOn:
+  - policy-base
+- name: csi
+  path: csi
+  dependsOn:
+  - policy-resources
+  components:
+  - openebs
+  - openebs/dynamic-localpv
+- name: ingress-base
+  path: ingress/base
+  dependsOn:
+  - pki-resources
+  force: true
+  components:
+  - nginx
+  - nginx/nodeport
+  - nginx/coredns
+  - nginx/flux-webhook
+  - nginx/web
+- name: pki-base
+  path: pki/base
+  dependsOn:
+  - policy-resources
+  force: true
+  components:
+  - cert-manager
+  - trust-manager
+- name: pki-resources
+  path: pki/resources
+  dependsOn:
+  - pki-base
+  force: true
+  components:
+  - private-issuer/ca
+  - public-issuer/selfsigned
+- name: dns
+  path: dns
+  dependsOn:
+  - ingress-base
+  - pki-base
+  force: true
+  components:
+  - coredns
+  - coredns/etcd
+  - external-dns
+  - external-dns/localhost
+  - external-dns/coredns
+  - external-dns/ingress
+- name: gitops
+  path: gitops/flux
+  dependsOn:
+  - ingress-base
+  force: true
+  components:
+  - webhook
+- name: demo
+  path: demo
+  dependsOn:
+  - ingress-base
+  force: true
+  components:
+  - bookinfo
+  - bookinfo/ingress
 ```
 
 <div>

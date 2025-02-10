@@ -117,7 +117,9 @@ docker:
       remote: https://1234567890.dkr.ecr.us-east-1.amazonaws.com
 ```
 
-**Note:** When running Docker Desktop, only http://registry.test:5000 is available.
+The registry base URL is always available via the `REGISTRY_URL` environment variable.
+
+**Note:** When running Docker Desktop, only http://registry.test:5002 is available.
 
 These registries store their cache in the `.windsor/.docker-cache` folder. This cache is persisted, allowing faster load times as well as acting as a genuine registry mirror. The local registry is also accessible from the local Kubernetes cluster, allowing you to easily load locally developed images in to your Kubernetes environment.
 
@@ -130,20 +132,28 @@ docker build -t my-image:latest .
 ```
 2. Tag the image for the local registry:
 ```bash
-docker tag my-image:latest registry.test:5000/my-image:latest
+docker tag my-image:latest ${REGISTRY_URL}/my-image:latest
 ```
 3. Push the image to the local registry:
 ```bash
-docker push registry.test:5000/my-image:latest
+docker push ${REGISTRY_URL}/my-image:latest
 ```
 
 ## Local GitOps
 A local GitOps workflow is provided by [git-livereload](https://github.com/windsorcli/git-livereload). When you save your files locally, they are updated within this container, and reflected as a new commit via [http://git.test](http://git.test). This feature is utilized by the internal gitops tooling ([Flux](https://github.com/fluxcd/flux2)), allowing you to persistently reflect your local Kubernetes manifests on to your local cluster.
 
+Flux supports a [webhook](https://fluxcd.io/flux/guides/webhook-receivers/) that allows for fast cluster state reconciliation. This mechanism is configured for you in your local environment. It can be triggered via a worker NodePort as follows:
+ 
+ ```bash
+ curl -X POST http://worker-1.test:30292/hook/5dc88e45e809fb0872b749c0969067e2c1fd142e17aed07573fad20553cc0c59
+ ```
+
+ This is triggered on each refresh by the git-livereload service.
+
 Read more about configuring git livereload in the [reference](../reference/configuration.md#git) section.
 
 ### Testing the local git repository
-You can test the local git repository as follows. It is assumed you ran `windsor up` in a folder called `my-project`. In a new folder, run:
+For those running on a full virtualization option (Colima), the git server is accessible. You can test the local git repository as follows. It is assumed you ran `windsor up` in a folder called `my-project`. In a new folder, run:
 
 ```
 git clone http://local@git.test/git/my-project
@@ -168,6 +178,13 @@ cluster:
     count: 1
     cpu: 4
     memory: 4
+    hostports:
+    - 80:30080/tcp
+    - 443:30443/tcp
+    - 9292:30292/tcp
+    - 8053:30053/udp
+    volumes:
+    - ${WINDSOR_PROJECT_ROOT}/.volumes:/var/local
 ```
 
 ### Listing cluster nodes
@@ -184,6 +201,18 @@ NAME             STATUS   ROLES           AGE     VERSION
 controlplane-1   Ready    control-plane   1m      v1.31.4
 worker-1         Ready    <none>          1m      v1.31.4
 ```
+
+### Validating web ports
+By default, your initial environment comes installed with Istio's [BookInfo application](https://istio.io/latest/docs/examples/bookinfo/). You can check on the status of this deployment by running:
+
+```
+kubectl get all -n demo-bookinfo
+```
+
+In a web browser, visit both http://bookinfo.test:8080 and https://bookinfo.test:8443. If you're using a full virtualization option or have configured your `hostports` to use traditional web port mappings, you do not need the port designations and can connect over `:80` and `:443`.
+
+### Validating volumes
+Across all environments, you should see a set of common storage classes. These should include a `local` and a `single` storage class. You can see these by running `kubectl get storageclass`. In your local development environment, these are both provided by [OpenEBS's dynamic-localpv-provisioner](https://github.com/openebs/dynamic-localpv-provisioner). To further validate, you should run through the [Hello World](../tutorial/hello-world.md) example and verify that you can see `.volumes/pvc-*`  folders mounted in to your project folder.
 
 <div>
   {{ footer('Environment Injection', '../../guides/environment-injection/index.html', 'Terraform', '../../guides/terraform/index.html') }}

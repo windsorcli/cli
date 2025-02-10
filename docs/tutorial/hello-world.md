@@ -1,5 +1,5 @@
 # Hello, World!
-We'll begin with a simple "Hello, World!" demonstration to get you started with Windsor. In this tutorial, you will create a simple Pod spec that serves up the message "Hello, World!" running on the local cluster.
+We'll begin with a simple "Hello, World!" demonstration to get you started with Windsor. In this tutorial, you will use the core blueprint's static website demo to serve a simple static HTML page. You should have some flavor of `npm` or `yarn` installed.
 
 It is assumed you have already been through the [quick start](../quick-start.md). You have created a repository, and are able to access a local cluster. To verify this, run:
 
@@ -15,110 +15,182 @@ controlplane-1   Ready    control-plane   1h    v1.31.4
 worker-1         Ready    <none>          1h    v1.31.4
 ```
 
-## Create the pod spec
-Hashicorp provides the `http-echo` Docker image, which is suitable for our purposes. Copy the following and save it to `kustomize/hello-world.yaml`:
+## Build a containerized web service
+Let's first begin by building the application service. This service will involve an express.js web service with livereload configured. Add the following files to your project ([source](https://github.com/windsorcli/core/tree/main/kustomize/demo/static/assets)).
 
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: hello-world
-  namespace: default
-spec:
-  containers:
-  - name: hello-world
-    image: hashicorp/http-echo
-    args:
-    - "-text=Hello, World!"
-    ports:
-    - containerPort: 5678
+Create `Dockerfile`:
+
+```dockerfile
+# Set the working directory for building and running the server
+WORKDIR /usr/src/server
+
+# Copy package.json and package-lock.json
+COPY package.json package-lock.json ./
+
+# Install the dependencies
+RUN npm install
+
+# Copy the rest of the application code
+COPY server.js ./
+
+# Expose the port the app runs on
+EXPOSE 8080
+
+# Command to run the server.js application
+CMD ["node", "server.js"]
 ```
 
-You must also modify the `kustomization.yaml` file to reference the pod spec. This file should now read:
+Create `server.js`:
+
+```js
+const express = require('express');
+const livereload = require('livereload');
+const connectLivereload = require('connect-livereload');
+const path = require('path');
+
+// Create a livereload server
+const liveReloadServer = livereload.createServer();
+liveReloadServer.watch('/usr/src/app');
+
+// Create an express app
+const app = express();
+
+// Use connect-livereload middleware
+app.use(connectLivereload());
+
+// Serve static files from the '/usr/src/app' directory
+app.use(express.static('/usr/src/app'));
+
+// Start the server
+const PORT = 8080;
+app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
+```
+
+Create `package.json`:
+
+```json
+{
+  "name": "demo-static",
+  "version": "1.0.0",
+  "description": "Demo project to run server.js using express and livereload",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "connect-livereload": "^0.6.1",
+    "express": "^4.21.1",
+    "livereload": "^0.9.3"
+  },
+  "author": "",
+  "license": "ISC"
+}
+```
+
+Create `docker-compose.yaml`:
 
 ```
-resources:
-  - hello-world.yaml
+services:
+  demo:
+    build:
+      context: .
+    image: ${REGISTRY_URL}/demo:latest
 ```
 
-## Check or modify the blueprint.yaml
-Have a look at the `contexts/local/blueprint.yaml` file. It should look something like:
+Build and push the image:
 
 ```
-kind: Blueprint
-apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: local
-  description: This blueprint outlines resources in the local context
-repository:
-  url: http://git.test/git/tmp
-  ref:
-    branch: main
-  secretName: flux-system
-sources:
-- name: core
-  url: github.com/windsorcli/core
-  ref:
-    branch: main
-terraform:
-- source: core
-  path: cluster/talos
-- source: core
-  path: gitops/flux
+docker-compose build demo && \
+docker-compose push demo
+```
+
+## Configure the static website demo component
+To enable the static website demo, add the following to `contexts/local/blueprint.yaml`:
+
+```
 kustomize:
-- name: local
-  path: ""
+...
+- name: demo
+  path: demo
+  dependsOn:
+  - ingress-base
+  force: true
+  components:
+  - bookinfo
+  - bookinfo/ingress
+  - static
+  - static/ingress
+...
 ```
 
-Let's focus on the `kustomize` section:
-
-```
-kustomize:
-- name: local
-  path: ""
-```
-
-If this is in your `blueprint.yaml`, your blueprint already includes the `hello-world.yaml` example. The `path` field is always relative to the `kustomize/` folder. So, this configuration results in the `kustomization.yaml` residing at `kustomize/kustomization.yaml` being processed and your pod spec loaded.
-
-If you did not initially run `windsor up` with the `--install` flag, you may install the blueprint's Kubernetes resources now by running:
+You should have added the lines `static` and `static/ingress` to the `demo` block. This will enable the static demo as well as configure its ingress. To deploy these to your local cluster, run:
 
 ```sh
 windsor install
 ```
 
 ## Validate your resources
-The Windsor environment runs a [livereload gitops](../guides/local-workstation.md#local-gitops) server. As such, the Flux Kustomization operator should have begun sync'ing your new pod spec. You can verify this by running:
+Check the status of all resources in the `demo-static` namespace by running:
 
 ```
-kubectl get pods
+kubectl get all -n demo-static
 ```
 
 You should see something like:
 
 ```
-NAME          READY   STATUS    RESTARTS   AGE
-hello-world   1/1     Running   0          10s
+NAME                          READY   STATUS    RESTARTS   AGE
+pod/website-5b8b697588-g8zrf  1/1     Running   0          10s
 ```
 
-You can connect to this pod by running:
+As well as a service and ingress:
 
 ```
-kubectl port-forward pod/hello-world 5678:5678
+kubectl get svc -n demo-static
 ```
 
-If you visit [http://localhost:5678](http://localhost:5678) in your browser, you should see the message "Hello, World!"
-
-If your pod does not appear, you can troubleshoot it by looking at the kustomization with:
-
 ```
-kubectl get kustomization -A
+kubectl get ingress -n demo-static
 ```
 
-As well as the git repository resources:
+## Create static content
+Check your environment variables by running `windsor env`. You should see one with the name `PV_DEMO_STATIC_CONTENT`. This path points to a folder under `.volumes`, such as `pvc-420ddd3a-e7fd-455a-a2a4-a3388638777c`. This is where you should place your static content, or direct the output of your build command. Place this file at `${PV_DEMO_STATIC_CONTENT}/index.html`:
 
 ```
-kubectl get gitrepository -A
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hello World</title>
+</head>
+<body>
+    <h1>Hello, World!</h1>
+    <p>Welcome to the static website demo.</p>
+</body>
+</html>
 ```
+
+Assuming everything is working as expected, you should be able to visit http://static.test:8080 and see your content appear.
+
+## Inspect the environment
+Let's have a look at what's been created. Run the following:
+
+```
+kubectl describe deployment website -n demo-static
+```
+
+Pay attention to the `image` tag. It should read `registry.test/demo:latest`. This image was pulled from the local registry that you pushed your image to in a previous step.
+
+Inspect the persistent volume by running:
+
+```
+kubectl get pvc -n demo-static
+```
+
+You should see a persistent volume claim with a name matching the folder under `.volumes/`. This volume is bind mounted to your host, such that it shares content with pods under development.
 
 <div>
   {{ footer('Kustomize', '../../guides/kustomize/index.html', 'Trusted Folders', '../../security/trusted-folders/index.html') }}
