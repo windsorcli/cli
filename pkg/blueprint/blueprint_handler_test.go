@@ -211,14 +211,23 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 			return "192.168.1.100"
 		case "docker.registry_url":
 			return "mock.registry.com"
-		case "cluster.workers.local_volume_path":
-			return "/var/local"
 		default:
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
 			}
 			return ""
 		}
+	}
+
+	// Return mock volume paths
+	mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+		if key == "cluster.workers.volumes" {
+			return []string{"${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"}
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return nil
 	}
 
 	mockConfigHandler.GetContextFunc = func() string {
