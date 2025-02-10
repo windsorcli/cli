@@ -41,15 +41,14 @@ func setupSafeKubeEnvPrinterMocks(injector ...di.Injector) *KubeEnvPrinterMocks 
 	mockInjector.Register("shell", mockShell)
 
 	// Mock readDir to return some valid persistent volume folders
-	originalReadDir := readDir
 	readDir = func(dirname string) ([]os.DirEntry, error) {
-		if dirname == ".volumes" {
+		if strings.HasSuffix(dirname, ".volumes") {
 			return []os.DirEntry{
 				mockDirEntry{name: "pvc-1234"},
 				mockDirEntry{name: "pvc-5678"},
 			}, nil
 		}
-		return originalReadDir(dirname)
+		return nil, errors.New("mock readDir error")
 	}
 
 	// Mock stat to return nil
@@ -189,6 +188,8 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 		defer os.Unsetenv("PV_NAMESPACE_PVCNAME")
 
 		// Mock the readDir function to simulate reading the volume directory
+		originalReadDir := readDir
+		defer func() { readDir = originalReadDir }()
 		readDir = func(dirname string) ([]os.DirEntry, error) {
 			return []os.DirEntry{
 				mockDirEntry{name: "pvc-12345"},
@@ -224,6 +225,8 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 		defer os.Unsetenv("PV_DEFAULT_CLAIM2")
 
 		// Mock the readDir function to simulate reading the volume directory
+		originalReadDir := readDir
+		defer func() { readDir = originalReadDir }()
 		readDir = func(dirname string) ([]os.DirEntry, error) {
 			return []os.DirEntry{
 				mockDirEntry{name: "pvc-1234"},
@@ -267,6 +270,8 @@ func TestKubeEnvPrinter_Print(t *testing.T) {
 		kubeEnvPrinter.Initialize()
 
 		// Mock the stat function to simulate the existence of the kubeconfig file
+		originalStat := stat
+		defer func() { stat = originalStat }()
 		stat = func(name string) (os.FileInfo, error) {
 			if name == filepath.FromSlash("/mock/config/root/.kube/config") {
 				return nil, nil // Simulate that the file exists
