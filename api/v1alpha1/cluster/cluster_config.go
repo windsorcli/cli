@@ -2,23 +2,10 @@ package cluster
 
 // ClusterConfig represents the cluster configuration
 type ClusterConfig struct {
-	Enabled       *bool   `yaml:"enabled"`
-	Driver        *string `yaml:"driver"`
-	ControlPlanes struct {
-		Count     *int                  `yaml:"count,omitempty"`
-		CPU       *int                  `yaml:"cpu,omitempty"`
-		Memory    *int                  `yaml:"memory,omitempty"`
-		Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
-		HostPorts []string              `yaml:"hostports,omitempty"`
-	} `yaml:"controlplanes,omitempty"`
-	Workers struct {
-		Count           *int                  `yaml:"count,omitempty"`
-		CPU             *int                  `yaml:"cpu,omitempty"`
-		Memory          *int                  `yaml:"memory,omitempty"`
-		Nodes           map[string]NodeConfig `yaml:"nodes,omitempty"`
-		HostPorts       []string              `yaml:"hostports,omitempty"`
-		LocalVolumePath *string               `yaml:"local_volume_path,omitempty"`
-	} `yaml:"workers,omitempty"`
+	Enabled       *bool           `yaml:"enabled"`
+	Driver        *string         `yaml:"driver"`
+	ControlPlanes NodeGroupConfig `yaml:"controlplanes,omitempty"`
+	Workers       NodeGroupConfig `yaml:"workers,omitempty"`
 }
 
 // NodeConfig represents the node configuration
@@ -27,6 +14,16 @@ type NodeConfig struct {
 	Node      *string  `yaml:"node,omitempty"`
 	Endpoint  *string  `yaml:"endpoint,omitempty"`
 	HostPorts []string `yaml:"hostports,omitempty"`
+}
+
+// NodeGroupConfig represents the configuration for a group of nodes
+type NodeGroupConfig struct {
+	Count     *int                  `yaml:"count,omitempty"`
+	CPU       *int                  `yaml:"cpu,omitempty"`
+	Memory    *int                  `yaml:"memory,omitempty"`
+	Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+	HostPorts []string              `yaml:"hostports,omitempty"`
+	Volumes   []string              `yaml:"volumes,omitempty"`
 }
 
 // Merge performs a deep merge of the current ClusterConfig with another ClusterConfig.
@@ -52,6 +49,14 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 			base.ControlPlanes.Nodes[key] = node
 		}
 	}
+	if overlay.ControlPlanes.HostPorts != nil {
+		base.ControlPlanes.HostPorts = make([]string, len(overlay.ControlPlanes.HostPorts))
+		copy(base.ControlPlanes.HostPorts, overlay.ControlPlanes.HostPorts)
+	}
+	if overlay.ControlPlanes.Volumes != nil {
+		base.ControlPlanes.Volumes = make([]string, len(overlay.ControlPlanes.Volumes))
+		copy(base.ControlPlanes.Volumes, overlay.ControlPlanes.Volumes)
+	}
 	if overlay.Workers.Count != nil {
 		base.Workers.Count = overlay.Workers.Count
 	}
@@ -71,8 +76,9 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 		base.Workers.HostPorts = make([]string, len(overlay.Workers.HostPorts))
 		copy(base.Workers.HostPorts, overlay.Workers.HostPorts)
 	}
-	if overlay.Workers.LocalVolumePath != nil {
-		base.Workers.LocalVolumePath = overlay.Workers.LocalVolumePath
+	if overlay.Workers.Volumes != nil {
+		base.Workers.Volumes = make([]string, len(overlay.Workers.Volumes))
+		copy(base.Workers.Volumes, overlay.Workers.Volumes)
 	}
 }
 
@@ -93,6 +99,8 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 	}
 	controlPlanesHostPortsCopy := make([]string, len(c.ControlPlanes.HostPorts))
 	copy(controlPlanesHostPortsCopy, c.ControlPlanes.HostPorts)
+	controlPlanesVolumesCopy := make([]string, len(c.ControlPlanes.Volumes))
+	copy(controlPlanesVolumesCopy, c.ControlPlanes.Volumes)
 
 	workersNodesCopy := make(map[string]NodeConfig, len(c.Workers.Nodes))
 	for key, node := range c.Workers.Nodes {
@@ -105,37 +113,27 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 	}
 	workersHostPortsCopy := make([]string, len(c.Workers.HostPorts))
 	copy(workersHostPortsCopy, c.Workers.HostPorts)
+	workersVolumesCopy := make([]string, len(c.Workers.Volumes))
+	copy(workersVolumesCopy, c.Workers.Volumes)
 
 	return &ClusterConfig{
 		Enabled: c.Enabled,
 		Driver:  c.Driver,
-		ControlPlanes: struct {
-			Count     *int                  `yaml:"count,omitempty"`
-			CPU       *int                  `yaml:"cpu,omitempty"`
-			Memory    *int                  `yaml:"memory,omitempty"`
-			Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
-			HostPorts []string              `yaml:"hostports,omitempty"`
-		}{
+		ControlPlanes: NodeGroupConfig{
 			Count:     c.ControlPlanes.Count,
 			CPU:       c.ControlPlanes.CPU,
 			Memory:    c.ControlPlanes.Memory,
 			Nodes:     controlPlanesNodesCopy,
 			HostPorts: controlPlanesHostPortsCopy,
+			Volumes:   controlPlanesVolumesCopy,
 		},
-		Workers: struct {
-			Count           *int                  `yaml:"count,omitempty"`
-			CPU             *int                  `yaml:"cpu,omitempty"`
-			Memory          *int                  `yaml:"memory,omitempty"`
-			Nodes           map[string]NodeConfig `yaml:"nodes,omitempty"`
-			HostPorts       []string              `yaml:"hostports,omitempty"`
-			LocalVolumePath *string               `yaml:"local_volume_path,omitempty"`
-		}{
-			Count:           c.Workers.Count,
-			CPU:             c.Workers.CPU,
-			Memory:          c.Workers.Memory,
-			Nodes:           workersNodesCopy,
-			HostPorts:       workersHostPortsCopy,
-			LocalVolumePath: c.Workers.LocalVolumePath,
+		Workers: NodeGroupConfig{
+			Count:     c.Workers.Count,
+			CPU:       c.Workers.CPU,
+			Memory:    c.Workers.Memory,
+			Nodes:     workersNodesCopy,
+			HostPorts: workersHostPortsCopy,
+			Volumes:   workersVolumesCopy,
 		},
 	}
 }

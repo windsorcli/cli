@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -74,6 +73,12 @@ func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 			return []string{"30002:30002/tcp", "30003:30003"}
 		case "cluster.workers.hostports":
 			return []string{"30000:30000", "30001:30001/udp", "30002:30002/tcp", "30003:30003"}
+		case "cluster.workers.nodes.worker1.volumes":
+			return []string{"/data/worker1:/mnt/data", "/logs/worker1:/mnt/logs"}
+		case "cluster.workers.nodes.worker2.volumes":
+			return []string{"/data/worker2:/mnt/data", "/logs/worker2:/mnt/logs"}
+		case "cluster.workers.volumes":
+			return []string{"/data/common:/mnt/data", "/logs/common:/mnt/logs"}
 		default:
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -85,20 +90,12 @@ func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 		return &v1alpha1.Context{
 			Cluster: &cluster.ClusterConfig{
-				Workers: struct {
-					Count           *int                          `yaml:"count,omitempty"`
-					CPU             *int                          `yaml:"cpu,omitempty"`
-					Memory          *int                          `yaml:"memory,omitempty"`
-					Nodes           map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-					HostPorts       []string                      `yaml:"hostports,omitempty"`
-					LocalVolumePath *string                       `yaml:"local_volume_path,omitempty"`
-				}{
+				Workers: cluster.NodeGroupConfig{
 					Nodes: map[string]cluster.NodeConfig{
 						"worker1": {},
 						"worker2": {},
 					},
-					HostPorts:       []string{"30000:30000/tcp", "30001:30001/udp", "30002:30002/tcp", "30003:30003/udp"},
-					LocalVolumePath: ptrString("/var/local"),
+					HostPorts: []string{"30000:30000/tcp", "30001:30001/udp", "30002:30002/tcp", "30003:30003/udp"},
 				},
 			},
 		}
@@ -642,63 +639,15 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+	t.Run("InvalidVolumeFormat", func(t *testing.T) {
 		// Setup mocks for this test
 		mocks := setupTalosServiceMocks()
 		service := NewTalosService(mocks.Injector, "worker")
 
-		// Mock the GetProjectRoot method to return an error
-		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error retrieving project root")
-		}
-
-		// Initialize the service
-		err := service.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// When the GetComposeConfig method is called
-		config, err := service.GetComposeConfig()
-
-		// Then an error should be returned and the config should be nil
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-		if err.Error() != "error retrieving project root: mock error retrieving project root" {
-			t.Fatalf("expected error message 'error retrieving project root: mock error retrieving project root', got %v", err)
-		}
-		if config != nil {
-			t.Fatalf("expected config to be nil, got %v", config)
-		}
-	})
-
-	t.Run("ErrorCreatingVolumesDirectory", func(t *testing.T) {
-		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
-		service := NewTalosService(mocks.Injector, "worker")
-
-		// Mock the GetProjectRoot method to return a valid project root
-		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
-			return filepath.FromSlash("/mock/project/root"), nil
-		}
-
-		// Mock the stat function to simulate the .volumes directory does not exist
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
-			if filepath.Clean(name) == filepath.Clean(filepath.Join("/mock/project/root", ".volumes")) {
-				return nil, os.ErrNotExist
-			}
-			return nil, nil
-		}
-
-		// Mock the mkdir function to return an error
-		originalMkdir := mkdir
-		defer func() { mkdir = originalMkdir }()
-		mkdir = func(name string, perm os.FileMode) error {
-			if filepath.Clean(name) == filepath.Clean(filepath.Join("/mock/project/root", ".volumes")) {
-				return fmt.Errorf("mock error creating .volumes directory")
+		// Mock the GetStringSlice method to return an invalid volume format
+		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			if key == "cluster.workers.volumes" {
+				return []string{"invalidVolumeFormat"}
 			}
 			return nil
 		}
@@ -710,17 +659,14 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		}
 
 		// When the GetComposeConfig method is called
-		config, err := service.GetComposeConfig()
+		_, err = service.GetComposeConfig()
 
-		// Then an error should be returned and the config should be nil
+		// Then an error should be returned
 		if err == nil {
-			t.Fatalf("expected an error, got nil")
+			t.Fatalf("expected an error due to invalid volume format, got nil")
 		}
-		if err.Error() != "error creating .volumes directory: mock error creating .volumes directory" {
-			t.Fatalf("expected error message 'error creating .volumes directory: mock error creating .volumes directory', got %v", err)
-		}
-		if config != nil {
-			t.Fatalf("expected config to be nil, got %v", config)
+		if err.Error() != "invalid volume format: invalidVolumeFormat" {
+			t.Fatalf("expected error message 'invalid volume format: invalidVolumeFormat', got %v", err)
 		}
 	})
 
@@ -752,12 +698,42 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("InvalidHostPort", func(t *testing.T) {
+	t.Run("ErrorMkdirAll", func(t *testing.T) {
 		// Setup mocks for this test
 		mocks := setupTalosServiceMocks()
 		service := NewTalosService(mocks.Injector, "worker")
 
-		// Mock the GetStringSlice method to return an invalid host port
+		// Mock the mkdirAll function to return an error
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("mocked mkdirAll error")
+		}
+
+		// Initialize the service
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// When the GetComposeConfig method is called
+		_, err = service.GetComposeConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error due to mkdirAll failure, got nil")
+		}
+		if !strings.Contains(err.Error(), "mocked mkdirAll error") {
+			t.Fatalf("expected error message containing 'mocked mkdirAll error', got %v", err)
+		}
+	})
+
+	t.Run("InvalidHostPortFormat", func(t *testing.T) {
+		// Setup mocks for this test
+		mocks := setupTalosServiceMocks()
+		service := NewTalosService(mocks.Injector, "worker")
+
+		// Mock the GetStringSlice method to return an invalid host port format
 		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
 			if key == "cluster.workers.nodes.worker.hostports" {
 				return []string{"invalidPort:30000/tcp"}
@@ -783,12 +759,12 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("InvalidHostPort", func(t *testing.T) {
+	t.Run("InvalidHostPortValue", func(t *testing.T) {
 		// Setup mocks for this test
 		mocks := setupTalosServiceMocks()
 		service := NewTalosService(mocks.Injector, "worker")
 
-		// Mock the GetStringSlice method to return an invalid host port
+		// Mock the GetStringSlice method to return an invalid host port value
 		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
 			if key == "cluster.workers.nodes.worker.hostports" {
 				return []string{"30000:invalidHostPort/tcp"}

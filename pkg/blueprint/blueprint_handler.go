@@ -888,7 +888,7 @@ func (b *BaseBlueprintHandler) applyConfigMap() error {
 	lbStart := b.configHandler.GetString("network.loadbalancer_ips.start")
 	lbEnd := b.configHandler.GetString("network.loadbalancer_ips.end")
 	registryURL := b.configHandler.GetString("docker.registry_url")
-	localVolumePath := b.configHandler.GetString("cluster.workers.local_volume_path")
+	localVolumePath := b.configHandler.GetString("cluster.workers.local_volume_path", "/var/local")
 
 	// Generate LOADBALANCER_IP_RANGE from the start and end IPs for network
 	loadBalancerIPRange := fmt.Sprintf("%s-%s", lbStart, lbEnd)

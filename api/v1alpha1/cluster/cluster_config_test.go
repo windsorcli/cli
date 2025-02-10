@@ -28,6 +28,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
+				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
 				Count:  ptrInt(3),
 				CPU:    ptrInt(4),
@@ -37,14 +38,16 @@ func TestClusterConfig_Merge(t *testing.T) {
 						Hostname: ptrString("base-node1"),
 					},
 				},
+				HostPorts: []string{"1000:1000/tcp", "2000:2000/tcp"},
+				Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/base/volume1:/var/local/base1"},
 			},
 			Workers: struct {
-				Count           *int                  `yaml:"count,omitempty"`
-				CPU             *int                  `yaml:"cpu,omitempty"`
-				Memory          *int                  `yaml:"memory,omitempty"`
-				Nodes           map[string]NodeConfig `yaml:"nodes,omitempty"`
-				HostPorts       []string              `yaml:"hostports,omitempty"`
-				LocalVolumePath *string               `yaml:"local_volume_path,omitempty"`
+				Count     *int                  `yaml:"count,omitempty"`
+				CPU       *int                  `yaml:"cpu,omitempty"`
+				Memory    *int                  `yaml:"memory,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				HostPorts []string              `yaml:"hostports,omitempty"`
+				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
 				Count:  ptrInt(5),
 				CPU:    ptrInt(2),
@@ -54,8 +57,8 @@ func TestClusterConfig_Merge(t *testing.T) {
 						Hostname: ptrString("base-worker1"),
 					},
 				},
-				HostPorts:       []string{"8080", "9090"},
-				LocalVolumePath: ptrString("/base/worker1/path"),
+				HostPorts: []string{"8080", "9090"},
+				Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/base/worker/volume1:/var/local/worker1"},
 			},
 		}
 
@@ -68,6 +71,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
+				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
 				Count:  ptrInt(1),
 				CPU:    ptrInt(2),
@@ -77,14 +81,16 @@ func TestClusterConfig_Merge(t *testing.T) {
 						Hostname: ptrString("overlay-node2"),
 					},
 				},
+				HostPorts: []string{"3000:3000/tcp", "4000:4000/tcp"},
+				Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/overlay/volume2:/var/local/overlay2"},
 			},
 			Workers: struct {
-				Count           *int                  `yaml:"count,omitempty"`
-				CPU             *int                  `yaml:"cpu,omitempty"`
-				Memory          *int                  `yaml:"memory,omitempty"`
-				Nodes           map[string]NodeConfig `yaml:"nodes,omitempty"`
-				HostPorts       []string              `yaml:"hostports,omitempty"`
-				LocalVolumePath *string               `yaml:"local_volume_path,omitempty"`
+				Count     *int                  `yaml:"count,omitempty"`
+				CPU       *int                  `yaml:"cpu,omitempty"`
+				Memory    *int                  `yaml:"memory,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				HostPorts []string              `yaml:"hostports,omitempty"`
+				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
 				Count:  ptrInt(3),
 				CPU:    ptrInt(1),
@@ -94,8 +100,8 @@ func TestClusterConfig_Merge(t *testing.T) {
 						Hostname: ptrString("overlay-worker2"),
 					},
 				},
-				HostPorts:       []string{"8082", "9092"},
-				LocalVolumePath: ptrString("/overlay/worker2/path"),
+				HostPorts: []string{"8082", "9092"},
+				Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/overlay/worker/volume2:/var/local/worker2"},
 			},
 		}
 
@@ -107,8 +113,11 @@ func TestClusterConfig_Merge(t *testing.T) {
 		if base.Driver == nil || *base.Driver != "overlay-driver" {
 			t.Errorf("Driver mismatch: expected 'overlay-driver', got '%s'", *base.Driver)
 		}
+		if len(base.ControlPlanes.HostPorts) != 2 || base.ControlPlanes.HostPorts[0] != "3000:3000/tcp" || base.ControlPlanes.HostPorts[1] != "4000:4000/tcp" {
+			t.Errorf("ControlPlanes HostPorts mismatch: expected ['3000:3000/tcp', '4000:4000/tcp'], got %v", base.ControlPlanes.HostPorts)
+		}
 		if len(base.Workers.HostPorts) != 2 || base.Workers.HostPorts[0] != "8082" || base.Workers.HostPorts[1] != "9092" {
-			t.Errorf("HostPorts mismatch: expected ['8082', '9092'], got %v", base.Workers.HostPorts)
+			t.Errorf("Workers HostPorts mismatch: expected ['8082', '9092'], got %v", base.Workers.HostPorts)
 		}
 		if base.ControlPlanes.Count == nil || *base.ControlPlanes.Count != 1 {
 			t.Errorf("ControlPlanes Count mismatch: expected 1, got %v", *base.ControlPlanes.Count)
@@ -134,8 +143,8 @@ func TestClusterConfig_Merge(t *testing.T) {
 		if len(base.Workers.Nodes) != 1 || base.Workers.Nodes["worker2"].Hostname == nil || *base.Workers.Nodes["worker2"].Hostname != "overlay-worker2" {
 			t.Errorf("Workers Nodes mismatch: expected 'overlay-worker2', got %v", base.Workers.Nodes)
 		}
-		if base.Workers.LocalVolumePath == nil || *base.Workers.LocalVolumePath != "/overlay/worker2/path" {
-			t.Errorf("Workers LocalVolumePath mismatch: expected '/overlay/worker2/path', got %v", *base.Workers.LocalVolumePath)
+		if len(base.Workers.Volumes) != 1 || base.Workers.Volumes[0] != "${WINDSOR_PROJECT_ROOT}/overlay/worker/volume2:/var/local/worker2" {
+			t.Errorf("Workers Volumes mismatch: expected ['${WINDSOR_PROJECT_ROOT}/overlay/worker/volume2:/var/local/worker2'], got %v", base.Workers.Volumes)
 		}
 	})
 
@@ -149,27 +158,29 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
+				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
 				Count:     nil,
 				CPU:       nil,
 				Memory:    nil,
 				Nodes:     nil,
 				HostPorts: nil,
+				Volumes:   nil,
 			},
 			Workers: struct {
-				Count           *int                  `yaml:"count,omitempty"`
-				CPU             *int                  `yaml:"cpu,omitempty"`
-				Memory          *int                  `yaml:"memory,omitempty"`
-				Nodes           map[string]NodeConfig `yaml:"nodes,omitempty"`
-				HostPorts       []string              `yaml:"hostports,omitempty"`
-				LocalVolumePath *string               `yaml:"local_volume_path,omitempty"`
+				Count     *int                  `yaml:"count,omitempty"`
+				CPU       *int                  `yaml:"cpu,omitempty"`
+				Memory    *int                  `yaml:"memory,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				HostPorts []string              `yaml:"hostports,omitempty"`
+				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
-				Count:           nil,
-				CPU:             nil,
-				Memory:          nil,
-				Nodes:           nil,
-				HostPorts:       nil,
-				LocalVolumePath: nil,
+				Count:     nil,
+				CPU:       nil,
+				Memory:    nil,
+				Nodes:     nil,
+				HostPorts: nil,
+				Volumes:   nil,
 			},
 		}
 
@@ -182,27 +193,29 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
+				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
 				Count:     nil,
 				CPU:       nil,
 				Memory:    nil,
 				Nodes:     nil,
 				HostPorts: nil,
+				Volumes:   nil,
 			},
 			Workers: struct {
-				Count           *int                  `yaml:"count,omitempty"`
-				CPU             *int                  `yaml:"cpu,omitempty"`
-				Memory          *int                  `yaml:"memory,omitempty"`
-				Nodes           map[string]NodeConfig `yaml:"nodes,omitempty"`
-				HostPorts       []string              `yaml:"hostports,omitempty"`
-				LocalVolumePath *string               `yaml:"local_volume_path,omitempty"`
+				Count     *int                  `yaml:"count,omitempty"`
+				CPU       *int                  `yaml:"cpu,omitempty"`
+				Memory    *int                  `yaml:"memory,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				HostPorts []string              `yaml:"hostports,omitempty"`
+				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
-				Count:           nil,
-				CPU:             nil,
-				Memory:          nil,
-				Nodes:           nil,
-				HostPorts:       nil,
-				LocalVolumePath: nil,
+				Count:     nil,
+				CPU:       nil,
+				Memory:    nil,
+				Nodes:     nil,
+				HostPorts: nil,
+				Volumes:   nil,
 			},
 		}
 
@@ -215,7 +228,10 @@ func TestClusterConfig_Merge(t *testing.T) {
 			t.Errorf("Driver mismatch: expected nil, got '%s'", *base.Driver)
 		}
 		if base.Workers.HostPorts != nil {
-			t.Errorf("HostPorts mismatch: expected nil, got %v", base.Workers.HostPorts)
+			t.Errorf("Workers HostPorts mismatch: expected nil, got %v", base.Workers.HostPorts)
+		}
+		if base.ControlPlanes.HostPorts != nil {
+			t.Errorf("ControlPlanes HostPorts mismatch: expected nil, got %v", base.ControlPlanes.HostPorts)
 		}
 		if base.ControlPlanes.Count != nil {
 			t.Errorf("ControlPlanes Count mismatch: expected nil, got %v", *base.ControlPlanes.Count)
@@ -241,8 +257,8 @@ func TestClusterConfig_Merge(t *testing.T) {
 		if base.Workers.Nodes != nil {
 			t.Errorf("Workers Nodes mismatch: expected nil, got %v", base.Workers.Nodes)
 		}
-		if base.Workers.LocalVolumePath != nil {
-			t.Errorf("Workers LocalVolumePath mismatch: expected nil, got %v", *base.Workers.LocalVolumePath)
+		if base.Workers.Volumes != nil {
+			t.Errorf("Workers Volumes mismatch: expected nil, got %v", base.Workers.Volumes)
 		}
 	})
 }
@@ -258,6 +274,7 @@ func TestClusterConfig_Copy(t *testing.T) {
 				Memory    *int                  `yaml:"memory,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
+				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
 				Count:  ptrInt(3),
 				CPU:    ptrInt(4),
@@ -268,14 +285,15 @@ func TestClusterConfig_Copy(t *testing.T) {
 					},
 				},
 				HostPorts: []string{"1000:1000/tcp", "2000:2000/tcp"},
+				Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/original/volume1:/var/local/original1"},
 			},
 			Workers: struct {
-				Count           *int                  `yaml:"count,omitempty"`
-				CPU             *int                  `yaml:"cpu,omitempty"`
-				Memory          *int                  `yaml:"memory,omitempty"`
-				Nodes           map[string]NodeConfig `yaml:"nodes,omitempty"`
-				HostPorts       []string              `yaml:"hostports,omitempty"`
-				LocalVolumePath *string               `yaml:"local_volume_path,omitempty"`
+				Count     *int                  `yaml:"count,omitempty"`
+				CPU       *int                  `yaml:"cpu,omitempty"`
+				Memory    *int                  `yaml:"memory,omitempty"`
+				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
+				HostPorts []string              `yaml:"hostports,omitempty"`
+				Volumes   []string              `yaml:"volumes,omitempty"`
 			}{
 				Count:  ptrInt(5),
 				CPU:    ptrInt(2),
@@ -285,8 +303,8 @@ func TestClusterConfig_Copy(t *testing.T) {
 						Hostname: ptrString("original-worker1"),
 					},
 				},
-				HostPorts:       []string{"3000:3000/tcp", "4000:4000/tcp"},
-				LocalVolumePath: ptrString("/original/worker1/path"),
+				HostPorts: []string{"3000:3000/tcp", "4000:4000/tcp"},
+				Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/original/worker/volume1:/var/local/worker1"},
 			},
 		}
 
@@ -322,10 +340,6 @@ func TestClusterConfig_Copy(t *testing.T) {
 			if node.Hostname == nil || copy.Workers.Nodes[key].Hostname == nil || *node.Hostname != *copy.Workers.Nodes[key].Hostname {
 				t.Errorf("Workers Nodes mismatch for key %s: expected %v, got %v", key, *node.Hostname, *copy.Workers.Nodes[key].Hostname)
 			}
-		}
-
-		if original.Workers.LocalVolumePath == nil || copy.Workers.LocalVolumePath == nil || *original.Workers.LocalVolumePath != *copy.Workers.LocalVolumePath {
-			t.Errorf("Workers LocalVolumePath mismatch: expected %v, got %v", *original.Workers.LocalVolumePath, *copy.Workers.LocalVolumePath)
 		}
 
 		if len(original.Workers.HostPorts) != len(copy.Workers.HostPorts) || original.Workers.HostPorts[0] != copy.Workers.HostPorts[0] || original.Workers.HostPorts[1] != copy.Workers.HostPorts[1] {

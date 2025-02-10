@@ -66,32 +66,19 @@ var commonTerraformConfig = terraform.TerraformConfig{
 var commonClusterConfig = cluster.ClusterConfig{
 	Enabled: ptrBool(true),
 	Driver:  ptrString("talos"),
-	ControlPlanes: struct {
-		Count     *int                          `yaml:"count,omitempty"`
-		CPU       *int                          `yaml:"cpu,omitempty"`
-		Memory    *int                          `yaml:"memory,omitempty"`
-		Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-		HostPorts []string                      `yaml:"hostports,omitempty"`
-	}{
+	ControlPlanes: cluster.NodeGroupConfig{
 		Count:  ptrInt(1),
 		CPU:    ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_CPU),
 		Memory: ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_RAM),
 		Nodes:  make(map[string]cluster.NodeConfig),
 	},
-	Workers: struct {
-		Count           *int                          `yaml:"count,omitempty"`
-		CPU             *int                          `yaml:"cpu,omitempty"`
-		Memory          *int                          `yaml:"memory,omitempty"`
-		Nodes           map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-		HostPorts       []string                      `yaml:"hostports,omitempty"`
-		LocalVolumePath *string                       `yaml:"local_volume_path,omitempty"`
-	}{
-		Count:           ptrInt(1),
-		CPU:             ptrInt(constants.DEFAULT_TALOS_WORKER_CPU),
-		Memory:          ptrInt(constants.DEFAULT_TALOS_WORKER_RAM),
-		Nodes:           make(map[string]cluster.NodeConfig),
-		HostPorts:       []string{},
-		LocalVolumePath: ptrString("/var/local"),
+	Workers: cluster.NodeGroupConfig{
+		Count:     ptrInt(1),
+		CPU:       ptrInt(constants.DEFAULT_TALOS_WORKER_CPU),
+		Memory:    ptrInt(constants.DEFAULT_TALOS_WORKER_RAM),
+		Nodes:     make(map[string]cluster.NodeConfig),
+		HostPorts: []string{},
+		Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"},
 	},
 }
 
@@ -108,31 +95,19 @@ var DefaultConfig_Localhost = v1alpha1.Context{
 	Cluster: &cluster.ClusterConfig{
 		Enabled: ptrBool(true),
 		Driver:  ptrString("talos"),
-		ControlPlanes: struct {
-			Count     *int                          `yaml:"count,omitempty"`
-			CPU       *int                          `yaml:"cpu,omitempty"`
-			Memory    *int                          `yaml:"memory,omitempty"`
-			Nodes     map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-			HostPorts []string                      `yaml:"hostports,omitempty"`
-		}{
+		ControlPlanes: cluster.NodeGroupConfig{
 			Count:  ptrInt(1),
 			CPU:    ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_CPU),
 			Memory: ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_RAM),
 			Nodes:  make(map[string]cluster.NodeConfig),
 		},
-		Workers: struct {
-			Count           *int                          `yaml:"count,omitempty"`
-			CPU             *int                          `yaml:"cpu,omitempty"`
-			Memory          *int                          `yaml:"memory,omitempty"`
-			Nodes           map[string]cluster.NodeConfig `yaml:"nodes,omitempty"`
-			HostPorts       []string                      `yaml:"hostports,omitempty"`
-			LocalVolumePath *string                       `yaml:"local_volume_path,omitempty"`
-		}{
+		Workers: cluster.NodeGroupConfig{
 			Count:     ptrInt(1),
 			CPU:       ptrInt(constants.DEFAULT_TALOS_WORKER_CPU),
 			Memory:    ptrInt(constants.DEFAULT_TALOS_WORKER_RAM),
 			Nodes:     make(map[string]cluster.NodeConfig),
 			HostPorts: []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp", "8053:30053/udp"},
+			Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"},
 		},
 	},
 	Network: &network.NetworkConfig{
