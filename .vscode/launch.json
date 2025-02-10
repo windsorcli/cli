@@ -60,7 +60,8 @@
       "env": {
         "COMPOSE_FILE": "${workspaceFolder}/.windsor/docker-compose.yaml",
         "WINDSOR_CONTEXT": "local",
-        "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
+        "WINDSOR_PROJECT_ROOT": "${workspaceFolder}",
+        "KUBECONFIG": "${workspaceFolder}/contexts/local/.kube/config"
       }
     },
     {

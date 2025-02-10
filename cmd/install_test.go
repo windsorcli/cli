@@ -78,6 +78,64 @@ func TestInstallCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorCreatingServiceComponents", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller that returns an error when creating service components
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockController.CreateServiceComponentsFunc = func() error {
+			return fmt.Errorf("error creating service components")
+		}
+
+		// Use a mock blueprint handler
+		mockController.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
+			return bp.NewMockBlueprintHandler(injector)
+		}
+
+		// When the install command is executed
+		rootCmd.SetArgs([]string{"install"})
+		err := Execute(mockController)
+
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error creating service components: error creating service components"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorCreatingVirtualizationComponents", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller that returns an error when creating virtualization components
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockController.CreateVirtualizationComponentsFunc = func() error {
+			return fmt.Errorf("error creating virtualization components")
+		}
+
+		// Use a mock blueprint handler
+		mockController.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
+			return bp.NewMockBlueprintHandler(injector)
+		}
+
+		// When the install command is executed
+		rootCmd.SetArgs([]string{"install"})
+		err := Execute(mockController)
+
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error creating virtualization components: error creating virtualization components"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
 	t.Run("NoBlueprintHandlerFound", func(t *testing.T) {
 		defer resetRootCmd()
 
