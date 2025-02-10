@@ -20,7 +20,12 @@ import (
 )
 
 // DefaultConfig returns the default configuration
-var DefaultConfig = v1alpha1.Context{}
+var DefaultConfig = v1alpha1.Context{
+	Terraform: &terraform.TerraformConfig{
+		Enabled: ptrBool(true),
+		Backend: ptrString("local"),
+	},
+}
 
 var commonDockerConfig = docker.DockerConfig{
 	Enabled: ptrBool(true),
