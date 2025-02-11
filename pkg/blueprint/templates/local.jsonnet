@@ -114,14 +114,14 @@ local registryMirrors = std.foldl(
                   forwardKubeDNSToHost: true,
                 },
               },
-              network: {
+              network: if context.vm.driver == "docker-desktop" then {
                 interfaces: [
                   {
                     ignore: true,
                     interface: "eth0",
                   },
                 ],
-              },
+              } else {},
               kubelet: {
                 extraArgs: {
                   "rotate-server-certificates": "true",
