@@ -212,7 +212,12 @@ kubectl get all -n demo-bookinfo
 In a web browser, visit both http://bookinfo.test:8080 and https://bookinfo.test:8443. If you're using a full virtualization option or have configured your `hostports` to use traditional web port mappings, you do not need the port designations and can connect over `:80` and `:443`.
 
 ### Validating volumes
-Across all environments, you should see a set of common storage classes. These should include a `local` and a `single` storage class. You can see these by running `kubectl get storageclass`. In your local development environment, these are both provided by [OpenEBS's dynamic-localpv-provisioner](https://github.com/openebs/dynamic-localpv-provisioner). To further validate, you should run through the [Hello World](../tutorial/hello-world.md) example and verify that you can see `.volumes/pvc-*`  folders mounted in to your project folder.
+Across all environments, you should see a set of common storage classes. These should include a `local` and a `single` storage class. You can see these by running:
+
+```
+kubectl get storageclass
+``` 
+In your local development environment, these are both provided by [OpenEBS's dynamic-localpv-provisioner](https://github.com/openebs/dynamic-localpv-provisioner). To further validate, you should run through the [Hello World](../tutorial/hello-world.md) example and verify that you can see `.volumes/pvc-*`  folders mounted in to your project folder.
 
 <div>
   {{ footer('Environment Injection', '../../guides/environment-injection/index.html', 'Terraform', '../../guides/terraform/index.html') }}
