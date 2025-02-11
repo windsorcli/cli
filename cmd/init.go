@@ -70,17 +70,21 @@ var initCmd = &cobra.Command{
 		}
 
 		// Set the default configuration if applicable
-		defaultConfig := &config.DefaultConfig_Full
+		defaultConfig := &config.DefaultConfig
 		if vmDriverConfig == "docker-desktop" {
 			defaultConfig = &config.DefaultConfig_Localhost
+		} else if vmDriverConfig == "colima" || vmDriverConfig == "docker" {
+			defaultConfig = &config.DefaultConfig_Full
 		}
 		if err := configHandler.SetDefault(*defaultConfig); err != nil {
 			return fmt.Errorf("Error setting default config: %w", err)
 		}
 
-		// Set the vm driver
-		if err := configHandler.SetContextValue("vm.driver", vmDriverConfig); err != nil {
-			return fmt.Errorf("Error setting vm driver: %w", err)
+		// Set the vm driver only if it's configured
+		if vmDriverConfig != "" {
+			if err := configHandler.SetContextValue("vm.driver", vmDriverConfig); err != nil {
+				return fmt.Errorf("Error setting vm driver: %w", err)
+			}
 		}
 
 		// Create the flag to config path mapping and set the configurations
