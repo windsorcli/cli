@@ -50,7 +50,7 @@ local registryMirrors = std.foldl(
       url: "github.com/windsorcli/core",
       ref: {
         // renovate: datasource=github-branches depName=windsorcli/core
-        branch: "v0.2.0",
+        tag: "v0.2.0",
       },
     },
   ],
