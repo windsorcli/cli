@@ -36,11 +36,14 @@ These features ensure that your Docker environment is configured correctly and c
 ### Kubernetes
 The following Kubernetes related environment variables are set to the following paths:
 
-| Variable         | Configuration Path                                        |
-|------------------|-----------------------------------------------------------|
-| KUBECONFIG       | `contexts/<context-name>/.kube/config`                    |
-| KUBE_CONFIG_PATH | `contexts/<context-name>/.kube/config`                    |
-| TALOSCONFIG      | `contexts/<context-name>/.talos/config`                   |
+| Variable            | Configuration Path                          |
+|---------------------|---------------------------------------------|
+| KUBECONFIG          | `contexts/<context-name>/.kube/config`      |
+| KUBE_CONFIG_PATH    | `contexts/<context-name>/.kube/config`      |
+| TALOSCONFIG         | `contexts/<context-name>/.talos/config`     |
+| PV_<NAMESPACE>_<NAME> | `.volumes/pvc-*`                          |
+
+The `PV_<NAMESPACE>_<NAME>` environment variables point to local paths on your host that correspond to persistent volume claims in the cluster.
 
 ### Terraform
 Windsor configures your `TF_CLI_ARGS_*` variables when you change in to a project under the `terraform/` folder. You can read more in depth about how Windsor works with Terraform in the [Terraform guide](terraform.md).

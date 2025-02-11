@@ -72,25 +72,31 @@ cluster:
     count: 1
     cpu: 4
     memory: 4
-    nodeports:
-      - 8080:30080/tcp
-      - 8443:30443/tcp
+    hostports:
+      - 80:30080/tcp
+      - 443:30443/tcp
+      - 9292:30292/tcp
+      - 8053:30053/udp
+    volumes:
+      - ${WINDSOR_PROJECT_ROOT}/.volumes:/var/local
 ```
 
 | Field                        | Type       | Description                                                        |
 |------------------------------|------------|--------------------------------------------------------------------|
-| `enabled`                    | `bool`     | Indicates if the cluster is active.                                |
-| `driver`                     | `string`   | Defines the cluster driver. Currently, only 'talos' is supported.  |
-| `controlplanes`              | `struct`   | Settings for control plane nodes.                                  |
-| `controlplanes.count`        | `int`      | Total number of control plane nodes.                               |
-| `controlplanes.cpu`          | `int`      | CPU resources allocated per control plane node.                    |
-| `controlplanes.memory`       | `int`      | Memory resources allocated per control plane node.                 |
-| `controlplanes.nodeports`    | `[]string` | List of nodeports for host forwarding specific to control planes.  |
-| `workers`                    | `struct`   | Settings for worker nodes.                                         |
-| `workers.count`              | `int`      | Total number of worker nodes.                                      |
-| `workers.cpu`                | `int`      | CPU resources allocated per worker node.                           |
-| `workers.memory`             | `int`      | Memory resources allocated per worker node.                        |
-| `workers.nodeports`          | `[]string` | List of nodeports for host forwarding specific to workers.         |
+| `enabled`                    | `bool`     | Specifies whether the cluster is active.                           |
+| `driver`                     | `string`   | Specifies the cluster driver. Currently, only 'talos' is supported.|
+| `controlplanes`              | `struct`   | Configuration for control plane nodes.                             |
+| `controlplanes.count`        | `int`      | Number of control plane nodes.                                     |
+| `controlplanes.cpu`          | `int`      | CPU resources per control plane node.                              |
+| `controlplanes.memory`       | `int`      | Memory resources per control plane node.                           |
+| `controlplanes.hostports`    | `[]string` | Nodeports to forward to the host machine.                          |
+| `controlplanes.volumes`      | `[]string` | Volume maps for mounting node volumes onto the host.               |
+| `workers`                    | `struct`   | Configuration for worker nodes.                                    |
+| `workers.count`              | `int`      | Number of worker nodes.                                            |
+| `workers.cpu`                | `int`      | CPU resources per worker node.                                     |
+| `workers.memory`             | `int`      | Memory resources per worker node.                                  |
+| `workers.hostports`          | `[]string` | Nodeports to forward to the host machine.                          |
+| `workers.volumes`            | `[]string` | Volume maps for mounting node volumes onto the host.               |
 
 ### Network
 Configures details related to local networking. This includes both the CIDR block range used by the network, as well as the range of IPs to be used when acquiring load balancer IP addresses.
@@ -216,7 +222,7 @@ vm:
 
 | Field    | Type     | Description                                                                 |
 |----------|----------|-----------------------------------------------------------------------------|
-| `driver` | `string` | Specifies the virtualization driver to use. Options include "colima" or "docker-desktop". |
+| `driver` | `string` | Specifies the virtualization driver to use. Options include "colima", "docker-desktop", or "docker". |
 | `cpu`    | `int`    | Number of CPU cores allocated to the VM. Defaults to half of the system's CPU cores. |
 | `disk`   | `int`    | Disk space allocated to the VM in GB. Defaults to half of the system's memory. |
 | `memory` | `int`    | Memory allocated to the VM in GB. Defaults to 60GB. |
@@ -250,7 +256,7 @@ contexts:
         rsync_protect: flux-system
         username: local
         password: local
-        webhook_url: http://flux-webhook.test:8080/hook/abcd1234
+        webhook_url: http://worker-1.test:30292/hook/5dc88e45e809fb0872b749c0969067e2c1fd142e17aed07573fad20553cc0c59
         verify_ssl: false
         image: ghcr.io/windsorcli/git-livereload:v0.1.1
     terraform:
@@ -269,19 +275,20 @@ contexts:
         count: 1
         cpu: 4
         memory: 4
-        nodeports:
-          - 8080:30080
-          - 8443:30443
+        hostports:
+        - 80:30080/tcp
+        - 443:30443/tcp
+        - 9292:30292/tcp
+        - 8053:30053/udp
+        volumes:
+        - ${WINDSOR_PROJECT_ROOT}/.volumes:/var/local
     network:
       cidr_block: 10.5.0.0/16
-      loadbalancer_ips:
-        start: 10.5.1.1
-        end: 10.5.1.10
     dns:
       enabled: true
       domain: test
-      records:
-        - 127.0.0.1 my-service.test
+      forward:
+      - 10.5.0.1:8053
 ```
 
 <div>
