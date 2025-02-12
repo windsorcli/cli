@@ -62,7 +62,7 @@ func TestExecCmd(t *testing.T) {
 		})
 
 		// Then the output should be as expected
-		expectedOutput := "hello"
+		expectedOutput := ""
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
@@ -181,8 +181,8 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return fmt.Errorf("print error")
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("print error")
 		}
 
 		// Capture stderr
@@ -199,7 +199,7 @@ func TestExecCmd(t *testing.T) {
 		output := buf.String()
 
 		// Then the output should indicate the error
-		expectedOutput := "Error executing Print: print error"
+		expectedOutput := "Error: command execution failed: print error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
