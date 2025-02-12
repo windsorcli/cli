@@ -10,8 +10,7 @@ on:
 permissions:
   contents: write  # Allows creating releases
   issues: read
-  pull-requests: read
-              
+  pull-requests: read              
 jobs:
   build-and-test:
     strategy:
