@@ -62,7 +62,7 @@ func TestExecCmd(t *testing.T) {
 		})
 
 		// Then the output should be as expected
-		expectedOutput := ""
+		expectedOutput := "hello"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
