@@ -181,7 +181,6 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
-
 		mocks.EnvPrinter.PrintFunc = func() error {
 			return fmt.Errorf("print error")
 		}
