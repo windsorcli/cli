@@ -1,3 +1,8 @@
+---
+title: "Hello, World!"
+description: "Building a 'Hello, World!' page on a local cloud with the Windsor CLI"
+image: "https://windsorcli.github.io/latest/img/windsor-logo.png"
+---
 # Hello, World!
 We'll begin with a simple "Hello, World!" demonstration to get you started with Windsor. In this tutorial, you will use the core blueprint's static website demo to serve a simple static HTML page. You should have some flavor of `npm` or `yarn` installed.
 

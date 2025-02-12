@@ -1,5 +1,9 @@
+---
+title: "Terraform"
+description: "The Windsor CLI streamlines your workflow with Terraform assets by providing a context-aware environment."
+image: "https://windsorcli.github.io/latest/img/windsor-logo.png"
+---
 # Terraform
-
 The Windsor CLI streamlines your workflow with Terraform assets by providing a context-aware environment. Once you've installed the Windsor CLI and the `windsor hook`, your setup should be automatically configured for Terraform.
 
 ## Folder Structure

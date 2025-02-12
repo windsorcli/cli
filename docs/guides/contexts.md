@@ -1,3 +1,8 @@
+---
+title: "Contexts"
+description: "The Windsor CLI enables a contextual workflow, dynamically reconfiguring your environment and toolchain for each specific deployment context."
+image: "https://windsorcli.github.io/latest/img/windsor-logo.png"
+---
 # Contexts
 
 In a Windsor project, you work across different deployments or environments as "contexts". You could think of a context in terms of your software development lifecycle (SDLC) environments, such as `development`, `staging`, and `production`. You could also think of a context in terms of different pieces of your organizational infrastructure -- `admin`, `web`, or `observability`. Or, some combination of schemes. You may have a `web-staging` and `web-production` as well as `observability-staging` and `observability-production`.
