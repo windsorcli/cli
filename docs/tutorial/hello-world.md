@@ -21,6 +21,8 @@ Let's first begin by building the application service. This service will involve
 Create `Dockerfile`:
 
 ```dockerfile
+FROM node:22-alpine
+
 # Set the working directory for building and running the server
 WORKDIR /usr/src/server
 
