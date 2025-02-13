@@ -1,7 +1,6 @@
 ---
 title: "Kustomize"
 description: "The Windsor CLI facilitates building Kubernetes systems using Flux and Kustomize."
-image: "https://windsorcli.github.io/latest/img/windsor-logo.png"
 ---
 # Kustomize
 

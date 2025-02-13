@@ -1,7 +1,6 @@
 ---
 title: "Blueprint"
 description: "Windsor blueprints reference collections of Kustomize and Terraform resources"
-image: "https://windsorcli.github.io/latest/img/windsor-logo.png"
 ---
 # Blueprint
 The blueprint stores references and configuration specific to a context. It's configured in a `blueprint.yaml` file located in your context's configuration folder, such as `contexts/local/blueprint.yaml`.

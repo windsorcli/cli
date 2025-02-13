@@ -1,7 +1,6 @@
 ---
 title: "Contexts"
 description: "The Windsor CLI enables a contextual workflow, dynamically reconfiguring your environment and toolchain for each specific deployment context."
-image: "https://windsorcli.github.io/latest/img/windsor-logo.png"
 ---
 # Contexts
 

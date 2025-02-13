@@ -1,7 +1,6 @@
 ---
 title: "Unified Cloud Development"
 description: "Replicate cloud environments on your local machine and improve your cloud-native development workflow with Windsor CLI."
-image: "https://windsorcli.github.io/latest/img/windsor-logo.png"
 ---
 <div align="center">
   <h1>Windsor Command Line Interface</h1>

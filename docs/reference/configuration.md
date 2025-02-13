@@ -1,7 +1,6 @@
 ---
 title: "Configuration"
 description: "Configuration settings for the Windsor workstation using the windsor.yaml file."
-image: "https://windsorcli.github.io/latest/img/windsor-logo.png"
 ---
 # Configuration
 A `windsor.yaml` file should exist at the base of your project, and will be created for you on running `windsor init`.
