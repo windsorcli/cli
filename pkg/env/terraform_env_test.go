@@ -809,7 +809,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.FromSlash("/mock/config/root"), nil
 		}
 		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
@@ -825,7 +825,7 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
-			return "/mock/project/root/terraform/project/path", nil
+			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
 		}
 		// And a mocked glob function simulating finding Terraform files
 		originalGlob := glob
@@ -1133,7 +1133,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
 
-		projectPath := "project/path"
+		projectPath := filepath.FromSlash("project/path")
 		configRoot := filepath.FromSlash("/mock/config/root")
 
 		backendConfigArgs, err := terraformEnvPrinter.generateBackendConfigArgs(projectPath, configRoot)
@@ -1142,7 +1142,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			fmt.Sprintf(`-backend-config="%s"`, filepath.Join(configRoot, "terraform", "backend.tfvars")),
+			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
 			`-backend-config="key=project/path/terraform.tfstate"`,
 			`-backend-config="access_key=mock-access-key"`,
 			`-backend-config="bucket=mock-bucket"`,
@@ -1174,7 +1174,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
 
-		projectPath := "project/path"
+		projectPath := filepath.FromSlash("project/path")
 		configRoot := filepath.FromSlash("/mock/config/root")
 
 		backendConfigArgs, err := terraformEnvPrinter.generateBackendConfigArgs(projectPath, configRoot)
@@ -1183,7 +1183,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			fmt.Sprintf(`-backend-config="%s"`, filepath.Join(configRoot, "terraform", "backend.tfvars")),
+			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
 			`-backend-config="secret_suffix=project-path"`,
 			`-backend-config="namespace=mock-namespace"`,
 			`-backend-config="secret_suffix=mock-secret-suffix"`,
@@ -1202,7 +1202,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
 
-		projectPath := "project/path"
+		projectPath := filepath.FromSlash("project/path")
 		configRoot := filepath.FromSlash("/mock/config/root")
 
 		backendConfigArgs, err := terraformEnvPrinter.generateBackendConfigArgs(projectPath, configRoot)
@@ -1211,8 +1211,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			fmt.Sprintf(`-backend-config="%s"`, filepath.FromSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
-			fmt.Sprintf(`-backend-config="path=%s"`, filepath.FromSlash(filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate"))),
+			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate"))),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
