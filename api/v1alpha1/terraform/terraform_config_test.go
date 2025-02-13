@@ -13,21 +13,21 @@ func TestTerraformConfig_Merge(t *testing.T) {
 		}
 		overlay := &TerraformConfig{
 			Enabled: ptrBool(true),
-			Backend: ptrString("backend"),
+			Backend: &BackendConfig{Type: "s3"},
 		}
 		base.Merge(overlay)
 		if base.Enabled == nil || *base.Enabled != true {
 			t.Errorf("Enabled mismatch: expected %v, got %v", true, *base.Enabled)
 		}
-		if base.Backend == nil || *base.Backend != "backend" {
-			t.Errorf("Backend mismatch: expected %v, got %v", "backend", *base.Backend)
+		if base.Backend == nil || base.Backend.Type != "s3" {
+			t.Errorf("Backend mismatch: expected %v, got %v", "s3", base.Backend.Type)
 		}
 	})
 
 	t.Run("MergeWithNilValues", func(t *testing.T) {
 		base := &TerraformConfig{
 			Enabled: ptrBool(false),
-			Backend: ptrString("old-backend"),
+			Backend: &BackendConfig{Type: "s3"},
 		}
 		overlay := &TerraformConfig{
 			Enabled: nil,
@@ -37,8 +37,8 @@ func TestTerraformConfig_Merge(t *testing.T) {
 		if base.Enabled == nil || *base.Enabled != false {
 			t.Errorf("Enabled mismatch: expected %v, got %v", false, *base.Enabled)
 		}
-		if base.Backend == nil || *base.Backend != "old-backend" {
-			t.Errorf("Backend mismatch: expected %v, got %v", "old-backend", *base.Backend)
+		if base.Backend == nil || base.Backend.Type != "s3" {
+			t.Errorf("Backend mismatch: expected %v, got %v", "s3", base.Backend.Type)
 		}
 	})
 }
@@ -47,7 +47,7 @@ func TestTerraformConfig_Copy(t *testing.T) {
 	t.Run("CopyWithNonNilValues", func(t *testing.T) {
 		original := &TerraformConfig{
 			Enabled: ptrBool(true),
-			Backend: ptrString("backend"),
+			Backend: &BackendConfig{Type: "s3"},
 		}
 
 		copy := original.Copy()
@@ -61,9 +61,9 @@ func TestTerraformConfig_Copy(t *testing.T) {
 		if original.Enabled == nil || *original.Enabled == *copy.Enabled {
 			t.Errorf("Original Enabled was modified: expected %v, got %v", true, *copy.Enabled)
 		}
-		copy.Backend = ptrString("modified-backend")
-		if original.Backend == nil || *original.Backend == *copy.Backend {
-			t.Errorf("Original Backend was modified: expected %v, got %v", "backend", *copy.Backend)
+		copy.Backend = &BackendConfig{Type: "local"}
+		if original.Backend == nil || original.Backend.Type == copy.Backend.Type {
+			t.Errorf("Original Backend was modified: expected %v, got %v", "s3", copy.Backend.Type)
 		}
 	})
 
@@ -90,10 +90,6 @@ func TestTerraformConfig_Copy(t *testing.T) {
 }
 
 // Helper functions to create pointers for basic types
-func ptrString(s string) *string {
-	return &s
-}
-
 func ptrBool(b bool) *bool {
 	return &b
 }

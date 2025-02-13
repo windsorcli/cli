@@ -29,7 +29,7 @@ jobs:
       - name: Install Aqua
         uses: aquaproj/aqua-installer@e2d0136abcf70b7a2f6f505720640750557c4b33 # v3.1.1
         with:
-          aqua_version: v2.43.2
+          aqua_version: v2.44.0
 
       - name: Install tools
         run: aqua install
@@ -113,7 +113,7 @@ jobs:
       - name: Install Aqua
         uses: aquaproj/aqua-installer@e2d0136abcf70b7a2f6f505720640750557c4b33 # v3.1.1
         with:
-          aqua_version: v2.43.2
+          aqua_version: v2.44.0
 
       - name: Install tools
         run: aqua install
@@ -132,7 +132,7 @@ jobs:
         run: go install ./...
 
       - name: Run Gosec Security Scanner
-        uses: securego/gosec@e0cca6fe95306b7e7790d6f1bf6a7bec6d622459 # v2.22.0
+        uses: securego/gosec@43fee884f668c23601e0bec7a8c095fba226f889 # v2.22.1
         with:
           args: ./...
         env:
@@ -154,7 +154,7 @@ jobs:
       - name: Install Aqua
         uses: aquaproj/aqua-installer@e2d0136abcf70b7a2f6f505720640750557c4b33 # v3.1.1
         with:
-          aqua_version: v2.43.2
+          aqua_version: v2.44.0
 
       - name: Install tools
         run: aqua install
@@ -180,7 +180,7 @@ jobs:
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@9ed2f89a662bf1735a48bc8557fd212fa902bebf # v6.1.0
+        uses: goreleaser/goreleaser-action@90a3faa9d0182683851fbfa97ca1a2cb983bfca3 # v6.2.1
         with:
           version: "~> v2"
           args: release --clean
