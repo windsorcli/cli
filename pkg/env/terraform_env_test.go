@@ -1069,8 +1069,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			fmt.Sprintf(`-backend-config="%s"`, filepath.Join(configRoot, "terraform", "backend.tfvars")),
-			fmt.Sprintf(`-backend-config="path=%s"`, filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate")),
+			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate"))),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1103,8 +1103,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			fmt.Sprintf(`-backend-config="%s"`, filepath.Join(configRoot, "terraform", "backend.tfvars")),
-			fmt.Sprintf(`-backend-config="path=%s"`, filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate")),
+			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate"))),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1211,8 +1211,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			fmt.Sprintf(`-backend-config="%s"`, filepath.Join(configRoot, "terraform", "backend.tfvars")),
-			fmt.Sprintf(`-backend-config="path=%s"`, filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate")),
+			fmt.Sprintf(`-backend-config="%s"`, filepath.FromSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.FromSlash(filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate"))),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
