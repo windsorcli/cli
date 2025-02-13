@@ -190,22 +190,22 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 
 	addBackendConfigArg := func(key, value string) {
 		if value != "" {
-			backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=\"%s=%s\"", key, value))
+			backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=\"%s=%s\"", key, filepath.FromSlash(value)))
 		}
 	}
 
 	if context := e.configHandler.GetContext(); context != "" {
 		backendTfvarsPath := filepath.Join(configRoot, "terraform", "backend.tfvars")
 		if _, err := stat(backendTfvarsPath); err == nil {
-			backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=\"%s\"", filepath.ToSlash(backendTfvarsPath)))
+			backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=\"%s\"", filepath.FromSlash(backendTfvarsPath)))
 		}
 	}
 
 	switch backendType {
 	case "local":
-		addBackendConfigArg("path", filepath.ToSlash(filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate")))
+		addBackendConfigArg("path", filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate"))
 	case "s3":
-		addBackendConfigArg("key", filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
+		addBackendConfigArg("key", filepath.Join(projectPath, "terraform.tfstate"))
 		if backend.S3 != nil {
 			if err := processBackendConfig(backend.S3, addBackendConfigArg); err != nil {
 				return nil, fmt.Errorf("error processing S3 backend config: %w", err)
