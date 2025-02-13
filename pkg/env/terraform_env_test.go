@@ -1061,7 +1061,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		terraformEnvPrinter.Initialize()
 
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot := filepath.FromSlash("/mock/config/root")
 
 		backendConfigArgs, err := terraformEnvPrinter.generateBackendConfigArgs(projectPath, configRoot)
 		if err != nil {
@@ -1069,8 +1069,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="/mock/config/root/terraform/backend.tfvars"`,
-			`-backend-config="path=/mock/config/root/.tfstate/project/path/terraform.tfstate"`,
+			fmt.Sprintf(`-backend-config="%s"`, filepath.Join(configRoot, "terraform", "backend.tfvars")),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate")),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1085,7 +1085,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 				Terraform: &terraform.TerraformConfig{
 					Backend: &terraform.BackendConfig{
 						Local: &terraform.LocalBackend{
-							Path: stringPtr("/mock/config/root/.tfstate/project/path/terraform.tfstate"),
+							Path: stringPtr(filepath.FromSlash("/mock/config/root/.tfstate/project/path/terraform.tfstate")),
 						},
 					},
 				},
@@ -1095,7 +1095,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		terraformEnvPrinter.Initialize()
 
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot := filepath.FromSlash("/mock/config/root")
 
 		backendConfigArgs, err := terraformEnvPrinter.generateBackendConfigArgs(projectPath, configRoot)
 		if err != nil {
@@ -1103,8 +1103,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="/mock/config/root/terraform/backend.tfvars"`,
-			`-backend-config="path=/mock/config/root/.tfstate/project/path/terraform.tfstate"`,
+			fmt.Sprintf(`-backend-config="%s"`, filepath.Join(configRoot, "terraform", "backend.tfvars")),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate")),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1134,7 +1134,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		terraformEnvPrinter.Initialize()
 
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot := filepath.FromSlash("/mock/config/root")
 
 		backendConfigArgs, err := terraformEnvPrinter.generateBackendConfigArgs(projectPath, configRoot)
 		if err != nil {
@@ -1142,7 +1142,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="/mock/config/root/terraform/backend.tfvars"`,
+			fmt.Sprintf(`-backend-config="%s"`, filepath.Join(configRoot, "terraform", "backend.tfvars")),
 			`-backend-config="key=project/path/terraform.tfstate"`,
 			`-backend-config="access_key=mock-access-key"`,
 			`-backend-config="bucket=mock-bucket"`,
@@ -1175,7 +1175,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		terraformEnvPrinter.Initialize()
 
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot := filepath.FromSlash("/mock/config/root")
 
 		backendConfigArgs, err := terraformEnvPrinter.generateBackendConfigArgs(projectPath, configRoot)
 		if err != nil {
@@ -1183,7 +1183,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="/mock/config/root/terraform/backend.tfvars"`,
+			fmt.Sprintf(`-backend-config="%s"`, filepath.Join(configRoot, "terraform", "backend.tfvars")),
 			`-backend-config="secret_suffix=project-path"`,
 			`-backend-config="namespace=mock-namespace"`,
 			`-backend-config="secret_suffix=mock-secret-suffix"`,
@@ -1203,7 +1203,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		terraformEnvPrinter.Initialize()
 
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot := filepath.FromSlash("/mock/config/root")
 
 		backendConfigArgs, err := terraformEnvPrinter.generateBackendConfigArgs(projectPath, configRoot)
 		if err != nil {
@@ -1211,8 +1211,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		expectedArgs := []string{
-			`-backend-config="/mock/config/root/terraform/backend.tfvars"`,
-			`-backend-config="path=/mock/config/root/.tfstate/project/path/terraform.tfstate"`,
+			fmt.Sprintf(`-backend-config="%s"`, filepath.Join(configRoot, "terraform", "backend.tfvars")),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate")),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1244,7 +1244,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		terraformEnvPrinter.Initialize()
 
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot := filepath.FromSlash("/mock/config/root")
 
 		_, err := terraformEnvPrinter.generateBackendConfigArgs(projectPath, configRoot)
 		if err == nil {
@@ -1280,7 +1280,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		terraformEnvPrinter.Initialize()
 
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot := filepath.FromSlash("/mock/config/root")
 
 		_, err := terraformEnvPrinter.generateBackendConfigArgs(projectPath, configRoot)
 		if err == nil {
@@ -1319,7 +1319,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		terraformEnvPrinter.Initialize()
 
 		projectPath := "project/path"
-		configRoot := "/mock/config/root"
+		configRoot := filepath.FromSlash("/mock/config/root")
 
 		_, err := terraformEnvPrinter.generateBackendConfigArgs(projectPath, configRoot)
 		if err == nil {
