@@ -57,7 +57,7 @@ jobs:
             exit 1
           fi
         
-          if ! go build -o "${{ github.workspace }}/bin/windsor; then
+          if ! go build -o "${{ github.workspace }}/bin/windsor"; then
             echo "Failed to build the Windsor CLI. Please ensure Go is installed and properly configured."
             exit 1
           fi
@@ -67,7 +67,6 @@ jobs:
         run: |
           
           try {
-              # Ensure the correct path to the main.go file
               go build -o "${{ github.workspace }}/bin/windsor.exe" ./cmd/windsor/main.go
           } catch {
               Write-Output "Failed to build the Windsor CLI"
