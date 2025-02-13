@@ -53,8 +53,8 @@ jobs:
         run: |
           set -e
           if ! cd cmd/windsor; then
-          echo "Failed to navigate to the Windsor CLI directory."
-          exit 1
+            echo "Failed to navigate to the Windsor CLI directory."
+            exit 1
           fi
         
           if ! go build -o "${{ github.workspace }}/bin/windsor; then
