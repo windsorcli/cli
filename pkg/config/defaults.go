@@ -23,7 +23,9 @@ import (
 var DefaultConfig = v1alpha1.Context{
 	Terraform: &terraform.TerraformConfig{
 		Enabled: ptrBool(true),
-		Backend: ptrString("local"),
+		Backend: &terraform.BackendConfig{
+			Type: "local",
+		},
 	},
 }
 
@@ -65,7 +67,9 @@ var commonGitConfig = git.GitConfig{
 
 var commonTerraformConfig = terraform.TerraformConfig{
 	Enabled: ptrBool(true),
-	Backend: ptrString("local"),
+	Backend: &terraform.BackendConfig{
+		Type: "local",
+	},
 }
 
 var commonClusterConfig = cluster.ClusterConfig{
