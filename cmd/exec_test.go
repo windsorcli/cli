@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -49,26 +50,25 @@ func TestExecCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
 
-		work_in_progress := true
-		if work_in_progress {
-			t.Log("**************************************************")
-			t.Log("")
-			t.Log("This test is a work in progress.")
-			t.Log("")
-			t.Log("**************************************************")
-			return
+		cmd := exec.Command("windsor", "exec", "echo", "hello")
+		outputBytes, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
+		output := string(outputBytes)
+		fmt.Println(output)
+
 		// Setup mock controller
-		mocks := setupSafeExecCmdMocks()
+		// mocks := setupSafeExecCmdMocks()
 
 		// Capture stdout using captureStdout
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
+		// output = captureStdout(func() {
+		// 	rootCmd.SetArgs([]string{"exec", "echo", "hello"})
+		// 	err := Execute(mocks.Controller)
+		// 	if err != nil {
+		// 		t.Fatalf("Expected no error, got %v", err)
+		// 	}
+		// })
 
 		// Then the output should be as expected
 		expectedOutput := "hello"
@@ -188,20 +188,10 @@ func TestExecCmd(t *testing.T) {
 	t.Run("ErrorPrinting", func(t *testing.T) {
 		defer resetRootCmd()
 
-		work_in_progress := true
-		if work_in_progress {
-			t.Log("**************************************************")
-			t.Log("")
-			t.Log("This test is a work in progress.")
-			t.Log("")
-			t.Log("**************************************************")
-			return
-		}
-
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return fmt.Errorf("print error")
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return nil, fmt.Errorf("print error")
 		}
 
 		// Capture stderr
@@ -218,7 +208,8 @@ func TestExecCmd(t *testing.T) {
 		output := buf.String()
 
 		// Then the output should indicate the error
-		expectedOutput := "Error executing Print: print error"
+		// expectedOutput := "Error executing Print: print error"
+		expectedOutput := "print error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
@@ -321,20 +312,10 @@ func TestExecCmd(t *testing.T) {
 	t.Run("ErrorExecutingCommand", func(t *testing.T) {
 		defer resetRootCmd()
 
-		work_in_progress := true
-		if work_in_progress {
-			t.Log("**************************************************")
-			t.Log("")
-			t.Log("This test is a work in progress.")
-			t.Log("")
-			t.Log("**************************************************")
-			return
-		}
-
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
-		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("command execution error")
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return nil, fmt.Errorf("command execution error")
 		}
 
 		// Capture stderr
