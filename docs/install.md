@@ -1,3 +1,8 @@
+---
+title: "Installation"
+description: "This document describes how to install the Windsor CLI on your development workstation as well as configuring `windsor hook` in your shell."
+image: "https://windsorcli.github.io/latest/img/windsor-logo.png"
+---
 # Installation
 
 This document describes how to install the Windsor CLI on your development workstation as well as configuring `windsor hook` in your shell.
