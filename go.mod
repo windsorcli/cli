@@ -1,6 +1,6 @@
 module github.com/windsorcli/cli
 
-go 1.24.0
+go 1.23.6
 
 require (
 	github.com/abiosoft/colima v0.8.1

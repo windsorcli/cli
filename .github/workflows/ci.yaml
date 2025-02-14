@@ -106,7 +106,6 @@ jobs:
           args: ./...
         env:
           GOTOOLCHAIN: 'local'
-          GOSECGOVERSION: 'go1.24.0'
           GOFLAGS: '-buildvcs=false'
 
   release:
