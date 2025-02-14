@@ -51,20 +51,22 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
+		execCalled := false
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
+			execCalled = true
+			return "hello", nil
+		}
 
-		// Capture stdout using captureStdout
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
+		// Execute the command
+		rootCmd.SetArgs([]string{"exec", "--", "echo", "hello"})
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
 
-		// Then the output should be as expected
-		expectedOutput := "hello"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// Check if Exec was called
+		if !execCalled {
+			t.Errorf("Expected Exec to be called, but it was not")
 		}
 	})
 

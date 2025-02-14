@@ -64,13 +64,10 @@ var execCmd = &cobra.Command{
 		}
 
 		// Execute the command using the resolved shell instance
-		output, err := shellInstance.Exec(args[0], args[1:]...)
+		_, err := shellInstance.Exec(args[0], args[1:]...)
 		if err != nil {
 			return fmt.Errorf("command execution failed: %w", err)
 		}
-
-		// Print the command output
-		fmt.Println(output)
 
 		return nil
 	},
