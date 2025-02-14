@@ -46,37 +46,6 @@ jobs:
   
       - name: Install Dependencies
         run: go install ./...
-
-      # Install Windsor CLI
-      - name: Install the Windsor CLI on Linux/macOS
-        if: runner.os == 'Linux' || runner.os == 'macOS'
-        run: |
-          set -e
-          if ! cd cmd/windsor; then
-            echo "Failed to navigate to the Windsor CLI directory."
-            exit 1
-          fi
-        
-          if ! go build -o "${{ github.workspace }}/bin/windsor"; then
-            echo "Failed to build the Windsor CLI. Please ensure Go is installed and properly configured."
-            exit 1
-          fi
-      
-      - name: Install the Windsor CLI on Windows
-        if: runner.os == 'Windows'
-        run: |
-          
-          try {
-              go build -o "${{ github.workspace }}/bin/windsor.exe" ./cmd/windsor/main.go
-          } catch {
-              Write-Output "Failed to build the Windsor CLI"
-              exit 1
-          }
-        shell: powershell
-
-      - name: Add Windsor CLI Install Folder to the GitHub path
-        run: |
-          echo "${{ github.workspace }}/bin" >> $GITHUB_PATH
           
       - name: Run tests
         run: task test
