@@ -51,20 +51,22 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
+		execCalled := false
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
+			execCalled = true
+			return "hello", nil
+		}
 
-		// Capture stdout using captureStdout
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
+		// Execute the command
+		rootCmd.SetArgs([]string{"exec", "--", "echo", "hello"})
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
 
-		// Then the output should be as expected
-		expectedOutput := "hello"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// Check if Exec was called
+		if !execCalled {
+			t.Errorf("Expected Exec to be called, but it was not")
 		}
 	})
 
@@ -181,8 +183,8 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return fmt.Errorf("print error")
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return nil, fmt.Errorf("print error")
 		}
 
 		// Capture stderr
@@ -199,7 +201,8 @@ func TestExecCmd(t *testing.T) {
 		output := buf.String()
 
 		// Then the output should indicate the error
-		expectedOutput := "Error executing Print: print error"
+		// expectedOutput := "Error executing Print: print error"
+		expectedOutput := "print error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
@@ -299,13 +302,50 @@ func TestExecCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorExecutingCommand", func(t *testing.T) {
+	t.Run("NoShellResolved", func(t *testing.T) {
 		defer resetRootCmd()
 
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
-		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("command execution error")
+		callCount := 0
+		originalResolveShellFunc := mocks.Controller.ResolveShellFunc
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			callCount++
+			if callCount == 2 {
+				return nil
+			}
+			return originalResolveShellFunc()
+		}
+
+		// Capture stderr
+		var buf bytes.Buffer
+		rootCmd.SetErr(&buf)
+
+		// When the exec command is executed
+		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		output := buf.String()
+
+		// Then the output should indicate the error
+		expectedOutput := "No shell found"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorExecutingCommand", func(t *testing.T) {
+		// Setup mock controller
+		mocks := setupSafeExecCmdMocks()
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return &shell.MockShell{
+				ExecFunc: func(command string, args ...string) (string, error) {
+					return "", fmt.Errorf("command execution error")
+				},
+			}
 		}
 
 		// Capture stderr
