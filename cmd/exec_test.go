@@ -3,7 +3,6 @@ package cmd
 import (
 	"bytes"
 	"fmt"
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -50,25 +49,17 @@ func TestExecCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
 
-		cmd := exec.Command("windsor", "exec", "echo", "hello")
-		outputBytes, err := cmd.Output()
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		output := string(outputBytes)
-		fmt.Println(output)
-
 		// Setup mock controller
-		// mocks := setupSafeExecCmdMocks()
+		mocks := setupSafeExecCmdMocks()
 
 		// Capture stdout using captureStdout
-		// output = captureStdout(func() {
-		// 	rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		// 	err := Execute(mocks.Controller)
-		// 	if err != nil {
-		// 		t.Fatalf("Expected no error, got %v", err)
-		// 	}
-		// })
+		output := captureStdout(func() {
+			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
+			err := Execute(mocks.Controller)
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+		})
 
 		// Then the output should be as expected
 		expectedOutput := "hello"
@@ -309,13 +300,50 @@ func TestExecCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorExecutingCommand", func(t *testing.T) {
+	t.Run("NoShellResolved", func(t *testing.T) {
 		defer resetRootCmd()
 
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
-		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, fmt.Errorf("command execution error")
+		callCount := 0
+		originalResolveShellFunc := mocks.Controller.ResolveShellFunc
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			callCount++
+			if callCount == 2 {
+				return nil
+			}
+			return originalResolveShellFunc()
+		}
+
+		// Capture stderr
+		var buf bytes.Buffer
+		rootCmd.SetErr(&buf)
+
+		// When the exec command is executed
+		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		output := buf.String()
+
+		// Then the output should indicate the error
+		expectedOutput := "No shell found"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorExecutingCommand", func(t *testing.T) {
+		// Setup mock controller
+		mocks := setupSafeExecCmdMocks()
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return &shell.MockShell{
+				ExecFunc: func(command string, args ...string) (string, error) {
+					return "", fmt.Errorf("command execution error")
+				},
+			}
 		}
 
 		// Capture stderr
