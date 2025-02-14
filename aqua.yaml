@@ -9,23 +9,23 @@
 #   - all
 registries:
   - type: standard
-    ref: v4.311.0 # renovate: depName=aquaproj/aqua-registry
+    ref: v4.312.0 # renovate: depName=aquaproj/aqua-registry
 packages:
 - name: hashicorp/terraform@v1.10.5
-- name: siderolabs/talos@v1.9.3
+- name: siderolabs/talos@v1.9.4
 - name: siderolabs/omni/omnictl@v0.46.3
 - name: siderolabs/omni/omni@v0.46.3
-- name: kubernetes/kubectl@v1.32.1
+- name: kubernetes/kubectl@v1.32.2
 - name: go-task/task@v3.41.0
 - name: golang/go@go1.24.0
 - name: getsops/sops@v3.9.4
 - name: abiosoft/colima@v0.8.1
-- name: lima-vm/lima@v1.0.5
+- name: lima-vm/lima@v1.0.6
 - name: docker/cli@v27.4.1
-- name: securego/gosec@v2.22.0
+- name: securego/gosec@v2.22.1
 - name: docker/compose@v2.33.0
 - name: google/go-jsonnet@v0.20.0
 - name: mikefarah/yq@v4.45.1
 - name: goreleaser/goreleaser@v2.7.0
-- name: helm/helm@v3.17.0
+- name: helm/helm@v3.17.1
 

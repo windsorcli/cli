@@ -27,6 +27,14 @@ var readDir = os.ReadDir
 // Wrapper function for yaml.Unmarshal
 var yamlUnmarshal = yaml.Unmarshal
 
+// Wrapper function for yaml.Marshal
+var yamlMarshal = yaml.Marshal
+
+// intPtr returns a pointer to an int value
+func intPtr(i int) *int {
+	return &i
+}
+
 // stringPtr returns a pointer to a string value
 func stringPtr(s string) *string {
 	return &s

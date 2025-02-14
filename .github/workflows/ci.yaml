@@ -10,8 +10,7 @@ on:
 permissions:
   contents: write  # Allows creating releases
   issues: read
-  pull-requests: read
-            
+  pull-requests: read  
 jobs:
   build-and-test:
     strategy:
@@ -47,7 +46,7 @@ jobs:
   
       - name: Install Dependencies
         run: go install ./...
-
+          
       - name: Run tests
         run: task test
 
@@ -102,7 +101,7 @@ jobs:
         run: go install ./...
 
       - name: Run Gosec Security Scanner
-        uses: securego/gosec@e0cca6fe95306b7e7790d6f1bf6a7bec6d622459 # v2.22.0
+        uses: securego/gosec@43fee884f668c23601e0bec7a8c095fba226f889 # v2.22.1
         with:
           args: ./...
         env:

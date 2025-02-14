@@ -38,9 +38,6 @@ var execCmd = &cobra.Command{
 		// Collect environment variables from all printers
 		envVars := make(map[string]string)
 		for _, envPrinter := range envPrinters {
-			if err := envPrinter.Print(); err != nil {
-				return fmt.Errorf("Error executing Print: %w", err)
-			}
 			vars, err := envPrinter.GetEnvVars()
 			if err != nil {
 				return fmt.Errorf("Error getting environment variables: %w", err)
@@ -67,13 +64,10 @@ var execCmd = &cobra.Command{
 		}
 
 		// Execute the command using the resolved shell instance
-		output, err := shellInstance.Exec(args[0], args[1:]...)
+		_, err := shellInstance.Exec(args[0], args[1:]...)
 		if err != nil {
 			return fmt.Errorf("command execution failed: %w", err)
 		}
-
-		// Print the command output
-		fmt.Println(output)
 
 		return nil
 	},
