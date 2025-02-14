@@ -1,3 +1,7 @@
+---
+title: "Local Workstation"
+description: "The Windsor CLI configures your local workstation to closely mimic production environments."
+---
 # Local Workstation
 A significant feature of the Windsor CLI is its ability to configure your local workstation. Every attempt is made to configure this workstation to closely mimic true production workloads. While working with your local workstation, you can expect to have DNS, Docker registries, Kubernetes clusters, an AWS emulator (Localstack), and a local reflection of your repository available via a local git server.
 

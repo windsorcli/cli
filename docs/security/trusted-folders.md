@@ -1,3 +1,7 @@
+---
+title: "Trusted Folders"
+description: "The Windsor CLI will only run in folders you trust."
+---
 # Trusted Folders
 The Windsor CLI performs certain actions based on the contents of project files. You most often pull these files from a repository that you or another party manages. This is a potential vector for environment injection attacks. You should always familiarize yourself with a project's Windsor configuration and trust the author of the project.
 
