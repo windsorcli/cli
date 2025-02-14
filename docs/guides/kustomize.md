@@ -1,3 +1,7 @@
+---
+title: "Kustomize"
+description: "The Windsor CLI facilitates building Kubernetes systems using Flux and Kustomize."
+---
 # Kustomize
 
 The Windsor CLI facilitates building Kubernetes systems by introducing a rational approach to composing Kubernetes configuration using [Flux](https://github.com/fluxcd/flux2) and [Kustomize](https://github.com/kubernetes-sigs/kustomize).
