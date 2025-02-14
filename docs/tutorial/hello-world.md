@@ -1,3 +1,7 @@
+---
+title: "Hello, World!"
+description: "Building a 'Hello, World!' page on a local cloud with the Windsor CLI"
+---
 # Hello, World!
 We'll begin with a simple "Hello, World!" demonstration to get you started with Windsor. In this tutorial, you will use the core blueprint's static website demo to serve a simple static HTML page. You should have some flavor of `npm` or `yarn` installed.
 
@@ -23,22 +27,10 @@ Create `Dockerfile`:
 ```dockerfile
 FROM node:22-alpine
 
-# Set the working directory for building and running the server
 WORKDIR /usr/src/server
-
-# Copy package.json and package-lock.json
-COPY package.json package-lock.json ./
-
-# Install the dependencies
+COPY package.json package-lock.json server.js ./
 RUN npm install
-
-# Copy the rest of the application code
-COPY server.js ./
-
-# Expose the port the app runs on
 EXPOSE 8080
-
-# Command to run the server.js application
 CMD ["node", "server.js"]
 ```
 

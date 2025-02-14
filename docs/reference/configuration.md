@@ -1,3 +1,7 @@
+---
+title: "Configuration"
+description: "Configuration settings for the Windsor workstation using the windsor.yaml file."
+---
 # Configuration
 A `windsor.yaml` file should exist at the base of your project, and will be created for you on running `windsor init`.
 

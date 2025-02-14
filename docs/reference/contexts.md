@@ -1,3 +1,7 @@
+---
+title: "Contexts"
+description: "The Windsor CLI organizes configuration details for different deployment environments into separate context folders."
+---
 # Contexts
 Contexts represent a group of configuration details specific to a deployment environment in a Windsor project.
 

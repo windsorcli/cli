@@ -1,5 +1,8 @@
+---
+title: "Blueprint"
+description: "Windsor blueprints reference collections of Kustomize and Terraform resources"
+---
 # Blueprint
-
 The blueprint stores references and configuration specific to a context. It's configured in a `blueprint.yaml` file located in your context's configuration folder, such as `contexts/local/blueprint.yaml`.
 
 When you run `windsor init local`, a default local blueprint file is created. The sections in this file are outlined below.
