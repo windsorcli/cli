@@ -35,6 +35,9 @@ type ConfigHandler interface {
 	// GetStringSlice retrieves a slice of strings for the specified key from the configuration
 	GetStringSlice(key string, defaultValue ...[]string) []string
 
+	// GetStringMap retrieves a map of string key-value pairs for the specified key from the configuration
+	GetStringMap(key string, defaultValue ...map[string]string) map[string]string
+
 	// Set sets the value for the specified key in the configuration
 	Set(key string, value interface{}) error
 

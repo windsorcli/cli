@@ -168,6 +168,49 @@ func TestMockConfigHandler_GetString(t *testing.T) {
 	})
 }
 
+func TestMockConfigHandler_GetStringMap(t *testing.T) {
+	t.Run("WithKey", func(t *testing.T) {
+		// Given a mock config handler with GetStringMapFunc set to return an empty map
+		handler := NewMockConfigHandler()
+		handler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string { return map[string]string{} }
+
+		// When GetStringMap is called with a key
+		value := handler.GetStringMap("someKey")
+
+		// Then the returned value should be an empty map
+		if len(value) != 0 {
+			t.Errorf("Expected GetStringMap with key to return empty map, got %v", value)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without GetStringMapFunc set
+		handler := NewMockConfigHandler()
+
+		// When GetStringMap is called with a key
+		value := handler.GetStringMap("someKey")
+
+		// Then the returned value should be an empty map
+		if len(value) != 0 {
+			t.Errorf("Expected GetStringMap with no func set to return empty map, got %v", value)
+		}
+	})
+
+	t.Run("WithDefaultValue", func(t *testing.T) {
+		// Given a mock config handler
+		handler := NewMockConfigHandler()
+		defaultValue := map[string]string{"key": "value"}
+
+		// When GetStringMap is called with a key and a default value
+		value := handler.GetStringMap("someKey", defaultValue)
+
+		// Then the returned value should match the default value
+		if !reflect.DeepEqual(value, defaultValue) {
+			t.Errorf("Expected GetStringMap with default to return %v, got %v", defaultValue, value)
+		}
+	})
+}
+
 func TestMockConfigHandler_GetInt(t *testing.T) {
 	t.Run("WithKey", func(t *testing.T) {
 		// Given a mock config handler with GetIntFunc set to return 0

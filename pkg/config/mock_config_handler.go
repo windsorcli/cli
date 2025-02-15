@@ -10,6 +10,7 @@ type MockConfigHandler struct {
 	GetIntFunc          func(key string, defaultValue ...int) int
 	GetBoolFunc         func(key string, defaultValue ...bool) bool
 	GetStringSliceFunc  func(key string, defaultValue ...[]string) []string
+	GetStringMapFunc    func(key string, defaultValue ...map[string]string) map[string]string
 	SetFunc             func(key string, value interface{}) error
 	SetContextValueFunc func(key string, value interface{}) error
 	SaveConfigFunc      func(path string) error
@@ -52,6 +53,17 @@ func (m *MockConfigHandler) GetString(key string, defaultValue ...string) string
 		return defaultValue[0]
 	}
 	return "mock-string"
+}
+
+// GetStringMap calls the mock GetStringMapFunc if set, otherwise returns a reasonable default map of strings
+func (m *MockConfigHandler) GetStringMap(key string, defaultValue ...map[string]string) map[string]string {
+	if m.GetStringMapFunc != nil {
+		return m.GetStringMapFunc(key, defaultValue...)
+	}
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
+	return map[string]string{}
 }
 
 // GetInt calls the mock GetIntFunc if set, otherwise returns a reasonable default int
