@@ -1,17 +1,5 @@
 package secrets
 
-import (
-	"fmt"
-	"regexp"
-)
-
-// Define regex pattern for ${{ secrets.<key> }} references as a constant
-// Allow for any amount of spaces between the brackets and the "secrets.<key>"
-// We ignore the gosec G101 error here because this pattern is used for identifying secret placeholders,
-// not for storing actual secret values. The pattern itself does not contain any hardcoded credentials.
-// #nosec G101
-const secretPattern = `(?i)\${{\s*secrets\.\s*([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)\s*}}`
-
 // SecretsProvider defines the interface for handling secrets operations
 type SecretsProvider interface {
 	// Initialize initializes the secrets provider
@@ -53,31 +41,13 @@ func (s *BaseSecretsProvider) LoadSecrets() error {
 
 // GetSecret retrieves a secret value for the specified key
 func (s *BaseSecretsProvider) GetSecret(key string) (string, error) {
-	if !s.unlocked {
-		return "********", nil
-	}
-	if value, ok := s.secrets[key]; ok {
-		return value, nil
-	}
-	return "", fmt.Errorf("secret not found: %s", key)
+	// Placeholder logic for retrieving a secret
+	return "", nil
 }
 
-// ParseSecrets parses a string and replaces ${{ secrets.<key> }} references with their values
+// ParseSecrets is a placeholder function for parsing secrets
 func (s *BaseSecretsProvider) ParseSecrets(input string) (string, error) {
-	re := regexp.MustCompile(secretPattern)
-
-	input = re.ReplaceAllStringFunc(input, func(match string) string {
-		// Extract the key from the match
-		submatches := re.FindStringSubmatch(match)
-		key := submatches[1]
-		// Retrieve the secret value
-		value, err := s.GetSecret(key)
-		if err != nil {
-			return "<ERROR: secret not found: " + key + ">"
-		}
-		return value
-	})
-
+	// Placeholder logic for parsing secrets
 	return input, nil
 }
 
