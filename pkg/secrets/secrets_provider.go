@@ -10,7 +10,7 @@ import (
 // We ignore the gosec G101 error here because this pattern is used for identifying secret placeholders,
 // not for storing actual secret values. The pattern itself does not contain any hardcoded credentials.
 // #nosec G101
-const secretPattern = `(?i)\${{\s*secrets\.\s*([a-zA-Z0-9_]+)\s*}}`
+const secretPattern = `(?i)\${{\s*secrets\.\s*([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)\s*}}`
 
 // SecretsProvider defines the interface for handling secrets operations
 type SecretsProvider interface {
@@ -65,13 +65,15 @@ func (s *BaseSecretsProvider) GetSecret(key string) (string, error) {
 // ParseSecrets parses a string and replaces ${{ secrets.<key> }} references with their values
 func (s *BaseSecretsProvider) ParseSecrets(input string) (string, error) {
 	re := regexp.MustCompile(secretPattern)
+
 	input = re.ReplaceAllStringFunc(input, func(match string) string {
 		// Extract the key from the match
-		key := re.FindStringSubmatch(match)[1]
+		submatches := re.FindStringSubmatch(match)
+		key := submatches[1]
 		// Retrieve the secret value
 		value, err := s.GetSecret(key)
 		if err != nil {
-			return match
+			return "<ERROR: secret not found: " + key + ">"
 		}
 		return value
 	})
