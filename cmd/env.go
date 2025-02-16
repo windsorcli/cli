@@ -62,7 +62,12 @@ var envCmd = &cobra.Command{
 			// Unlock the SecretProvider
 			secretsProvider := controller.ResolveSecretsProvider()
 			if secretsProvider != nil {
-				secretsProvider.Unlock()
+				if err := secretsProvider.Unlock(); err != nil {
+					if verbose {
+						return fmt.Errorf("Error unlocking secrets provider: %w", err)
+					}
+					return nil
+				}
 			}
 		}
 
@@ -78,13 +83,13 @@ var envCmd = &cobra.Command{
 				if verbose {
 					return fmt.Errorf("Error executing Print: %w", err)
 				}
-				return nil
+				continue
 			}
 			if err := envPrinter.PostEnvHook(); err != nil {
 				if verbose {
 					return fmt.Errorf("Error executing PostEnvHook: %w", err)
 				}
-				return nil
+				continue
 			}
 		}
 

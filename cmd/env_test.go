@@ -443,4 +443,28 @@ func TestEnvCmd(t *testing.T) {
 			t.Fatalf("Expected secrets provider's Unlock function to be called")
 		}
 	})
+
+	t.Run("ErrorUnlockingSecretsProvider", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller with a mock secrets provider that returns an error on unlock
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.UnlockFunc = func() error {
+			return fmt.Errorf("unlock error")
+		}
+		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
+			return mockSecretsProvider
+		}
+
+		// When the env command is executed with the --decrypt flag and verbose mode
+		rootCmd.SetArgs([]string{"env", "--decrypt", "--verbose"})
+		err := Execute(mockController)
+
+		// Then the error should indicate the unlock error
+		if err == nil || err.Error() != "Error unlocking secrets provider: unlock error" {
+			t.Fatalf("Expected unlock error, got %v", err)
+		}
+	})
 }

@@ -7,6 +7,9 @@ import (
 
 // Define regex pattern for ${{ secrets.<key> }} references as a constant
 // Allow for any amount of spaces between the brackets and the "secrets.<key>"
+// We ignore the gosec G101 error here because this pattern is used for identifying secret placeholders,
+// not for storing actual secret values. The pattern itself does not contain any hardcoded credentials.
+// #nosec G101
 const secretPattern = `(?i)\${{\s*secrets\.\s*([a-zA-Z0-9_]+)\s*}}`
 
 // SecretsProvider defines the interface for handling secrets operations
