@@ -9,6 +9,7 @@ import (
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
@@ -137,6 +138,18 @@ func (c *RealController) CreateEnvComponents() error {
 
 	windsorEnv := env.NewWindsorEnvPrinter(c.injector)
 	c.injector.Register("windsorEnv", windsorEnv)
+
+	secretsProviderType := c.configHandler.GetString("secrets.provider")
+	var secretsProvider secrets.SecretsProvider
+
+	if secretsProviderType == "" {
+		secretsProvider = secrets.NewBaseSecretsProvider()
+	} else {
+		// Future implementation for other secrets providers can be added here
+		secretsProvider = secrets.NewBaseSecretsProvider()
+	}
+
+	c.injector.Register("secretsProvider", secretsProvider)
 
 	return nil
 }

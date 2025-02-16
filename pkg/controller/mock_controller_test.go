@@ -11,6 +11,7 @@ import (
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
@@ -394,6 +395,36 @@ func TestMockController_ResolveConfigHandler(t *testing.T) {
 		if configHandler != mocks.ConfigHandler {
 			// Then the returned config handler should be the same as the created config handler
 			t.Fatalf("expected %v, got %v", mocks.ConfigHandler, configHandler)
+		}
+	})
+}
+
+func TestMockController_ResolveSecretsProvider(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new mock secrets provider, mock injector, and mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+		// And the ResolveSecretsProviderFunc is set to return the expected secrets provider
+		mockCtrl.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
+			return mocks.SecretsProvider
+		}
+		// When ResolveSecretsProvider is called
+		secretsProvider := mockCtrl.ResolveSecretsProvider()
+		if secretsProvider != mocks.SecretsProvider {
+			// Then the returned secrets provider should be the expected secrets provider
+			t.Fatalf("expected %v, got %v", mocks.SecretsProvider, secretsProvider)
+		}
+	})
+
+	t.Run("NoResolveSecretsProviderFunc", func(t *testing.T) {
+		// Given a new mock injector and mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+		// When ResolveSecretsProvider is called without setting ResolveSecretsProviderFunc
+		secretsProvider := mockCtrl.ResolveSecretsProvider()
+		if secretsProvider != mocks.SecretsProvider {
+			// Then the returned secrets provider should be the same as the created secrets provider
+			t.Fatalf("expected %v, got %v", mocks.SecretsProvider, secretsProvider)
 		}
 	})
 }

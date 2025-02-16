@@ -9,6 +9,7 @@ import (
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
@@ -28,6 +29,7 @@ type Controller interface {
 	CreateStackComponents() error
 	ResolveInjector() di.Injector
 	ResolveConfigHandler() config.ConfigHandler
+	ResolveSecretsProvider() secrets.SecretsProvider
 	ResolveEnvPrinter(name string) env.EnvPrinter
 	ResolveAllEnvPrinters() []env.EnvPrinter
 	ResolveShell() shell.Shell
@@ -275,6 +277,13 @@ func (c *BaseController) ResolveConfigHandler() config.ConfigHandler {
 	instance := c.injector.Resolve("configHandler")
 	configHandler, _ := instance.(config.ConfigHandler)
 	return configHandler
+}
+
+// ResolveSecretsProvider resolves the secretsProvider instance.
+func (c *BaseController) ResolveSecretsProvider() secrets.SecretsProvider {
+	instance := c.injector.Resolve("secretsProvider")
+	secretsProvider, _ := instance.(secrets.SecretsProvider)
+	return secretsProvider
 }
 
 // ResolveEnvPrinter resolves the envPrinter instance.

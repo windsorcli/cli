@@ -9,6 +9,7 @@ import (
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
@@ -43,6 +44,7 @@ type MockController struct {
 	ResolveAllGeneratorsFunc           func() []generators.Generator
 	ResolveStackFunc                   func() stack.Stack
 	ResolveBlueprintHandlerFunc        func() blueprint.BlueprintHandler
+	ResolveSecretsProviderFunc         func() secrets.SecretsProvider
 	WriteConfigurationFilesFunc        func() error
 }
 
@@ -176,6 +178,10 @@ func (m *MockController) CreateEnvComponents() error {
 	// Create mock windsor env printer
 	windsorEnv := env.NewMockEnvPrinter()
 	m.injector.Register("windsorEnv", windsorEnv)
+
+	// Create mock secrets provider
+	secretsProvider := secrets.NewMockSecretsProvider()
+	m.injector.Register("secretsProvider", secretsProvider)
 
 	return nil
 }
@@ -429,6 +435,14 @@ func (c *MockController) ResolveBlueprintHandler() blueprint.BlueprintHandler {
 		return c.ResolveBlueprintHandlerFunc()
 	}
 	return c.BaseController.ResolveBlueprintHandler()
+}
+
+// ResolveSecretsProvider calls the mock ResolveSecretsProviderFunc if set, otherwise calls the parent function
+func (c *MockController) ResolveSecretsProvider() secrets.SecretsProvider {
+	if c.ResolveSecretsProviderFunc != nil {
+		return c.ResolveSecretsProviderFunc()
+	}
+	return c.BaseController.ResolveSecretsProvider()
 }
 
 // Ensure MockController implements Controller

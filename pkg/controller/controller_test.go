@@ -11,6 +11,7 @@ import (
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
@@ -21,6 +22,7 @@ import (
 type MockObjects struct {
 	Injector         di.Injector
 	ConfigHandler    *config.MockConfigHandler
+	SecretsProvider  *secrets.MockSecretsProvider
 	EnvPrinter       *env.MockEnvPrinter
 	Shell            *shell.MockShell
 	SecureShell      *shell.MockShell
@@ -44,6 +46,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 
 	// Create necessary mocks
 	mockConfigHandler := config.NewMockConfigHandler()
+	mockSecretsProvider := secrets.NewMockSecretsProvider()
 	mockEnvPrinter1 := &env.MockEnvPrinter{}
 	mockEnvPrinter2 := &env.MockEnvPrinter{}
 	mockShell := &shell.MockShell{}
@@ -60,6 +63,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 
 	// Register mocks in the injector
 	injector.Register("configHandler", mockConfigHandler)
+	injector.Register("secretsProvider", mockSecretsProvider)
 	injector.Register("envPrinter1", mockEnvPrinter1)
 	injector.Register("envPrinter2", mockEnvPrinter2)
 	injector.Register("shell", mockShell)
@@ -77,6 +81,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	return &MockObjects{
 		Injector:         injector,
 		ConfigHandler:    mockConfigHandler,
+		SecretsProvider:  mockSecretsProvider,
 		EnvPrinter:       mockEnvPrinter1, // Assuming the first envPrinter is the primary one
 		Shell:            mockShell,
 		SecureShell:      mockSecureShell,
@@ -720,6 +725,28 @@ func TestController_ResolveConfigHandler(t *testing.T) {
 		// And the resolved config handler should match the expected config handler
 		if configHandler != mocks.ConfigHandler {
 			t.Fatalf("expected %v, got %v", mocks.ConfigHandler, configHandler)
+		}
+	})
+}
+
+func TestController_ResolveSecretsProvider(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new controller and injector
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// When resolving the secrets provider
+		secretsProvider := controller.ResolveSecretsProvider()
+
+		// Then there should be no error
+		if secretsProvider == nil {
+			t.Fatalf("expected no error, got nil")
+		}
+
+		// And the resolved secrets provider should match the expected secrets provider
+		if secretsProvider != mocks.SecretsProvider {
+			t.Fatalf("expected %v, got %v", mocks.SecretsProvider, secretsProvider)
 		}
 	})
 }
