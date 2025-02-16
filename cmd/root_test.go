@@ -14,6 +14,7 @@ import (
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -63,10 +64,11 @@ func mockExit(code int) {
 }
 
 type MockObjects struct {
-	Controller    *ctrl.MockController
-	Shell         *shell.MockShell
-	EnvPrinter    *env.MockEnvPrinter
-	ConfigHandler *config.MockConfigHandler
+	Controller      *ctrl.MockController
+	Shell           *shell.MockShell
+	EnvPrinter      *env.MockEnvPrinter
+	ConfigHandler   *config.MockConfigHandler
+	SecretsProvider *secrets.MockSecretsProvider
 }
 
 func setupSafeRootMocks(optionalInjector ...di.Injector) *MockObjects {
@@ -82,16 +84,19 @@ func setupSafeRootMocks(optionalInjector ...di.Injector) *MockObjects {
 	mockShell := &shell.MockShell{}
 	mockEnvPrinter := &env.MockEnvPrinter{}
 	mockConfigHandler := config.NewMockConfigHandler()
+	mockSecretsProvider := &secrets.MockSecretsProvider{}
 
 	injector.Register("configHandler", mockConfigHandler)
+	injector.Register("secretsProvider", mockSecretsProvider)
 
 	// No cleanup function is returned
 
 	return &MockObjects{
-		Controller:    mockController,
-		Shell:         mockShell,
-		EnvPrinter:    mockEnvPrinter,
-		ConfigHandler: mockConfigHandler,
+		Controller:      mockController,
+		Shell:           mockShell,
+		EnvPrinter:      mockEnvPrinter,
+		ConfigHandler:   mockConfigHandler,
+		SecretsProvider: mockSecretsProvider,
 	}
 }
 
@@ -219,39 +224,26 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 		}
 	})
 
-	// t.Run("ErrorSettingDefaultConfig", func(t *testing.T) {
-	// 	// Mock the injector
-	// 	injector := di.NewInjector()
+	t.Run("ErrorCreatingSecretsProvider", func(t *testing.T) {
+		mocks := setupSafeRootMocks()
 
-	// 	// Mock the controller
-	// 	mockController := ctrl.NewMockController(injector)
+		// Mock CreateSecretsProvider to return an error
+		mocks.Controller.CreateSecretsProviderFunc = func() error {
+			return fmt.Errorf("error creating secrets provider")
+		}
 
-	// 	// Mock ResolveConfigHandler to return a mock config handler
-	// 	mockConfigHandler := config.NewMockConfigHandler()
-	// 	mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
-	// 		if reflect.DeepEqual(cfg, config.DefaultConfig) {
-	// 			return fmt.Errorf("mocked error setting default config")
-	// 		}
-	// 		return nil
-	// 	}
-	// 	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-	// 		return mockConfigHandler
-	// 	}
-	// 	mockConfigHandler.GetContextFunc = func() string {
-	// 		return "production"
-	// 	}
+		// Create a new command and register the controller
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
 
-	// 	// Create a new command and register the controller
-	// 	cmd := &cobra.Command{}
-	// 	cmd.SetContext(context.WithValue(context.Background(), controllerKey, mockController))
+		// When preRunEInitializeCommonComponents is called
+		err := preRunEInitializeCommonComponents(cmd, nil)
 
-	// 	// When preRunEInitializeCommonComponents is called
-	// 	err := preRunEInitializeCommonComponents(cmd, nil)
+		// Then an error should be returned
+		expectedError := "Error creating secrets provider: error creating secrets provider"
+		if err == nil || err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %v", expectedError, err)
+		}
+	})
 
-	// 	// Then an error should be returned
-	// 	expectedError := "mocked error setting default config"
-	// 	if err == nil || !strings.Contains(err.Error(), expectedError) {
-	// 		t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
-	// 	}
-	// })
 }

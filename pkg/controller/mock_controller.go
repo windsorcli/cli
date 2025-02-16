@@ -9,6 +9,7 @@ import (
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
@@ -23,6 +24,7 @@ type MockController struct {
 	InitializeFunc                     func() error
 	InitializeComponentsFunc           func() error
 	CreateCommonComponentsFunc         func() error
+	CreateSecretsProviderFunc          func() error
 	CreateProjectComponentsFunc        func() error
 	CreateEnvComponentsFunc            func() error
 	CreateServiceComponentsFunc        func() error
@@ -43,6 +45,7 @@ type MockController struct {
 	ResolveAllGeneratorsFunc           func() []generators.Generator
 	ResolveStackFunc                   func() stack.Stack
 	ResolveBlueprintHandlerFunc        func() blueprint.BlueprintHandler
+	ResolveSecretsProviderFunc         func() secrets.SecretsProvider
 	WriteConfigurationFilesFunc        func() error
 }
 
@@ -102,6 +105,19 @@ func (m *MockController) CreateCommonComponents() error {
 	if err := resolvedShell.Initialize(); err != nil {
 		return fmt.Errorf("error initializing shell: %w", err)
 	}
+
+	return nil
+}
+
+// CreateSecretsProvider calls the mock CreateSecretsProviderFunc if set, otherwise creates mock components
+func (m *MockController) CreateSecretsProvider() error {
+	if m.CreateSecretsProviderFunc != nil {
+		return m.CreateSecretsProviderFunc()
+	}
+
+	// Create a new mock secrets provider
+	secretsProvider := secrets.NewMockSecretsProvider()
+	m.injector.Register("secretsProvider", secretsProvider)
 
 	return nil
 }
@@ -433,6 +449,14 @@ func (c *MockController) ResolveBlueprintHandler() blueprint.BlueprintHandler {
 		return c.ResolveBlueprintHandlerFunc()
 	}
 	return c.BaseController.ResolveBlueprintHandler()
+}
+
+// ResolveSecretsProvider calls the mock ResolveSecretsProviderFunc if set, otherwise calls the parent function
+func (c *MockController) ResolveSecretsProvider() secrets.SecretsProvider {
+	if c.ResolveSecretsProviderFunc != nil {
+		return c.ResolveSecretsProviderFunc()
+	}
+	return c.BaseController.ResolveSecretsProvider()
 }
 
 // Ensure MockController implements Controller

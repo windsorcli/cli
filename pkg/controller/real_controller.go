@@ -9,6 +9,7 @@ import (
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
@@ -110,36 +111,28 @@ func (c *RealController) CreateProjectComponents() error {
 // Each printer is created and registered with the dependency injector.
 // Returns nil on successful registration of all environment components.
 func (c *RealController) CreateEnvComponents() error {
-	if c.configHandler.GetBool("aws.enabled") {
-		awsEnv := env.NewAwsEnvPrinter(c.injector)
-		c.injector.Register("awsEnv", awsEnv)
+	envPrinters := map[string]func(di.Injector) env.EnvPrinter{
+		"awsEnv":       func(injector di.Injector) env.EnvPrinter { return env.NewAwsEnvPrinter(injector) },
+		"dockerEnv":    func(injector di.Injector) env.EnvPrinter { return env.NewDockerEnvPrinter(injector) },
+		"kubeEnv":      func(injector di.Injector) env.EnvPrinter { return env.NewKubeEnvPrinter(injector) },
+		"omniEnv":      func(injector di.Injector) env.EnvPrinter { return env.NewOmniEnvPrinter(injector) },
+		"sopsEnv":      func(injector di.Injector) env.EnvPrinter { return env.NewSopsEnvPrinter(injector) },
+		"talosEnv":     func(injector di.Injector) env.EnvPrinter { return env.NewTalosEnvPrinter(injector) },
+		"terraformEnv": func(injector di.Injector) env.EnvPrinter { return env.NewTerraformEnvPrinter(injector) },
+		"windsorEnv":   func(injector di.Injector) env.EnvPrinter { return env.NewWindsorEnvPrinter(injector) },
+		"customEnv":    func(injector di.Injector) env.EnvPrinter { return env.NewCustomEnvPrinter(injector) },
 	}
 
-	if c.configHandler.GetBool("docker.enabled") {
-		dockerEnv := env.NewDockerEnvPrinter(c.injector)
-		c.injector.Register("dockerEnv", dockerEnv)
+	for key, constructor := range envPrinters {
+		if key == "awsEnv" && !c.configHandler.GetBool("aws.enabled") {
+			continue
+		}
+		if key == "dockerEnv" && !c.configHandler.GetBool("docker.enabled") {
+			continue
+		}
+		envPrinter := constructor(c.injector)
+		c.injector.Register(key, envPrinter)
 	}
-
-	kubeEnv := env.NewKubeEnvPrinter(c.injector)
-	c.injector.Register("kubeEnv", kubeEnv)
-
-	omniEnv := env.NewOmniEnvPrinter(c.injector)
-	c.injector.Register("omniEnv", omniEnv)
-
-	sopsEnv := env.NewSopsEnvPrinter(c.injector)
-	c.injector.Register("sopsEnv", sopsEnv)
-
-	talosEnv := env.NewTalosEnvPrinter(c.injector)
-	c.injector.Register("talosEnv", talosEnv)
-
-	terraformEnv := env.NewTerraformEnvPrinter(c.injector)
-	c.injector.Register("terraformEnv", terraformEnv)
-
-	windsorEnv := env.NewWindsorEnvPrinter(c.injector)
-	c.injector.Register("windsorEnv", windsorEnv)
-
-	customEnv := env.NewCustomEnvPrinter(c.injector)
-	c.injector.Register("customEnv", customEnv)
 
 	return nil
 }
@@ -249,6 +242,22 @@ func (c *RealController) CreateVirtualizationComponents() error {
 func (c *RealController) CreateStackComponents() error {
 	stackInstance := stack.NewWindsorStack(c.injector)
 	c.injector.Register("stack", stackInstance)
+
+	return nil
+}
+
+// CreateSecretsProvider sets up the secrets provider based on the value of secrets.provider in the config.
+func (c *RealController) CreateSecretsProvider() error {
+	providerType := c.configHandler.GetString("secrets.provider", "")
+
+	if providerType != "" {
+		return fmt.Errorf("unsupported secrets provider: %s", providerType)
+	}
+
+	// Create and register the base secrets provider
+	baseSecretsProvider := secrets.NewBaseSecretsProvider()
+	c.injector.Register("secretsProvider", baseSecretsProvider)
+	c.configHandler.SetSecretsProvider(baseSecretsProvider)
 
 	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -33,6 +34,20 @@ func TestBaseConfigHandler_Initialize(t *testing.T) {
 		err := handler.Initialize()
 		if err == nil {
 			t.Errorf("Expected error when resolving config handler, got nil")
+		}
+	})
+}
+
+func TestBaseConfigHandler_SetSecretsProvider(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		injector := di.NewInjector()
+		handler := NewBaseConfigHandler(injector)
+		secretsProvider := secrets.NewBaseSecretsProvider()
+
+		handler.SetSecretsProvider(secretsProvider)
+
+		if handler.secretsProvider != secretsProvider {
+			t.Errorf("Expected secretsProvider to be set")
 		}
 	})
 }

@@ -122,7 +122,15 @@ func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) string
 		}
 		return ""
 	}
-	return fmt.Sprintf("%v", value)
+	strValue := fmt.Sprintf("%v", value)
+	secretsProvider := y.secretsProvider
+	if secretsProvider != nil {
+		parsedValue, err := secretsProvider.ParseSecrets(strValue)
+		if err == nil {
+			strValue = parsedValue
+		}
+	}
+	return strValue
 }
 
 // GetInt retrieves an integer value for the specified key from the configuration, with an optional default value.
@@ -159,6 +167,7 @@ func (y *YamlConfigHandler) GetBool(key string, defaultValue ...bool) bool {
 }
 
 // GetStringSlice retrieves a slice of strings for the specified key from the configuration, with an optional default value.
+// If the key is not found, it returns the provided default value or an empty slice if no default is provided.
 func (y *YamlConfigHandler) GetStringSlice(key string, defaultValue ...[]string) []string {
 	contextKey := fmt.Sprintf("contexts.%s.%s", y.context, key)
 	value := y.Get(contextKey)
@@ -171,7 +180,10 @@ func (y *YamlConfigHandler) GetStringSlice(key string, defaultValue ...[]string)
 	return value.([]string)
 }
 
-// GetStringMap retrieves a map of string key-value pairs for the specified key from the configuration, with an optional default value.
+// GetStringMap retrieves a map of string key-value pairs for the specified key.
+// It returns a default map if the key is not found. If a secrets provider is set,
+// it parses and replaces secret placeholders in map values, ensuring sensitive data
+// like API keys remain secure and not exposed in configuration files.
 func (y *YamlConfigHandler) GetStringMap(key string, defaultValue ...map[string]string) map[string]string {
 	contextKey := fmt.Sprintf("contexts.%s.%s", y.context, key)
 	value := y.Get(contextKey)
@@ -181,7 +193,24 @@ func (y *YamlConfigHandler) GetStringMap(key string, defaultValue ...map[string]
 		}
 		return map[string]string{}
 	}
-	return value.(map[string]string)
+
+	strMap, ok := value.(map[string]string)
+	if !ok {
+		return map[string]string{}
+	}
+
+	// If a secrets provider is available, parse the map values for secret placeholders
+	secretsProvider := y.secretsProvider
+	if secretsProvider != nil {
+		for k, v := range strMap {
+			parsedValue, err := secretsProvider.ParseSecrets(v)
+			if err == nil {
+				strMap[k] = parsedValue
+			}
+		}
+	}
+
+	return strMap
 }
 
 // Set updates the value at the specified path in the configuration using reflection.

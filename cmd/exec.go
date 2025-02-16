@@ -29,11 +29,16 @@ var execCmd = &cobra.Command{
 			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
+		// Unlock the SecretProvider
+		secretsProvider := controller.ResolveSecretsProvider()
+		if secretsProvider != nil {
+			if err := secretsProvider.Unlock(); err != nil {
+				return fmt.Errorf("Error unlocking secrets: %w", err)
+			}
+		}
+
 		// Resolve all environment printers using the controller
 		envPrinters := controller.ResolveAllEnvPrinters()
-		if len(envPrinters) == 0 {
-			return fmt.Errorf("Error resolving environment printers: no printers returned")
-		}
 
 		// Collect environment variables from all printers
 		envVars := make(map[string]string)

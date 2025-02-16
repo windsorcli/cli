@@ -11,6 +11,7 @@ import (
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
@@ -89,6 +90,34 @@ func TestMockController_CreateCommonComponents(t *testing.T) {
 		mockCtrl := NewMockController(mocks.Injector)
 		// When CreateCommonComponents is called without setting CreateCommonComponentsFunc
 		if err := mockCtrl.CreateCommonComponents(); err != nil {
+			// Then no error should be returned
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestMockController_CreateSecretsProvider(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new injector and mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+		// And the CreateSecretsProviderFunc is set to return nil
+		mockCtrl.CreateSecretsProviderFunc = func() error {
+			return nil
+		}
+		// When CreateSecretsProvider is called
+		if err := mockCtrl.CreateSecretsProvider(); err != nil {
+			// Then no error should be returned
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NoCreateSecretsProviderFunc", func(t *testing.T) {
+		// Given a new injector and mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+		// When CreateSecretsProvider is called without setting CreateSecretsProviderFunc
+		if err := mockCtrl.CreateSecretsProvider(); err != nil {
 			// Then no error should be returned
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -394,6 +423,36 @@ func TestMockController_ResolveConfigHandler(t *testing.T) {
 		if configHandler != mocks.ConfigHandler {
 			// Then the returned config handler should be the same as the created config handler
 			t.Fatalf("expected %v, got %v", mocks.ConfigHandler, configHandler)
+		}
+	})
+}
+
+func TestMockController_ResolveSecretsProvider(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new mock secrets provider, mock injector, and mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+		// And the ResolveSecretsProviderFunc is set to return the expected secrets provider
+		mockCtrl.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
+			return mocks.SecretsProvider
+		}
+		// When ResolveSecretsProvider is called
+		secretsProvider := mockCtrl.ResolveSecretsProvider()
+		if secretsProvider != mocks.SecretsProvider {
+			// Then the returned secrets provider should be the expected secrets provider
+			t.Fatalf("expected %v, got %v", mocks.SecretsProvider, secretsProvider)
+		}
+	})
+
+	t.Run("NoResolveSecretsProviderFunc", func(t *testing.T) {
+		// Given a new mock injector and mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+		// When ResolveSecretsProvider is called without setting ResolveSecretsProviderFunc
+		secretsProvider := mockCtrl.ResolveSecretsProvider()
+		if secretsProvider != mocks.SecretsProvider {
+			// Then the returned secrets provider should be the same as the created secrets provider
+			t.Fatalf("expected %v, got %v", mocks.SecretsProvider, secretsProvider)
 		}
 	})
 }

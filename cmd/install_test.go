@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	bp "github.com/windsorcli/cli/pkg/blueprint"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/secrets"
 )
 
 func TestInstallCmd(t *testing.T) {
@@ -214,6 +216,59 @@ func TestInstallCmd(t *testing.T) {
 		expectedError := "Error initializing components: error initializing components"
 		if err.Error() != expectedError {
 			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("UnlockSecretsProvider", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller with a mock secrets provider
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		unlockCalled := false
+		mockSecretsProvider.UnlockFunc = func() error {
+			unlockCalled = true
+			return nil // or return an error if needed for testing
+		}
+		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
+			return mockSecretsProvider
+		}
+
+		// When the install command is executed
+		rootCmd.SetArgs([]string{"install"})
+		err := Execute(mockController)
+
+		// Then the secrets provider's Unlock function should be called
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !unlockCalled {
+			t.Fatalf("Expected secrets provider's Unlock function to be called")
+		}
+	})
+
+	t.Run("ErrorUnlockingSecrets", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller with a mock secrets provider that returns an error when unlocking secrets
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.UnlockFunc = func() error {
+			return fmt.Errorf("mock error unlocking secrets")
+		}
+		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
+			return mockSecretsProvider
+		}
+
+		// When the install command is executed
+		rootCmd.SetArgs([]string{"install"})
+		err := Execute(mockController)
+
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error unlocking secrets: mock error unlocking secrets") {
+			t.Fatalf("Expected error containing 'Error unlocking secrets: mock error unlocking secrets', got %v", err)
 		}
 	})
 }

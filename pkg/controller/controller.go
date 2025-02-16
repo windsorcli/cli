@@ -9,6 +9,7 @@ import (
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/stack"
@@ -21,6 +22,7 @@ type Controller interface {
 	Initialize() error
 	InitializeComponents() error
 	CreateCommonComponents() error
+	CreateSecretsProvider() error
 	CreateProjectComponents() error
 	CreateEnvComponents() error
 	CreateServiceComponents() error
@@ -28,6 +30,7 @@ type Controller interface {
 	CreateStackComponents() error
 	ResolveInjector() di.Injector
 	ResolveConfigHandler() config.ConfigHandler
+	ResolveSecretsProvider() secrets.SecretsProvider
 	ResolveEnvPrinter(name string) env.EnvPrinter
 	ResolveAllEnvPrinters() []env.EnvPrinter
 	ResolveShell() shell.Shell
@@ -66,6 +69,7 @@ func (c *BaseController) Initialize() error {
 
 // InitializeComponents initializes all components.
 func (c *BaseController) InitializeComponents() error {
+
 	// Initialize the shell
 	shell := c.ResolveShell()
 	if shell != nil {
@@ -79,6 +83,14 @@ func (c *BaseController) InitializeComponents() error {
 	if secureShell != nil {
 		if err := secureShell.Initialize(); err != nil {
 			return fmt.Errorf("error initializing secure shell: %w", err)
+		}
+	}
+
+	// Initialize the secrets provider
+	secretsProvider := c.ResolveSecretsProvider()
+	if secretsProvider != nil {
+		if err := secretsProvider.Initialize(); err != nil {
+			return fmt.Errorf("error initializing secrets provider: %w", err)
 		}
 	}
 
@@ -168,6 +180,12 @@ func (c *BaseController) InitializeComponents() error {
 
 // CreateCommonComponents creates the common components.
 func (c *BaseController) CreateCommonComponents() error {
+	// no-op
+	return nil
+}
+
+// CreateSecretsProvider creates the secrets provider.
+func (c *BaseController) CreateSecretsProvider() error {
 	// no-op
 	return nil
 }
@@ -275,6 +293,13 @@ func (c *BaseController) ResolveConfigHandler() config.ConfigHandler {
 	instance := c.injector.Resolve("configHandler")
 	configHandler, _ := instance.(config.ConfigHandler)
 	return configHandler
+}
+
+// ResolveSecretsProvider resolves the secretsProvider instance.
+func (c *BaseController) ResolveSecretsProvider() secrets.SecretsProvider {
+	instance := c.injector.Resolve("secretsProvider")
+	secretsProvider, _ := instance.(secrets.SecretsProvider)
+	return secretsProvider
 }
 
 // ResolveEnvPrinter resolves the envPrinter instance.

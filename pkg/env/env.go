@@ -52,7 +52,7 @@ func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
 	var envVars map[string]string
 
 	if len(customVars) > 0 {
-		envVars = customVars[0] // Use only the passed vars
+		envVars = customVars[0]
 	} else {
 		envVars = make(map[string]string)
 	}

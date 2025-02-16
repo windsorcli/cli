@@ -56,6 +56,21 @@ var envCmd = &cobra.Command{
 			return nil
 		}
 
+		// Check if --decrypt flag is set
+		decrypt, _ := cmd.Flags().GetBool("decrypt")
+		if decrypt {
+			// Unlock the SecretProvider
+			secretsProvider := controller.ResolveSecretsProvider()
+			if secretsProvider != nil {
+				if err := secretsProvider.Unlock(); err != nil {
+					if verbose {
+						return fmt.Errorf("Error unlocking secrets provider: %w", err)
+					}
+					return nil
+				}
+			}
+		}
+
 		// Resolve all environment printers using the controller
 		envPrinters := controller.ResolveAllEnvPrinters()
 		if len(envPrinters) == 0 && verbose {
@@ -68,13 +83,13 @@ var envCmd = &cobra.Command{
 				if verbose {
 					return fmt.Errorf("Error executing Print: %w", err)
 				}
-				return nil
+				continue
 			}
 			if err := envPrinter.PostEnvHook(); err != nil {
 				if verbose {
 					return fmt.Errorf("Error executing PostEnvHook: %w", err)
 				}
-				return nil
+				continue
 			}
 		}
 
@@ -83,5 +98,6 @@ var envCmd = &cobra.Command{
 }
 
 func init() {
+	envCmd.Flags().Bool("decrypt", false, "Decrypt secrets before setting environment variables")
 	rootCmd.AddCommand(envCmd)
 }

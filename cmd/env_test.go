@@ -7,6 +7,7 @@ import (
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -411,6 +412,59 @@ func TestEnvCmd(t *testing.T) {
 		// Then the error should be nil and no output should be produced
 		if err != nil {
 			t.Fatalf("Expected error nil, got %v", err)
+		}
+	})
+
+	t.Run("DecryptFlag", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller with a mock secrets provider
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		unlockCalled := false
+		mockSecretsProvider.UnlockFunc = func() error {
+			unlockCalled = true
+			return nil // or return an error if needed for testing
+		}
+		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
+			return mockSecretsProvider
+		}
+
+		// When the env command is executed with the --decrypt flag
+		rootCmd.SetArgs([]string{"env", "--decrypt"})
+		err := Execute(mockController)
+
+		// Then the secrets provider's Unlock function should be called
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !unlockCalled {
+			t.Fatalf("Expected secrets provider's Unlock function to be called")
+		}
+	})
+
+	t.Run("ErrorUnlockingSecretsProvider", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller with a mock secrets provider that returns an error on unlock
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.UnlockFunc = func() error {
+			return fmt.Errorf("unlock error")
+		}
+		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
+			return mockSecretsProvider
+		}
+
+		// When the env command is executed with the --decrypt flag and verbose mode
+		rootCmd.SetArgs([]string{"env", "--decrypt", "--verbose"})
+		err := Execute(mockController)
+
+		// Then the error should indicate the unlock error
+		if err == nil || err.Error() != "Error unlocking secrets provider: unlock error" {
+			t.Fatalf("Expected unlock error, got %v", err)
 		}
 	})
 }
