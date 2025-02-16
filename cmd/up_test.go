@@ -587,31 +587,31 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorUnlockingSecrets", func(t *testing.T) {
+	t.Run("ErrorLoadingSecrets", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
 		mocks.MockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
 			return &secrets.MockSecretsProvider{
-				UnlockFunc: func() error {
-					return fmt.Errorf("Error unlocking secrets: %w", fmt.Errorf("mock error unlocking secrets"))
+				LoadSecretsFunc: func() error {
+					return fmt.Errorf("Error loading secrets: %w", fmt.Errorf("mock error loading secrets"))
 				},
 			}
 		}
 
-		// Given a mock secrets provider that returns an error when unlocking secrets
+		// Given a mock secrets provider that returns an error when loading secrets
 		rootCmd.SetArgs([]string{"up"})
 		err := Execute(mocks.MockController)
 		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error unlocking secrets: mock error unlocking secrets") {
-			t.Fatalf("Expected error containing 'Error unlocking secrets: mock error unlocking secrets', got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "Error loading secrets: mock error loading secrets") {
+			t.Fatalf("Expected error containing 'Error loading secrets: mock error loading secrets', got %v", err)
 		}
 	})
 
-	t.Run("UnlockCalledAsExpected", func(t *testing.T) {
+	t.Run("LoadCalledAsExpected", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		var unlockCalled bool
+		var loadCalled bool
 		mockSecretsProvider := &secrets.MockSecretsProvider{
-			UnlockFunc: func() error {
-				unlockCalled = true
+			LoadSecretsFunc: func() error {
+				loadCalled = true
 				return nil
 			},
 		}
@@ -623,9 +623,9 @@ func TestUpCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"up"})
 		_ = Execute(mocks.MockController)
 
-		// Check if the Unlock function was called
-		if !unlockCalled {
-			t.Fatalf("Expected Unlock to be called, but it was not")
+		// Check if the Load function was called
+		if !loadCalled {
+			t.Fatalf("Expected Load to be called, but it was not")
 		}
 	})
 }

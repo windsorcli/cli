@@ -106,7 +106,7 @@ func (c *RealController) CreateProjectComponents() error {
 }
 
 // CreateEnvComponents creates components required for env and exec commands
-// Registers environment printers for AWS, Docker, Kube, Omni, Sops, Talos, Terraform, and Windsor.
+// Registers environment printers for AWS, Docker, Kube, Omni, Talos, Terraform, and Windsor.
 // AWS and Docker printers are conditional on their respective configurations being enabled.
 // Each printer is created and registered with the dependency injector.
 // Returns nil on successful registration of all environment components.
@@ -116,7 +116,6 @@ func (c *RealController) CreateEnvComponents() error {
 		"dockerEnv":    func(injector di.Injector) env.EnvPrinter { return env.NewDockerEnvPrinter(injector) },
 		"kubeEnv":      func(injector di.Injector) env.EnvPrinter { return env.NewKubeEnvPrinter(injector) },
 		"omniEnv":      func(injector di.Injector) env.EnvPrinter { return env.NewOmniEnvPrinter(injector) },
-		"sopsEnv":      func(injector di.Injector) env.EnvPrinter { return env.NewSopsEnvPrinter(injector) },
 		"talosEnv":     func(injector di.Injector) env.EnvPrinter { return env.NewTalosEnvPrinter(injector) },
 		"terraformEnv": func(injector di.Injector) env.EnvPrinter { return env.NewTerraformEnvPrinter(injector) },
 		"windsorEnv":   func(injector di.Injector) env.EnvPrinter { return env.NewWindsorEnvPrinter(injector) },
@@ -250,14 +249,23 @@ func (c *RealController) CreateStackComponents() error {
 func (c *RealController) CreateSecretsProvider() error {
 	providerType := c.configHandler.GetString("secrets.provider", "")
 
-	if providerType != "" {
+	var secretsProvider secrets.SecretsProvider
+
+	switch providerType {
+	case "sops":
+		configRoot, err := c.configHandler.GetConfigRoot()
+		if err != nil {
+			return fmt.Errorf("error getting config root: %w", err)
+		}
+		secretsProvider = secrets.NewSopsSecretsProvider(configRoot)
+	case "":
+		secretsProvider = secrets.NewBaseSecretsProvider()
+	default:
 		return fmt.Errorf("unsupported secrets provider: %s", providerType)
 	}
 
-	// Create and register the base secrets provider
-	baseSecretsProvider := secrets.NewBaseSecretsProvider()
-	c.injector.Register("secretsProvider", baseSecretsProvider)
-	c.configHandler.SetSecretsProvider(baseSecretsProvider)
+	c.injector.Register("secretsProvider", secretsProvider)
+	c.configHandler.SetSecretsProvider(secretsProvider)
 
 	return nil
 }

@@ -219,16 +219,16 @@ func TestInstallCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("UnlockSecretsProvider", func(t *testing.T) {
+	t.Run("LoadSecretsProvider", func(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller with a mock secrets provider
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
 		mockSecretsProvider := secrets.NewMockSecretsProvider()
-		unlockCalled := false
-		mockSecretsProvider.UnlockFunc = func() error {
-			unlockCalled = true
+		loadCalled := false
+		mockSecretsProvider.LoadSecretsFunc = func() error {
+			loadCalled = true
 			return nil // or return an error if needed for testing
 		}
 		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
@@ -239,24 +239,24 @@ func TestInstallCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"install"})
 		err := Execute(mockController)
 
-		// Then the secrets provider's Unlock function should be called
+		// Then the secrets provider's LoadSecrets function should be called
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if !unlockCalled {
-			t.Fatalf("Expected secrets provider's Unlock function to be called")
+		if !loadCalled {
+			t.Fatalf("Expected secrets provider's LoadSecrets function to be called")
 		}
 	})
 
-	t.Run("ErrorUnlockingSecrets", func(t *testing.T) {
+	t.Run("ErrorLoadingSecrets", func(t *testing.T) {
 		defer resetRootCmd()
 
-		// Given a mock controller with a mock secrets provider that returns an error when unlocking secrets
+		// Given a mock controller with a mock secrets provider that returns an error when loading secrets
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
 		mockSecretsProvider := secrets.NewMockSecretsProvider()
-		mockSecretsProvider.UnlockFunc = func() error {
-			return fmt.Errorf("mock error unlocking secrets")
+		mockSecretsProvider.LoadSecretsFunc = func() error {
+			return fmt.Errorf("mock error loading secrets")
 		}
 		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
 			return mockSecretsProvider
@@ -267,8 +267,8 @@ func TestInstallCmd(t *testing.T) {
 		err := Execute(mockController)
 
 		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error unlocking secrets: mock error unlocking secrets") {
-			t.Fatalf("Expected error containing 'Error unlocking secrets: mock error unlocking secrets', got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "Error loading secrets: mock error loading secrets") {
+			t.Fatalf("Expected error containing 'Error loading secrets: mock error loading secrets', got %v", err)
 		}
 	})
 }

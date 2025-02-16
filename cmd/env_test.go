@@ -422,9 +422,9 @@ func TestEnvCmd(t *testing.T) {
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
 		mockSecretsProvider := secrets.NewMockSecretsProvider()
-		unlockCalled := false
-		mockSecretsProvider.UnlockFunc = func() error {
-			unlockCalled = true
+		loadCalled := false
+		mockSecretsProvider.LoadSecretsFunc = func() error {
+			loadCalled = true
 			return nil // or return an error if needed for testing
 		}
 		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
@@ -435,24 +435,24 @@ func TestEnvCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"env", "--decrypt"})
 		err := Execute(mockController)
 
-		// Then the secrets provider's Unlock function should be called
+		// Then the secrets provider's LoadSecrets function should be called
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if !unlockCalled {
-			t.Fatalf("Expected secrets provider's Unlock function to be called")
+		if !loadCalled {
+			t.Fatalf("Expected secrets provider's LoadSecrets function to be called")
 		}
 	})
 
-	t.Run("ErrorUnlockingSecretsProvider", func(t *testing.T) {
+	t.Run("ErrorLoadingSecretsProvider", func(t *testing.T) {
 		defer resetRootCmd()
 
-		// Given a mock controller with a mock secrets provider that returns an error on unlock
+		// Given a mock controller with a mock secrets provider that returns an error on load
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
 		mockSecretsProvider := secrets.NewMockSecretsProvider()
-		mockSecretsProvider.UnlockFunc = func() error {
-			return fmt.Errorf("unlock error")
+		mockSecretsProvider.LoadSecretsFunc = func() error {
+			return fmt.Errorf("load error")
 		}
 		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
 			return mockSecretsProvider
@@ -462,9 +462,9 @@ func TestEnvCmd(t *testing.T) {
 		rootCmd.SetArgs([]string{"env", "--decrypt", "--verbose"})
 		err := Execute(mockController)
 
-		// Then the error should indicate the unlock error
-		if err == nil || err.Error() != "Error unlocking secrets provider: unlock error" {
-			t.Fatalf("Expected unlock error, got %v", err)
+		// Then the error should indicate the load error
+		if err == nil || err.Error() != "Error loading secrets provider: load error" {
+			t.Fatalf("Expected load error, got %v", err)
 		}
 	})
 }

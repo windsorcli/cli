@@ -7,6 +7,7 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/api/v1alpha1/git"
 	"github.com/windsorcli/cli/api/v1alpha1/network"
+	"github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/api/v1alpha1/terraform"
 	"github.com/windsorcli/cli/api/v1alpha1/vm"
 )
@@ -22,6 +23,7 @@ type Config struct {
 type Context struct {
 	ProjectName *string                    `yaml:"projectName,omitempty"`
 	Environment map[string]string          `yaml:"environment,omitempty"`
+	Secrets     *secrets.SecretsConfig     `yaml:"secrets,omitempty"`
 	AWS         *aws.AWSConfig             `yaml:"aws,omitempty"`
 	Docker      *docker.DockerConfig       `yaml:"docker,omitempty"`
 	Git         *git.GitConfig             `yaml:"git,omitempty"`
@@ -47,6 +49,12 @@ func (base *Context) Merge(overlay *Context) {
 		for key, value := range overlay.Environment {
 			base.Environment[key] = value
 		}
+	}
+	if overlay.Secrets != nil {
+		if base.Secrets == nil {
+			base.Secrets = &secrets.SecretsConfig{}
+		}
+		base.Secrets.Merge(overlay.Secrets)
 	}
 	if overlay.AWS != nil {
 		if base.AWS == nil {
@@ -113,6 +121,7 @@ func (c *Context) DeepCopy() *Context {
 	return &Context{
 		ProjectName: c.ProjectName,
 		Environment: environmentCopy,
+		Secrets:     c.Secrets.Copy(),
 		AWS:         c.AWS.Copy(),
 		Docker:      c.Docker.Copy(),
 		Git:         c.Git.Copy(),

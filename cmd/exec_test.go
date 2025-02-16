@@ -155,13 +155,13 @@ func TestExecCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorUnlockingSecrets", func(t *testing.T) {
+	t.Run("ErrorLoadingSecrets", func(t *testing.T) {
 		defer resetRootCmd()
 
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
-		mocks.SecretsProvider.UnlockFunc = func() error {
-			return fmt.Errorf("mock error unlocking secrets")
+		mocks.SecretsProvider.LoadSecretsFunc = func() error {
+			return fmt.Errorf("mock error loading secrets")
 		}
 
 		// Capture stderr
@@ -178,7 +178,7 @@ func TestExecCmd(t *testing.T) {
 		output := buf.String()
 
 		// Then the output should indicate the error
-		expectedOutput := "Error: Error unlocking secrets: mock error unlocking secrets\n"
+		expectedOutput := "Error: Error loading secrets: mock error loading secrets\n"
 		if output != expectedOutput {
 			t.Errorf("Expected output to be %q, got %q", expectedOutput, output)
 		}

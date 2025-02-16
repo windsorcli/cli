@@ -177,10 +177,6 @@ func (m *MockController) CreateEnvComponents() error {
 	omniEnv := env.NewMockEnvPrinter()
 	m.injector.Register("omniEnv", omniEnv)
 
-	// Create mock sops env printer
-	sopsEnv := env.NewMockEnvPrinter()
-	m.injector.Register("sopsEnv", sopsEnv)
-
 	// Create mock talos env printer
 	talosEnv := env.NewMockEnvPrinter()
 	m.injector.Register("talosEnv", talosEnv)

@@ -25,9 +25,6 @@ type SecretsProvider interface {
 
 	// ParseSecrets parses a string and replaces ${{ secrets.<key> }} references with their values
 	ParseSecrets(input string) (string, error)
-
-	// Unlock unlocks the secrets provider to allow access to secrets
-	Unlock() error
 }
 
 // BaseSecretsProvider is a base implementation of the SecretsProvider interface
@@ -50,16 +47,7 @@ func (s *BaseSecretsProvider) Initialize() error {
 
 // LoadSecrets loads the secrets from the specified path
 func (s *BaseSecretsProvider) LoadSecrets() error {
-	// Placeholder for loading secrets logic
-	// Currently, it does nothing and returns nil
-	return nil
-}
-
-// Unlock unlocks the secrets provider to allow access to secrets
-func (s *BaseSecretsProvider) Unlock() error {
 	s.unlocked = true
-	// Placeholder for any error that might occur during unlocking
-	// Currently, it does nothing and returns nil
 	return nil
 }
 

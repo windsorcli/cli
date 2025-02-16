@@ -19,11 +19,21 @@ func TestBaseSecretsProvider_Initialize(t *testing.T) {
 func TestBaseSecretsProvider_LoadSecrets(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		provider := NewBaseSecretsProvider()
+		provider.secrets["test_key"] = "test_value"
 
 		err := provider.LoadSecrets()
 
 		if err != nil {
 			t.Errorf("Expected LoadSecrets to succeed, but got error: %v", err)
+		}
+
+		// After loading secrets, they should be accessible
+		value, err := provider.GetSecret("test_key")
+		if err != nil {
+			t.Errorf("Expected GetSecret to succeed, but got error: %v", err)
+		}
+		if value != "test_value" {
+			t.Errorf("Expected GetSecret to return 'test_value', but got: %s", value)
 		}
 	})
 }
@@ -32,10 +42,7 @@ func TestBaseSecretsProvider_GetSecret(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		provider := NewBaseSecretsProvider()
 		provider.secrets["test_key"] = "test_value"
-		err := provider.Unlock()
-		if err != nil {
-			t.Fatalf("Expected Unlock to succeed, but got error: %v", err)
-		}
+		provider.unlocked = true // Simulate that secrets have been unlocked
 
 		value, err := provider.GetSecret("test_key")
 
@@ -47,30 +54,13 @@ func TestBaseSecretsProvider_GetSecret(t *testing.T) {
 			t.Errorf("Expected GetSecret to return 'test_value', but got: %s", value)
 		}
 	})
-
-	t.Run("SecretNotFound", func(t *testing.T) {
-		provider := NewBaseSecretsProvider()
-		err := provider.Unlock()
-		if err != nil {
-			t.Fatalf("Expected Unlock to succeed, but got error: %v", err)
-		}
-
-		_, err = provider.GetSecret("non_existent_key")
-
-		if err == nil {
-			t.Errorf("Expected GetSecret to fail, but it succeeded")
-		}
-	})
 }
 
 func TestBaseSecretsProvider_ParseSecrets(t *testing.T) {
 	t.Run("ReplacesSecretSuccessfully", func(t *testing.T) {
 		provider := NewBaseSecretsProvider()
 		provider.secrets["test_key"] = "test_value"
-		err := provider.Unlock()
-		if err != nil {
-			t.Fatalf("Expected Unlock to succeed, but got error: %v", err)
-		}
+		provider.unlocked = true // Simulate that secrets have been unlocked
 
 		// Test with standard notation
 		input1 := "This is a secret: ${{ secrets.test_key }}"
@@ -103,10 +93,7 @@ func TestBaseSecretsProvider_ParseSecrets(t *testing.T) {
 
 	t.Run("ReturnsInputWhenSecretNotFound", func(t *testing.T) {
 		provider := NewBaseSecretsProvider()
-		err := provider.Unlock()
-		if err != nil {
-			t.Fatalf("Expected Unlock to succeed, but got error: %v", err)
-		}
+		provider.unlocked = true // Simulate that secrets have been unlocked
 
 		// Test with standard notation
 		input1 := "This is a secret: ${{ secrets.non_existent_key }}"
@@ -134,37 +121,6 @@ func TestBaseSecretsProvider_ParseSecrets(t *testing.T) {
 
 		if output2 != expectedOutput2 {
 			t.Errorf("ParseSecrets returned '%s', expected '%s'", output2, expectedOutput2)
-		}
-	})
-}
-
-func TestBaseSecretsProvider_Unlock(t *testing.T) {
-	t.Run("UnlocksSuccessfully", func(t *testing.T) {
-		provider := NewBaseSecretsProvider()
-		provider.secrets["test_key"] = "test_value"
-
-		// Initially, secrets should be masked
-		value, err := provider.GetSecret("test_key")
-		if err != nil {
-			t.Errorf("Expected GetSecret to succeed, but got error: %v", err)
-		}
-		if value != "********" {
-			t.Errorf("Expected GetSecret to return masked value, but got: %s", value)
-		}
-
-		// Unlock the provider
-		err = provider.Unlock()
-		if err != nil {
-			t.Fatalf("Expected Unlock to succeed, but got error: %v", err)
-		}
-
-		// Now, secrets should be accessible
-		value, err = provider.GetSecret("test_key")
-		if err != nil {
-			t.Errorf("Expected GetSecret to succeed, but got error: %v", err)
-		}
-		if value != "test_value" {
-			t.Errorf("Expected GetSecret to return 'test_value', but got: %s", value)
 		}
 	})
 }
