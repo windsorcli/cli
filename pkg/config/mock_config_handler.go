@@ -55,17 +55,6 @@ func (m *MockConfigHandler) GetString(key string, defaultValue ...string) string
 	return "mock-string"
 }
 
-// GetStringMap calls the mock GetStringMapFunc if set, otherwise returns a reasonable default map of strings
-func (m *MockConfigHandler) GetStringMap(key string, defaultValue ...map[string]string) map[string]string {
-	if m.GetStringMapFunc != nil {
-		return m.GetStringMapFunc(key, defaultValue...)
-	}
-	if len(defaultValue) > 0 {
-		return defaultValue[0]
-	}
-	return map[string]string{}
-}
-
 // GetInt calls the mock GetIntFunc if set, otherwise returns a reasonable default int
 func (m *MockConfigHandler) GetInt(key string, defaultValue ...int) int {
 	if m.GetIntFunc != nil {
