@@ -8,13 +8,15 @@ import (
 
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type MockObjects struct {
-	MockShell     *shell.MockShell
-	ConfigHandler *MockConfigHandler
-	Injector      di.Injector
+	MockShell       *shell.MockShell
+	ConfigHandler   *MockConfigHandler
+	SecretsProvider *secrets.MockSecretsProvider
+	Injector        di.Injector
 }
 
 func setupSafeMocks(injector ...di.Injector) *MockObjects {
@@ -28,6 +30,10 @@ func setupSafeMocks(injector ...di.Injector) *MockObjects {
 	// Mock necessary dependencies
 	mockShell := &shell.MockShell{}
 	inj.Register("shell", mockShell)
+
+	// Mock secrets provider
+	mockSecretsProvider := &secrets.MockSecretsProvider{}
+	inj.Register("secretsProvider", mockSecretsProvider)
 
 	// Mock osStat to simulate a successful file existence check
 	osStat = func(name string) (os.FileInfo, error) {
@@ -56,8 +62,9 @@ func setupSafeMocks(injector ...di.Injector) *MockObjects {
 
 	// Return the mock objects including the handler
 	return &MockObjects{
-		MockShell: mockShell,
-		Injector:  inj,
+		MockShell:       mockShell,
+		SecretsProvider: mockSecretsProvider,
+		Injector:        inj,
 	}
 }
 
@@ -89,6 +96,33 @@ func TestMockConfigHandler_Initialize(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
+	})
+}
+
+func TestMockConfigHandler_SetSecretsProvider(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock config handler with SetSecretsProviderFunc set
+		handler := NewMockConfigHandler()
+		mockSecretsProvider := secrets.NewBaseSecretsProvider()
+		handler.SetSecretsProviderFunc = func(provider secrets.SecretsProvider) {
+			if provider != mockSecretsProvider {
+				t.Errorf("Expected provider = %v, got = %v", mockSecretsProvider, provider)
+			}
+		}
+
+		// When SetSecretsProvider is called
+		handler.SetSecretsProvider(mockSecretsProvider)
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without SetSecretsProviderFunc set
+		handler := NewMockConfigHandler()
+		mockSecretsProvider := secrets.NewBaseSecretsProvider()
+
+		// When SetSecretsProvider is called
+		handler.SetSecretsProvider(mockSecretsProvider)
+
+		// Then no error should occur and the function should complete
 	})
 }
 

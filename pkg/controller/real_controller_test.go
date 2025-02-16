@@ -55,6 +55,66 @@ func TestRealController_CreateCommonComponents(t *testing.T) {
 	})
 }
 
+func TestRealController_CreateSecretsProvider(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new injector and a new real controller using mocks
+		injector := di.NewInjector()
+		controller := NewRealController(injector)
+
+		// Initialize the controller
+		if err := controller.Initialize(); err != nil {
+			t.Fatalf("failed to initialize controller: %v", err)
+		}
+
+		// And common components are created
+		if err := controller.CreateCommonComponents(); err != nil {
+			t.Fatalf("failed to create common components: %v", err)
+		}
+
+		// When creating the secrets provider
+		err := controller.CreateSecretsProvider()
+
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the secrets provider should be registered in the injector
+		if injector.Resolve("secretsProvider") == nil {
+			t.Fatalf("expected secretsProvider to be registered, got error")
+		}
+
+		t.Logf("Success: secrets provider created and registered")
+	})
+
+	t.Run("UnsupportedProvider", func(t *testing.T) {
+		// Given a new injector and a new real controller using mocks
+		injector := di.NewInjector()
+		controller := NewRealController(injector)
+
+		// Mock the configHandler
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "secrets.provider" {
+				return "unsupported"
+			}
+			return ""
+		}
+		injector.Register("configHandler", mockConfigHandler)
+		controller.configHandler = mockConfigHandler
+
+		// When creating the secrets provider
+		err := controller.CreateSecretsProvider()
+
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+
+		t.Logf("Success: unsupported secrets provider error occurred")
+	})
+}
+
 func TestRealController_CreateProjectComponents(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new injector and a new real controller using mocks

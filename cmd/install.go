@@ -13,6 +13,14 @@ var installCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
+		// Unlock the SecretProvider
+		secretsProvider := controller.ResolveSecretsProvider()
+		if secretsProvider != nil {
+			if err := secretsProvider.Unlock(); err != nil {
+				return fmt.Errorf("Error unlocking secrets: %w", err)
+			}
+		}
+
 		// Create project components
 		if err := controller.CreateProjectComponents(); err != nil {
 			return fmt.Errorf("Error creating project components: %w", err)

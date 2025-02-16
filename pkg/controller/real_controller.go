@@ -9,6 +9,7 @@ import (
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/generators"
 	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
@@ -241,6 +242,22 @@ func (c *RealController) CreateVirtualizationComponents() error {
 func (c *RealController) CreateStackComponents() error {
 	stackInstance := stack.NewWindsorStack(c.injector)
 	c.injector.Register("stack", stackInstance)
+
+	return nil
+}
+
+// CreateSecretsProvider sets up the secrets provider based on the value of secrets.provider in the config.
+func (c *RealController) CreateSecretsProvider() error {
+	providerType := c.configHandler.GetString("secrets.provider", "")
+
+	if providerType != "" {
+		return fmt.Errorf("unsupported secrets provider: %s", providerType)
+	}
+
+	// Create and register the base secrets provider
+	baseSecretsProvider := secrets.NewBaseSecretsProvider()
+	c.injector.Register("secretsProvider", baseSecretsProvider)
+	c.configHandler.SetSecretsProvider(baseSecretsProvider)
 
 	return nil
 }

@@ -435,6 +435,30 @@ func TestController_InitializeComponents(t *testing.T) {
 			t.Logf("expected error received: %v", err)
 		}
 	})
+
+	t.Run("ErrorInitializingSecretsProvider", func(t *testing.T) {
+		// Given a new controller with a mock injector
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.InitializeFunc = func() error {
+			return fmt.Errorf("error initializing secrets provider")
+		}
+		mocks.Injector.Register("secretsProvider", mockSecretsProvider)
+
+		// When initializing the components
+		err := controller.InitializeComponents()
+
+		// Then there should be an error
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error initializing secrets provider") {
+			t.Fatalf("expected error to contain 'error initializing secrets provider', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
+		}
+	})
 }
 
 func TestController_CreateCommonComponents(t *testing.T) {
@@ -446,6 +470,23 @@ func TestController_CreateCommonComponents(t *testing.T) {
 
 		// When creating common components
 		err := controller.CreateCommonComponents()
+
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestController_CreateSecretsProvider(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new controller
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// When creating secrets provider
+		err := controller.CreateSecretsProvider()
 
 		// Then there should be no error
 		if err != nil {

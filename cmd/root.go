@@ -92,6 +92,12 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 			return fmt.Errorf("Error loading config file: %w", err)
 		}
 	}
+
+	// Create the secrets provider
+	if err := controller.CreateSecretsProvider(); err != nil {
+		return fmt.Errorf("Error creating secrets provider: %w", err)
+	}
+
 	return nil
 }
 

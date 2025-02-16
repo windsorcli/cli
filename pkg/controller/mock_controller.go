@@ -24,6 +24,7 @@ type MockController struct {
 	InitializeFunc                     func() error
 	InitializeComponentsFunc           func() error
 	CreateCommonComponentsFunc         func() error
+	CreateSecretsProviderFunc          func() error
 	CreateProjectComponentsFunc        func() error
 	CreateEnvComponentsFunc            func() error
 	CreateServiceComponentsFunc        func() error
@@ -104,6 +105,19 @@ func (m *MockController) CreateCommonComponents() error {
 	if err := resolvedShell.Initialize(); err != nil {
 		return fmt.Errorf("error initializing shell: %w", err)
 	}
+
+	return nil
+}
+
+// CreateSecretsProvider calls the mock CreateSecretsProviderFunc if set, otherwise creates mock components
+func (m *MockController) CreateSecretsProvider() error {
+	if m.CreateSecretsProviderFunc != nil {
+		return m.CreateSecretsProviderFunc()
+	}
+
+	// Create a new mock secrets provider
+	secretsProvider := secrets.NewMockSecretsProvider()
+	m.injector.Register("secretsProvider", secretsProvider)
 
 	return nil
 }

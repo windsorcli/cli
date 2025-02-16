@@ -9,6 +9,7 @@ import (
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -32,10 +33,16 @@ func setupSafeExecCmdMocks() *MockObjects {
 		return mockShell
 	}
 
+	mockSecretsProvider := &secrets.MockSecretsProvider{}
+	mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
+		return mockSecretsProvider
+	}
+
 	return &MockObjects{
-		Controller: mockController,
-		Shell:      mockShell,
-		EnvPrinter: mockEnvPrinter,
+		Controller:      mockController,
+		Shell:           mockShell,
+		EnvPrinter:      mockEnvPrinter,
+		SecretsProvider: mockSecretsProvider,
 	}
 }
 
@@ -148,14 +155,13 @@ func TestExecCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorResolvingAllEnvPrinters", func(t *testing.T) {
+	t.Run("ErrorUnlockingSecrets", func(t *testing.T) {
 		defer resetRootCmd()
 
 		// Setup mock controller
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return nil
+		mocks := setupSafeExecCmdMocks()
+		mocks.SecretsProvider.UnlockFunc = func() error {
+			return fmt.Errorf("mock error unlocking secrets")
 		}
 
 		// Capture stderr
@@ -164,7 +170,7 @@ func TestExecCmd(t *testing.T) {
 
 		// When the exec command is executed
 		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-		err := Execute(mockController)
+		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -172,9 +178,38 @@ func TestExecCmd(t *testing.T) {
 		output := buf.String()
 
 		// Then the output should indicate the error
-		expectedOutput := "Error resolving environment printers: no printers returned"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		expectedOutput := "Error: Error unlocking secrets: mock error unlocking secrets\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output to be %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorResolvingAllEnvPrinters", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Setup mock controller using setupSafeExecCmdMocks
+		mocks := setupSafeExecCmdMocks()
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return nil, fmt.Errorf("mocked error resolving env printers")
+		}
+
+		// Capture stderr
+		var buf bytes.Buffer
+		rootCmd.SetErr(&buf)
+
+		// When the exec command is executed
+		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		output := buf.String()
+
+		// Then the output should indicate the error
+		expectedOutput := "Error: Error getting environment variables: mocked error resolving env printers\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output to be %q, got %q", expectedOutput, output)
 		}
 	})
 

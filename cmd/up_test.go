@@ -8,6 +8,7 @@ import (
 	bp "github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/network"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/tools"
 
@@ -218,6 +219,21 @@ func TestUpCmd(t *testing.T) {
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error writing configuration files: error writing configuration files") {
 			t.Fatalf("Expected error containing 'Error writing configuration files: error writing configuration files', got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingSecretsProvider", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		mocks.MockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
+			return nil
+		}
+
+		// Given a mock controller that returns nil when resolving the secrets provider
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "No secrets provider found") {
+			t.Fatalf("Expected error containing 'No secrets provider found', got %v", err)
 		}
 	})
 
@@ -568,6 +584,48 @@ func TestUpCmd(t *testing.T) {
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error checking tools: mock error checking tools") {
 			t.Fatalf("Expected error containing 'Error checking tools: mock error checking tools', got %v", err)
+		}
+	})
+
+	t.Run("ErrorUnlockingSecrets", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		mocks.MockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
+			return &secrets.MockSecretsProvider{
+				UnlockFunc: func() error {
+					return fmt.Errorf("Error unlocking secrets: %w", fmt.Errorf("mock error unlocking secrets"))
+				},
+			}
+		}
+
+		// Given a mock secrets provider that returns an error when unlocking secrets
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.MockController)
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error unlocking secrets: mock error unlocking secrets") {
+			t.Fatalf("Expected error containing 'Error unlocking secrets: mock error unlocking secrets', got %v", err)
+		}
+	})
+
+	t.Run("UnlockCalledAsExpected", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+		var unlockCalled bool
+		mockSecretsProvider := &secrets.MockSecretsProvider{
+			UnlockFunc: func() error {
+				unlockCalled = true
+				return nil
+			},
+		}
+		mocks.MockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
+			return mockSecretsProvider
+		}
+
+		// Given a mock secrets provider
+		rootCmd.SetArgs([]string{"up"})
+		_ = Execute(mocks.MockController)
+
+		// Check if the Unlock function was called
+		if !unlockCalled {
+			t.Fatalf("Expected Unlock to be called, but it was not")
 		}
 	})
 }

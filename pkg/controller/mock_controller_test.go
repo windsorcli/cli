@@ -96,6 +96,34 @@ func TestMockController_CreateCommonComponents(t *testing.T) {
 	})
 }
 
+func TestMockController_CreateSecretsProvider(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new injector and mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+		// And the CreateSecretsProviderFunc is set to return nil
+		mockCtrl.CreateSecretsProviderFunc = func() error {
+			return nil
+		}
+		// When CreateSecretsProvider is called
+		if err := mockCtrl.CreateSecretsProvider(); err != nil {
+			// Then no error should be returned
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NoCreateSecretsProviderFunc", func(t *testing.T) {
+		// Given a new injector and mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+		// When CreateSecretsProvider is called without setting CreateSecretsProviderFunc
+		if err := mockCtrl.CreateSecretsProvider(); err != nil {
+			// Then no error should be returned
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
 func TestMockController_CreateProjectComponents(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new injector and mock controller

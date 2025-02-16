@@ -22,6 +22,7 @@ type Controller interface {
 	Initialize() error
 	InitializeComponents() error
 	CreateCommonComponents() error
+	CreateSecretsProvider() error
 	CreateProjectComponents() error
 	CreateEnvComponents() error
 	CreateServiceComponents() error
@@ -68,6 +69,7 @@ func (c *BaseController) Initialize() error {
 
 // InitializeComponents initializes all components.
 func (c *BaseController) InitializeComponents() error {
+
 	// Initialize the shell
 	shell := c.ResolveShell()
 	if shell != nil {
@@ -81,6 +83,14 @@ func (c *BaseController) InitializeComponents() error {
 	if secureShell != nil {
 		if err := secureShell.Initialize(); err != nil {
 			return fmt.Errorf("error initializing secure shell: %w", err)
+		}
+	}
+
+	// Initialize the secrets provider
+	secretsProvider := c.ResolveSecretsProvider()
+	if secretsProvider != nil {
+		if err := secretsProvider.Initialize(); err != nil {
+			return fmt.Errorf("error initializing secrets provider: %w", err)
 		}
 	}
 
@@ -170,6 +180,12 @@ func (c *BaseController) InitializeComponents() error {
 
 // CreateCommonComponents creates the common components.
 func (c *BaseController) CreateCommonComponents() error {
+	// no-op
+	return nil
+}
+
+// CreateSecretsProvider creates the secrets provider.
+func (c *BaseController) CreateSecretsProvider() error {
 	// no-op
 	return nil
 }

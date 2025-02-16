@@ -14,7 +14,7 @@
         "request": "launch",
         "mode": "auto",
         "program": "${workspaceFolder}/cmd/windsor/main.go",
-        "args": ["env", "--verbose"]
+        "args": ["env", "--decrypt", "--verbose"]
     },
     {
       "name": "Windsor Init",

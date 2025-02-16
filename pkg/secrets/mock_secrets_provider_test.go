@@ -71,3 +71,52 @@ func TestMockSecretsProvider_GetSecret(t *testing.T) {
 		}
 	})
 }
+
+func TestMockSecretsProvider_ParseSecrets(t *testing.T) {
+	mockParseSecretsErr := fmt.Errorf("mock parse secrets error")
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		mock := NewMockSecretsProvider()
+		mock.ParseSecretsFunc = func(input string) (string, error) {
+			return "", mockParseSecretsErr
+		}
+		_, err := mock.ParseSecrets("input")
+		if err != mockParseSecretsErr {
+			t.Errorf("Expected error = %v, got = %v", mockParseSecretsErr, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		mock := NewMockSecretsProvider()
+		output, err := mock.ParseSecrets("input")
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+		if output != "input" {
+			t.Errorf("Expected output = %v, got = %v", "input", output)
+		}
+	})
+}
+
+func TestMockSecretsProvider_Unlock(t *testing.T) {
+	mockUnlockErr := fmt.Errorf("mock unlock error")
+
+	t.Run("WithFuncSet", func(t *testing.T) {
+		mock := NewMockSecretsProvider()
+		mock.UnlockFunc = func() error {
+			return mockUnlockErr
+		}
+		err := mock.Unlock()
+		if err != mockUnlockErr {
+			t.Errorf("Expected error = %v, got = %v", mockUnlockErr, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		mock := NewMockSecretsProvider()
+		err := mock.Unlock()
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
+		}
+	})
+}

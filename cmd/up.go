@@ -44,6 +44,15 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("Error writing configuration files: %w", err)
 		}
 
+		// Resolve the secrets provider to unlock secrets.
+		secretsProvider := controller.ResolveSecretsProvider()
+		if secretsProvider == nil {
+			return fmt.Errorf("No secrets provider found")
+		}
+		if err := secretsProvider.Unlock(); err != nil {
+			return fmt.Errorf("Error unlocking secrets: %w", err)
+		}
+
 		// Resolve configuration settings and determine if specific virtualization or container runtime
 		// actions are required based on the configuration.
 		configHandler := controller.ResolveConfigHandler()

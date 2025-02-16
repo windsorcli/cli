@@ -6,6 +6,7 @@ import (
 
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -67,15 +68,19 @@ type ConfigHandler interface {
 
 	// Clean cleans up context specific artifacts
 	Clean() error
+
+	// SetSecretsProvider sets the secrets provider for the config handler
+	SetSecretsProvider(provider secrets.SecretsProvider)
 }
 
 // BaseConfigHandler is a base implementation of the ConfigHandler interface
 type BaseConfigHandler struct {
 	ConfigHandler
-	injector di.Injector
-	shell    shell.Shell
-	config   v1alpha1.Config
-	context  string
+	injector        di.Injector
+	shell           shell.Shell
+	config          v1alpha1.Config
+	context         string
+	secretsProvider secrets.SecretsProvider
 }
 
 // NewBaseConfigHandler creates a new BaseConfigHandler instance
@@ -91,6 +96,11 @@ func (c *BaseConfigHandler) Initialize() error {
 	}
 	c.shell = shell
 	return nil
+}
+
+// SetSecretsProvider sets the secrets provider for the config handler
+func (c *BaseConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {
+	c.secretsProvider = provider
 }
 
 // GetContext retrieves the current context from the file or cache
