@@ -3,6 +3,7 @@ package secrets
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -26,13 +27,12 @@ nested:
 
 	return provider
 }
-
 func TestNewSopsSecretsProvider(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		provider := setupSafeSopsSecretsProviderMocks()
 
 		// When NewSopsSecretsProvider is called
-		expectedPath := "/valid/config/path/secrets.enc.yml"
+		expectedPath := filepath.Join("/valid/config/path", "secrets.enc.yml")
 		if provider.secretsFilePath != expectedPath {
 			t.Fatalf("expected config path to be %v, got %v", expectedPath, provider.secretsFilePath)
 		}
