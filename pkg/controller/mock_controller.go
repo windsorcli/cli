@@ -177,6 +177,10 @@ func (m *MockController) CreateEnvComponents() error {
 	windsorEnv := env.NewMockEnvPrinter()
 	m.injector.Register("windsorEnv", windsorEnv)
 
+	// Create mock custom env printer
+	customEnv := env.NewMockEnvPrinter()
+	m.injector.Register("customEnv", customEnv)
+
 	return nil
 }
 
