@@ -9,6 +9,7 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	"github.com/windsorcli/cli/api/v1alpha1/git"
 	"github.com/windsorcli/cli/api/v1alpha1/network"
+	"github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/api/v1alpha1/terraform"
 	"github.com/windsorcli/cli/api/v1alpha1/vm"
 )
@@ -39,6 +40,9 @@ func TestConfig_Merge(t *testing.T) {
 			},
 			DNS: &dns.DNSConfig{
 				Enabled: ptrBool(true),
+			},
+			Secrets: &secrets.SecretsConfig{
+				Provider: "base-provider",
 			},
 			Environment: map[string]string{
 				"KEY1": "value1",
@@ -72,6 +76,9 @@ func TestConfig_Merge(t *testing.T) {
 			DNS: &dns.DNSConfig{
 				Enabled: ptrBool(false),
 			},
+			Secrets: &secrets.SecretsConfig{
+				Provider: "overlay-provider",
+			},
 			Environment: map[string]string{
 				"KEY2": "value2",
 			},
@@ -102,6 +109,9 @@ func TestConfig_Merge(t *testing.T) {
 		}
 		if base.DNS.Enabled == nil || *base.DNS.Enabled != false {
 			t.Errorf("DNS Enabled mismatch: expected false, got %v", *base.DNS.Enabled)
+		}
+		if base.Secrets.Provider != "overlay-provider" {
+			t.Errorf("Secrets Provider mismatch: expected 'overlay-provider', got '%s'", base.Secrets.Provider)
 		}
 		if len(base.Environment) != 2 || base.Environment["KEY1"] != "value1" || base.Environment["KEY2"] != "value2" {
 			t.Errorf("Environment merge mismatch: expected map with 'KEY1' and 'KEY2', got %v", base.Environment)
@@ -137,6 +147,9 @@ func TestConfig_Merge(t *testing.T) {
 			DNS: &dns.DNSConfig{
 				Enabled: ptrBool(true),
 			},
+			Secrets: &secrets.SecretsConfig{
+				Provider: "base-provider",
+			},
 			Environment: map[string]string{
 				"KEY1": "value1",
 			},
@@ -168,6 +181,9 @@ func TestConfig_Merge(t *testing.T) {
 		}
 		if base.DNS.Enabled == nil || *base.DNS.Enabled != true {
 			t.Errorf("DNS Enabled mismatch: expected true, got %v", *base.DNS.Enabled)
+		}
+		if base.Secrets.Provider != "base-provider" {
+			t.Errorf("Secrets Provider mismatch: expected 'base-provider', got '%s'", base.Secrets.Provider)
 		}
 		if len(base.Environment) != 1 || base.Environment["KEY1"] != "value1" {
 			t.Errorf("Environment mismatch: expected map with 'KEY1', got %v", base.Environment)
@@ -204,6 +220,9 @@ func TestConfig_Merge(t *testing.T) {
 			DNS: &dns.DNSConfig{
 				Enabled: ptrBool(false),
 			},
+			Secrets: &secrets.SecretsConfig{
+				Provider: "overlay-provider",
+			},
 			Environment: map[string]string{
 				"KEY2": "value2",
 			},
@@ -234,6 +253,9 @@ func TestConfig_Merge(t *testing.T) {
 		}
 		if base.DNS.Enabled == nil || *base.DNS.Enabled != false {
 			t.Errorf("DNS Enabled mismatch: expected false, got %v", *base.DNS.Enabled)
+		}
+		if base.Secrets.Provider != "overlay-provider" {
+			t.Errorf("Secrets Provider mismatch: expected 'overlay-provider', got '%s'", base.Secrets.Provider)
 		}
 		if len(base.Environment) != 1 || base.Environment["KEY2"] != "value2" {
 			t.Errorf("Environment mismatch: expected map with 'KEY2', got %v", base.Environment)

@@ -62,9 +62,9 @@ var envCmd = &cobra.Command{
 			// Unlock the SecretProvider
 			secretsProvider := controller.ResolveSecretsProvider()
 			if secretsProvider != nil {
-				if err := secretsProvider.Unlock(); err != nil {
+				if err := secretsProvider.LoadSecrets(); err != nil {
 					if verbose {
-						return fmt.Errorf("Error unlocking secrets provider: %w", err)
+						return fmt.Errorf("Error loading secrets provider: %w", err)
 					}
 					return nil
 				}

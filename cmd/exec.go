@@ -32,8 +32,8 @@ var execCmd = &cobra.Command{
 		// Unlock the SecretProvider
 		secretsProvider := controller.ResolveSecretsProvider()
 		if secretsProvider != nil {
-			if err := secretsProvider.Unlock(); err != nil {
-				return fmt.Errorf("Error unlocking secrets: %w", err)
+			if err := secretsProvider.LoadSecrets(); err != nil {
+				return fmt.Errorf("Error loading secrets: %w", err)
 			}
 		}
 

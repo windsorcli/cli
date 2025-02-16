@@ -49,8 +49,8 @@ var upCmd = &cobra.Command{
 		if secretsProvider == nil {
 			return fmt.Errorf("No secrets provider found")
 		}
-		if err := secretsProvider.Unlock(); err != nil {
-			return fmt.Errorf("Error unlocking secrets: %w", err)
+		if err := secretsProvider.LoadSecrets(); err != nil {
+			return fmt.Errorf("Error loading secrets: %w", err)
 		}
 
 		// Resolve configuration settings and determine if specific virtualization or container runtime
