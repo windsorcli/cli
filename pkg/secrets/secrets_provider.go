@@ -10,7 +10,7 @@ type SecretsProvider interface {
 	Initialize() error
 
 	// LoadSecrets loads the secrets from the specified path
-	LoadSecrets(path string) error
+	LoadSecrets() error
 
 	// GetSecret retrieves a secret value for the specified key
 	GetSecret(key string) (string, error)

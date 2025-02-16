@@ -31,10 +31,10 @@ func TestMockSecretsProvider_LoadSecrets(t *testing.T) {
 
 	t.Run("WithFuncSet", func(t *testing.T) {
 		mock := NewMockSecretsProvider()
-		mock.LoadSecretsFunc = func(path string) error {
+		mock.LoadSecretsFunc = func() error {
 			return mockLoadSecretsErr
 		}
-		err := mock.LoadSecrets("test_path")
+		err := mock.LoadSecrets()
 		if err != mockLoadSecretsErr {
 			t.Errorf("Expected error = %v, got = %v", mockLoadSecretsErr, err)
 		}
@@ -42,7 +42,7 @@ func TestMockSecretsProvider_LoadSecrets(t *testing.T) {
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		mock := NewMockSecretsProvider()
-		err := mock.LoadSecrets("test_path")
+		err := mock.LoadSecrets()
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}

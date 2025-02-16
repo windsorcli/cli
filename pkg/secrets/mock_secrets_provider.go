@@ -5,7 +5,7 @@ import "fmt"
 // MockSecretsProvider is a mock implementation of the SecretsProvider interface for testing purposes
 type MockSecretsProvider struct {
 	InitializeFunc  func() error
-	LoadSecretsFunc func(path string) error
+	LoadSecretsFunc func() error
 	GetSecretFunc   func(key string) (string, error)
 }
 
@@ -23,9 +23,9 @@ func (m *MockSecretsProvider) Initialize() error {
 }
 
 // LoadSecrets calls the mock LoadSecretsFunc if set, otherwise returns nil
-func (m *MockSecretsProvider) LoadSecrets(path string) error {
+func (m *MockSecretsProvider) LoadSecrets() error {
 	if m.LoadSecretsFunc != nil {
-		return m.LoadSecretsFunc(path)
+		return m.LoadSecretsFunc()
 	}
 	return nil
 }
