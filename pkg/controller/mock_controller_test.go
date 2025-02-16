@@ -451,7 +451,7 @@ func TestMockController_ResolveAllEnvPrinters(t *testing.T) {
 		mockCtrl := NewMockController(mocks.Injector)
 		// When ResolveAllEnvPrinters is called without setting ResolveAllEnvPrintersFunc
 		envPrinters := mockCtrl.ResolveAllEnvPrinters()
-		if len(envPrinters) != 2 {
+		if len(envPrinters) != 3 {
 			// Then the length of the returned env printers list should be 0
 			t.Fatalf("expected %v, got %v", 0, len(envPrinters))
 		}

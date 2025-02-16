@@ -707,6 +707,66 @@ func TestYamlConfigHandler_GetStringSlice(t *testing.T) {
 	})
 }
 
+func TestYamlConfigHandler_GetStringMap(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a handler with a context set
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
+		handler.config.Contexts = map[string]*v1alpha1.Context{
+			"default": {
+				Environment: map[string]string{
+					"KEY1": "value1",
+					"KEY2": "value2",
+				},
+			},
+		}
+
+		// When retrieving the map value using GetStringMap
+		value := handler.GetStringMap("environment")
+
+		// Then the returned map should match the expected map
+		expectedMap := map[string]string{"KEY1": "value1", "KEY2": "value2"}
+		if !reflect.DeepEqual(value, expectedMap) {
+			t.Errorf("Expected GetStringMap to return %v, got %v", expectedMap, value)
+		}
+	})
+
+	t.Run("WithNonExistentKey", func(t *testing.T) {
+		// Given a handler with a context set
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
+
+		// When retrieving a non-existent key using GetStringMap
+		value := handler.GetStringMap("nonExistentKey")
+
+		// Then the returned value should be an empty map
+		if !reflect.DeepEqual(value, map[string]string{}) {
+			t.Errorf("Expected GetStringMap with non-existent key to return an empty map, got %v", value)
+		}
+	})
+
+	t.Run("WithNonExistentKeyAndDefaultValue", func(t *testing.T) {
+		// Given a handler with a context set
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.context = "default"
+		defaultValue := map[string]string{"defaultKey1": "defaultValue1", "defaultKey2": "defaultValue2"}
+
+		// When retrieving a non-existent key with a default value
+		value := handler.GetStringMap("nonExistentKey", defaultValue)
+
+		// Then the returned value should match the default value
+		if !reflect.DeepEqual(value, defaultValue) {
+			t.Errorf("Expected GetStringMap with default to return %v, got %v", defaultValue, value)
+		}
+	})
+}
+
 func TestYamlConfigHandler_GetConfig(t *testing.T) {
 	t.Run("ContextIsSet", func(t *testing.T) {
 		// Given a handler with a context set

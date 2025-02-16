@@ -171,6 +171,19 @@ func (y *YamlConfigHandler) GetStringSlice(key string, defaultValue ...[]string)
 	return value.([]string)
 }
 
+// GetStringMap retrieves a map of string key-value pairs for the specified key from the configuration, with an optional default value.
+func (y *YamlConfigHandler) GetStringMap(key string, defaultValue ...map[string]string) map[string]string {
+	contextKey := fmt.Sprintf("contexts.%s.%s", y.context, key)
+	value := y.Get(contextKey)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return map[string]string{}
+	}
+	return value.(map[string]string)
+}
+
 // Set updates the value at the specified path in the configuration using reflection.
 func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 	if path == "" {

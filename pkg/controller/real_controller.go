@@ -138,6 +138,9 @@ func (c *RealController) CreateEnvComponents() error {
 	windsorEnv := env.NewWindsorEnvPrinter(c.injector)
 	c.injector.Register("windsorEnv", windsorEnv)
 
+	customEnv := env.NewCustomEnvPrinter(c.injector)
+	c.injector.Register("customEnv", customEnv)
+
 	return nil
 }
 
