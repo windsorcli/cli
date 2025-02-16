@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 )
 
+// #nosec G101
+// This directive suppresses the gosec G101 warning, which is about hardcoded credentials.
+// These are just paths, not secrets.
 const (
 	secretsFileNameYaml = "secrets.enc.yaml"
 	secretsFileNameYml  = "secrets.enc.yml"
