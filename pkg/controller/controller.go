@@ -22,7 +22,7 @@ type Controller interface {
 	Initialize() error
 	InitializeComponents() error
 	CreateCommonComponents() error
-	CreateSecretsProvider() error
+	CreateSecretsProviders() error
 	CreateProjectComponents() error
 	CreateEnvComponents() error
 	CreateServiceComponents() error
@@ -30,7 +30,7 @@ type Controller interface {
 	CreateStackComponents() error
 	ResolveInjector() di.Injector
 	ResolveConfigHandler() config.ConfigHandler
-	ResolveSecretsProvider() secrets.SecretsProvider
+	ResolveAllSecretsProviders() []secrets.SecretsProvider
 	ResolveEnvPrinter(name string) env.EnvPrinter
 	ResolveAllEnvPrinters() []env.EnvPrinter
 	ResolveShell() shell.Shell
@@ -86,11 +86,13 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Initialize the secrets provider
-	secretsProvider := c.ResolveSecretsProvider()
-	if secretsProvider != nil {
-		if err := secretsProvider.Initialize(); err != nil {
-			return fmt.Errorf("error initializing secrets provider: %w", err)
+	// Initialize the secrets providers
+	secretsProviders := c.ResolveAllSecretsProviders()
+	if len(secretsProviders) > 0 {
+		for _, secretsProvider := range secretsProviders {
+			if err := secretsProvider.Initialize(); err != nil {
+				return fmt.Errorf("error initializing secrets provider: %w", err)
+			}
 		}
 	}
 
@@ -185,7 +187,7 @@ func (c *BaseController) CreateCommonComponents() error {
 }
 
 // CreateSecretsProvider creates the secrets provider.
-func (c *BaseController) CreateSecretsProvider() error {
+func (c *BaseController) CreateSecretsProviders() error {
 	// no-op
 	return nil
 }
@@ -295,11 +297,17 @@ func (c *BaseController) ResolveConfigHandler() config.ConfigHandler {
 	return configHandler
 }
 
-// ResolveSecretsProvider resolves the secretsProvider instance.
-func (c *BaseController) ResolveSecretsProvider() secrets.SecretsProvider {
-	instance := c.injector.Resolve("secretsProvider")
-	secretsProvider, _ := instance.(secrets.SecretsProvider)
-	return secretsProvider
+// ResolveAllSecretsProviders resolves all secretsProvider instances.
+func (c *BaseController) ResolveAllSecretsProviders() []secrets.SecretsProvider {
+	instances, _ := c.injector.ResolveAll((*secrets.SecretsProvider)(nil))
+	secretsProviders := make([]secrets.SecretsProvider, 0, len(instances))
+
+	for _, instance := range instances {
+		secretsProvider, _ := instance.(secrets.SecretsProvider)
+		secretsProviders = append(secretsProviders, secretsProvider)
+	}
+
+	return secretsProviders
 }
 
 // ResolveEnvPrinter resolves the envPrinter instance.

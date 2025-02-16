@@ -224,8 +224,8 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorResolvingSecretsProvider", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
-			return nil
+		mocks.MockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+			return []secrets.SecretsProvider{}
 		}
 
 		// Given a mock controller that returns nil when resolving the secrets provider
@@ -589,10 +589,12 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorLoadingSecrets", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
-			return &secrets.MockSecretsProvider{
-				LoadSecretsFunc: func() error {
-					return fmt.Errorf("Error loading secrets: %w", fmt.Errorf("mock error loading secrets"))
+		mocks.MockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+			return []secrets.SecretsProvider{
+				&secrets.MockSecretsProvider{
+					LoadSecretsFunc: func() error {
+						return fmt.Errorf("Error loading secrets: %w", fmt.Errorf("mock error loading secrets"))
+					},
 				},
 			}
 		}
@@ -615,8 +617,8 @@ func TestUpCmd(t *testing.T) {
 				return nil
 			},
 		}
-		mocks.MockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
-			return mockSecretsProvider
+		mocks.MockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+			return []secrets.SecretsProvider{mockSecretsProvider}
 		}
 
 		// Given a mock secrets provider

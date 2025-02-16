@@ -96,28 +96,28 @@ func TestMockController_CreateCommonComponents(t *testing.T) {
 	})
 }
 
-func TestMockController_CreateSecretsProvider(t *testing.T) {
+func TestMockController_CreateSecretsProviders(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new injector and mock controller
 		mocks := setSafeControllerMocks()
 		mockCtrl := NewMockController(mocks.Injector)
-		// And the CreateSecretsProviderFunc is set to return nil
-		mockCtrl.CreateSecretsProviderFunc = func() error {
+		// And the CreateSecretsProvidersFunc is set to return nil
+		mockCtrl.CreateSecretsProvidersFunc = func() error {
 			return nil
 		}
-		// When CreateSecretsProvider is called
-		if err := mockCtrl.CreateSecretsProvider(); err != nil {
+		// When CreateSecretsProviders is called
+		if err := mockCtrl.CreateSecretsProviders(); err != nil {
 			// Then no error should be returned
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
-	t.Run("NoCreateSecretsProviderFunc", func(t *testing.T) {
+	t.Run("NoCreateSecretsProvidersFunc", func(t *testing.T) {
 		// Given a new injector and mock controller
 		mocks := setSafeControllerMocks()
 		mockCtrl := NewMockController(mocks.Injector)
-		// When CreateSecretsProvider is called without setting CreateSecretsProviderFunc
-		if err := mockCtrl.CreateSecretsProvider(); err != nil {
+		// When CreateSecretsProviders is called without setting CreateSecretsProvidersFunc
+		if err := mockCtrl.CreateSecretsProviders(); err != nil {
 			// Then no error should be returned
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -427,32 +427,36 @@ func TestMockController_ResolveConfigHandler(t *testing.T) {
 	})
 }
 
-func TestMockController_ResolveSecretsProvider(t *testing.T) {
+func TestMockController_ResolveAllSecretsProviders(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new mock secrets provider, mock injector, and mock controller
 		mocks := setSafeControllerMocks()
 		mockCtrl := NewMockController(mocks.Injector)
-		// And the ResolveSecretsProviderFunc is set to return the expected secrets provider
-		mockCtrl.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
-			return mocks.SecretsProvider
+		// And the ResolveAllSecretsProvidersFunc is set to return the expected secrets provider
+		mockCtrl.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+			return []secrets.SecretsProvider{mocks.SecretsProvider}
 		}
-		// When ResolveSecretsProvider is called
-		secretsProvider := mockCtrl.ResolveSecretsProvider()
-		if secretsProvider != mocks.SecretsProvider {
+		// When ResolveAllSecretsProviders is called
+		secretsProviders := mockCtrl.ResolveAllSecretsProviders()
+		if len(secretsProviders) != 1 {
 			// Then the returned secrets provider should be the expected secrets provider
-			t.Fatalf("expected %v, got %v", mocks.SecretsProvider, secretsProvider)
+			t.Fatalf("expected %v, got %v", 1, len(secretsProviders))
+		}
+		if secretsProviders[0] != mocks.SecretsProvider {
+			// Then the returned secrets provider should be the expected secrets provider
+			t.Fatalf("expected %v, got %v", mocks.SecretsProvider, secretsProviders[0])
 		}
 	})
 
-	t.Run("NoResolveSecretsProviderFunc", func(t *testing.T) {
+	t.Run("NoResolveAllSecretsProvidersFunc", func(t *testing.T) {
 		// Given a new mock injector and mock controller
 		mocks := setSafeControllerMocks()
 		mockCtrl := NewMockController(mocks.Injector)
-		// When ResolveSecretsProvider is called without setting ResolveSecretsProviderFunc
-		secretsProvider := mockCtrl.ResolveSecretsProvider()
-		if secretsProvider != mocks.SecretsProvider {
+		// When ResolveAllSecretsProviders is called without setting ResolveAllSecretsProvidersFunc
+		secretsProviders := mockCtrl.ResolveAllSecretsProviders()
+		if len(secretsProviders) != 1 {
 			// Then the returned secrets provider should be the same as the created secrets provider
-			t.Fatalf("expected %v, got %v", mocks.SecretsProvider, secretsProvider)
+			t.Fatalf("expected %v, got %v", 1, len(secretsProviders))
 		}
 	})
 }

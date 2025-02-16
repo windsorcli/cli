@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
@@ -16,6 +17,8 @@ import (
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/tools"
 	"github.com/windsorcli/cli/pkg/virt"
+
+	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 )
 
 // RealController struct implements the RealController interface.
@@ -245,27 +248,35 @@ func (c *RealController) CreateStackComponents() error {
 	return nil
 }
 
-// CreateSecretsProvider sets up the secrets provider based on the value of secrets.provider in the config.
-func (c *RealController) CreateSecretsProvider() error {
-	providerType := c.configHandler.GetString("secrets.provider", "")
+// CreateSecretsProviders sets up the secrets provider based on config settings.
+// It supports SOPS and 1Password CLI for decryption.
+// Registers the appropriate secrets provider with the injector.
+func (c *RealController) CreateSecretsProviders() error {
+	contextName := c.configHandler.GetContext()
+	configRoot, err := c.configHandler.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error getting config root: %w", err)
+	}
 
 	var secretsProvider secrets.SecretsProvider
 
-	switch providerType {
-	case "sops":
-		configRoot, err := c.configHandler.GetConfigRoot()
-		if err != nil {
-			return fmt.Errorf("error getting config root: %w", err)
+	secretsFilePaths := []string{"secrets.enc.yaml", "secrets.enc.yml"}
+	for _, filePath := range secretsFilePaths {
+		if _, err := osStat(filepath.Join(configRoot, filePath)); err == nil {
+			secretsProvider = secrets.NewSopsSecretsProvider(configRoot)
+			c.injector.Register("sopsSecretsProvider", secretsProvider)
+			break
 		}
-		secretsProvider = secrets.NewSopsSecretsProvider(configRoot)
-	case "":
-		secretsProvider = secrets.NewBaseSecretsProvider()
-	default:
-		return fmt.Errorf("unsupported secrets provider: %s", providerType)
 	}
 
-	c.injector.Register("secretsProvider", secretsProvider)
-	c.configHandler.SetSecretsProvider(secretsProvider)
+	vaults, ok := c.configHandler.Get(fmt.Sprintf("contexts.%s.secrets.onepassword.vaults", contextName)).(map[string]secretsConfigType.OnePasswordVault)
+	if ok && len(vaults) > 0 {
+		for _, vault := range vaults {
+			secretsProvider = secrets.NewOnePasswordCLISecretsProvider(vault)
+			c.injector.Register("onePasswordSecretsProvider", secretsProvider)
+			break
+		}
+	}
 
 	return nil
 }

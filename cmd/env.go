@@ -60,13 +60,15 @@ var envCmd = &cobra.Command{
 		decrypt, _ := cmd.Flags().GetBool("decrypt")
 		if decrypt {
 			// Unlock the SecretProvider
-			secretsProvider := controller.ResolveSecretsProvider()
-			if secretsProvider != nil {
-				if err := secretsProvider.LoadSecrets(); err != nil {
-					if verbose {
-						return fmt.Errorf("Error loading secrets provider: %w", err)
+			secretsProviders := controller.ResolveAllSecretsProviders()
+			if len(secretsProviders) > 0 {
+				for _, secretsProvider := range secretsProviders {
+					if err := secretsProvider.LoadSecrets(); err != nil {
+						if verbose {
+							return fmt.Errorf("Error loading secrets provider: %w", err)
+						}
+						return nil
 					}
-					return nil
 				}
 			}
 		}

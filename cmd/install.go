@@ -14,10 +14,12 @@ var installCmd = &cobra.Command{
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
 		// Unlock the SecretProvider
-		secretsProvider := controller.ResolveSecretsProvider()
-		if secretsProvider != nil {
-			if err := secretsProvider.LoadSecrets(); err != nil {
-				return fmt.Errorf("Error loading secrets: %w", err)
+		secretsProviders := controller.ResolveAllSecretsProviders()
+		if len(secretsProviders) > 0 {
+			for _, secretsProvider := range secretsProviders {
+				if err := secretsProvider.LoadSecrets(); err != nil {
+					return fmt.Errorf("Error loading secrets: %w", err)
+				}
 			}
 		}
 

@@ -94,7 +94,7 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 	}
 
 	// Create the secrets provider
-	if err := controller.CreateSecretsProvider(); err != nil {
+	if err := controller.CreateSecretsProviders(); err != nil {
 		return fmt.Errorf("Error creating secrets provider: %w", err)
 	}
 

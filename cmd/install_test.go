@@ -231,8 +231,8 @@ func TestInstallCmd(t *testing.T) {
 			loadCalled = true
 			return nil // or return an error if needed for testing
 		}
-		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
-			return mockSecretsProvider
+		mockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+			return []secrets.SecretsProvider{mockSecretsProvider}
 		}
 
 		// When the install command is executed
@@ -258,8 +258,8 @@ func TestInstallCmd(t *testing.T) {
 		mockSecretsProvider.LoadSecretsFunc = func() error {
 			return fmt.Errorf("mock error loading secrets")
 		}
-		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
-			return mockSecretsProvider
+		mockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+			return []secrets.SecretsProvider{mockSecretsProvider}
 		}
 
 		// When the install command is executed

@@ -427,8 +427,8 @@ func TestEnvCmd(t *testing.T) {
 			loadCalled = true
 			return nil // or return an error if needed for testing
 		}
-		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
-			return mockSecretsProvider
+		mockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+			return []secrets.SecretsProvider{mockSecretsProvider}
 		}
 
 		// When the env command is executed with the --decrypt flag
@@ -454,8 +454,8 @@ func TestEnvCmd(t *testing.T) {
 		mockSecretsProvider.LoadSecretsFunc = func() error {
 			return fmt.Errorf("load error")
 		}
-		mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
-			return mockSecretsProvider
+		mockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+			return []secrets.SecretsProvider{mockSecretsProvider}
 		}
 
 		// When the env command is executed with the --decrypt flag and verbose mode

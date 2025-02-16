@@ -45,12 +45,16 @@ var upCmd = &cobra.Command{
 		}
 
 		// Resolve the secrets provider to unlock secrets.
-		secretsProvider := controller.ResolveSecretsProvider()
-		if secretsProvider == nil {
+		secretsProviders := controller.ResolveAllSecretsProviders()
+		if len(secretsProviders) == 0 {
 			return fmt.Errorf("No secrets provider found")
 		}
-		if err := secretsProvider.LoadSecrets(); err != nil {
-			return fmt.Errorf("Error loading secrets: %w", err)
+		if len(secretsProviders) > 0 {
+			for _, secretsProvider := range secretsProviders {
+				if err := secretsProvider.LoadSecrets(); err != nil {
+					return fmt.Errorf("Error loading secrets: %w", err)
+				}
+			}
 		}
 
 		// Resolve configuration settings and determine if specific virtualization or container runtime

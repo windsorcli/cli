@@ -227,8 +227,8 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 	t.Run("ErrorCreatingSecretsProvider", func(t *testing.T) {
 		mocks := setupSafeRootMocks()
 
-		// Mock CreateSecretsProvider to return an error
-		mocks.Controller.CreateSecretsProviderFunc = func() error {
+		// Mock CreateSecretsProviders to return an error
+		mocks.Controller.CreateSecretsProvidersFunc = func() error {
 			return fmt.Errorf("error creating secrets provider")
 		}
 
