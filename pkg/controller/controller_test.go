@@ -24,6 +24,7 @@ type MockObjects struct {
 	ConfigHandler    *config.MockConfigHandler
 	SecretsProvider  *secrets.MockSecretsProvider
 	EnvPrinter       *env.MockEnvPrinter
+	CustomEnvPrinter *env.CustomEnvPrinter
 	Shell            *shell.MockShell
 	SecureShell      *shell.MockShell
 	ToolsManager     *tools.MockToolsManager
@@ -49,6 +50,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	mockSecretsProvider := secrets.NewMockSecretsProvider()
 	mockEnvPrinter1 := &env.MockEnvPrinter{}
 	mockEnvPrinter2 := &env.MockEnvPrinter{}
+	mockCustomEnvPrinter := env.NewCustomEnvPrinter(injector)
 	mockShell := &shell.MockShell{}
 	mockSecureShell := &shell.MockShell{}
 	mockToolsManager := tools.NewMockToolsManager()
@@ -66,6 +68,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	injector.Register("secretsProvider", mockSecretsProvider)
 	injector.Register("envPrinter1", mockEnvPrinter1)
 	injector.Register("envPrinter2", mockEnvPrinter2)
+	injector.Register("customEnvPrinter", mockCustomEnvPrinter)
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("toolsManager", mockToolsManager)
@@ -83,6 +86,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 		ConfigHandler:    mockConfigHandler,
 		SecretsProvider:  mockSecretsProvider,
 		EnvPrinter:       mockEnvPrinter1, // Assuming the first envPrinter is the primary one
+		CustomEnvPrinter: mockCustomEnvPrinter,
 		Shell:            mockShell,
 		SecureShell:      mockSecureShell,
 		ToolsManager:     mockToolsManager,
@@ -789,19 +793,21 @@ func TestController_ResolveAllEnvPrinters(t *testing.T) {
 		}
 
 		// And the number of resolved env printers should match the expected number
-		if len(envPrinters) != 2 {
-			t.Fatalf("expected %d env printers, got %d", 2, len(envPrinters))
+		if len(envPrinters) != 3 {
+			t.Fatalf("expected %d env printers, got %d", 3, len(envPrinters))
 		}
 
 		// And each resolved env printer should match the expected env printer
-		expectedPrinters := make(map[*env.MockEnvPrinter]bool)
+		expectedPrinters := make(map[interface{}]bool)
 		envPrinter1 := mocks.Injector.Resolve("envPrinter1")
 		envPrinter2 := mocks.Injector.Resolve("envPrinter2")
-		expectedPrinters[envPrinter1.(*env.MockEnvPrinter)] = true
-		expectedPrinters[envPrinter2.(*env.MockEnvPrinter)] = true
+		customEnvPrinter := mocks.Injector.Resolve("customEnvPrinter")
+		expectedPrinters[envPrinter1] = true
+		expectedPrinters[envPrinter2] = true
+		expectedPrinters[customEnvPrinter] = true
 
 		for _, printer := range envPrinters {
-			if _, exists := expectedPrinters[printer.(*env.MockEnvPrinter)]; !exists {
+			if _, exists := expectedPrinters[printer]; !exists {
 				t.Fatalf("unexpected printer: got %v", printer)
 			}
 		}

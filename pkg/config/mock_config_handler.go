@@ -99,6 +99,17 @@ func (m *MockConfigHandler) GetStringSlice(key string, defaultValue ...[]string)
 	return []string{}
 }
 
+// GetStringMap calls the mock GetStringMapFunc if set, otherwise returns a reasonable default map of strings
+func (m *MockConfigHandler) GetStringMap(key string, defaultValue ...map[string]string) map[string]string {
+	if m.GetStringMapFunc != nil {
+		return m.GetStringMapFunc(key, defaultValue...)
+	}
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
+	return map[string]string{}
+}
+
 // Set calls the mock SetFunc if set, otherwise returns nil
 func (m *MockConfigHandler) Set(key string, value interface{}) error {
 	if m.SetFunc != nil {

@@ -16,7 +16,7 @@ require (
 	github.com/google/go-jsonnet v0.20.0
 	github.com/hashicorp/hcl/v2 v2.23.0
 	github.com/shirou/gopsutil v3.21.11+incompatible
-	github.com/spf13/cobra v1.8.1
+	github.com/spf13/cobra v1.9.0
 	github.com/zclconf/go-cty v1.16.2
 	golang.org/x/crypto v0.33.0
 	golang.org/x/sys v0.30.0
@@ -152,7 +152,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.34.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.34.0 // indirect
 	go.opentelemetry.io/otel/trace v1.34.0 // indirect
-	golang.org/x/exp v0.0.0-20250210185358-939b2ce775ac // indirect
+	golang.org/x/exp v0.0.0-20250215185904-eff6e970281f // indirect
 	golang.org/x/mod v0.23.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/oauth2 v0.26.0 // indirect
