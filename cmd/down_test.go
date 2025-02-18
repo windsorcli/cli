@@ -144,7 +144,7 @@ func TestDownCmd(t *testing.T) {
 		callCount := 0
 		mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
 			callCount++
-			if callCount == 2 {
+			if callCount == 3 {
 				return nil
 			}
 			return config.NewMockConfigHandler()
@@ -281,6 +281,26 @@ func TestDownCmd(t *testing.T) {
 		err := Execute(mocks.MockController)
 		if err == nil || !strings.Contains(err.Error(), "Error retrieving project root") {
 			t.Fatalf("Expected error containing 'Error retrieving project root', got %v", err)
+		}
+	})
+
+	t.Run("NoProjectNameSet", func(t *testing.T) {
+		// Given a mock controller that returns an empty projectName
+		mocks := setupSafeDownCmdMocks()
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+
+		// When the "down" command is executed
+		output := captureStdout(func() {
+			rootCmd.SetArgs([]string{"down"})
+			_ = Execute(mocks.MockController)
+		})
+
+		// Then the output should contain the new message
+		expectedOutput := "Cannot tear down environment as it appears no project has been initialized.\n"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 }
