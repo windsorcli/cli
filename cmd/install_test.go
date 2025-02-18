@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	bp "github.com/windsorcli/cli/pkg/blueprint"
+	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/secrets"
@@ -269,6 +270,32 @@ func TestInstallCmd(t *testing.T) {
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error loading secrets: mock error loading secrets") {
 			t.Fatalf("Expected error containing 'Error loading secrets: mock error loading secrets', got %v", err)
+		}
+	})
+
+	t.Run("NoProjectNameSet", func(t *testing.T) {
+		// Given a mock controller returning empty projectName
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return mockConfigHandler
+		}
+
+		// When the install command is executed
+		output := captureStdout(func() {
+			rootCmd.SetArgs([]string{"install"})
+			_ = Execute(mockController)
+		})
+
+		// Then the output should contain the new message
+		expectedOutput := "Cannot install blueprint. Please run `windsor init` to set up your project first."
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 }
