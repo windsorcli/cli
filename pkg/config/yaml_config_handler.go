@@ -13,6 +13,7 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// #nosec G101 # This is just a regular expression not a secret
 const secretPlaceholderPattern = `\${{\s*([^}]+)\s*}}`
 
 // YamlConfigHandler implements the ConfigHandler interface using goccy/go-yaml
