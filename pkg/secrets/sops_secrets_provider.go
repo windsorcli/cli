@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -14,7 +15,7 @@ import (
 // We ignore the gosec G101 error here because this pattern is used for identifying secret placeholders,
 // not for storing actual secret values. The pattern itself does not contain any hardcoded credentials.
 // #nosec G101
-const sopsPattern = `(?i)\${{\s*sops\.\s*([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)\s*}}`
+const sopsPattern = `(?i)\${{\s*sops\.\s*([^}\s]*?)\s*}}`
 
 // #nosec G101
 // This directive suppresses the gosec G101 warning, which is about hardcoded credentials.
@@ -108,13 +109,25 @@ func (s *SopsSecretsProvider) ParseSecrets(input string) (string, error) {
 	re := regexp.MustCompile(sopsPattern)
 
 	input = re.ReplaceAllStringFunc(input, func(match string) string {
-		// Extract the key from the match
+		// Extract the key path from the match
 		submatches := re.FindStringSubmatch(match)
-		key := submatches[1]
+		if len(submatches) < 2 || submatches[1] == "" {
+			return "<ERROR: invalid secret format>"
+		}
+		keyPath := submatches[1]
+
+		// Parse the key path using ParseKeys
+		keys := ParseKeys(keyPath)
+		for _, key := range keys {
+			if key == "" {
+				return fmt.Sprintf("<ERROR: invalid key path: %s>", keyPath)
+			}
+		}
+
 		// Retrieve the secret value
-		value, err := s.GetSecret(key)
+		value, err := s.GetSecret(strings.Join(keys, "."))
 		if err != nil {
-			return "<ERROR: secret not found: " + key + ">"
+			return "<ERROR: secret not found: " + strings.Join(keys, ".") + ">"
 		}
 		return value
 	})

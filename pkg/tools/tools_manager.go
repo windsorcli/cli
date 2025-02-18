@@ -113,6 +113,13 @@ func (t *BaseToolsManager) Check() error {
 			return fmt.Errorf("colima check failed: %v", err)
 		}
 	}
+	if len(t.configHandler.GetStringMap("1password.vaults")) > 0 {
+		if err := t.checkOnePassword(); err != nil {
+			spin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+			return fmt.Errorf("1password check failed: %v", err)
+		}
+	}
 
 	spin.Stop()
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
@@ -270,6 +277,25 @@ func (t *BaseToolsManager) checkTerraform() error {
 	}
 	if compareVersion(terraformVersion, constants.MINIMUM_VERSION_TERRAFORM) < 0 {
 		return fmt.Errorf("terraform version %s is below the minimum required version %s", terraformVersion, constants.MINIMUM_VERSION_TERRAFORM)
+	}
+
+	return nil
+}
+
+// checkOnePassword ensures 1Password CLI is available in the system's PATH using execLookPath.
+// It checks for 'op' in the system's PATH and verifies its version.
+// Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
+func (t *BaseToolsManager) checkOnePassword() error {
+	if _, err := execLookPath("op"); err != nil {
+		return fmt.Errorf("1Password CLI is not available in the PATH")
+	}
+	output, _ := t.shell.ExecSilent("op", "--version")
+	opVersion := extractVersion(output)
+	if opVersion == "" {
+		return fmt.Errorf("failed to extract 1Password CLI version")
+	}
+	if compareVersion(opVersion, constants.MINIMUM_VERSION_1PASSWORD) < 0 {
+		return fmt.Errorf("1Password CLI version %s is below the minimum required version %s", opVersion, constants.MINIMUM_VERSION_1PASSWORD)
 	}
 
 	return nil

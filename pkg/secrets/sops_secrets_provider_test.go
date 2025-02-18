@@ -256,4 +256,64 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 			t.Errorf("ParseSecrets returned '%s', expected '%s'", output2, expectedOutput2)
 		}
 	})
+
+	t.Run("ReturnsErrorForInvalidSecretFormat", func(t *testing.T) {
+		mocks := setupSafeSopsSecretsProviderMocks()
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider.unlocked = true // Simulate that secrets have been unlocked
+
+		// Test with invalid secret format
+		input := "This is a secret: ${{ sops. }}"
+		expectedOutput := "This is a secret: <ERROR: invalid secret format>"
+
+		output, err := provider.ParseSecrets(input)
+
+		if err != nil {
+			t.Fatalf("ParseSecrets failed with error: %v", err)
+		}
+
+		if output != expectedOutput {
+			t.Errorf("ParseSecrets returned '%s', expected '%s'", output, expectedOutput)
+		}
+	})
+
+	t.Run("ReturnsErrorForNonExistentKey", func(t *testing.T) {
+		mocks := setupSafeSopsSecretsProviderMocks()
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider.unlocked = true // Simulate that secrets have been unlocked
+
+		// Test with non-existent key
+		input := "This is a secret: ${{ sops.non_existent_key }}"
+		expectedOutput := "This is a secret: <ERROR: secret not found: non_existent_key>"
+
+		output, err := provider.ParseSecrets(input)
+
+		if err != nil {
+			t.Fatalf("ParseSecrets failed with error: %v", err)
+		}
+
+		if output != expectedOutput {
+			t.Errorf("ParseSecrets returned '%s', expected '%s'", output, expectedOutput)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidKeyPath", func(t *testing.T) {
+		mocks := setupSafeSopsSecretsProviderMocks()
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider.unlocked = true // Simulate that secrets have been unlocked
+
+		// Test with invalid key path
+		input := "This is a secret: ${{ sops.invalid..key }}"
+		expectedOutput := "This is a secret: <ERROR: invalid key path: invalid..key>"
+
+		output, err := provider.ParseSecrets(input)
+
+		if err != nil {
+			t.Fatalf("ParseSecrets failed with error: %v", err)
+		}
+
+		if output != expectedOutput {
+			t.Errorf("ParseSecrets returned '%s', expected '%s'", output, expectedOutput)
+		}
+	})
 }

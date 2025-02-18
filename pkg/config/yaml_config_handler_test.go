@@ -857,14 +857,14 @@ func TestYamlConfigHandler_GetStringMap(t *testing.T) {
 
 		// Use the mock secrets provider from setupSafeMocks and set the mock function
 		mocks.SecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
-			return input, fmt.Errorf("secret not found in input: %s", input)
+			return input, fmt.Errorf("failed to parse: secrets.unknownSecret")
 		}
 
 		// When retrieving the map value using GetStringMap
 		value := handler.GetStringMap("environment")
 
 		// Then the returned map should have the unresolved secret placeholder
-		expectedMap := map[string]string{"SECRET_KEY": "${{ secrets.unknownSecret }}"}
+		expectedMap := map[string]string{"SECRET_KEY": "<ERROR: failed to parse: secrets.unknownSecret >"}
 		if !reflect.DeepEqual(value, expectedMap) {
 			t.Errorf("Expected GetStringMap to return %v, got %v", expectedMap, value)
 		}

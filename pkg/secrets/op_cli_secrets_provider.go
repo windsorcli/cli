@@ -25,14 +25,13 @@ func NewOnePasswordCLISecretsProvider(vault secretsConfigType.OnePasswordVault, 
 	}
 }
 
-// LoadSecrets loads the secrets from the specified path
+// LoadSecrets signs in to the 1Password account using the vault details and marks the provider as unlocked without loading any secrets.
 func (s *OnePasswordCLISecretsProvider) LoadSecrets() error {
-	// Sign in to the 1Password account using the vault details
-	if _, err := s.shell.ExecSilent("op", "signin", "--account", s.vault.URL); err != nil {
+	_, err := s.shell.ExecSilent("op", "signin", "--account", s.vault.URL)
+	if err != nil {
 		return fmt.Errorf("failed to sign in to 1Password: %w", err)
 	}
 
-	// Mark the provider as unlocked without loading secrets
 	s.unlocked = true
 
 	return nil
@@ -40,34 +39,42 @@ func (s *OnePasswordCLISecretsProvider) LoadSecrets() error {
 
 // GetSecret retrieves a secret value for the specified key
 func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
-	// Split the key into secret and field parts
+	if !s.unlocked {
+		return "********", nil
+	}
 	parts := strings.SplitN(key, ".", 2)
 	if len(parts) != 2 {
 		return "", fmt.Errorf("invalid key notation: %s. Expected format is 'secret.field'", key)
 	}
-	secret := parts[0]
-	field := parts[1]
 
-	// Construct the command to retrieve the secret from the vault using the op CLI
-	output, err := s.shell.ExecSilent("op", "item", "get", secret, "--vault", s.vault.Name, "--fields", field)
+	args := []string{"item", "get", parts[0], "--vault", s.vault.Name, "--fields", parts[1], "--reveal"}
+
+	output, err := s.shell.ExecSilent("op", args...)
 	if err != nil {
 		return "", fmt.Errorf("failed to retrieve secret from 1Password: %w", err)
 	}
 
-	return string(output), nil
+	return strings.TrimSpace(string(output)), nil
 }
 
 // ParseSecrets parses a string and replaces ${{ op.<id>.<secret>.<field> }} references with their values
 func (s *OnePasswordCLISecretsProvider) ParseSecrets(input string) (string, error) {
-	// Dynamically generate the regex pattern for the specific vault ID
-	opPattern := fmt.Sprintf(`(?i)\${{\s*op\.\s*%s\.\s*([a-zA-Z0-9_]+)\.\s*([a-zA-Z0-9_]+)\s*}}`, regexp.QuoteMeta(s.vault.ID))
+	// Simplified pattern to match the op secret format
+	opPattern := `(?i)\${{\s*op\.\s*([^}]+)\s*}}`
 	re := regexp.MustCompile(opPattern)
 
 	input = re.ReplaceAllStringFunc(input, func(match string) string {
-		// Extract the secret and field from the match
+		// Extract the key path from the match
 		submatches := re.FindStringSubmatch(match)
-		secret := submatches[1]
-		field := submatches[2]
+		keyPath := strings.TrimSpace(submatches[1])
+
+		// Parse the key path using ParseKeys
+		keys := ParseKeys(keyPath)
+		if len(keys) != 3 {
+			return fmt.Sprintf("<ERROR: invalid key path: %s>", keyPath)
+		}
+		secret, field := keys[1], keys[2]
+
 		// Retrieve the secret value
 		value, err := s.GetSecret(fmt.Sprintf("%s.%s", secret, field))
 		if err != nil {

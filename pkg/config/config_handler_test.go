@@ -46,7 +46,7 @@ func TestBaseConfigHandler_SetSecretsProvider(t *testing.T) {
 
 		handler.SetSecretsProvider(secretsProvider)
 
-		if handler.secretsProvider != secretsProvider {
+		if len(handler.secretsProviders) != 1 || handler.secretsProviders[0] != secretsProvider {
 			t.Errorf("Expected secretsProvider to be set")
 		}
 	})

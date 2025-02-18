@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -149,6 +150,45 @@ func TestRealController_CreateSecretsProviders(t *testing.T) {
 		// Then an error should occur
 		if err == nil || err.Error() != "error getting config root: mock error getting config root" {
 			t.Fatalf("expected error getting config root, got %v", err)
+		}
+	})
+
+	t.Run("OnePasswordVaultsExist", func(t *testing.T) {
+		// Given a new injector and a new real controller using mocks
+		injector := di.NewInjector()
+		controller := NewRealController(injector)
+
+		// Override the existing configHandler with a mock configHandler
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetFunc = func(key string) interface{} {
+			if key == "contexts.mock-context.secrets.onepassword.vaults" {
+				return map[string]secretsConfigType.OnePasswordVault{
+					"vault1": {ID: "vault1"},
+				}
+			}
+			return nil
+		}
+		injector.Register("configHandler", mockConfigHandler)
+		controller.configHandler = mockConfigHandler
+
+		// Initialize the controller
+		if err := controller.Initialize(); err != nil {
+			t.Fatalf("failed to initialize controller: %v", err)
+		}
+
+		// When creating the secrets provider
+		err := controller.CreateSecretsProviders()
+
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the OnePassword secrets provider should be registered
+		if provider := injector.Resolve("opVault1SecretsProvider"); provider == nil {
+			t.Fatalf("expected opVault1SecretsProvider to be registered, got error")
+		} else {
+			t.Logf("Success: opVault1SecretsProvider registered: %v", provider)
 		}
 	})
 }

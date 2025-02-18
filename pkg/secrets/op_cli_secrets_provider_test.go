@@ -128,7 +128,7 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 		execSilentCalled := false
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			execSilentCalled = true
-			if command == "op" && args[0] == "item" && args[1] == "get" && args[2] == "secretName" && args[3] == "--vault" && args[4] == "ExampleVault" && args[5] == "--fields" && args[6] == "fieldName" {
+			if command == "op" && args[0] == "item" && args[1] == "get" && args[2] == "secretName" && args[3] == "--vault" && args[4] == "ExampleVault" && args[5] == "--fields" && args[6] == "fieldName" && args[7] == "--reveal" {
 				return "secretValue", nil
 			}
 			return "", fmt.Errorf("unexpected command: %s", command)
@@ -143,6 +143,10 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
+		// Set the provider as unlocked
+		provider.unlocked = true
+
+		// Retrieve the secret
 		secret, err := provider.GetSecret("secretName.fieldName")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
@@ -173,6 +177,10 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
+		// Set the provider as unlocked
+		provider.unlocked = true
+
+		// Attempt to retrieve a secret with an invalid key format
 		_, err = provider.GetSecret("invalidKeyFormat")
 		if err == nil {
 			t.Fatalf("expected an error due to invalid key format, got nil")
@@ -181,6 +189,37 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 		expectedErrorMessage := "invalid key notation: invalidKeyFormat. Expected format is 'secret.field'"
 		if err.Error() != expectedErrorMessage {
 			t.Fatalf("expected error message to be %v, got %v", expectedErrorMessage, err.Error())
+		}
+	})
+
+	t.Run("RedactedSecretWhenLocked", func(t *testing.T) {
+		vault := secretsConfigType.OnePasswordVault{
+			URL:  "https://example.1password.com",
+			Name: "ExampleVault",
+		}
+
+		// Setup mocks
+		mocks := setupOnePasswordCLISecretsProviderMocks()
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
+
+		// Initialize the provider
+		err := provider.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Ensure the provider is locked
+		provider.unlocked = false
+
+		// Attempt to retrieve a secret while locked
+		secret, err := provider.GetSecret("secretName.fieldName")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		expectedRedactedSecret := "********"
+		if secret != expectedRedactedSecret {
+			t.Errorf("expected redacted secret %s, got %s", expectedRedactedSecret, secret)
 		}
 	})
 }
@@ -206,6 +245,9 @@ func TestOnePasswordCLISecretsProvider_ParseSecrets(t *testing.T) {
 
 		// Pass the injector from mocks to the provider
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
+
+		// Set the provider as unlocked
+		provider.unlocked = true
 
 		// Initialize the provider
 		err := provider.Initialize()
@@ -248,6 +290,9 @@ func TestOnePasswordCLISecretsProvider_ParseSecrets(t *testing.T) {
 		// Pass the injector from mocks to the provider
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
 
+		// Set the provider as unlocked
+		provider.unlocked = true
+
 		// Initialize the provider
 		err := provider.Initialize()
 		if err != nil {
@@ -256,6 +301,87 @@ func TestOnePasswordCLISecretsProvider_ParseSecrets(t *testing.T) {
 
 		input := "The secret is ${{ op.exampleVaultID.nonExistentSecret.fieldName }}"
 		expectedOutput := "The secret is <ERROR: secret not found: nonExistentSecret.fieldName>"
+
+		output, err := provider.ParseSecrets(input)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if output != expectedOutput {
+			t.Errorf("expected %q, got %q", expectedOutput, output)
+		}
+
+		if !execSilentCalled {
+			t.Errorf("expected ExecSilent to be called, but it was not")
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidKeyPath", func(t *testing.T) {
+		vault := secretsConfigType.OnePasswordVault{
+			URL:  "https://example.1password.com",
+			Name: "ExampleVault",
+			ID:   "exampleVaultID",
+		}
+
+		// Setup mocks
+		mocks := setupOnePasswordCLISecretsProviderMocks()
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
+
+		// Set the provider as unlocked
+		provider.unlocked = true
+
+		// Initialize the provider
+		err := provider.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Test with invalid key path
+		input := "This is a secret: ${{ op.invalidFormat }}"
+		expectedOutput := "This is a secret: <ERROR: invalid key path: invalidFormat>"
+
+		output, err := provider.ParseSecrets(input)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if output != expectedOutput {
+			t.Errorf("expected %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ReturnsErrorForEmptySecret", func(t *testing.T) {
+		vault := secretsConfigType.OnePasswordVault{
+			URL:  "https://example.1password.com",
+			Name: "ExampleVault",
+			ID:   "exampleVaultID",
+		}
+
+		// Setup mocks
+		mocks := setupOnePasswordCLISecretsProviderMocks()
+		execSilentCalled := false
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			execSilentCalled = true
+			if command == "op" && args[0] == "item" && args[1] == "get" && args[2] == "emptySecret" && args[3] == "--vault" && args[4] == "ExampleVault" && args[5] == "--fields" && args[6] == "fieldName" {
+				return "", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+
+		// Pass the injector from mocks to the provider
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
+
+		// Set the provider as unlocked
+		provider.unlocked = true
+
+		// Initialize the provider
+		err := provider.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		input := "The secret is ${{ op.exampleVaultID.emptySecret.fieldName }}."
+		expectedOutput := "The secret is ."
 
 		output, err := provider.ParseSecrets(input)
 		if err != nil {

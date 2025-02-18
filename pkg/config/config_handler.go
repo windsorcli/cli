@@ -76,11 +76,11 @@ type ConfigHandler interface {
 // BaseConfigHandler is a base implementation of the ConfigHandler interface
 type BaseConfigHandler struct {
 	ConfigHandler
-	injector        di.Injector
-	shell           shell.Shell
-	config          v1alpha1.Config
-	context         string
-	secretsProvider secrets.SecretsProvider
+	injector         di.Injector
+	shell            shell.Shell
+	config           v1alpha1.Config
+	context          string
+	secretsProviders []secrets.SecretsProvider
 }
 
 // NewBaseConfigHandler creates a new BaseConfigHandler instance
@@ -100,7 +100,7 @@ func (c *BaseConfigHandler) Initialize() error {
 
 // SetSecretsProvider sets the secrets provider for the config handler
 func (c *BaseConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {
-	c.secretsProvider = provider
+	c.secretsProviders = append(c.secretsProviders, provider)
 }
 
 // GetContext retrieves the current context from the file or cache

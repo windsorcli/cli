@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"unicode"
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
@@ -252,7 +251,7 @@ func (c *RealController) CreateStackComponents() error {
 
 // CreateSecretsProviders sets up the secrets provider based on config settings.
 // It supports SOPS and 1Password CLI for decryption.
-// Registers the appropriate secrets provider with the injector.
+// Registers the appropriate secrets provider with the injector and config handler.
 func (c *RealController) CreateSecretsProviders() error {
 	contextName := c.configHandler.GetContext()
 	configRoot, err := c.configHandler.GetConfigRoot()
@@ -260,13 +259,12 @@ func (c *RealController) CreateSecretsProviders() error {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
 
-	var secretsProvider secrets.SecretsProvider
-
 	secretsFilePaths := []string{"secrets.enc.yaml", "secrets.enc.yml"}
 	for _, filePath := range secretsFilePaths {
 		if _, err := osStat(filepath.Join(configRoot, filePath)); err == nil {
-			secretsProvider = secrets.NewSopsSecretsProvider(configRoot, c.injector)
-			c.injector.Register("sopsSecretsProvider", secretsProvider)
+			sopsSecretsProvider := secrets.NewSopsSecretsProvider(configRoot, c.injector)
+			c.injector.Register("sopsSecretsProvider", sopsSecretsProvider)
+			c.configHandler.SetSecretsProvider(sopsSecretsProvider)
 			break
 		}
 	}
@@ -275,8 +273,9 @@ func (c *RealController) CreateSecretsProviders() error {
 	if ok && len(vaults) > 0 {
 		for key, vault := range vaults {
 			vault.ID = key
-			secretsProvider = secrets.NewOnePasswordCLISecretsProvider(vault, c.injector)
-			c.injector.Register(fmt.Sprintf("op%sSecretsProvider", toCamelCase(key)), secretsProvider)
+			opSecretsProvider := secrets.NewOnePasswordCLISecretsProvider(vault, c.injector)
+			c.injector.Register(fmt.Sprintf("op%sSecretsProvider", strings.ToUpper(key[:1])+key[1:]), opSecretsProvider)
+			c.configHandler.SetSecretsProvider(opSecretsProvider)
 			break
 		}
 	}
@@ -286,23 +285,3 @@ func (c *RealController) CreateSecretsProviders() error {
 
 // Ensure RealController implements the Controller interface
 var _ Controller = (*RealController)(nil)
-
-// toCamelCase converts a string to camel case
-func toCamelCase(s string) string {
-	s = strings.ToLower(s)
-	var result string
-	capitalizeNext := false
-	for _, v := range s {
-		if v == '_' || v == '-' {
-			capitalizeNext = true
-		} else {
-			if capitalizeNext {
-				result += string(unicode.ToUpper(v))
-				capitalizeNext = false
-			} else {
-				result += string(v)
-			}
-		}
-	}
-	return result
-}

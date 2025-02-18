@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -75,6 +76,26 @@ func (s *BaseSecretsProvider) GetSecret(key string) (string, error) {
 func (s *BaseSecretsProvider) ParseSecrets(input string) (string, error) {
 	// Placeholder logic for parsing secrets
 	return input, nil
+}
+
+// ParseKeys returns an array of keys from a mixed dot/bracket path
+func ParseKeys(path string) []string {
+	// Split the path by dots, capturing empty keys
+	parts := strings.Split(path, ".")
+
+	var keys []string
+	for _, part := range parts {
+		if strings.HasPrefix(part, "[") && strings.HasSuffix(part, "]") {
+			// Handle bracket notation
+			key := part[1 : len(part)-1]
+			keys = append(keys, key)
+		} else {
+			// Handle dot notation and empty keys
+			keys = append(keys, part)
+		}
+	}
+
+	return keys
 }
 
 // Ensure BaseSecretsProvider implements SecretsProvider
