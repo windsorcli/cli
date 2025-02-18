@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
@@ -75,6 +76,35 @@ func TestExecCmd(t *testing.T) {
 		if !execCalled {
 			t.Errorf("Expected Exec to be called, but it was not")
 		}
+	})
+
+	t.Run("NoProjectNameSet", func(t *testing.T) {
+		// Given a mock controller that returns an empty projectName
+		mocks := setupSafeExecCmdMocks()
+		originalResolveConfigHandler := mocks.Controller.ResolveConfigHandlerFunc
+
+		// Override config handler to return empty projectName
+		mocks.Controller.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			mockConfig := config.NewMockConfigHandler()
+			mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+				return ""
+			}
+			return mockConfig
+		}
+
+		output := captureStdout(func() {
+			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
+			_ = Execute(mocks.Controller)
+		})
+
+		// Then the output should contain the new message
+		expectedOutput := "Cannot execute commands. Please run `windsor init` to set up your project first."
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+
+		// Restore original function if needed
+		mocks.Controller.ResolveConfigHandlerFunc = originalResolveConfigHandler
 	})
 
 	t.Run("NoCommandProvided", func(t *testing.T) {

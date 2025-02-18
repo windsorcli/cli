@@ -16,13 +16,21 @@ var getContextCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
+		// New snippet: Ensure projectName is set
+		configHandler := controller.ResolveConfigHandler()
+		projectName := configHandler.GetString("projectName")
+		if projectName == "" {
+			fmt.Println("Cannot manage contexts. Please run `windsor init` to set up your project first.")
+			return nil
+		}
+
 		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
 		// Resolve config handler
-		configHandler := controller.ResolveConfigHandler()
+		configHandler = controller.ResolveConfigHandler()
 
 		// Get the current context
 		currentContext := configHandler.GetContext()
@@ -41,13 +49,22 @@ var setContextCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1), // Ensure exactly one argument is provided
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+
+		// New snippet: Ensure projectName is set
+		configHandler := controller.ResolveConfigHandler()
+		projectName := configHandler.GetString("projectName")
+		if projectName == "" {
+			fmt.Println("Cannot manage contexts. Please run `windsor init` to set up your project first.")
+			return nil
+		}
+
 		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
 		// Resolve config handler
-		configHandler := controller.ResolveConfigHandler()
+		configHandler = controller.ResolveConfigHandler()
 
 		// Set the context
 		contextName := args[0]

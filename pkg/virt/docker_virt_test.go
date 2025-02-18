@@ -214,31 +214,6 @@ func TestDockerVirt_Initialize(t *testing.T) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
 	})
-
-	t.Run("ErrorDeterminingComposeCommand", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeDockerContainerMocks()
-		dockerVirt := NewDockerVirt(mocks.Injector)
-
-		// Mock the shell's ExecSilent function to simulate no valid docker compose command found
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("command not found")
-		}
-
-		// Call the Initialize method
-		err := dockerVirt.Initialize()
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Errorf("expected error, got none")
-		}
-
-		// Verify the error message contains the expected substring
-		expectedErrorSubstring := "error determining docker compose command"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
-		}
-	})
 }
 
 func TestDockerVirt_Up(t *testing.T) {

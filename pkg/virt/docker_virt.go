@@ -69,7 +69,8 @@ func (v *DockerVirt) Initialize() error {
 	return nil
 }
 
-// determineComposeCommand checks for available docker compose commands
+// determineComposeCommand checks for available docker compose commands. If a docker-compose
+// command is not available, none is set.
 func (v *DockerVirt) determineComposeCommand() error {
 	commands := []string{"docker-compose", "docker-cli-plugin-docker-compose", "docker compose"}
 	for _, cmd := range commands {
@@ -78,7 +79,7 @@ func (v *DockerVirt) determineComposeCommand() error {
 			return nil
 		}
 	}
-	return fmt.Errorf("no valid docker compose command found")
+	return nil
 }
 
 // Up starts docker compose
