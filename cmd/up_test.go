@@ -57,6 +57,18 @@ func setupSafeUpCmdMocks(optionalInjector ...di.Injector) MockSafeUpCmdComponent
 	mockConfigHandler.GetContextFunc = func() string {
 		return "test-context"
 	}
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		if key == "projectName" {
+			return "mockProjectName"
+		}
+		if key == "vm.driver" {
+			return "colima"
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return ""
+	}
 	injector.Register("configHandler", mockConfigHandler)
 
 	// Setup mock shell
@@ -114,6 +126,30 @@ func TestUpCmd(t *testing.T) {
 		expectedOutput := "Windsor environment set up successfully.\n"
 		if output != expectedOutput {
 			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("NoProjectNameSet", func(t *testing.T) {
+		// Given a mock controller that returns an empty projectName
+		mocks := setupSafeUpCmdMocks()
+		mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			mockConfigHandler := config.NewMockConfigHandler()
+			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+				return "" // empty
+			}
+			return mockConfigHandler
+		}
+
+		// When the "up" command is executed
+		output := captureStdout(func() {
+			rootCmd.SetArgs([]string{"up"})
+			_ = Execute(mocks.MockController)
+		})
+
+		// Then the output should contain the new message
+		expected := "Cannot set up environment. Please run `windsor init` to set up your project first."
+		if !strings.Contains(output, expected) {
+			t.Errorf("Expected to contain %q, got %q", expected, output)
 		}
 	})
 
@@ -243,7 +279,7 @@ func TestUpCmd(t *testing.T) {
 		callCount := 0
 		mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
 			callCount++
-			if callCount == 2 {
+			if callCount == 3 {
 				return nil
 			}
 			return config.NewMockConfigHandler()
@@ -418,17 +454,6 @@ func TestUpCmd(t *testing.T) {
 	t.Run("ColimaDriverSuccess", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
 
-		// Set the vmDriver to Colima in the mock config handler
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "colima"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
 		// Simulate successful virtual machine setup process
 		mocks.MockVirtualMachine.UpFunc = func(verbose ...bool) error {
 			return nil
@@ -455,17 +480,6 @@ func TestUpCmd(t *testing.T) {
 			return nil
 		}
 
-		// Set the vmDriver to Colima in the mock config handler
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "colima"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
 		// Given a mock controller that returns nil when resolving the virtual machine
 		rootCmd.SetArgs([]string{"up"})
 		err := Execute(mocks.MockController)
@@ -477,15 +491,6 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorRunningVirtualMachineUp", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "colima"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
 		mocks.MockVirtualMachine.UpFunc = func(verbose ...bool) error {
 			return fmt.Errorf("Error running virtual machine Up command: %w", fmt.Errorf("error running virtual machine up"))
 		}
@@ -504,17 +509,6 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorConfiguringGuestNetwork", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-
-		// Set the vmDriver to Colima in the mock config handler
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "colima"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
 
 		// Simulate an error when configuring the guest network
 		mocks.MockNetworkManager.ConfigureGuestFunc = func() error {
@@ -537,17 +531,6 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorConfiguringHostRoute", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-
-		// Set the vmDriver to Colima in the mock config handler
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "colima"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
 
 		// Simulate an error when configuring the host route
 		mocks.MockNetworkManager.ConfigureHostRouteFunc = func() error {

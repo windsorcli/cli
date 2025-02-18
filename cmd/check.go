@@ -15,6 +15,14 @@ var checkCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
+		// Check if projectName is set in the configuration
+		configHandler := controller.ResolveConfigHandler()
+		projectName := configHandler.GetString("projectName")
+		if projectName == "" {
+			fmt.Println("Nothing to check. Have you run \033[1mwindsor init\033[0m?")
+			return nil
+		}
+
 		// Create project components
 		if err := controller.CreateProjectComponents(); err != nil {
 			return fmt.Errorf("Error creating project components: %w", err)

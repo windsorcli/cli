@@ -12,12 +12,6 @@ It is assumed you have installed the Windsor CLI and configured `windsor hook` i
 ### Install tool dependencies
 To fully leverage the Windsor environment, you will need several tools installed on your system. You may install these tools manually or using your preferred tools manager (_e.g._ Homebrew). The Windsor project recommends [aqua](https://github.com/aquaproj/aqua). For your convenience, we have provided a sample setup file for aqua. Place this file in the root of your project.
 
-To validate your toolchain, run:
-
-```
-windsor check
-```
-
 Create an `aqua.yaml` file in your project's root directory with the following content:
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/aquaproj/aqua/main/json-schema/aqua-yaml.json
@@ -55,6 +49,12 @@ The windsor tool will create a few folders in your project. In particular, it wi
 
 ```sh
 windsor init local
+```
+
+Validate your toolchain, run:
+
+```sh
+windsor check
 ```
 
 Verify that the default 'local' context was selected:
