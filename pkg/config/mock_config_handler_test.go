@@ -103,7 +103,7 @@ func TestMockConfigHandler_SetSecretsProvider(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a mock config handler with SetSecretsProviderFunc set
 		handler := NewMockConfigHandler()
-		mockSecretsProvider := secrets.NewBaseSecretsProvider()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
 		handler.SetSecretsProviderFunc = func(provider secrets.SecretsProvider) {
 			if provider != mockSecretsProvider {
 				t.Errorf("Expected provider = %v, got = %v", mockSecretsProvider, provider)
@@ -117,7 +117,7 @@ func TestMockConfigHandler_SetSecretsProvider(t *testing.T) {
 	t.Run("WithNoFuncSet", func(t *testing.T) {
 		// Given a mock config handler without SetSecretsProviderFunc set
 		handler := NewMockConfigHandler()
-		mockSecretsProvider := secrets.NewBaseSecretsProvider()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
 
 		// When SetSecretsProvider is called
 		handler.SetSecretsProvider(mockSecretsProvider)

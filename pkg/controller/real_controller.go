@@ -3,6 +3,8 @@ package controller
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
+	"unicode"
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
@@ -263,7 +265,7 @@ func (c *RealController) CreateSecretsProviders() error {
 	secretsFilePaths := []string{"secrets.enc.yaml", "secrets.enc.yml"}
 	for _, filePath := range secretsFilePaths {
 		if _, err := osStat(filepath.Join(configRoot, filePath)); err == nil {
-			secretsProvider = secrets.NewSopsSecretsProvider(configRoot)
+			secretsProvider = secrets.NewSopsSecretsProvider(configRoot, c.injector)
 			c.injector.Register("sopsSecretsProvider", secretsProvider)
 			break
 		}
@@ -271,9 +273,10 @@ func (c *RealController) CreateSecretsProviders() error {
 
 	vaults, ok := c.configHandler.Get(fmt.Sprintf("contexts.%s.secrets.onepassword.vaults", contextName)).(map[string]secretsConfigType.OnePasswordVault)
 	if ok && len(vaults) > 0 {
-		for _, vault := range vaults {
-			secretsProvider = secrets.NewOnePasswordCLISecretsProvider(vault)
-			c.injector.Register("onePasswordSecretsProvider", secretsProvider)
+		for key, vault := range vaults {
+			vault.ID = key
+			secretsProvider = secrets.NewOnePasswordCLISecretsProvider(vault, c.injector)
+			c.injector.Register(fmt.Sprintf("op%sSecretsProvider", toCamelCase(key)), secretsProvider)
 			break
 		}
 	}
@@ -283,3 +286,23 @@ func (c *RealController) CreateSecretsProviders() error {
 
 // Ensure RealController implements the Controller interface
 var _ Controller = (*RealController)(nil)
+
+// toCamelCase converts a string to camel case
+func toCamelCase(s string) string {
+	s = strings.ToLower(s)
+	var result string
+	capitalizeNext := false
+	for _, v := range s {
+		if v == '_' || v == '-' {
+			capitalizeNext = true
+		} else {
+			if capitalizeNext {
+				result += string(unicode.ToUpper(v))
+				capitalizeNext = false
+			} else {
+				result += string(v)
+			}
+		}
+	}
+	return result
+}

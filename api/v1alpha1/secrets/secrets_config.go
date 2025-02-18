@@ -10,6 +10,7 @@ type OnePasswordConfig struct {
 }
 
 type OnePasswordVault struct {
+	ID   string `yaml:"id,omitempty"`
 	URL  string `yaml:"url,omitempty"`
 	Name string `yaml:"name,omitempty"`
 }

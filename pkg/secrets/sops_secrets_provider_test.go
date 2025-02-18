@@ -5,10 +5,18 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
-func setupSafeSopsSecretsProviderMocks() *SopsSecretsProvider {
-	provider := NewSopsSecretsProvider("/valid/config/path")
+func setupSafeSopsSecretsProviderMocks(injector ...di.Injector) *MockSafeComponents {
+	var mockInjector di.Injector
+	if len(injector) > 0 {
+		mockInjector = injector[0]
+	} else {
+		mockInjector = di.NewMockInjector()
+	}
 
 	// Mock the stat function to simulate the file exists
 	stat = func(name string) (os.FileInfo, error) {
@@ -25,14 +33,19 @@ nested:
 `), nil
 	}
 
-	return provider
+	return &MockSafeComponents{
+		Injector: mockInjector,
+		Shell:    shell.NewMockShell(),
+	}
 }
+
 func TestNewSopsSecretsProvider(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		provider := setupSafeSopsSecretsProviderMocks()
+		mocks := setupSafeSopsSecretsProviderMocks()
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
 
 		// When NewSopsSecretsProvider is called
-		expectedPath := filepath.Join("/valid/config/path", "secrets.enc.yml")
+		expectedPath := filepath.Join("/valid/config/path", "secrets.enc.yaml")
 		if provider.secretsFilePath != expectedPath {
 			t.Fatalf("expected config path to be %v, got %v", expectedPath, provider.secretsFilePath)
 		}
@@ -42,7 +55,8 @@ func TestNewSopsSecretsProvider(t *testing.T) {
 func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new SopsSecretsProvider with a valid config path
-		provider := setupSafeSopsSecretsProviderMocks()
+		mocks := setupSafeSopsSecretsProviderMocks()
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
 
 		// When LoadSecrets is called
 		err := provider.LoadSecrets()
@@ -63,7 +77,8 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 
 	t.Run("FileDoesNotExist", func(t *testing.T) {
 		// Given a new SopsSecretsProvider with an invalid config path
-		provider := setupSafeSopsSecretsProviderMocks()
+		mocks := setupSafeSopsSecretsProviderMocks()
+		provider := NewSopsSecretsProvider("/invalid/config/path", mocks.Injector)
 
 		// Mock the stat function to return an error indicating the file does not exist
 		stat = func(_ string) (os.FileInfo, error) {
@@ -87,7 +102,8 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 
 	t.Run("DecryptionFailure", func(t *testing.T) {
 		// Given a new SopsSecretsProvider with a valid config path
-		provider := setupSafeSopsSecretsProviderMocks()
+		mocks := setupSafeSopsSecretsProviderMocks()
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
 
 		// Mock the decryptFileFunc to return an error
 		decryptFileFunc = func(_ string, _ string) ([]byte, error) {
@@ -111,7 +127,8 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 
 	t.Run("YAMLUnmarshalError", func(t *testing.T) {
 		// Given a new SopsSecretsProvider with a valid config path
-		provider := setupSafeSopsSecretsProviderMocks()
+		mocks := setupSafeSopsSecretsProviderMocks()
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
 
 		// Mock the yamlUnmarshal function to return an error
 		yamlUnmarshal = func(_ []byte, _ interface{}) error {
@@ -136,7 +153,8 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 
 func TestSopsSecretsProvider_GetSecret(t *testing.T) {
 	t.Run("ReturnsMaskedValueWhenLocked", func(t *testing.T) {
-		provider := NewSopsSecretsProvider("/valid/config/path")
+		mocks := setupSafeSopsSecretsProviderMocks()
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
 		provider.secrets["test_key"] = "test_value"
 		provider.unlocked = false // Simulate that secrets are locked
 
@@ -152,7 +170,8 @@ func TestSopsSecretsProvider_GetSecret(t *testing.T) {
 	})
 
 	t.Run("ReturnsActualValueWhenUnlocked", func(t *testing.T) {
-		provider := NewSopsSecretsProvider("/valid/config/path")
+		mocks := setupSafeSopsSecretsProviderMocks()
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
 		provider.secrets["test_key"] = "test_value"
 		provider.unlocked = true // Simulate that secrets have been unlocked
 
@@ -170,7 +189,8 @@ func TestSopsSecretsProvider_GetSecret(t *testing.T) {
 
 func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 	t.Run("ReplacesSecretSuccessfully", func(t *testing.T) {
-		provider := NewSopsSecretsProvider("/valid/config/path")
+		mocks := setupSafeSopsSecretsProviderMocks()
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
 		provider.secrets["test_key"] = "test_value"
 		provider.unlocked = true // Simulate that secrets have been unlocked
 
@@ -204,7 +224,8 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenSecretNotFound", func(t *testing.T) {
-		provider := NewSopsSecretsProvider("/valid/config/path")
+		mocks := setupSafeSopsSecretsProviderMocks()
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
 		provider.unlocked = true // Simulate that secrets have been unlocked
 
 		// Test with standard notation

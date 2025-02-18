@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"github.com/windsorcli/cli/pkg/di"
 )
 
 // Define regex pattern for ${{ sops.<key> }} references as a constant
@@ -29,9 +31,9 @@ type SopsSecretsProvider struct {
 }
 
 // NewSopsSecretsProvider creates a new instance of SopsSecretsProvider.
-func NewSopsSecretsProvider(configPath string) *SopsSecretsProvider {
+func NewSopsSecretsProvider(configPath string, injector di.Injector) *SopsSecretsProvider {
 	return &SopsSecretsProvider{
-		BaseSecretsProvider: *NewBaseSecretsProvider(),
+		BaseSecretsProvider: *NewBaseSecretsProvider(injector),
 		secretsFilePath:     findSecretsFilePath(configPath),
 	}
 }

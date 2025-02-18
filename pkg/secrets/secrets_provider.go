@@ -1,5 +1,12 @@
 package secrets
 
+import (
+	"fmt"
+
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
+)
+
 // SecretsProvider defines the interface for handling secrets operations
 type SecretsProvider interface {
 	// Initialize initializes the secrets provider
@@ -19,17 +26,36 @@ type SecretsProvider interface {
 type BaseSecretsProvider struct {
 	secrets  map[string]string
 	unlocked bool
+	shell    shell.Shell
+	injector di.Injector
 }
 
 // NewBaseSecretsProvider creates a new BaseSecretsProvider instance
-func NewBaseSecretsProvider() *BaseSecretsProvider {
-	return &BaseSecretsProvider{secrets: make(map[string]string), unlocked: false}
+func NewBaseSecretsProvider(injector di.Injector) *BaseSecretsProvider {
+	return &BaseSecretsProvider{
+		secrets:  make(map[string]string),
+		unlocked: false,
+		injector: injector,
+	}
 }
 
 // Initialize initializes the secrets provider
 func (s *BaseSecretsProvider) Initialize() error {
-	// Placeholder for any initialization logic needed for the secrets provider
-	// Currently, it does nothing and returns nil
+	// Retrieve the shell instance from the injector
+	shellInstance := s.injector.Resolve("shell")
+	if shellInstance == nil {
+		return fmt.Errorf("failed to resolve shell instance from injector")
+	}
+
+	// Type assert the resolved instance to shell.Shell
+	shell, ok := shellInstance.(shell.Shell)
+	if !ok {
+		return fmt.Errorf("resolved shell instance is not of type shell.Shell")
+	}
+
+	// Assign the resolved shell instance to the BaseSecretsProvider's shell field
+	s.shell = shell
+
 	return nil
 }
 

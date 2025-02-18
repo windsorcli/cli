@@ -42,7 +42,7 @@ func TestBaseConfigHandler_SetSecretsProvider(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		injector := di.NewInjector()
 		handler := NewBaseConfigHandler(injector)
-		secretsProvider := secrets.NewBaseSecretsProvider()
+		secretsProvider := secrets.NewMockSecretsProvider()
 
 		handler.SetSecretsProvider(secretsProvider)
 

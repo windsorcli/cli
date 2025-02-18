@@ -6,7 +6,8 @@ import (
 
 func TestBaseSecretsProvider_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		provider := NewBaseSecretsProvider()
+		mocks := setupSafeMocks()
+		provider := NewBaseSecretsProvider(mocks.Injector)
 
 		err := provider.Initialize()
 
@@ -18,7 +19,8 @@ func TestBaseSecretsProvider_Initialize(t *testing.T) {
 
 func TestBaseSecretsProvider_LoadSecrets(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		provider := NewBaseSecretsProvider()
+		mocks := setupSafeMocks()
+		provider := NewBaseSecretsProvider(mocks.Injector)
 
 		err := provider.LoadSecrets()
 
@@ -34,7 +36,8 @@ func TestBaseSecretsProvider_LoadSecrets(t *testing.T) {
 
 func TestBaseSecretsProvider_GetSecret(t *testing.T) {
 	t.Run("SecretNotFound", func(t *testing.T) {
-		provider := NewBaseSecretsProvider()
+		mocks := setupSafeMocks()
+		provider := NewBaseSecretsProvider(mocks.Injector)
 
 		value, err := provider.GetSecret("non_existent_key")
 		if err != nil {
@@ -48,7 +51,8 @@ func TestBaseSecretsProvider_GetSecret(t *testing.T) {
 
 func TestBaseSecretsProvider_ParseSecrets(t *testing.T) {
 	t.Run("NoSecretsToParse", func(t *testing.T) {
-		provider := NewBaseSecretsProvider()
+		mocks := setupSafeMocks()
+		provider := NewBaseSecretsProvider(mocks.Injector)
 		input := "This is a test string with no secrets."
 		expectedOutput := "This is a test string with no secrets."
 

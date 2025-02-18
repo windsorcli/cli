@@ -3,7 +3,34 @@ package secrets
 import (
 	"fmt"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
 )
+
+type MockSafeComponents struct {
+	Injector di.Injector
+	Shell    *shell.MockShell
+}
+
+// setupSafeMocks creates mock components for testing the secrets provider
+func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
+	var mockInjector di.Injector
+	if len(injector) > 0 {
+		mockInjector = injector[0]
+	} else {
+		mockInjector = di.NewMockInjector()
+	}
+
+	// Create a mock shell
+	mockShell := shell.NewMockShell()
+	mockInjector.Register("shell", mockShell)
+
+	return MockSafeComponents{
+		Injector: mockInjector,
+		Shell:    mockShell,
+	}
+}
 
 func TestMockSecretsProvider_Initialize(t *testing.T) {
 	t.Run("Initialize", func(t *testing.T) {
