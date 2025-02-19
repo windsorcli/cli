@@ -42,7 +42,7 @@ func setupToolsMocks(injector ...di.Injector) MockToolsComponents {
 	// Mock execLookPath for different tools
 	execLookPath = func(name string) (string, error) {
 		switch name {
-		case "docker", "colima", "limactl", "kubectl", "talosctl", "terraform", "asdf", "aqua":
+		case "docker", "colima", "limactl", "kubectl", "talosctl", "terraform", "asdf", "aqua", "op":
 			return "/usr/bin/" + name, nil
 		default:
 			return "", exec.ErrNotFound
@@ -75,6 +75,10 @@ func setupToolsMocks(injector ...di.Injector) MockToolsComponents {
 		case "terraform":
 			if args[0] == "version" {
 				return fmt.Sprintf("Terraform v%s", constants.MINIMUM_VERSION_TERRAFORM), nil
+			}
+		case "op":
+			if args[0] == "--version" {
+				return fmt.Sprintf("1Password CLI %s", constants.MINIMUM_VERSION_1PASSWORD), nil
 			}
 		}
 		return "", fmt.Errorf("command not found")
@@ -169,6 +173,7 @@ func TestToolsManager_Check(t *testing.T) {
 			"terraform":      constants.MINIMUM_VERSION_TERRAFORM,
 			"talosctl":       constants.MINIMUM_VERSION_TALOSCTL,
 			"colima":         constants.MINIMUM_VERSION_COLIMA,
+			"op":             constants.MINIMUM_VERSION_1PASSWORD,
 		}
 		mocks.Shell.ExecSilentFunc = mockShellExec(toolVersions)
 
@@ -324,6 +329,33 @@ func TestToolsManager_Check(t *testing.T) {
 
 		if err == nil || !strings.Contains(err.Error(), "colima is not available in the PATH") {
 			t.Errorf("Expected colima is not available in the PATH error, got %v", err)
+		}
+	})
+
+	t.Run("OnePasswordCheckFailed", func(t *testing.T) {
+		mocks := setupToolsMocks()
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "1password.vaults" {
+				return map[string]string{"vault1": "value1"}
+			}
+			return nil
+		}
+
+		execLookPath = func(name string) (string, error) {
+			if name == "op" {
+				return "", fmt.Errorf("1Password CLI is not available in the PATH")
+			}
+			return "/usr/bin/" + name, nil
+		}
+		defer func() { execLookPath = nil }()
+
+		toolsManager := NewToolsManager(mocks.Injector)
+		toolsManager.Initialize()
+
+		err := toolsManager.Check()
+
+		if err == nil || !strings.Contains(err.Error(), "1Password CLI is not available in the PATH") {
+			t.Errorf("Expected 1Password CLI is not available in the PATH error, got %v", err)
 		}
 	})
 }
@@ -991,6 +1023,78 @@ func TestToolsManager_checkTerraform(t *testing.T) {
 
 		if err == nil || !strings.Contains(err.Error(), "terraform version 0.1.0 is below the minimum required version") {
 			t.Errorf("Expected terraform version too low error, got %v", err)
+		}
+	})
+}
+
+func TestToolsManager_checkOnePassword(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupToolsMocks()
+		toolsManager := NewToolsManager(mocks.Injector)
+		toolsManager.Initialize()
+
+		err := toolsManager.checkOnePassword()
+
+		if err != nil {
+			t.Errorf("Expected checkOnePassword to succeed, but got error: %v", err)
+		}
+	})
+
+	t.Run("OnePasswordNotAvailable", func(t *testing.T) {
+		mocks := setupToolsMocks()
+		execLookPath = func(name string) (string, error) {
+			if name == "op" {
+				return "", fmt.Errorf("1Password CLI is not available in the PATH")
+			}
+			return "/usr/bin/" + name, nil
+		}
+		defer func() { execLookPath = nil }()
+
+		toolsManager := NewToolsManager(mocks.Injector)
+		toolsManager.Initialize()
+
+		err := toolsManager.checkOnePassword()
+
+		if err == nil || !strings.Contains(err.Error(), "1Password CLI is not available in the PATH") {
+			t.Errorf("Expected 1Password CLI is not available in the PATH error, got %v", err)
+		}
+	})
+
+	t.Run("OnePasswordVersionInvalidResponse", func(t *testing.T) {
+		mocks := setupToolsMocks()
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "op" && args[0] == "--version" {
+				return "Invalid version response", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+
+		toolsManager := NewToolsManager(mocks.Injector)
+		toolsManager.Initialize()
+
+		err := toolsManager.checkOnePassword()
+
+		if err == nil || !strings.Contains(err.Error(), "failed to extract 1Password CLI version") {
+			t.Errorf("Expected failed to extract 1Password CLI version error, got %v", err)
+		}
+	})
+
+	t.Run("OnePasswordVersionTooLow", func(t *testing.T) {
+		mocks := setupToolsMocks()
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "op" && args[0] == "--version" {
+				return "1Password CLI 0.1.0", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+
+		toolsManager := NewToolsManager(mocks.Injector)
+		toolsManager.Initialize()
+
+		err := toolsManager.checkOnePassword()
+
+		if err == nil || !strings.Contains(err.Error(), "1Password CLI version 0.1.0 is below the minimum required version") {
+			t.Errorf("Expected 1Password CLI version too low error, got %v", err)
 		}
 	})
 }

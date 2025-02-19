@@ -478,7 +478,7 @@ func TestController_CreateCommonComponents(t *testing.T) {
 	})
 }
 
-func TestController_CreateSecretsProvider(t *testing.T) {
+func TestController_CreateSecretsProviders(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller
 		mocks := setSafeControllerMocks()
@@ -486,7 +486,7 @@ func TestController_CreateSecretsProvider(t *testing.T) {
 		controller.Initialize()
 
 		// When creating secrets provider
-		err := controller.CreateSecretsProvider()
+		err := controller.CreateSecretsProviders()
 
 		// Then there should be no error
 		if err != nil {
@@ -774,7 +774,7 @@ func TestController_ResolveConfigHandler(t *testing.T) {
 	})
 }
 
-func TestController_ResolveSecretsProvider(t *testing.T) {
+func TestController_ResolveAllSecretsProviders(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
 		mocks := setSafeControllerMocks()
@@ -782,16 +782,19 @@ func TestController_ResolveSecretsProvider(t *testing.T) {
 		controller.Initialize()
 
 		// When resolving the secrets provider
-		secretsProvider := controller.ResolveSecretsProvider()
+		secretsProviders := controller.ResolveAllSecretsProviders()
 
 		// Then there should be no error
-		if secretsProvider == nil {
+		if secretsProviders == nil {
 			t.Fatalf("expected no error, got nil")
 		}
 
 		// And the resolved secrets provider should match the expected secrets provider
-		if secretsProvider != mocks.SecretsProvider {
-			t.Fatalf("expected %v, got %v", mocks.SecretsProvider, secretsProvider)
+		if len(secretsProviders) != 1 {
+			t.Fatalf("expected %v, got %v", 1, len(secretsProviders))
+		}
+		if secretsProviders[0] != mocks.SecretsProvider {
+			t.Fatalf("expected %v, got %v", mocks.SecretsProvider, secretsProviders[0])
 		}
 	})
 }

@@ -42,11 +42,11 @@ func TestBaseConfigHandler_SetSecretsProvider(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		injector := di.NewInjector()
 		handler := NewBaseConfigHandler(injector)
-		secretsProvider := secrets.NewBaseSecretsProvider()
+		secretsProvider := secrets.NewMockSecretsProvider()
 
 		handler.SetSecretsProvider(secretsProvider)
 
-		if handler.secretsProvider != secretsProvider {
+		if len(handler.secretsProviders) != 1 || handler.secretsProviders[0] != secretsProvider {
 			t.Errorf("Expected secretsProvider to be set")
 		}
 	})

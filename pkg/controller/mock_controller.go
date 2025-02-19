@@ -24,7 +24,7 @@ type MockController struct {
 	InitializeFunc                     func() error
 	InitializeComponentsFunc           func() error
 	CreateCommonComponentsFunc         func() error
-	CreateSecretsProviderFunc          func() error
+	CreateSecretsProvidersFunc         func() error
 	CreateProjectComponentsFunc        func() error
 	CreateEnvComponentsFunc            func() error
 	CreateServiceComponentsFunc        func() error
@@ -45,7 +45,7 @@ type MockController struct {
 	ResolveAllGeneratorsFunc           func() []generators.Generator
 	ResolveStackFunc                   func() stack.Stack
 	ResolveBlueprintHandlerFunc        func() blueprint.BlueprintHandler
-	ResolveSecretsProviderFunc         func() secrets.SecretsProvider
+	ResolveAllSecretsProvidersFunc     func() []secrets.SecretsProvider
 	WriteConfigurationFilesFunc        func() error
 }
 
@@ -109,10 +109,10 @@ func (m *MockController) CreateCommonComponents() error {
 	return nil
 }
 
-// CreateSecretsProvider calls the mock CreateSecretsProviderFunc if set, otherwise creates mock components
-func (m *MockController) CreateSecretsProvider() error {
-	if m.CreateSecretsProviderFunc != nil {
-		return m.CreateSecretsProviderFunc()
+// CreateSecretsProviders calls the mock CreateSecretsProvidersFunc if set, otherwise creates mock components
+func (m *MockController) CreateSecretsProviders() error {
+	if m.CreateSecretsProvidersFunc != nil {
+		return m.CreateSecretsProvidersFunc()
 	}
 
 	// Create a new mock secrets provider
@@ -447,12 +447,12 @@ func (c *MockController) ResolveBlueprintHandler() blueprint.BlueprintHandler {
 	return c.BaseController.ResolveBlueprintHandler()
 }
 
-// ResolveSecretsProvider calls the mock ResolveSecretsProviderFunc if set, otherwise calls the parent function
-func (c *MockController) ResolveSecretsProvider() secrets.SecretsProvider {
-	if c.ResolveSecretsProviderFunc != nil {
-		return c.ResolveSecretsProviderFunc()
+// ResolveAllSecretsProviders calls the mock ResolveAllSecretsProvidersFunc if set, otherwise calls the parent function
+func (c *MockController) ResolveAllSecretsProviders() []secrets.SecretsProvider {
+	if c.ResolveAllSecretsProvidersFunc != nil {
+		return c.ResolveAllSecretsProvidersFunc()
 	}
-	return c.BaseController.ResolveSecretsProvider()
+	return c.BaseController.ResolveAllSecretsProviders()
 }
 
 // Ensure MockController implements Controller

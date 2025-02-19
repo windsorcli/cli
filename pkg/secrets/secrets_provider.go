@@ -2,15 +2,11 @@ package secrets
 
 import (
 	"fmt"
-	"regexp"
-)
+	"strings"
 
-// Define regex pattern for ${{ secrets.<key> }} references as a constant
-// Allow for any amount of spaces between the brackets and the "secrets.<key>"
-// We ignore the gosec G101 error here because this pattern is used for identifying secret placeholders,
-// not for storing actual secret values. The pattern itself does not contain any hardcoded credentials.
-// #nosec G101
-const secretPattern = `(?i)\${{\s*secrets\.\s*([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)\s*}}`
+	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
+)
 
 // SecretsProvider defines the interface for handling secrets operations
 type SecretsProvider interface {
@@ -31,17 +27,36 @@ type SecretsProvider interface {
 type BaseSecretsProvider struct {
 	secrets  map[string]string
 	unlocked bool
+	shell    shell.Shell
+	injector di.Injector
 }
 
 // NewBaseSecretsProvider creates a new BaseSecretsProvider instance
-func NewBaseSecretsProvider() *BaseSecretsProvider {
-	return &BaseSecretsProvider{secrets: make(map[string]string), unlocked: false}
+func NewBaseSecretsProvider(injector di.Injector) *BaseSecretsProvider {
+	return &BaseSecretsProvider{
+		secrets:  make(map[string]string),
+		unlocked: false,
+		injector: injector,
+	}
 }
 
 // Initialize initializes the secrets provider
 func (s *BaseSecretsProvider) Initialize() error {
-	// Placeholder for any initialization logic needed for the secrets provider
-	// Currently, it does nothing and returns nil
+	// Retrieve the shell instance from the injector
+	shellInstance := s.injector.Resolve("shell")
+	if shellInstance == nil {
+		return fmt.Errorf("failed to resolve shell instance from injector")
+	}
+
+	// Type assert the resolved instance to shell.Shell
+	shell, ok := shellInstance.(shell.Shell)
+	if !ok {
+		return fmt.Errorf("resolved shell instance is not of type shell.Shell")
+	}
+
+	// Assign the resolved shell instance to the BaseSecretsProvider's shell field
+	s.shell = shell
+
 	return nil
 }
 
@@ -53,32 +68,34 @@ func (s *BaseSecretsProvider) LoadSecrets() error {
 
 // GetSecret retrieves a secret value for the specified key
 func (s *BaseSecretsProvider) GetSecret(key string) (string, error) {
-	if !s.unlocked {
-		return "********", nil
-	}
-	if value, ok := s.secrets[key]; ok {
-		return value, nil
-	}
-	return "", fmt.Errorf("secret not found: %s", key)
+	// Placeholder logic for retrieving a secret
+	return "", nil
 }
 
-// ParseSecrets parses a string and replaces ${{ secrets.<key> }} references with their values
+// ParseSecrets is a placeholder function for parsing secrets
 func (s *BaseSecretsProvider) ParseSecrets(input string) (string, error) {
-	re := regexp.MustCompile(secretPattern)
-
-	input = re.ReplaceAllStringFunc(input, func(match string) string {
-		// Extract the key from the match
-		submatches := re.FindStringSubmatch(match)
-		key := submatches[1]
-		// Retrieve the secret value
-		value, err := s.GetSecret(key)
-		if err != nil {
-			return "<ERROR: secret not found: " + key + ">"
-		}
-		return value
-	})
-
+	// Placeholder logic for parsing secrets
 	return input, nil
+}
+
+// ParseKeys returns an array of keys from a mixed dot/bracket path
+func ParseKeys(path string) []string {
+	// Split the path by dots, capturing empty keys
+	parts := strings.Split(path, ".")
+
+	var keys []string
+	for _, part := range parts {
+		if strings.HasPrefix(part, "[") && strings.HasSuffix(part, "]") {
+			// Handle bracket notation
+			key := part[1 : len(part)-1]
+			keys = append(keys, key)
+		} else {
+			// Handle dot notation and empty keys
+			keys = append(keys, part)
+		}
+	}
+
+	return keys
 }
 
 // Ensure BaseSecretsProvider implements SecretsProvider

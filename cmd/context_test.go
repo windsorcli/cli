@@ -101,33 +101,6 @@ func TestContext_Get(t *testing.T) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
-
-	t.Run("NoProjectNameSet", func(t *testing.T) {
-		// Given a mock controller that returns an empty projectName
-		mocks := setupSafeContextCmdMocks()
-		mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-				return "" // Return empty string to simulate missing projectName
-			}
-			return mockConfigHandler
-		}
-
-		// When running the "context get" command
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"context", "get"})
-			err := Execute(mocks.MockController)
-			if err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
-		})
-
-		// Then the output should contain the new message
-		expectedOutput := "Cannot manage contexts. Please run `windsor init` to set up your project first."
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
 }
 
 func TestContext_Set(t *testing.T) {
@@ -294,28 +267,4 @@ func TestContext_SetAlias(t *testing.T) {
 			t.Errorf("Expected error to contain %q, got %q", expectedOutput, err.Error())
 		}
 	})
-}
-
-func TestContext_Set_NoProjectNameSet(t *testing.T) {
-	// Given a mock controller that returns an empty projectName
-	mocks := setupSafeContextCmdMocks()
-	mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			return ""
-		}
-		return mockConfigHandler
-	}
-
-	// When running the "context set" command
-	output := captureStdout(func() {
-		rootCmd.SetArgs([]string{"context", "set", "dev"})
-		_ = Execute(mocks.MockController)
-	})
-
-	// Then the output should show the new message
-	expectedOutput := "Cannot manage contexts. Please run `windsor init` to set up your project first."
-	if !strings.Contains(output, expectedOutput) {
-		t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-	}
 }

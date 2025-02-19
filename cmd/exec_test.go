@@ -35,8 +35,8 @@ func setupSafeExecCmdMocks() *MockObjects {
 	}
 
 	mockSecretsProvider := &secrets.MockSecretsProvider{}
-	mockController.ResolveSecretsProviderFunc = func() secrets.SecretsProvider {
-		return mockSecretsProvider
+	mockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+		return []secrets.SecretsProvider{mockSecretsProvider}
 	}
 
 	return &MockObjects{
