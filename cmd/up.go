@@ -63,7 +63,7 @@ var upCmd = &cobra.Command{
 
 		// Resolve configuration settings and determine if specific virtualization or container runtime
 		// actions are required based on the configuration.
-		configHandler = controller.ResolveConfigHandler()
+		configHandler := controller.ResolveConfigHandler()
 		if configHandler == nil {
 			return fmt.Errorf("No config handler found")
 		}
