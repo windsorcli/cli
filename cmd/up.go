@@ -20,7 +20,7 @@ var upCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
-		// New snippet: Ensure projectName is set
+		// // New snippet: Ensure projectName is set
 		// configHandler := controller.ResolveConfigHandler()
 		// projectName := configHandler.GetString("projectName")
 		// if projectName == "" {
@@ -68,12 +68,6 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("No config handler found")
 		}
 		vmDriver := configHandler.GetString("vm.driver")
-
-		projectName := configHandler.GetString("projectName")
-		if projectName == "" {
-			fmt.Println("Cannot set up environment. Please run `windsor init` to set up your project first.")
-			return nil
-		}
 
 		// Resolve the tools manager, check the tools, and install them
 		toolsManager := controller.ResolveToolsManager()
