@@ -21,11 +21,11 @@ var getContextCmd = &cobra.Command{
 		if configHandler == nil {
 			return fmt.Errorf("No config handler found")
 		}
-		projectName := configHandler.GetString("projectName")
-		if projectName == "" {
-			fmt.Println("Cannot manage contexts. Please run `windsor init` to set up your project first.")
-			return nil
-		}
+		// projectName := configHandler.GetString("projectName")
+		// if projectName == "" {
+		// 	fmt.Println("Cannot manage contexts. Please run `windsor init` to set up your project first.")
+		// 	return nil
+		// }
 
 		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {
@@ -58,11 +58,11 @@ var setContextCmd = &cobra.Command{
 		if configHandler == nil {
 			return fmt.Errorf("No config handler found")
 		}
-		projectName := configHandler.GetString("projectName")
-		if projectName == "" {
-			fmt.Println("Cannot manage contexts. Please run `windsor init` to set up your project first.")
-			return nil
-		}
+		// projectName := configHandler.GetString("projectName")
+		// if projectName == "" {
+		// 	fmt.Println("Cannot manage contexts. Please run `windsor init` to set up your project first.")
+		// 	return nil
+		// }
 
 		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {

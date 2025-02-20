@@ -25,11 +25,11 @@ var upCmd = &cobra.Command{
 		if configHandler == nil {
 			return fmt.Errorf("No config handler found")
 		}
-		projectName := configHandler.GetString("projectName")
-		if projectName == "" {
-			fmt.Println("Cannot set up environment. Please run `windsor init` to set up your project first.")
-			return nil
-		}
+		// projectName := configHandler.GetString("projectName")
+		// if projectName == "" {
+		// 	fmt.Println("Cannot set up environment. Please run `windsor init` to set up your project first.")
+		// 	return nil
+		// }
 
 		// Create and initialize all necessary components for the Windsor environment.
 		// This includes project, environment, virtualization, service, and stack components.
