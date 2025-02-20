@@ -20,10 +20,9 @@ var upCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
-		// New snippet: Ensure projectName is set
+		// Ensure configuration is loaded
 		configHandler := controller.ResolveConfigHandler()
-		projectName := configHandler.GetString("projectName")
-		if projectName == "" {
+		if !configHandler.IsLoaded() {
 			fmt.Println("Cannot set up environment. Please run `windsor init` to set up your project first.")
 			return nil
 		}
@@ -54,23 +53,14 @@ var upCmd = &cobra.Command{
 
 		// Resolve the secrets provider to unlock secrets.
 		secretsProviders := controller.ResolveAllSecretsProviders()
-		if len(secretsProviders) == 0 {
-			return fmt.Errorf("No secrets provider found")
-		}
-		if len(secretsProviders) > 0 {
-			for _, secretsProvider := range secretsProviders {
-				if err := secretsProvider.LoadSecrets(); err != nil {
-					return fmt.Errorf("Error loading secrets: %w", err)
-				}
+		for _, secretsProvider := range secretsProviders {
+			if err := secretsProvider.LoadSecrets(); err != nil {
+				return fmt.Errorf("Error loading secrets: %w", err)
 			}
 		}
 
 		// Resolve configuration settings and determine if specific virtualization or container runtime
 		// actions are required based on the configuration.
-		configHandler = controller.ResolveConfigHandler()
-		if configHandler == nil {
-			return fmt.Errorf("No config handler found")
-		}
 		vmDriver := configHandler.GetString("vm.driver")
 
 		// Resolve the tools manager, check the tools, and install them

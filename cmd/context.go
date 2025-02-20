@@ -24,6 +24,11 @@ var getContextCmd = &cobra.Command{
 		// Resolve config handler
 		configHandler := controller.ResolveConfigHandler()
 
+		// Check if config is loaded
+		if !configHandler.IsLoaded() {
+			return fmt.Errorf("No context is available. Have you run `windsor init`?")
+		}
+
 		// Get the current context
 		currentContext := configHandler.GetContext()
 
@@ -49,6 +54,11 @@ var setContextCmd = &cobra.Command{
 
 		// Resolve config handler
 		configHandler := controller.ResolveConfigHandler()
+
+		// Check if config is loaded
+		if !configHandler.IsLoaded() {
+			return fmt.Errorf("Configuration is not loaded. Please ensure it is initialized.")
+		}
 
 		// Set the context
 		contextName := args[0]
