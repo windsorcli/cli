@@ -23,6 +23,9 @@ var downCmd = &cobra.Command{
 
 		// Ensure configuration is loaded
 		configHandler := controller.ResolveConfigHandler()
+		if configHandler == nil {
+			return fmt.Errorf("No config handler found")
+		}
 		if !configHandler.IsLoaded() {
 			return fmt.Errorf("No configuration is loaded. Is there a project to tear down?")
 		}

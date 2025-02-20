@@ -16,8 +16,7 @@ var installCmd = &cobra.Command{
 		// Ensure configuration is loaded
 		configHandler := controller.ResolveConfigHandler()
 		if !configHandler.IsLoaded() {
-			fmt.Println("Cannot install blueprint. Please run `windsor init` to set up your project first.")
-			return nil
+			return fmt.Errorf("Cannot install blueprint. Please run `windsor init` to set up your project first.")
 		}
 
 		// Unlock the SecretProvider

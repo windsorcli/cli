@@ -22,6 +22,9 @@ var upCmd = &cobra.Command{
 
 		// Ensure configuration is loaded
 		configHandler := controller.ResolveConfigHandler()
+		if configHandler == nil {
+			return fmt.Errorf("No config handler found")
+		}
 		if !configHandler.IsLoaded() {
 			fmt.Println("Cannot set up environment. Please run `windsor init` to set up your project first.")
 			return nil
