@@ -15,6 +15,9 @@ var installCmd = &cobra.Command{
 
 		// New snippet: Ensure projectName is set
 		configHandler := controller.ResolveConfigHandler()
+		if configHandler == nil {
+			return fmt.Errorf("No config handler found")
+		}
 		projectName := configHandler.GetString("projectName")
 		if projectName == "" {
 			fmt.Println("Cannot install blueprint. Please run `windsor init` to set up your project first.")
