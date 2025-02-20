@@ -53,6 +53,9 @@ func setupSafeDownCmdMocks(optionalInjector ...di.Injector) MockSafeDownCmdCompo
 	mockConfigHandler.GetContextFunc = func() string {
 		return "test-context"
 	}
+	mockConfigHandler.IsLoadedFunc = func() bool {
+		return true
+	}
 	injector.Register("configHandler", mockConfigHandler)
 
 	// Setup mock shell
@@ -140,14 +143,14 @@ func TestDownCmd(t *testing.T) {
 
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
-		// Allows for reaching the second call of the function
+		// Allows for reaching the third call of the function
 		callCount := 0
 		mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
 			callCount++
-			if callCount == 3 {
+			if callCount == 2 {
 				return nil
 			}
-			return config.NewMockConfigHandler()
+			return mocks.MockConfigHandler
 		}
 
 		// Given a mock controller that returns nil on the second call to ResolveConfigHandler
@@ -177,11 +180,10 @@ func TestDownCmd(t *testing.T) {
 	t.Run("ErrorRunningContainerRuntimeDown", func(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
 		mocks.MockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
-			mockCR := virt.NewMockVirt()
-			mockCR.DownFunc = func() error {
+			mocks.MockContainerRuntime.DownFunc = func() error {
 				return fmt.Errorf("Error running container runtime Down command: %w", fmt.Errorf("error running container runtime down"))
 			}
-			return mockCR
+			return mocks.MockContainerRuntime
 		}
 
 		// Given a mock container runtime that returns an error when running the Down command
@@ -195,12 +197,8 @@ func TestDownCmd(t *testing.T) {
 
 	t.Run("ErrorCleaningConfigArtifacts", func(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
-		mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-			mockConfigHandler := config.NewMockConfigHandler()
-			mockConfigHandler.CleanFunc = func() error {
-				return fmt.Errorf("Error cleaning up context specific artifacts: %w", fmt.Errorf("error cleaning context artifacts"))
-			}
-			return mockConfigHandler
+		mocks.MockConfigHandler.CleanFunc = func() error {
+			return fmt.Errorf("Error cleaning up context specific artifacts: %w", fmt.Errorf("error cleaning context artifacts"))
 		}
 
 		// Given a mock context handler that returns an error when cleaning context specific artifacts
@@ -284,23 +282,17 @@ func TestDownCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("NoProjectNameSet", func(t *testing.T) {
-		// Given a mock controller that returns an empty projectName
+	t.Run("ErrorConfigNotLoaded", func(t *testing.T) {
+		// Create mock components
 		mocks := setupSafeDownCmdMocks()
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			return ""
-		}
+		mocks.MockConfigHandler.IsLoadedFunc = func() bool { return false }
 
-		// When the "down" command is executed
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"down"})
-			_ = Execute(mocks.MockController)
-		})
+		// When: the down command is executed
+		err := Execute(mocks.MockController)
 
-		// Then the output should contain the new message
-		expectedOutput := "Cannot tear down environment as it appears no project has been initialized.\n"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// Then: it should return an error indicating the configuration is not loaded
+		if err == nil || !strings.Contains(err.Error(), "No configuration is loaded. Is there a project to tear down?") {
+			t.Errorf("Expected error about configuration not loaded, got %v", err)
 		}
 	})
 }

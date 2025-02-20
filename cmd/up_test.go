@@ -18,19 +18,19 @@ import (
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
-type MockSafeUpCmdComponents struct {
-	Injector             di.Injector
-	MockController       *ctrl.MockController
-	MockConfigHandler    *config.MockConfigHandler
-	MockShell            *shell.MockShell
-	MockNetworkManager   *network.MockNetworkManager
-	MockToolsManager     *tools.MockToolsManager
-	MockVirtualMachine   *virt.MockVirt
-	MockContainerRuntime *virt.MockVirt
+type SafeUpCmdComponents struct {
+	Injector         di.Injector
+	Controller       *ctrl.MockController
+	ConfigHandler    *config.MockConfigHandler
+	Shell            *shell.MockShell
+	NetworkManager   *network.MockNetworkManager
+	ToolsManager     *tools.MockToolsManager
+	VirtualMachine   *virt.MockVirt
+	ContainerRuntime *virt.MockVirt
 }
 
 // setupSafeUpCmdMocks creates mock components for testing the up command
-func setupSafeUpCmdMocks(optionalInjector ...di.Injector) MockSafeUpCmdComponents {
+func setupSafeUpCmdMocks(optionalInjector ...di.Injector) SafeUpCmdComponents {
 	var mockController *ctrl.MockController
 	var injector di.Injector
 
@@ -69,6 +69,9 @@ func setupSafeUpCmdMocks(optionalInjector ...di.Injector) MockSafeUpCmdComponent
 		}
 		return ""
 	}
+	mockConfigHandler.IsLoadedFunc = func() bool {
+		return true
+	}
 	injector.Register("configHandler", mockConfigHandler)
 
 	// Setup mock shell
@@ -91,15 +94,15 @@ func setupSafeUpCmdMocks(optionalInjector ...di.Injector) MockSafeUpCmdComponent
 	mockToolsManager := tools.NewMockToolsManager()
 	injector.Register("toolsManager", mockToolsManager)
 
-	return MockSafeUpCmdComponents{
-		Injector:             injector,
-		MockController:       mockController,
-		MockConfigHandler:    mockConfigHandler,
-		MockShell:            mockShell,
-		MockNetworkManager:   mockNetworkManager,
-		MockToolsManager:     mockToolsManager,
-		MockVirtualMachine:   mockVirtualMachine,
-		MockContainerRuntime: mockContainerRuntime,
+	return SafeUpCmdComponents{
+		Injector:         injector,
+		Controller:       mockController,
+		ConfigHandler:    mockConfigHandler,
+		Shell:            mockShell,
+		NetworkManager:   mockNetworkManager,
+		ToolsManager:     mockToolsManager,
+		VirtualMachine:   mockVirtualMachine,
+		ContainerRuntime: mockContainerRuntime,
 	}
 }
 
@@ -117,7 +120,7 @@ func TestUpCmd(t *testing.T) {
 		// When the up command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"up"})
-			if err := Execute(mocks.MockController); err != nil {
+			if err := Execute(mocks.Controller); err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
 		})
@@ -132,7 +135,7 @@ func TestUpCmd(t *testing.T) {
 	t.Run("NoProjectNameSet", func(t *testing.T) {
 		// Given a mock controller that returns an empty projectName
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+		mocks.Controller.ResolveConfigHandlerFunc = func() config.ConfigHandler {
 			mockConfigHandler := config.NewMockConfigHandler()
 			mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 				return "" // empty
@@ -143,7 +146,7 @@ func TestUpCmd(t *testing.T) {
 		// When the "up" command is executed
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"up"})
-			_ = Execute(mocks.MockController)
+			_ = Execute(mocks.Controller)
 		})
 
 		// Then the output should contain the new message
@@ -155,13 +158,13 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorCreatingProjectComponents", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.CreateProjectComponentsFunc = func() error {
+		mocks.Controller.CreateProjectComponentsFunc = func() error {
 			return fmt.Errorf("error creating project components")
 		}
 
 		// Given a mock controller that returns an error when creating project components
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "error creating project components") {
 			t.Fatalf("Expected error containing 'error creating project components', got %v", err)
@@ -170,13 +173,13 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.CreateEnvComponentsFunc = func() error {
+		mocks.Controller.CreateEnvComponentsFunc = func() error {
 			return fmt.Errorf("Error creating environment components: %w", fmt.Errorf("error creating environment components"))
 		}
 
 		// Given a mock controller that returns an error when creating environment components
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error creating environment components: error creating environment components") {
 			t.Fatalf("Expected error containing 'Error creating environment components: error creating environment components', got %v", err)
@@ -185,13 +188,13 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorCreatingServiceComponents", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.CreateServiceComponentsFunc = func() error {
+		mocks.Controller.CreateServiceComponentsFunc = func() error {
 			return fmt.Errorf("Error creating service components: %w", fmt.Errorf("error creating service components"))
 		}
 
 		// Given a mock controller that returns an error when creating service components
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error creating service components: error creating service components") {
 			t.Fatalf("Expected error containing 'Error creating service components: error creating service components', got %v", err)
@@ -200,13 +203,13 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorCreatingVirtualizationComponents", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.CreateVirtualizationComponentsFunc = func() error {
+		mocks.Controller.CreateVirtualizationComponentsFunc = func() error {
 			return fmt.Errorf("Error creating virtualization components: %w", fmt.Errorf("error creating virtualization components"))
 		}
 
 		// Given a mock controller that returns an error when creating virtualization components
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error creating virtualization components: error creating virtualization components") {
 			t.Fatalf("Expected error containing 'Error creating virtualization components: error creating virtualization components', got %v", err)
@@ -215,13 +218,13 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorCreatingStackComponents", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.CreateStackComponentsFunc = func() error {
+		mocks.Controller.CreateStackComponentsFunc = func() error {
 			return fmt.Errorf("Error creating stack components: %w", fmt.Errorf("error creating stack components"))
 		}
 
 		// Given a mock controller that returns an error when creating stack components
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error creating stack components: error creating stack components") {
 			t.Fatalf("Expected error containing 'Error creating stack components: error creating stack components', got %v", err)
@@ -230,13 +233,13 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorInitializingComponents", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.InitializeComponentsFunc = func() error {
+		mocks.Controller.InitializeComponentsFunc = func() error {
 			return fmt.Errorf("Error initializing components: %w", fmt.Errorf("error initializing components"))
 		}
 
 		// Given a mock controller that returns an error when initializing components
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error initializing components: error initializing components") {
 			t.Fatalf("Expected error containing 'Error initializing components: error initializing components', got %v", err)
@@ -245,31 +248,16 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorWritingConfigurationFiles", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.WriteConfigurationFilesFunc = func() error {
+		mocks.Controller.WriteConfigurationFilesFunc = func() error {
 			return fmt.Errorf("Error writing configuration files: %w", fmt.Errorf("error writing configuration files"))
 		}
 
 		// Given a mock controller that returns an error when writing configuration files
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error writing configuration files: error writing configuration files") {
 			t.Fatalf("Expected error containing 'Error writing configuration files: error writing configuration files', got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingSecretsProvider", func(t *testing.T) {
-		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
-			return []secrets.SecretsProvider{}
-		}
-
-		// Given a mock controller that returns nil when resolving the secrets provider
-		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "No secrets provider found") {
-			t.Fatalf("Expected error containing 'No secrets provider found', got %v", err)
 		}
 	})
 
@@ -277,17 +265,17 @@ func TestUpCmd(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
 		// Allows for reaching the second call of the function
 		callCount := 0
-		mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+		mocks.Controller.ResolveConfigHandlerFunc = func() config.ConfigHandler {
 			callCount++
-			if callCount == 3 {
+			if callCount == 2 {
 				return nil
 			}
-			return config.NewMockConfigHandler()
+			return mocks.ConfigHandler
 		}
 
 		// Given a mock controller that returns nil on the second call to ResolveConfigHandler
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "No config handler found") {
 			t.Fatalf("Expected error containing 'No config handler found', got %v", err)
@@ -296,7 +284,7 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorInstallingTools", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveToolsManagerFunc = func() tools.ToolsManager {
+		mocks.Controller.ResolveToolsManagerFunc = func() tools.ToolsManager {
 			return &tools.MockToolsManager{
 				InstallFunc: func() error {
 					return fmt.Errorf("error installing tools")
@@ -306,7 +294,7 @@ func TestUpCmd(t *testing.T) {
 
 		// Given a mock controller that returns a mock tools manager with an error when installing tools
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error installing tools: error installing tools") {
 			t.Fatalf("Expected error containing 'Error installing tools: error installing tools', got %v", err)
@@ -315,13 +303,13 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorResolvingContainerRuntime", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
+		mocks.Controller.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
 			return nil
 		}
 
 		// Given a mock controller that returns nil when resolving the container runtime
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "No container runtime found") {
 			t.Fatalf("Expected error containing 'No container runtime found', got %v", err)
@@ -330,7 +318,7 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorRunningContainerRuntimeUp", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
+		mocks.Controller.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
 			mockCR := virt.NewMockVirt()
 			mockCR.UpFunc = func(verbose ...bool) error {
 				return fmt.Errorf("Error running container runtime Up command: %w", fmt.Errorf("error running container runtime up"))
@@ -340,7 +328,7 @@ func TestUpCmd(t *testing.T) {
 
 		// Given a mock container runtime that returns an error when running the Up command
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error running container runtime Up command: error running container runtime up") {
 			t.Fatalf("Expected error containing 'Error running container runtime Up command: error running container runtime up', got %v", err)
@@ -349,13 +337,13 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorResolvingNetworkManager", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
+		mocks.Controller.ResolveNetworkManagerFunc = func() network.NetworkManager {
 			return nil
 		}
 
 		// Given a mock controller that returns nil when resolving the network manager
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "No network manager found") {
 			t.Fatalf("Expected error containing 'No network manager found', got %v", err)
@@ -364,7 +352,7 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorConfiguringDNS", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
+		mocks.Controller.ResolveNetworkManagerFunc = func() network.NetworkManager {
 			mockNM := network.NewMockNetworkManager()
 			mockNM.ConfigureDNSFunc = func() error {
 				return fmt.Errorf("Error configuring DNS: %w", fmt.Errorf("error configuring DNS"))
@@ -374,7 +362,7 @@ func TestUpCmd(t *testing.T) {
 
 		// Given a mock network manager that returns an error when configuring DNS
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error configuring DNS") {
 			t.Fatalf("Expected error containing 'Error configuring DNS', got %v", err)
@@ -383,13 +371,13 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("NoStackFound", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveStackFunc = func() stack.Stack {
+		mocks.Controller.ResolveStackFunc = func() stack.Stack {
 			return nil
 		}
 
 		// Given a mock controller that returns nil when resolving the stack
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "No stack found") {
 			t.Fatalf("Expected error containing 'No stack found', got %v", err)
@@ -399,7 +387,7 @@ func TestUpCmd(t *testing.T) {
 	t.Run("ErrorRunningStackUp", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
 		injector := mocks.Injector
-		mocks.MockController.ResolveStackFunc = func() stack.Stack {
+		mocks.Controller.ResolveStackFunc = func() stack.Stack {
 			mockStack := stack.NewMockStack(injector)
 			mockStack.UpFunc = func() error {
 				return fmt.Errorf("Error running stack Up command: %w", fmt.Errorf("error running stack up"))
@@ -409,7 +397,7 @@ func TestUpCmd(t *testing.T) {
 
 		// Given a mock stack that returns an error when running the Up command
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error running stack Up command: error running stack up") {
 			t.Fatalf("Expected error containing 'Error running stack Up command: error running stack up', got %v", err)
@@ -419,7 +407,7 @@ func TestUpCmd(t *testing.T) {
 	t.Run("ErrorInstallingBlueprint", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
 		injector := mocks.Injector
-		mocks.MockController.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
+		mocks.Controller.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
 			mockBlueprintHandler := bp.NewMockBlueprintHandler(injector)
 			mockBlueprintHandler.InstallFunc = func() error {
 				return fmt.Errorf("Error installing blueprint: %w", fmt.Errorf("installation failed"))
@@ -429,7 +417,7 @@ func TestUpCmd(t *testing.T) {
 
 		// Given a mock blueprint handler that returns an error when installing
 		rootCmd.SetArgs([]string{"up", "--install"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error installing blueprint: installation failed") {
 			t.Fatalf("Expected error containing 'Error installing blueprint: installation failed', got %v", err)
@@ -438,13 +426,13 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorResolvingBlueprintHandler", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
+		mocks.Controller.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
 			return nil
 		}
 
 		// Given a mock controller that returns nil when resolving the blueprint handler
 		rootCmd.SetArgs([]string{"up", "--install"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "No blueprint handler found") {
 			t.Fatalf("Expected error containing 'No blueprint handler found', got %v", err)
@@ -455,19 +443,19 @@ func TestUpCmd(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
 
 		// Simulate successful virtual machine setup process
-		mocks.MockVirtualMachine.UpFunc = func(verbose ...bool) error {
+		mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
 			return nil
 		}
-		mocks.MockNetworkManager.ConfigureGuestFunc = func() error {
+		mocks.NetworkManager.ConfigureGuestFunc = func() error {
 			return nil
 		}
-		mocks.MockNetworkManager.ConfigureHostRouteFunc = func() error {
+		mocks.NetworkManager.ConfigureHostRouteFunc = func() error {
 			return nil
 		}
 
 		// Given a mock controller with Colima driver success
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then there should be no error
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -476,13 +464,13 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("NoVirtualMachineFound", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
+		mocks.Controller.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
 			return nil
 		}
 
 		// Given a mock controller that returns nil when resolving the virtual machine
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "No virtual machine found") {
 			t.Fatalf("Expected error containing 'No virtual machine found', got %v", err)
@@ -491,16 +479,16 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorRunningVirtualMachineUp", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockVirtualMachine.UpFunc = func(verbose ...bool) error {
+		mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
 			return fmt.Errorf("Error running virtual machine Up command: %w", fmt.Errorf("error running virtual machine up"))
 		}
-		mocks.MockController.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
-			return mocks.MockVirtualMachine
+		mocks.Controller.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
+			return mocks.VirtualMachine
 		}
 
 		// Given a mock controller with Colima driver and virtual machine up error
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error running virtual machine Up command") {
 			t.Fatalf("Expected error containing 'Error running virtual machine Up command', got %v", err)
@@ -511,18 +499,18 @@ func TestUpCmd(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
 
 		// Simulate an error when configuring the guest network
-		mocks.MockNetworkManager.ConfigureGuestFunc = func() error {
+		mocks.NetworkManager.ConfigureGuestFunc = func() error {
 			return fmt.Errorf("Error configuring guest network: %w", fmt.Errorf("network configuration failed"))
 		}
 
 		// Resolve the mocked network manager
-		mocks.MockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
-			return mocks.MockNetworkManager
+		mocks.Controller.ResolveNetworkManagerFunc = func() network.NetworkManager {
+			return mocks.NetworkManager
 		}
 
 		// Given a mock network manager that returns an error when configuring the guest network
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error configuring guest network: network configuration failed") {
 			t.Fatalf("Expected error containing 'Error configuring guest network: network configuration failed', got %v", err)
@@ -533,18 +521,18 @@ func TestUpCmd(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
 
 		// Simulate an error when configuring the host route
-		mocks.MockNetworkManager.ConfigureHostRouteFunc = func() error {
+		mocks.NetworkManager.ConfigureHostRouteFunc = func() error {
 			return fmt.Errorf("Error configuring host network: %w", fmt.Errorf("host route configuration failed"))
 		}
 
 		// Resolve the mocked network manager
-		mocks.MockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
-			return mocks.MockNetworkManager
+		mocks.Controller.ResolveNetworkManagerFunc = func() network.NetworkManager {
+			return mocks.NetworkManager
 		}
 
 		// Given a mock network manager that returns an error when configuring the host route
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error configuring host network: host route configuration failed") {
 			t.Fatalf("Expected error containing 'Error configuring host network: host route configuration failed', got %v", err)
@@ -553,7 +541,7 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorCheckingTools", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveToolsManagerFunc = func() tools.ToolsManager {
+		mocks.Controller.ResolveToolsManagerFunc = func() tools.ToolsManager {
 			return &tools.MockToolsManager{
 				CheckFunc: func() error {
 					return fmt.Errorf("mock error checking tools")
@@ -563,7 +551,7 @@ func TestUpCmd(t *testing.T) {
 
 		// Given a mock tools manager that returns an error when checking tools
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error checking tools: mock error checking tools") {
 			t.Fatalf("Expected error containing 'Error checking tools: mock error checking tools', got %v", err)
@@ -572,7 +560,7 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorLoadingSecrets", func(t *testing.T) {
 		mocks := setupSafeUpCmdMocks()
-		mocks.MockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+		mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
 			return []secrets.SecretsProvider{
 				&secrets.MockSecretsProvider{
 					LoadSecretsFunc: func() error {
@@ -584,7 +572,7 @@ func TestUpCmd(t *testing.T) {
 
 		// Given a mock secrets provider that returns an error when loading secrets
 		rootCmd.SetArgs([]string{"up"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error loading secrets: mock error loading secrets") {
 			t.Fatalf("Expected error containing 'Error loading secrets: mock error loading secrets', got %v", err)
@@ -600,13 +588,13 @@ func TestUpCmd(t *testing.T) {
 				return nil
 			},
 		}
-		mocks.MockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+		mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
 			return []secrets.SecretsProvider{mockSecretsProvider}
 		}
 
 		// Given a mock secrets provider
 		rootCmd.SetArgs([]string{"up"})
-		_ = Execute(mocks.MockController)
+		_ = Execute(mocks.Controller)
 
 		// Check if the Load function was called
 		if !loadCalled {

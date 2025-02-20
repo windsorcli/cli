@@ -71,6 +71,9 @@ type ConfigHandler interface {
 
 	// SetSecretsProvider sets the secrets provider for the config handler
 	SetSecretsProvider(provider secrets.SecretsProvider)
+
+	// IsLoaded checks if the configuration has been loaded
+	IsLoaded() bool
 }
 
 // BaseConfigHandler is a base implementation of the ConfigHandler interface
@@ -81,6 +84,7 @@ type BaseConfigHandler struct {
 	config           v1alpha1.Config
 	context          string
 	secretsProviders []secrets.SecretsProvider
+	loaded           bool
 }
 
 // NewBaseConfigHandler creates a new BaseConfigHandler instance
@@ -178,4 +182,9 @@ func (c *BaseConfigHandler) Clean() error {
 	}
 
 	return nil
+}
+
+// IsLoaded checks if the configuration has been loaded
+func (c *BaseConfigHandler) IsLoaded() bool {
+	return c.loaded
 }

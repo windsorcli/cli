@@ -21,12 +21,13 @@ var downCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
-		// New snippet: Ensure projectName is set
+		// Ensure configuration is loaded
 		configHandler := controller.ResolveConfigHandler()
-		projectName := configHandler.GetString("projectName")
-		if projectName == "" {
-			fmt.Println("Cannot tear down environment as it appears no project has been initialized.")
-			return nil
+		if configHandler == nil {
+			return fmt.Errorf("No config handler found")
+		}
+		if !configHandler.IsLoaded() {
+			return fmt.Errorf("No configuration is loaded. Is there a project to tear down?")
 		}
 
 		// Create virtualization components
@@ -37,12 +38,6 @@ var downCmd = &cobra.Command{
 		// Initialize all components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)
-		}
-
-		// Resolve the config handler
-		configHandler = controller.ResolveConfigHandler()
-		if configHandler == nil {
-			return fmt.Errorf("No config handler found")
 		}
 
 		// Resolve the shell

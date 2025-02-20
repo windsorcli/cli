@@ -56,6 +56,8 @@ func (y *YamlConfigHandler) LoadConfig(path string) error {
 		return fmt.Errorf("unsupported config version: %s", y.config.Version)
 	}
 
+	y.loaded = true
+
 	return nil
 }
 

@@ -17,10 +17,8 @@ var checkCmd = &cobra.Command{
 
 		// Check if projectName is set in the configuration
 		configHandler := controller.ResolveConfigHandler()
-		projectName := configHandler.GetString("projectName")
-		if projectName == "" {
-			fmt.Println("Nothing to check. Have you run \033[1mwindsor init\033[0m?")
-			return nil
+		if !configHandler.IsLoaded() {
+			return fmt.Errorf("Nothing to check. Have you run \033[1mwindsor init\033[0m?")
 		}
 
 		// Create project components

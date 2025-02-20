@@ -421,3 +421,31 @@ func TestConfigHandler_Clean(t *testing.T) {
 		}
 	})
 }
+
+func TestConfigHandler_IsLoaded(t *testing.T) {
+	t.Run("IsLoadedTrue", func(t *testing.T) {
+		// Given a config handler with loaded set to true
+		configHandler := &BaseConfigHandler{loaded: true}
+
+		// When calling IsLoaded
+		isLoaded := configHandler.IsLoaded()
+
+		// Then it should return true
+		if !isLoaded {
+			t.Errorf("expected IsLoaded to return true, got false")
+		}
+	})
+
+	t.Run("IsLoadedFalse", func(t *testing.T) {
+		// Given a config handler with loaded set to false
+		configHandler := &BaseConfigHandler{loaded: false}
+
+		// When calling IsLoaded
+		isLoaded := configHandler.IsLoaded()
+
+		// Then it should return false
+		if isLoaded {
+			t.Errorf("expected IsLoaded to return false, got true")
+		}
+	})
+}

@@ -15,10 +15,9 @@ var execCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
-		// New snippet: Ensure projectName is set
+		// Ensure configuration is loaded
 		configHandler := controller.ResolveConfigHandler()
-		projectName := configHandler.GetString("projectName")
-		if projectName == "" {
+		if !configHandler.IsLoaded() {
 			fmt.Println("Cannot execute commands. Please run `windsor init` to set up your project first.")
 			return nil
 		}

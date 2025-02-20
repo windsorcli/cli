@@ -16,13 +16,18 @@ var getContextCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
+		// Resolve config handler
+		configHandler := controller.ResolveConfigHandler()
+
+		// Check if config is loaded
+		if !configHandler.IsLoaded() {
+			return fmt.Errorf("No context is available. Have you run `windsor init`?")
+		}
+
 		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)
 		}
-
-		// Resolve config handler
-		configHandler := controller.ResolveConfigHandler()
 
 		// Get the current context
 		currentContext := configHandler.GetContext()
@@ -49,6 +54,11 @@ var setContextCmd = &cobra.Command{
 
 		// Resolve config handler
 		configHandler := controller.ResolveConfigHandler()
+
+		// Check if config is loaded
+		if !configHandler.IsLoaded() {
+			return fmt.Errorf("Configuration is not loaded. Please ensure it is initialized.")
+		}
 
 		// Set the context
 		contextName := args[0]
