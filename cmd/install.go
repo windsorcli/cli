@@ -13,13 +13,13 @@ var installCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
-		// // New snippet: Ensure projectName is set
-		// configHandler := controller.ResolveConfigHandler()
-		// projectName := configHandler.GetString("projectName")
-		// if projectName == "" {
-		// 	fmt.Println("Cannot install blueprint. Please run `windsor init` to set up your project first.")
-		// 	return nil
-		// }
+		// New snippet: Ensure projectName is set
+		configHandler := controller.ResolveConfigHandler()
+		projectName := configHandler.GetString("projectName")
+		if projectName == "" {
+			fmt.Println("Cannot install blueprint. Please run `windsor init` to set up your project first.")
+			return nil
+		}
 
 		// Unlock the SecretProvider
 		secretsProvider := controller.ResolveSecretsProvider()

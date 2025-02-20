@@ -15,13 +15,13 @@ var execCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
-		// // New snippet: Ensure projectName is set
-		// configHandler := controller.ResolveConfigHandler()
-		// projectName := configHandler.GetString("projectName")
-		// if projectName == "" {
-		// 	fmt.Println("Cannot execute commands. Please run `windsor init` to set up your project first.")
-		// 	return nil
-		// }
+		// New snippet: Ensure projectName is set
+		configHandler := controller.ResolveConfigHandler()
+		projectName := configHandler.GetString("projectName")
+		if projectName == "" {
+			fmt.Println("Cannot execute commands. Please run `windsor init` to set up your project first.")
+			return nil
+		}
 
 		if len(args) == 0 {
 			return fmt.Errorf("no command provided")
