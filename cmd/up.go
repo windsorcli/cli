@@ -68,6 +68,10 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("No config handler found")
 		}
 		vmDriver := configHandler.GetString("vm.driver")
+		projectName := configHandler.GetString("projectName")
+		if projectName == "" {
+			return fmt.Errorf("Cannot set up environment. Please run `windsor init` to set up your project first.")
+		}
 
 		// Resolve the tools manager, check the tools, and install them
 		toolsManager := controller.ResolveToolsManager()
