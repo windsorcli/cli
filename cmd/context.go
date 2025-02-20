@@ -16,16 +16,16 @@ var getContextCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
-		// New snippet: Ensure projectName is set
-		configHandler := controller.ResolveConfigHandler()
-		if configHandler == nil {
-			return fmt.Errorf("No config handler found")
-		}
-		// projectName := configHandler.GetString("projectName")
-		// if projectName == "" {
-		// 	fmt.Println("Cannot manage contexts. Please run `windsor init` to set up your project first.")
-		// 	return nil
+		// // New snippet: Ensure projectName is set
+		// configHandler := controller.ResolveConfigHandler()
+		// if configHandler == nil {
+		// 	return fmt.Errorf("No config handler found")
 		// }
+		// // projectName := configHandler.GetString("projectName")
+		// // if projectName == "" {
+		// // 	fmt.Println("Cannot manage contexts. Please run `windsor init` to set up your project first.")
+		// // 	return nil
+		// // }
 
 		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {
@@ -33,7 +33,10 @@ var getContextCmd = &cobra.Command{
 		}
 
 		// Resolve config handler
-		// configHandler = controller.ResolveConfigHandler()
+		configHandler := controller.ResolveConfigHandler()
+		if configHandler == nil {
+			return fmt.Errorf("No config handler found")
+		}
 
 		// Get the current context
 		currentContext := configHandler.GetContext()
@@ -53,16 +56,16 @@ var setContextCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
-		// New snippet: Ensure projectName is set
-		configHandler := controller.ResolveConfigHandler()
-		if configHandler == nil {
-			return fmt.Errorf("No config handler found")
-		}
-		// projectName := configHandler.GetString("projectName")
-		// if projectName == "" {
-		// 	fmt.Println("Cannot manage contexts. Please run `windsor init` to set up your project first.")
-		// 	return nil
+		// // New snippet: Ensure projectName is set
+		// configHandler := controller.ResolveConfigHandler()
+		// if configHandler == nil {
+		// 	return fmt.Errorf("No config handler found")
 		// }
+		// // projectName := configHandler.GetString("projectName")
+		// // if projectName == "" {
+		// // 	fmt.Println("Cannot manage contexts. Please run `windsor init` to set up your project first.")
+		// // 	return nil
+		// // }
 
 		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {
@@ -70,7 +73,10 @@ var setContextCmd = &cobra.Command{
 		}
 
 		// Resolve config handler
-		// configHandler = controller.ResolveConfigHandler()
+		configHandler := controller.ResolveConfigHandler()
+		if configHandler == nil {
+			return fmt.Errorf("No config handler found")
+		}
 
 		// Set the context
 		contextName := args[0]
