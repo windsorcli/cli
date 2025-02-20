@@ -66,12 +66,6 @@ var upCmd = &cobra.Command{
 		// actions are required based on the configuration.
 		vmDriver := configHandler.GetString("vm.driver")
 
-		projectName := configHandler.GetString("projectName")
-		if projectName == "" {
-			fmt.Println("Cannot set up environment. Please run `windsor init` to set up your project first.")
-			return nil
-		}
-
 		// Resolve the tools manager, check the tools, and install them
 		toolsManager := controller.ResolveToolsManager()
 		if toolsManager != nil {
