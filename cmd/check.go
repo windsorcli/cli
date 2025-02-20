@@ -15,6 +15,7 @@ var checkCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
+		// New snippet: Ensure projectName is set
 		// Check if projectName is set in the configuration
 		configHandler := controller.ResolveConfigHandler()
 		projectName := configHandler.GetString("projectName")
