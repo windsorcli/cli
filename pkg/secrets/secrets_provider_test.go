@@ -121,17 +121,76 @@ func TestParseKeys(t *testing.T) {
 			input:    ".key1.key2.",
 			expected: []string{"", "key1", "key2", ""},
 		},
+		{
+			name:     "SingleBracketKey",
+			input:    "[key1]",
+			expected: []string{"key1"},
+		},
+		{
+			name:     "NestedBrackets",
+			input:    "key1.[key2.[key3]]",
+			expected: []string{"key1", "key2.[key3]"},
+		},
+		{
+			name:     "QuotedKeys",
+			input:    "key1.[\"key2\"].key3",
+			expected: []string{"key1", "key2", "key3"},
+		},
+		{
+			name:     "ConsecutiveDots",
+			input:    "key1...key2",
+			expected: []string{"key1", "", "", "key2"},
+		},
+		{
+			name:     "EmptyString",
+			input:    "",
+			expected: []string{""},
+		},
+		{
+			name:     "OnlyDots",
+			input:    "...",
+			expected: []string{"", "", "", ""},
+		},
+		{
+			name:     "OnlyBrackets",
+			input:    "[]",
+			expected: []string{""},
+		},
+		{
+			name:     "ComplexNestedBrackets",
+			input:    "key1.[key2.[key3.[key4]]]",
+			expected: []string{"key1", "key2.[key3.[key4]]"},
+		},
+		{
+			name:     "SpacesInBracketKeys",
+			input:    "op.personal[\"The Criterion Channel\"].password",
+			expected: []string{"op", "personal", "The Criterion Channel", "password"},
+		},
+		{
+			name:     "EscapedSpacesInBracketKeys",
+			input:    "op.personal[\"The\\ Criterion\\ Channel\"].password",
+			expected: []string{"op", "personal", "The Criterion Channel", "password"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := ParseKeys(tt.input)
+			if result == nil {
+				t.Errorf("ParseKeys returned nil for input %s", tt.input)
+				return
+			}
 			if len(result) != len(tt.expected) {
 				t.Errorf("Expected length %d, but got %d", len(tt.expected), len(result))
+				return
 			}
-			for i, v := range result {
-				if v != tt.expected[i] {
-					t.Errorf("Expected %s at index %d, but got %s", tt.expected[i], i, v)
+			for i := range tt.expected {
+				if i >= len(result) {
+					t.Errorf("Expected %s at index %d, but result is shorter", tt.expected[i], i)
+					continue
+				}
+				if result[i] != tt.expected[i] {
+					t.Errorf("Expected %s at index %d, but got %s", tt.expected[i], i, result[i])
 				}
 			}
 		})

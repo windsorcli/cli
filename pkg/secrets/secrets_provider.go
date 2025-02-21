@@ -78,21 +78,98 @@ func (s *BaseSecretsProvider) ParseSecrets(input string) (string, error) {
 	return input, nil
 }
 
-// ParseKeys returns an array of keys from a mixed dot/bracket path
+// ParseKeys processes a string path that may contain mixed dot and bracket notations,
+// extracting and returning an array of keys. It handles quoted strings within brackets
+// and treats consecutive dots as empty keys unless they follow a closing bracket.
 func ParseKeys(path string) []string {
-	// Split the path by dots, capturing empty keys
-	parts := strings.Split(path, ".")
-
 	var keys []string
-	for _, part := range parts {
-		if strings.HasPrefix(part, "[") && strings.HasSuffix(part, "]") {
-			// Handle bracket notation
-			key := part[1 : len(part)-1]
-			keys = append(keys, key)
-		} else {
-			// Handle dot notation and empty keys
-			keys = append(keys, part)
+	var currentKey strings.Builder
+	var bracketDepth int
+	inQuotes := false
+	justClosedBracket := false
+
+	trimmedPath := strings.TrimSpace(path)
+
+	for i := 0; i < len(trimmedPath); i++ {
+		char := rune(trimmedPath[i])
+		switch char {
+		case '[':
+			if !inQuotes {
+				if bracketDepth == 0 {
+					// finalize current key if any
+					if currentKey.Len() > 0 {
+						keys = append(keys, currentKey.String())
+						currentKey.Reset()
+					}
+					justClosedBracket = false
+				} else {
+					// store nested bracket
+					currentKey.WriteRune(char)
+				}
+				bracketDepth++
+			} else {
+				currentKey.WriteRune(char)
+			}
+		case ']':
+			if !inQuotes {
+				bracketDepth--
+				if bracketDepth < 0 {
+					bracketDepth = 0
+				}
+				if bracketDepth == 0 {
+					// finalize bracket key
+					if currentKey.Len() > 0 {
+						keys = append(keys, currentKey.String())
+						currentKey.Reset()
+					} else {
+						// empty bracket
+						keys = append(keys, "")
+					}
+					justClosedBracket = true
+				} else {
+					// store nested closing bracket
+					currentKey.WriteRune(char)
+				}
+			} else {
+				currentKey.WriteRune(char)
+			}
+		case '.':
+			if bracketDepth == 0 && !inQuotes {
+				if currentKey.Len() > 0 {
+					keys = append(keys, currentKey.String())
+					currentKey.Reset()
+					justClosedBracket = false
+				} else {
+					if !justClosedBracket {
+						keys = append(keys, "")
+					}
+					justClosedBracket = false
+				}
+			} else {
+				currentKey.WriteRune(char)
+			}
+		case '"', '\'':
+			if bracketDepth > 0 {
+				inQuotes = !inQuotes
+			}
+			justClosedBracket = false
+		case '\\':
+			if bracketDepth > 0 && inQuotes && i+1 < len(trimmedPath) {
+				// Handle escaped characters within quotes
+				i++
+				currentKey.WriteRune(rune(trimmedPath[i]))
+			} else {
+				currentKey.WriteRune(char)
+			}
+			justClosedBracket = false
+		default:
+			currentKey.WriteRune(char)
+			justClosedBracket = false
 		}
+	}
+
+	if currentKey.Len() > 0 || !justClosedBracket {
+		keys = append(keys, currentKey.String())
 	}
 
 	return keys
