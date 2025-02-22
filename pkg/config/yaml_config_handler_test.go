@@ -474,43 +474,6 @@ func TestYamlConfigHandler_GetString(t *testing.T) {
 			t.Errorf("GetString() = %v, expected %v", got, expectedValue)
 		}
 	})
-
-	t.Run("GetStringWithSecretResolution", func(t *testing.T) {
-		// Given the existing context in the configuration with a secret placeholder
-		mocks := setupSafeMocks()
-		handler := NewYamlConfigHandler(mocks.Injector)
-		handler.Initialize()
-		handler.context = "default"
-		handler.config = v1alpha1.Config{
-			Contexts: map[string]*v1alpha1.Context{
-				"default": {
-					Environment: map[string]string{
-						"secretKey": "${{ secrets.mySecret }}",
-					},
-				},
-			},
-		}
-
-		// Set the secrets provider using the mock
-		handler.SetSecretsProvider(mocks.SecretsProvider)
-
-		// Use the mock secrets provider from setupSafeMocks and set the mock function
-		mocks.SecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
-			if input == "${{ secrets.mySecret }}" {
-				return "resolvedSecret", nil
-			}
-			return input, fmt.Errorf("secret not found in input: %s", input)
-		}
-
-		// When calling GetString with a key that has a secret placeholder
-		got := handler.GetString("environment.secretKey")
-
-		// Then the resolved secret value should be returned
-		expectedValue := "resolvedSecret"
-		if got != expectedValue {
-			t.Errorf("GetString() = %v, expected %v", got, expectedValue)
-		}
-	})
 }
 
 func TestYamlConfigHandler_GetInt(t *testing.T) {
@@ -802,73 +765,6 @@ func TestYamlConfigHandler_GetStringMap(t *testing.T) {
 			t.Errorf("Expected GetStringMap with default to return %v, got %v", defaultValue, value)
 		}
 	})
-
-	t.Run("WithSecretResolution", func(t *testing.T) {
-		// Given a handler with a context set and a secret placeholder
-		mocks := setupSafeMocks()
-		handler := NewYamlConfigHandler(mocks.Injector)
-		handler.Initialize()
-		handler.context = "default"
-		handler.config.Contexts = map[string]*v1alpha1.Context{
-			"default": {
-				Environment: map[string]string{
-					"SECRET_KEY": "${{ secrets.mySecret }}",
-				},
-			},
-		}
-
-		// Set the secrets provider using the mock
-		handler.SetSecretsProvider(mocks.SecretsProvider)
-
-		// Use the mock secrets provider from setupSafeMocks and set the mock function
-		mocks.SecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
-			if input == "${{ secrets.mySecret }}" {
-				return "resolvedSecret", nil
-			}
-			return input, fmt.Errorf("secret not found in input: %s", input)
-		}
-
-		// When retrieving the map value using GetStringMap
-		value := handler.GetStringMap("environment")
-
-		// Then the returned map should have the resolved secret value
-		expectedMap := map[string]string{"SECRET_KEY": "resolvedSecret"}
-		if !reflect.DeepEqual(value, expectedMap) {
-			t.Errorf("Expected GetStringMap to return %v, got %v", expectedMap, value)
-		}
-	})
-
-	t.Run("WithSecretResolutionError", func(t *testing.T) {
-		// Given a handler with a context set and a secret placeholder
-		mocks := setupSafeMocks()
-		handler := NewYamlConfigHandler(mocks.Injector)
-		handler.Initialize()
-		handler.context = "default"
-		handler.config.Contexts = map[string]*v1alpha1.Context{
-			"default": {
-				Environment: map[string]string{
-					"SECRET_KEY": "${{ secrets.unknownSecret }}",
-				},
-			},
-		}
-
-		// Set the secrets provider using the mock
-		handler.SetSecretsProvider(mocks.SecretsProvider)
-
-		// Use the mock secrets provider from setupSafeMocks and set the mock function
-		mocks.SecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
-			return input, fmt.Errorf("failed to parse: secrets.unknownSecret")
-		}
-
-		// When retrieving the map value using GetStringMap
-		value := handler.GetStringMap("environment")
-
-		// Then the returned map should have the unresolved secret placeholder
-		expectedMap := map[string]string{"SECRET_KEY": "<ERROR: failed to parse: secrets.unknownSecret >"}
-		if !reflect.DeepEqual(value, expectedMap) {
-			t.Errorf("Expected GetStringMap to return %v, got %v", expectedMap, value)
-		}
-	})
 }
 
 func TestYamlConfigHandler_GetConfig(t *testing.T) {
@@ -934,22 +830,6 @@ func TestYamlConfigHandler_SetContextValue(t *testing.T) {
 			t.Errorf("Expected value 'someValue', got %v", value)
 		}
 	})
-
-	// t.Run("ContextNotSet", func(t *testing.T) {
-	// 	// Given a handler without a context set
-	// 	mocks := setupSafeMocks()
-	// 	handler := NewYamlConfigHandler(mocks.Injector)
-	// 	handler.Initialize()
-
-	// 	// When calling SetContextValue
-	// 	err := handler.SetContextValue("some.path", "someValue")
-
-	// 	// Then an error should be returned
-	// 	expectedError := "current context is not set"
-	// 	if err == nil || err.Error() != expectedError {
-	// 		t.Errorf("Expected error '%s', got %v", expectedError, err)
-	// 	}
-	// })
 
 	t.Run("InvalidPath", func(t *testing.T) {
 		// Given a handler with a valid context set

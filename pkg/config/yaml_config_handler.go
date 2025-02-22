@@ -7,14 +7,9 @@ import (
 	"reflect"
 	"strings"
 
-	"regexp"
-
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
 )
-
-// #nosec G101 # This is just a regular expression not a secret
-const secretPlaceholderPattern = `\${{\s*([^}]+)\s*}}`
 
 // YamlConfigHandler implements the ConfigHandler interface using goccy/go-yaml
 type YamlConfigHandler struct {
@@ -121,7 +116,6 @@ func (y *YamlConfigHandler) Get(path string) interface{} {
 
 // GetString retrieves a string value for the specified key from the configuration, with an optional default value.
 // If the key is not found, it returns the provided default value or an empty string if no default is provided.
-// If a secrets provider is set, it parses and replaces secret placeholders in the string value.
 func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) string {
 	contextKey := fmt.Sprintf("contexts.%s.%s", y.context, key)
 	value := y.Get(contextKey)
@@ -132,7 +126,6 @@ func (y *YamlConfigHandler) GetString(key string, defaultValue ...string) string
 		return ""
 	}
 	strValue := fmt.Sprintf("%v", value)
-	strValue = y.parseAndCheckSecrets(strValue)
 	return strValue
 }
 
@@ -189,7 +182,6 @@ func (y *YamlConfigHandler) GetStringSlice(key string, defaultValue ...[]string)
 
 // GetStringMap retrieves a map of string key-value pairs for the specified key from the configuration.
 // If the key is not found, it returns the provided default value or an empty map if no default is provided.
-// It also processes the map values to replace any secret placeholders using the secrets provider.
 func (y *YamlConfigHandler) GetStringMap(key string, defaultValue ...map[string]string) map[string]string {
 	contextKey := fmt.Sprintf("contexts.%s.%s", y.context, key)
 	value := y.Get(contextKey)
@@ -203,11 +195,6 @@ func (y *YamlConfigHandler) GetStringMap(key string, defaultValue ...map[string]
 	strMap, ok := value.(map[string]string)
 	if !ok {
 		return map[string]string{}
-	}
-
-	for k, v := range strMap {
-		parsedValue := y.parseAndCheckSecrets(v)
-		strMap[k] = parsedValue
 	}
 
 	return strMap
@@ -487,30 +474,4 @@ func parsePath(path string) []string {
 	}
 
 	return keys
-}
-
-// parseAndCheckSecrets parses and replaces secret placeholders in the string value using the secrets provider.
-// It also checks for remaining unparsed secrets and returns an error string if any are found.
-func (y *YamlConfigHandler) parseAndCheckSecrets(strValue string) string {
-	for _, secretsProvider := range y.secretsProviders {
-		parsedValue, err := secretsProvider.ParseSecrets(strValue)
-		if err == nil {
-			strValue = parsedValue
-		}
-	}
-
-	re := regexp.MustCompile(secretPlaceholderPattern)
-	unparsedSecrets := re.FindAllStringSubmatch(strValue, -1)
-	if len(unparsedSecrets) > 0 {
-		var secretNames []string
-		for _, match := range unparsedSecrets {
-			if len(match) > 1 {
-				secretNames = append(secretNames, match[1])
-			}
-		}
-		secrets := strings.Join(secretNames, ", ")
-		return fmt.Sprintf("<ERROR: failed to parse: %s>", secrets)
-	}
-
-	return strValue
 }

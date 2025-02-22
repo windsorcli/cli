@@ -30,6 +30,11 @@ var upCmd = &cobra.Command{
 			return nil
 		}
 
+		// Don't do any caching of application state (secrets, etc.) when performing "up"
+		if err := osSetenv("NO_CACHE", "true"); err != nil {
+			return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
+		}
+
 		// Create and initialize all necessary components for the Windsor environment.
 		// This includes project, environment, virtualization, service, and stack components.
 		if err := controller.CreateProjectComponents(); err != nil {

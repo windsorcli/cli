@@ -33,89 +33,6 @@ func setupOnePasswordCLISecretsProviderMocks(injector ...di.Injector) *MockCompo
 	}
 }
 
-func TestOnePasswordCLISecretsProvider_LoadSecrets(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		vault := secretsConfigType.OnePasswordVault{
-			URL:  "https://example.1password.com",
-			Name: "ExampleVault",
-		}
-
-		// Setup mocks
-		mocks := setupOnePasswordCLISecretsProviderMocks()
-		execSilentCalled := false
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			execSilentCalled = true
-			if command == "op" && args[0] == "signin" && args[1] == "--account" && args[2] == "https://example.1password.com" {
-				return "", nil
-			}
-			return "", fmt.Errorf("unexpected command: %s", command)
-		}
-
-		// Pass the injector from mocks to the provider
-		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-
-		// Initialize the provider
-		err := provider.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		err = provider.LoadSecrets()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		if !provider.unlocked {
-			t.Errorf("expected provider to be unlocked")
-		}
-
-		if !execSilentCalled {
-			t.Errorf("expected ExecSilent to be called, but it was not")
-		}
-	})
-
-	t.Run("SigninFailure", func(t *testing.T) {
-		vault := secretsConfigType.OnePasswordVault{
-			URL:  "https://example.1password.com",
-			Name: "ExampleVault",
-		}
-
-		// Setup mocks
-		mocks := setupOnePasswordCLISecretsProviderMocks()
-		execSilentCalled := false
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			execSilentCalled = true
-			if command == "op" && args[0] == "signin" && args[1] == "--account" && args[2] == "https://example.1password.com" {
-				return "", fmt.Errorf("signin error")
-			}
-			return "", fmt.Errorf("unexpected command: %s", command)
-		}
-
-		// Pass the injector from mocks to the provider
-		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-
-		// Initialize the provider
-		err := provider.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		err = provider.LoadSecrets()
-		if err == nil {
-			t.Fatalf("expected an error, got nil")
-		}
-
-		expectedErrorMessage := "failed to sign in to 1Password: signin error"
-		if err.Error() != expectedErrorMessage {
-			t.Fatalf("expected error message to be %v, got %v", expectedErrorMessage, err.Error())
-		}
-
-		if !execSilentCalled {
-			t.Errorf("expected ExecSilent to be called, but it was not")
-		}
-	})
-}
-
 func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		vault := secretsConfigType.OnePasswordVault{
@@ -136,7 +53,9 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 				args[4] == "ExampleVault" &&
 				args[5] == "--fields" &&
 				args[6] == "fieldName" &&
-				args[7] == "--reveal" {
+				args[7] == "--reveal" &&
+				args[8] == "--account" &&
+				args[9] == "https://example.1password.com" {
 				return "secretValue", nil
 			}
 			return "", fmt.Errorf("unexpected command: %s", command)

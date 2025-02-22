@@ -25,18 +25,6 @@ func NewOnePasswordCLISecretsProvider(vault secretsConfigType.OnePasswordVault, 
 	}
 }
 
-// LoadSecrets signs in to the 1Password account using the vault details and marks the provider as unlocked without loading any secrets.
-func (s *OnePasswordCLISecretsProvider) LoadSecrets() error {
-	_, err := s.shell.ExecSilent("op", "signin", "--account", s.vault.URL)
-	if err != nil {
-		return fmt.Errorf("failed to sign in to 1Password: %w", err)
-	}
-
-	s.unlocked = true
-
-	return nil
-}
-
 // GetSecret retrieves a secret value for the specified key
 func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
 	if !s.unlocked {
@@ -47,14 +35,15 @@ func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
 		return "", fmt.Errorf("invalid key notation: %s. Expected format is 'secret.field'", key)
 	}
 
-	args := []string{"item", "get", parts[0], "--vault", s.vault.Name, "--fields", parts[1], "--reveal"}
+	args := []string{"item", "get", parts[0], "--vault", s.vault.Name, "--fields", parts[1], "--reveal", "--account", s.vault.URL}
 
 	output, err := s.shell.ExecSilent("op", args...)
 	if err != nil {
 		return "", fmt.Errorf("failed to retrieve secret from 1Password: %w", err)
 	}
 
-	return strings.TrimSpace(string(output)), nil
+	secret := strings.TrimSpace(string(output))
+	return secret, nil
 }
 
 // ParseSecrets parses a string and replaces ${{ op.<id>.<secret>.<field> }} references with their values

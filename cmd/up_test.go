@@ -601,4 +601,31 @@ func TestUpCmd(t *testing.T) {
 			t.Fatalf("Expected Load to be called, but it was not")
 		}
 	})
+
+	t.Run("ErrorSettingNoCache", func(t *testing.T) {
+		mocks := setupSafeUpCmdMocks()
+
+		// Mock osSetenv to return an error
+		originalOsSetenv := osSetenv
+		osSetenv = func(key, value string) error {
+			if key == "NO_CACHE" {
+				return fmt.Errorf("mock error setting NO_CACHE")
+			}
+			return nil
+		}
+		defer func() {
+			// Restore the original osSetenv function after the test
+			osSetenv = originalOsSetenv
+		}()
+
+		// Given the up command is executed
+		rootCmd.SetArgs([]string{"up"})
+		err := Execute(mocks.Controller)
+
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error setting NO_CACHE environment variable: mock error setting NO_CACHE") {
+			t.Fatalf("Expected error containing 'Error setting NO_CACHE environment variable: mock error setting NO_CACHE', got %v", err)
+		}
+	})
+
 }

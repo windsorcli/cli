@@ -56,3 +56,6 @@ var readFile = os.ReadFile
 
 // Define a variable for exec.LookPath for easier testing
 var execLookPath = exec.LookPath
+
+// Define a variable for os.LookupEnv for easier testing
+var osLookupEnv = os.LookupEnv
