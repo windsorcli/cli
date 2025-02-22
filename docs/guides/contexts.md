@@ -49,7 +49,7 @@ windsor context get
 Additionally, the `WINDSOR_CONTEXT` enviroment variable is available to you.
 
 <div>
-  {{ footer('Quick Start', '../../quick-start/index.html', 'Environment Injection', '../../guides/environment-injection/index.html') }}
+  {{ footer('Quick Start', '../../quick-start/index.html', 'Environment Injection', '../environment-injection/index.html') }}
 </div>
 
 <script>
@@ -57,7 +57,7 @@ Additionally, the `WINDSOR_CONTEXT` enviroment variable is available to you.
     window.location.href = '../../quick-start/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../../guides/environment-injection/index.html'; 
+    window.location.href = '../environment-injection/index.html'; 
   });
 </script>
 

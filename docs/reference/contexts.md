@@ -91,11 +91,14 @@ Contains terraform variables as `.tfvars` files. These are automatically passed 
 The `blueprint.yaml` file outlines references and configuration specific to the context. Please refer to the [blueprint](blueprint.md) documentation for more details.
 
 <div>
-  {{ previous_footer('Configuration', '../../reference/configuration/index.html') }}
+  {{ footer('Configuration', '../configuration/index.html', 'Secrets', '../../security/secrets/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../reference/configuration/index.html'; 
+    window.location.href = '../configuration/index.html'; 
+  });
+  document.getElementById('nextButton').addEventListener('click', function() {
+    window.location.href = '../../security/secrets/index.html'; 
   });
 </script>

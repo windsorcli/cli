@@ -261,14 +261,14 @@ kustomize:
 ```
 
 <div>
-  {{ footer('Trusted Folders', '../../security/trusted-folders/index.html', 'Configuration', '../../reference/configuration/index.html') }}
+  {{ footer('Terraform', '../../guides/terraform/index.html', 'Configuration', '../configuration/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../security/trusted-folders/index.html'; 
+    window.location.href = '../../security/terraform/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../../reference/configuration/index.html'; 
+    window.location.href = '../configuration/index.html'; 
   });
 </script>

@@ -36,6 +36,7 @@ The following tools are supported by the Windsor CLI:
 - [**AWS**](https://github.com/aws/aws-cli)
 - [**Terraform**](https://github.com/hashicorp/terraform)
 - [**SOPS**](https://github.com/mozilla/sops)
+- [**1Password**](https://developer.1password.com/docs/cli/)
 - [**Localstack**](https://github.com/localstack/localstack)
 - [**Colima**](https://github.com/abiosoft/colima)
 - [**Talos Linux**](https://github.com/siderolabs/talos)

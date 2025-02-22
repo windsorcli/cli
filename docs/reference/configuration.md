@@ -228,10 +228,10 @@ secrets:
     vaults:
       personal:
         url: my.1password.com
-        vault: "Personal"
+        name: "Personal"
       development:
         url: my-company.1password.com
-        vault: "Development"
+        name: "Development"
 ```
 
 | Field          | Type   | Description                                         |
@@ -243,7 +243,7 @@ secrets:
 | Field       | Type   | Description                                           |
 |-------------|--------|-------------------------------------------------------|
 | url         | string | The endpoint URL for the 1Password service.           |
-| vault       | string | The name of the vault from which secrets are retrieved. |
+| name        | string | The name of the vault from which secrets are retrieved. |
 
 ## Terraform
 Configures details related to working with Terraform in the context

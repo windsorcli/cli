@@ -54,14 +54,14 @@ Windsor configures your `TF_CLI_ARGS_*` variables when you change in to a projec
 
 
 <div>
-  {{ footer('Contexts', '../../guides/contexts/index.html', 'Local Workstation', '../../guides/local-workstation/index.html') }}
+  {{ footer('Contexts', '../contexts/index.html', 'Kustomize', '../kustomize/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../guides/contexts/index.html'; 
+    window.location.href = '../contexts/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../../guides/local-workstation/index.html'; 
+    window.location.href = '../kustomize/index.html'; 
   });
 </script>
