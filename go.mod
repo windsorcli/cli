@@ -18,7 +18,7 @@ require (
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/spf13/cobra v1.9.1
 	github.com/zclconf/go-cty v1.16.2
-	golang.org/x/crypto v0.33.0
+	golang.org/x/crypto v0.34.0
 	golang.org/x/sys v0.30.0
 	k8s.io/api v0.32.2
 	k8s.io/apimachinery v0.32.2
