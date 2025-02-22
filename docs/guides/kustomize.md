@@ -94,14 +94,14 @@ kustomize:
 This would result in importing the `system-csi` resource from `core`, and specifically using the `longhorn` driver. By including the `source` field referencing `core`, this reference will be used when the Kustomization is generated on your cluster.
 
 <div>
-  {{ footer('Terraform', '../../guides/terraform/index.html', 'Hello World', '../../tutorial/hello-world/index.html') }}
+  {{ footer('Environment Injection', '../environment-injection/index.html', 'Local Workstation', '../local-workstation/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../guides/terraform/index.html'; 
+    window.location.href = '../environment-injection/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../../tutorial/hello-world/index.html'; 
+    window.location.href = '../local-workstation/index.html'; 
   });
 </script>

@@ -187,12 +187,12 @@ kubectl get pvc -n demo-static
 You should see a persistent volume claim with a name matching the folder under `.volumes/`. This volume is bind mounted to your host, such that it shares content with pods under development.
 
 <div>
-  {{ footer('Kustomize', '../../guides/kustomize/index.html', 'Trusted Folders', '../../security/trusted-folders/index.html') }}
+  {{ footer('Trusted Folders', '../../security/trusted-folders/index.html', 'Home', '../../index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../guides/kustomize/index.html'; 
+    window.location.href = '../../security/trusted-folders/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
     window.location.href = '../../security/trusted-folders/index.html'; 

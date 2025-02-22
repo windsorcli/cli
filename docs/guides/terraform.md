@@ -130,15 +130,19 @@ terraform plan
 terraform apply
 ```
 
+<!-- Footer Start -->
+
 <div>
-  {{ footer('Local Workstation', '../../guides/local-workstation/index.html', 'Kustomize', '../../guides/kustomize/index.html') }}
+  {{ footer('Secrets Management', '../secrets/index.html', 'Blueprints', '../../reference/blueprint/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../guides/local-workstation/index.html'; 
+    window.location.href = '../secrets/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../../guides/kustomize/index.html'; 
+    window.location.href = '../kustomize/index.html'; 
   });
 </script>
+
+<!-- Footer End -->
