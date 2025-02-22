@@ -71,14 +71,14 @@ func (s *OnePasswordCLISecretsProvider) ParseSecrets(input string) (string, erro
 		// Parse the key path using ParseKeys
 		keys := ParseKeys(keyPath)
 		if len(keys) != 3 {
-			return fmt.Sprintf("<ERROR: invalid key path: %s>", keyPath)
+			return "<ERROR: invalid key path>"
 		}
 		secret, field := keys[1], keys[2]
 
 		// Retrieve the secret value
 		value, err := s.GetSecret(fmt.Sprintf("%s.%s", secret, field))
 		if err != nil {
-			return "<ERROR: secret not found: " + secret + "." + field + ">"
+			return "<ERROR: secret not found>"
 		}
 		return value
 	})

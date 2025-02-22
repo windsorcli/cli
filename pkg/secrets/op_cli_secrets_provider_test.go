@@ -128,7 +128,15 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 		execSilentCalled := false
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			execSilentCalled = true
-			if command == "op" && args[0] == "item" && args[1] == "get" && args[2] == "secretName" && args[3] == "--vault" && args[4] == "ExampleVault" && args[5] == "--fields" && args[6] == "fieldName" && args[7] == "--reveal" {
+			if command == "op" &&
+				args[0] == "item" &&
+				args[1] == "get" &&
+				args[2] == "secretName" &&
+				args[3] == "--vault" &&
+				args[4] == "ExampleVault" &&
+				args[5] == "--fields" &&
+				args[6] == "fieldName" &&
+				args[7] == "--reveal" {
 				return "secretValue", nil
 			}
 			return "", fmt.Errorf("unexpected command: %s", command)
@@ -300,7 +308,7 @@ func TestOnePasswordCLISecretsProvider_ParseSecrets(t *testing.T) {
 		}
 
 		input := "The secret is ${{ op.exampleVaultID.nonExistentSecret.fieldName }}"
-		expectedOutput := "The secret is <ERROR: secret not found: nonExistentSecret.fieldName>"
+		expectedOutput := "The secret is <ERROR: secret not found>"
 
 		output, err := provider.ParseSecrets(input)
 		if err != nil {
@@ -338,7 +346,7 @@ func TestOnePasswordCLISecretsProvider_ParseSecrets(t *testing.T) {
 
 		// Test with invalid key path
 		input := "This is a secret: ${{ op.invalidFormat }}"
-		expectedOutput := "This is a secret: <ERROR: invalid key path: invalidFormat>"
+		expectedOutput := "This is a secret: <ERROR: invalid key path>"
 
 		output, err := provider.ParseSecrets(input)
 		if err != nil {
