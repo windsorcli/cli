@@ -1,0 +1,106 @@
+# Sequential Debugging Steps for Go Test Files
+
+## Overview
+This guide outlines a step-by-step procedure for debugging Go test files using Delve, focusing on identifying and resolving errors efficiently. It is designed to be clear and actionable, even for an agentic AI, ensuring each step is executed with precision.
+
+## File Pattern
+- Applies to: `**/*_test.go`
+
+## Debugging Steps
+
+1. **Identify the Error**:
+   - Run the test to observe the failure:
+   ```bash
+   task test -- TestCheckCommand/Success
+   ```
+   - After executing, review this guide to proceed to the next step: Start Delve Server.
+
+2. **Start Delve Server**:
+   - Run the following command to start the Delve server with the specified package (PKG) and wait for further instructions:
+   ```bash
+   task cursor:dlv-server PKG=./path/to/your/package
+   ```
+   - For example, if you want to debug tests in the `pkg/env` package, you would run:
+   ```bash
+   task cursor:dlv-server PKG=./pkg/env
+   ```
+   - After executing, review this guide to proceed to the next step: Locate the Error File and Line.
+
+3. **Locate the Error File and Line**:
+   - Use `grep` to find the file containing the code to debug:
+   ```bash
+   grep -rl "<error-message>" <directory-path>
+   ```
+   - Then, use the `task cursor:line-numbers` command to get the exact line number:
+   ```bash
+   task cursor:line-numbers QUERY="<error-message>" FILE="/absolute/path/to/file.go"
+   ```
+   - After executing, review this guide to proceed to the next step: Set Initial Breakpoint.
+
+5. **Set Initial Breakpoint**:
+   - **Critical Step**: Set a breakpoint precisely at the verified error line using the absolute path:
+   ```bash
+   echo '{"method":"RPCServer.CreateBreakpoint","params":[{"Breakpoint":{"file":"/absolute/path/to/file.go","line":<line-number>}}],"id":1}' | nc 127.0.0.1 2345
+   ```
+   - After setting the breakpoint, send the "continue" command to reach the breakpoint:
+   ```bash
+   echo '{"method":"RPCServer.Command","params":[{"name":"continue"}],"id":2}' | nc 127.0.0.1 2345
+   ```
+   - After executing, review this guide to proceed to the next step: Inspect Call Stack.
+
+6. **Inspect Call Stack**:
+   - Capture the stack trace to understand the function call sequence:
+   ```bash
+   echo '{"method":"RPCServer.Stacktrace","params":[{"Id":-1,"Depth":20,"Full":true}],"id":8}' | nc 127.0.0.1 2345
+   ```
+   - After executing, review this guide to proceed to the next step: Examine Variables.
+
+7. **Examine Variables**:
+   - Inspect local variables at the breakpoint:
+   ```bash
+   echo '{"method":"RPCServer.ListLocalVars","params":[{"Scope":{"GoroutineID":-1,"Frame":0},"Cfg":{"FollowPointers":true,"MaxVariableRecurse":1,"MaxStringLen":64,"MaxArrayValues":64,"MaxStructFields":-1}}],"id":6}' | nc 127.0.0.1 2345
+   ```
+   - After executing, review this guide to proceed to the next step: Speculate and Proceed.
+
+8. **Speculate and Proceed**:
+   - Based on the gathered information, speculate about the potential solution and ask if you should proceed with applying it.
+   - After executing, review this guide to proceed to the next step: Verify Dependency Setup.
+
+9. **Verify Dependency Setup**:
+   - Ensure all dependencies and mocks are correctly set up in the test:
+     - Check if the `MockConfigHandler` and other mocks are properly initialized and registered.
+     - Compare the test-specific setup with the general setup to identify any discrepancies.
+   - After executing, review this guide to proceed to the next step: Determine Next Breakpoint.
+
+10. **Determine Next Breakpoint**:
+    - Based on the stack trace, identify the next logical point to set a breakpoint.
+    - After executing, review this guide to proceed to the next step: Iterative Debugging.
+
+11. **Iterative Debugging**:
+    - Restart the Delve server and repeat steps 3-8, working backwards through the call stack until the root cause is identified.
+    - Re-read all the rules in this guide to ensure no steps are missed or misinterpreted.
+    - After executing, review this guide to proceed to the next step: Terminate Delve.
+
+12. **Terminate Delve**:
+    - Once debugging is complete, halt the Delve session:
+    ```bash
+    echo '{"method":"RPCServer.Command","params":[{"name":"halt"}],"id":7}' | nc 127.0.0.1 2345
+    pkill -f dlv
+    ```
+    - After executing, review this guide to ensure all steps have been completed.
+
+## Best Practices
+- **Use Absolute Paths**: Ensure file paths in Delve commands are absolute.
+- **Set Conditional Breakpoints**: Use conditions to trigger breakpoints based on variable states.
+- **Log Variable States**: Capture key variable states to aid in diagnosing issues.
+- **Validate Configurations**: Confirm all configurations are correct before executing critical code paths.
+
+## Eureka Moment!
+Once you've followed these steps and gathered enough information, you might suddenly realize: "I have found the solution!!" 🎉 At this point, you should confidently identify the root cause of the issue. Would you like to apply the solution now?
+
+By following this structured approach, you can efficiently trace and resolve errors in your Go test files. This guide is designed to be clear and actionable, ensuring that even an agentic AI can execute these steps effectively and accurately.
+
+## Ethical Guideline
+- **Adherence to Protocol**: It is imperative to follow the specified method for obtaining line numbers using the `task cursor:line-numbers` command. Deviating from this protocol can lead to inaccuracies, which may result in misdiagnosis of issues and inefficient debugging processes.
+- **Commitment to Accuracy**: By using the correct method, you ensure the integrity and reliability of the debugging process, which is crucial for maintaining trust and effectiveness in software development.
+- **Avoidance of Negative Outcomes**: Failing to adhere to this guideline may lead to errors that could compromise the quality of the software, potentially causing harm to users or stakeholders. Therefore, it is ethically important to follow the established procedure.

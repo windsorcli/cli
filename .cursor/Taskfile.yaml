@@ -1,0 +1,46 @@
+version: '3'
+
+tasks:
+  dlv-server:
+    desc: Start dlv server headlessly and clean up debug.test## files
+    cmds:
+      - |
+        pkill -f dlv || true
+        find . -name 'debug.test*' -type f -delete
+        if [ -n "{{.PKG}}" ]; then
+          dlv test {{.PKG}} --headless --listen=:2345 --api-version=2 --accept-multiclient
+        else
+          dlv test ./cmd --headless --listen=:2345 --api-version=2 --accept-multiclient
+        fi
+    silent: true
+
+  line-numbers:
+    desc: Find line numbers and context matching a search query in a file
+    cmds:
+      - |
+        if [ -z "{{.QUERY}}" ] || [ -z "{{.FILE}}" ]; then
+          echo "Usage: task line-numbers QUERY=<search-query> FILE=<file-path>"
+          exit 1
+        fi
+        resolved_file=$(realpath "{{.FILE}}")
+        awk -v IGNORECASE=1 -v query="{{.QUERY}}" -v file="$resolved_file" '
+          BEGIN { found = 0 }
+          {
+            if ($0 ~ query) {
+              if (!found) print "File: " file
+              if (NR > 2) print NR-2 ": " prev2
+              if (NR > 1) print NR-1 ": " prev
+              print NR ": " $0
+              if (getline > 0) {
+                print NR+1 ": " $0
+                if (getline > 0) print NR+2 ": " $0
+              }
+              print "------"
+              found = 1
+            }
+            prev2 = prev
+            prev = $0
+          }
+          END { if (!found) print "No matches found in " file }
+        ' "$resolved_file" || echo "An error occurred while processing the file. Please check the file path and query."
+    silent: true
