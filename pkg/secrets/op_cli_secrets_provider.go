@@ -42,7 +42,8 @@ func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
 		return "", fmt.Errorf("failed to retrieve secret from 1Password: %w", err)
 	}
 
-	return strings.TrimSpace(string(output)), nil
+	secret := strings.TrimSpace(string(output))
+	return secret, nil
 }
 
 // ParseSecrets parses a string and replaces ${{ op.<id>.<secret>.<field> }} references with their values

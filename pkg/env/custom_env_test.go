@@ -278,9 +278,8 @@ func TestCustomEnv_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// Check if the environment variable is cached, it should use the cached value
+		// Check if the environment variable is cached, it should not resolve the secret
 		expectedEnvVars := map[string]string{
-			"VAR1": "cachedValue",
 			"VAR2": "value2",
 		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {

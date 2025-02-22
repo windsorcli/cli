@@ -11,7 +11,7 @@ import (
 )
 
 // #nosec G101 # This is just a regular expression not a secret
-const secretPlaceholderPattern = `\${{\s*([^}\s]+)\s*}}`
+const secretPlaceholderPattern = `\${{\s*(.*?)\s*}}`
 
 // CustomEnvPrinter is a struct that implements the EnvPrinter interface and handles custom environment variables.
 type CustomEnvPrinter struct {
@@ -54,43 +54,40 @@ func (e *CustomEnvPrinter) Print() error {
 }
 
 // GetEnvVars retrieves environment variables from the configuration, resolving any secret placeholders.
-// If a variable is already set in the environment and caching is allowed, it skips parsing.
+// If a variable is already set in the environment and caching is allowed, it skips parsing and does not include it in the result.
 func (e *CustomEnvPrinter) GetEnvVars() (map[string]string, error) {
-	envVars := e.configHandler.GetStringMap("environment")
-	if envVars == nil {
-		envVars = make(map[string]string)
+	originalEnvVars := e.configHandler.GetStringMap("environment")
+	if originalEnvVars == nil {
+		originalEnvVars = make(map[string]string)
 	}
 
 	re := regexp.MustCompile(secretPlaceholderPattern)
+	interpretedEnvVars := make(map[string]string, len(originalEnvVars))
 
-	for k, v := range envVars {
+	for k, v := range originalEnvVars {
 		if re.MatchString(v) {
-			if cachedValue, exists := os.LookupEnv(k); exists && os.Getenv("NO_CACHE") != "true" {
-				envVars[k] = cachedValue
-				continue
+			if _, exists := os.LookupEnv(k); exists {
+				if os.Getenv("NO_CACHE") != "true" {
+					continue
+				}
 			}
 			parsedValue := e.parseAndCheckSecrets(v)
-			envVars[k] = parsedValue
+			interpretedEnvVars[k] = parsedValue
 		} else {
-			envVars[k] = v
+			interpretedEnvVars[k] = v
 		}
 	}
 
-	return envVars, nil
+	return interpretedEnvVars, nil
 }
 
 // parseAndCheckSecrets parses and replaces secret placeholders in the string value using the secrets provider.
 // It also checks for remaining unparsed secrets and returns an error string if any are found.
 func (e *CustomEnvPrinter) parseAndCheckSecrets(strValue string) string {
-	fmt.Printf("Parsing secrets for value: %s\n", strValue)
 	for _, secretsProvider := range e.secretsProviders {
-		fmt.Printf("Using secrets provider: %v\n", secretsProvider)
 		parsedValue, err := secretsProvider.ParseSecrets(strValue)
 		if err == nil {
-			fmt.Printf("Resolved secret: %s\n", parsedValue)
 			strValue = parsedValue
-		} else {
-			fmt.Printf("Failed to resolve secret: %v\n", err)
 		}
 	}
 
