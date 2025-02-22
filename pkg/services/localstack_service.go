@@ -70,13 +70,9 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
-	// If the localstack auth token is set, add it to the secrets
+	// If the localstack auth token is set, add it to the environment
 	if localstackAuthToken != "" {
-		services[0].Secrets = []types.ServiceSecretConfig{
-			{
-				Source: "LOCALSTACK_AUTH_TOKEN",
-			},
-		}
+		services[0].Environment["LOCALSTACK_AUTH_TOKEN"] = ptrString("${LOCALSTACK_AUTH_TOKEN}")
 	}
 
 	return &types.Config{Services: services}, nil
