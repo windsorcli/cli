@@ -290,6 +290,91 @@ func TestCustomEnv_GetEnvVars(t *testing.T) {
 		os.Unsetenv("VAR1")
 		os.Unsetenv("NO_CACHE")
 	})
+
+	t.Run("DifferentWindsorContext", func(t *testing.T) {
+		mocks := setupSafeCustomEnvMocks()
+		customEnvPrinter := NewCustomEnvPrinter(mocks.Injector)
+		customEnvPrinter.Initialize()
+
+		// Set the WINDSOR_CONTEXT to a different value than the current context
+		os.Setenv("WINDSOR_CONTEXT", "differentContext")
+
+		// Mock the current context to be different
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return "currentContext"
+		}
+
+		// Mock the environment variables
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					"VAR1": "${{ secrets.someSecret }}",
+					"VAR2": "value2",
+				}
+			}
+			return nil
+		}
+
+		// Mock the secrets provider to resolve the secret placeholder
+		mocks.SecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == "${{ secrets.someSecret }}" {
+				return "resolvedSecretValue", nil
+			}
+			return input, nil
+		}
+
+		envVars, err := customEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Verify that the secret is resolved since caching should be disabled
+		expectedEnvVars := map[string]string{
+			"VAR1": "resolvedSecretValue",
+			"VAR2": "value2",
+		}
+		if !reflect.DeepEqual(envVars, expectedEnvVars) {
+			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
+		}
+
+		// Unset the WINDSOR_CONTEXT environment variable
+		os.Unsetenv("WINDSOR_CONTEXT")
+	})
+
+	t.Run("NoSecretsProviders", func(t *testing.T) {
+		mocks := setupSafeCustomEnvMocks()
+		customEnvPrinter := NewCustomEnvPrinter(mocks.Injector)
+		customEnvPrinter.Initialize()
+
+		// Mock the environment variables
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					"VAR1": "${{ secrets.someSecret }}",
+					"VAR2": "value2",
+				}
+			}
+			return nil
+		}
+
+		// Ensure no secrets providers are configured
+		customEnvPrinter.secretsProviders = nil
+
+		envVars, err := customEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Verify that the secret is not resolved and an error message is returned
+		expectedEnvVars := map[string]string{
+			"VAR1": "<ERROR: No secrets providers configured>",
+			"VAR2": "value2",
+		}
+		if !reflect.DeepEqual(envVars, expectedEnvVars) {
+			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
+		}
+	})
+
 }
 
 func TestCustomEnv_Print(t *testing.T) {

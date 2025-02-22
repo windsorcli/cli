@@ -53,8 +53,10 @@ func (e *CustomEnvPrinter) Print() error {
 	return e.shell.PrintEnvVars(envVars)
 }
 
-// GetEnvVars retrieves environment variables from the configuration, resolving any secret placeholders.
-// If a variable is already set in the environment and caching is allowed, it skips parsing and does not include it in the result.
+// GetEnvVars retrieves environment variables from the configuration and resolves any secret placeholders.
+// It uses caching to avoid unnecessary parsing if the variable is already set in the environment and the context hasn't changed.
+// The function first checks the current context against the WINDSOR_CONTEXT environment variable to decide on caching.
+// It then iterates over the configuration's environment variables, resolving secrets where needed, and returns the final map.
 func (e *CustomEnvPrinter) GetEnvVars() (map[string]string, error) {
 	originalEnvVars := e.configHandler.GetStringMap("environment")
 	if originalEnvVars == nil {
@@ -64,10 +66,18 @@ func (e *CustomEnvPrinter) GetEnvVars() (map[string]string, error) {
 	re := regexp.MustCompile(secretPlaceholderPattern)
 	interpretedEnvVars := make(map[string]string, len(originalEnvVars))
 
+	currentContext := e.configHandler.GetContext()
+	windsorContext := os.Getenv("WINDSOR_CONTEXT")
+
+	useCache := true
+	if windsorContext != "" && windsorContext != currentContext {
+		useCache = false
+	}
+
 	for k, v := range originalEnvVars {
 		if re.MatchString(v) {
 			if _, exists := os.LookupEnv(k); exists {
-				if os.Getenv("NO_CACHE") != "true" {
+				if os.Getenv("NO_CACHE") != "true" && useCache {
 					continue
 				}
 			}
@@ -94,6 +104,9 @@ func (e *CustomEnvPrinter) parseAndCheckSecrets(strValue string) string {
 	re := regexp.MustCompile(secretPlaceholderPattern)
 	unparsedSecrets := re.FindAllStringSubmatch(strValue, -1)
 	if len(unparsedSecrets) > 0 {
+		if len(e.secretsProviders) == 0 {
+			return "<ERROR: No secrets providers configured>"
+		}
 		var secretNames []string
 		for _, match := range unparsedSecrets {
 			if len(match) > 1 {
