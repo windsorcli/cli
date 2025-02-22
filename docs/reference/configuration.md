@@ -199,6 +199,52 @@ git:
 | `verify_ssl`   | `bool`   | Determines if SSL verification is required for connections.  |
 | `image`        | `string` | Docker image used for the livereload server.                 |
 
+### Environment Variables
+
+You can specify environment variables in your `windsor.yaml` configuration under the `environment` key. These variables are custom key-value pairs that the CLI makes available at runtime using a custom environment printer.
+
+**Example:**
+
+```yaml
+environment:
+  API_KEY: {% raw %}${{ op.my.api-key }}{% endraw %}
+  DEBUG: "true"
+  CUSTOM_VAR: "some-value"
+```
+
+You can also reference secrets, outlined in the next section.
+
+### Secrets
+
+The Windsor CLI supports integrating multiple secrets providers, enabling secure management of sensitive values in your project configurations. Within a context in your windsor.yaml file, you can define a secrets block to configure providers such as 1Password and SOPS.
+
+#### 1Password CLI
+
+Configure 1Password secrets by adding a onepassword block under the secrets key. For example:
+
+```yaml
+secrets:
+  onepassword:
+    vaults:
+      personal:
+        url: my.1password.com
+        vault: "Personal"
+      development:
+        url: my-company.1password.com
+        vault: "Development"
+```
+
+| Field          | Type   | Description                                         |
+|----------------|--------|-----------------------------------------------------|
+| onepassword    | object | Configuration for the 1Password secrets provider.   |
+
+**onepassword.vaults.&lt;key&gt;**
+
+| Field       | Type   | Description                                           |
+|-------------|--------|-------------------------------------------------------|
+| url         | string | The endpoint URL for the 1Password service.           |
+| vault       | string | The name of the vault from which secrets are retrieved. |
+
 ## Terraform
 Configures details related to working with Terraform in the context
 
