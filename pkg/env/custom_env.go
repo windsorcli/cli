@@ -30,14 +30,24 @@ func NewCustomEnvPrinter(injector di.Injector) *CustomEnvPrinter {
 
 // Initialize sets up the CustomEnvPrinter, including resolving secrets providers.
 func (e *CustomEnvPrinter) Initialize() error {
-	e.BaseEnvPrinter.Initialize()
+	// NOTE: These errors are not presently testable in a convenient manner
+
+	if err := e.BaseEnvPrinter.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize BaseEnvPrinter: %w", err)
+	}
 
 	// Resolve secrets providers using dependency injection
-	instances, _ := e.injector.ResolveAll((*secrets.SecretsProvider)(nil))
+	instances, err := e.injector.ResolveAll((*secrets.SecretsProvider)(nil))
+	if err != nil {
+		return fmt.Errorf("failed to resolve secrets providers: %w", err)
+	}
 	secretsProviders := make([]secrets.SecretsProvider, 0, len(instances))
 
 	for _, instance := range instances {
-		secretsProvider, _ := instance.(secrets.SecretsProvider)
+		secretsProvider, ok := instance.(secrets.SecretsProvider)
+		if !ok {
+			return fmt.Errorf("failed to cast instance to SecretsProvider")
+		}
 		secretsProviders = append(secretsProviders, secretsProvider)
 	}
 
@@ -53,10 +63,11 @@ func (e *CustomEnvPrinter) Print() error {
 	return e.shell.PrintEnvVars(envVars)
 }
 
-// GetEnvVars retrieves environment variables from the configuration and resolves any secret placeholders.
-// It uses caching to avoid unnecessary parsing if the variable is already set in the environment and the context hasn't changed.
-// The function first checks the current context against the WINDSOR_CONTEXT environment variable to decide on caching.
-// It then iterates over the configuration's environment variables, resolving secrets where needed, and returns the final map.
+// GetEnvVars retrieves environment variables and resolves secret placeholders.
+// Caching avoids re-parsing if the variable is set and context is unchanged.
+// It checks WINDSOR_CONTEXT to decide on caching strategy.
+// Skips parsing if caching is enabled and value lacks "<ERROR".
+// Iterates over variables, resolves secrets, and returns the map.
 func (e *CustomEnvPrinter) GetEnvVars() (map[string]string, error) {
 	originalEnvVars := e.configHandler.GetStringMap("environment")
 	if originalEnvVars == nil {
@@ -76,8 +87,8 @@ func (e *CustomEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	for k, v := range originalEnvVars {
 		if re.MatchString(v) {
-			if _, exists := os.LookupEnv(k); exists {
-				if os.Getenv("NO_CACHE") != "true" && useCache {
+			if existingValue, exists := osLookupEnv(k); exists {
+				if os.Getenv("NO_CACHE") != "true" && useCache && !strings.Contains(existingValue, "<ERROR") {
 					continue
 				}
 			}

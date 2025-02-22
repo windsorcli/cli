@@ -2,7 +2,6 @@ package env
 
 import (
 	"fmt"
-	"os"
 	"reflect"
 	"testing"
 
@@ -17,6 +16,7 @@ type CustomEnvMocks struct {
 	ConfigHandler   *config.MockConfigHandler
 	Shell           *shell.MockShell
 	SecretsProvider *secrets.MockSecretsProvider
+	EnvPrinter      *MockEnvPrinter
 }
 
 func setupSafeCustomEnvMocks(injector ...di.Injector) *CustomEnvMocks {
@@ -39,6 +39,9 @@ func setupSafeCustomEnvMocks(injector ...di.Injector) *CustomEnvMocks {
 		}
 		return nil
 	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "test"
+	}
 
 	// Create a mock Shell using its constructor
 	mockShell := shell.NewMockShell()
@@ -52,16 +55,21 @@ func setupSafeCustomEnvMocks(injector ...di.Injector) *CustomEnvMocks {
 		return input, nil
 	}
 
+	// Create a mock EnvPrinter using its constructor
+	mockEnvPrinter := NewMockEnvPrinter()
+
 	// Register the mocks in the DI injector
 	mockInjector.Register("configHandler", mockConfigHandler)
 	mockInjector.Register("shell", mockShell)
 	mockInjector.Register("secretsProvider", mockSecretsProvider)
+	mockInjector.Register("envPrinter", mockEnvPrinter)
 
 	return &CustomEnvMocks{
 		Injector:        mockInjector,
 		ConfigHandler:   mockConfigHandler,
 		Shell:           mockShell,
 		SecretsProvider: mockSecretsProvider,
+		EnvPrinter:      mockEnvPrinter,
 	}
 }
 
@@ -204,8 +212,8 @@ func TestCustomEnv_GetEnvVars(t *testing.T) {
 		customEnvPrinter.Initialize()
 
 		// Set environment variables
-		os.Setenv("VAR1", "cachedValue")
-		os.Setenv("NO_CACHE", "true")
+		t.Setenv("VAR1", "cachedValue")
+		t.Setenv("NO_CACHE", "true")
 
 		// Mock the environment variables to include a secret placeholder
 		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
@@ -239,20 +247,15 @@ func TestCustomEnv_GetEnvVars(t *testing.T) {
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
 		}
-
-		// Unset environment variables
-		os.Unsetenv("VAR1")
-		os.Unsetenv("NO_CACHE")
 	})
 
 	t.Run("CachedEnvVarScenario", func(t *testing.T) {
 		mocks := setupSafeCustomEnvMocks()
-		customEnvPrinter := NewCustomEnvPrinter(mocks.Injector)
-		customEnvPrinter.Initialize()
 
 		// Set environment variables
-		os.Setenv("VAR1", "cachedValue")
-		os.Setenv("NO_CACHE", "false")
+		t.Setenv("VAR1", "cachedValue")
+		t.Setenv("NO_CACHE", "false")
+		t.Setenv("WINDSOR_CONTEXT", "test")
 
 		// Mock the environment variables to include a secret placeholder
 		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
@@ -273,22 +276,21 @@ func TestCustomEnv_GetEnvVars(t *testing.T) {
 			return input, nil
 		}
 
+		customEnvPrinter := NewCustomEnvPrinter(mocks.Injector)
+		customEnvPrinter.Initialize()
+
 		envVars, err := customEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// Check if the environment variable is cached, it should not resolve the secret
+		// Check if NO_CACHE is not set, then the cached value should be used
 		expectedEnvVars := map[string]string{
 			"VAR2": "value2",
 		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
 		}
-
-		// Unset environment variables
-		os.Unsetenv("VAR1")
-		os.Unsetenv("NO_CACHE")
 	})
 
 	t.Run("DifferentWindsorContext", func(t *testing.T) {
@@ -297,7 +299,7 @@ func TestCustomEnv_GetEnvVars(t *testing.T) {
 		customEnvPrinter.Initialize()
 
 		// Set the WINDSOR_CONTEXT to a different value than the current context
-		os.Setenv("WINDSOR_CONTEXT", "differentContext")
+		t.Setenv("WINDSOR_CONTEXT", "differentContext")
 
 		// Mock the current context to be different
 		mocks.ConfigHandler.GetContextFunc = func() string {
@@ -336,9 +338,55 @@ func TestCustomEnv_GetEnvVars(t *testing.T) {
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
 		}
+	})
 
-		// Unset the WINDSOR_CONTEXT environment variable
-		os.Unsetenv("WINDSOR_CONTEXT")
+	t.Run("OriginalVariableHasError", func(t *testing.T) {
+		mocks := setupSafeCustomEnvMocks()
+		customEnvPrinter := NewCustomEnvPrinter(mocks.Injector)
+		customEnvPrinter.Initialize()
+
+		// Set environment variables
+		t.Setenv("VAR1", "<ERROR some error>")
+		t.Setenv("NO_CACHE", "false")
+		t.Setenv("WINDSOR_CONTEXT", "test")
+
+		// Mock the current context to be the same
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return "test"
+		}
+
+		// Mock the environment variables
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					"VAR1": "${{ secrets.someSecret }}",
+					"VAR2": "value2",
+				}
+			}
+			return nil
+		}
+
+		// Mock the secrets provider to resolve the secret placeholder
+		mocks.SecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == "${{ secrets.someSecret }}" {
+				return "resolvedSecretValue", nil
+			}
+			return input, nil
+		}
+
+		envVars, err := customEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Verify that the original variable with <ERROR is re-parsed and resolved
+		expectedEnvVars := map[string]string{
+			"VAR1": "resolvedSecretValue",
+			"VAR2": "value2",
+		}
+		if !reflect.DeepEqual(envVars, expectedEnvVars) {
+			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
+		}
 	})
 
 	t.Run("NoSecretsProviders", func(t *testing.T) {
@@ -374,7 +422,6 @@ func TestCustomEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
 		}
 	})
-
 }
 
 func TestCustomEnv_Print(t *testing.T) {
