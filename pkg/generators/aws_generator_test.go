@@ -3,6 +3,7 @@ package generators
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -24,7 +25,7 @@ func setupSafeAwsGeneratorMocks(injector ...di.Injector) MockComponents {
 
 	// Mock the osStat function to simulate file existence
 	osStat = func(name string) (os.FileInfo, error) {
-		if name == "/mock/config/root/.aws/config" {
+		if name == filepath.Join("/mock/config/root", ".aws", "config") {
 			return nil, nil // Simulate that the file exists
 		}
 		return nil, os.ErrNotExist
@@ -43,7 +44,7 @@ func setupSafeAwsGeneratorMocks(injector ...di.Injector) MockComponents {
 
 	// Mock the iniSaveTo function to simulate saving the ini file
 	iniSaveTo = func(cfg *ini.File, filename string) error {
-		if filename == "/mock/config/root/.aws/config" {
+		if filename == filepath.Join("/mock/config/root", ".aws", "config") {
 			return nil // Simulate successful save
 		}
 		return nil // Simulate successful save for any file
@@ -51,7 +52,7 @@ func setupSafeAwsGeneratorMocks(injector ...di.Injector) MockComponents {
 
 	// Mock the osWriteFile function to simulate file writing
 	osWriteFile = func(name string, data []byte, perm os.FileMode) error {
-		if name == "/mock/config/root/.aws/config" {
+		if name == filepath.Join("/mock/config/root", ".aws", "config") {
 			return nil // Simulate successful write
 		}
 		return nil // Simulate successful write for any file
@@ -63,7 +64,7 @@ func setupSafeAwsGeneratorMocks(injector ...di.Injector) MockComponents {
 
 	// Mock the configHandler to return a mock config root
 	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-		return "/mock/config/root", nil
+		return filepath.Join("/mock/config/root"), nil
 	}
 
 	// Mock the GetString method to return default values for AWS configuration
@@ -101,7 +102,7 @@ func setupSafeAwsGeneratorMocks(injector ...di.Injector) MockComponents {
 	// Create a new mock shell
 	mockShell := sh.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
-		return "/mock/project/root", nil
+		return filepath.Join("/mock/project/root"), nil
 	}
 	mockInjector.Register("shell", mockShell)
 
@@ -134,7 +135,7 @@ func TestAWSGenerator_Write(t *testing.T) {
 
 		// Mock the osStat function to simulate os.IsNotExist for awsConfigFilePath
 		osStat = func(name string) (os.FileInfo, error) {
-			if name == "/mock/config/root/.aws/config" {
+			if name == filepath.Join("/mock/config/root", ".aws", "config") {
 				return nil, os.ErrNotExist
 			}
 			return nil, nil
@@ -142,7 +143,7 @@ func TestAWSGenerator_Write(t *testing.T) {
 
 		// Mock the osWriteFile function to validate that it is called with the expected parameters
 		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
-			expectedFilePath := "/mock/config/root/.aws/config"
+			expectedFilePath := filepath.Join("/mock/config/root", ".aws", "config")
 			if filename != expectedFilePath {
 				t.Errorf("Unexpected filename for osWriteFile: %s", filename)
 			}
@@ -184,7 +185,7 @@ func TestAWSGenerator_Write(t *testing.T) {
 
 		// Mock the iniSaveTo function to validate that it is called with the expected parameters
 		iniSaveTo = func(cfg *ini.File, filename string) error {
-			expectedFilePath := "/mock/config/root/.aws/config"
+			expectedFilePath := filepath.Join("/mock/config/root", ".aws", "config")
 			if filename != expectedFilePath {
 				t.Errorf("Unexpected filename for iniSaveTo: %s", filename)
 			}
@@ -234,7 +235,7 @@ func TestAWSGenerator_Write(t *testing.T) {
 
 		// Mock the GetConfigRoot method to return a valid path
 		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.Join("/mock/config/root"), nil
 		}
 
 		// Mock the osStat function to simulate the file does not exist
@@ -271,7 +272,7 @@ func TestAWSGenerator_Write(t *testing.T) {
 
 		// Mock the GetConfigRoot method to return a valid path
 		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.Join("/mock/config/root"), nil
 		}
 
 		// Mock the osStat function to simulate the file exists
@@ -313,7 +314,7 @@ func TestAWSGenerator_Write(t *testing.T) {
 
 		// Mock the GetConfigRoot method to return a valid path
 		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
+			return filepath.Join("/mock/config/root"), nil
 		}
 
 		// Mock the osStat function to simulate the file exists
