@@ -12,6 +12,7 @@ nav:
     - 'Hello, World!': tutorial/hello-world.md
   - 'Security':
     - 'Trusted Folders': security/trusted-folders.md
+    - 'Secrets': security/secrets.md
   - 'Reference':
     - 'Blueprint': reference/blueprint.md
     - 'Configuration': reference/configuration.md
