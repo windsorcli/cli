@@ -47,6 +47,7 @@ const (
 	DEFAULT_AWS_LOCALSTACK_PORT      = "4566"
 	// nosec:ignore G101 -- These are development secrets and are safe to be hardcoded.
 	DEFAULT_AWS_LOCALSTACK_ACCESS_KEY = "LSIAQAAAAAAVNCBMPNSG"
+	// nosec:ignore G101 -- These are development secrets and are safe to be hardcoded.
 	DEFAULT_AWS_LOCALSTACK_SECRET_KEY = "LSIAQAAAAAAVNCBMPNSG"
 )
 
