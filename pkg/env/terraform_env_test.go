@@ -13,6 +13,7 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/aws"
 	"github.com/windsorcli/cli/api/v1alpha1/terraform"
 	"github.com/windsorcli/cli/pkg/config"
+
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
@@ -223,13 +224,14 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("NoProjectPathFound", func(t *testing.T) {
+		mocks := setupSafeTerraformEnvMocks()
+
 		// Given a mocked getwd function returning a specific path
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
 			return filepath.FromSlash("/mock/project/root"), nil
 		}
-		mocks := setupSafeTerraformEnvMocks()
 
 		// When the GetEnvVars function is called
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
@@ -445,12 +447,12 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGettingCurrentDirectory", func(t *testing.T) {
-		// Given a mocked getwd function returning an error
-		originalGetwd := getwd
-		defer func() { getwd = originalGetwd }()
-		getwd = func() (string, error) {
-			return "", fmt.Errorf("mock error getting current directory")
+	t.Run("ErrorFindingRelativeTerraformProjectPath", func(t *testing.T) {
+		// Given a mocked findRelativeTerraformProjectPath function returning an error
+		originalFindRelativeTerraformProjectPath := findRelativeTerraformProjectPath
+		defer func() { findRelativeTerraformProjectPath = originalFindRelativeTerraformProjectPath }()
+		findRelativeTerraformProjectPath = func() (string, error) {
+			return "", fmt.Errorf("mock error finding Terraform project path")
 		}
 
 		// When the PostEnvHook function is called
@@ -463,50 +465,31 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		if err == nil {
 			t.Errorf("Expected error, got nil")
 		}
-		errorMessage := err.Error()
-		expectedError := "error getting current directory: mock error getting current directory"
-		if errorMessage != expectedError {
-			t.Errorf("Expected error message to be '%s', got '%v'", expectedError, errorMessage)
+		expectedError := "error finding Terraform project path: mock error finding Terraform project path"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error message to be '%s', got '%v'", expectedError, err.Error())
 		}
 	})
 
-	// t.Run("UnsupportedBackend", func(t *testing.T) {
-	// 	mocks := setupSafeTerraformEnvMocks()
-	// 	mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-	// 		if key == "terraform.backend.type" {
-	// 			return "unsupported"
-	// 		}
-	// 		if len(defaultValue) > 0 {
-	// 			return defaultValue[0]
-	// 		}
-	// 		return ""
-	// 	}
+	t.Run("NotInATerraformProject", func(t *testing.T) {
+		// Given a mocked findRelativeTerraformProjectPath function returning an empty string
+		originalFindRelativeTerraformProjectPath := findRelativeTerraformProjectPath
+		defer func() { findRelativeTerraformProjectPath = originalFindRelativeTerraformProjectPath }()
+		findRelativeTerraformProjectPath = func() (string, error) {
+			return "", nil
+		}
 
-	// 	// Given a mocked getwd function simulating being in a terraform project root
-	// 	originalGetwd := getwd
-	// 	defer func() { getwd = originalGetwd }()
-	// 	getwd = func() (string, error) {
-	// 		return filepath.FromSlash("mock/project/root/terraform/project/path"), nil
-	// 	}
-	// 	originalGlob := glob
-	// 	defer func() { glob = originalGlob }()
-	// 	glob = func(pattern string) ([]string, error) {
-	// 		return []string{filepath.FromSlash("mock/project/root/terraform/project/path/main.tf")}, nil
-	// 	}
+		// When the PostEnvHook function is called
+		mocks := setupSafeTerraformEnvMocks()
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.PostEnvHook()
 
-	// 	// When the PostEnvHook function is called
-	// 	terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-	// 	terraformEnvPrinter.Initialize()
-	// 	err := terraformEnvPrinter.PostEnvHook()
-
-	// 	// Then the error should contain the expected message
-	// 	if err == nil {
-	// 		t.Errorf("Expected error, got nil")
-	// 	}
-	// 	if !strings.Contains(err.Error(), "unsupported backend") {
-	// 		t.Errorf("Expected error message to contain 'unsupported backend', got %v", err)
-	// 	}
-	// })
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
 
 	t.Run("ErrorWritingBackendOverrideFile", func(t *testing.T) {
 		// Given a mocked writeFile function returning an error

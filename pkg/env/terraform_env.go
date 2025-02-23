@@ -97,18 +97,26 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
-// PostEnvHook executes operations after setting the environment variables.
+// PostEnvHook finalizes the environment setup by generating necessary override configurations
+// if the current directory is within a Terraform project and Localstack is enabled.
 func (e *TerraformEnvPrinter) PostEnvHook() error {
 	currentPath, err := getwd()
 	if err != nil {
 		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
+	projectPath, err := findRelativeTerraformProjectPath()
+	if err != nil {
+		return fmt.Errorf("error finding Terraform project path: %w", err)
+	}
+	if projectPath == "" {
+		return nil
+	}
+
 	if err := e.generateBackendOverrideTf(currentPath); err != nil {
 		return err
 	}
 
-	// Only generate provider override if localstack is enabled
 	if e.configHandler.GetBool("aws.localstack.enabled", false) {
 		if err := e.generateProviderOverrideTf(currentPath); err != nil {
 			return err
