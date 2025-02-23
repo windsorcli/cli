@@ -148,6 +148,10 @@ func (m *MockController) CreateProjectComponents() error {
 	kustomizeGenerator := generators.NewMockGenerator()
 	m.injector.Register("kustomizeGenerator", kustomizeGenerator)
 
+	// Create a new mock aws generator
+	awsGenerator := generators.NewMockGenerator()
+	m.injector.Register("awsGenerator", awsGenerator)
+
 	return nil
 }
 

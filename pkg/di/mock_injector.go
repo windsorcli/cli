@@ -9,6 +9,7 @@ import (
 type MockInjector struct {
 	*BaseInjector
 	resolveAllErrors map[interface{}]error
+	resolveErrors    map[string]error
 	mu               sync.RWMutex
 }
 
@@ -17,6 +18,7 @@ func NewMockInjector() *MockInjector {
 	return &MockInjector{
 		BaseInjector:     NewInjector(),
 		resolveAllErrors: make(map[interface{}]error),
+		resolveErrors:    make(map[string]error),
 	}
 }
 
@@ -27,10 +29,21 @@ func (m *MockInjector) SetResolveAllError(targetType interface{}, err error) {
 	m.resolveAllErrors[targetType] = err
 }
 
+// SetResolveError sets a specific error to be returned when resolving a specific name
+func (m *MockInjector) SetResolveError(name string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.resolveErrors[name] = err
+}
+
 // Resolve overrides the RealInjector's Resolve method to add error simulation
 func (m *MockInjector) Resolve(name string) interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
+	if err, exists := m.resolveErrors[name]; exists {
+		return err
+	}
 
 	return m.BaseInjector.Resolve(name)
 }

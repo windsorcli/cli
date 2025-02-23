@@ -1,7 +1,9 @@
 package services
 
 import (
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/compose-spec/compose-go/types"
@@ -24,31 +26,34 @@ func NewLocalstackService(injector di.Injector) *LocalstackService {
 	}
 }
 
-// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
+// GetComposeConfig constructs and returns a Docker Compose configuration for the Localstack service.
+// It retrieves the context configuration, checks for a Localstack authentication token, and determines
+// the appropriate image to use. It also gathers the list of Localstack services to enable, constructs
+// the full domain name, and sets up the service configuration with environment variables, labels, and
+// port settings. If an authentication token is present, it adds it to the service secrets.
 func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
-	// Get the context configuration
 	contextConfig := s.configHandler.GetConfig()
-
-	// Get the localstack auth token
 	localstackAuthToken := os.Getenv("LOCALSTACK_AUTH_TOKEN")
 
-	// Get the image to use
 	image := constants.DEFAULT_AWS_LOCALSTACK_IMAGE
 	if localstackAuthToken != "" {
 		image = constants.DEFAULT_AWS_LOCALSTACK_PRO_IMAGE
 	}
 
-	// Get the localstack services to enable
 	servicesList := ""
 	if contextConfig.AWS.Localstack.Services != nil {
 		servicesList = strings.Join(contextConfig.AWS.Localstack.Services, ",")
 	}
 
-	// Get the domain from the configuration
 	tld := s.configHandler.GetString("dns.domain", "test")
 	fullName := s.name + "." + tld
 
-	// Create the service config
+	port, err := strconv.ParseUint(constants.DEFAULT_AWS_LOCALSTACK_PORT, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port format: %w", err)
+	}
+	port32 := uint32(port)
+
 	services := []types.ServiceConfig{
 		{
 			Name:          fullName,
@@ -63,14 +68,19 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 				"SERVICES":      ptrString(servicesList),
 			},
 			Labels: map[string]string{
-				"role":       "localstack",
+				"role":       "aws",
 				"managed_by": "windsor",
-				"wildcard":   "true",
+			},
+			Ports: []types.ServicePortConfig{
+				{
+					Target:    port32,
+					Published: constants.DEFAULT_AWS_LOCALSTACK_PORT,
+					Protocol:  "tcp",
+				},
 			},
 		},
 	}
 
-	// If the localstack auth token is set, add it to the secrets
 	if localstackAuthToken != "" {
 		services[0].Secrets = []types.ServiceSecretConfig{
 			{
