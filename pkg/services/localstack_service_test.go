@@ -3,6 +3,7 @@ package services
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
@@ -50,6 +51,29 @@ func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServic
 	mockConfigHandler.SetContextFunc = func(context string) error { return nil }
 	mockConfigHandler.GetConfigRootFunc = func() (string, error) { return filepath.FromSlash("/mock/config/root"), nil }
 
+	// Mock GetConfig to return a valid Localstack configuration with SERVICES set
+	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+		return &v1alpha1.Context{
+			AWS: &aws.AWSConfig{
+				Localstack: &aws.LocalstackConfig{
+					Enabled:  ptrBool(true),
+					Services: []string{"s3", "dynamodb"},
+				},
+			},
+		}
+	}
+
+	// Mock GetStringSlice to return a list of services for Localstack
+	mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+		if key == "aws.localstack.services" {
+			return []string{"s3", "dynamodb"}
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return nil
+	}
+
 	// Register mocks in the injector
 	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("shell", mockShell)
@@ -65,18 +89,6 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create mock injector with necessary mocks
 		mocks := createLocalstackServiceMocks()
-
-		// Mock GetConfig to return a valid Localstack configuration
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				AWS: &aws.AWSConfig{
-					Localstack: &aws.LocalstackConfig{
-						Enabled:  ptrBool(true),
-						Services: []string{"s3", "dynamodb"},
-					},
-				},
-			}
-		}
 
 		// Create an instance of LocalstackService
 		localstackService := NewLocalstackService(mocks.Injector)
@@ -148,6 +160,43 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		service := composeConfig.Services[0]
 		if service.Environment["LOCALSTACK_AUTH_TOKEN"] == nil || *service.Environment["LOCALSTACK_AUTH_TOKEN"] != "${LOCALSTACK_AUTH_TOKEN}" {
 			t.Errorf("expected service to have LOCALSTACK_AUTH_TOKEN environment variable, got %v", service.Environment["LOCALSTACK_AUTH_TOKEN"])
+		}
+	})
+
+	t.Run("InvalidServicesDetected", func(t *testing.T) {
+		// Create mock injector with necessary mocks
+		mocks := createLocalstackServiceMocks()
+
+		// Mock GetStringSlice to return an invalid Localstack configuration
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			if key == "aws.localstack.services" {
+				return []string{"invalidService"}
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return nil
+		}
+
+		// Create an instance of LocalstackService
+		localstackService := NewLocalstackService(mocks.Injector)
+
+		// Initialize the service
+		if err := localstackService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetComposeConfig is called
+		_, err := localstackService.GetComposeConfig()
+
+		// Then: an error should be returned indicating invalid services
+		if err == nil {
+			t.Fatalf("expected error due to invalid services, got nil")
+		}
+
+		expectedError := "invalid services found: invalidService"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error to contain %q, got %v", expectedError, err)
 		}
 	})
 }

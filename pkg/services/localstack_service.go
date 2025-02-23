@@ -11,6 +11,20 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// Valid AWS service names that use the same endpoint
+var ValidLocalstackServiceNames = []string{
+	"acm", "apigateway", "cloudformation", "cloudwatch", "config", "dynamodb", "dynamodbstreams",
+	"ec2", "es", "events", "firehose", "iam", "kinesis", "kms", "lambda", "logs", "opensearch",
+	"redshift", "resource-groups", "resourcegroupstaggingapi", "route53", "route53resolver", "s3",
+	"s3control", "scheduler", "secretsmanager", "ses", "sns", "sqs", "ssm", "stepfunctions", "sts",
+	"support", "swf", "transcribe",
+}
+
+// Invalid Terraform AWS service names that do not get an endpoint configuration
+var InvalidTerraformAwsServiceNames = []string{
+	"dynamodbstreams", "resource-groups", "support",
+}
+
 // LocalstackService is a service struct that provides Localstack-specific utility functions
 type LocalstackService struct {
 	BaseService
@@ -42,7 +56,12 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 
 	servicesList := ""
 	if contextConfig.AWS.Localstack.Services != nil {
-		servicesList = strings.Join(contextConfig.AWS.Localstack.Services, ",")
+		services := s.configHandler.GetStringSlice("aws.localstack.services", []string{})
+		validServices, invalidServices := validateServices(services)
+		if len(invalidServices) > 0 {
+			return nil, fmt.Errorf("invalid services found: %s", strings.Join(invalidServices, ", "))
+		}
+		servicesList = strings.Join(validServices, ",")
 	}
 
 	tld := s.configHandler.GetString("dns.domain", "test")
@@ -50,6 +69,7 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 
 	port, err := strconv.ParseUint(constants.DEFAULT_AWS_LOCALSTACK_PORT, 10, 32)
 	if err != nil {
+		// Can't test this error until the port is configurable
 		return nil, fmt.Errorf("invalid port format: %w", err)
 	}
 	port32 := uint32(port)
@@ -86,6 +106,25 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 	}
 
 	return &types.Config{Services: services}, nil
+}
+
+// validateServices checks the input services and returns valid and invalid services.
+func validateServices(services []string) ([]string, []string) {
+	validServicesMap := make(map[string]struct{}, len(ValidLocalstackServiceNames))
+	for _, serviceName := range ValidLocalstackServiceNames {
+		validServicesMap[serviceName] = struct{}{}
+	}
+
+	var validServices []string
+	var invalidServices []string
+	for _, service := range services {
+		if _, exists := validServicesMap[service]; exists {
+			validServices = append(validServices, service)
+		} else {
+			invalidServices = append(invalidServices, service)
+		}
+	}
+	return validServices, invalidServices
 }
 
 // Ensure LocalstackService implements Service interface

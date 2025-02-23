@@ -8,7 +8,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
+	svc "github.com/windsorcli/cli/pkg/services"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // TerraformEnvPrinter simulates a Terraform environment for testing purposes.
@@ -95,7 +99,23 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 // PostEnvHook executes operations after setting the environment variables.
 func (e *TerraformEnvPrinter) PostEnvHook() error {
-	return e.generateBackendOverrideTf()
+	currentPath, err := getwd()
+	if err != nil {
+		return fmt.Errorf("error getting current directory: %w", err)
+	}
+
+	if err := e.generateBackendOverrideTf(currentPath); err != nil {
+		return err
+	}
+
+	// Only generate provider override if localstack is enabled
+	if e.configHandler.GetBool("aws.localstack.enabled", false) {
+		if err := e.generateProviderOverrideTf(currentPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Print outputs the environment variables for the Terraform environment.
@@ -120,47 +140,105 @@ func (e *TerraformEnvPrinter) getAlias() (map[string]string, error) {
 
 // generateBackendOverrideTf creates the backend_override.tf file for the project by determining
 // the backend type and writing the appropriate configuration to the file.
-func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
-	currentPath, err := getwd()
-	if err != nil {
-		return fmt.Errorf("error getting current directory: %w", err)
-	}
-
-	projectPath, err := findRelativeTerraformProjectPath()
-	if err != nil {
-		return fmt.Errorf("error finding project path: %w", err)
-	}
-
+func (e *TerraformEnvPrinter) generateBackendOverrideTf(projectPath string) error {
 	if projectPath == "" {
 		return nil
 	}
 
-	contextConfig := e.configHandler.GetConfig()
-	backend := contextConfig.Terraform.Backend
+	backendType := e.configHandler.GetString("terraform.backend.type", "local")
 
-	backendOverridePath := filepath.Join(currentPath, "backend_override.tf")
-	var backendConfig string
+	backendOverridePath := filepath.Join(projectPath, "backend_override.tf")
+	backendConfig := fmt.Sprintf(`terraform {
+  backend "%s" {}
+}`, backendType)
 
-	switch backend.Type {
-	case "local":
-		backendConfig = fmt.Sprintf(`terraform {
-  backend "local" {}
-}`)
-	case "s3":
-		backendConfig = fmt.Sprintf(`terraform {
-  backend "s3" {}
-}`)
-	case "kubernetes":
-		backendConfig = fmt.Sprintf(`terraform {
-  backend "kubernetes" {}
-}`)
-	default:
-		return fmt.Errorf("unsupported backend: %s", backend.Type)
-	}
-
-	err = writeFile(backendOverridePath, []byte(backendConfig), os.ModePerm)
+	err := writeFile(backendOverridePath, []byte(backendConfig), os.ModePerm)
 	if err != nil {
 		return fmt.Errorf("error writing backend_override.tf: %w", err)
+	}
+
+	return nil
+}
+
+// generateProviderOverrideTf creates the provider_override.tf file for the project by determining
+// the provider configuration and writing the appropriate configuration to the file.
+func (e *TerraformEnvPrinter) generateProviderOverrideTf(projectPath string) error {
+	if projectPath == "" {
+		return nil
+	}
+
+	overridePath := filepath.Join(projectPath, "provider_override.tf")
+
+	// Check if localstack is enabled
+	if !e.configHandler.GetBool("aws.localstack.enabled", false) {
+		// If localstack isn't enabled, delete provider_override.tf if it exists
+		if _, err := stat(overridePath); err == nil {
+			if err := osRemove(overridePath); err != nil {
+				return fmt.Errorf("error deleting provider_override.tf: %w", err)
+			}
+		}
+		return nil
+	}
+
+	region := e.configHandler.GetString("aws.region", "us-east-1")
+
+	// Derive the AWS endpoint URL as done in AWSGenerator
+	service, ok := e.injector.Resolve("localstackService").(svc.Service)
+	if !ok {
+		return fmt.Errorf("localstackService not found")
+	}
+	tld := e.configHandler.GetString("dns.domain", "test")
+	fullName := service.GetName() + "." + tld
+	localstackPort := constants.DEFAULT_AWS_LOCALSTACK_PORT
+	localstackEndpoint := "http://" + fullName + ":" + localstackPort
+
+	// Determine the list of AWS services to use
+	var awsServices []string
+	configuredAwsServices := e.configHandler.GetStringSlice("aws.localstack.services", nil)
+	if len(configuredAwsServices) > 0 {
+		awsServices = configuredAwsServices
+	} else {
+		awsServices = svc.ValidLocalstackServiceNames
+	}
+
+	// Filter out invalid Terraform AWS service names
+	validAwsServices := make([]string, 0, len(awsServices))
+	invalidServiceSet := make(map[string]struct{}, len(svc.InvalidTerraformAwsServiceNames))
+	for _, invalidService := range svc.InvalidTerraformAwsServiceNames {
+		invalidServiceSet[invalidService] = struct{}{}
+	}
+	for _, awsService := range awsServices {
+		if _, isInvalid := invalidServiceSet[awsService]; !isInvalid {
+			validAwsServices = append(validAwsServices, awsService)
+		}
+	}
+
+	// Create a new HCL file for the provider configuration
+	providerContent := hclwrite.NewEmptyFile()
+	body := providerContent.Body()
+
+	// Append a new block for the provider "aws"
+	providerBlock := body.AppendNewBlock("provider", []string{"aws"})
+	providerBody := providerBlock.Body()
+
+	// Set provider attributes
+	providerBody.SetAttributeValue("access_key", cty.StringVal("test"))
+	providerBody.SetAttributeValue("secret_key", cty.StringVal("test"))
+	providerBody.SetAttributeValue("skip_credentials_validation", cty.BoolVal(true))
+	providerBody.SetAttributeValue("skip_metadata_api_check", cty.BoolVal(true))
+	providerBody.SetAttributeValue("region", cty.StringVal(region))
+
+	// Create a block for endpoints
+	endpointsBlock := providerBody.AppendNewBlock("endpoints", nil)
+	endpointsBody := endpointsBlock.Body()
+	for _, awsService := range validAwsServices {
+		endpointsBody.SetAttributeValue(awsService, cty.StringVal(localstackEndpoint))
+	}
+
+	// Write the provider configuration to the file
+	err := writeFile(overridePath, providerContent.Bytes(), os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("error writing provider_override.tf: %w", err)
 	}
 
 	return nil
@@ -171,20 +249,7 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 // The function supports local, s3, and kubernetes backends.
 // It also includes backend.tfvars if present in the context directory.
 func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot string) ([]string, error) {
-	backend := e.configHandler.GetConfig().Terraform.Backend
-	backendType := e.configHandler.GetString("terraform.backend.type", "")
-	if backendType == "" {
-		switch {
-		case backend.S3 != nil:
-			backendType = "s3"
-		case backend.Kubernetes != nil:
-			backendType = "kubernetes"
-		case backend.Local != nil:
-			backendType = "local"
-		default:
-			backendType = "local"
-		}
-	}
+	backendType := e.configHandler.GetString("terraform.backend.type", "local")
 
 	var backendConfigArgs []string
 
@@ -206,20 +271,20 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 		addBackendConfigArg("path", filepath.ToSlash(filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate")))
 	case "s3":
 		addBackendConfigArg("key", filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
-		if backend.S3 != nil {
-			if err := processBackendConfig(backend.S3, addBackendConfigArg); err != nil {
+		if backend := e.configHandler.GetConfig().Terraform.Backend.S3; backend != nil {
+			if err := processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, fmt.Errorf("error processing S3 backend config: %w", err)
 			}
 		}
 	case "kubernetes":
 		addBackendConfigArg("secret_suffix", sanitizeForK8s(projectPath))
-		if backend.Kubernetes != nil {
-			if err := processBackendConfig(backend.Kubernetes, addBackendConfigArg); err != nil {
+		if backend := e.configHandler.GetConfig().Terraform.Backend.Kubernetes; backend != nil {
+			if err := processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, fmt.Errorf("error processing Kubernetes backend config: %w", err)
 			}
 		}
 	default:
-		return nil, fmt.Errorf("unsupported backend: %s", backend.Type)
+		return nil, fmt.Errorf("unsupported backend: %s", backendType)
 	}
 
 	return backendConfigArgs, nil

@@ -92,3 +92,39 @@ func TestMockContainer_ResolveAll(t *testing.T) {
 		}
 	})
 }
+
+func TestMockInjector_Resolve(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new mock injector
+		injector := NewMockInjector()
+
+		// And a mock service registered
+		mockService := &MockItemImpl{}
+		injector.Register("mockService", mockService)
+
+		// When resolving the service by name
+		resolvedInstance := injector.Resolve("mockService")
+
+		// Then the resolved instance should match the registered service
+		if resolvedInstance != mockService {
+			t.Fatalf("expected %v, got %v", mockService, resolvedInstance)
+		}
+	})
+
+	t.Run("ResolveError", func(t *testing.T) {
+		// Given a new mock injector
+		injector := NewMockInjector()
+
+		// And a resolve error set for a specific service name
+		expectedError := errors.New("resolve error")
+		injector.SetResolveError("mockService", expectedError)
+
+		// When resolving the service by name
+		resolvedInstance := injector.Resolve("mockService")
+
+		// Then the resolved instance should be the expected error
+		if resolvedInstance != expectedError {
+			t.Fatalf("expected error %v, got %v", expectedError, resolvedInstance)
+		}
+	})
+}
