@@ -146,8 +146,8 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		}
 
 		service := composeConfig.Services[0]
-		if len(service.Secrets) == 0 || service.Secrets[0].Source != "LOCALSTACK_AUTH_TOKEN" {
-			t.Errorf("expected service to have LOCALSTACK_AUTH_TOKEN secret, got %v", service.Secrets)
+		if service.Environment["LOCALSTACK_AUTH_TOKEN"] == nil || *service.Environment["LOCALSTACK_AUTH_TOKEN"] != "${LOCALSTACK_AUTH_TOKEN}" {
+			t.Errorf("expected service to have LOCALSTACK_AUTH_TOKEN environment variable, got %v", service.Environment["LOCALSTACK_AUTH_TOKEN"])
 		}
 	})
 }
