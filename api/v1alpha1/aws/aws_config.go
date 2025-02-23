@@ -5,11 +5,11 @@ type AWSConfig struct {
 	// Enabled indicates whether AWS integration is enabled.
 	Enabled *bool `yaml:"enabled,omitempty"`
 
-	// AWSEndpointURL specifies the custom endpoint URL for AWS services.
-	AWSEndpointURL *string `yaml:"aws_endpoint_url,omitempty"`
+	// EndpointURL specifies the custom endpoint URL for AWS services.
+	EndpointURL *string `yaml:"endpoint_url,omitempty"`
 
-	// AWSProfile defines the AWS CLI profile to use for authentication.
-	AWSProfile *string `yaml:"aws_profile,omitempty"`
+	// Profile defines the AWS CLI profile to use for authentication.
+	Profile *string `yaml:"profile,omitempty"`
 
 	// S3Hostname sets the custom hostname for the S3 service.
 	S3Hostname *string `yaml:"s3_hostname,omitempty"`
@@ -19,6 +19,9 @@ type AWSConfig struct {
 
 	// Localstack contains the configuration for Localstack, a local AWS cloud emulator.
 	Localstack *LocalstackConfig `yaml:"localstack,omitempty"`
+
+	// Region specifies the AWS region to use.
+	Region *string `yaml:"region,omitempty"`
 }
 
 // LocalstackConfig represents the Localstack configuration
@@ -32,11 +35,11 @@ func (base *AWSConfig) Merge(overlay *AWSConfig) {
 	if overlay.Enabled != nil {
 		base.Enabled = overlay.Enabled
 	}
-	if overlay.AWSEndpointURL != nil {
-		base.AWSEndpointURL = overlay.AWSEndpointURL
+	if overlay.EndpointURL != nil {
+		base.EndpointURL = overlay.EndpointURL
 	}
-	if overlay.AWSProfile != nil {
-		base.AWSProfile = overlay.AWSProfile
+	if overlay.Profile != nil {
+		base.Profile = overlay.Profile
 	}
 	if overlay.S3Hostname != nil {
 		base.S3Hostname = overlay.S3Hostname
@@ -55,6 +58,9 @@ func (base *AWSConfig) Merge(overlay *AWSConfig) {
 			base.Localstack.Services = overlay.Localstack.Services
 		}
 	}
+	if overlay.Region != nil {
+		base.Region = overlay.Region
+	}
 }
 
 // Copy creates a deep copy of the AWSConfig object
@@ -66,11 +72,11 @@ func (c *AWSConfig) Copy() *AWSConfig {
 	if c.Enabled != nil {
 		copy.Enabled = c.Enabled
 	}
-	if c.AWSEndpointURL != nil {
-		copy.AWSEndpointURL = c.AWSEndpointURL
+	if c.EndpointURL != nil {
+		copy.EndpointURL = c.EndpointURL
 	}
-	if c.AWSProfile != nil {
-		copy.AWSProfile = c.AWSProfile
+	if c.Profile != nil {
+		copy.Profile = c.Profile
 	}
 	if c.S3Hostname != nil {
 		copy.S3Hostname = c.S3Hostname
@@ -86,6 +92,9 @@ func (c *AWSConfig) Copy() *AWSConfig {
 		if c.Localstack.Services != nil {
 			copy.Localstack.Services = c.Localstack.Services
 		}
+	}
+	if c.Region != nil {
+		copy.Region = c.Region
 	}
 	return copy
 }

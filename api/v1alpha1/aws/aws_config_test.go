@@ -7,27 +7,29 @@ import (
 func TestAWSConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNoNils", func(t *testing.T) {
 		base := &AWSConfig{
-			Enabled:        ptrBool(true),
-			AWSEndpointURL: ptrString("https://base.aws.endpoint"),
-			AWSProfile:     ptrString("base-profile"),
-			S3Hostname:     ptrString("base-s3-hostname"),
-			MWAAEndpoint:   ptrString("base-mwaa-endpoint"),
+			Enabled:      ptrBool(true),
+			EndpointURL:  ptrString("https://base.aws.endpoint"),
+			Profile:      ptrString("base-profile"),
+			S3Hostname:   ptrString("base-s3-hostname"),
+			MWAAEndpoint: ptrString("base-mwaa-endpoint"),
 			Localstack: &LocalstackConfig{
 				Enabled:  ptrBool(true),
 				Services: []string{"s3", "lambda"},
 			},
+			Region: ptrString("base-region"),
 		}
 
 		overlay := &AWSConfig{
-			Enabled:        ptrBool(false),
-			AWSEndpointURL: ptrString("https://overlay.aws.endpoint"),
-			AWSProfile:     ptrString("overlay-profile"),
-			S3Hostname:     ptrString("overlay-s3-hostname"),
-			MWAAEndpoint:   ptrString("overlay-mwaa-endpoint"),
+			Enabled:      ptrBool(false),
+			EndpointURL:  ptrString("https://overlay.aws.endpoint"),
+			Profile:      ptrString("overlay-profile"),
+			S3Hostname:   ptrString("overlay-s3-hostname"),
+			MWAAEndpoint: ptrString("overlay-mwaa-endpoint"),
 			Localstack: &LocalstackConfig{
 				Enabled:  ptrBool(false),
 				Services: []string{"dynamodb"},
 			},
+			Region: ptrString("overlay-region"),
 		}
 
 		base.Merge(overlay)
@@ -35,11 +37,11 @@ func TestAWSConfig_Merge(t *testing.T) {
 		if base.Enabled == nil || *base.Enabled != false {
 			t.Errorf("Enabled mismatch: expected false, got %v", *base.Enabled)
 		}
-		if base.AWSEndpointURL == nil || *base.AWSEndpointURL != "https://overlay.aws.endpoint" {
-			t.Errorf("AWSEndpointURL mismatch: expected 'https://overlay.aws.endpoint', got '%s'", *base.AWSEndpointURL)
+		if base.EndpointURL == nil || *base.EndpointURL != "https://overlay.aws.endpoint" {
+			t.Errorf("EndpointURL mismatch: expected 'https://overlay.aws.endpoint', got '%s'", *base.EndpointURL)
 		}
-		if base.AWSProfile == nil || *base.AWSProfile != "overlay-profile" {
-			t.Errorf("AWSProfile mismatch: expected 'overlay-profile', got '%s'", *base.AWSProfile)
+		if base.Profile == nil || *base.Profile != "overlay-profile" {
+			t.Errorf("Profile mismatch: expected 'overlay-profile', got '%s'", *base.Profile)
 		}
 		if base.S3Hostname == nil || *base.S3Hostname != "overlay-s3-hostname" {
 			t.Errorf("S3Hostname mismatch: expected 'overlay-s3-hostname', got '%s'", *base.S3Hostname)
@@ -53,28 +55,33 @@ func TestAWSConfig_Merge(t *testing.T) {
 		if len(base.Localstack.Services) != 1 || base.Localstack.Services[0] != "dynamodb" {
 			t.Errorf("Localstack Services mismatch: expected ['dynamodb'], got %v", base.Localstack.Services)
 		}
+		if base.Region == nil || *base.Region != "overlay-region" {
+			t.Errorf("Region mismatch: expected 'overlay-region', got '%s'", *base.Region)
+		}
 	})
 
 	t.Run("MergeWithAllNils", func(t *testing.T) {
 		base := &AWSConfig{
-			Enabled:        nil,
-			AWSEndpointURL: nil,
-			AWSProfile:     nil,
-			S3Hostname:     nil,
-			MWAAEndpoint:   nil,
-			Localstack:     nil,
+			Enabled:      nil,
+			EndpointURL:  nil,
+			Profile:      nil,
+			S3Hostname:   nil,
+			MWAAEndpoint: nil,
+			Localstack:   nil,
+			Region:       nil,
 		}
 
 		overlay := &AWSConfig{
-			Enabled:        nil,
-			AWSEndpointURL: nil,
-			AWSProfile:     nil,
-			S3Hostname:     nil,
-			MWAAEndpoint:   nil,
+			Enabled:      nil,
+			EndpointURL:  nil,
+			Profile:      nil,
+			S3Hostname:   nil,
+			MWAAEndpoint: nil,
 			Localstack: &LocalstackConfig{
 				Enabled:  nil,
 				Services: nil,
 			},
+			Region: nil,
 		}
 
 		base.Merge(overlay)
@@ -82,11 +89,11 @@ func TestAWSConfig_Merge(t *testing.T) {
 		if base.Enabled != nil {
 			t.Errorf("Enabled mismatch: expected nil, got %v", base.Enabled)
 		}
-		if base.AWSEndpointURL != nil {
-			t.Errorf("AWSEndpointURL mismatch: expected nil, got '%s'", *base.AWSEndpointURL)
+		if base.EndpointURL != nil {
+			t.Errorf("EndpointURL mismatch: expected nil, got '%s'", *base.EndpointURL)
 		}
-		if base.AWSProfile != nil {
-			t.Errorf("AWSProfile mismatch: expected nil, got '%s'", *base.AWSProfile)
+		if base.Profile != nil {
+			t.Errorf("Profile mismatch: expected nil, got '%s'", *base.Profile)
 		}
 		if base.S3Hostname != nil {
 			t.Errorf("S3Hostname mismatch: expected nil, got '%s'", *base.S3Hostname)
@@ -97,21 +104,25 @@ func TestAWSConfig_Merge(t *testing.T) {
 		if base.Localstack != nil && (base.Localstack.Enabled != nil || base.Localstack.Services != nil) {
 			t.Errorf("Localstack mismatch: expected nil, got %v", base.Localstack)
 		}
+		if base.Region != nil {
+			t.Errorf("Region mismatch: expected nil, got '%s'", *base.Region)
+		}
 	})
 }
 
 func TestAWSConfig_Copy(t *testing.T) {
 	t.Run("CopyWithNonNilValues", func(t *testing.T) {
 		original := &AWSConfig{
-			Enabled:        ptrBool(true),
-			AWSEndpointURL: ptrString("https://original.aws.endpoint"),
-			AWSProfile:     ptrString("original-profile"),
-			S3Hostname:     ptrString("original-s3-hostname"),
-			MWAAEndpoint:   ptrString("original-mwaa-endpoint"),
+			Enabled:      ptrBool(true),
+			EndpointURL:  ptrString("https://original.aws.endpoint"),
+			Profile:      ptrString("original-profile"),
+			S3Hostname:   ptrString("original-s3-hostname"),
+			MWAAEndpoint: ptrString("original-mwaa-endpoint"),
 			Localstack: &LocalstackConfig{
 				Enabled:  ptrBool(true),
 				Services: []string{"s3", "lambda"},
 			},
+			Region: ptrString("original-region"),
 		}
 
 		copy := original.Copy()
@@ -119,11 +130,11 @@ func TestAWSConfig_Copy(t *testing.T) {
 		if original.Enabled == nil || copy.Enabled == nil || *original.Enabled != *copy.Enabled {
 			t.Errorf("Enabled mismatch: expected %v, got %v", *original.Enabled, *copy.Enabled)
 		}
-		if original.AWSEndpointURL == nil || copy.AWSEndpointURL == nil || *original.AWSEndpointURL != *copy.AWSEndpointURL {
-			t.Errorf("AWSEndpointURL mismatch: expected %v, got %v", *original.AWSEndpointURL, *copy.AWSEndpointURL)
+		if original.EndpointURL == nil || copy.EndpointURL == nil || *original.EndpointURL != *copy.EndpointURL {
+			t.Errorf("EndpointURL mismatch: expected %v, got %v", *original.EndpointURL, *copy.EndpointURL)
 		}
-		if original.AWSProfile == nil || copy.AWSProfile == nil || *original.AWSProfile != *copy.AWSProfile {
-			t.Errorf("AWSProfile mismatch: expected %v, got %v", *original.AWSProfile, *copy.AWSProfile)
+		if original.Profile == nil || copy.Profile == nil || *original.Profile != *copy.Profile {
+			t.Errorf("Profile mismatch: expected %v, got %v", *original.Profile, *copy.Profile)
 		}
 		if original.S3Hostname == nil || copy.S3Hostname == nil || *original.S3Hostname != *copy.S3Hostname {
 			t.Errorf("S3Hostname mismatch: expected %v, got %v", *original.S3Hostname, *copy.S3Hostname)
@@ -153,6 +164,10 @@ func TestAWSConfig_Copy(t *testing.T) {
 		copy.Localstack.Services[0] = "dynamodb"
 		if original.Localstack.Services[0] == copy.Localstack.Services[0] {
 			t.Errorf("Original Localstack Services was modified: expected %v, got %v", "s3", copy.Localstack.Services[0])
+		}
+
+		if original.Region == nil || copy.Region == nil || *original.Region != *copy.Region {
+			t.Errorf("Region mismatch: expected %v, got %v", *original.Region, *copy.Region)
 		}
 	})
 

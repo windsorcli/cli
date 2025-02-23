@@ -174,7 +174,7 @@ func TestYamlConfigHandler_Get(t *testing.T) {
 		// When setting the default context (should not be used)
 		defaultContext := v1alpha1.Context{
 			AWS: &aws.AWSConfig{
-				AWSEndpointURL: ptrString("http://default.aws.endpoint"),
+				EndpointURL: ptrString("http://default.aws.endpoint"),
 			},
 		}
 		handler.SetDefault(defaultContext)
@@ -384,7 +384,7 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 						"email": "john.doe@example.com",
 					},
 					AWS: &aws.AWSConfig{
-						AWSEndpointURL: nil,
+						EndpointURL: nil,
 					},
 				},
 			},
@@ -487,7 +487,7 @@ func TestYamlConfigHandler_GetInt(t *testing.T) {
 			Contexts: map[string]*v1alpha1.Context{
 				"default": {
 					AWS: &aws.AWSConfig{
-						AWSEndpointURL: ptrString("notAnInt"),
+						EndpointURL: ptrString("notAnInt"),
 					},
 				},
 			},
@@ -1040,7 +1040,7 @@ func TestSetValueByPath(t *testing.T) {
 						"level2": "value2",
 					},
 					AWS: &aws.AWSConfig{
-						AWSEndpointURL: ptrString("http://aws.test:4566"),
+						EndpointURL: ptrString("http://aws.test:4566"),
 					},
 				},
 			},

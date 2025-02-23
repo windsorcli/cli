@@ -26,14 +26,6 @@ func NewAwsEnvPrinter(injector di.Injector) *AwsEnvPrinter {
 func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Get the context configuration
-	contextConfigData := e.configHandler.GetConfig()
-
-	// Ensure the context configuration and AWS-specific settings are available.
-	if contextConfigData == nil || contextConfigData.AWS == nil {
-		return nil, fmt.Errorf("context configuration or AWS configuration is missing")
-	}
-
 	// Determine the root directory for configuration files.
 	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
@@ -50,17 +42,11 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if awsConfigPath != "" {
 		envVars["AWS_CONFIG_FILE"] = awsConfigPath
 	}
-	if contextConfigData.AWS.AWSProfile != nil {
-		envVars["AWS_PROFILE"] = *contextConfigData.AWS.AWSProfile
-	}
-	if contextConfigData.AWS.AWSEndpointURL != nil {
-		envVars["AWS_ENDPOINT_URL"] = *contextConfigData.AWS.AWSEndpointURL
-	}
-	if contextConfigData.AWS.S3Hostname != nil {
-		envVars["S3_HOSTNAME"] = *contextConfigData.AWS.S3Hostname
-	}
-	if contextConfigData.AWS.MWAAEndpoint != nil {
-		envVars["MWAA_ENDPOINT"] = *contextConfigData.AWS.MWAAEndpoint
+
+	// Get the AWS profile from the config handler
+	awsProfile := e.configHandler.GetString("aws.profile", "default")
+	if awsProfile != "" {
+		envVars["AWS_PROFILE"] = awsProfile
 	}
 
 	return envVars, nil

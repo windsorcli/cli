@@ -68,7 +68,7 @@ func (c *RealController) CreateCommonComponents() error {
 }
 
 // Initializes project components like generators and tools manager. Registers
-// and initializes blueprint, terraform, and kustomize generators. Determines
+// and initializes blueprint, terraform, kustomize, and AWS generators. Determines
 // and sets the tools manager: aqua, asdf, or default, based on config or setup.
 func (c *RealController) CreateProjectComponents() error {
 	gitGenerator := generators.NewGitGenerator(c.injector)
@@ -82,6 +82,11 @@ func (c *RealController) CreateProjectComponents() error {
 
 	kustomizeGenerator := generators.NewKustomizeGenerator(c.injector)
 	c.injector.Register("kustomizeGenerator", kustomizeGenerator)
+
+	if c.configHandler.GetBool("aws.enabled") {
+		awsGenerator := generators.NewAWSGenerator(c.injector)
+		c.injector.Register("awsGenerator", awsGenerator)
+	}
 
 	toolsManagerType := c.configHandler.GetString("toolsManager")
 	var toolsManager tools.ToolsManager

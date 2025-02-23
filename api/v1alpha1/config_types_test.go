@@ -18,8 +18,8 @@ func TestConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNonNilValues", func(t *testing.T) {
 		base := &Context{
 			AWS: &aws.AWSConfig{
-				Enabled:        ptrBool(true),
-				AWSEndpointURL: ptrString("https://base.aws.endpoint"),
+				Enabled:     ptrBool(true),
+				EndpointURL: ptrString("https://base.aws.endpoint"),
 			},
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(true),
@@ -58,7 +58,7 @@ func TestConfig_Merge(t *testing.T) {
 
 		overlay := &Context{
 			AWS: &aws.AWSConfig{
-				AWSEndpointURL: ptrString("https://overlay.aws.endpoint"),
+				EndpointURL: ptrString("https://overlay.aws.endpoint"),
 			},
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(false),
@@ -97,8 +97,8 @@ func TestConfig_Merge(t *testing.T) {
 
 		base.Merge(overlay)
 
-		if base.AWS.AWSEndpointURL == nil || *base.AWS.AWSEndpointURL != "https://overlay.aws.endpoint" {
-			t.Errorf("AWS AWSEndpointURL mismatch: expected 'https://overlay.aws.endpoint', got '%s'", *base.AWS.AWSEndpointURL)
+		if base.AWS.EndpointURL == nil || *base.AWS.EndpointURL != "https://overlay.aws.endpoint" {
+			t.Errorf("AWS EndpointURL mismatch: expected 'https://overlay.aws.endpoint', got '%s'", *base.AWS.EndpointURL)
 		}
 		if base.Docker.Enabled == nil || *base.Docker.Enabled != false {
 			t.Errorf("Docker Enabled mismatch: expected false, got %v", *base.Docker.Enabled)
@@ -132,8 +132,8 @@ func TestConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNilOverlay", func(t *testing.T) {
 		base := &Context{
 			AWS: &aws.AWSConfig{
-				Enabled:        ptrBool(true),
-				AWSEndpointURL: ptrString("https://base.aws.endpoint"),
+				Enabled:     ptrBool(true),
+				EndpointURL: ptrString("https://base.aws.endpoint"),
 			},
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(true),
@@ -173,8 +173,8 @@ func TestConfig_Merge(t *testing.T) {
 		var overlay *Context = nil
 		base.Merge(overlay)
 
-		if base.AWS.AWSEndpointURL == nil || *base.AWS.AWSEndpointURL != "https://base.aws.endpoint" {
-			t.Errorf("AWS AWSEndpointURL mismatch: expected 'https://base.aws.endpoint', got '%s'", *base.AWS.AWSEndpointURL)
+		if base.AWS.EndpointURL == nil || *base.AWS.EndpointURL != "https://base.aws.endpoint" {
+			t.Errorf("AWS EndpointURL mismatch: expected 'https://base.aws.endpoint', got '%s'", *base.AWS.EndpointURL)
 		}
 		if base.Docker.Enabled == nil || *base.Docker.Enabled != true {
 			t.Errorf("Docker Enabled mismatch: expected true, got %v", *base.Docker.Enabled)
@@ -210,7 +210,7 @@ func TestConfig_Merge(t *testing.T) {
 
 		overlay := &Context{
 			AWS: &aws.AWSConfig{
-				AWSEndpointURL: ptrString("https://overlay.aws.endpoint"),
+				EndpointURL: ptrString("https://overlay.aws.endpoint"),
 			},
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(false),
@@ -249,8 +249,8 @@ func TestConfig_Merge(t *testing.T) {
 
 		base.Merge(overlay)
 
-		if base.AWS.AWSEndpointURL == nil || *base.AWS.AWSEndpointURL != "https://overlay.aws.endpoint" {
-			t.Errorf("AWS AWSEndpointURL mismatch: expected 'https://overlay.aws.endpoint', got '%s'", *base.AWS.AWSEndpointURL)
+		if base.AWS.EndpointURL == nil || *base.AWS.EndpointURL != "https://overlay.aws.endpoint" {
+			t.Errorf("AWS EndpointURL mismatch: expected 'https://overlay.aws.endpoint', got '%s'", *base.AWS.EndpointURL)
 		}
 		if base.Docker.Enabled == nil || *base.Docker.Enabled != false {
 			t.Errorf("Docker Enabled mismatch: expected false, got %v", *base.Docker.Enabled)
@@ -305,8 +305,8 @@ func TestConfig_Copy(t *testing.T) {
 				"KEY": "value",
 			},
 			AWS: &aws.AWSConfig{
-				Enabled:        ptrBool(true),
-				AWSEndpointURL: ptrString("https://original.aws.endpoint"),
+				Enabled:     ptrBool(true),
+				EndpointURL: ptrString("https://original.aws.endpoint"),
 			},
 			Docker: &docker.DockerConfig{
 				Enabled: ptrBool(true),
