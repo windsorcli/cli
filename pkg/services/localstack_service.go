@@ -22,7 +22,7 @@ var ValidLocalstackServiceNames = []string{
 
 // Invalid Terraform AWS service names that do not get an endpoint configuration
 var InvalidTerraformAwsServiceNames = []string{
-	"dynamodbstreams", "resource-groups", "support",
+	"dynamodbstreams", "resource-groups", "support", "logs", "opensearch", "scheduler",
 }
 
 // LocalstackService is a service struct that provides Localstack-specific utility functions
