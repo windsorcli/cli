@@ -53,7 +53,7 @@ const (
 // Default DNS settings
 const (
 	// renovate: datasource=docker depName=coredns/coredns
-	DEFAULT_DNS_IMAGE = "coredns/coredns:1.11.3"
+	DEFAULT_DNS_IMAGE = "coredns/coredns:1.12.0"
 )
 
 // Default Registry settings
