@@ -428,6 +428,39 @@ func TestRealController_CreateServiceComponents(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
+
+	t.Run("WindsorExecModeContainer", func(t *testing.T) {
+		// Given a new injector and a new real controller
+		injector := di.NewInjector()
+		controller := NewRealController(injector)
+
+		// When the controller is initialized
+		if err := controller.Initialize(); err != nil {
+			t.Fatalf("failed to initialize controller: %v", err)
+		}
+
+		// And common components are created
+		controller.CreateCommonComponents()
+
+		controller.configHandler.SetContextValue("docker.enabled", true)
+
+		// And WINDSOR_EXEC_MODE is set to "container"
+		os.Setenv("WINDSOR_EXEC_MODE", "container")
+		defer os.Unsetenv("WINDSOR_EXEC_MODE")
+
+		// And service components are created
+		err := controller.CreateServiceComponents()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the Windsor service should be registered
+		if injector.Resolve("windsorService") == nil {
+			t.Fatalf("expected windsorService to be registered, got error")
+		}
+	})
 }
 
 func TestRealController_CreateVirtualizationComponents(t *testing.T) {

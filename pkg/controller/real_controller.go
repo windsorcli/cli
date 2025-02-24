@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -147,7 +148,8 @@ func (c *RealController) CreateEnvComponents() error {
 
 // CreateServiceComponents sets up services based on config, including DNS,
 // Git livereload, Localstack, and Docker registries. If Talos is used, it
-// registers control plane and worker services for the cluster.
+// registers control plane and worker services for the cluster. Additionally,
+// if WINDSOR_EXEC_MODE is "container", it registers the Windsor service.
 func (c *RealController) CreateServiceComponents() error {
 	configHandler := c.configHandler
 	contextConfig := configHandler.GetConfig()
@@ -205,6 +207,13 @@ func (c *RealController) CreateServiceComponents() error {
 				c.injector.Register(serviceName, workerService)
 			}
 		}
+	}
+
+	// Check if WINDSOR_EXEC_MODE is "container" and register Windsor service
+	windsorExecMode := os.Getenv("WINDSOR_EXEC_MODE")
+	if windsorExecMode == "container" {
+		windsorService := services.NewWindsorService(c.injector)
+		c.injector.Register("windsorService", windsorService)
 	}
 
 	return nil

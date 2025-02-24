@@ -79,3 +79,7 @@ const (
 	MINIMUM_VERSION_TERRAFORM      = "1.7.0"
 	MINIMUM_VERSION_1PASSWORD      = "2.25.0"
 )
+
+const (
+	DEFAULT_WINDSOR_IMAGE = "ghcr.io/windsorcli/windsor:v0.5.1"
+)

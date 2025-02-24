@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
@@ -262,6 +263,13 @@ func (m *MockController) CreateServiceComponents() error {
 				m.injector.Register(serviceName, workerService)
 			}
 		}
+	}
+
+	// Check if WINDSOR_EXEC_MODE is "container" and register Windsor service
+	windsorExecMode := os.Getenv("WINDSOR_EXEC_MODE")
+	if windsorExecMode == "container" {
+		windsorService := services.NewMockService()
+		m.injector.Register("windsorService", windsorService)
 	}
 
 	return nil
