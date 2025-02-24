@@ -77,34 +77,14 @@
     {
       "customType": "regex",
       "fileMatch": [
-        "^pkg/constants/constants.go$"
+        "^Dockerfile$",
+        "^.*\\.yaml$",
+        "^.*\\.go$"
       ],
       "matchStrings": [
-        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*const\\s+\\S+\\s*=\\s*\"(?<currentValue>[^\"]+)\""
+        "(//|#)\\s*renovate\\s*:\\s*datasource\\s*=\\s*(?<datasource>\\S+)\\s*depName\\s*=\\s*(?<depName>\\S+)\\s*\\n.*?(?<currentValue>v?\\d+\\.\\d+\\.\\d+)"
       ],
       "datasourceTemplate": "{{datasource}}",
-      "versioningTemplate": "semver"
-    },
-    {
-      "customType": "regex",
-      "fileMatch": [
-        "^Taskfile.yaml$"
-      ],
-      "matchStrings": [
-        "go install (?<depName>\\S+)@(?<currentValue>\\S+)"
-      ],
-      "datasourceTemplate": "go",
-      "versioningTemplate": "semver"
-    },
-    {
-      "customType": "regex",
-      "fileMatch": [
-        "^Taskfile.yaml$"
-      ],
-      "matchStrings": [
-        "choco install (?<depName>\\S+) --version=(?<currentValue>\\S+)"
-      ],
-      "datasourceTemplate": "chocolatey",
       "versioningTemplate": "semver"
     }
   ],
