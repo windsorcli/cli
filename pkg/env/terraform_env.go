@@ -234,6 +234,7 @@ func (e *TerraformEnvPrinter) generateProviderOverrideTf(projectPath string) err
 	providerBody.SetAttributeValue("secret_key", cty.StringVal("test"))
 	providerBody.SetAttributeValue("skip_credentials_validation", cty.BoolVal(true))
 	providerBody.SetAttributeValue("skip_metadata_api_check", cty.BoolVal(true))
+	providerBody.SetAttributeValue("skip_requesting_account_id", cty.BoolVal(true))
 	providerBody.SetAttributeValue("region", cty.StringVal(region))
 
 	// Create a block for endpoints
