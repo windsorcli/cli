@@ -13,7 +13,9 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/aws"
 	"github.com/windsorcli/cli/api/v1alpha1/terraform"
 	"github.com/windsorcli/cli/pkg/config"
+
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/services"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -41,20 +43,80 @@ func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
 		return &v1alpha1.Context{
 			Terraform: &terraform.TerraformConfig{
 				Backend: &terraform.BackendConfig{
-					Type: "local",
+					Type:       "local",
+					Local:      &terraform.LocalBackend{},
+					S3:         &terraform.S3Backend{},
+					Kubernetes: &terraform.KubernetesBackend{},
 				},
+			},
+			AWS: &aws.AWSConfig{
+				Localstack: &aws.LocalstackConfig{
+					Enabled:  boolPtr(true),
+					Services: []string{"s3", "sns"},
+				},
+				Region: stringPtr("us-east-1"),
 			},
 		}
 	}
 	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
 	}
+	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+		switch key {
+		case "aws.localstack.enabled":
+			return true
+		case "aws.localstack.create":
+			return true
+		default:
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+	}
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		switch key {
+		case "aws.region":
+			return "us-east-1"
+		case "dns.domain":
+			return "test"
+		default:
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+	}
+	mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+		if key == "aws.localstack.services" {
+			return []string{"s3", "sns"}
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return nil
+	}
 
 	mockInjector.Register("shell", mockShell)
 	mockInjector.Register("configHandler", mockConfigHandler)
 
+	mockLocalstackService := services.NewMockService()
+	mockLocalstackService.GetNameFunc = func() string {
+		return "localstack"
+	}
+	mockInjector.Register("localstackService", mockLocalstackService)
+
 	stat = func(name string) (os.FileInfo, error) {
 		return nil, nil
+	}
+
+	// Mock os.Remove to simulate successful file removal
+	osRemove = func(name string) error {
+		// Simulate successful removal of provider_override.tf
+		if strings.Contains(name, "provider_override.tf") {
+			return nil
+		}
+		return fmt.Errorf("mock error removing file: %s", name)
 	}
 
 	return &TerraformEnvMocks{
@@ -162,13 +224,14 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("NoProjectPathFound", func(t *testing.T) {
+		mocks := setupSafeTerraformEnvMocks()
+
 		// Given a mocked getwd function returning a specific path
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
 			return filepath.FromSlash("/mock/project/root"), nil
 		}
-		mocks := setupSafeTerraformEnvMocks()
 
 		// When the GetEnvVars function is called
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
@@ -384,12 +447,12 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorFindingProjectPath", func(t *testing.T) {
-		// Given a mocked glob function returning an error
-		originalGlob := glob
-		defer func() { glob = originalGlob }()
-		glob = func(pattern string) ([]string, error) {
-			return nil, fmt.Errorf("mock error finding project path")
+	t.Run("ErrorFindingRelativeTerraformProjectPath", func(t *testing.T) {
+		// Given a mocked findRelativeTerraformProjectPath function returning an error
+		originalFindRelativeTerraformProjectPath := findRelativeTerraformProjectPath
+		defer func() { findRelativeTerraformProjectPath = originalFindRelativeTerraformProjectPath }()
+		findRelativeTerraformProjectPath = func() (string, error) {
+			return "", fmt.Errorf("mock error finding Terraform project path")
 		}
 
 		// When the PostEnvHook function is called
@@ -402,46 +465,29 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 		if err == nil {
 			t.Errorf("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "error finding project path") {
-			t.Errorf("Expected error message to contain 'error finding project path', got %v", err)
+		expectedError := "error finding Terraform project path: mock error finding Terraform project path"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error message to be '%s', got '%v'", expectedError, err.Error())
 		}
 	})
 
-	t.Run("UnsupportedBackend", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Type: "unsupported",
-					},
-				},
-			}
-		}
-
-		// Given a mocked getwd function simulating being in a terraform project root
-		originalGetwd := getwd
-		defer func() { getwd = originalGetwd }()
-		getwd = func() (string, error) {
-			return filepath.FromSlash("mock/project/root/terraform/project/path"), nil
-		}
-		originalGlob := glob
-		defer func() { glob = originalGlob }()
-		glob = func(pattern string) ([]string, error) {
-			return []string{filepath.FromSlash("mock/project/root/terraform/project/path/main.tf")}, nil
+	t.Run("NotInATerraformProject", func(t *testing.T) {
+		// Given a mocked findRelativeTerraformProjectPath function returning an empty string
+		originalFindRelativeTerraformProjectPath := findRelativeTerraformProjectPath
+		defer func() { findRelativeTerraformProjectPath = originalFindRelativeTerraformProjectPath }()
+		findRelativeTerraformProjectPath = func() (string, error) {
+			return "", nil
 		}
 
 		// When the PostEnvHook function is called
+		mocks := setupSafeTerraformEnvMocks()
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
 		err := terraformEnvPrinter.PostEnvHook()
 
-		// Then the error should contain the expected message
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "unsupported backend") {
-			t.Errorf("Expected error message to contain 'unsupported backend', got %v", err)
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
@@ -608,14 +654,11 @@ func TestTerraformEnv_getAlias(t *testing.T) {
 		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "local"
 		}
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				AWS: &aws.AWSConfig{
-					Localstack: &aws.LocalstackConfig{
-						Enabled: boolPtr(false),
-					},
-				},
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "aws.localstack.enabled" {
+				return false
 			}
+			return false
 		}
 
 		// When getAlias is called
@@ -807,38 +850,17 @@ func TestTerraformEnv_sanitizeForK8s(t *testing.T) {
 
 func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Use setupSafeTerraformEnvMocks to create mocks
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return filepath.FromSlash("/mock/config/root"), nil
-		}
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Type: "local",
-					},
-				},
-			}
-		}
 
-		// Given a mocked getwd function simulating being in a terraform project root
+		// Mocked getwd function
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
 			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
 		}
-		// And a mocked glob function simulating finding Terraform files
-		originalGlob := glob
-		defer func() { glob = originalGlob }()
-		glob = func(pattern string) ([]string, error) {
-			expectedPattern := filepath.FromSlash("/mock/project/root/terraform/project/path/*.tf")
-			if pattern == expectedPattern {
-				return []string{filepath.FromSlash("/mock/project/root/terraform/project/path/main.tf")}, nil
-			}
-			return nil, nil
-		}
 
-		// And a mocked writeFile function to capture the output
+		// Mocked writeFile function to capture the output
 		var writtenData []byte
 		originalWriteFile := writeFile
 		defer func() { writeFile = originalWriteFile }()
@@ -850,206 +872,55 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 		// When generateBackendOverrideTf is called
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
-		err := terraformEnvPrinter.generateBackendOverrideTf()
+		err := terraformEnvPrinter.generateBackendOverrideTf("project/path")
 
 		// Then no error should occur and the expected backend config should be written
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		expectedContent := `terraform {
-  backend "local" {}
-}`
+		expectedContent := "terraform {\n  backend \"local\" {}\n}"
 		if string(writtenData) != expectedContent {
 			t.Errorf("Expected backend config %q, got %q", expectedContent, string(writtenData))
 		}
 	})
 
-	t.Run("S3Backend", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Type: "s3",
-					},
-				},
-			}
-		}
-
-		// Given a mocked getwd function simulating being in a terraform project root
-		originalGetwd := getwd
-		defer func() { getwd = originalGetwd }()
-		getwd = func() (string, error) {
-			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
-		}
-		// And a mocked glob function simulating finding Terraform files
-		originalGlob := glob
-		defer func() { glob = originalGlob }()
-		glob = func(pattern string) ([]string, error) {
-			if pattern == filepath.FromSlash("/mock/project/root/terraform/project/path/*.tf") {
-				return []string{filepath.FromSlash("/mock/project/root/terraform/project/path/main.tf")}, nil
-			}
-			return nil, nil
-		}
-
-		// And a mocked writeFile function to capture the output
-		var writtenData []byte
+	t.Run("NoProjectPath", func(t *testing.T) {
+		// Mock writeFile to ensure it never gets called
 		originalWriteFile := writeFile
 		defer func() { writeFile = originalWriteFile }()
 		writeFile = func(filename string, data []byte, perm os.FileMode) error {
-			writtenData = data
+			t.Errorf("writeFile should not be called")
 			return nil
 		}
 
-		// When generateBackendOverrideTf is called
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
-		err := terraformEnvPrinter.generateBackendOverrideTf()
-
-		// Then no error should occur and the expected backend config should be written
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		expectedContent := `terraform {
-  backend "s3" {}
-}`
-		if string(writtenData) != expectedContent {
-			t.Errorf("Expected backend config %q, got %q", expectedContent, string(writtenData))
+		if err := NewTerraformEnvPrinter(setupSafeTerraformEnvMocks().Injector).generateBackendOverrideTf(""); err != nil {
+			t.Errorf("Expected nil, got %v", err)
 		}
 	})
 
-	t.Run("KubernetesBackend", func(t *testing.T) {
+	t.Run("ErrorHandling", func(t *testing.T) {
+		// Use setupSafeTerraformEnvMocks to create mocks
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Type: "kubernetes",
-					},
-				},
-			}
-		}
 
-		// Given a mocked getwd function simulating being in a terraform project root
-		originalGetwd := getwd
-		defer func() { getwd = originalGetwd }()
-		getwd = func() (string, error) {
-			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
-		}
-		// And a mocked glob function simulating finding Terraform files
-		originalGlob := glob
-		defer func() { glob = originalGlob }()
-		glob = func(pattern string) ([]string, error) {
-			if pattern == filepath.FromSlash("/mock/project/root/terraform/project/path/*.tf") {
-				return []string{filepath.FromSlash("/mock/project/root/terraform/project/path/main.tf")}, nil
-			}
-			return nil, nil
-		}
-
-		// And a mocked writeFile function to capture the output
-		var writtenData []byte
+		// Mocked writeFile function to simulate an error
 		originalWriteFile := writeFile
 		defer func() { writeFile = originalWriteFile }()
 		writeFile = func(filename string, data []byte, perm os.FileMode) error {
-			writtenData = data
-			return nil
+			return fmt.Errorf("mock error writing backend_override.tf file")
 		}
 
 		// When generateBackendOverrideTf is called
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
-		err := terraformEnvPrinter.generateBackendOverrideTf()
+		err := terraformEnvPrinter.generateBackendOverrideTf("project/path")
 
-		// Then no error should occur and the expected backend config should be written
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-
-		expectedContent := `terraform {
-  backend "kubernetes" {}
-}`
-		if string(writtenData) != expectedContent {
-			t.Errorf("Expected backend config %q, got %q", expectedContent, string(writtenData))
-		}
-	})
-
-	t.Run("UnsupportedBackend", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Type: "unsupported",
-					},
-				},
-			}
-		}
-
-		// Given a mocked getwd function simulating being in a terraform project root
-		originalGetwd := getwd
-		defer func() { getwd = originalGetwd }()
-		getwd = func() (string, error) {
-			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
-		}
-		// And a mocked glob function simulating finding Terraform files
-		originalGlob := glob
-		defer func() { glob = originalGlob }()
-		glob = func(pattern string) ([]string, error) {
-			if pattern == filepath.FromSlash("/mock/project/root/terraform/project/path/*.tf") {
-				return []string{filepath.FromSlash("/mock/project/root/terraform/project/path/main.tf")}, nil
-			}
-			return nil, nil
-		}
-
-		// When generateBackendOverrideTf is called
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
-		err := terraformEnvPrinter.generateBackendOverrideTf()
-
-		// Then the error should contain the expected message
+		// Then an error should occur
 		if err == nil {
 			t.Errorf("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "unsupported backend: unsupported") {
-			t.Errorf("Expected error message to contain 'unsupported backend: unsupported', got %v", err)
-		}
-	})
-
-	t.Run("NoTerraformFiles", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Type: "local",
-					},
-				},
-			}
-		}
-
-		// Given a mocked getwd function simulating being in a terraform project root
-		originalGetwd := getwd
-		defer func() { getwd = originalGetwd }()
-		getwd = func() (string, error) {
-			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
-		}
-		// And a mocked glob function simulating no Terraform files found
-		originalGlob := glob
-		defer func() { glob = originalGlob }()
-		glob = func(pattern string) ([]string, error) {
-			return nil, nil
-		}
-
-		// When generateBackendOverrideTf is called
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
-		err := terraformEnvPrinter.generateBackendOverrideTf()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		if !strings.Contains(err.Error(), "mock error writing backend_override.tf file") {
+			t.Errorf("Expected error message to contain 'mock error writing backend_override.tf file', got %v", err)
 		}
 	})
 }
@@ -1121,14 +992,21 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 						S3: &terraform.S3Backend{
 							Bucket:                    stringPtr("mock-bucket"),
 							Region:                    stringPtr("mock-region"),
-							AccessKey:                 stringPtr("mock-access-key"),
-							SecretKey:                 stringPtr("mock-secret-key"),
 							MaxRetries:                intPtr(5),
 							SkipCredentialsValidation: boolPtr(true),
 						},
 					},
 				},
 			}
+		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
@@ -1144,11 +1022,9 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		expectedArgs := []string{
 			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
 			`-backend-config="key=project/path/terraform.tfstate"`,
-			`-backend-config="access_key=mock-access-key"`,
 			`-backend-config="bucket=mock-bucket"`,
 			`-backend-config="max_retries=5"`,
 			`-backend-config="region=mock-region"`,
-			`-backend-config="secret_key=mock-secret-key"`,
 			`-backend-config="skip_credentials_validation=true"`,
 		}
 
@@ -1170,6 +1046,15 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 					},
 				},
 			}
+		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
@@ -1222,15 +1107,11 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 	t.Run("ErrorMarshallingBackendConfig", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Type: "s3",
-						S3:   &terraform.S3Backend{},
-					},
-				},
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
 			}
+			return ""
 		}
 
 		// Mock yamlMarshal to return an error
@@ -1267,6 +1148,16 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 					},
 				},
 			}
+		}
+
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 
 		// Mock processBackendConfig to return an error
@@ -1398,6 +1289,210 @@ func TestTerraformEnv_processBackendConfig(t *testing.T) {
 		expectedError := "mocked error"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("expected error to contain %v, got %v", expectedError, err.Error())
+		}
+	})
+}
+
+func TestTerraformEnv_generateProviderOverrideTf(t *testing.T) {
+	t.Run("NoProjectPath", func(t *testing.T) {
+		// Mock writeFile to ensure it never gets called
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			t.Errorf("writeFile should not be called")
+			return nil
+		}
+
+		// Given a TerraformEnvPrinter with no project path
+		terraformEnvPrinter := NewTerraformEnvPrinter(setupSafeTerraformEnvMocks().Injector)
+
+		// When generateProviderOverrideTf is called with an empty project path
+		err := terraformEnvPrinter.generateProviderOverrideTf("")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
+	})
+
+	t.Run("LocalstackEnabled", func(t *testing.T) {
+		mocks := setupSafeTerraformEnvMocks()
+
+		// Given a mocked writeFile function to capture the output
+		var writtenData []byte
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		// When generateProviderOverrideTf is called
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateProviderOverrideTf("project/path")
+
+		// Then no error should occur and the provider config should be validated
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Validate the returned provider config structure
+		providerConfig := string(writtenData)
+		if !strings.Contains(providerConfig, `provider "aws"`) {
+			t.Errorf("Expected provider config to contain 'provider \"aws\"', got %q", providerConfig)
+		}
+		if !strings.Contains(providerConfig, `endpoints {`) {
+			t.Errorf("Expected provider config to contain 'endpoints {', got %q", providerConfig)
+		}
+		if !strings.Contains(providerConfig, `s3  = "http://localstack.test:4566"`) {
+			t.Errorf("Expected provider config to contain 's3  = \"http://localstack.test:4566\"', got %q", providerConfig)
+		}
+		if !strings.Contains(providerConfig, `sns = "http://localstack.test:4566"`) {
+			t.Errorf("Expected provider config to contain 'sns = \"http://localstack.test:4566\"', got %q", providerConfig)
+		}
+	})
+
+	t.Run("LocalstackDisabled", func(t *testing.T) {
+		mocks := setupSafeTerraformEnvMocks()
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "aws.localstack.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+
+		// Given a mocked writeFile function to capture the output
+		var writtenData []byte
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		// When generateProviderOverrideTf is called
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateProviderOverrideTf("project/path")
+
+		// Then no error should occur and no provider config should be written
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if len(writtenData) != 0 {
+			t.Errorf("Expected no provider config to be written, got %q", string(writtenData))
+		}
+	})
+
+	t.Run("ErrorRemovingProviderOverrideTf", func(t *testing.T) {
+		mocks := setupSafeTerraformEnvMocks()
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "aws.localstack.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+
+		// Mock osRemove to simulate an error
+		originalOsRemove := osRemove
+		defer func() { osRemove = originalOsRemove }()
+		osRemove = func(name string) error {
+			return fmt.Errorf("mock error removing provider_override.tf")
+		}
+
+		// When generateProviderOverrideTf is called
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateProviderOverrideTf("project/path")
+
+		// Then an error should occur
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "mock error removing provider_override.tf") {
+			t.Errorf("Expected error message to contain 'mock error removing provider_override.tf', got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingLocalstackService", func(t *testing.T) {
+		mocks := setupSafeTerraformEnvMocks()
+		mocks.Injector.Register("localstackService", nil)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return true
+		}
+
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateProviderOverrideTf("project/path")
+
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "localstackService not found") {
+			t.Errorf("Expected error message to contain 'localstackService not found', got %v", err)
+		}
+	})
+
+	t.Run("UsesAllLocalstackServicesByDefault", func(t *testing.T) {
+		mocks := setupSafeTerraformEnvMocks()
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "aws.localstack.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			if key == "aws.localstack.services" {
+				return nil
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return nil
+		}
+
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateProviderOverrideTf("project/path")
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWritingProviderOverrideTf", func(t *testing.T) {
+		mocks := setupSafeTerraformEnvMocks()
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return true
+		}
+
+		// Mocked writeFile function to simulate an error
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("mock error writing provider_override.tf file")
+		}
+
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		err := terraformEnvPrinter.generateProviderOverrideTf("project/path")
+
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "mock error writing provider_override.tf file") {
+			t.Errorf("Expected error message to contain 'mock error writing provider_override.tf file', got %v", err)
 		}
 	})
 }

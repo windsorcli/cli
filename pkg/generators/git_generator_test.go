@@ -18,6 +18,7 @@ const (
 .windsor/
 .volumes/
 terraform/**/backend_override.tf
+terraform/**/provider_override.tf
 contexts/**/.terraform/
 contexts/**/.tfstate/
 contexts/**/.kube/

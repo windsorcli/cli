@@ -59,3 +59,6 @@ var execLookPath = exec.LookPath
 
 // Define a variable for os.LookupEnv for easier testing
 var osLookupEnv = os.LookupEnv
+
+// Define a variable for os.Remove for easier testing
+var osRemove = os.Remove
