@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  windsorcli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILDPLATFORM: ${BUILDPLATFORM:-linux/arm64}
+        TARGETARCH: ${TARGETARCH:-arm64}
+    image: windsorcli:latest
+    container_name: windsorcli
+    entrypoint: /bin/sh
+    volumes:
+      - .:/work
