@@ -27,10 +27,7 @@ builds:
 # Archive configuration
 archives:
   - id: default
-    format: tar.gz
-    files:
-      - LICENSE
-      - README.md
+    formats: ["zip", "tar.gz"]
 
 changelog:
   sort: asc
@@ -48,7 +45,14 @@ release:
   prerelease: false
 
 binary_signs:
-  - {}
+  - cmd: gpg
+    args: 
+      - --output
+      - "${signature}"
+      - --detach-sign
+      - "${artifact}"
+    signature: ${artifact}_{{ .Os }}_{{ .Arch }}.sig
+    artifacts: binary
 
 signs:
   - artifacts: checksum
