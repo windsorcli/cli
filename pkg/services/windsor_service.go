@@ -56,6 +56,7 @@ func (s *WindsorService) GetComposeConfig() (*types.Config, error) {
 				Target: "/work",
 			},
 		},
+		Entrypoint: []string{"tail", "-f", "/dev/null"},
 	}
 
 	if envVarList != nil {

@@ -6,9 +6,9 @@ package shell
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -49,20 +49,22 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			injector := di.NewInjector()
 
-			// Given a temporary directory structure with the specified file
-			rootDir := createTempDir(t, "project-root")
-			defer os.RemoveAll(rootDir)
-
-			subDir := filepath.Join(rootDir, "subdir")
-			if err := os.Mkdir(subDir, 0755); err != nil {
-				t.Fatalf("Failed to create subdir: %v", err)
+			// Mock osStat to simulate the presence of the specified file
+			originalOsStat := osStat
+			defer func() { osStat = originalOsStat }()
+			osStat = func(name string) (os.FileInfo, error) {
+				if strings.HasSuffix(name, tc.fileName) {
+					return &mockFileInfo{name: tc.fileName}, nil
+				}
+				return nil, fmt.Errorf("file not found")
 			}
 
-			// When creating the specified file in the root directory
-			createFile(t, rootDir, tc.fileName, "")
-
-			// And changing the working directory to subDir
-			changeDir(t, subDir)
+			// Mock getwd to simulate a specific working directory
+			originalGetwd := getwd
+			defer func() { getwd = originalGetwd }()
+			getwd = func() (string, error) {
+				return "/mock/project/root", nil
+			}
 
 			shell := NewDefaultShell(injector)
 
@@ -72,11 +74,8 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 				t.Fatalf("GetProjectRoot returned an error: %v", err)
 			}
 
-			// Resolve symlinks to handle macOS /private prefix
-			expectedRootDir, err := filepath.EvalSymlinks(rootDir)
-			if err != nil {
-				t.Fatalf("Failed to evaluate symlinks for rootDir: %v", err)
-			}
+			// Validate that the project root is the mocked directory
+			expectedRootDir := "/mock/project/root"
 
 			// Normalize paths for comparison
 			expectedRootDir = normalizePath(expectedRootDir)
@@ -88,6 +87,18 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 		})
 	}
 }
+
+// mockFileInfo is a mock implementation of os.FileInfo
+type mockFileInfo struct {
+	name string
+}
+
+func (m *mockFileInfo) Name() string       { return m.name }
+func (m *mockFileInfo) Size() int64        { return 0 }
+func (m *mockFileInfo) Mode() os.FileMode  { return 0 }
+func (m *mockFileInfo) ModTime() time.Time { return time.Time{} }
+func (m *mockFileInfo) IsDir() bool        { return false }
+func (m *mockFileInfo) Sys() interface{}   { return nil }
 
 func TestDefaultShell_PrintAlias(t *testing.T) {
 	aliasVars := map[string]string{

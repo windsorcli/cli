@@ -81,5 +81,7 @@ const (
 )
 
 const (
-	DEFAULT_WINDSOR_IMAGE = "ghcr.io/windsorcli/windsor:v0.5.1"
+	// renovate: datasource=docker depName=ghcr.io/windsorcli/windsorcli
+	// DEFAULT_WINDSOR_IMAGE = "ghcr.io/windsorcli/windsorcli:0.5.1"
+	DEFAULT_WINDSOR_IMAGE = "windsorcli:latest"
 )
