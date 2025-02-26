@@ -46,6 +46,7 @@ brew install windsor
     4. **Download the checksum signature file**:
     ```bash
     curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt.sig
+
     ```
     5. **Download the checksum file**:
     ```bash
@@ -192,7 +193,7 @@ brew install windsor
 
     4. **Download the checksum signature file**:
     ```bash
-    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt
+    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt.sig
     ```
 
     5. **Download the checksum file**:
@@ -241,9 +242,9 @@ brew install windsor
 
     4. **Download the checksum signature file**:
     ```bash
-    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt
+    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt.sig
     ```
-    
+
     5. **Download the checksum file**:
     ```bash
     curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt
