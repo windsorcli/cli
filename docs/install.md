@@ -16,7 +16,7 @@ brew install windsor
 
 ## Manual Installation
 
-=== "MacOS"
+=== "MacOS (ARM64)"
     ```bash
     curl -L -o windsor_{{ config.extra.release_version }}_darwin_arm64.tar.gz https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_darwin_arm64.tar.gz && \
     tar -xzf windsor_{{ config.extra.release_version }}_darwin_arm64.tar.gz -C /usr/local/bin && \
@@ -29,59 +29,84 @@ brew install windsor
     To enhance security and confirm the integrity of your Windsor CLI installation, it is crucial to verify the downloaded binary. This involves checking the signature and checksum of the binary to ensure it has not been tampered with and is safe for use on your system. Follow the steps below to perform these verifications.
 
     1. **Import the Public Key**
-
     ```bash
     gpg --keyserver keys.openpgp.org --recv-keys {{ config.extra.public_key_id }}
     ```    
     
     2. **Download the binary signature file**:
-
-    For ARM64:
-
     ```bash
-    curl -L -o windsor_{{ config.extra.release_version }}_darwin_arm64.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_darwin_arm64.sig
-    ```
-    
-    For AMD64:
-
-    ```bash
-    curl -L -o windsor_{{ config.extra.release_version }}_darwin_amd64.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_darwin_amd64_v1.sig
+    curl -L -o windsor_darwin_arm64.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_darwin_arm64.sig
     ```
 
-    3. **Verify the binary Signature**:
-
-    For ARM64:
-
+    3. **Verify the binary signature**:
     ```bash
-    gpg --verify windsor_{{ config.extra.release_version }}_darwin_arm64.sig /usr/local/bin/windsor
-    ```
-
-    For AMD64:
-
-    ```bash
-    gpg --verify windsor_{{ config.extra.release_version }}_darwin_amd64.sig /usr/local/bin/windsor
+    gpg --verify windsor_darwin_arm64.sig /usr/local/bin/windsor
     ```
 
     4. **Download the checksum signature file**:
+    ```bash
+    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt.sig
+    ```
+    5. **Download the checksum file**:
+    ```bash
+    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt
+    ```
 
+    6. **Verify the checksums signature**:
+    ```bash
+    gpg --verify windsor_{{ config.extra.release_version }}_checksums.txt.sig windsor_{{ config.extra.release_version }}_checksums.txt
+    ```
+
+    7. **Verify the checksum**:
+    ```bash
+    shasum -a 256 -c windsor_{{ config.extra.release_version }}_checksums.txt
+    ```
+
+    </details>
+
+=== "MacOS (AMD64)"
+    ```bash
+    curl -L -o windsor_{{ config.extra.release_version }}_darwin_amd64.tar.gz https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_darwin_amd64.tar.gz && \
+    tar -xzf windsor_{{ config.extra.release_version }}_darwin_amd64.tar.gz -C /usr/local/bin && \
+    chmod +x /usr/local/bin/windsor
+    ```
+
+    <details>
+    <summary><strong>Verify the signature and checksum of the Windsor binary</strong></summary>
+
+    To enhance security and confirm the integrity of your Windsor CLI installation, it is crucial to verify the downloaded binary. This involves checking the signature and checksum of the binary to ensure it has not been tampered with and is safe for use on your system. Follow the steps below to perform these verifications.
+
+    1. **Import the Public Key**
+    ```bash
+    gpg --keyserver keys.openpgp.org --recv-keys {{ config.extra.public_key_id }}
+    ```    
+    
+    2. **Download the binary signature file**:
+    ```bash
+    curl -L -o windsor_darwin_amd64.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_darwin_amd64.sig
+    ```
+
+    3. **Verify the binary signature**:
+    ```bash
+    gpg --verify windsor_darwin_amd64.sig /usr/local/bin/windsor
+    ```
+
+    4. **Download the checksum signature file**:
     ```bash
     curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt.sig
     ```
 
     5. **Download the checksum file**:
-
     ```bash
     curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
-    6. **Verify the checksums Signature**:
-
+    6. **Verify the checksums signature**:
     ```bash
     gpg --verify windsor_{{ config.extra.release_version }}_checksums.txt.sig windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
-    7. **Verify the Checksum**:
-
+    7. **Verify the checksum**:
     ```bash
     shasum -a 256 -c windsor_{{ config.extra.release_version }}_checksums.txt
     ```
@@ -103,49 +128,91 @@ brew install windsor
     To enhance security and confirm the integrity of your Windsor CLI installation, it is crucial to verify the downloaded binary. This involves checking the signature and checksum of the binary to ensure it has not been tampered with and is safe for use on your system. Follow the steps below to perform these verifications.
 
     1. **Import the Public Key**
-
     ```powershell
     gpg --keyserver keys.openpgp.org --recv-keys {{ config.extra.public_key_id }}
     ```
 
     2. **Download the binary signature file**:
-
     ```powershell
-    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor.exe_{{ config.extra.release_version }}_windows_amd64.sig" -OutFile "windsor.exe_{{ config.extra.release_version }}_windows_amd64.sig"
+    Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor.exe_windows_amd64.sig" -OutFile "windsor.exe_windows_amd64.sig"
     ```
 
-    3. **Verify the binary Signature**:
-
+    3. **Verify the binary signature**:
     ```powershell
-    gpg --verify windsor.exe_{{ config.extra.release_version }}_windows_amd64.sig "C:\Program Files\Windsor\windsor.exe"
+    gpg --verify windsor.exe_windows_amd64.sig "C:\Program Files\Windsor\windsor.exe"
     ```
 
     4. **Download the checksum signature file**:
-
     ```powershell
     Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt.sig" -OutFile "windsor_{{ config.extra.release_version }}_checksums.txt.sig"
     ```
 
     5. **Download the checksum file**:
-
     ```powershell
     Invoke-WebRequest -Uri "https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt" -OutFile "windsor_{{ config.extra.release_version }}_checksums.txt"
     ```
 
-    6. **Verify the checksums Signature**:
-
+    6. **Verify the checksums signature**:
     ```powershell
     gpg --verify windsor_{{ config.extra.release_version }}_checksums.txt.sig windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
     7. **Verify the checksums**:
-
     ```powershell
     Get-FileHash -Algorithm SHA256 -Path "windsor_{{ config.extra.release_version }}_checksums.txt" | Format-List
     ```
     </details>
 
-=== "Linux"
+=== "Linux (ARM64)"
+
+    ```bash
+    curl -L -o windsor_{{ config.extra.release_version }}_linux_arm64.tar.gz https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_linux_arm64.tar.gz && \
+    sudo tar -xzf windsor_{{ config.extra.release_version }}_linux_arm64.tar.gz -C /usr/local/bin && \
+    sudo chmod +x /usr/local/bin/windsor
+    ```
+
+    <details>
+    <summary><strong>Verify the signature and checksum of the Windsor binary</strong></summary>
+
+    To enhance security and confirm the integrity of your Windsor CLI installation, it is crucial to verify the downloaded binary. This involves checking the signature and checksum of the binary to ensure it has not been tampered with and is safe for use on your system. Follow the steps below to perform these verifications.
+
+    1. **Import the Public Key**
+    ```bash
+    gpg --keyserver keys.openpgp.org --recv-keys {{ config.extra.public_key_id }}
+    ```
+    2. **Download the binary signature file**:
+    ```bash
+    curl -L -o windsor_linux_arm64.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_linux_arm64.sig
+    ```
+
+    3. **Verify the binary signature**:
+    ```bash
+    gpg --verify windsor_linux_arm64.sig /usr/local/bin/windsor
+    ```
+
+    4. **Download the checksum signature file**:
+    ```bash
+    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt
+    ```
+
+    5. **Download the checksum file**:
+    ```bash
+    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt
+    ```
+
+    6. **Verify the checksums signature**:
+    ```bash
+    gpg --verify windsor_{{ config.extra.release_version }}_checksums.txt.sig windsor_{{ config.extra.release_version }}_checksums.txt
+    ```
+
+    7. **Verify the checksums**:
+    ```bash
+    sha256sum -c windsor_{{ config.extra.release_version }}_checksums.txt 
+    ```
+
+    </details>
+
+=== "Linux (AMD64)"
 
     ```bash
     curl -L -o windsor_{{ config.extra.release_version }}_linux_amd64.tar.gz https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_linux_amd64.tar.gz && \
@@ -159,69 +226,37 @@ brew install windsor
     To enhance security and confirm the integrity of your Windsor CLI installation, it is crucial to verify the downloaded binary. This involves checking the signature and checksum of the binary to ensure it has not been tampered with and is safe for use on your system. Follow the steps below to perform these verifications.
 
     1. **Import the Public Key**
-    
     ```bash
     gpg --keyserver keys.openpgp.org --recv-keys {{ config.extra.public_key_id }}
     ```
-
     2. **Download the binary signature file**:
-
-    For AMD64:  
-
     ```bash
-    curl -L -o windsor_{{ config.extra.release_version }}_linux_amd64.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_linux_amd64.sig
+    curl -L -o windsor_linux_amd64.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_linux_amd64.sig
     ```
 
-    For ARM64:
-
+    3. **Verify the binary signature**:
     ```bash
-    curl -L -o windsor_{{ config.extra.release_version }}_linux_arm64.sig https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_linux_arm64.sig
-    ```
-
-    3. **Verify the binary Signature**:
-
-    For AMD64:
-
-    ```bash
-    gpg --verify windsor_{{ config.extra.release_version }}_linux_amd64.sig /usr/local/bin/windsor
-    ```
-
-    For ARM64:
-
-    ```bash
-    gpg --verify windsor_{{ config.extra.release_version }}_linux_arm64.sig /usr/local/bin/windsor
+    gpg --verify windsor_linux_amd64.sig /usr/local/bin/windsor
     ```
 
     4. **Download the checksum signature file**:
-
-    For AMD64: 
-
+    ```bash
+    curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt
+    ```
+    
+    5. **Download the checksum file**:
     ```bash
     curl -L -o windsor_{{ config.extra.release_version }}_checksums.txt https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
-    For ARM64:
-
-    ```bash
-    
-
-    5. **Verify the checksums Signature**:
+    6. **Verify the checksums signature**:
     ```bash
     gpg --verify windsor_{{ config.extra.release_version }}_checksums.txt.sig windsor_{{ config.extra.release_version }}_checksums.txt
     ```
 
-    6. **Verify the checksums**:
-
-    For AMD64: 
-
+    7. **Verify the checksums**:
     ```bash
     sha256sum -c windsor_{{ config.extra.release_version }}_checksums.txt
-    ```
-
-    For ARM64:
-
-    ```bash
-    sha256sum -c windsor_{{ config.extra.release_version }}_checksums.txt 
     ```
 
     </details>
