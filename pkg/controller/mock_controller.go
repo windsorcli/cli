@@ -35,7 +35,7 @@ type MockController struct {
 	ResolveConfigHandlerFunc           func() config.ConfigHandler
 	ResolveEnvPrinterFunc              func(name string) env.EnvPrinter
 	ResolveAllEnvPrintersFunc          func() []env.EnvPrinter
-	ResolveShellFunc                   func() shell.Shell
+	ResolveShellFunc                   func(name ...string) shell.Shell
 	ResolveSecureShellFunc             func() shell.Shell
 	ResolveToolsManagerFunc            func() tools.ToolsManager
 	ResolveNetworkManagerFunc          func() network.NetworkManager
@@ -372,11 +372,11 @@ func (c *MockController) ResolveAllEnvPrinters() []env.EnvPrinter {
 }
 
 // ResolveShell calls the mock ResolveShellFunc if set, otherwise calls the parent function
-func (c *MockController) ResolveShell() shell.Shell {
+func (c *MockController) ResolveShell(name ...string) shell.Shell {
 	if c.ResolveShellFunc != nil {
-		return c.ResolveShellFunc()
+		return c.ResolveShellFunc(name...)
 	}
-	return c.BaseController.ResolveShell()
+	return c.BaseController.ResolveShell(name...)
 }
 
 // ResolveSecureShell calls the mock ResolveSecureShellFunc if set, otherwise calls the parent function

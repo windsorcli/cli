@@ -2,6 +2,10 @@ package constants
 
 import "time"
 
+const (
+	CONTAINER_EXEC_WORKDIR = "/work"
+)
+
 // Default git livereload settings
 const (
 	// renovate: datasource=docker depName=ghcr.io/windsorcli/git-livereload-server

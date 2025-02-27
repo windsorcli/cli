@@ -3,9 +3,13 @@ package shell
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -23,54 +27,67 @@ func NewDockerShell(injector di.Injector) *DockerShell {
 	}
 }
 
-// Exec executes a command inside a Docker container with the label "role=windsor_exec".
-func (s *DockerShell) Exec(command string, args ...string) (string, error) {
-	// Get the container ID
+// Exec runs a command in a Docker container labeled "role=windsor_exec".
+// It retrieves the container ID, calculates the relative path, and executes
+// the command inside the container, streaming the output to stdout and stderr,
+// and also returning the output as a string.
+func (s *DockerShell) Exec(command string, args ...string) (string, int, error) {
 	containerID, err := s.getWindsorExecContainerID()
 	if err != nil {
-		return "", fmt.Errorf("failed to get Windsor exec container ID: %w", err)
+		fmt.Fprintf(os.Stderr, "failed to get Windsor exec container ID: %v\n", err)
+		return "", 0, fmt.Errorf("failed to get Windsor exec container ID: %w", err)
 	}
 
-	// Get the project root
 	projectRoot, err := s.GetProjectRoot()
 	if err != nil {
-		return "", fmt.Errorf("failed to get project root: %w", err)
+		fmt.Fprintf(os.Stderr, "failed to get project root: %v\n", err)
+		return "", 0, fmt.Errorf("failed to get project root: %w", err)
 	}
 
-	// Determine the current working directory relative to the project root
 	currentDir, err := getwd()
 	if err != nil {
-		return "", fmt.Errorf("failed to get current working directory: %w", err)
+		fmt.Fprintf(os.Stderr, "failed to get current working directory: %v\n", err)
+		return "", 0, fmt.Errorf("failed to get current working directory: %w", err)
 	}
+
 	relativeDir, err := filepathRel(projectRoot, currentDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to determine relative directory: %w", err)
+		fmt.Fprintf(os.Stderr, "failed to determine relative directory: %v\n", err)
+		return "", 0, fmt.Errorf("failed to determine relative directory: %w", err)
 	}
 
-	// Construct the working directory inside the container and build the shell command.
-	workDir := filepath.Join("/work", relativeDir)
+	workDir := filepath.Join(constants.CONTAINER_EXEC_WORKDIR, relativeDir)
 
-	// Combine 'command' and its 'args' into a single command string.
 	combinedCmd := command
 	if len(args) > 0 {
 		combinedCmd += " " + strings.Join(args, " ")
 	}
 	shellCmd := fmt.Sprintf("cd %s && windsor exec -- %s", workDir, combinedCmd)
 
-	// Execute the command using the execCommand shim for better testability.
-	cmd := execCommand("docker", "exec", "-it", containerID, "sh", "-c", shellCmd)
+	cmdArgs := []string{"exec", "-i", containerID, "sh", "-c", shellCmd}
+
+	cmd := execCommand("docker", cmdArgs...)
 	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 
+	// Start the command
 	if err := cmdStart(cmd); err != nil {
-		return stdoutBuf.String(), fmt.Errorf("command start failed: %w", err)
-	}
-	if err := cmdWait(cmd); err != nil {
-		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+		fmt.Fprintf(os.Stderr, "command start failed: %v\n", err)
+		return "", 0, fmt.Errorf("command start failed: %w", err)
 	}
 
-	return stdoutBuf.String(), nil
+	// Wait for the command to finish and capture the exit code
+	if err := cmdWait(cmd); err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			fmt.Fprintf(os.Stderr, "command execution failed: %v\n", err)
+			return stdoutBuf.String(), exitError.ExitCode(), nil
+		}
+		fmt.Fprintf(os.Stderr, "command execution failed: %v\n", err)
+		return "", 0, fmt.Errorf("command execution failed: %w", err)
+	}
+
+	return stdoutBuf.String(), 0, nil
 }
 
 // getWindsorExecContainerID retrieves the container ID of the Windsor exec container.
@@ -81,7 +98,7 @@ func (s *DockerShell) getWindsorExecContainerID() (string, error) {
 		return "", fmt.Errorf("failed to list Docker containers: %w", err)
 	}
 
-	containerID := strings.TrimSpace(output)
+	containerID := strings.TrimSpace(string(output))
 	if containerID == "" {
 		return "", fmt.Errorf("no Windsor exec container found")
 	}

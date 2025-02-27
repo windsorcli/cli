@@ -41,7 +41,7 @@ func setupSafeInitCmdMocks(existingInjectors ...di.Injector) *initMockObjects {
 	osStat = func(_ string) (os.FileInfo, error) { return nil, nil }
 
 	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler { return mockConfigHandler }
-	mockController.ResolveShellFunc = func() shell.Shell { return mockShell }
+	mockController.ResolveShellFunc = func(name ...string) shell.Shell { return mockShell }
 
 	// Reset global variables in init.go
 	backend = ""
@@ -270,7 +270,7 @@ func TestInitCmd(t *testing.T) {
 
 		// Set the shell in the controller to the mock shell
 		mocks := setupSafeInitCmdMocks()
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
 			return mockShell
 		}
 

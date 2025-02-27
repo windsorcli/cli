@@ -33,7 +33,7 @@ type Controller interface {
 	ResolveAllSecretsProviders() []secrets.SecretsProvider
 	ResolveEnvPrinter(name string) env.EnvPrinter
 	ResolveAllEnvPrinters() []env.EnvPrinter
-	ResolveShell() shell.Shell
+	ResolveShell(name ...string) shell.Shell
 	ResolveSecureShell() shell.Shell
 	ResolveNetworkManager() network.NetworkManager
 	ResolveToolsManager() tools.ToolsManager
@@ -339,9 +339,13 @@ func (c *BaseController) ResolveAllEnvPrinters() []env.EnvPrinter {
 	return envPrinters
 }
 
-// ResolveShell resolves the shell instance.
-func (c *BaseController) ResolveShell() shell.Shell {
-	instance := c.injector.Resolve("shell")
+// ResolveShell resolves the shell instance, with an optional name parameter.
+func (c *BaseController) ResolveShell(name ...string) shell.Shell {
+	shellName := "shell"
+	if len(name) > 0 {
+		shellName = name[0]
+	}
+	instance := c.injector.Resolve(shellName)
 	shellInstance, _ := instance.(shell.Shell)
 	return shellInstance
 }

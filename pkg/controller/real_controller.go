@@ -47,8 +47,19 @@ func (c *RealController) CreateCommonComponents() error {
 	c.injector.Register("configHandler", configHandler)
 	c.configHandler = configHandler
 
-	shell := shell.NewDefaultShell(c.injector)
-	c.injector.Register("shell", shell)
+	defaultShell := shell.NewDefaultShell(c.injector)
+	c.injector.Register("shell", defaultShell)
+
+	// Check if WINDSOR_EXEC_MODE is set to "container"
+	if os.Getenv("WINDSOR_EXEC_MODE") == "container" {
+		dockerShell := shell.NewDockerShell(c.injector)
+		c.injector.Register("dockerShell", dockerShell)
+
+		// Initialize the docker shell
+		if err := dockerShell.Initialize(); err != nil {
+			return fmt.Errorf("error initializing docker shell: %w", err)
+		}
+	}
 
 	// Testing Note: The following is hard to test as these are registered
 	// above and can't be mocked externally. There may be a better way to
@@ -60,9 +71,9 @@ func (c *RealController) CreateCommonComponents() error {
 		return fmt.Errorf("error initializing config handler: %w", err)
 	}
 
-	// Initialize the shell
-	if err := shell.Initialize(); err != nil {
-		return fmt.Errorf("error initializing shell: %w", err)
+	// Initialize the default shell
+	if err := defaultShell.Initialize(); err != nil {
+		return fmt.Errorf("error initializing default shell: %w", err)
 	}
 
 	return nil

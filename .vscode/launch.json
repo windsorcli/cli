@@ -87,8 +87,9 @@
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/windsor/main.go",
-      "args": ["exec", "--", "sh", "-c", "exit 2"],
+      "args": ["exec", "--", "ls"],
       "env": {
+        "WINDSOR_EXEC_MODE": "container",
         "WINDSOR_CONTEXT": "local",
         "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
       }

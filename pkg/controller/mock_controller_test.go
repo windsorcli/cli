@@ -553,7 +553,7 @@ func TestMockController_ResolveShell(t *testing.T) {
 		mocks := setSafeControllerMocks()
 		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveShellFunc is set to return the expected shell
-		mockCtrl.ResolveShellFunc = func() shell.Shell {
+		mockCtrl.ResolveShellFunc = func(name ...string) shell.Shell {
 			return mocks.Shell
 		}
 		// When ResolveShell is called

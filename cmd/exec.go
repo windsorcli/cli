@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 var execCmd = &cobra.Command{
@@ -72,18 +73,30 @@ var execCmd = &cobra.Command{
 			}
 		}
 
-		// Resolve the shell instance using the controller
-		shellInstance := controller.ResolveShell()
+		// Determine which shell to use based on WINDSOR_EXEC_MODE
+		var shellInstance shell.Shell
+		if os.Getenv("WINDSOR_EXEC_MODE") == "container" {
+			shellInstance = controller.ResolveShell("dockerShell")
+		} else {
+			shellInstance = controller.ResolveShell()
+		}
+
 		if shellInstance == nil {
 			return fmt.Errorf("No shell found")
 		}
 
 		// Execute the command using the resolved shell instance
-		_, exitCode, err := shellInstance.Exec(args[0], args[1:]...)
+		output, exitCode, err := shellInstance.Exec(args[0], args[1:]...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "command execution failed: %v\n", err)
 			osExit(exitCode)
 		}
+
+		// Print the command output
+		fmt.Print(output)
+
+		// Set the shell's exit code
+		osExit(exitCode)
 
 		return nil
 	},

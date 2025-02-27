@@ -196,7 +196,7 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 
 		// Mock ResolveShell to return a mock shell
 		mockShell := &shell.MockShell{}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
 			return mockShell
 		}
 

@@ -63,7 +63,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Set the shell in the controller to the mock shell
 		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveShellFunc = func() shell.Shell {
+		mockController.ResolveShellFunc = func(name ...string) shell.Shell {
 			return mockShell
 		}
 
@@ -93,7 +93,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Set the shell in the controller to the mock shell
 		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveShellFunc = func() shell.Shell {
+		mockController.ResolveShellFunc = func(name ...string) shell.Shell {
 			return mockShell
 		}
 

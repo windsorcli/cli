@@ -30,7 +30,7 @@ func setupSafeHookCmdMocks() *MockObjects {
 		}
 		return nil
 	}
-	mockController.ResolveShellFunc = func() shell.Shell {
+	mockController.ResolveShellFunc = func(name ...string) shell.Shell {
 		return mockShell
 	}
 

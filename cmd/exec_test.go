@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -29,7 +30,7 @@ func setupSafeExecCmdMocks() *MockObjects {
 	mockShell.ExecFunc = func(command string, args ...string) (string, int, error) {
 		return "hello", 0, nil
 	}
-	mockController.ResolveShellFunc = func() shell.Shell {
+	mockController.ResolveShellFunc = func(name ...string) shell.Shell {
 		return mockShell
 	}
 
@@ -80,6 +81,34 @@ func TestExecCmd(t *testing.T) {
 
 		// Execute the command
 		rootCmd.SetArgs([]string{"exec", "--", "echo", "hello"})
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Check if Exec was called
+		if !execCalled {
+			t.Errorf("Expected Exec to be called, but it was not")
+		}
+	})
+
+	t.Run("ContainerMode", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Setup mock controller
+		mocks := setupSafeExecCmdMocks()
+		execCalled := false
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
+			execCalled = true
+			return "container execution", nil
+		}
+
+		// Set environment variable to simulate container mode
+		os.Setenv("WINDSOR_EXEC_MODE", "container")
+		defer os.Unsetenv("WINDSOR_EXEC_MODE")
+
+		// Execute the command
+		rootCmd.SetArgs([]string{"exec", "--", "echo", "container"})
 		err := Execute(mocks.Controller)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -358,7 +387,7 @@ func TestExecCmd(t *testing.T) {
 		mocks := setupSafeExecCmdMocks()
 		callCount := 0
 		originalResolveShellFunc := mocks.Controller.ResolveShellFunc
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
 			callCount++
 			if callCount == 2 {
 				return nil

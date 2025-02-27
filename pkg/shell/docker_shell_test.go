@@ -70,7 +70,7 @@ func TestDockerShell_Exec(t *testing.T) {
 				switch {
 				case arg[0] == "ps" && len(arg) > 4 && arg[1] == "--filter" && arg[2] == "label=role=windsor_exec" && arg[3] == "--format" && arg[4] == "{{.ID}}":
 					return exec.Command("/bin/echo", "mock-container-id")
-				case len(arg) > 5 && arg[0] == "exec" && arg[1] == "-it" && arg[2] == "mock-container-id" && arg[3] == "sh" && arg[4] == "-c":
+				case len(arg) > 5 && arg[0] == "exec" && arg[1] == "-i" && arg[2] == "mock-container-id" && arg[3] == "sh" && arg[4] == "-c":
 					expectedCmd := "cd /work && windsor exec -- echo hello"
 					if arg[5] == expectedCmd {
 						return exec.Command("/bin/echo", "mock output")
@@ -81,7 +81,7 @@ func TestDockerShell_Exec(t *testing.T) {
 			return nil
 		}
 
-		output, err := dockerShell.Exec("echo", "hello")
+		output, _, err := dockerShell.Exec("echo", "hello")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -110,7 +110,7 @@ func TestDockerShell_Exec(t *testing.T) {
 			return "", fmt.Errorf("command execution failed")
 		}
 
-		_, err := dockerShell.Exec("echo", "hello")
+		_, _, err := dockerShell.Exec("echo", "hello")
 		if err == nil {
 			t.Fatalf("expected an error, got none")
 		}
@@ -137,7 +137,7 @@ func TestDockerShell_Exec(t *testing.T) {
 			return exec.Command(name, arg...)
 		}
 
-		_, err := dockerShell.Exec("echo", "hello")
+		_, _, err := dockerShell.Exec("echo", "hello")
 		if err == nil || err.Error() != "failed to get Windsor exec container ID: no Windsor exec container found" {
 			t.Fatalf("expected error 'failed to get Windsor exec container ID: no Windsor exec container found', got %v", err)
 		}
@@ -161,7 +161,7 @@ func TestDockerShell_Exec(t *testing.T) {
 			return "", fmt.Errorf("failed to get project root")
 		}
 
-		_, err := dockerShell.Exec("echo", "hello")
+		_, _, err := dockerShell.Exec("echo", "hello")
 		if err == nil || err.Error() != "failed to get project root: failed to get project root" {
 			t.Fatalf("expected error 'failed to get project root: failed to get project root', got %v", err)
 		}
@@ -192,7 +192,7 @@ func TestDockerShell_Exec(t *testing.T) {
 			return "/mock/path", nil
 		}
 
-		_, err := dockerShell.Exec("echo", "hello")
+		_, _, err := dockerShell.Exec("echo", "hello")
 		if err == nil || err.Error() != "failed to get current working directory: failed to get working directory on second call" {
 			t.Fatalf("expected error 'failed to get current working directory: failed to get working directory on second call', got %v", err)
 		}
@@ -216,7 +216,7 @@ func TestDockerShell_Exec(t *testing.T) {
 			return "", fmt.Errorf("failed to determine relative directory")
 		}
 
-		_, err := dockerShell.Exec("echo", "hello")
+		_, _, err := dockerShell.Exec("echo", "hello")
 		if err == nil || err.Error() != "failed to determine relative directory: failed to determine relative directory" {
 			t.Fatalf("expected error 'failed to determine relative directory: failed to determine relative directory', got %v", err)
 		}
@@ -240,7 +240,7 @@ func TestDockerShell_Exec(t *testing.T) {
 			return fmt.Errorf("command start failed")
 		}
 
-		_, err := dockerShell.Exec("echo", "hello")
+		_, _, err := dockerShell.Exec("echo", "hello")
 		if err == nil || err.Error() != "command start failed: command start failed" {
 			t.Fatalf("expected error 'command start failed: command start failed', got %v", err)
 		}
@@ -264,7 +264,7 @@ func TestDockerShell_Exec(t *testing.T) {
 			return fmt.Errorf("command execution failed")
 		}
 
-		_, err := dockerShell.Exec("echo", "hello")
+		_, _, err := dockerShell.Exec("echo", "hello")
 		if err == nil || err.Error() != "command execution failed: command execution failed\n" {
 			t.Fatalf("expected error 'command execution failed: command execution failed', got %v", err)
 		}
