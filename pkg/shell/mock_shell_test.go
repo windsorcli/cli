@@ -205,12 +205,12 @@ func TestMockShell_Exec(t *testing.T) {
 		// Given a mock shell with a custom ExecFn implementation
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(command string, args ...string) (string, int, error) {
 			// Simulate command execution and return a mocked output
-			return "mocked output", nil
+			return "mocked output", 0, nil
 		}
 		// When calling Exec
-		output, err := mockShell.Exec("Executing command", "somecommand", "arg1", "arg2")
+		output, _, err := mockShell.Exec("Executing command", "somecommand", "arg1", "arg2")
 		// Then no error should be returned and output should be as expected
 		expectedOutput := "mocked output"
 		if err != nil {
@@ -225,12 +225,12 @@ func TestMockShell_Exec(t *testing.T) {
 		// Given a mock shell whose ExecFn returns an error
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
-		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mockShell.ExecFunc = func(command string, args ...string) (string, int, error) {
 			// Simulate command failure
-			return "", fmt.Errorf("execution error")
+			return "", 1, fmt.Errorf("execution error")
 		}
 		// When calling Exec
-		output, err := mockShell.Exec("somecommand", "arg1", "arg2")
+		output, _, err := mockShell.Exec("somecommand", "arg1", "arg2")
 		// Then an error should be returned
 		if err == nil {
 			t.Errorf("Expected an error but got none")
@@ -245,7 +245,7 @@ func TestMockShell_Exec(t *testing.T) {
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
 		// When calling Exec
-		output, err := mockShell.Exec("Executing command", "somecommand", "arg1", "arg2")
+		output, _, err := mockShell.Exec("Executing command", "somecommand", "arg1", "arg2")
 		// Then no error should be returned and the result should be empty
 		if err != nil {
 			t.Errorf("Exec() error = %v, want nil", err)
@@ -261,11 +261,11 @@ func TestMockShell_ExecSilent(t *testing.T) {
 		// Given a mock shell with a custom ExecSilentFn implementation
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
-		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			return "mocked output", nil
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
+			return "mocked output", 0, nil
 		}
 		// When calling ExecSilent
-		output, err := mockShell.ExecSilent("Executing command", "somecommand", "arg1", "arg2")
+		output, _, err := mockShell.ExecSilent("Executing command", "somecommand", "arg1", "arg2")
 		// Then no error should be returned and output should be as expected
 		expectedOutput := "mocked output"
 		if err != nil {
@@ -281,7 +281,7 @@ func TestMockShell_ExecSilent(t *testing.T) {
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
 		// When calling ExecSilent
-		output, err := mockShell.ExecSilent("Executing command", "somecommand", "arg1", "arg2")
+		output, _, err := mockShell.ExecSilent("Executing command", "somecommand", "arg1", "arg2")
 		// Then no error should be returned and the result should be empty
 		if err != nil {
 			t.Errorf("ExecSilent() error = %v, want nil", err)
@@ -297,11 +297,11 @@ func TestMockShell_ExecProgress(t *testing.T) {
 		// Given a mock shell with a custom ExecProgressFn implementation
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
-		mockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			return "mocked output", nil
+		mockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, int, error) {
+			return "mocked output", 0, nil
 		}
 		// When calling ExecProgress
-		output, err := mockShell.ExecProgress("Executing command", "somecommand", "arg1", "arg2")
+		output, _, err := mockShell.ExecProgress("Executing command", "somecommand", "arg1", "arg2")
 		// Then no error should be returned and output should be as expected
 		expectedOutput := "mocked output"
 		if err != nil {
@@ -317,7 +317,7 @@ func TestMockShell_ExecProgress(t *testing.T) {
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
 		// When calling ExecProgress
-		output, err := mockShell.ExecProgress("Executing command", "somecommand", "arg1", "arg2")
+		output, _, err := mockShell.ExecProgress("Executing command", "somecommand", "arg1", "arg2")
 		// Then no error should be returned and the result should be empty
 		if err != nil {
 			t.Errorf("ExecProgress() error = %v, want nil", err)
@@ -333,11 +333,11 @@ func TestMockShell_ExecSudo(t *testing.T) {
 		// Given a mock shell with a custom ExecSudoFn implementation
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
-		mockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
-			return "mocked sudo output", nil
+		mockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, int, error) {
+			return "mocked sudo output", 0, nil
 		}
 		// When calling ExecSudo
-		output, err := mockShell.ExecSudo("Executing sudo command", "somecommand", "arg1", "arg2")
+		output, _, err := mockShell.ExecSudo("Executing sudo command", "somecommand", "arg1", "arg2")
 		// Then no error should be returned and output should be as expected
 		expectedOutput := "mocked sudo output"
 		if err != nil {
@@ -353,7 +353,7 @@ func TestMockShell_ExecSudo(t *testing.T) {
 		injector := di.NewInjector()
 		mockShell := NewMockShell(injector)
 		// When calling ExecSudo
-		output, err := mockShell.ExecSudo("Executing sudo command", "somecommand", "arg1", "arg2")
+		output, _, err := mockShell.ExecSudo("Executing sudo command", "somecommand", "arg1", "arg2")
 		// Then no error should be returned and the result should be empty
 		if err != nil {
 			t.Errorf("ExecSudo() error = %v, want nil", err)

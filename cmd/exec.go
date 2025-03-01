@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -78,9 +79,10 @@ var execCmd = &cobra.Command{
 		}
 
 		// Execute the command using the resolved shell instance
-		_, err := shellInstance.Exec(args[0], args[1:]...)
+		_, exitCode, err := shellInstance.Exec(args[0], args[1:]...)
 		if err != nil {
-			return fmt.Errorf("command execution failed: %w", err)
+			fmt.Fprintf(os.Stderr, "command execution failed: %v\n", err)
+			osExit(exitCode)
 		}
 
 		return nil

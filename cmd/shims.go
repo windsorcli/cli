@@ -19,6 +19,9 @@ var osStat = os.Stat
 // osRemoveAll removes a directory and all its contents
 var osRemoveAll = os.RemoveAll
 
+// osExit is a function to exit the program
+var osExit = os.Exit
+
 // getwd retrieves the current working directory
 var getwd = os.Getwd
 

@@ -43,7 +43,7 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 		// Setup mocks
 		mocks := setupOnePasswordCLISecretsProviderMocks()
 		execSilentCalled := false
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			execSilentCalled = true
 			if command == "op" &&
 				args[0] == "item" &&
@@ -56,9 +56,9 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 				args[7] == "--reveal" &&
 				args[8] == "--account" &&
 				args[9] == "https://example.1password.com" {
-				return "secretValue", nil
+				return "secretValue", 0, nil
 			}
-			return "", fmt.Errorf("unexpected command: %s", command)
+			return "", 0, fmt.Errorf("unexpected command: %s", command)
 		}
 
 		// Pass the injector from mocks to the provider
@@ -162,12 +162,12 @@ func TestOnePasswordCLISecretsProvider_ParseSecrets(t *testing.T) {
 		// Setup mocks
 		mocks := setupOnePasswordCLISecretsProviderMocks()
 		execSilentCalled := false
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			execSilentCalled = true
 			if command == "op" && args[0] == "item" && args[1] == "get" && args[2] == "secretName" && args[3] == "--vault" && args[4] == "ExampleVault" && args[5] == "--fields" && args[6] == "fieldName" {
-				return "secretValue", nil
+				return "secretValue", 0, nil
 			}
-			return "", fmt.Errorf("unexpected command: %s", command)
+			return "", 0, fmt.Errorf("unexpected command: %s", command)
 		}
 
 		// Pass the injector from mocks to the provider
@@ -209,9 +209,9 @@ func TestOnePasswordCLISecretsProvider_ParseSecrets(t *testing.T) {
 		// Setup mocks
 		mocks := setupOnePasswordCLISecretsProviderMocks()
 		execSilentCalled := false
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			execSilentCalled = true
-			return "", fmt.Errorf("item not found")
+			return "", 0, fmt.Errorf("item not found")
 		}
 
 		// Pass the injector from mocks to the provider
@@ -287,12 +287,12 @@ func TestOnePasswordCLISecretsProvider_ParseSecrets(t *testing.T) {
 		// Setup mocks
 		mocks := setupOnePasswordCLISecretsProviderMocks()
 		execSilentCalled := false
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			execSilentCalled = true
 			if command == "op" && args[0] == "item" && args[1] == "get" && args[2] == "emptySecret" && args[3] == "--vault" && args[4] == "ExampleVault" && args[5] == "--fields" && args[6] == "fieldName" {
-				return "", nil
+				return "", 0, nil
 			}
-			return "", fmt.Errorf("unexpected command: %s", command)
+			return "", 0, fmt.Errorf("unexpected command: %s", command)
 		}
 
 		// Pass the injector from mocks to the provider

@@ -34,8 +34,8 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell(injector)
-	mockShell.ExecFunc = func(command string, args ...string) (string, error) {
-		return "", nil
+	mockShell.ExecFunc = func(command string, args ...string) (string, int, error) {
+		return "", 0, nil
 	}
 
 	// Use the same mock shell for both shell and secure shell

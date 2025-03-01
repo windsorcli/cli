@@ -26,8 +26,8 @@ func setupSafeExecCmdMocks() *MockObjects {
 	}
 
 	mockShell := shell.NewMockShell()
-	mockShell.ExecFunc = func(command string, args ...string) (string, error) {
-		return "hello", nil
+	mockShell.ExecFunc = func(command string, args ...string) (string, int, error) {
+		return "hello", 0, nil
 	}
 	mockController.ResolveShellFunc = func() shell.Shell {
 		return mockShell
@@ -45,6 +45,12 @@ func setupSafeExecCmdMocks() *MockObjects {
 	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
 		return mockConfigHandler
 	}
+
+	// Mock osExit function
+	mockOsExit := func(code int) {
+		fmt.Printf("osExit called with code: %d\n", code)
+	}
+	osExit = mockOsExit
 
 	return &MockObjects{
 		Controller:      mockController,
@@ -67,9 +73,9 @@ func TestExecCmd(t *testing.T) {
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
 		execCalled := false
-		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, int, error) {
 			execCalled = true
-			return "hello", nil
+			return "hello", 0, nil
 		}
 
 		// Execute the command
@@ -381,23 +387,51 @@ func TestExecCmd(t *testing.T) {
 
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
-		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("command execution error")
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, int, error) {
+			return "", 1, fmt.Errorf("command execution error")
 		}
 
 		// Capture stderr
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-			err := Execute(mocks.Controller)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
+			_ = Execute(mocks.Controller)
 		})
 
 		// Then the output should indicate the error
 		expectedOutput := "command execution error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("ErrorExecutingCommandWithExitCode", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Setup mock controller
+		mocks := setupSafeExecCmdMocks()
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, int, error) {
+			return "", 2, fmt.Errorf("command execution failed")
+		}
+
+		// Mock osExit function to capture the exit code
+		exitCode := 0
+		mockOsExit := func(code int) {
+			exitCode = code
+		}
+		originalOsExit := osExit
+		osExit = mockOsExit
+		defer func() { osExit = originalOsExit }()
+
+		// Capture stderr
+		captureStderr(func() {
+			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
+			_ = Execute(mocks.Controller)
+		})
+
+		// Check if the exit code is as expected
+		expectedExitCode := 2
+		if exitCode != expectedExitCode {
+			t.Errorf("Expected exit code %d, got %d", expectedExitCode, exitCode)
 		}
 	})
 }

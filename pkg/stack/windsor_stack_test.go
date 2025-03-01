@@ -195,11 +195,11 @@ func TestWindsorStack_Up(t *testing.T) {
 	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
 		// Given shell.Exec is mocked to return an error
 		mocks := setupSafeMocks()
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, int, error) {
 			if command == "terraform" && len(args) > 0 && args[0] == "init" {
-				return "", fmt.Errorf("mock error running terraform init")
+				return "", 0, fmt.Errorf("mock error running terraform init")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// When a new WindsorStack is created, initialized, and Up is called
@@ -226,11 +226,11 @@ func TestWindsorStack_Up(t *testing.T) {
 	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
 		// Given shell.Exec is mocked to return an error
 		mocks := setupSafeMocks()
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, int, error) {
 			if command == "terraform" && len(args) > 0 && args[0] == "plan" {
-				return "", fmt.Errorf("mock error running terraform plan")
+				return "", 0, fmt.Errorf("mock error running terraform plan")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// When a new WindsorStack is created, initialized, and Up is called
@@ -253,11 +253,11 @@ func TestWindsorStack_Up(t *testing.T) {
 	t.Run("ErrorRunningTerraformApply", func(t *testing.T) {
 		// Given shell.Exec is mocked to return an error
 		mocks := setupSafeMocks()
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, int, error) {
 			if command == "terraform" && len(args) > 0 && args[0] == "apply" {
-				return "", fmt.Errorf("mock error running terraform apply")
+				return "", 0, fmt.Errorf("mock error running terraform apply")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// When a new WindsorStack is created, initialized, and Up is called

@@ -38,13 +38,13 @@ type Shell interface {
 	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
 	// Exec executes a command with optional privilege elevation
-	Exec(command string, args ...string) (string, error)
+	Exec(command string, args ...string) (string, int, error)
 	// ExecSilent executes a command and returns its output as a string without printing to stdout or stderr
-	ExecSilent(command string, args ...string) (string, error)
+	ExecSilent(command string, args ...string) (string, int, error)
 	// ExecSudo executes a command with sudo if not already present and returns its output as a string while suppressing it from being printed
-	ExecSudo(message string, command string, args ...string) (string, error)
+	ExecSudo(message string, command string, args ...string) (string, int, error)
 	// ExecProgress executes a command and returns its output as a string while displaying progress status
-	ExecProgress(message string, command string, args ...string) (string, error)
+	ExecProgress(message string, command string, args ...string) (string, int, error)
 	// InstallHook installs a shell hook for the specified shell name
 	InstallHook(shellName string) error
 	// AddCurrentDirToTrustedFile adds the current directory to a trusted list stored in a file.
@@ -121,7 +121,7 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 
 // Exec runs a command with args, capturing stdout and stderr. It prints output and returns stdout as a string.
 // If the command is "sudo", it connects stdin to the terminal for password input.
-func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
+func (s *DefaultShell) Exec(command string, args ...string) (string, int, error) {
 	cmd := execCommand(command, args...)
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
@@ -130,20 +130,19 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 		cmd.Stdin = os.Stdin
 	}
 	if err := cmdStart(cmd); err != nil {
-		return stdoutBuf.String(), fmt.Errorf("command start failed: %w", err)
+		return stdoutBuf.String(), 1, fmt.Errorf("command start failed: %w", err)
 	}
 	if err := cmdWait(cmd); err != nil {
-		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", err)
+		return stdoutBuf.String(), cmd.ProcessState.ExitCode(), fmt.Errorf("command execution failed: %w", err)
 	}
-	return stdoutBuf.String(), nil
+	return stdoutBuf.String(), cmd.ProcessState.ExitCode(), nil
 }
 
 // ExecSudo runs a command with 'sudo', ensuring elevated privileges. It handles password prompts by
 // connecting to the terminal and captures the command's output. If verbose mode is enabled, it prints
 // a message to stderr. The function returns the command's stdout or an error if execution fails.
-func (s *DefaultShell) ExecSudo(message string, command string, args ...string) (string, error) {
+func (s *DefaultShell) ExecSudo(message string, command string, args ...string) (string, int, error) {
 	if s.verbose {
-		fmt.Fprintln(os.Stderr, message)
 		return s.Exec("sudo", append([]string{command}, args...)...)
 	}
 
@@ -155,7 +154,7 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	cmd := execCommand(command, args...)
 	tty, err := osOpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
-		return "", fmt.Errorf("failed to open /dev/tty: %w", err)
+		return "", 1, fmt.Errorf("failed to open /dev/tty: %w", err)
 	}
 	defer tty.Close()
 
@@ -167,24 +166,24 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 
 	if err := cmdStart(cmd); err != nil {
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-		return stdoutBuf.String(), err
+		return stdoutBuf.String(), 1, err
 	}
 
 	err = cmdWait(cmd)
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", err)
+		return stdoutBuf.String(), cmd.ProcessState.ExitCode(), fmt.Errorf("command execution failed: %w", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 
-	return stdoutBuf.String(), nil
+	return stdoutBuf.String(), cmd.ProcessState.ExitCode(), nil
 }
 
 // ExecSilent is a method that runs a command quietly, capturing its output.
 // It returns the command's stdout as a string and any error encountered.
-func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error) {
+func (s *DefaultShell) ExecSilent(command string, args ...string) (string, int, error) {
 	if s.verbose {
 		return s.Exec(command, args...)
 	}
@@ -196,19 +195,17 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 	cmd.Stderr = &stderrBuf
 
 	if err := cmdRun(cmd); err != nil {
-		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+		return stdoutBuf.String(), cmd.ProcessState.ExitCode(), fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 	}
 
-	return stdoutBuf.String(), nil
+	return stdoutBuf.String(), cmd.ProcessState.ExitCode(), nil
 }
 
 // ExecProgress is a method of the DefaultShell struct that executes a command with a progress indicator.
-// It takes a message, a command, and arguments, using the Exec method if verbose mode is enabled.
-// Otherwise, it captures stdout and stderr with pipes and uses a spinner to show progress.
+// It takes a message, a command, and arguments, capturing stdout and stderr with pipes and using a spinner to show progress.
 // The method returns the command's stdout as a string and any error encountered.
-func (s *DefaultShell) ExecProgress(message string, command string, args ...string) (string, error) {
+func (s *DefaultShell) ExecProgress(message string, command string, args ...string) (string, int, error) {
 	if s.verbose {
-		fmt.Fprintln(os.Stderr, message)
 		return s.Exec(command, args...)
 	}
 
@@ -216,16 +213,16 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 
 	stdoutPipe, err := cmdStdoutPipe(cmd)
 	if err != nil {
-		return "", err
+		return "", 1, err
 	}
 
 	stderrPipe, err := cmdStderrPipe(cmd)
 	if err != nil {
-		return "", err
+		return "", 1, err
 	}
 
 	if err := cmdStart(cmd); err != nil {
-		return "", err
+		return "", 1, err
 	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
@@ -264,21 +261,21 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 	if err := cmdWait(cmd); err != nil {
 		spin.Stop()
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String())
-		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+		return stdoutBuf.String(), cmd.ProcessState.ExitCode(), fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 	}
 
-	for i := 0; i < 2; i++ {
+	for range [2]int{} {
 		if err := <-errChan; err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n%s", message, stderrBuf.String())
-			return stdoutBuf.String(), err
+			return stdoutBuf.String(), cmd.ProcessState.ExitCode(), err
 		}
 	}
 
 	spin.Stop()
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 
-	return stdoutBuf.String(), nil
+	return stdoutBuf.String(), cmd.ProcessState.ExitCode(), nil
 }
 
 // InstallHook sets up a shell hook for a specified shell using a template with the Windsor path.

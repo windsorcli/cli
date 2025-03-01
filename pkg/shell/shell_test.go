@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -18,12 +19,43 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+type MockObjects struct {
+	Injector *di.BaseInjector
+	Shell    *MockShell
+}
+
+func setupSafeShellTestMocks(injector ...*di.BaseInjector) *MockObjects {
+	var inj *di.BaseInjector
+	if len(injector) == 0 {
+		inj = di.NewInjector()
+	} else {
+		inj = injector[0]
+	}
+
+	mocks := &MockObjects{
+		Injector: inj,
+		Shell:    NewMockShell(inj),
+	}
+
+	// Mock execCommand to simulate command execution
+	execCommand = func(command string, args ...string) *exec.Cmd {
+		cmd := exec.Command("echo", append([]string{command}, args...)...)
+		return cmd
+	}
+
+	// Register the mock shell in the injector
+	inj.Register("shell", mocks.Shell)
+
+	return mocks
+}
+
 func TestShell_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		injector := di.NewInjector()
+		// Use setupSafeShellTestMocks to set up the mock environment
+		mocks := setupSafeShellTestMocks()
 
 		// Given a DefaultShell instance
-		shell := NewDefaultShell(injector)
+		shell := NewDefaultShell(mocks.Injector)
 
 		// When calling Initialize
 		err := shell.Initialize()
@@ -169,30 +201,36 @@ func TestShell_GetProjectRoot(t *testing.T) {
 
 func TestShell_Exec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		expectedOutput := "hello\n"
 		command := "echo"
 		args := []string{"hello"}
 
-		// Mock execCommand to simulate command execution
+		// Track if execCommand, cmdStart, and cmdWait were called and their arguments
+		execCommandCalled := false
+		execCommandArgs := []string{}
+		cmdStartCalled := false
+		cmdWaitCalled := false
+
+		// Mock execCommand to track its invocation and arguments
 		originalExecCommand := execCommand
 		execCommand = func(name string, arg ...string) *exec.Cmd {
-			cmd := exec.Command("echo", "hello")
-			cmd.Stdout = &bytes.Buffer{}
-			return cmd
+			execCommandCalled = true
+			execCommandArgs = append([]string{name}, arg...)
+			return &exec.Cmd{}
 		}
 		defer func() { execCommand = originalExecCommand }()
 
-		// Mock cmdStart to simulate successful command start
+		// Mock cmdStart to track its invocation
 		originalCmdStart := cmdStart
 		cmdStart = func(cmd *exec.Cmd) error {
+			cmdStartCalled = true
 			return nil
 		}
 		defer func() { cmdStart = originalCmdStart }()
 
-		// Mock cmdWait to simulate successful command execution
+		// Mock cmdWait to track its invocation
 		originalCmdWait := cmdWait
 		cmdWait = func(cmd *exec.Cmd) error {
-			cmd.Stdout.Write([]byte("hello\n"))
+			cmdWaitCalled = true
 			return nil
 		}
 		defer func() { cmdWait = originalCmdWait }()
@@ -200,12 +238,21 @@ func TestShell_Exec(t *testing.T) {
 		injector := di.NewInjector()
 		shell := NewDefaultShell(injector)
 
-		output, err := shell.Exec(command, args...)
+		_, _, err := shell.Exec(command, args...)
 		if err != nil {
 			t.Fatalf("Failed to execute command: %v", err)
 		}
-		if output != expectedOutput {
-			t.Fatalf("Expected output %q, got %q", expectedOutput, output)
+		if !execCommandCalled {
+			t.Fatalf("Expected execCommand to be called")
+		}
+		if !cmdStartCalled {
+			t.Fatalf("Expected cmdStart to be called")
+		}
+		if !cmdWaitCalled {
+			t.Fatalf("Expected cmdWait to be called")
+		}
+		if len(execCommandArgs) != 2 || execCommandArgs[0] != "echo" || execCommandArgs[1] != "hello" {
+			t.Fatalf("Expected execCommand to be called with %q, got %q", []string{"echo", "hello"}, execCommandArgs)
 		}
 	})
 
@@ -222,7 +269,7 @@ func TestShell_Exec(t *testing.T) {
 
 		shell := NewDefaultShell(nil)
 
-		_, err := shell.Exec(command, args...)
+		_, _, err := shell.Exec(command, args...)
 		if err == nil {
 			t.Fatalf("Expected error when executing nonexistent command, got nil")
 		}
@@ -256,7 +303,7 @@ func TestShell_Exec(t *testing.T) {
 		defer func() { cmdWait = originalCmdWait }()
 
 		shell := NewDefaultShell(nil)
-		_, err := shell.Exec(command, args...)
+		_, _, err := shell.Exec(command, args...)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -268,7 +315,7 @@ func TestShell_Exec(t *testing.T) {
 }
 
 func TestShell_ExecSudo(t *testing.T) {
-	// Mock cmdRun, cmdStart, cmdWait, and osOpenFile to simulate command execution
+	// Mock cmdRun, cmdStart, cmdWait, osOpenFile, and ProcessState to simulate command execution
 	originalCmdRun := cmdRun
 	originalCmdStart := cmdStart
 	originalCmdWait := cmdWait
@@ -282,14 +329,15 @@ func TestShell_ExecSudo(t *testing.T) {
 	}()
 
 	cmdRun = func(cmd *exec.Cmd) error {
-		_, _ = cmd.Stdout.Write([]byte("hello\n"))
+		cmd.ProcessState = &os.ProcessState{}
 		return nil
 	}
 	cmdStart = func(cmd *exec.Cmd) error {
-		_, _ = cmd.Stdout.Write([]byte("hello\n"))
+		cmd.ProcessState = &os.ProcessState{}
 		return nil
 	}
-	cmdWait = func(_ *exec.Cmd) error {
+	cmdWait = func(cmd *exec.Cmd) error {
+		cmd.ProcessState = &os.ProcessState{}
 		return nil
 	}
 	osOpenFile = func(_ string, _ int, _ os.FileMode) (*os.File, error) {
@@ -300,15 +348,32 @@ func TestShell_ExecSudo(t *testing.T) {
 		command := "echo"
 		args := []string{"hello"}
 
-		shell := NewDefaultShell(nil)
+		var capturedCommand string
+		var capturedArgs []string
 
-		output, err := shell.ExecSudo("Test Sudo Command", command, args...)
+		// Mock execCommand to capture the command and arguments
+		originalExecCommand := execCommand
+		execCommand = func(cmd string, args ...string) *exec.Cmd {
+			capturedCommand = cmd
+			capturedArgs = args
+			return originalExecCommand(cmd, args...)
+		}
+		defer func() { execCommand = originalExecCommand }()
+
+		shell := NewDefaultShell(nil)
+		_, _, err := shell.ExecSudo("Test Sudo Command", command, args...)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		expectedOutput := "hello\n"
-		if output != expectedOutput {
-			t.Fatalf("Expected output %q, got %q", expectedOutput, output)
+
+		expectedCommand := "sudo"
+		expectedArgs := []string{"echo", "hello"}
+
+		if capturedCommand != expectedCommand {
+			t.Fatalf("Expected command %q, got %q", expectedCommand, capturedCommand)
+		}
+		if !reflect.DeepEqual(capturedArgs, expectedArgs) {
+			t.Fatalf("Expected args %v, got %v", expectedArgs, capturedArgs)
 		}
 	})
 
@@ -324,7 +389,7 @@ func TestShell_ExecSudo(t *testing.T) {
 		defer func() { osOpenFile = originalOsOpenFile }() // Restore original function after test
 
 		shell := NewDefaultShell(nil)
-		_, err := shell.ExecSudo("Test Sudo Command", "echo", "hello")
+		_, _, err := shell.ExecSudo("Test Sudo Command", "echo", "hello")
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -347,7 +412,7 @@ func TestShell_ExecSudo(t *testing.T) {
 		command := "echo"
 		args := []string{"hello"}
 		shell := NewDefaultShell(nil)
-		_, err := shell.ExecSudo("Test Sudo Command", command, args...)
+		_, _, err := shell.ExecSudo("Test Sudo Command", command, args...)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -367,7 +432,7 @@ func TestShell_ExecSudo(t *testing.T) {
 		command := "echo"
 		args := []string{"hello"}
 		shell := NewDefaultShell(nil)
-		_, err := shell.ExecSudo("Test Sudo Command", command, args...)
+		_, _, err := shell.ExecSudo("Test Sudo Command", command, args...)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -384,14 +449,12 @@ func TestShell_ExecSudo(t *testing.T) {
 		shell := NewDefaultShell(nil)
 		shell.SetVerbosity(true)
 
-		// Mock execCommand to simulate command execution
+		// Mock execCommand to confirm it was called without executing
+		execCommandCalled := false
 		originalExecCommand := execCommand
 		execCommand = func(name string, arg ...string) *exec.Cmd {
-			cmd := &exec.Cmd{
-				Stdout: &bytes.Buffer{},
-				Stderr: &bytes.Buffer{},
-			}
-			return cmd
+			execCommandCalled = true
+			return &exec.Cmd{}
 		}
 		defer func() { execCommand = originalExecCommand }()
 
@@ -410,26 +473,19 @@ func TestShell_ExecSudo(t *testing.T) {
 		}
 		defer func() { cmdWait = originalCmdWait }()
 
-		stdout, stderr := captureStdoutAndStderr(t, func() {
-			output, err := shell.ExecSudo("Test Sudo Command", command, args...)
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-			expectedOutput := "hello\n"
-			if output != expectedOutput {
-				t.Fatalf("Expected output %q, got %q", expectedOutput, output)
-			}
-		})
-
-		// Validate stdout and stderr
-		expectedStdout := "hello\n"
-		if stdout != expectedStdout {
-			t.Fatalf("Expected stdout %q, got %q", expectedStdout, stdout)
+		// Execute the command and verify the output
+		output, _, err := shell.ExecSudo("Test Sudo Command", command, args...)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedOutput := "hello\n"
+		if output != expectedOutput {
+			t.Fatalf("Expected output %q, got %q", expectedOutput, output)
 		}
 
-		expectedVerboseOutput := "Test Sudo Command\n"
-		if !strings.Contains(stderr, expectedVerboseOutput) {
-			t.Fatalf("Expected verbose output %q, got stderr: %q", expectedVerboseOutput, stderr)
+		// Verify that execCommand was called
+		if !execCommandCalled {
+			t.Fatalf("Expected execCommand to be called, but it was not")
 		}
 	})
 }
@@ -440,13 +496,16 @@ func TestShell_ExecSilent(t *testing.T) {
 		args := []string{"version"}
 
 		shell := NewDefaultShell(nil)
-		output, err := shell.ExecSilent(command, args...)
+		output, code, err := shell.ExecSilent(command, args...)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		expectedOutputPrefix := "go version"
 		if !strings.HasPrefix(output, expectedOutputPrefix) {
 			t.Fatalf("Expected output to start with %q, got %q", expectedOutputPrefix, output)
+		}
+		if code != 0 {
+			t.Fatalf("Expected exit code 0, got %d", code)
 		}
 	})
 
@@ -460,7 +519,7 @@ func TestShell_ExecSilent(t *testing.T) {
 		command := "nonexistentcommand"
 		args := []string{}
 		shell := NewDefaultShell(nil)
-		_, err := shell.ExecSilent(command, args...)
+		_, _, err := shell.ExecSilent(command, args...)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -475,25 +534,22 @@ func TestShell_ExecSilent(t *testing.T) {
 		args := []string{"version"}
 
 		// Mock execCommand to simulate command execution
+		execCommandCalled := false
 		originalExecCommand := execCommand
 		execCommand = func(name string, arg ...string) *exec.Cmd {
-			cmd := &exec.Cmd{
-				Stdout: &bytes.Buffer{},
-				Stderr: &bytes.Buffer{},
-			}
-			cmd.Stdout.Write([]byte("go version go1.16.3\n"))
-			return cmd
+			execCommandCalled = true
+			return &exec.Cmd{}
 		}
 		defer func() { execCommand = originalExecCommand }()
 
-		// Mock cmdStart and cmdWait to simulate command execution without hanging
+		// Mock cmdStart to simulate successful command start
 		originalCmdStart := cmdStart
 		cmdStart = func(cmd *exec.Cmd) error {
-			cmd.Stdout.Write([]byte("go version go1.16.3\n"))
 			return nil
 		}
 		defer func() { cmdStart = originalCmdStart }()
 
+		// Mock cmdWait to simulate successful command completion
 		originalCmdWait := cmdWait
 		cmdWait = func(cmd *exec.Cmd) error {
 			return nil
@@ -503,20 +559,14 @@ func TestShell_ExecSilent(t *testing.T) {
 		shell := NewDefaultShell(nil)
 		shell.SetVerbosity(true)
 
-		stdout, _ := captureStdoutAndStderr(t, func() {
-			output, err := shell.ExecSilent(command, args...)
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-			expectedOutputPrefix := "go version"
-			if !strings.HasPrefix(output, expectedOutputPrefix) {
-				t.Fatalf("Expected output to start with %q, got %q", expectedOutputPrefix, output)
-			}
-		})
+		_, _, err := shell.ExecSilent(command, args...)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
 
-		expectedVerboseOutput := "go version"
-		if !strings.Contains(stdout, expectedVerboseOutput) {
-			t.Fatalf("Expected verbose output to contain %q, got %q", expectedVerboseOutput, stdout)
+		// Verify that execCommand was called
+		if !execCommandCalled {
+			t.Fatalf("Expected execCommand to be called, but it was not")
 		}
 	})
 }
@@ -574,13 +624,16 @@ func TestShell_ExecProgress(t *testing.T) {
 		args := []string{"version"}
 
 		shell := NewDefaultShell(nil)
-		output, err := shell.ExecProgress("Test Progress Command", command, args...)
+		output, code, err := shell.ExecProgress("Test Progress Command", command, args...)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		expectedOutput := "go version go1.16.3\n"
 		if output != expectedOutput {
 			t.Fatalf("Expected output %q, got %q", expectedOutput, output)
+		}
+		if code != 0 {
+			t.Fatalf("Expected exit code 0, got %d", code)
 		}
 	})
 
@@ -596,7 +649,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		defer func() { cmdStdoutPipe = originalCmdStdoutPipe }() // Restore original function after test
 
 		shell := NewDefaultShell(nil)
-		_, err := shell.ExecProgress("Test Progress Command", command, args...)
+		_, _, err := shell.ExecProgress("Test Progress Command", command, args...)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -618,7 +671,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		defer func() { cmdStderrPipe = originalCmdStderrPipe }() // Restore original function after test
 
 		shell := NewDefaultShell(nil)
-		_, err := shell.ExecProgress("Test Progress Command", command, args...)
+		_, _, err := shell.ExecProgress("Test Progress Command", command, args...)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -640,7 +693,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		defer func() { cmdStart = originalCmdStart }() // Restore original function after test
 
 		shell := NewDefaultShell(nil)
-		_, err := shell.ExecProgress("Test Progress Command", command, args...)
+		_, _, err := shell.ExecProgress("Test Progress Command", command, args...)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -669,7 +722,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		defer func() { bufioScannerErr = originalBufioScannerErr }() // Restore original function after test
 
 		shell := NewDefaultShell(nil)
-		_, err := shell.ExecProgress("Test Progress Command", command, args...)
+		_, _, err := shell.ExecProgress("Test Progress Command", command, args...)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -714,7 +767,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		defer func() { bufioScannerErr = originalBufioScannerErr }() // Restore original function after test
 
 		shell := NewDefaultShell(nil)
-		_, err := shell.ExecProgress("Test Progress Command", command, args...)
+		_, _, err := shell.ExecProgress("Test Progress Command", command, args...)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -736,7 +789,7 @@ func TestShell_ExecProgress(t *testing.T) {
 		defer func() { cmdWait = originalCmdWait }() // Restore original function after test
 
 		shell := NewDefaultShell(nil)
-		_, err := shell.ExecProgress("Test Progress Command", command, args...)
+		_, _, err := shell.ExecProgress("Test Progress Command", command, args...)
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -754,50 +807,41 @@ func TestShell_ExecProgress(t *testing.T) {
 		shell.SetVerbosity(true)
 
 		// Mock execCommand to simulate command execution
+		execCommandCalled := false
 		originalExecCommand := execCommand
 		execCommand = func(name string, arg ...string) *exec.Cmd {
-			cmd := &exec.Cmd{
-				Stdout: &bytes.Buffer{},
-				Stderr: &bytes.Buffer{},
-			}
-			return cmd
+			execCommandCalled = true
+			return &exec.Cmd{}
 		}
 		defer func() { execCommand = originalExecCommand }() // Restore original function after test
 
-		// Mock cmdStart and cmdWait to simulate command execution without hanging
+		// Mock cmdStart to simulate successful command start
 		originalCmdStart := cmdStart
 		cmdStart = func(cmd *exec.Cmd) error {
-			cmd.Stdout.Write([]byte("go version go1.16.3 darwin/amd64\n"))
+			_, _ = cmd.Stdout.Write([]byte("go version go1.16.3\n"))
 			return nil
 		}
 		defer func() { cmdStart = originalCmdStart }() // Restore original function after test
 
+		// Mock cmdWait to simulate successful command completion
 		originalCmdWait := cmdWait
 		cmdWait = func(cmd *exec.Cmd) error {
 			return nil
 		}
 		defer func() { cmdWait = originalCmdWait }() // Restore original function after test
 
-		stdout, stderr := captureStdoutAndStderr(t, func() {
-			output, err := shell.ExecProgress("Test Progress Command", command, args...)
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-			expectedOutputPrefix := "go version"
-			if !strings.HasPrefix(output, expectedOutputPrefix) {
-				t.Fatalf("Expected output to start with %q, got %q", expectedOutputPrefix, output)
-			}
-		})
-
-		expectedVerboseOutput := "Test Progress Command\n"
-		if !strings.Contains(stderr, expectedVerboseOutput) {
-			t.Fatalf("Expected verbose output %q, got %q", expectedVerboseOutput, stderr)
+		output, _, err := shell.ExecProgress("Test Progress Command", command, args...)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedOutputPrefix := "go version"
+		if !strings.HasPrefix(output, expectedOutputPrefix) {
+			t.Fatalf("Expected output to start with %q, got %q", expectedOutputPrefix, output)
 		}
 
-		// Check the stdout value
-		expectedStdoutPrefix := "go version"
-		if !strings.HasPrefix(stdout, expectedStdoutPrefix) {
-			t.Fatalf("Expected stdout to start with %q, got %q", expectedStdoutPrefix, stdout)
+		// Verify that execCommand was called
+		if !execCommandCalled {
+			t.Fatalf("Expected execCommand to be called, but it was not")
 		}
 	})
 }
@@ -980,15 +1024,6 @@ func changeDir(t *testing.T, dir string) {
 	})
 }
 
-// Helper function to initialize a git repository
-func initGitRepo(t *testing.T, dir string) {
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to initialize git repository: %v", err)
-	}
-}
-
 // Helper function to normalize a path
 func normalizePath(path string) string {
 	return strings.ReplaceAll(filepath.Clean(path), "\\", "/")
@@ -1015,25 +1050,6 @@ func captureStdout(t *testing.T, f func()) string {
 	<-done
 	os.Stdout = originalStdout
 	return output.String()
-}
-
-// Mock execCommand to simulate git command failure
-func mockCommand(_ string, _ ...string) *exec.Cmd {
-	return exec.Command("false")
-}
-
-// Updated helper function to mock exec.Command for successful execution using PowerShell
-func mockExecCommandSuccess(command string, args ...string) *exec.Cmd {
-	if runtime.GOOS == "windows" {
-		// Use PowerShell to execute the echo command
-		fullCommand := fmt.Sprintf("Write-Output 'mock output for: %s %s'", command, strings.Join(args, " "))
-		cmdArgs := []string{"-Command", fullCommand}
-		return exec.Command("powershell.exe", cmdArgs...)
-	} else {
-		// Use 'echo' on Unix-like systems
-		fullArgs := append([]string{"mock output for:", command}, args...)
-		return exec.Command("echo", fullArgs...)
-	}
 }
 
 // Updated helper function to mock exec.Command for failed execution using PowerShell

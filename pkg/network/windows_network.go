@@ -30,7 +30,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	spin.Suffix = " 🔐 Configuring host route"
 	spin.Start()
 
-	output, err := n.shell.ExecSilent(
+	output, _, err := n.shell.ExecSilent(
 		"powershell",
 		"-Command",
 		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s | Where-Object { $_.NextHop -eq '%s' }", networkCIDR, guestIP),
@@ -42,7 +42,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	}
 
 	if output == "" {
-		output, err = n.shell.ExecSilent(
+		output, _, err = n.shell.ExecSilent(
 			"powershell",
 			"-Command",
 			fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", networkCIDR, guestIP),
@@ -93,7 +93,7 @@ if ($existingRule) {
 }
 `, namespace, dnsIP)
 
-	output, err := n.shell.ExecSilent(
+	output, _, err := n.shell.ExecSilent(
 		"powershell",
 		"-Command",
 		checkScript,
@@ -118,7 +118,7 @@ if ($?) {
 }
 `, namespace, dnsIP, dnsIP, tld)
 
-		_, err = n.shell.ExecProgress(
+		_, _, err = n.shell.ExecProgress(
 			fmt.Sprintf("🔐 Configuring DNS for '*.%s'", tld),
 			"powershell",
 			"-Command",

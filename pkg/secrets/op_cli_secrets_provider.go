@@ -37,7 +37,7 @@ func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
 
 	args := []string{"item", "get", parts[0], "--vault", s.vault.Name, "--fields", parts[1], "--reveal", "--account", s.vault.URL}
 
-	output, err := s.shell.ExecSilent("op", args...)
+	output, _, err := s.shell.ExecSilent("op", args...)
 	if err != nil {
 		return "", fmt.Errorf("failed to retrieve secret from 1Password: %w", err)
 	}

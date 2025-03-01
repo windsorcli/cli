@@ -42,16 +42,16 @@ func (s *SecureShell) Initialize() error {
 }
 
 // Exec executes a command on the remote host via SSH and returns its output as a string.
-func (s *SecureShell) Exec(command string, args ...string) (string, error) {
+func (s *SecureShell) Exec(command string, args ...string) (string, int, error) {
 	clientConn, err := s.sshClient.Connect()
 	if err != nil {
-		return "", fmt.Errorf("failed to connect to SSH client: %w", err)
+		return "", 0, fmt.Errorf("failed to connect to SSH client: %w", err)
 	}
 	defer clientConn.Close()
 
 	session, err := clientConn.NewSession()
 	if err != nil {
-		return "", fmt.Errorf("failed to create SSH session: %w", err)
+		return "", 0, fmt.Errorf("failed to create SSH session: %w", err)
 	}
 	defer session.Close()
 
@@ -66,23 +66,15 @@ func (s *SecureShell) Exec(command string, args ...string) (string, error) {
 	session.SetStderr(&stderrBuf)
 
 	// Run the command and wait for it to finish
-	if err := session.Run(fullCommand); err != nil {
-		return "", fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
+	err = session.Run(fullCommand)
+	exitCode := 0
+	if err != nil {
+		// Since ssh.ExitError is not defined, we will assume a non-zero exit code on error
+		exitCode = 1
+		return stdoutBuf.String(), exitCode, fmt.Errorf("command execution failed: %w\n%s", err, stderrBuf.String())
 	}
 
-	return stdoutBuf.String(), nil
-}
-
-// ExecProgress executes a command and returns its output as a string
-func (s *SecureShell) ExecProgress(message string, command string, args ...string) (string, error) {
-	// Not yet implemented for SecureShell
-	return s.Exec(command, args...)
-}
-
-// ExecSilent executes a command and returns its output as a string without printing to stdout or stderr
-func (s *SecureShell) ExecSilent(command string, args ...string) (string, error) {
-	// Not yet implemented for SecureShell
-	return s.Exec(command, args...)
+	return stdoutBuf.String(), exitCode, nil
 }
 
 // Ensure SecureShell implements the Shell interface

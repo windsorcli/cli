@@ -50,38 +50,38 @@ func setupToolsMocks(injector ...di.Injector) MockToolsComponents {
 	}
 
 	// Mock ExecSilent for different tools
-	mockShell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+	mockShell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 		switch name {
 		case "docker":
 			if args[0] == "version" {
-				return fmt.Sprintf("Docker version %s", constants.MINIMUM_VERSION_DOCKER), nil
+				return fmt.Sprintf("Docker version %s", constants.MINIMUM_VERSION_DOCKER), 0, nil
 			}
 		case "colima":
 			if args[0] == "version" {
-				return fmt.Sprintf("Colima version %s", constants.MINIMUM_VERSION_COLIMA), nil
+				return fmt.Sprintf("Colima version %s", constants.MINIMUM_VERSION_COLIMA), 0, nil
 			}
 		case "limactl":
 			if args[0] == "--version" {
-				return fmt.Sprintf("limactl version %s", constants.MINIMUM_VERSION_LIMA), nil
+				return fmt.Sprintf("limactl version %s", constants.MINIMUM_VERSION_LIMA), 0, nil
 			}
 		case "kubectl":
 			if args[0] == "version" && args[1] == "--client" {
-				return fmt.Sprintf("Client Version: v%s", constants.MINIMUM_VERSION_KUBECTL), nil
+				return fmt.Sprintf("Client Version: v%s", constants.MINIMUM_VERSION_KUBECTL), 0, nil
 			}
 		case "talosctl":
 			if args[0] == "version" && args[1] == "--client" && args[2] == "--short" {
-				return fmt.Sprintf("v%s", constants.MINIMUM_VERSION_TALOSCTL), nil
+				return fmt.Sprintf("v%s", constants.MINIMUM_VERSION_TALOSCTL), 0, nil
 			}
 		case "terraform":
 			if args[0] == "version" {
-				return fmt.Sprintf("Terraform v%s", constants.MINIMUM_VERSION_TERRAFORM), nil
+				return fmt.Sprintf("Terraform v%s", constants.MINIMUM_VERSION_TERRAFORM), 0, nil
 			}
 		case "op":
 			if args[0] == "--version" {
-				return fmt.Sprintf("1Password CLI %s", constants.MINIMUM_VERSION_1PASSWORD), nil
+				return fmt.Sprintf("1Password CLI %s", constants.MINIMUM_VERSION_1PASSWORD), 0, nil
 			}
 		}
-		return "", fmt.Errorf("command not found")
+		return "", 0, fmt.Errorf("command not found")
 	}
 
 	// Mock osStat for CheckExistingToolsManager
@@ -155,12 +155,12 @@ func TestToolsManager_Install(t *testing.T) {
 }
 
 func TestToolsManager_Check(t *testing.T) {
-	mockShellExec := func(toolVersions map[string]string) func(name string, args ...string) (string, error) {
-		return func(name string, args ...string) (string, error) {
+	mockShellExec := func(toolVersions map[string]string) func(name string, args ...string) (string, int, error) {
+		return func(name string, args ...string) (string, int, error) {
 			if version, exists := toolVersions[name]; exists {
-				return fmt.Sprintf("version %s", version), nil
+				return fmt.Sprintf("version %s", version), 0, nil
 			}
-			return "", fmt.Errorf("%s not found", name)
+			return "", 1, fmt.Errorf("%s not found", name)
 		}
 	}
 
@@ -315,9 +315,9 @@ func TestToolsManager_Check(t *testing.T) {
 		defer func() { execLookPath = nil }()
 
 		originalExecSilentFunc := mocks.Shell.ExecSilentFunc
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "docker" && args[0] == "version" {
-				return "Docker version 25.0.0", nil
+				return "Docker version 25.0.0", 0, nil
 			}
 			return originalExecSilentFunc(name, args...)
 		}
@@ -380,14 +380,14 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		}
 		defer func() { execLookPath = originalExecLookPath }()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "docker" && args[0] == "version" {
-				return "Docker version 25.0.0", nil
+				return "Docker version 25.0.0", 0, nil
 			}
 			if name == "docker" && args[0] == "compose" {
-				return "Docker Compose version 2.24.0", nil
+				return "Docker Compose version 2.24.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -448,11 +448,11 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		}
 		defer func() { execLookPath = originalExecLookPath }()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "docker" && args[0] == "version" {
-				return "Invalid version response", nil
+				return "Invalid version response", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -484,11 +484,11 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		}
 		defer func() { execLookPath = originalExecLookPath }()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "docker" && args[0] == "version" {
-				return "Docker version 19.03.0", nil
+				return "Docker version 19.03.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -520,11 +520,11 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		}
 		defer func() { execLookPath = originalExecLookPath }()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "docker" && args[0] == "version" {
-				return "Docker version 25.0.0", nil
+				return "Docker version 25.0.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -556,14 +556,14 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		}
 		defer func() { execLookPath = originalExecLookPath }()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "docker" && args[0] == "version" {
-				return "Docker version 25.0.0", nil
+				return "Docker version 25.0.0", 0, nil
 			}
 			if name == "docker-compose" && args[0] == "version" {
-				return "Docker Compose version 2.24.0", nil
+				return "Docker Compose version 2.24.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -595,11 +595,11 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		}
 		defer func() { execLookPath = originalExecLookPath }()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "docker" && args[0] == "version" {
-				return "Docker version 25.0.0", nil
+				return "Docker version 25.0.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -631,14 +631,14 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		}
 		defer func() { execLookPath = originalExecLookPath }()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "docker" && args[0] == "version" {
-				return "Docker version 25.0.0", nil
+				return "Docker version 25.0.0", 0, nil
 			}
 			if name == "docker-compose" && args[0] == "version" {
-				return "Docker Compose version 1.25.0", nil
+				return "Docker Compose version 1.25.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -670,11 +670,11 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		}
 		defer func() { execLookPath = originalExecLookPath }()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "docker" && args[0] == "version" {
-				return "Docker version 25.0.0", nil
+				return "Docker version 25.0.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -692,14 +692,14 @@ func TestToolsManager_checkColima(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupToolsMocks()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "colima" && args[0] == "version" {
-				return "Colima version 0.7.0", nil
+				return "Colima version 0.7.0", 0, nil
 			}
 			if name == "limactl" && args[0] == "--version" {
-				return "limactl version 1.0.0", nil
+				return "limactl version 1.0.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -724,11 +724,11 @@ func TestToolsManager_checkColima(t *testing.T) {
 		}
 		defer func() { execLookPath = originalExecLookPath }()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "limactl" && args[0] == "--version" {
-				return "limactl version 1.0.0", nil
+				return "limactl version 1.0.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -744,14 +744,14 @@ func TestToolsManager_checkColima(t *testing.T) {
 	t.Run("InvalidColimaVersionResponse", func(t *testing.T) {
 		mocks := setupToolsMocks()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "colima" && args[0] == "version" {
-				return "Invalid version response", nil
+				return "Invalid version response", 0, nil
 			}
 			if name == "limactl" && args[0] == "--version" {
-				return "limactl version 1.0.0", nil
+				return "limactl version 1.0.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -767,14 +767,14 @@ func TestToolsManager_checkColima(t *testing.T) {
 	t.Run("ColimaVersionTooLow", func(t *testing.T) {
 		mocks := setupToolsMocks()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "colima" && args[0] == "version" {
-				return "Colima version 0.5.0", nil
+				return "Colima version 0.5.0", 0, nil
 			}
 			if name == "limactl" && args[0] == "--version" {
-				return "limactl version 1.0.0", nil
+				return "limactl version 1.0.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -799,11 +799,11 @@ func TestToolsManager_checkColima(t *testing.T) {
 		}
 		defer func() { execLookPath = originalExecLookPath }()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "colima" && args[0] == "version" {
-				return "Colima version 0.7.0", nil
+				return "Colima version 0.7.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -819,14 +819,14 @@ func TestToolsManager_checkColima(t *testing.T) {
 	t.Run("InvalidLimactlVersionResponse", func(t *testing.T) {
 		mocks := setupToolsMocks()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "limactl" && args[0] == "--version" {
-				return "Invalid version response", nil
+				return "Invalid version response", 0, nil
 			}
 			if name == "colima" && args[0] == "version" {
-				return "Colima version 0.7.0", nil
+				return "Colima version 0.7.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -842,14 +842,14 @@ func TestToolsManager_checkColima(t *testing.T) {
 	t.Run("LimactlVersionTooLow", func(t *testing.T) {
 		mocks := setupToolsMocks()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "limactl" && args[0] == "--version" {
-				return "Limactl version 0.5.0", nil
+				return "Limactl version 0.5.0", 0, nil
 			}
 			if name == "colima" && args[0] == "version" {
-				return "Colima version 0.7.0", nil
+				return "Colima version 0.7.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -880,11 +880,11 @@ func TestToolsManager_checkKubectl(t *testing.T) {
 	t.Run("KubectlVersionInvalidResponse", func(t *testing.T) {
 		mocks := setupToolsMocks()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "kubectl" && args[0] == "version" && args[1] == "--client" {
-				return "Invalid version response", nil
+				return "Invalid version response", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -900,11 +900,11 @@ func TestToolsManager_checkKubectl(t *testing.T) {
 	t.Run("KubectlVersionTooLow", func(t *testing.T) {
 		mocks := setupToolsMocks()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "kubectl" && args[0] == "version" && args[1] == "--client" {
-				return "Client Version: v1.20.0", nil
+				return "Client Version: v1.20.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -935,11 +935,11 @@ func TestToolsManager_checkTalosctl(t *testing.T) {
 	t.Run("TalosctlVersionInvalidResponse", func(t *testing.T) {
 		mocks := setupToolsMocks()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "talosctl" && len(args) == 3 && args[0] == "version" && args[1] == "--client" && args[2] == "--short" {
-				return "Invalid version response", nil
+				return "Invalid version response", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -954,11 +954,11 @@ func TestToolsManager_checkTalosctl(t *testing.T) {
 	t.Run("TalosctlVersionTooLow", func(t *testing.T) {
 		mocks := setupToolsMocks()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "talosctl" && len(args) == 3 && args[0] == "version" && args[1] == "--client" && args[2] == "--short" {
-				return "v0.1.0", nil // Return a version lower than the minimum required
+				return "v0.1.0", 0, nil // Return a version lower than the minimum required
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -989,11 +989,11 @@ func TestToolsManager_checkTerraform(t *testing.T) {
 	t.Run("TerraformVersionInvalidResponse", func(t *testing.T) {
 		mocks := setupToolsMocks()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "terraform" && args[0] == "version" {
-				return "Invalid version response", nil
+				return "Invalid version response", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -1009,11 +1009,11 @@ func TestToolsManager_checkTerraform(t *testing.T) {
 	t.Run("TerraformVersionTooLow", func(t *testing.T) {
 		mocks := setupToolsMocks()
 
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "terraform" && args[0] == "version" {
-				return "Terraform v0.1.0", nil
+				return "Terraform v0.1.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -1062,11 +1062,11 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 
 	t.Run("OnePasswordVersionInvalidResponse", func(t *testing.T) {
 		mocks := setupToolsMocks()
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "op" && args[0] == "--version" {
-				return "Invalid version response", nil
+				return "Invalid version response", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -1081,11 +1081,11 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 
 	t.Run("OnePasswordVersionTooLow", func(t *testing.T) {
 		mocks := setupToolsMocks()
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, int, error) {
 			if name == "op" && args[0] == "--version" {
-				return "1Password CLI 0.1.0", nil
+				return "1Password CLI 0.1.0", 0, nil
 			}
-			return "", fmt.Errorf("command not found")
+			return "", 1, fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
