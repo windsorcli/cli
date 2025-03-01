@@ -460,8 +460,8 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 
 		// Mock the shell.ExecSilent function to simulate an error when writing the DNS configuration
 		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
-			if command == "bash" && args[0] == "-c" {
-				return "", 0, fmt.Errorf("mock write DNS configuration error")
+			if command == "sudo" && args[0] == "bash" && args[1] == "-c" {
+				return "", 1, fmt.Errorf("mock write DNS configuration error")
 			}
 			return "", 0, nil
 		}
@@ -476,7 +476,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Call the ConfigureDNS method and expect an error due to failure in writing the DNS configuration
 		err = nm.ConfigureDNS()
 		if err == nil {
-			t.Fatalf("expected error, got nil. Speculate why see @linux_network.go")
+			t.Fatalf("expected error, got nil. Check the implementation in linux_network.go")
 		}
 		expectedError := "failed to write DNS configuration: mock write DNS configuration error"
 		if !strings.Contains(err.Error(), expectedError) {
@@ -489,8 +489,8 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 
 		// Mock the shell.ExecSilent function to simulate an error when restarting systemd-resolved
 		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
-			if command == "systemctl" && args[0] == "restart" && args[1] == "systemd-resolved" {
-				return "", 0, fmt.Errorf("mock restart systemd-resolved error")
+			if command == "sudo" && args[0] == "systemctl" && args[1] == "restart" && args[2] == "systemd-resolved" {
+				return "", 1, fmt.Errorf("mock restart systemd-resolved error")
 			}
 			return "", 0, nil
 		}
@@ -505,7 +505,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Call the ConfigureDNS method and expect an error due to failure in restarting systemd-resolved
 		err = nm.ConfigureDNS()
 		if err == nil {
-			t.Fatalf("expected error, got nil. Why see @linux_network.go")
+			t.Fatalf("expected error, got nil. Review the logic in linux_network.go")
 		}
 		expectedError := "failed to restart systemd-resolved: mock restart systemd-resolved error"
 		if !strings.Contains(err.Error(), expectedError) {
