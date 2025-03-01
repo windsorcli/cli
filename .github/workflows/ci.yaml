@@ -171,6 +171,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca # v3.9.0
 
+      - name: Cache Docker layers
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-docker-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-docker-
+
       - name: Log in to GitHub Container Registry
         if: startsWith(github.ref, 'refs/tags/')
         uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
@@ -187,6 +195,8 @@ jobs:
           tags: ghcr.io/windsorcli/windsorcli:latest
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache
 
       - name: Push Docker image
         if: startsWith(github.ref, 'refs/tags/')
@@ -199,3 +209,5 @@ jobs:
             ghcr.io/windsorcli/windsorcli:${{ github.ref_name }}
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache
