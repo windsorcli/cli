@@ -489,7 +489,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 
 		// Mock the shell.ExecSilent function to simulate an error when restarting systemd-resolved
 		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
-			if command == "sudo" && args[0] == "systemctl" && args[1] == "restart" && args[2] == "systemd-resolved" {
+			if command == "systemctl" && args[0] == "restart" && args[1] == "systemd-resolved" {
 				return "", 1, fmt.Errorf("mock restart systemd-resolved error")
 			}
 			return "", 0, nil
