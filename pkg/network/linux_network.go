@@ -102,7 +102,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	_, _, err = n.shell.ExecSilent(
-		"🔐 Writing DNS configuration to "+dropInFile,
 		"bash",
 		"-c",
 		fmt.Sprintf("echo '%s' | sudo tee %s", expectedContent, dropInFile),
@@ -113,7 +112,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 
 	fmt.Println("🔐 Restarting systemd-resolved")
 	_, _, err = n.shell.ExecSilent(
-		"🔐 Restarting systemd-resolved",
 		"systemctl",
 		"restart",
 		"systemd-resolved",

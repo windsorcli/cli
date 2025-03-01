@@ -460,7 +460,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 
 		// Mock the shell.ExecSilent function to simulate an error when writing the DNS configuration
 		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
-			if command == "sudo" && args[0] == "bash" && args[1] == "-c" {
+			if command == "bash" && args[0] == "-c" {
 				return "", 1, fmt.Errorf("mock write DNS configuration error")
 			}
 			return "", 0, nil
@@ -495,21 +495,20 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", 0, nil
 		}
 
-		// Create a networkManager using NewBaseNetworkManager with the mock DI container
+		// Initialize the network manager
 		nm := NewBaseNetworkManager(mocks.Injector)
-		err := nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
+		if err := nm.Initialize(); err != nil {
+			t.Fatalf("Initialization failed: %v", err)
 		}
 
-		// Call the ConfigureDNS method and expect an error due to failure in restarting systemd-resolved
-		err = nm.ConfigureDNS()
-		if err == nil {
-			t.Fatalf("expected error, got nil. Review the logic in linux_network.go")
-		}
-		expectedError := "failed to restart systemd-resolved: mock restart systemd-resolved error"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		// Attempt to configure DNS and expect a specific error
+		if err := nm.ConfigureDNS(); err == nil {
+			t.Fatalf("Expected error, got nil. Check the implementation in linux_network.go")
+		} else {
+			expectedError := "failed to restart systemd-resolved: mock restart systemd-resolved error"
+			if !strings.Contains(err.Error(), expectedError) {
+				t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+			}
 		}
 	})
 }
