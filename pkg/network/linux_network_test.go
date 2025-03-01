@@ -29,20 +29,20 @@ func setupLinuxNetworkManagerMocks() *LinuxNetworkManagerMocks {
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell(injector)
-	mockShell.ExecFunc = func(command string, args ...string) (string, error) {
+	mockShell.ExecFunc = func(command string, args ...string) (string, int, error) {
 		if command == "sudo" && args[0] == "ip" && args[1] == "route" && args[2] == "add" {
-			return "", nil
+			return "", 0, nil
 		}
 		if command == "sudo" && args[0] == "systemctl" && args[1] == "restart" && args[2] == "systemd-resolved" {
-			return "", nil
+			return "", 0, nil
 		}
 		if command == "sudo" && args[0] == "mkdir" && args[1] == "-p" {
-			return "", nil
+			return "", 0, nil
 		}
 		if command == "sudo" && args[0] == "bash" && args[1] == "-c" {
-			return "", nil
+			return "", 0, nil
 		}
-		return "", fmt.Errorf("mock error")
+		return "", 0, fmt.Errorf("mock error")
 	}
 
 	// Use the same mock shell for both shell and secure shell
@@ -111,11 +111,11 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		}
 
 		// Mock the shell.ExecSilent function to simulate a successful route check
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "ip" && args[0] == "route" && args[1] == "show" {
-				return "192.168.5.0/24 via 192.168.5.100 dev eth0", nil
+				return "192.168.5.0/24 via 192.168.5.100 dev eth0", 0, nil
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// Call the ConfigureHostRoute method and expect no error since the route exists
@@ -157,11 +157,11 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupLinuxNetworkManagerMocks()
 
 		// Mock the ExecSilent function to simulate an error when checking the routing table
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "ip" && args[0] == "route" && args[1] == "show" {
-				return "", fmt.Errorf("mock error checking route table")
+				return "", 0, fmt.Errorf("mock error checking route table")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
@@ -214,12 +214,12 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupLinuxNetworkManagerMocks()
 
 		// Mock the ExecSilent function to simulate checking the routing table
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "ip" && args[0] == "route" && args[1] == "show" && args[2] == "192.168.5.0/24" {
 				// Simulate output that includes the guest IP to trigger routeExists = true
-				return "192.168.5.0/24 via 192.168.1.2 dev eth0", nil
+				return "192.168.5.0/24 via 192.168.1.2 dev eth0", 0, nil
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// Mock the GetString function to return specific values for testing
@@ -254,12 +254,12 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupLinuxNetworkManagerMocks()
 
 		// Mock the ExecSilent function to simulate checking the routing table
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "ip" && args[0] == "route" && args[1] == "show" && args[2] == "192.168.5.0/24" {
 				// Simulate output that includes the guest IP to trigger routeExists = true
-				return "192.168.5.0/24 via 192.168.5.100 dev eth0", nil
+				return "192.168.5.0/24 via 192.168.5.100 dev eth0", 0, nil
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// Mock the GetString function to return specific values for testing
@@ -294,11 +294,11 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupLinuxNetworkManagerMocks()
 
 		// Mock an error in the ExecSilent function to simulate a route addition failure
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "sudo" && args[0] == "ip" && args[1] == "route" && args[2] == "add" {
-				return "mock output", fmt.Errorf("mock error")
+				return "mock output", 0, fmt.Errorf("mock error")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
@@ -430,11 +430,11 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks := setupLinuxNetworkManagerMocks()
 
 		// Mock the shell.ExecSilent function to simulate an error when creating the drop-in directory
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "sudo" && args[0] == "mkdir" && args[1] == "-p" {
-				return "", fmt.Errorf("mock mkdir error")
+				return "", 0, fmt.Errorf("mock mkdir error")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
@@ -459,11 +459,11 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks := setupLinuxNetworkManagerMocks()
 
 		// Mock the shell.ExecSudo function to simulate an error when writing the DNS configuration
-		mocks.MockShell.ExecSudoFunc = func(description, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSudoFunc = func(description, command string, args ...string) (string, int, error) {
 			if command == "bash" && args[0] == "-c" {
-				return "", fmt.Errorf("mock write DNS configuration error")
+				return "", 0, fmt.Errorf("mock write DNS configuration error")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
@@ -488,11 +488,11 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks := setupLinuxNetworkManagerMocks()
 
 		// Mock the shell.ExecSudo function to simulate an error when restarting systemd-resolved
-		mocks.MockShell.ExecSudoFunc = func(description, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSudoFunc = func(message, command string, args ...string) (string, int, error) {
 			if command == "systemctl" && args[0] == "restart" && args[1] == "systemd-resolved" {
-				return "", fmt.Errorf("mock restart systemd-resolved error")
+				return "", 0, fmt.Errorf("mock restart systemd-resolved error")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
