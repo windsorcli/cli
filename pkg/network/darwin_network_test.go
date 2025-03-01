@@ -30,26 +30,26 @@ func setupDarwinNetworkManagerMocks() *DarwinNetworkManagerMocks {
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell(injector)
-	mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-		return "", nil
+	mockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
+		return "", 0, nil
 	}
-	mockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
+	mockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, int, error) {
 		if command == "route" && args[0] == "-nv" && args[1] == "add" {
-			return "", nil
+			return "", 0, nil
 		}
 		if command == "route" && args[0] == "get" {
-			return "", nil
+			return "", 0, nil
 		}
 		if command == "dscacheutil" && args[0] == "-flushcache" {
-			return "", nil
+			return "", 0, nil
 		}
 		if command == "killall" && args[0] == "-HUP" {
-			return "", nil
+			return "", 0, nil
 		}
 		if command == "mv" {
-			return "", nil
+			return "", 0, nil
 		}
-		return "", fmt.Errorf("mock error")
+		return "", 0, fmt.Errorf("mock error")
 	}
 
 	// Use the same mock shell for both shell and secure shell
@@ -231,14 +231,14 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		// Mock the Exec function to simulate the route already existing
 		originalExecSilentFunc := mocks.MockShell.ExecSilentFunc
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "route" && args[0] == "get" {
-				return "gateway: " + mocks.MockConfigHandler.GetStringFunc("vm.address"), nil
+				return "gateway: " + mocks.MockConfigHandler.GetStringFunc("vm.address"), 0, nil
 			}
 			if originalExecSilentFunc != nil {
 				return originalExecSilentFunc(command, args...)
 			}
-			return "", fmt.Errorf("mock error")
+			return "", 0, fmt.Errorf("mock error")
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
@@ -262,14 +262,14 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		// Mock an error in the Exec function to simulate a route check failure
 		originalExecSilentFunc := mocks.MockShell.ExecSilentFunc
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "route" && args[0] == "get" {
-				return "", fmt.Errorf("mock error")
+				return "", 0, fmt.Errorf("mock error")
 			}
 			if originalExecSilentFunc != nil {
 				return originalExecSilentFunc(command, args...)
 			}
-			return "", nil
+			return "", 0, fmt.Errorf("mock error")
 		}
 
 		// Create a networkManager using NewBaseNetworkManager with the mock DI container
@@ -297,14 +297,14 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		// Mock an error in the Exec function to simulate a route addition failure
 		originalExecSudoFunc := mocks.MockShell.ExecSudoFunc
-		mocks.MockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, int, error) {
 			if command == "route" && args[0] == "-nv" && args[1] == "add" {
-				return "mock output", fmt.Errorf("mock error")
+				return "mock output", 0, fmt.Errorf("mock error")
 			}
 			if originalExecSudoFunc != nil {
 				return originalExecSudoFunc(message, command, args...)
 			}
-			return "", nil
+			return "", 0, fmt.Errorf("mock error")
 		}
 
 		// Create a networkManager using NewNetworkManager with the mock DI container
@@ -454,11 +454,11 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			return nil, nil
 		}
 
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "sudo" && args[0] == "mkdir" && args[1] == "-p" {
-				return "", fmt.Errorf("mock error creating resolver directory")
+				return "", 0, fmt.Errorf("mock error creating resolver directory")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		err = nm.ConfigureDNS()
@@ -509,11 +509,11 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			return nil // Mock successful write to temporary resolver file
 		}
 
-		mocks.MockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, int, error) {
 			if command == "mv" {
-				return "", fmt.Errorf("mock error moving resolver file")
+				return "", 0, fmt.Errorf("mock error moving resolver file")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		err = nm.ConfigureDNS()
@@ -540,11 +540,11 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			return nil // Mock successful write to temporary resolver file
 		}
 
-		mocks.MockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, int, error) {
 			if command == "dscacheutil" && args[0] == "-flushcache" {
-				return "", fmt.Errorf("mock error flushing DNS cache")
+				return "", 0, fmt.Errorf("mock error flushing DNS cache")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		err = nm.ConfigureDNS()
@@ -571,11 +571,11 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			return nil // Mock successful write to temporary resolver file
 		}
 
-		mocks.MockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, int, error) {
 			if command == "killall" && args[0] == "-HUP" {
-				return "", fmt.Errorf("mock error restarting mDNSResponder")
+				return "", 0, fmt.Errorf("mock error restarting mDNSResponder")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		err = nm.ConfigureDNS()

@@ -242,11 +242,11 @@ func TestDownCmd(t *testing.T) {
 		}
 
 		// Mock the shell's Exec function to simulate successful deletion of the .volumes folder
-		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecFunc = func(command string, args ...string) (string, int, error) {
 			if command == "cmd" && len(args) > 0 && args[0] == "/C" && args[1] == "rmdir" && args[2] == "/S" && args[3] == "/Q" && args[4] == filepath.Join("mock", "project", "root", ".volumes") {
-				return "", nil
+				return "", 0, nil
 			}
-			return "", fmt.Errorf("Unexpected command: %s %v", command, args)
+			return "", 1, fmt.Errorf("Unexpected command: %s %v", command, args)
 		}
 
 		// Given a mock shell that successfully deletes the .volumes folder

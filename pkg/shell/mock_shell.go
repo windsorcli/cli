@@ -11,10 +11,10 @@ type MockShell struct {
 	PrintEnvVarsFunc               func(envVars map[string]string) error
 	PrintAliasFunc                 func(envVars map[string]string) error
 	GetProjectRootFunc             func() (string, error)
-	ExecFunc                       func(command string, args ...string) (string, error)
-	ExecSilentFunc                 func(command string, args ...string) (string, error)
-	ExecProgressFunc               func(message string, command string, args ...string) (string, error)
-	ExecSudoFunc                   func(message string, command string, args ...string) (string, error)
+	ExecFunc                       func(command string, args ...string) (string, int, error)
+	ExecSilentFunc                 func(command string, args ...string) (string, int, error)
+	ExecProgressFunc               func(message string, command string, args ...string) (string, int, error)
+	ExecSudoFunc                   func(message string, command string, args ...string) (string, int, error)
 	InstallHookFunc                func(shellName string) error
 	SetVerbosityFunc               func(verbose bool)
 	AddCurrentDirToTrustedFileFunc func() error
@@ -67,35 +67,36 @@ func (s *MockShell) GetProjectRoot() (string, error) {
 }
 
 // Exec calls the custom ExecFunc if provided.
-func (s *MockShell) Exec(command string, args ...string) (string, error) {
+func (s *MockShell) Exec(command string, args ...string) (string, int, error) {
 	if s.ExecFunc != nil {
-		return s.ExecFunc(command, args...)
+		output, exitCode, err := s.ExecFunc(command, args...)
+		return output, exitCode, err
 	}
-	return "", nil
+	return "", 0, nil
 }
 
 // ExecSilent calls the custom ExecSilentFunc if provided.
-func (s *MockShell) ExecSilent(command string, args ...string) (string, error) {
+func (s *MockShell) ExecSilent(command string, args ...string) (string, int, error) {
 	if s.ExecSilentFunc != nil {
 		return s.ExecSilentFunc(command, args...)
 	}
-	return "", nil
+	return "", 0, nil
 }
 
 // ExecProgress calls the custom ExecProgressFunc if provided.
-func (s *MockShell) ExecProgress(message string, command string, args ...string) (string, error) {
+func (s *MockShell) ExecProgress(message string, command string, args ...string) (string, int, error) {
 	if s.ExecProgressFunc != nil {
 		return s.ExecProgressFunc(message, command, args...)
 	}
-	return "", nil
+	return "", 0, nil
 }
 
 // ExecSudo calls the custom ExecSudoFunc if provided.
-func (s *MockShell) ExecSudo(message string, command string, args ...string) (string, error) {
+func (s *MockShell) ExecSudo(message string, command string, args ...string) (string, int, error) {
 	if s.ExecSudoFunc != nil {
 		return s.ExecSudoFunc(message, command, args...)
 	}
-	return "", nil
+	return "", 0, nil
 }
 
 // InstallHook calls the custom InstallHook if provided.

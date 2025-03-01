@@ -84,7 +84,7 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 
 	contextName := n.configHandler.GetContext()
 
-	sshConfigOutput, err := n.shell.ExecSilent(
+	sshConfigOutput, _, err := n.shell.ExecSilent(
 		"colima",
 		"ssh-config",
 		"--profile",
@@ -98,7 +98,7 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("error setting SSH client config: %w", err)
 	}
 
-	output, err := n.secureShell.ExecSilent(
+	output, _, err := n.secureShell.ExecSilent(
 		"ls",
 		"/sys/class/net",
 	)
@@ -123,18 +123,19 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("error getting host IP: %w", err)
 	}
 
-	_, err = n.secureShell.ExecSilent(
+	_, _, err = n.secureShell.ExecSilent(
 		"sudo", "iptables", "-t", "filter", "-C", "FORWARD",
 		"-i", "col0", "-o", dockerBridgeInterface,
 		"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "Bad rule") {
-			if _, err := n.secureShell.ExecSilent(
+			_, _, err = n.secureShell.ExecSilent(
 				"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
 				"-i", "col0", "-o", dockerBridgeInterface,
 				"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
-			); err != nil {
+			)
+			if err != nil {
 				return fmt.Errorf("error setting iptables rule: %w", err)
 			}
 		} else {

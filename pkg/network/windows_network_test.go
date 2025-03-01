@@ -33,11 +33,11 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell()
-	mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+	mockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 		if command == "powershell" && args[0] == "-Command" {
-			return "Route added successfully", nil
+			return "Route added successfully", 0, nil
 		}
-		return "", fmt.Errorf("unexpected command")
+		return "", 0, fmt.Errorf("unexpected command")
 	}
 
 	// Use the same mock shell for both shell and secure shell
@@ -194,13 +194,13 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "powershell" && args[0] == "-Command" {
 				if args[1] == fmt.Sprintf("Get-NetRoute -DestinationPrefix %s | Where-Object { $_.NextHop -eq '%s' }", "192.168.1.0/24", "192.168.1.2") {
-					return "", fmt.Errorf("mocked shell execution error")
+					return "", 0, fmt.Errorf("mocked shell execution error")
 				}
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// When call the method under test
@@ -234,16 +234,16 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "powershell" && args[0] == "-Command" {
 				if args[1] == fmt.Sprintf("Get-NetRoute -DestinationPrefix %s | Where-Object { $_.NextHop -eq '%s' }", "192.168.1.0/24", "192.168.1.2") {
-					return "", nil // Simulate that the route does not exist
+					return "", 0, nil // Simulate that the route does not exist
 				}
 				if args[1] == fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", "192.168.1.0/24", "192.168.1.2") {
-					return "", fmt.Errorf("mocked shell execution error")
+					return "", 0, fmt.Errorf("mocked shell execution error")
 				}
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// When call the method under test
@@ -273,19 +273,19 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "powershell" && args[0] == "-Command" {
 				if strings.Contains(args[1], "Get-DnsClientNrptRule") {
-					return "", nil // Simulate no existing rule
+					return "", 0, nil // Simulate no existing rule
 				}
 				if strings.Contains(args[1], "Add-DnsClientNrptRule") {
-					return "", nil // Simulate successful rule addition
+					return "", 0, nil // Simulate successful rule addition
 				}
 				if strings.Contains(args[1], "Clear-DnsClientCache") {
-					return "", nil // Simulate successful DNS cache clear
+					return "", 0, nil // Simulate successful DNS cache clear
 				}
 			}
-			return "", fmt.Errorf("unexpected command")
+			return "", 0, fmt.Errorf("unexpected command")
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
@@ -317,8 +317,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("unexpected command")
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
+			return "", 0, fmt.Errorf("unexpected command")
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
@@ -353,8 +353,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("unexpected command")
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
+			return "", 0, fmt.Errorf("unexpected command")
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
@@ -392,14 +392,14 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		var capturedCommand string
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			capturedCommand = command + " " + strings.Join(args, " ")
 			if command == "powershell" && args[0] == "-Command" {
 				if strings.Contains(args[1], "Get-DnsClientNrptRule") {
-					return "", fmt.Errorf("failed to add DNS rule")
+					return "", 0, fmt.Errorf("failed to add DNS rule")
 				}
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector
@@ -439,21 +439,21 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 				return ""
 			}
 		}
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "powershell" && args[0] == "-Command" {
 				if strings.Contains(args[1], "Get-DnsClientNrptRule") {
-					return "False", nil // Simulate that DNS rule is not set
+					return "False", 0, nil // Simulate that DNS rule is not set
 				}
 			}
-			return "", nil
+			return "", 0, nil
 		}
-		mocks.MockShell.ExecProgressFunc = func(description string, command string, args ...string) (string, error) {
+		mocks.MockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, int, error) {
 			if command == "powershell" && args[0] == "-Command" {
 				if strings.Contains(args[1], "Set-DnsClientNrptRule") || strings.Contains(args[1], "Add-DnsClientNrptRule") {
-					return "", fmt.Errorf("failed to add or update DNS rule")
+					return "", 0, fmt.Errorf("failed to add or update DNS rule")
 				}
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// And create a network manager using NewBaseNetworkManager with the mock injector

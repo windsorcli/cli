@@ -24,7 +24,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	output, err := n.shell.ExecSilent("route", "get", networkCIDR)
+	output, _, err := n.shell.ExecSilent("route", "get", networkCIDR)
 	if err != nil {
 		return fmt.Errorf("failed to check if route exists: %w", err)
 	}
@@ -45,7 +45,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return nil
 	}
 
-	output, err = n.shell.ExecSudo(
+	output, _, err = n.shell.ExecSudo(
 		"🔐 Adding host route",
 		"route",
 		"-nv",
@@ -72,12 +72,13 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 
 	resolverDir := "/etc/resolver"
 	if _, err := stat(resolverDir); os.IsNotExist(err) {
-		if _, err := n.shell.ExecSilent(
+		_, _, err := n.shell.ExecSilent(
 			"sudo",
 			"mkdir",
 			"-p",
 			resolverDir,
-		); err != nil {
+		)
+		if err != nil {
 			return fmt.Errorf("Error creating resolver directory: %w", err)
 		}
 	}
@@ -95,29 +96,32 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("Error writing to temporary resolver file: %w", err)
 	}
 
-	if _, err := n.shell.ExecSudo(
+	_, _, err = n.shell.ExecSudo(
 		fmt.Sprintf("🔐 Configuring DNS resolver at %s\n", resolverFile),
 		"mv",
 		tempResolverFile,
 		resolverFile,
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("Error moving resolver file: %w", err)
 	}
 
-	if _, err := n.shell.ExecSudo(
+	_, _, err = n.shell.ExecSudo(
 		"🔐 Flushing DNS cache",
 		"dscacheutil",
 		"-flushcache",
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("Error flushing DNS cache: %w", err)
 	}
 
-	if _, err := n.shell.ExecSudo(
+	_, _, err = n.shell.ExecSudo(
 		"🔐 Restarting mDNSResponder",
 		"killall",
 		"-HUP",
 		"mDNSResponder",
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("Error restarting mDNSResponder: %w", err)
 	}
 

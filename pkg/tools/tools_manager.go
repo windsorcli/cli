@@ -157,7 +157,7 @@ func (t *BaseToolsManager) checkDocker() error {
 		return fmt.Errorf("docker is not available in the PATH")
 	}
 
-	output, _ := t.shell.ExecSilent("docker", "version", "--format", "{{.Client.Version}}")
+	output, _, _ := t.shell.ExecSilent("docker", "version", "--format", "{{.Client.Version}}")
 	dockerVersion := extractVersion(output)
 	if dockerVersion == "" {
 		return fmt.Errorf("failed to extract Docker version")
@@ -169,12 +169,12 @@ func (t *BaseToolsManager) checkDocker() error {
 	var dockerComposeVersion string
 
 	// Try to get docker-compose version using different methods
-	output, _ = t.shell.ExecSilent("docker", "compose", "version", "--short")
+	output, _, _ = t.shell.ExecSilent("docker", "compose", "version", "--short")
 	dockerComposeVersion = extractVersion(output)
 
 	if dockerComposeVersion == "" {
 		if _, err := execLookPath("docker-compose"); err == nil {
-			output, _ = t.shell.ExecSilent("docker-compose", "version", "--short")
+			output, _, _ = t.shell.ExecSilent("docker-compose", "version", "--short")
 			dockerComposeVersion = extractVersion(output)
 		}
 	}
@@ -201,7 +201,7 @@ func (t *BaseToolsManager) checkColima() error {
 	if _, err := execLookPath("colima"); err != nil {
 		return fmt.Errorf("colima is not available in the PATH")
 	}
-	output, _ := t.shell.ExecSilent("colima", "version")
+	output, _, _ := t.shell.ExecSilent("colima", "version")
 	colimaVersion := extractVersion(output)
 	if colimaVersion == "" {
 		return fmt.Errorf("failed to extract colima version")
@@ -213,7 +213,7 @@ func (t *BaseToolsManager) checkColima() error {
 	if _, err := execLookPath("limactl"); err != nil {
 		return fmt.Errorf("limactl is not available in the PATH")
 	}
-	output, _ = t.shell.ExecSilent("limactl", "--version")
+	output, _, _ = t.shell.ExecSilent("limactl", "--version")
 	limactlVersion := extractVersion(output)
 	if limactlVersion == "" {
 		return fmt.Errorf("failed to extract limactl version")
@@ -232,7 +232,7 @@ func (t *BaseToolsManager) checkKubectl() error {
 	if _, err := execLookPath("kubectl"); err != nil {
 		return fmt.Errorf("kubectl is not available in the PATH")
 	}
-	output, _ := t.shell.ExecSilent("kubectl", "version", "--client")
+	output, _, _ := t.shell.ExecSilent("kubectl", "version", "--client")
 	kubectlVersion := extractVersion(output)
 	if kubectlVersion == "" {
 		return fmt.Errorf("failed to extract kubectl version")
@@ -251,7 +251,7 @@ func (t *BaseToolsManager) checkTalosctl() error {
 	if _, err := execLookPath("talosctl"); err != nil {
 		return fmt.Errorf("talosctl is not available in the PATH")
 	}
-	output, _ := t.shell.ExecSilent("talosctl", "version", "--client", "--short")
+	output, _, _ := t.shell.ExecSilent("talosctl", "version", "--client", "--short")
 	talosctlVersion := extractVersion(output)
 	if talosctlVersion == "" {
 		return fmt.Errorf("failed to extract talosctl version")
@@ -270,7 +270,7 @@ func (t *BaseToolsManager) checkTerraform() error {
 	if _, err := execLookPath("terraform"); err != nil {
 		return fmt.Errorf("terraform is not available in the PATH")
 	}
-	output, _ := t.shell.ExecSilent("terraform", "version")
+	output, _, _ := t.shell.ExecSilent("terraform", "version")
 	terraformVersion := extractVersion(output)
 	if terraformVersion == "" {
 		return fmt.Errorf("failed to extract terraform version")
@@ -289,7 +289,7 @@ func (t *BaseToolsManager) checkOnePassword() error {
 	if _, err := execLookPath("op"); err != nil {
 		return fmt.Errorf("1Password CLI is not available in the PATH")
 	}
-	output, _ := t.shell.ExecSilent("op", "--version")
+	output, _, _ := t.shell.ExecSilent("op", "--version")
 	opVersion := extractVersion(output)
 	if opVersion == "" {
 		return fmt.Errorf("failed to extract 1Password CLI version")

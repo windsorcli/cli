@@ -23,7 +23,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	}
 
 	// Use the shell to execute a command that checks the routing table for the specific route
-	output, err := n.shell.ExecSilent(
+	output, _, err := n.shell.ExecSilent(
 		"ip",
 		"route",
 		"show",
@@ -49,7 +49,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 
 	// Add route on the host to VM guest
 	fmt.Println("🔐 Configuring host route")
-	output, err = n.shell.ExecSilent(
+	output, _, err = n.shell.ExecSilent(
 		"sudo",
 		"ip",
 		"route",
@@ -91,7 +91,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return nil
 	}
 
-	_, err = n.shell.ExecSilent(
+	_, _, err = n.shell.ExecSilent(
 		"sudo",
 		"mkdir",
 		"-p",
@@ -101,8 +101,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("failed to create drop-in directory: %w", err)
 	}
 
-	_, err = n.shell.ExecSudo(
-		"🔐 Writing DNS configuration to "+dropInFile,
+	_, _, err = n.shell.ExecSilent(
 		"bash",
 		"-c",
 		fmt.Sprintf("echo '%s' | sudo tee %s", expectedContent, dropInFile),
@@ -112,8 +111,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	fmt.Println("🔐 Restarting systemd-resolved")
-	_, err = n.shell.ExecSudo(
-		"🔐 Restarting systemd-resolved",
+	_, _, err = n.shell.ExecSilent(
 		"systemctl",
 		"restart",
 		"systemd-resolved",

@@ -27,14 +27,14 @@ func setupColimaNetworkManagerMocks() *ColimaNetworkManagerMocks {
 
 	// Create a mock shell
 	mockShell := shell.NewMockShell(injector)
-	mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+	mockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 		if command == "ls" && args[0] == "/sys/class/net" {
-			return "br-bridge0\neth0\nlo", nil
+			return "br-bridge0\neth0\nlo", 0, nil
 		}
 		if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-C" {
-			return "", fmt.Errorf("Bad rule")
+			return "", 0, fmt.Errorf("Bad rule")
 		}
-		return "", nil
+		return "", 0, nil
 	}
 
 	// Use the same mock shell for both shell and secure shell
@@ -298,11 +298,11 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		mocks := setupColimaNetworkManagerMocks()
 
 		// Override the ExecSilentFunc to return an error when getting SSH config
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "colima" && args[0] == "ssh-config" {
-				return "", fmt.Errorf("mock error getting SSH config")
+				return "", 0, fmt.Errorf("mock error getting SSH config")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
@@ -359,11 +359,11 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		mocks := setupColimaNetworkManagerMocks()
 
 		// Override the ExecFunc to return an error when listing interfaces
-		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "ls" && args[0] == "/sys/class/net" {
-				return "", fmt.Errorf("mock error listing interfaces")
+				return "", 0, fmt.Errorf("mock error listing interfaces")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
@@ -391,11 +391,11 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		mocks := setupColimaNetworkManagerMocks()
 
 		// Override the ExecFunc to return no interfaces starting with "br-"
-		mocks.MockSecureShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockSecureShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "ls" && args[0] == "/sys/class/net" {
-				return "eth0\nlo\nwlan0", nil // No "br-" interface
+				return "eth0\nlo\nwlan0", 0, nil // No "br-" interface
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// Use the mock injector from setupColimaNetworkManagerMocks
@@ -426,17 +426,17 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		mocks := setupColimaNetworkManagerMocks()
 
 		// Override the ExecFunc to simulate finding a docker bridge interface and an error when setting iptables rule
-		mocks.MockSecureShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockSecureShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "ls" && args[0] == "/sys/class/net" {
-				return "br-1234\neth0\nlo\nwlan0", nil // Include a "br-" interface
+				return "br-1234\neth0\nlo\nwlan0", 0, nil // Include a "br-" interface
 			}
 			if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-C" {
-				return "", fmt.Errorf("Bad rule") // Simulate that the rule doesn't exist
+				return "", 0, fmt.Errorf("Bad rule") // Simulate that the rule doesn't exist
 			}
 			if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-A" {
-				return "", fmt.Errorf("mock error setting iptables rule")
+				return "", 0, fmt.Errorf("mock error setting iptables rule")
 			}
-			return "", nil
+			return "", 0, nil
 		}
 
 		// Use the mock injector from setupColimaNetworkManagerMocks
@@ -498,9 +498,9 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		mocks := setupColimaNetworkManagerMocks()
 		// Override the ExecFunc to simulate an unexpected error when checking iptables rule
 		originalExecSilentFunc := mocks.MockSecureShell.ExecSilentFunc
-		mocks.MockSecureShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		mocks.MockSecureShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
 			if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-C" {
-				return "", fmt.Errorf("unexpected error checking iptables rule")
+				return "", 0, fmt.Errorf("unexpected error checking iptables rule")
 			}
 			return originalExecSilentFunc(command, args...)
 		}
