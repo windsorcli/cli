@@ -40,7 +40,7 @@ const (
 // Default AWS settings
 const (
 	// renovate: datasource=docker depName=localstack/localstack
-	DEFAULT_AWS_LOCALSTACK_IMAGE = "localstack/localstack:3.8.1"
+	DEFAULT_AWS_LOCALSTACK_IMAGE = "localstack/localstack:4.2.0"
 	// renovate: datasource=docker depName=localstack/localstack-pro
 	DEFAULT_AWS_LOCALSTACK_PRO_IMAGE  = "localstack/localstack-pro:3.8.1"
 	DEFAULT_AWS_REGION                = "us-east-1"
