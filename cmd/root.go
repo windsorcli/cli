@@ -10,25 +10,44 @@ import (
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
+var (
+	verbose  bool // Enables detailed logging output for debugging purposes.
+	silent   bool // Suppresses error messages and other output, useful for scripting.
+	exitCode int  // Global exit code variable
+)
+
 // Define a custom type for context keys
 type contextKey string
 
+// Define a custom type for context keys
 const controllerKey = contextKey("controller")
 
-// This is called by main.main(). It only needs to happen once to the rootCmd.
+// Execute runs the root command with a controller, handling errors and exit codes.
 func Execute(controllerInstance ctrl.Controller) error {
-	// Create a context with the controller
 	ctx := context.WithValue(context.Background(), controllerKey, controllerInstance)
 
-	// Execute the root command with the context
-	return rootCmd.ExecuteContext(ctx)
+	err := rootCmd.ExecuteContext(ctx)
+
+	if exitCode != 0 {
+		if !silent {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		osExit(exitCode)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:               "windsor",
-	Short:             "A command line interface to assist your cloud native development workflow",
-	Long:              "A command line interface to assist your cloud native development workflow",
+	Use:   "windsor",
+	Short: "A command line interface to assist your cloud native development workflow",
+	Long:  "A command line interface to assist your cloud native development workflow",
+	// SilenceErrors:     true,
 	PersistentPreRunE: preRunEInitializeCommonComponents,
 }
 
@@ -104,4 +123,6 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 func init() {
 	// Define the --verbose flag
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
+	// Define the --silent flag
+	rootCmd.PersistentFlags().BoolVarP(&silent, "silent", "s", false, "Enable silent mode, suppressing output")
 }

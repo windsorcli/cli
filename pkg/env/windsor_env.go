@@ -13,11 +13,12 @@ type WindsorEnvPrinter struct {
 
 // NewWindsorEnvPrinter initializes a new WindsorEnvPrinter instance using the provided dependency injector.
 func NewWindsorEnvPrinter(injector di.Injector) *WindsorEnvPrinter {
-	return &WindsorEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+	windsorEnvPrinter := &WindsorEnvPrinter{}
+	windsorEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
+		injector:   injector,
+		EnvPrinter: windsorEnvPrinter,
 	}
+	return windsorEnvPrinter
 }
 
 // GetEnvVars retrieves the environment variables for the Windsor environment.
@@ -35,18 +36,12 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 	envVars["WINDSOR_PROJECT_ROOT"] = projectRoot
 
-	return envVars, nil
-}
-
-// Print prints the environment variables for the Windsor environment.
-func (e *WindsorEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		// Return the error if GetEnvVars fails
-		return fmt.Errorf("error getting environment variables: %w", err)
+	// Set WINDSOR_EXEC_MODE to "container" if the OS is Darwin
+	if goos() == "darwin" {
+		envVars["WINDSOR_EXEC_MODE"] = "container"
 	}
-	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
-	return e.BaseEnvPrinter.Print(envVars)
+
+	return envVars, nil
 }
 
 // Ensure WindsorEnvPrinter implements the EnvPrinter interface

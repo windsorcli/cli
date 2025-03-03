@@ -20,13 +20,14 @@ type KubeEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewKubeEnv initializes a new kubeEnv instance using the provided dependency injector.
+// NewKubeEnvPrinter initializes a new KubeEnvPrinter instance using the provided dependency injector.
 func NewKubeEnvPrinter(injector di.Injector) *KubeEnvPrinter {
-	return &KubeEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+	kubeEnvPrinter := &KubeEnvPrinter{}
+	kubeEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
+		injector:   injector,
+		EnvPrinter: kubeEnvPrinter,
 	}
+	return kubeEnvPrinter
 }
 
 // GetEnvVars constructs a map of Kubernetes environment variables by setting
@@ -107,18 +108,6 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 
 	return envVars, nil
-}
-
-// Print prints the environment variables for the Kube environment.
-func (e *KubeEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		// Return the error if GetEnvVars fails
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-
-	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
-	return e.BaseEnvPrinter.Print(envVars)
 }
 
 // Ensure kubeEnv implements the EnvPrinter interface

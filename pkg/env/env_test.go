@@ -1,6 +1,7 @@
 package env
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -14,7 +15,8 @@ type Mocks struct {
 	Injector      *di.MockInjector
 	Shell         *shell.MockShell
 	ConfigHandler *config.MockConfigHandler
-	Env           *BaseEnvPrinter
+	EnvPrinter    *MockEnvPrinter
+	MockShell     *shell.MockShell
 }
 
 // setupEnvMockTests sets up the mock injector and returns the Mocks object.
@@ -27,12 +29,13 @@ func setupEnvMockTests(injector *di.MockInjector) *Mocks {
 	mockConfigHandler := config.NewMockConfigHandler()
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
-	env := NewBaseEnvPrinter(injector)
+	envPrinter := NewMockEnvPrinter()
 	return &Mocks{
 		Injector:      injector,
 		Shell:         mockShell,
 		ConfigHandler: mockConfigHandler,
-		Env:           env,
+		EnvPrinter:    envPrinter,
+		MockShell:     mockShell,
 	}
 }
 
@@ -40,9 +43,10 @@ func setupEnvMockTests(injector *di.MockInjector) *Mocks {
 func TestEnv_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
+		env := NewBaseEnvPrinter(mocks.Injector)
 
 		// Call Initialize and check for errors
-		err := mocks.Env.Initialize()
+		err := env.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -50,12 +54,13 @@ func TestEnv_Initialize(t *testing.T) {
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
+		env := NewBaseEnvPrinter(mocks.Injector)
 
 		// Register an invalid shell that cannot be cast to shell.Shell
-		mocks.Injector.Register("shell", "invalid")
+		mocks.Injector.Register("shell", 123) // Use a non-string invalid type
 
 		// Call Initialize and expect an error
-		err := mocks.Env.Initialize()
+		err := env.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if err.Error() != "error resolving or casting shell to shell.Shell" {
@@ -65,12 +70,13 @@ func TestEnv_Initialize(t *testing.T) {
 
 	t.Run("ErrorCastingCliConfigHandler", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
+		env := NewBaseEnvPrinter(mocks.Injector)
 
 		// Register an invalid configHandler that cannot be cast to config.ConfigHandler
 		mocks.Injector.Register("configHandler", "invalid")
 
 		// Call Initialize and expect an error
-		err := mocks.Env.Initialize()
+		err := env.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if err.Error() != "error resolving or casting configHandler to config.ConfigHandler" {
@@ -83,10 +89,11 @@ func TestEnv_Initialize(t *testing.T) {
 func TestEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
-		mocks.Env.Initialize()
+		env := NewBaseEnvPrinter(mocks.Injector)
+		env.Initialize()
 
 		// Call GetEnvVars and check for errors
-		envVars, err := mocks.Env.GetEnvVars()
+		envVars, err := env.GetEnvVars()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -103,49 +110,143 @@ func TestEnv_GetEnvVars(t *testing.T) {
 func TestEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
-		mocks.Env.Initialize()
+		env := NewBaseEnvPrinter(mocks.Injector)
+		env.EnvPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
+		err := env.Initialize()
+		if err != nil {
+			t.Fatalf("unexpected error during initialization: %v", err)
+		}
 
-		// Mock the PrintEnvVarsFunc to verify it is called
-		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
-			capturedEnvVars = envVars
+		// Mock the GetEnvVars method to return the expected map
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{"TEST_VAR": "test_value"}, nil
+		}
+
+		// Mock the PrintEnvVars method of the shell to verify it is called
+		mocks.MockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			if !reflect.DeepEqual(envVars, map[string]string{"TEST_VAR": "test_value"}) {
+				return fmt.Errorf("unexpected envVars: %v", envVars)
+			}
 			return nil
 		}
 
 		// Call Print and check for errors
-		err := mocks.Env.Print(map[string]string{"TEST_VAR": "test_value"})
+		err = env.Print()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
-		}
-
-		// Verify that PrintEnvVarsFunc was called with the correct envVars
-		expectedEnvVars := map[string]string{"TEST_VAR": "test_value"}
-		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
-			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
 		}
 	})
 
 	t.Run("NoCustomVars", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
-		mocks.Env.Initialize()
+		env := NewBaseEnvPrinter(mocks.Injector)
+		env.EnvPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
+		err := env.Initialize()
+		if err != nil {
+			t.Fatalf("unexpected error during initialization: %v", err)
+		}
 
-		// Mock the PrintEnvVarsFunc to verify it is called
-		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
-			capturedEnvVars = envVars
+		// Mock the GetEnvVars method to return an empty map
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{}, nil
+		}
+
+		// Mock the PrintEnvVars method of the shell to verify it is called with an empty map
+		mocks.MockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			if len(envVars) != 0 {
+				return fmt.Errorf("expected empty envVars, got: %v", envVars)
+			}
 			return nil
 		}
 
-		// Call Print without custom vars and check for errors
-		err := mocks.Env.Print()
+		// Call Print and check for errors
+		err = env.Print()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
+	})
 
-		// Verify that PrintEnvVarsFunc was called with an empty map
-		expectedEnvVars := map[string]string{}
-		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
-			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+	t.Run("ErrorGettingEnvVars", func(t *testing.T) {
+		mocks := setupEnvMockTests(nil)
+		env := NewBaseEnvPrinter(mocks.Injector)
+		env.EnvPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
+		err := env.Initialize()
+		if err != nil {
+			t.Fatalf("unexpected error during initialization: %v", err)
+		}
+
+		// Mock the GetEnvVars method to return an error
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return nil, fmt.Errorf("mock error getting env vars")
+		}
+
+		// Call Print and expect an error
+		err = env.Print()
+		if err == nil || err.Error() != "error getting environment variables: mock error getting env vars" {
+			t.Errorf("expected error 'error getting environment variables: mock error getting env vars', got %v", err)
+		}
+	})
+
+	t.Run("ErrorPrintingEnvVars", func(t *testing.T) {
+		mocks := setupEnvMockTests(nil)
+		env := NewBaseEnvPrinter(mocks.Injector)
+		env.EnvPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
+		err := env.Initialize()
+		if err != nil {
+			t.Fatalf("unexpected error during initialization: %v", err)
+		}
+
+		// Mock the GetEnvVars method to return a valid map
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{"TEST_VAR": "test_value"}, nil
+		}
+
+		// Mock the PrintEnvVars method of the shell to return an error
+		mocks.MockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			return fmt.Errorf("mock error printing env vars")
+		}
+
+		// Call Print and expect an error
+		err = env.Print()
+		if err == nil || err.Error() != "error printing environment variables: mock error printing env vars" {
+			t.Errorf("expected error 'error printing environment variables: mock error printing env vars', got %v", err)
+		}
+	})
+
+	t.Run("ErrorEnvPrinterNotSet", func(t *testing.T) {
+		mocks := setupEnvMockTests(nil)
+		env := NewBaseEnvPrinter(mocks.Injector)
+		// Do not set EnvPrinter to simulate the error
+		err := env.Initialize()
+		if err != nil {
+			t.Fatalf("unexpected error during initialization: %v", err)
+		}
+
+		// Call Print and expect an error
+		err = env.Print()
+		if err == nil || err.Error() != "error: EnvPrinter is not set in BaseEnvPrinter" {
+			t.Errorf("expected error 'error: EnvPrinter is not set in BaseEnvPrinter', got %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingAliases", func(t *testing.T) {
+		mocks := setupEnvMockTests(nil)
+		env := NewBaseEnvPrinter(mocks.Injector)
+		env.EnvPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
+		err := env.Initialize()
+		if err != nil {
+			t.Fatalf("unexpected error during initialization: %v", err)
+		}
+
+		// Mock the GetAlias method to return an error
+		mocks.EnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+			return nil, fmt.Errorf("mock error getting aliases")
+		}
+
+		// Call Print and expect an error
+		err = env.Print()
+		if err == nil || err.Error() != "error getting aliases: mock error getting aliases" {
+			t.Errorf("expected error 'error getting aliases: mock error getting aliases', got %v", err)
 		}
 	})
 }

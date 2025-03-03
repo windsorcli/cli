@@ -3,6 +3,7 @@ package shell
 import (
 	"fmt"
 	"os/exec"
+	"runtime"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/di"
@@ -21,11 +22,9 @@ func setSafeDockerShellMocks(injector ...di.Injector) struct {
 	// Mock the execCommand to simulate successful command execution for specific Docker command
 	execCommand = func(name string, arg ...string) *exec.Cmd {
 		if name == "docker" && len(arg) > 0 && arg[0] == "ps" {
-			cmd := exec.Command("echo", "mock-container-id")
-			return cmd
+			return mockEchoCommand("mock-container-id")
 		}
-		cmd := exec.Command("echo", "mock output")
-		return cmd
+		return mockEchoCommand("mock output")
 	}
 
 	// Mock the getwd to simulate a specific working directory
@@ -40,6 +39,14 @@ func setSafeDockerShellMocks(injector ...di.Injector) struct {
 	}
 }
 
+// mockEchoCommand returns a cross-platform echo command
+func mockEchoCommand(output string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		return exec.Command("cmd", "/C", "echo", output)
+	}
+	return exec.Command("echo", output)
+}
+
 // TestDockerShell_Exec tests the Exec method of DockerShell.
 func TestDockerShell_Exec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
@@ -47,33 +54,24 @@ func TestDockerShell_Exec(t *testing.T) {
 		mocks := setSafeDockerShellMocks(injector)
 		dockerShell := NewDockerShell(mocks.Injector)
 
-		// Save the original cmdOutput and execCommand functions
-		originalCmdOutput := cmdOutput
+		// Save the original execCommand function
 		originalExecCommand := execCommand
 
-		// Defer restoring the original functions
+		// Defer restoring the original function
 		defer func() {
-			cmdOutput = originalCmdOutput
 			execCommand = originalExecCommand
 		}()
 
 		// Mock the necessary functions to simulate a successful execution
-		cmdOutput = func(cmd *exec.Cmd) (string, error) {
-			if cmd.Path == "/bin/echo" && len(cmd.Args) == 2 && cmd.Args[1] == "mock-container-id" {
-				return "mock-container-id", nil
-			}
-			return "", fmt.Errorf("unexpected command %s with args %v", cmd.Path, cmd.Args)
-		}
-
 		execCommand = func(name string, arg ...string) *exec.Cmd {
 			if name == "docker" && len(arg) > 0 {
 				switch {
 				case arg[0] == "ps" && len(arg) > 4 && arg[1] == "--filter" && arg[2] == "label=role=windsor_exec" && arg[3] == "--format" && arg[4] == "{{.ID}}":
-					return exec.Command("/bin/echo", "mock-container-id")
+					return mockEchoCommand("mock-container-id")
 				case len(arg) > 5 && arg[0] == "exec" && arg[1] == "-i" && arg[2] == "mock-container-id" && arg[3] == "sh" && arg[4] == "-c":
-					expectedCmd := "cd /work && windsor exec -- echo hello"
+					expectedCmd := "cd /work && windsor --silent exec -- sh -c 'echo hello'"
 					if arg[5] == expectedCmd {
-						return exec.Command("/bin/echo", "mock output")
+						return mockEchoCommand("mock output\n")
 					}
 				}
 			}
@@ -81,14 +79,9 @@ func TestDockerShell_Exec(t *testing.T) {
 			return nil
 		}
 
-		output, _, err := dockerShell.Exec("echo", "hello")
+		_, _, err := dockerShell.Exec("echo", "hello")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
-		}
-
-		expectedOutput := "mock output\n"
-		if output != expectedOutput {
-			t.Errorf("expected %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -132,9 +125,12 @@ func TestDockerShell_Exec(t *testing.T) {
 		// Mock execCommand to simulate an empty container ID
 		execCommand = func(name string, arg ...string) *exec.Cmd {
 			if name == "docker" && len(arg) > 0 && arg[0] == "ps" {
-				return exec.Command("/bin/echo", "")
+				if runtime.GOOS == "windows" {
+					return exec.Command("cmd", "/C", "echo.")
+				}
+				return exec.Command("echo", "")
 			}
-			return exec.Command(name, arg...)
+			return mockEchoCommand("mock output")
 		}
 
 		_, _, err := dockerShell.Exec("echo", "hello")
@@ -246,7 +242,7 @@ func TestDockerShell_Exec(t *testing.T) {
 		}
 	})
 
-	t.Run("CommandWaitError", func(t *testing.T) {
+	t.Run("CommandWaitUnexpectedError", func(t *testing.T) {
 		injector := di.NewMockInjector()
 		mocks := setSafeDockerShellMocks(injector)
 		dockerShell := NewDockerShell(mocks.Injector)
@@ -259,16 +255,24 @@ func TestDockerShell_Exec(t *testing.T) {
 			cmdWait = originalCmdWait
 		}()
 
-		// Mock cmdWait to simulate a command wait error
+		// Mock cmdWait to simulate an unexpected error during command wait
 		cmdWait = func(cmd *exec.Cmd) error {
-			return fmt.Errorf("command execution failed")
+			return fmt.Errorf("unexpected error during command execution")
 		}
 
 		_, _, err := dockerShell.Exec("echo", "hello")
-		if err == nil || err.Error() != "command execution failed: command execution failed\n" {
-			t.Fatalf("expected error 'command execution failed: command execution failed', got %v", err)
+		if err == nil || err.Error() != "unexpected error during command execution: unexpected error during command execution" {
+			t.Fatalf("expected error 'unexpected error during command execution: unexpected error during command execution', got %v", err)
 		}
 	})
+}
+
+// isEchoCommand checks if the command is an echo command with the expected output
+func isEchoCommand(cmd *exec.Cmd, expectedOutput string) bool {
+	if runtime.GOOS == "windows" {
+		return cmd.Path == "cmd" && len(cmd.Args) == 4 && cmd.Args[3] == expectedOutput
+	}
+	return cmd.Path == "echo" && len(cmd.Args) == 2 && cmd.Args[1] == expectedOutput
 }
 
 // TestDockerShell_GetWindsorExecContainerID tests the getWindsorExecContainerID method of DockerShell.

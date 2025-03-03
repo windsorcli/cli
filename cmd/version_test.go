@@ -10,10 +10,10 @@ import (
 )
 
 func TestVersionCommand(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
+	originalExitFunc := osExit
+	osExit = mockExit
 	t.Cleanup(func() {
-		exitFunc = originalExitFunc
+		osExit = originalExitFunc
 	})
 
 	t.Run("VersionOutput", func(t *testing.T) {

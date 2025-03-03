@@ -47,11 +47,7 @@ func setupSafeExecCmdMocks() *MockObjects {
 		return mockConfigHandler
 	}
 
-	// Mock osExit function
-	mockOsExit := func(code int) {
-		fmt.Printf("osExit called with code: %d\n", code)
-	}
-	osExit = mockOsExit
+	osExit = func(code int) {}
 
 	return &MockObjects{
 		Controller:      mockController,
@@ -62,12 +58,6 @@ func setupSafeExecCmdMocks() *MockObjects {
 }
 
 func TestExecCmd(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
 
@@ -98,9 +88,9 @@ func TestExecCmd(t *testing.T) {
 		// Setup mock controller
 		mocks := setupSafeExecCmdMocks()
 		execCalled := false
-		mocks.Shell.ExecFunc = func(command string, args ...string) (string, error) {
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, int, error) {
 			execCalled = true
-			return "container execution", nil
+			return "container execution", 0, nil
 		}
 
 		// Set environment variable to simulate container mode
@@ -443,7 +433,7 @@ func TestExecCmd(t *testing.T) {
 		}
 
 		// Mock osExit function to capture the exit code
-		exitCode := 0
+		exitCode = 0
 		mockOsExit := func(code int) {
 			exitCode = code
 		}

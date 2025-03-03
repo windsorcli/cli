@@ -7,9 +7,6 @@ import (
 	"runtime"
 )
 
-// exitFunc is a function to exit the program
-var exitFunc = os.Exit
-
 // osUserHomeDir retrieves the user's home directory
 var osUserHomeDir = os.UserHomeDir
 
@@ -24,9 +21,6 @@ var osExit = os.Exit
 
 // getwd retrieves the current working directory
 var getwd = os.Getwd
-
-// verbose is a flag for verbose output
-var verbose bool
 
 // osSetenv sets an environment variable
 var osSetenv = os.Setenv

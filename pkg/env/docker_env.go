@@ -14,13 +14,14 @@ type DockerEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewDockerEnvPrinter initializes a new dockerEnv instance using the provided dependency injector.
+// NewDockerEnvPrinter initializes a new DockerEnvPrinter instance using the provided dependency injector.
 func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
-	return &DockerEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+	dockerEnvPrinter := &DockerEnvPrinter{}
+	dockerEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
+		injector:   injector,
+		EnvPrinter: dockerEnvPrinter,
 	}
+	return dockerEnvPrinter
 }
 
 // GetEnvVars returns Docker-specific env vars, setting DOCKER_HOST based on vm.driver config.
@@ -99,15 +100,6 @@ func (e *DockerEnvPrinter) GetAlias() (map[string]string, error) {
 		aliasMap["docker-compose"] = "docker-cli-plugin-docker-compose"
 	}
 	return aliasMap, nil
-}
-
-// Print retrieves and prints the environment variables for the Docker environment.
-func (e *DockerEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-	return e.BaseEnvPrinter.Print(envVars)
 }
 
 // getRegistryURL retrieves a registry URL, appending a port if not present.

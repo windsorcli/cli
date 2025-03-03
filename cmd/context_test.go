@@ -55,6 +55,8 @@ func setupSafeContextCmdMocks(optionalInjector ...di.Injector) MockSafeContextCm
 		return true
 	}
 
+	osExit = func(code int) {}
+
 	return MockSafeContextCmdComponents{
 		Injector:      injector,
 		Controller:    mockController,
@@ -63,12 +65,6 @@ func setupSafeContextCmdMocks(optionalInjector ...di.Injector) MockSafeContextCm
 }
 
 func TestContext_Get(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
 	t.Run("Success", func(t *testing.T) {
 		// Given a valid config handler
 		mocks := setupSafeContextCmdMocks()
@@ -139,12 +135,6 @@ func TestContext_Get(t *testing.T) {
 }
 
 func TestContext_Set(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
 	t.Run("Success", func(t *testing.T) {
 		// Given a valid config handler
 		mocks := setupSafeContextCmdMocks()
@@ -226,12 +216,6 @@ func TestContext_Set(t *testing.T) {
 }
 
 func TestContext_GetAlias(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
 	t.Run("Success", func(t *testing.T) {
 		// Given a valid config handler
 		mocks := setupSafeContextCmdMocks()
@@ -256,12 +240,6 @@ func TestContext_GetAlias(t *testing.T) {
 }
 
 func TestContext_SetAlias(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
 

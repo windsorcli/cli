@@ -28,6 +28,14 @@ var execCmd = &cobra.Command{
 			return fmt.Errorf("no command provided")
 		}
 
+		// Create service components
+		if err := controller.CreateServiceComponents(); err != nil {
+			if verbose {
+				return fmt.Errorf("Error creating service components: %w", err)
+			}
+			return nil
+		}
+
 		// Create environment components
 		if err := controller.CreateEnvComponents(); err != nil {
 			return fmt.Errorf("Error creating environment components: %w", err)
@@ -88,8 +96,7 @@ var execCmd = &cobra.Command{
 		// Execute the command using the resolved shell instance
 		output, exitCode, err := shellInstance.Exec(args[0], args[1:]...)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "command execution failed: %v\n", err)
-			osExit(exitCode)
+			return err
 		}
 
 		// Print the command output

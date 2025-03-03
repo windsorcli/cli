@@ -174,3 +174,47 @@ func TestMockEnvPrinter_PostEnvHook(t *testing.T) {
 		}
 	})
 }
+
+func TestMockEnvPrinter_GetAlias(t *testing.T) {
+	t.Run("DefaultGetAlias", func(t *testing.T) {
+		// Given a mock environment with default GetAlias implementation
+		mockEnv := NewMockEnvPrinter()
+
+		// When calling GetAlias
+		alias, err := mockEnv.GetAlias()
+		// Then no error should be returned and alias should be nil
+		if err != nil {
+			t.Errorf("GetAlias() error = %v, want nil", err)
+		}
+		if alias != nil {
+			t.Errorf("GetAlias() = %v, want nil", alias)
+		}
+	})
+
+	t.Run("CustomGetAlias", func(t *testing.T) {
+		// Given a mock environment with custom GetAlias implementation
+		mockEnv := NewMockEnvPrinter()
+		expectedAlias := map[string]string{
+			"alias1": "command1",
+			"alias2": "command2",
+		}
+		mockEnv.GetAliasFunc = func() (map[string]string, error) {
+			return expectedAlias, nil
+		}
+
+		// When calling GetAlias
+		alias, err := mockEnv.GetAlias()
+		// Then no error should be returned and alias should match expectedAlias
+		if err != nil {
+			t.Errorf("GetAlias() error = %v, want nil", err)
+		}
+		if len(alias) != len(expectedAlias) {
+			t.Errorf("GetAlias() = %v, want %v", alias, expectedAlias)
+		}
+		for key, value := range expectedAlias {
+			if alias[key] != value {
+				t.Errorf("GetAlias()[%v] = %v, want %v", key, alias[key], value)
+			}
+		}
+	})
+}

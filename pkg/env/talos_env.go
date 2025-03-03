@@ -12,13 +12,14 @@ type TalosEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewTalosEnvPrinter initializes a new talosEnvPrinter instance using the provided dependency injector.
+// NewTalosEnvPrinter initializes a new TalosEnvPrinter instance using the provided dependency injector.
 func NewTalosEnvPrinter(injector di.Injector) *TalosEnvPrinter {
-	return &TalosEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+	talosEnvPrinter := &TalosEnvPrinter{}
+	talosEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
+		injector:   injector,
+		EnvPrinter: talosEnvPrinter,
 	}
+	return talosEnvPrinter
 }
 
 // GetEnvVars retrieves the environment variables for the Talos environment.
@@ -38,17 +39,6 @@ func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars["TALOSCONFIG"] = talosConfigPath
 
 	return envVars, nil
-}
-
-// Print prints the environment variables for the Talos environment.
-func (e *TalosEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		// Return the error if GetEnvVars fails
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
-	return e.BaseEnvPrinter.Print(envVars)
 }
 
 // Ensure TalosEnvPrinter implements the EnvPrinter interface

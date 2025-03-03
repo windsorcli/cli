@@ -22,11 +22,12 @@ type TerraformEnvPrinter struct {
 
 // NewTerraformEnvPrinter initializes a new TerraformEnvPrinter instance.
 func NewTerraformEnvPrinter(injector di.Injector) *TerraformEnvPrinter {
-	return &TerraformEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+	terraformEnvPrinter := &TerraformEnvPrinter{}
+	terraformEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
+		injector:   injector,
+		EnvPrinter: terraformEnvPrinter,
 	}
+	return terraformEnvPrinter
 }
 
 // GetEnvVars retrieves environment variables for Terraform by determining the config root and
@@ -126,21 +127,10 @@ func (e *TerraformEnvPrinter) PostEnvHook() error {
 	return nil
 }
 
-// Print outputs the environment variables for the Terraform environment.
-func (e *TerraformEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-	return e.BaseEnvPrinter.Print(envVars)
-}
-
-// getAlias returns command aliases based on Localstack configuration.
-func (e *TerraformEnvPrinter) getAlias() (map[string]string, error) {
-	enableLocalstack := e.configHandler.GetBool("aws.localstack.create", false)
-
-	if enableLocalstack {
-		return map[string]string{"terraform": "tflocal"}, nil
+// GetAlias returns command aliases based on the execution mode.
+func (e *TerraformEnvPrinter) GetAlias() (map[string]string, error) {
+	if os.Getenv("WINDSOR_EXEC_MODE") == "container" {
+		return map[string]string{"terraform": "windsor exec -- terraform"}, nil
 	}
 
 	return map[string]string{"terraform": ""}, nil

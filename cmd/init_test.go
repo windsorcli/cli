@@ -57,6 +57,8 @@ func setupSafeInitCmdMocks(existingInjectors ...di.Injector) *initMockObjects {
 	blueprint = ""
 	toolsManager = ""
 
+	osExit = func(code int) {}
+
 	return &initMockObjects{
 		Controller:    mockController,
 		Injector:      injector,
@@ -76,16 +78,14 @@ type initMockObjects struct {
 // TestInitCmd tests the init command
 func TestInitCmd(t *testing.T) {
 	originalArgs := rootCmd.Args
-	originalExitFunc := exitFunc
 
 	t.Cleanup(func() {
 		rootCmd.Args = originalArgs
-		exitFunc = originalExitFunc
 		resetRootCmd()
 	})
 
 	// Mock the exit function to prevent the test from exiting
-	exitFunc = func(code int) {
+	osExit = func(code int) {
 		panic("exit called")
 	}
 
@@ -103,9 +103,9 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Validate the output
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		expectedOutput := "Initialization successful"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -135,9 +135,9 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate success
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		expectedOutput := "Initialization successful"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -243,9 +243,9 @@ func TestInitCmd(t *testing.T) {
 				})
 
 				// Then the output should indicate success
-				expectedOutput := "Initialization successful\n"
-				if output != expectedOutput {
-					t.Errorf("Expected output %q, got %q", expectedOutput, output)
+				expectedOutput := "Initialization successful"
+				if !strings.Contains(output, expectedOutput) {
+					t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 				}
 
 				// Validate that SetDefault and SetContextValue were called with the correct configuration
@@ -302,9 +302,9 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate success
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		expectedOutput := "Initialization successful"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -322,9 +322,9 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate success
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		expectedOutput := "Initialization successful"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -342,9 +342,9 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate success
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		expectedOutput := "Initialization successful"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 

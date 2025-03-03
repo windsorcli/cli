@@ -34,35 +34,33 @@ func NewDockerShell(injector di.Injector) *DockerShell {
 func (s *DockerShell) Exec(command string, args ...string) (string, int, error) {
 	containerID, err := s.getWindsorExecContainerID()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to get Windsor exec container ID: %v\n", err)
 		return "", 0, fmt.Errorf("failed to get Windsor exec container ID: %w", err)
 	}
 
 	projectRoot, err := s.GetProjectRoot()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to get project root: %v\n", err)
 		return "", 0, fmt.Errorf("failed to get project root: %w", err)
 	}
 
 	currentDir, err := getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to get current working directory: %v\n", err)
 		return "", 0, fmt.Errorf("failed to get current working directory: %w", err)
 	}
 
 	relativeDir, err := filepathRel(projectRoot, currentDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to determine relative directory: %v\n", err)
 		return "", 0, fmt.Errorf("failed to determine relative directory: %w", err)
 	}
 
-	workDir := filepath.Join(constants.CONTAINER_EXEC_WORKDIR, relativeDir)
+	relativeDir = filepath.ToSlash(relativeDir)
+
+	workDir := filepath.ToSlash(filepath.Join(constants.CONTAINER_EXEC_WORKDIR, relativeDir))
 
 	combinedCmd := command
 	if len(args) > 0 {
 		combinedCmd += " " + strings.Join(args, " ")
 	}
-	shellCmd := fmt.Sprintf("cd %s && windsor exec -- %s", workDir, combinedCmd)
+	shellCmd := fmt.Sprintf("cd %s && windsor --silent exec -- sh -c '%s'", workDir, combinedCmd)
 
 	cmdArgs := []string{"exec", "-i", containerID, "sh", "-c", shellCmd}
 
@@ -73,21 +71,23 @@ func (s *DockerShell) Exec(command string, args ...string) (string, int, error) 
 
 	// Start the command
 	if err := cmdStart(cmd); err != nil {
-		fmt.Fprintf(os.Stderr, "command start failed: %v\n", err)
-		return "", 0, fmt.Errorf("command start failed: %w", err)
+		return "", 1, fmt.Errorf("command start failed: %w", err)
 	}
 
 	// Wait for the command to finish and capture the exit code
 	if err := cmdWait(cmd); err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
-			fmt.Fprintf(os.Stderr, "command execution failed: %v\n", err)
-			return stdoutBuf.String(), exitError.ExitCode(), nil
+			return stdoutBuf.String(), exitError.ExitCode(), err
 		}
-		fmt.Fprintf(os.Stderr, "command execution failed: %v\n", err)
-		return "", 0, fmt.Errorf("command execution failed: %w", err)
+		return "", 1, fmt.Errorf("unexpected error during command execution: %w", err)
 	}
 
-	return stdoutBuf.String(), 0, nil
+	// Capture the exit code from the process state
+	exitCode := cmd.ProcessState.ExitCode()
+	if exitCode != 0 {
+		return stdoutBuf.String(), exitCode, fmt.Errorf("command execution failed with exit code %d", exitCode)
+	}
+	return stdoutBuf.String(), exitCode, nil
 }
 
 // getWindsorExecContainerID retrieves the container ID of the Windsor exec container.

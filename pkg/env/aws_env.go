@@ -13,13 +13,14 @@ type AwsEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewAwsEnvPrinter initializes a new awsEnv instance using the provided dependency injector.
+// NewAwsEnvPrinter initializes a new AwsEnvPrinter instance using the provided dependency injector.
 func NewAwsEnvPrinter(injector di.Injector) *AwsEnvPrinter {
-	return &AwsEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+	awsEnvPrinter := &AwsEnvPrinter{}
+	awsEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
+		injector:   injector,
+		EnvPrinter: awsEnvPrinter,
 	}
+	return awsEnvPrinter
 }
 
 // GetEnvVars retrieves the environment variables for the AWS environment.
@@ -50,17 +51,6 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 
 	return envVars, nil
-}
-
-// Print prints the environment variables for the AWS environment.
-func (e *AwsEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		// Return the error if GetEnvVars fails
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-	// Call the Print method of the embedded envPrinter struct with the retrieved environment variables
-	return e.BaseEnvPrinter.Print(envVars)
 }
 
 // Ensure awsEnv implements the EnvPrinter interface
