@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -46,8 +47,19 @@ func (c *RealController) CreateCommonComponents() error {
 	c.injector.Register("configHandler", configHandler)
 	c.configHandler = configHandler
 
-	shell := shell.NewDefaultShell(c.injector)
-	c.injector.Register("shell", shell)
+	defaultShell := shell.NewDefaultShell(c.injector)
+	c.injector.Register("shell", defaultShell)
+
+	// Check if WINDSOR_EXEC_MODE is set to "container"
+	if os.Getenv("WINDSOR_EXEC_MODE") == "container" {
+		dockerShell := shell.NewDockerShell(c.injector)
+		c.injector.Register("dockerShell", dockerShell)
+
+		// Initialize the docker shell
+		if err := dockerShell.Initialize(); err != nil {
+			return fmt.Errorf("error initializing docker shell: %w", err)
+		}
+	}
 
 	// Testing Note: The following is hard to test as these are registered
 	// above and can't be mocked externally. There may be a better way to
@@ -59,9 +71,9 @@ func (c *RealController) CreateCommonComponents() error {
 		return fmt.Errorf("error initializing config handler: %w", err)
 	}
 
-	// Initialize the shell
-	if err := shell.Initialize(); err != nil {
-		return fmt.Errorf("error initializing shell: %w", err)
+	// Initialize the default shell
+	if err := defaultShell.Initialize(); err != nil {
+		return fmt.Errorf("error initializing default shell: %w", err)
 	}
 
 	return nil
@@ -147,7 +159,8 @@ func (c *RealController) CreateEnvComponents() error {
 
 // CreateServiceComponents sets up services based on config, including DNS,
 // Git livereload, Localstack, and Docker registries. If Talos is used, it
-// registers control plane and worker services for the cluster.
+// registers control plane and worker services for the cluster. Additionally,
+// if WINDSOR_EXEC_MODE is "container", it registers the Windsor service.
 func (c *RealController) CreateServiceComponents() error {
 	configHandler := c.configHandler
 	contextConfig := configHandler.GetConfig()
@@ -205,6 +218,13 @@ func (c *RealController) CreateServiceComponents() error {
 				c.injector.Register(serviceName, workerService)
 			}
 		}
+	}
+
+	// Check if WINDSOR_EXEC_MODE is "container" and register Windsor service
+	windsorExecMode := os.Getenv("WINDSOR_EXEC_MODE")
+	if windsorExecMode == "container" {
+		windsorService := services.NewWindsorService(c.injector)
+		c.injector.Register("windsorService", windsorService)
 	}
 
 	return nil

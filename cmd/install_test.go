@@ -64,6 +64,8 @@ func setupMockInstallCmdComponents(optionalInjector ...di.Injector) InstallCmdCo
 	}
 	injector.Register("blueprintHandler", blueprintHandler)
 
+	osExit = func(code int) {}
+
 	return InstallCmdComponents{
 		Injector:         injector,
 		Controller:       controller,
@@ -74,12 +76,6 @@ func setupMockInstallCmdComponents(optionalInjector ...di.Injector) InstallCmdCo
 }
 
 func TestInstallCmd(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
 

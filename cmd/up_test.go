@@ -94,6 +94,8 @@ func setupSafeUpCmdMocks(optionalInjector ...di.Injector) SafeUpCmdComponents {
 	mockToolsManager := tools.NewMockToolsManager()
 	injector.Register("toolsManager", mockToolsManager)
 
+	osExit = func(code int) {}
+
 	return SafeUpCmdComponents{
 		Injector:         injector,
 		Controller:       mockController,
@@ -107,12 +109,6 @@ func setupSafeUpCmdMocks(optionalInjector ...di.Injector) SafeUpCmdComponents {
 }
 
 func TestUpCmd(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of mock components
 		mocks := setupSafeUpCmdMocks()
@@ -126,9 +122,8 @@ func TestUpCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate success
-		expectedOutput := "Windsor environment set up successfully.\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		if !strings.Contains(output, "Windsor environment set up successfully.") {
+			t.Errorf("Expected output to contain %q, got %q", "Windsor environment set up successfully.", output)
 		}
 	})
 

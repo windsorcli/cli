@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"os"
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
@@ -266,6 +267,31 @@ func TestMockController_CreateServiceComponents(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
+
+	t.Run("CreateServiceComponentsWithWindsorExecModeContainer", func(t *testing.T) {
+		// Given a new injector and a new mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+
+		// And a mock config handler is created and assigned to the controller
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockCtrl.configHandler = mockConfigHandler
+
+		// Set WINDSOR_EXEC_MODE in the environment to "container"
+		os.Setenv("WINDSOR_EXEC_MODE", "container")
+		defer os.Unsetenv("WINDSOR_EXEC_MODE")
+
+		// When CreateServiceComponents is called
+		if err := mockCtrl.CreateServiceComponents(); err != nil {
+			// Then no error should be returned
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the Windsor service should be registered
+		if mocks.Injector.Resolve("windsorService") == nil {
+			t.Fatalf("expected windsorService to be registered, got nil")
+		}
+	})
 }
 
 func TestMockController_CreateVirtualizationComponents(t *testing.T) {
@@ -527,7 +553,7 @@ func TestMockController_ResolveShell(t *testing.T) {
 		mocks := setSafeControllerMocks()
 		mockCtrl := NewMockController(mocks.Injector)
 		// And the ResolveShellFunc is set to return the expected shell
-		mockCtrl.ResolveShellFunc = func() shell.Shell {
+		mockCtrl.ResolveShellFunc = func(name ...string) shell.Shell {
 			return mocks.Shell
 		}
 		// When ResolveShell is called

@@ -11,19 +11,29 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-func TestEnvCmd(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
+func setupSafeEnvCmdMocks(optionalInjector ...di.Injector) (*MockObjects, di.Injector) {
+	var injector di.Injector
+	if len(optionalInjector) > 0 {
+		injector = optionalInjector[0]
+	} else {
+		injector = di.NewInjector()
+	}
+	mockController := ctrl.NewMockController(injector)
 
+	osExit = func(code int) {}
+
+	return &MockObjects{
+		Controller: mockController,
+	}, injector
+}
+
+func TestEnvCmd(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
 
 		// Initialize mocks and set the injector
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 
 		// Mock the GetEnvPrinters method to return the mockEnv
 		mockEnv := env.NewMockEnvPrinter()
@@ -55,15 +65,15 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock shell that returns an error when checking trusted directory
-		injector := di.NewInjector()
+		mocks, injector := setupSafeEnvCmdMocks()
 		mockShell := shell.NewMockShell(injector)
 		mockShell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("error checking trusted directory")
 		}
 
 		// Set the shell in the controller to the mock shell
-		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveShellFunc = func() shell.Shell {
+		mockController := mocks.Controller
+		mockController.ResolveShellFunc = func(name ...string) shell.Shell {
 			return mockShell
 		}
 
@@ -85,15 +95,15 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock shell that returns an error when checking trusted directory
-		injector := di.NewInjector()
+		mocks, injector := setupSafeEnvCmdMocks()
 		mockShell := shell.NewMockShell(injector)
 		mockShell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("error checking trusted directory")
 		}
 
 		// Set the shell in the controller to the mock shell
-		mockController := ctrl.NewMockController(injector)
-		mockController.ResolveShellFunc = func() shell.Shell {
+		mockController := mocks.Controller
+		mockController.ResolveShellFunc = func(name ...string) shell.Shell {
 			return mockShell
 		}
 
@@ -112,8 +122,8 @@ func TestEnvCmd(t *testing.T) {
 			defer resetRootCmd()
 
 			// Given a mock controller that returns an error when creating virtualization components
-			injector := di.NewInjector()
-			mockController := ctrl.NewMockController(injector)
+			mocks, _ := setupSafeEnvCmdMocks()
+			mockController := mocks.Controller
 			mockController.CreateVirtualizationComponentsFunc = func() error {
 				return fmt.Errorf("error creating virtualization components")
 			}
@@ -148,8 +158,8 @@ func TestEnvCmd(t *testing.T) {
 			defer resetRootCmd()
 
 			// Given a mock controller that returns an error when creating service components
-			injector := di.NewInjector()
-			mockController := ctrl.NewMockController(injector)
+			mocks, _ := setupSafeEnvCmdMocks()
+			mockController := mocks.Controller
 			mockController.CreateServiceComponentsFunc = func() error {
 				return fmt.Errorf("error creating service components")
 			}
@@ -183,8 +193,8 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller that returns an error when creating environment components
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 		mockController.CreateEnvComponentsFunc = func() error {
 			return fmt.Errorf("error creating environment components")
 		}
@@ -207,8 +217,8 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller that returns an error when creating environment components
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 		mockController.CreateEnvComponentsFunc = func() error {
 			return fmt.Errorf("error creating environment components")
 		}
@@ -227,8 +237,8 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller that returns an error when initializing components
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 		mockController.InitializeComponentsFunc = func() error {
 			return fmt.Errorf("error initializing components")
 		}
@@ -251,8 +261,8 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller that returns an error when initializing components
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 		mockController.InitializeComponentsFunc = func() error {
 			return fmt.Errorf("error initializing components")
 		}
@@ -271,8 +281,8 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller that returns an error when resolving all environment printers
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
 			return nil
 		}
@@ -291,8 +301,8 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller that returns an empty list of environment printers
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
 			return []env.EnvPrinter{}
 		}
@@ -315,8 +325,8 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller that returns a valid list of environment printers
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 		mockEnvPrinter := env.NewMockEnvPrinter()
 		mockEnvPrinter.PrintFunc = func() error {
 			return fmt.Errorf("print error")
@@ -343,8 +353,8 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller that returns a valid list of environment printers
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 		mockEnvPrinter := env.NewMockEnvPrinter()
 		mockEnvPrinter.PrintFunc = func() error {
 			return fmt.Errorf("print error")
@@ -367,8 +377,8 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller that returns a valid list of environment printers
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 		mockEnvPrinter := env.NewMockEnvPrinter()
 		mockEnvPrinter.PostEnvHookFunc = func() error {
 			return fmt.Errorf("post env hook error")
@@ -395,8 +405,8 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller that returns a valid list of environment printers
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 		mockEnvPrinter := env.NewMockEnvPrinter()
 		mockEnvPrinter.PostEnvHookFunc = func() error {
 			return fmt.Errorf("post env hook error")
@@ -419,8 +429,8 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller with a mock secrets provider
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 		mockSecretsProvider := secrets.NewMockSecretsProvider()
 		loadCalled := false
 		mockSecretsProvider.LoadSecretsFunc = func() error {
@@ -448,8 +458,8 @@ func TestEnvCmd(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock controller with a mock secrets provider that returns an error on load
-		injector := di.NewInjector()
-		mockController := ctrl.NewMockController(injector)
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
 		mockSecretsProvider := secrets.NewMockSecretsProvider()
 		mockSecretsProvider.LoadSecretsFunc = func() error {
 			return fmt.Errorf("load error")

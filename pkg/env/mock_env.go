@@ -7,6 +7,7 @@ type MockEnvPrinter struct {
 	PrintFunc       func() error
 	PostEnvHookFunc func() error
 	GetEnvVarsFunc  func() (map[string]string, error)
+	GetAliasFunc    func() (map[string]string, error)
 }
 
 // NewMockEnvPrinter creates a new instance of MockEnvPrinter.
@@ -49,6 +50,15 @@ func (m *MockEnvPrinter) PostEnvHook() error {
 	}
 	// Simulate post environment setup without doing anything real
 	return nil
+}
+
+// GetAlias simulates retrieving aliases.
+// If a custom GetAliasFunc is provided, it will use that function instead.
+func (m *MockEnvPrinter) GetAlias() (map[string]string, error) {
+	if m.GetAliasFunc != nil {
+		return m.GetAliasFunc()
+	}
+	return nil, nil
 }
 
 // Ensure MockEnvPrinter implements the EnvPrinter interface

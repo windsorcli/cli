@@ -56,9 +56,6 @@ func captureStderr(f func()) string {
 	return buf.String()
 }
 
-// Mock exit function to capture exit code
-var exitCode int
-
 func mockExit(code int) {
 	exitCode = code
 }
@@ -89,7 +86,7 @@ func setupSafeRootMocks(optionalInjector ...di.Injector) *MockObjects {
 	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("secretsProvider", mockSecretsProvider)
 
-	// No cleanup function is returned
+	osExit = func(code int) {}
 
 	return &MockObjects{
 		Controller:      mockController,
@@ -101,10 +98,10 @@ func setupSafeRootMocks(optionalInjector ...di.Injector) *MockObjects {
 }
 
 func TestRoot_Execute(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
+	originalExitFunc := osExit
+	osExit = mockExit
 	t.Cleanup(func() {
-		exitFunc = originalExitFunc
+		osExit = originalExitFunc
 	})
 }
 
@@ -196,7 +193,7 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 
 		// Mock ResolveShell to return a mock shell
 		mockShell := &shell.MockShell{}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
 			return mockShell
 		}
 

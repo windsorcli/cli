@@ -30,9 +30,11 @@ func setupSafeHookCmdMocks() *MockObjects {
 		}
 		return nil
 	}
-	mockController.ResolveShellFunc = func() shell.Shell {
+	mockController.ResolveShellFunc = func(name ...string) shell.Shell {
 		return mockShell
 	}
+
+	osExit = func(code int) {}
 
 	return &MockObjects{
 		Controller: mockController,
@@ -41,12 +43,6 @@ func setupSafeHookCmdMocks() *MockObjects {
 }
 
 func TestHookCmd(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
 

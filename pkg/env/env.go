@@ -8,7 +8,7 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-// EnvPrinter defines the method for printing environment variables.
+// EnvPrinter defines the method for printing environment variables and aliases.
 type EnvPrinter interface {
 	Initialize() error
 	Print() error
@@ -22,6 +22,7 @@ type BaseEnvPrinter struct {
 	injector      di.Injector
 	shell         shell.Shell
 	configHandler config.ConfigHandler
+	EnvPrinter
 }
 
 // NewBaseEnvPrinter creates a new BaseEnvPrinter instance.
@@ -46,18 +47,27 @@ func (e *BaseEnvPrinter) Initialize() error {
 	return nil
 }
 
-// Print outputs the environment variables to the console.
-// If a map of key:value strings is provided, it prints those instead.
-func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
-	var envVars map[string]string
-
-	if len(customVars) > 0 {
-		envVars = customVars[0]
-	} else {
-		envVars = make(map[string]string)
+// Print outputs the environment variables and aliases to the console.
+func (e *BaseEnvPrinter) Print() error {
+	if e.EnvPrinter == nil {
+		return fmt.Errorf("error: EnvPrinter is not set in BaseEnvPrinter")
 	}
 
-	return e.shell.PrintEnvVars(envVars)
+	envVars, err := e.EnvPrinter.GetEnvVars()
+	if err != nil {
+		return fmt.Errorf("error getting environment variables: %w", err)
+	}
+
+	if err := e.shell.PrintEnvVars(envVars); err != nil {
+		return fmt.Errorf("error printing environment variables: %w", err)
+	}
+
+	aliases, err := e.EnvPrinter.GetAlias()
+	if err != nil {
+		return fmt.Errorf("error getting aliases: %w", err)
+	}
+
+	return e.shell.PrintAlias(aliases)
 }
 
 // GetEnvVars is a placeholder for retrieving environment variables.

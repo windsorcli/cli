@@ -21,11 +21,12 @@ type CustomEnvPrinter struct {
 
 // NewCustomEnvPrinter initializes a new CustomEnvPrinter instance using the provided dependency injector.
 func NewCustomEnvPrinter(injector di.Injector) *CustomEnvPrinter {
-	return &CustomEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+	customEnvPrinter := &CustomEnvPrinter{}
+	customEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
+		injector:   injector,
+		EnvPrinter: customEnvPrinter,
 	}
+	return customEnvPrinter
 }
 
 // Initialize sets up the CustomEnvPrinter, including resolving secrets providers.

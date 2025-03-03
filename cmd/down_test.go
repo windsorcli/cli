@@ -74,6 +74,8 @@ func setupSafeDownCmdMocks(optionalInjector ...di.Injector) MockSafeDownCmdCompo
 	mockContainerRuntime := virt.NewMockVirt()
 	injector.Register("containerRuntime", mockContainerRuntime)
 
+	osExit = func(code int) {}
+
 	return MockSafeDownCmdComponents{
 		Injector:             injector,
 		MockController:       mockController,
@@ -86,12 +88,6 @@ func setupSafeDownCmdMocks(optionalInjector ...di.Injector) MockSafeDownCmdCompo
 }
 
 func TestDownCmd(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of mock components
 		mocks := setupSafeDownCmdMocks()

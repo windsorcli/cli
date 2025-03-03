@@ -79,11 +79,12 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 	injector := di.NewInjector()
 
 	testCases := []struct {
-		name     string
-		fileName string
+		name         string
+		fileName     string
+		expectedRoot string
 	}{
-		{"WindsorYaml", "windsor.yaml"},
-		{"WindsorYml", "windsor.yml"},
+		{"WindsorYaml", "windsor.yaml", "/mock/project/root"},
+		{"WindsorYml", "windsor.yml", "/mock/project/root"},
 	}
 
 	for _, tc := range testCases {
@@ -109,14 +110,8 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 				t.Fatalf("GetProjectRoot returned an error: %v", err)
 			}
 
-			// Resolve symlinks to handle macOS /private prefix
-			expectedRootDir, err := filepath.EvalSymlinks(rootDir)
-			if err != nil {
-				t.Fatalf("Failed to evaluate symlinks for rootDir: %v", err)
-			}
-
 			// Normalize paths for comparison
-			expectedRootDir = normalizeWindowsPath(expectedRootDir)
+			expectedRootDir := normalizeWindowsPath(tc.expectedRoot)
 			projectRoot = normalizeWindowsPath(projectRoot)
 
 			// Then the project root should match the expected root directory

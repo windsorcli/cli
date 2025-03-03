@@ -56,6 +56,9 @@ USER windsor
 # Copy windsor binary
 COPY --from=builder /work/windsor /usr/local/bin/
 
+# Create the .trusted file and add the file pointing to /work
+RUN mkdir -p /home/windsor/.config/windsor && echo "/work" > /home/windsor/.config/windsor/.trusted
+
 # Set working directory
 WORKDIR /work
 

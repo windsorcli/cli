@@ -12,13 +12,14 @@ type OmniEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewOmniEnv initializes a new omniEnv instance using the provided dependency injector.
+// NewOmniEnvPrinter initializes a new OmniEnvPrinter instance using the provided dependency injector.
 func NewOmniEnvPrinter(injector di.Injector) *OmniEnvPrinter {
-	return &OmniEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+	omniEnvPrinter := &OmniEnvPrinter{}
+	omniEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
+		injector:   injector,
+		EnvPrinter: omniEnvPrinter,
 	}
+	return omniEnvPrinter
 }
 
 // GetEnvVars retrieves the environment variables for the Omni environment.
@@ -38,17 +39,6 @@ func (e *OmniEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars["OMNICONFIG"] = omniConfigPath
 
 	return envVars, nil
-}
-
-// Print prints the environment variables for the Omni environment.
-func (e *OmniEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		// Return the error if GetEnvVars fails
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
-	return e.BaseEnvPrinter.Print(envVars)
 }
 
 // Ensure OmniEnvPrinter implements the EnvPrinter interface

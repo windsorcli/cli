@@ -22,7 +22,12 @@
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/windsor/main.go",
-      "args": ["init", "local"]
+      "args": ["init", "local"],
+      "env": {
+        "WINDSOR_EXEC_MODE": "container",
+        "WINDSOR_CONTEXT": "local",
+        "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
+      }
     },
     {
       "name": "Windsor Up",
@@ -82,10 +87,11 @@
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/windsor/main.go",
-      "args": ["exec", "--", "sh", "-c", "exit 2"],
+      "args": ["exec", "--verbose", "--", "sh", "-c", "exit 2"],
       "env": {
+        "WINDSOR_EXEC_MODE": "container",
         "WINDSOR_CONTEXT": "local",
-        "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
+        "WINDSOR_PROJECT_ROOT": "/Users/ryanvangundy/Developer/windsorcli/core"
       }
     }
   ]

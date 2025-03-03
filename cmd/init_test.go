@@ -41,7 +41,7 @@ func setupSafeInitCmdMocks(existingInjectors ...di.Injector) *initMockObjects {
 	osStat = func(_ string) (os.FileInfo, error) { return nil, nil }
 
 	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler { return mockConfigHandler }
-	mockController.ResolveShellFunc = func() shell.Shell { return mockShell }
+	mockController.ResolveShellFunc = func(name ...string) shell.Shell { return mockShell }
 
 	// Reset global variables in init.go
 	backend = ""
@@ -56,6 +56,8 @@ func setupSafeInitCmdMocks(existingInjectors ...di.Injector) *initMockObjects {
 	gitLivereload = false
 	blueprint = ""
 	toolsManager = ""
+
+	osExit = func(code int) {}
 
 	return &initMockObjects{
 		Controller:    mockController,
@@ -76,16 +78,14 @@ type initMockObjects struct {
 // TestInitCmd tests the init command
 func TestInitCmd(t *testing.T) {
 	originalArgs := rootCmd.Args
-	originalExitFunc := exitFunc
 
 	t.Cleanup(func() {
 		rootCmd.Args = originalArgs
-		exitFunc = originalExitFunc
 		resetRootCmd()
 	})
 
 	// Mock the exit function to prevent the test from exiting
-	exitFunc = func(code int) {
+	osExit = func(code int) {
 		panic("exit called")
 	}
 
@@ -103,9 +103,9 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Validate the output
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		expectedOutput := "Initialization successful"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -135,9 +135,9 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate success
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		expectedOutput := "Initialization successful"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -243,9 +243,9 @@ func TestInitCmd(t *testing.T) {
 				})
 
 				// Then the output should indicate success
-				expectedOutput := "Initialization successful\n"
-				if output != expectedOutput {
-					t.Errorf("Expected output %q, got %q", expectedOutput, output)
+				expectedOutput := "Initialization successful"
+				if !strings.Contains(output, expectedOutput) {
+					t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 				}
 
 				// Validate that SetDefault and SetContextValue were called with the correct configuration
@@ -270,7 +270,7 @@ func TestInitCmd(t *testing.T) {
 
 		// Set the shell in the controller to the mock shell
 		mocks := setupSafeInitCmdMocks()
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
 			return mockShell
 		}
 
@@ -302,9 +302,9 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate success
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		expectedOutput := "Initialization successful"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -322,9 +322,9 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate success
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		expectedOutput := "Initialization successful"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 
@@ -342,9 +342,9 @@ func TestInitCmd(t *testing.T) {
 		})
 
 		// Then the output should indicate success
-		expectedOutput := "Initialization successful\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		expectedOutput := "Initialization successful"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
 

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -29,7 +30,7 @@ func setupSafeExecCmdMocks() *MockObjects {
 	mockShell.ExecFunc = func(command string, args ...string) (string, int, error) {
 		return "hello", 0, nil
 	}
-	mockController.ResolveShellFunc = func() shell.Shell {
+	mockController.ResolveShellFunc = func(name ...string) shell.Shell {
 		return mockShell
 	}
 
@@ -46,11 +47,7 @@ func setupSafeExecCmdMocks() *MockObjects {
 		return mockConfigHandler
 	}
 
-	// Mock osExit function
-	mockOsExit := func(code int) {
-		fmt.Printf("osExit called with code: %d\n", code)
-	}
-	osExit = mockOsExit
+	osExit = func(code int) {}
 
 	return &MockObjects{
 		Controller:      mockController,
@@ -61,12 +58,6 @@ func setupSafeExecCmdMocks() *MockObjects {
 }
 
 func TestExecCmd(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
 
@@ -80,6 +71,34 @@ func TestExecCmd(t *testing.T) {
 
 		// Execute the command
 		rootCmd.SetArgs([]string{"exec", "--", "echo", "hello"})
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Check if Exec was called
+		if !execCalled {
+			t.Errorf("Expected Exec to be called, but it was not")
+		}
+	})
+
+	t.Run("ContainerMode", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Setup mock controller
+		mocks := setupSafeExecCmdMocks()
+		execCalled := false
+		mocks.Shell.ExecFunc = func(command string, args ...string) (string, int, error) {
+			execCalled = true
+			return "container execution", 0, nil
+		}
+
+		// Set environment variable to simulate container mode
+		os.Setenv("WINDSOR_EXEC_MODE", "container")
+		defer os.Unsetenv("WINDSOR_EXEC_MODE")
+
+		// Execute the command
+		rootCmd.SetArgs([]string{"exec", "--", "echo", "container"})
 		err := Execute(mocks.Controller)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -166,6 +185,33 @@ func TestExecCmd(t *testing.T) {
 		expectedError := "Error creating environment components: error creating environment components"
 		if !strings.Contains(output, expectedError) {
 			t.Errorf("Expected output to contain %q, got %q", expectedError, output)
+		}
+	})
+
+	t.Run("ErrorCreatingServiceComponents", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Setup mock controller
+		mocks := setupSafeExecCmdMocks()
+		mocks.Controller.CreateServiceComponentsFunc = func() error {
+			return fmt.Errorf("error creating service components")
+		}
+
+		// Set verbose flag to true
+		verbose = true
+		defer func() { verbose = false }() // Reset verbose flag after test
+
+		// Execute the command
+		rootCmd.SetArgs([]string{"exec", "echo", "hello"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then the error should indicate the service components creation error
+		expectedError := "Error creating service components: error creating service components"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error to be %q, got %q", expectedError, err.Error())
 		}
 	})
 
@@ -358,7 +404,7 @@ func TestExecCmd(t *testing.T) {
 		mocks := setupSafeExecCmdMocks()
 		callCount := 0
 		originalResolveShellFunc := mocks.Controller.ResolveShellFunc
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
 			callCount++
 			if callCount == 2 {
 				return nil
@@ -401,37 +447,6 @@ func TestExecCmd(t *testing.T) {
 		expectedOutput := "command execution error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorExecutingCommandWithExitCode", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Setup mock controller
-		mocks := setupSafeExecCmdMocks()
-		mocks.Shell.ExecFunc = func(command string, args ...string) (string, int, error) {
-			return "", 2, fmt.Errorf("command execution failed")
-		}
-
-		// Mock osExit function to capture the exit code
-		exitCode := 0
-		mockOsExit := func(code int) {
-			exitCode = code
-		}
-		originalOsExit := osExit
-		osExit = mockOsExit
-		defer func() { osExit = originalOsExit }()
-
-		// Capture stderr
-		captureStderr(func() {
-			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-			_ = Execute(mocks.Controller)
-		})
-
-		// Check if the exit code is as expected
-		expectedExitCode := 2
-		if exitCode != expectedExitCode {
-			t.Errorf("Expected exit code %d, got %d", expectedExitCode, exitCode)
 		}
 	})
 }

@@ -2,6 +2,10 @@ package constants
 
 import "time"
 
+const (
+	CONTAINER_EXEC_WORKDIR = "/work"
+)
+
 // Default git livereload settings
 const (
 	// renovate: datasource=docker depName=ghcr.io/windsorcli/git-livereload-server
@@ -78,4 +82,9 @@ const (
 	MINIMUM_VERSION_TALOSCTL       = "1.7.0"
 	MINIMUM_VERSION_TERRAFORM      = "1.7.0"
 	MINIMUM_VERSION_1PASSWORD      = "2.25.0"
+)
+
+const (
+	// renovate: datasource=docker depName=ghcr.io/windsorcli/windsorcli
+	DEFAULT_WINDSOR_IMAGE = "ghcr.io/windsorcli/windsorcli:latest"
 )
