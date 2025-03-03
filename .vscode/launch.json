@@ -91,7 +91,7 @@
       "env": {
         "WINDSOR_EXEC_MODE": "container",
         "WINDSOR_CONTEXT": "local",
-        "WINDSOR_PROJECT_ROOT": "/Users/ryanvangundy/Developer/windsorcli/core"
+        "WINDSOR_PROJECT_ROOT": "${workspaceFolder}"
       }
     }
   ]

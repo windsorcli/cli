@@ -222,3 +222,19 @@ func TestBaseService_IsLocalhost(t *testing.T) {
 		})
 	}
 }
+
+func TestBaseService_SupportsWildcard(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a new BaseService
+		service := &BaseService{}
+
+		// When: SupportsWildcard is called
+		supportsWildcard := service.SupportsWildcard()
+
+		// Then: the result should match the expected outcome
+		expectedSupportsWildcard := false
+		if supportsWildcard != expectedSupportsWildcard {
+			t.Fatalf("expected SupportsWildcard to be %v, got %v", expectedSupportsWildcard, supportsWildcard)
+		}
+	})
+}

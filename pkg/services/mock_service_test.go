@@ -381,3 +381,34 @@ func TestMockService_GetHostname(t *testing.T) {
 		}
 	})
 }
+
+func TestMockService_SupportsWildcard(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock service with a SupportsWildcardFunc
+		mockService := NewMockService()
+		mockService.SupportsWildcardFunc = func() bool {
+			return true
+		}
+
+		// When: SupportsWildcard is called
+		supportsWildcard := mockService.SupportsWildcard()
+
+		// Then: true should be returned
+		if !supportsWildcard {
+			t.Errorf("expected true, got %v", supportsWildcard)
+		}
+	})
+
+	t.Run("SuccessNoMock", func(t *testing.T) {
+		// Given: a mock service with no SupportsWildcardFunc
+		mockService := NewMockService()
+
+		// When: SupportsWildcard is called
+		supportsWildcard := mockService.SupportsWildcard()
+
+		// Then: false should be returned
+		if supportsWildcard {
+			t.Errorf("expected false, got %v", supportsWildcard)
+		}
+	})
+}

@@ -69,6 +69,12 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 	mockService.Initialize()
 	injector.Register("dockerService", mockService)
 
+	// Create a mock service that supports wildcard
+	mockWildcardService := NewMockService()
+	mockWildcardService.SupportsWildcardFunc = func() bool { return true }
+	mockWildcardService.Initialize()
+	injector.Register("wildcardService", mockWildcardService)
+
 	// Register mocks in the injector
 	injector.Register("configHandler", mockConfigHandler)
 	injector.Register("shell", mockShell)
@@ -312,6 +318,45 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 		}
 		if cfg.Services[0].Ports[1].Published != "53" || cfg.Services[0].Ports[1].Protocol != "udp" {
 			t.Errorf("Expected port 53 with protocol udp, got port %s with protocol %s", cfg.Services[0].Ports[1].Published, cfg.Services[0].Ports[1].Protocol)
+		}
+	})
+
+	t.Run("WildcardService", func(t *testing.T) {
+		// Create a mock injector with necessary mocks
+		mocks := createDNSServiceMocks()
+
+		// Given: a DNSService with the mock injector
+		service := NewDNSService(mocks.Injector)
+
+		// Initialize the service
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetComposeConfig is called for a wildcard service
+		cfg, err := service.GetComposeConfig()
+
+		// Then: no error should be returned, and cfg should be correctly populated
+		if err != nil {
+			t.Fatalf("GetComposeConfig() error = %v", err)
+		}
+		if cfg == nil {
+			t.Fatalf("Expected cfg to be non-nil when GetComposeConfig succeeds")
+		}
+		if len(cfg.Services) != 1 {
+			t.Errorf("Expected 1 service, got %d", len(cfg.Services))
+		}
+
+		// Check if the service supports wildcard
+		wildcardSupported := false
+		for _, svc := range service.services {
+			if svc.SupportsWildcard() {
+				wildcardSupported = true
+				break
+			}
+		}
+		if !wildcardSupported {
+			t.Errorf("Expected at least one service to support wildcard")
 		}
 	})
 }

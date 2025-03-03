@@ -40,6 +40,9 @@ type Service interface {
 
 	// IsLocalhost checks if the current address is a localhost address
 	IsLocalhost() bool
+
+	// SupportsWildcard checks if the service supports wildcard subdomains
+	SupportsWildcard() bool
 }
 
 // BaseService is a base implementation of the Service interface
@@ -106,11 +109,16 @@ func (s *BaseService) GetHostname() string {
 
 // IsLocalhost checks if the current address is a localhost address
 func (s *BaseService) IsLocalhost() bool {
-	localhostAddresses := []string{"localhost", "127.0.0.1", "::1"}
-	for _, localhost := range localhostAddresses {
-		if s.address == localhost {
-			return true
-		}
+	localhostAddresses := map[string]struct{}{
+		"localhost": {},
+		"127.0.0.1": {},
+		"::1":       {},
 	}
+	_, isLocalhost := localhostAddresses[s.address]
+	return isLocalhost
+}
+
+// SupportsWildcard checks if the service supports wildcard subdomains
+func (s *BaseService) SupportsWildcard() bool {
 	return false
 }

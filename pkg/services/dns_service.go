@@ -117,6 +117,9 @@ func (s *DNSService) WriteConfig() error {
 				if address != "" {
 					hostname := service.GetHostname()
 					hostEntries += fmt.Sprintf("        %s %s\n", address, hostname)
+					if service.SupportsWildcard() {
+						hostEntries += fmt.Sprintf("        %s *.%s\n", address, hostname)
+					}
 				}
 			}
 		}
