@@ -23,6 +23,8 @@ type MockService struct {
 	GetNameFunc func() string
 	// GetHostnameFunc is a function that mocks the GetHostname method
 	GetHostnameFunc func() string
+	// SupportsWildcardFunc is a function that mocks the SupportsWildcard method
+	SupportsWildcardFunc func() bool
 }
 
 // NewMockService is a constructor for MockService
@@ -92,6 +94,14 @@ func (m *MockService) GetHostname() string {
 		return m.GetHostnameFunc()
 	}
 	return ""
+}
+
+// SupportsWildcard calls the mock SupportsWildcardFunc if it is set, otherwise returns false
+func (m *MockService) SupportsWildcard() bool {
+	if m.SupportsWildcardFunc != nil {
+		return m.SupportsWildcardFunc()
+	}
+	return false
 }
 
 // Ensure MockService implements Service interface

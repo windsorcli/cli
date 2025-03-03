@@ -127,5 +127,10 @@ func validateServices(services []string) ([]string, []string) {
 	return validServices, invalidServices
 }
 
+// SupportsWildcard returns true if the Localstack service supports wildcard subdomains
+func (s *LocalstackService) SupportsWildcard() bool {
+	return true
+}
+
 // Ensure LocalstackService implements Service interface
 var _ Service = (*LocalstackService)(nil)

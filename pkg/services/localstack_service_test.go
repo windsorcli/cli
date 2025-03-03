@@ -200,3 +200,27 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestLocalstackService_SupportsWildcard(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create mock injector with necessary mocks
+		mocks := createLocalstackServiceMocks()
+
+		// Create an instance of LocalstackService
+		localstackService := NewLocalstackService(mocks.Injector)
+
+		// Initialize the service
+		if err := localstackService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: SupportsWildcard is called
+		supportsWildcard := localstackService.SupportsWildcard()
+
+		// Then: the result should match the expected outcome
+		expectedSupportsWildcard := true
+		if supportsWildcard != expectedSupportsWildcard {
+			t.Fatalf("expected SupportsWildcard to be %v, got %v", expectedSupportsWildcard, supportsWildcard)
+		}
+	})
+}
