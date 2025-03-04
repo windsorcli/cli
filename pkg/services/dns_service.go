@@ -106,6 +106,7 @@ func (s *DNSService) WriteConfig() error {
 	tld := s.configHandler.GetString("dns.domain", "test")
 
 	var hostEntries string
+	var wildcardEntries string
 	for _, service := range s.services {
 		composeConfig, err := service.GetComposeConfig()
 		if err != nil || composeConfig == nil {
@@ -118,7 +119,14 @@ func (s *DNSService) WriteConfig() error {
 					hostname := service.GetHostname()
 					hostEntries += fmt.Sprintf("        %s %s\n", address, hostname)
 					if service.SupportsWildcard() {
-						hostEntries += fmt.Sprintf("        %s *.%s\n", address, hostname)
+						// Adjusting the template to avoid double TLD by using hostname directly
+						wildcardEntries += fmt.Sprintf(`
+    template IN A %s {
+        match ^(.*)\.%s\.$
+        answer "{{ .Name }} 60 IN A %s"
+        fallthrough
+    }
+`, hostname, hostname, address)
 					}
 				}
 			}
@@ -145,13 +153,13 @@ func (s *DNSService) WriteConfig() error {
     hosts {
 %s        fallthrough
     }
-
+%s
     reload
     loop
 
     forward . %s
 }
-`, tld, hostEntries, forwardAddressesStr)
+`, tld, hostEntries, wildcardEntries, forwardAddressesStr)
 
 	corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
 
