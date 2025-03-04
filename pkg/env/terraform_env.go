@@ -283,10 +283,11 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 			}
 		}
 	case "kubernetes":
-		secretSuffix := sanitizeForK8s(projectPath)
+		secretSuffix := projectPath
 		if prefix != "" {
 			secretSuffix = fmt.Sprintf("%s-%s", strings.ReplaceAll(prefix, "/", "-"), secretSuffix)
 		}
+		secretSuffix = sanitizeForK8s(secretSuffix)
 		addBackendConfigArg("secret_suffix", secretSuffix)
 		if backend := e.configHandler.GetConfig().Terraform.Backend.Kubernetes; backend != nil {
 			if err := processBackendConfig(backend, addBackendConfigArg); err != nil {
