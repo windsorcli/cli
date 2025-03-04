@@ -950,17 +950,6 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 	t.Run("LocalBackendWithPrefix", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Local: &terraform.LocalBackend{
-							Path: stringPtr(filepath.FromSlash("/mock/config/root/.tfstate/project/path/terraform.tfstate")),
-						},
-					},
-				},
-			}
-		}
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.prefix" {
 				return "mock-prefix/"
@@ -983,7 +972,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 		expectedArgs := []string{
 			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
-			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join("mock-prefix", configRoot, ".tfstate", projectPath, "terraform.tfstate"))),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", projectPath, "mock-prefix", "terraform.tfstate"))),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1119,7 +1108,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 		expectedArgs := []string{
 			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
-			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join("mock-prefix", configRoot, ".tfstate", projectPath, "terraform.tfstate"))),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", "project/path/mock-prefix/terraform.tfstate"))),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1154,8 +1143,9 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 			t.Errorf("expected error, got nil")
 		}
 
-		if !strings.Contains(err.Error(), "error marshalling backend to YAML: mock marshalling error") {
-			t.Errorf("expected error to contain %v, got %v", "error marshalling backend to YAML: mock marshalling error", err.Error())
+		expectedErrorMsg := "error marshalling backend to YAML: mock marshalling error"
+		if !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error to contain %v, got %v", expectedErrorMsg, err.Error())
 		}
 	})
 
