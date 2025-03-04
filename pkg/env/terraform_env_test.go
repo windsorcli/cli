@@ -972,7 +972,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 		expectedArgs := []string{
 			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
-			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", projectPath, "mock-prefix", "terraform.tfstate"))),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", "mock-prefix", projectPath, "terraform.tfstate"))),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1108,7 +1108,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 		expectedArgs := []string{
 			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
-			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", "project/path/mock-prefix/terraform.tfstate"))),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", "mock-prefix/project/path/terraform.tfstate"))),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {

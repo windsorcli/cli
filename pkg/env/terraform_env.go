@@ -269,11 +269,11 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 
 	switch backendType {
 	case "local":
-		path := filepath.Join(configRoot, ".tfstate", projectPath)
+		path := filepath.Join(configRoot, ".tfstate")
 		if prefix != "" {
 			path = filepath.Join(path, prefix)
 		}
-		path = filepath.Join(path, "terraform.tfstate")
+		path = filepath.Join(path, projectPath, "terraform.tfstate")
 		addBackendConfigArg("path", filepath.ToSlash(path))
 	case "s3":
 		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
