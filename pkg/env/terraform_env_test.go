@@ -1078,18 +1078,16 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("LocalBackend", func(t *testing.T) {
+	t.Run("LocalBackendWithPrefix", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Local: &terraform.LocalBackend{
-							Path: stringPtr(filepath.FromSlash("/mock/config/root/.tfstate/project/path/terraform.tfstate")),
-						},
-					},
-				},
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.prefix" {
+				return "mock-prefix/"
 			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
@@ -1104,7 +1102,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 		expectedArgs := []string{
 			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
-			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate"))),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", "mock-prefix", projectPath, "terraform.tfstate"))),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1112,7 +1110,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("S3Backend", func(t *testing.T) {
+	t.Run("S3BackendWithPrefix", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
@@ -1121,7 +1119,6 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 						S3: &terraform.S3Backend{
 							Bucket:                    stringPtr("mock-bucket"),
 							Region:                    stringPtr("mock-region"),
-							AccessKey:                 stringPtr("mock-access-key"),
 							SecretKey:                 stringPtr("mock-secret-key"),
 							MaxRetries:                intPtr(5),
 							SkipCredentialsValidation: boolPtr(true),
@@ -1129,6 +1126,18 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 					},
 				},
 			}
+		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if key == "terraform.backend.prefix" {
+				return "mock-prefix/"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
@@ -1143,8 +1152,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 		expectedArgs := []string{
 			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
-			`-backend-config="key=project/path/terraform.tfstate"`,
-			`-backend-config="access_key=mock-access-key"`,
+			`-backend-config="key=mock-prefix/project/path/terraform.tfstate"`,
 			`-backend-config="bucket=mock-bucket"`,
 			`-backend-config="max_retries=5"`,
 			`-backend-config="region=mock-region"`,
@@ -1157,18 +1165,30 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("KubernetesBackend", func(t *testing.T) {
+	t.Run("KubernetesBackendWithPrefix", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
 				Terraform: &terraform.TerraformConfig{
 					Backend: &terraform.BackendConfig{
 						Kubernetes: &terraform.KubernetesBackend{
-							SecretSuffix: stringPtr("mock-secret-suffix"),
-							Namespace:    stringPtr("mock-namespace"),
+							Namespace: stringPtr("mock-namespace"),
 						},
 					},
 				},
+			}
+		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "terraform.backend.type":
+				return "kubernetes"
+			case "terraform.backend.prefix":
+				return "mock-prefix"
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
 			}
 		}
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
@@ -1184,9 +1204,8 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 		expectedArgs := []string{
 			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
-			`-backend-config="secret_suffix=project-path"`,
+			`-backend-config="secret_suffix=mock-prefix-project-path"`,
 			`-backend-config="namespace=mock-namespace"`,
-			`-backend-config="secret_suffix=mock-secret-suffix"`,
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1194,10 +1213,19 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("BackendTfvarsFileExists", func(t *testing.T) {
+	t.Run("BackendTfvarsFileExistsWithPrefix", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "mock-context"
+		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.prefix" {
+				return "mock-prefix/"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
@@ -1212,7 +1240,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 		expectedArgs := []string{
 			fmt.Sprintf(`-backend-config="%s"`, filepath.ToSlash(filepath.Join(configRoot, "terraform", "backend.tfvars"))),
-			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate"))),
+			fmt.Sprintf(`-backend-config="path=%s"`, filepath.ToSlash(filepath.Join(configRoot, ".tfstate", "mock-prefix/project/path/terraform.tfstate"))),
 		}
 
 		if !reflect.DeepEqual(backendConfigArgs, expectedArgs) {
@@ -1251,8 +1279,9 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 			t.Errorf("expected error, got nil")
 		}
 
-		if !strings.Contains(err.Error(), "error marshalling backend to YAML: mock marshalling error") {
-			t.Errorf("expected error to contain %v, got %v", "error marshalling backend to YAML: mock marshalling error", err.Error())
+		expectedErrorMsg := "error marshalling backend to YAML: mock marshalling error"
+		if !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("expected error to contain %v, got %v", expectedErrorMsg, err.Error())
 		}
 	})
 

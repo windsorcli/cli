@@ -11,6 +11,7 @@ type BackendConfig struct {
 	S3         *S3Backend         `yaml:"s3,omitempty"`
 	Kubernetes *KubernetesBackend `yaml:"kubernetes,omitempty"`
 	Local      *LocalBackend      `yaml:"local,omitempty"`
+	Prefix     *string            `yaml:"prefix,omitempty"`
 }
 
 // https://developer.hashicorp.com/terraform/language/backend/s3#configuration
