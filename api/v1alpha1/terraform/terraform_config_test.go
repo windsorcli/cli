@@ -13,7 +13,7 @@ func TestTerraformConfig_Merge(t *testing.T) {
 		}
 		overlay := &TerraformConfig{
 			Enabled: ptrBool(true),
-			Backend: &BackendConfig{Type: "s3"},
+			Backend: &BackendConfig{Type: "s3", Prefix: stringPtr("mock-prefix")},
 		}
 		base.Merge(overlay)
 		if base.Enabled == nil || *base.Enabled != true {
@@ -22,12 +22,15 @@ func TestTerraformConfig_Merge(t *testing.T) {
 		if base.Backend == nil || base.Backend.Type != "s3" {
 			t.Errorf("Backend mismatch: expected %v, got %v", "s3", base.Backend.Type)
 		}
+		if base.Backend.Prefix == nil || *base.Backend.Prefix != "mock-prefix" {
+			t.Errorf("Prefix mismatch: expected %v, got %v", "mock-prefix", base.Backend.Prefix)
+		}
 	})
 
 	t.Run("MergeWithNilValues", func(t *testing.T) {
 		base := &TerraformConfig{
 			Enabled: ptrBool(false),
-			Backend: &BackendConfig{Type: "s3"},
+			Backend: &BackendConfig{Type: "s3", Prefix: stringPtr("base-prefix")},
 		}
 		overlay := &TerraformConfig{
 			Enabled: nil,
@@ -40,6 +43,9 @@ func TestTerraformConfig_Merge(t *testing.T) {
 		if base.Backend == nil || base.Backend.Type != "s3" {
 			t.Errorf("Backend mismatch: expected %v, got %v", "s3", base.Backend.Type)
 		}
+		if base.Backend.Prefix == nil || *base.Backend.Prefix != "base-prefix" {
+			t.Errorf("Prefix mismatch: expected %v, got %v", "base-prefix", base.Backend.Prefix)
+		}
 	})
 }
 
@@ -47,7 +53,7 @@ func TestTerraformConfig_Copy(t *testing.T) {
 	t.Run("CopyWithNonNilValues", func(t *testing.T) {
 		original := &TerraformConfig{
 			Enabled: ptrBool(true),
-			Backend: &BackendConfig{Type: "s3"},
+			Backend: &BackendConfig{Type: "s3", Prefix: stringPtr("original-prefix")},
 		}
 
 		copy := original.Copy()
@@ -61,9 +67,12 @@ func TestTerraformConfig_Copy(t *testing.T) {
 		if original.Enabled == nil || *original.Enabled == *copy.Enabled {
 			t.Errorf("Original Enabled was modified: expected %v, got %v", true, *copy.Enabled)
 		}
-		copy.Backend = &BackendConfig{Type: "local"}
+		copy.Backend = &BackendConfig{Type: "local", Prefix: stringPtr("copy-prefix")}
 		if original.Backend == nil || original.Backend.Type == copy.Backend.Type {
 			t.Errorf("Original Backend was modified: expected %v, got %v", "s3", copy.Backend.Type)
+		}
+		if original.Backend.Prefix == nil || *original.Backend.Prefix == *copy.Backend.Prefix {
+			t.Errorf("Original Prefix was modified: expected %v, got %v", "original-prefix", *copy.Backend.Prefix)
 		}
 	})
 
@@ -92,4 +101,8 @@ func TestTerraformConfig_Copy(t *testing.T) {
 // Helper functions to create pointers for basic types
 func ptrBool(b bool) *bool {
 	return &b
+}
+
+func stringPtr(s string) *string {
+	return &s
 }

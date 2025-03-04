@@ -201,20 +201,33 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 		}
 	}
 
+	prefix := e.configHandler.GetString("terraform.backend.prefix", "")
+
 	switch backendType {
 	case "local":
-		addBackendConfigArg("path", filepath.ToSlash(filepath.Join(configRoot, ".tfstate", projectPath, "terraform.tfstate")))
+		path := filepath.Join(configRoot, ".tfstate")
+		if prefix != "" {
+			path = filepath.Join(path, prefix)
+		}
+		path = filepath.Join(path, projectPath, "terraform.tfstate")
+		addBackendConfigArg("path", filepath.ToSlash(path))
 	case "s3":
-		addBackendConfigArg("key", filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
-		if backend.S3 != nil {
-			if err := processBackendConfig(backend.S3, addBackendConfigArg); err != nil {
+		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
+		addBackendConfigArg("key", keyPath)
+		if backend := e.configHandler.GetConfig().Terraform.Backend.S3; backend != nil {
+			if err := processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, fmt.Errorf("error processing S3 backend config: %w", err)
 			}
 		}
 	case "kubernetes":
-		addBackendConfigArg("secret_suffix", sanitizeForK8s(projectPath))
-		if backend.Kubernetes != nil {
-			if err := processBackendConfig(backend.Kubernetes, addBackendConfigArg); err != nil {
+		secretSuffix := projectPath
+		if prefix != "" {
+			secretSuffix = fmt.Sprintf("%s-%s", strings.ReplaceAll(prefix, "/", "-"), secretSuffix)
+		}
+		secretSuffix = sanitizeForK8s(secretSuffix)
+		addBackendConfigArg("secret_suffix", secretSuffix)
+		if backend := e.configHandler.GetConfig().Terraform.Backend.Kubernetes; backend != nil {
+			if err := processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, fmt.Errorf("error processing Kubernetes backend config: %w", err)
 			}
 		}
