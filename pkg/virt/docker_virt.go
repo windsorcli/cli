@@ -28,19 +28,18 @@ func NewDockerVirt(injector di.Injector) *DockerVirt {
 	}
 }
 
-// Initialize resolves the dependencies for DockerVirt
+// Initialize sets up DockerVirt by resolving services, sorting them, checking Docker config,
+// and determining the compose command.
 func (v *DockerVirt) Initialize() error {
 	if err := v.BaseVirt.Initialize(); err != nil {
 		return fmt.Errorf("error initializing base: %w", err)
 	}
 
-	// Resolve all services
 	resolvedServices, err := v.injector.ResolveAll((*services.Service)(nil))
 	if err != nil {
 		return fmt.Errorf("error resolving services: %w", err)
 	}
 
-	// Convert the resolved services to the correct type
 	serviceSlice := make([]services.Service, len(resolvedServices))
 	for i, service := range resolvedServices {
 		if s, _ := service.(services.Service); s != nil {
@@ -48,20 +47,16 @@ func (v *DockerVirt) Initialize() error {
 		}
 	}
 
-	// Alphabetize the services by their name
 	sort.Slice(serviceSlice, func(i, j int) bool {
 		return fmt.Sprintf("%T", serviceSlice[i]) < fmt.Sprintf("%T", serviceSlice[j])
 	})
 
-	// Check if Docker is enabled using configHandler
 	if !v.configHandler.GetBool("docker.enabled") {
 		return fmt.Errorf("Docker configuration is not defined")
 	}
 
-	// Set the services
 	v.services = serviceSlice
 
-	// Determine the correct docker compose command
 	if err := v.determineComposeCommand(); err != nil {
 		return fmt.Errorf("error determining docker compose command: %w", err)
 	}
@@ -82,28 +77,26 @@ func (v *DockerVirt) determineComposeCommand() error {
 	return nil
 }
 
-// Up starts docker compose
+// Up initializes and starts Docker Compose in detached mode. It first checks if Docker is enabled
+// and ensures the Docker daemon is running. It sets the COMPOSE_FILE environment variable to the
+// path of the docker-compose.yaml file. The function attempts to run "docker compose up" with
+// retries, using progress display for the first attempt and silent execution for subsequent ones.
 func (v *DockerVirt) Up() error {
-	// Check if Docker is enabled and run "docker compose up" in daemon mode if necessary
 	if v.configHandler.GetBool("docker.enabled") {
-		// Ensure Docker daemon is running
 		if err := v.checkDockerDaemon(); err != nil {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
 
-		// Get the path to the docker-compose.yaml file
 		projectRoot, err := v.shell.GetProjectRoot()
 		if err != nil {
 			return fmt.Errorf("error retrieving project root: %w", err)
 		}
 		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
-		// Set the COMPOSE_FILE environment variable and handle potential error
 		if err := osSetenv("COMPOSE_FILE", composeFilePath); err != nil {
 			return fmt.Errorf("failed to set COMPOSE_FILE environment variable: %w", err)
 		}
 
-		// Retry logic for docker compose up with progress display
 		retries := 3
 		var lastErr error
 		var lastOutput string
@@ -111,7 +104,6 @@ func (v *DockerVirt) Up() error {
 			args := []string{"up", "--detach", "--remove-orphans"}
 			message := "📦 Running docker compose up"
 
-			// Use ExecProgress for the first attempt to show progress
 			if i == 0 {
 				output, _, err := v.shell.ExecProgress(message, v.composeCommand, args...)
 				if err == nil {
@@ -120,7 +112,6 @@ func (v *DockerVirt) Up() error {
 				lastErr = err
 				lastOutput = output
 			} else {
-				// Use ExecSilent for retries to avoid multiple progress messages
 				output, _, err := v.shell.ExecSilent(v.composeCommand, args...)
 				if err == nil {
 					return nil
@@ -140,28 +131,23 @@ func (v *DockerVirt) Up() error {
 	return nil
 }
 
-// Down stops the Docker container
+// Down stops Docker containers if enabled, ensuring the daemon is running, and executes "docker compose down".
 func (v *DockerVirt) Down() error {
-	// Check if Docker is enabled and run "docker compose down" if necessary
 	if v.configHandler.GetBool("docker.enabled") {
-		// Ensure Docker daemon is running
 		if err := v.checkDockerDaemon(); err != nil {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
 
-		// Get the path to the docker-compose.yaml file
 		projectRoot, err := v.shell.GetProjectRoot()
 		if err != nil {
 			return fmt.Errorf("error retrieving project root: %w", err)
 		}
 		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
-		// Set the COMPOSE_FILE environment variable and handle potential error
 		if err := osSetenv("COMPOSE_FILE", composeFilePath); err != nil {
 			return fmt.Errorf("error setting COMPOSE_FILE environment variable: %w", err)
 		}
 
-		// Run docker compose down with clean flags using the Exec function from shell.go
 		output, _, err := v.shell.ExecProgress("📦 Running docker compose down", v.composeCommand, "down", "--remove-orphans", "--volumes")
 		if err != nil {
 			return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
@@ -170,33 +156,28 @@ func (v *DockerVirt) Down() error {
 	return nil
 }
 
-// WriteConfig writes the Docker configuration file
+// WriteConfig generates and writes the Docker compose YAML file.
 func (v *DockerVirt) WriteConfig() error {
-	// Get the project root and construct the file path
 	projectRoot, err := v.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("error retrieving project root: %w", err)
 	}
 	composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
-	// Ensure the parent context folder exists
 	if err := mkdirAll(filepath.Dir(composeFilePath), 0755); err != nil {
 		return fmt.Errorf("error creating parent context folder: %w", err)
 	}
 
-	// Retrieve the full compose configuration
 	project, err := v.getFullComposeConfig()
 	if err != nil {
 		return fmt.Errorf("error getting full compose config: %w", err)
 	}
 
-	// Serialize the docker compose config to YAML
 	yamlData, err := yamlMarshal(project)
 	if err != nil {
 		return fmt.Errorf("error marshaling docker compose config to YAML: %w", err)
 	}
 
-	// Write the YAML data to the specified file
 	err = writeFile(composeFilePath, yamlData, 0644)
 	if err != nil {
 		return fmt.Errorf("error writing docker compose file: %w", err)
@@ -205,9 +186,9 @@ func (v *DockerVirt) WriteConfig() error {
 	return nil
 }
 
-// GetContainerInfo returns a list of information about the Docker containers, including their labels
+// GetContainerInfo retrieves information about Docker containers managed by Windsor, filtered by context and optionally by service name.
+// It returns a list of ContainerInfo, which includes the container's name, IP address, and labels.
 func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
-	// Get the context name
 	contextName := v.configHandler.GetContext()
 
 	command := "docker"
@@ -237,7 +218,6 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 
 		serviceName, _ := labels["com.docker.compose.service"]
 
-		// If a name is provided, check if it matches the current serviceName
 		if len(name) > 0 && serviceName != name[0] {
 			continue
 		}
@@ -267,7 +247,6 @@ func (v *DockerVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 			Labels:  labels,
 		}
 
-		// If a name is provided and matches, return immediately with this containerInfo
 		if len(name) > 0 && serviceName == name[0] {
 			return []ContainerInfo{containerInfo}, nil
 		}
@@ -375,8 +354,7 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 						networkName: {},
 					}
 
-					networkCIDR := v.configHandler.GetString("network.cidr_block")
-					if networkCIDR != "" && ipAddress != "127.0.0.1" && ipAddress != "" {
+					if networkCIDR != "" && ipAddress != "" {
 						containerConfig.Networks[networkName].Ipv4Address = ipAddress
 					}
 
