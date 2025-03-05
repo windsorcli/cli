@@ -11,7 +11,7 @@ registries:
   - type: standard
     ref: v4.324.0 # renovate: depName=aquaproj/aqua-registry
 packages:
-- name: hashicorp/terraform@v1.11.0
+- name: hashicorp/terraform@v1.11.1
 - name: siderolabs/talos@v1.9.4
 - name: siderolabs/omni/omnictl@v0.47.1
 - name: kubernetes/kubectl@v1.32.2
