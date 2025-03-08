@@ -108,6 +108,43 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 	return &types.Config{Services: services}, nil
 }
 
+// SetAddress updates the service address and configures default AWS service endpoints.
+// It ensures S3 hostname, MWAA endpoint, and general endpoint URL are set if not provided.
+func (s *LocalstackService) SetAddress(address string) error {
+	if err := s.BaseService.SetAddress(address); err != nil {
+		return err
+	}
+
+	tld := s.configHandler.GetString("dns.domain", "test")
+	fullName := s.name + "." + tld
+	port := constants.DEFAULT_AWS_LOCALSTACK_PORT
+
+	awsConfig := s.configHandler.GetConfig().AWS
+	if awsConfig == nil {
+		return fmt.Errorf("AWS configuration not found")
+	}
+
+	s3Hostname := s.configHandler.GetString("aws.s3_hostname", "")
+	if s3Hostname == "" {
+		s3Address := fmt.Sprintf("http://s3.%s:%s", fullName, port)
+		s.configHandler.SetContextValue("aws.s3_hostname", s3Address)
+	}
+
+	mwaaEndpoint := s.configHandler.GetString("aws.mwaa_endpoint", "")
+	if mwaaEndpoint == "" {
+		mwaaAddress := fmt.Sprintf("http://mwaa.%s:%s", fullName, port)
+		s.configHandler.SetContextValue("aws.mwaa_endpoint", mwaaAddress)
+	}
+
+	endpointURL := s.configHandler.GetString("aws.endpoint_url", "")
+	if endpointURL == "" {
+		endpointAddress := fmt.Sprintf("http://%s:%s", fullName, port)
+		s.configHandler.SetContextValue("aws.endpoint_url", endpointAddress)
+	}
+
+	return nil
+}
+
 // validateServices checks the input services and returns valid and invalid services.
 func validateServices(services []string) ([]string, []string) {
 	validServicesMap := make(map[string]struct{}, len(ValidLocalstackServiceNames))

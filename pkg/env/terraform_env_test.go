@@ -1357,8 +1357,8 @@ func TestTerraformEnv_generateProviderOverrideTf(t *testing.T) {
 		if !strings.Contains(providerConfig, `endpoints {`) {
 			t.Errorf("Expected provider config to contain 'endpoints {', got %q", providerConfig)
 		}
-		if !strings.Contains(providerConfig, `s3  = "http://localstack.test:4566"`) {
-			t.Errorf("Expected provider config to contain 's3  = \"http://localstack.test:4566\"', got %q", providerConfig)
+		if !strings.Contains(providerConfig, `s3  = "http://s3.localstack.test:4566"`) {
+			t.Errorf("Expected provider config to contain 's3  = \"http://s3.localstack.test:4566\"', got %q", providerConfig)
 		}
 		if !strings.Contains(providerConfig, `sns = "http://localstack.test:4566"`) {
 			t.Errorf("Expected provider config to contain 'sns = \"http://localstack.test:4566\"', got %q", providerConfig)
