@@ -28,7 +28,7 @@ RUN curl -sSfL -O https://raw.githubusercontent.com/aquaproj/aqua-installer/${AQ
 
 # Stage 2: Builder
 # ----------------
-FROM --platform=$BUILDPLATFORM golang:1.24.0-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24.1-alpine AS builder
 
 # Install dependencies
 RUN apk add --no-cache git
