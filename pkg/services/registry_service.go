@@ -68,7 +68,7 @@ func (s *RegistryService) SetAddress(address string) error {
 
 	if registryConfig.HostPort != 0 {
 		hostPort = registryConfig.HostPort
-	} else if registryConfig.Remote == "" && s.IsLocalhost() {
+	} else if registryConfig.Remote == "" && s.UseHostNetwork() {
 		hostPort = defaultPort
 		err = s.configHandler.SetContextValue("docker.registry_url", hostName)
 		if err != nil {
@@ -144,7 +144,7 @@ func (s *RegistryService) generateRegistryService(hostname string, registry dock
 		{Type: "bind", Source: "${WINDSOR_PROJECT_ROOT}/.windsor/.docker-cache", Target: "/var/lib/registry"},
 	}
 
-	if registry.Remote == "" && s.IsLocalhost() {
+	if registry.Remote == "" && s.UseHostNetwork() {
 		service.Ports = []types.ServicePortConfig{
 			{
 				Target:    5000,

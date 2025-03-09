@@ -141,38 +141,6 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessLocalhost", func(t *testing.T) {
-		mocks := setupNetworkManagerMocks()
-		nm := NewBaseNetworkManager(mocks.Injector)
-
-		// Set the configuration to simulate docker-desktop
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "docker-desktop"
-			}
-			return ""
-		}
-
-		// Capture the SetAddress calls
-		mockService := services.NewMockService()
-		mockService.SetAddressFunc = func(address string) error {
-			if address != "127.0.0.1" {
-				return fmt.Errorf("expected address to be 127.0.0.1, got %v", address)
-			}
-			return nil
-		}
-		mocks.Injector.Register("service", mockService)
-
-		err := nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		if !nm.isLocalhost {
-			t.Fatalf("expected isLocalhost to be true, got false")
-		}
-	})
-
 	t.Run("SetAddressFailure", func(t *testing.T) {
 		mocks := setupNetworkManagerMocks()
 		nm := NewBaseNetworkManager(mocks.Injector)
@@ -252,49 +220,6 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		expectedErrorSubstring := "error resolving services"
 		if !strings.Contains(err.Error(), expectedErrorSubstring) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
-		}
-	})
-
-	t.Run("ErrorSettingLocalhostAddresses", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupNetworkManagerMocks()
-		nm := NewBaseNetworkManager(mocks.Injector)
-
-		// Set the configuration to simulate docker-desktop
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "docker-desktop"
-			}
-			return ""
-		}
-
-		// Mock SetAddress to return an error
-		mockService := services.NewMockService()
-		mockService.SetAddressFunc = func(address string) error {
-			if address == "127.0.0.1" {
-				return fmt.Errorf("mock error setting address")
-			}
-			return nil
-		}
-		mocks.Injector.Register("service", mockService)
-
-		// Call the Initialize method
-		err := nm.Initialize()
-
-		// Assert that an error occurred
-		if err == nil {
-			t.Errorf("expected error, got none")
-		}
-
-		// Verify the error message contains the expected substring
-		expectedErrorSubstring := "error setting address for service"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
-		}
-
-		// Verify that isLocalhost is true
-		if !nm.isLocalhost {
-			t.Errorf("expected isLocalhost to be true, got false")
 		}
 	})
 

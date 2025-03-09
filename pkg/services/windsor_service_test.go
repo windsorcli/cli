@@ -1,11 +1,13 @@
 package services
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // setupSafeWindsorServiceMocks sets up mock components for WindsorService
@@ -18,6 +20,7 @@ func setupSafeWindsorServiceMocks(optionalInjector ...di.Injector) *MockComponen
 	}
 
 	mockConfigHandler := config.NewMockConfigHandler()
+	mockShell := shell.NewMockShell(injector)
 
 	// Mock some environment variables
 	mockEnvVars := map[string]string{
@@ -34,12 +37,29 @@ func setupSafeWindsorServiceMocks(optionalInjector ...di.Injector) *MockComponen
 		return nil
 	}
 
+	// Mock the DNS enabled configuration
+	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+		if key == "dns.enabled" {
+			return true
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return false
+	}
+
+	// Use a real DNS service instead of a mock
+	dnsService := NewDNSService(injector)
+	injector.Register("dnsService", dnsService)
+
 	// Register mock instances in the injector
 	injector.Register("configHandler", mockConfigHandler)
+	injector.Register("shell", mockShell)
 
 	return &MockComponents{
 		Injector:          injector,
 		MockConfigHandler: mockConfigHandler,
+		MockShell:         mockShell,
 	}
 }
 
@@ -67,7 +87,11 @@ func TestWindsorService_GetComposeConfig(t *testing.T) {
 		mocks := setupSafeWindsorServiceMocks()
 		windsorService := NewWindsorService(mocks.Injector)
 
-		windsorService.Initialize()
+		// Initialize the WindsorService
+		err := windsorService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
 
 		// When: GetComposeConfig is called
 		composeConfig, err := windsorService.GetComposeConfig()
@@ -89,6 +113,50 @@ func TestWindsorService_GetComposeConfig(t *testing.T) {
 
 		if !serviceFound {
 			t.Errorf("expected service with name %q and image %q to be in the list of configurations:\n%+v", expectedName, expectedImage, composeConfig.Services)
+		}
+	})
+
+	t.Run("ErrorResolvingServices", func(t *testing.T) {
+		mockInjector := di.NewMockInjector()
+
+		// Given: a WindsorService instance with a mocked injector that simulates an error
+		mocks := setupSafeWindsorServiceMocks(mockInjector)
+		mockInjector.SetResolveAllError((*Service)(nil), fmt.Errorf("mocked resolution error"))
+		windsorService := NewWindsorService(mocks.Injector)
+
+		// Initialize the WindsorService
+		err := windsorService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetComposeConfig is called
+		_, err = windsorService.GetComposeConfig()
+
+		// Then: an error should be returned due to DNS service resolution failure
+		if err == nil || err.Error() != "error retrieving DNS service: mocked resolution error" {
+			t.Errorf("expected error 'error retrieving DNS service: mocked resolution error', got %v", err)
+		}
+	})
+
+	t.Run("NilDNSService", func(t *testing.T) {
+		// Given: a WindsorService instance with a nil DNS service
+		mocks := setupSafeWindsorServiceMocks()
+		mocks.Injector.Register("dnsService", nil)
+		windsorService := NewWindsorService(mocks.Injector)
+
+		// Initialize the WindsorService
+		err := windsorService.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// When: GetComposeConfig is called
+		_, err = windsorService.GetComposeConfig()
+
+		// Then: an error should be returned due to DNS service being nil
+		if err == nil || err.Error() != "DNS service not found" {
+			t.Errorf("expected error 'DNS service not found', got %v", err)
 		}
 	})
 }

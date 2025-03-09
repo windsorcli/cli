@@ -79,7 +79,7 @@ func (s *TalosService) SetAddress(address string) error {
 	defer portLock.Unlock()
 
 	var port int
-	if s.isLeader || !s.IsLocalhost() {
+	if s.isLeader || !s.UseHostNetwork() {
 		port = defaultAPIPort
 	} else {
 		port = nextAPIPort
@@ -251,7 +251,7 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	}
 	defaultAPIPortUint32 := uint32(defaultAPIPort)
 
-	if s.IsLocalhost() {
+	if s.UseHostNetwork() {
 		ports = append(ports, types.ServicePortConfig{
 			Target:    defaultAPIPortUint32,
 			Published: publishedPort,

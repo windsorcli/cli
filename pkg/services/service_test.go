@@ -192,35 +192,50 @@ func TestBaseService_GetHostname(t *testing.T) {
 	})
 }
 
-func TestBaseService_IsLocalhost(t *testing.T) {
-	tests := []struct {
-		name          string
-		address       string
-		expectedLocal bool
-	}{
-		{"Localhost by name", "localhost", true},
-		{"Localhost by IPv4", "127.0.0.1", true},
-		{"Localhost by IPv6", "::1", true},
-		{"Non-localhost IPv4", "192.168.1.1", false},
-		{"Non-localhost IPv6", "2001:0db8:85a3:0000:0000:8a2e:0370:7334", false},
-		{"Empty address", "", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Given: a new BaseService with a mocked IsLocalhost method
-			service := &BaseService{}
-			service.address = tt.address
-
-			// Mocking IsLocalhost by directly setting the address
-			isLocal := service.IsLocalhost()
-
-			// Then: the result should match the expected outcome
-			if isLocal != tt.expectedLocal {
-				t.Fatalf("expected IsLocalhost to be %v for address '%s', got %v", tt.expectedLocal, tt.address, isLocal)
+func TestBaseService_UseHostNetwork(t *testing.T) {
+	t.Run("Localhost", func(t *testing.T) {
+		// Given: a new BaseService with a mock config handler
+		mocks := setupSafeBaseServiceMocks()
+		service := &BaseService{injector: mocks.Injector}
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
 			}
-		})
-	}
+			return ""
+		}
+
+		service.Initialize()
+
+		// When: UseHostNetwork is called
+		isLocal := service.UseHostNetwork()
+
+		// Then: the result should be true
+		if !isLocal {
+			t.Fatalf("expected UseHostNetwork to be true, got false")
+		}
+	})
+
+	t.Run("NotLocalhost", func(t *testing.T) {
+		// Given: a new BaseService with a mock config handler
+		mocks := setupSafeBaseServiceMocks()
+		service := &BaseService{injector: mocks.Injector}
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "virtualbox"
+			}
+			return ""
+		}
+
+		service.Initialize()
+
+		// When: UseHostNetwork is called
+		isLocal := service.UseHostNetwork()
+
+		// Then: the result should be false
+		if isLocal {
+			t.Fatalf("expected UseHostNetwork to be false, got true")
+		}
+	})
 }
 
 func TestBaseService_SupportsWildcard(t *testing.T) {
