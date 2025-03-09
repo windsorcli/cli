@@ -412,16 +412,28 @@ func TestDockerShell_runDockerCommand(t *testing.T) {
 		mocks := setSafeDockerShellMocks(injector)
 		dockerShell := NewDockerShell(mocks.Injector)
 
+		// Mock the execCommand function to verify it was called with the expected arguments
+		originalExecCommand := execCommand
+		defer func() { execCommand = originalExecCommand }()
+		execCommandCalled := false
+		execCommand = func(name string, arg ...string) *exec.Cmd {
+			execCommandCalled = true
+			if name != "docker" || len(arg) < 2 || arg[0] != "exec" || arg[1] != "-i" {
+				t.Fatalf("expected execCommand to be called with 'docker exec -i', got %s %v", name, arg)
+			}
+			return originalExecCommand(name, arg...)
+		}
+
 		var stdoutBuf, stderrBuf strings.Builder
-		_, exitCode, err := dockerShell.runDockerCommand([]string{"echo", "hello"}, &stdoutBuf, &stderrBuf)
+		_, exitCode, err := dockerShell.runDockerCommand([]string{"exec", "-i", "mock-container-id", "echo", "hello"}, &stdoutBuf, &stderrBuf)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 		if exitCode != 0 {
 			t.Fatalf("expected exit code 0, got %d", exitCode)
 		}
-		if !strings.Contains(stdoutBuf.String(), "mock output") {
-			t.Fatalf("expected stdout to contain 'mock output', got %s", stdoutBuf.String())
+		if !execCommandCalled {
+			t.Fatalf("expected execCommand to be called")
 		}
 	})
 
