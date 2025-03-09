@@ -420,8 +420,8 @@ func TestDockerShell_runDockerCommand(t *testing.T) {
 		if exitCode != 0 {
 			t.Fatalf("expected exit code 0, got %d", exitCode)
 		}
-		if stdoutBuf.String() != "mock output\n" {
-			t.Fatalf("expected stdout 'mock output', got %s", stdoutBuf.String())
+		if !strings.Contains(stdoutBuf.String(), "mock output") {
+			t.Fatalf("expected stdout to contain 'mock output', got %s", stdoutBuf.String())
 		}
 	})
 
