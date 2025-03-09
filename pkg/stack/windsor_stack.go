@@ -3,9 +3,9 @@ package stack
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // WindsorStack is a struct that implements the Stack interface.
@@ -40,6 +40,7 @@ func (s *WindsorStack) Up() error {
 
 	// Iterate over the components
 	for _, component := range components {
+
 		// Ensure the directory exists
 		if _, err := osStat(component.FullPath); os.IsNotExist(err) {
 			return fmt.Errorf("directory %s does not exist", component.FullPath)
@@ -56,6 +57,7 @@ func (s *WindsorStack) Up() error {
 			if err != nil {
 				return fmt.Errorf("error getting environment variables: %v", err)
 			}
+
 			for key, value := range envVars {
 				if err := osSetenv(key, value); err != nil {
 					return fmt.Errorf("error setting environment variable %s: %v", key, err)
@@ -67,32 +69,39 @@ func (s *WindsorStack) Up() error {
 			}
 		}
 
-		// Execute 'terraform init' in the dirPath
-		_, _, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), "terraform", "init", "-migrate-state", "-upgrade")
-		if err != nil {
+		// Execute Terraform commands using the Windsor exec context
+		if err := s.executeTerraformCommand("init", component.Path, "-migrate-state", "-force-copy", "-upgrade"); err != nil {
 			return fmt.Errorf("error initializing Terraform in %s: %w", component.FullPath, err)
 		}
 
-		// Execute 'terraform plan' in the dirPath
-		_, _, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), "terraform", "plan")
-		if err != nil {
+		if err := s.executeTerraformCommand("plan", component.Path, "-input=false"); err != nil {
 			return fmt.Errorf("error planning Terraform changes in %s: %w", component.FullPath, err)
 		}
 
-		// Execute 'terraform apply' in the dirPath
-		_, _, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), "terraform", "apply")
-		if err != nil {
+		if err := s.executeTerraformCommand("apply", component.Path); err != nil {
 			return fmt.Errorf("error applying Terraform changes in %s: %w", component.FullPath, err)
-		}
-
-		// Attempt to clean up 'backend_override.tf' if it exists
-		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-		if _, err := osStat(backendOverridePath); err == nil {
-			if err := osRemove(backendOverridePath); err != nil {
-				return fmt.Errorf("error removing backend_override.tf in %s: %v", component.FullPath, err)
-			}
 		}
 	}
 
 	return nil
+}
+
+// executeTerraformCommand runs a Terraform command within the Windsor exec context
+func (s *WindsorStack) executeTerraformCommand(command, path string, args ...string) error {
+	// Select the appropriate shell based on the execution mode
+	var shellInstance shell.Shell
+	if os.Getenv("WINDSOR_EXEC_MODE") == "container" {
+		shellInstance = s.dockerShell
+	} else {
+		shellInstance = s.shell
+	}
+
+	if shellInstance == nil {
+		return fmt.Errorf("no shell found")
+	}
+
+	// Execute the command with a progress indicator
+	message := fmt.Sprintf("🌎 Executing Terraform %s in %s", command, path)
+	_, _, err := shellInstance.ExecProgress(message, "terraform", append([]string{command}, args...)...)
+	return err
 }
