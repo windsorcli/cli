@@ -354,6 +354,11 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return ""
 		}
 		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, int, error) {
+			if command == "powershell" && args[0] == "-Command" {
+				if strings.Contains(args[1], "Get-DnsClientNrptRule") {
+					return "", 0, nil
+				}
+			}
 			return "", 0, fmt.Errorf("unexpected command")
 		}
 

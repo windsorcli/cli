@@ -333,14 +333,23 @@ func TestDockerShell_ExecProgress(t *testing.T) {
 		// Mock execCommand to simulate a failure inside runDockerCommand
 		execCommand = func(name string, arg ...string) *exec.Cmd {
 			if name == "docker" && len(arg) > 0 && arg[0] == "exec" {
-				return exec.Command("false") // Simulate a command that fails
+				cmd := &exec.Cmd{}
+				cmd.ProcessState = &os.ProcessState{}
+				return cmd
 			}
 			return mockEchoCommand("mock output")
 		}
 
+		// Mock cmdStart to simulate a command start failure
+		originalCmdStart := cmdStart
+		defer func() { cmdStart = originalCmdStart }()
+		cmdStart = func(cmd *exec.Cmd) error {
+			return fmt.Errorf("command start failed: simulated error")
+		}
+
 		_, _, err := dockerShell.ExecProgress("Running command", "echo", "hello")
-		if err == nil || !strings.Contains(err.Error(), "Error: exit status 1") {
-			t.Fatalf("expected error containing 'Error: exit status 1', got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "command start failed: simulated error") {
+			t.Fatalf("expected error containing 'command start failed: simulated error', got %v", err)
 		}
 	})
 }

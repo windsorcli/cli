@@ -23,16 +23,15 @@ func NewWindsorService(injector di.Injector) *WindsorService {
 	}
 }
 
-// GetComposeConfig returns the docker-compose configuration for the Windsor service
+// GetComposeConfig generates the docker-compose config for Windsor service. It sets up
+// environment variables, DNS settings if enabled, and service configurations.
 func (s *WindsorService) GetComposeConfig() (*types.Config, error) {
 	fullName := s.name
 
-	// Retrieve environment keys
 	originalEnvVars := s.configHandler.GetStringMap("environment")
 
 	var envVarList types.MappingWithEquals
 	if originalEnvVars != nil {
-		// Create environment variable mappings in the format KEY: ${KEY}
 		envVarList = make(types.MappingWithEquals, len(originalEnvVars))
 		for k := range originalEnvVars {
 			value := fmt.Sprintf("${%s}", k)
@@ -61,6 +60,31 @@ func (s *WindsorService) GetComposeConfig() (*types.Config, error) {
 
 	if envVarList != nil {
 		serviceConfig.Environment = envVarList
+	}
+
+	if s.configHandler.GetBool("dns.enabled") {
+		resolvedServices, err := s.injector.ResolveAll((*Service)(nil))
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving DNS service: %w", err)
+		}
+
+		var dnsService *DNSService
+		for _, svc := range resolvedServices {
+			if ds, ok := svc.(*DNSService); ok {
+				dnsService = ds
+				break
+			}
+		}
+
+		if dnsService == nil {
+			return nil, fmt.Errorf("DNS service not found")
+		}
+
+		dnsAddress := dnsService.GetAddress()
+		dnsDomain := s.configHandler.GetString("dns.domain", "test")
+
+		serviceConfig.DNS = []string{dnsAddress}
+		serviceConfig.DNSSearch = []string{dnsDomain}
 	}
 
 	services := []types.ServiceConfig{serviceConfig}

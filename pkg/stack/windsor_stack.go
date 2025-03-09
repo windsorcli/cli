@@ -3,7 +3,6 @@ package stack
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -83,14 +82,6 @@ func (s *WindsorStack) Up() error {
 		_, _, err = s.shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), "terraform", "apply")
 		if err != nil {
 			return fmt.Errorf("error applying Terraform changes in %s: %w", component.FullPath, err)
-		}
-
-		// Attempt to clean up 'backend_override.tf' if it exists
-		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-		if _, err := osStat(backendOverridePath); err == nil {
-			if err := osRemove(backendOverridePath); err != nil {
-				return fmt.Errorf("error removing backend_override.tf in %s: %v", component.FullPath, err)
-			}
 		}
 	}
 
