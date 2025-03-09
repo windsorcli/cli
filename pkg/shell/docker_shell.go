@@ -147,12 +147,12 @@ func (s *DockerShell) runDockerCommand(cmdArgs []string, stdoutWriter, stderrWri
 
 	if err := cmdWait(cmd); err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
-			return "", exitError.ExitCode(), fmt.Errorf("Error: %w", err)
+			return "", processStateExitCode(exitError.ProcessState), fmt.Errorf("Error: %w", err)
 		}
 		return "", 1, fmt.Errorf("unexpected error during command execution: %w", err)
 	}
 
-	exitCode := cmd.ProcessState.ExitCode()
+	exitCode := processStateExitCode(cmd.ProcessState)
 	if exitCode != 0 {
 		return "", exitCode, fmt.Errorf("command execution failed with exit code %d", exitCode)
 	}
