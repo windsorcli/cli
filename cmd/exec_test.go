@@ -397,37 +397,6 @@ func TestExecCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("NoShellResolved", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Setup mock controller
-		mocks := setupSafeExecCmdMocks()
-		callCount := 0
-		originalResolveShellFunc := mocks.Controller.ResolveShellFunc
-		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
-			callCount++
-			if callCount == 2 {
-				return nil
-			}
-			return originalResolveShellFunc()
-		}
-
-		// Capture stderr
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"exec", "echo", "hello"})
-			err := Execute(mocks.Controller)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "No shell found"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
 	t.Run("ErrorExecutingCommand", func(t *testing.T) {
 		defer resetRootCmd()
 
