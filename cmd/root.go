@@ -79,6 +79,12 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 		shell.SetVerbosity(verbose)
 	}
 
+	// Set the verbosity
+	dockerShell := controller.ResolveShell("dockerShell")
+	if dockerShell != nil {
+		dockerShell.SetVerbosity(verbose)
+	}
+
 	// Determine the cliConfig path
 	var cliConfigPath string
 	if cliConfigPath = os.Getenv("WINDSORCONFIG"); cliConfigPath == "" {
