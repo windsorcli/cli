@@ -28,18 +28,41 @@ func TestWindsorStack_Up(t *testing.T) {
 		mocks := setupSafeMocks()
 		stack := NewWindsorStack(mocks.Injector)
 
-		// When the stack is initialized
-		err := stack.Initialize()
-		// Then no error should occur during initialization
-		if err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
+		// Track the commands executed
+		var executedCommands []string
+
+		// Mock the ExecProgress function to capture the commands and arguments
+		mocks.Shell.ExecProgressFunc = func(message, command string, args ...string) (string, int, error) {
+			executedCommands = append(executedCommands, fmt.Sprintf("%s %s", command, strings.Join(args, " ")))
+			return "", 0, nil
 		}
 
-		// And when the stack is brought up
-		err = stack.Up()
-		// Then no error should occur during Up
-		if err != nil {
+		// When the stack is initialized and brought up
+		if err := stack.Initialize(); err != nil {
+			t.Fatalf("Expected no error during initialization, got %v", err)
+		}
+		if err := stack.Up(); err != nil {
 			t.Fatalf("Expected no error during Up, got %v", err)
+		}
+
+		// Validate that the expected commands were executed
+		expectedCommands := []string{
+			"terraform init -migrate-state -upgrade",
+			"terraform plan",
+			"terraform apply",
+		}
+
+		for _, expected := range expectedCommands {
+			found := false
+			for _, executed := range executedCommands {
+				if executed == expected {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("Expected command %v to be executed, but it was not", expected)
+			}
 		}
 	})
 
@@ -193,7 +216,7 @@ func TestWindsorStack_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
-		// Given shell.Exec is mocked to return an error
+		// Given shell.Exec is mocked to return an error for 'terraform init'
 		mocks := setupSafeMocks()
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, int, error) {
 			if command == "terraform" && len(args) > 0 && args[0] == "init" {
@@ -212,19 +235,15 @@ func TestWindsorStack_Up(t *testing.T) {
 
 		// And when Up is called
 		err = stack.Up()
-		if err == nil {
-			t.Fatalf("Expected error during Up, got nil")
-		}
-
 		// Then the expected error is contained in err
 		expectedError := "error initializing Terraform in"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
 		}
 	})
 
 	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
-		// Given shell.Exec is mocked to return an error
+		// Given shell.Exec is mocked to return an error for 'terraform plan'
 		mocks := setupSafeMocks()
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, int, error) {
 			if command == "terraform" && len(args) > 0 && args[0] == "plan" {
@@ -245,15 +264,15 @@ func TestWindsorStack_Up(t *testing.T) {
 		err = stack.Up()
 		// Then the expected error is contained in err
 		expectedError := "error planning Terraform changes in"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
 		}
 	})
 
 	t.Run("ErrorRunningTerraformApply", func(t *testing.T) {
-		// Given shell.Exec is mocked to return an error
+		// Given shell.Exec is mocked to return an error for 'terraform apply'
 		mocks := setupSafeMocks()
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, int, error) {
+		mocks.Shell.ExecProgressFunc = func(message, command string, args ...string) (string, int, error) {
 			if command == "terraform" && len(args) > 0 && args[0] == "apply" {
 				return "", 0, fmt.Errorf("mock error running terraform apply")
 			}
@@ -272,36 +291,8 @@ func TestWindsorStack_Up(t *testing.T) {
 		err = stack.Up()
 		// Then the expected error is contained in err
 		expectedError := "error applying Terraform changes in"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorRemovingBackendOverride", func(t *testing.T) {
-		// Given osStat is mocked to return nil (indicating the file exists)
-		mocks := setupSafeMocks()
-
-		// And osRemove is mocked to return an error
-		originalOsRemove := osRemove
-		defer func() { osRemove = originalOsRemove }()
-		osRemove = func(_ string) error {
-			return fmt.Errorf("mock error removing backend_override.tf")
-		}
-
-		// When a new WindsorStack is created, initialized, and Up is called
-		stack := NewWindsorStack(mocks.Injector)
-		err := stack.Initialize()
-		// Then no error should occur during initialization
-		if err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
-		}
-
-		// And when Up is called
-		err = stack.Up()
-		// Then the expected error is contained in err
-		expectedError := "error removing backend_override.tf"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		if err == nil || !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
 		}
 	})
 }

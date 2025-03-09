@@ -105,6 +105,12 @@ func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 		return "/mock/project/root", nil
 	}
 
+	// Mock the os functions to avoid actual file system operations
+	mkdirAll = func(path string, perm os.FileMode) error {
+		// Simulate successful directory creation
+		return nil
+	}
+
 	return &MockComponents{
 		Injector:          injector,
 		MockShell:         mockShell,
@@ -813,6 +819,46 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		err = service.SetAddress("127.0.0.1")
 		if err != nil {
 			t.Fatalf("expected no error when setting address, got %v", err)
+		}
+
+		// When the GetComposeConfig method is called
+		config, err := service.GetComposeConfig()
+
+		// Then no error should be returned and the config should contain the expected service and volume configurations
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if config == nil {
+			t.Fatalf("expected config, got nil")
+		}
+		if len(config.Services) == 0 {
+			t.Fatalf("expected services, got 0")
+		}
+		if len(config.Volumes) == 0 {
+			t.Fatalf("expected volumes, got 0")
+		}
+	})
+
+	t.Run("GetComposeConfigWithHostNetworkAndLeader", func(t *testing.T) {
+		// Setup mocks for this test
+		mocks := setupTalosServiceMocks()
+		service := NewTalosService(mocks.Injector, "worker")
+
+		// Mock the GetString method to return "docker-desktop" for vm.driver
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			return ""
+		}
+
+		// Set isLeader to true
+		service.isLeader = true
+
+		// Initialize the service
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
 		// When the GetComposeConfig method is called

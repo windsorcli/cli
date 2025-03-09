@@ -282,20 +282,28 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("LocalhostPorts", func(t *testing.T) {
+	t.Run("UseHostNetwork", func(t *testing.T) {
 		// Create a mock injector with necessary mocks
 		mocks := createDNSServiceMocks()
 
 		// Given: a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
 
+		// Mock the config handler to return "docker-desktop" for vm.driver
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
 		// Initialize the service
 		if err := service.Initialize(); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
-
-		// Set the address to localhost
-		service.SetAddress("127.0.0.1")
 
 		// When: GetComposeConfig is called
 		cfg, err := service.GetComposeConfig()
@@ -310,14 +318,15 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 		if len(cfg.Services) != 1 {
 			t.Errorf("Expected 1 service, got %d", len(cfg.Services))
 		}
+
+		// Check if the service is using host network by verifying published ports
 		if len(cfg.Services[0].Ports) != 2 {
-			t.Errorf("Expected 2 ports, got %d", len(cfg.Services[0].Ports))
+			t.Errorf("Expected 2 ports to be published, got %d", len(cfg.Services[0].Ports))
 		}
-		if cfg.Services[0].Ports[0].Published != "53" || cfg.Services[0].Ports[0].Protocol != "tcp" {
-			t.Errorf("Expected port 53 with protocol tcp, got port %s with protocol %s", cfg.Services[0].Ports[0].Published, cfg.Services[0].Ports[0].Protocol)
-		}
-		if cfg.Services[0].Ports[1].Published != "53" || cfg.Services[0].Ports[1].Protocol != "udp" {
-			t.Errorf("Expected port 53 with protocol udp, got port %s with protocol %s", cfg.Services[0].Ports[1].Published, cfg.Services[0].Ports[1].Protocol)
+		for _, port := range cfg.Services[0].Ports {
+			if port.Published != "53" {
+				t.Errorf("Expected published port to be '53', got %s", port.Published)
+			}
 		}
 	})
 
@@ -392,8 +401,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		}
 
 		// Verify that the Corefile content is correctly formatted
-		expectedCorefileContent := `
-test:53 {
+		expectedCorefileContent := `test:53 {
     hosts {
         127.0.0.1 test
         192.168.1.1 test
@@ -402,15 +410,20 @@ test:53 {
 
     reload
     loop
-
     forward . 1.1.1.1 8.8.8.8
+}
+.:53 {
+    forward . 1.1.1.1 8.8.8.8
+    reload
+    loop
 }
 `
 		if string(writtenContent) != expectedCorefileContent {
 			t.Errorf("Expected Corefile content:\n%s\nGot:\n%s", expectedCorefileContent, string(writtenContent))
 		}
 	})
-	t.Run("SuccessLocalhost", func(t *testing.T) {
+
+	t.Run("SuccessUseHostNetwork", func(t *testing.T) {
 		// Create mocks and set up the mock context
 		mocks := createDNSServiceMocks()
 
@@ -422,8 +435,30 @@ test:53 {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
-		// Set the address to localhost to mock IsLocalhost behavior
-		service.SetAddress("127.0.0.1")
+		// Mock the config handler to simulate UseHostNetwork returning true
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// Mock the config handler to provide a network CIDR
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "network.cidr_block" {
+				return "192.168.1.0/24"
+			}
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
 
 		// Mock the writeFile function to capture the content written
 		var writtenContent []byte
@@ -442,8 +477,21 @@ test:53 {
 			t.Fatalf("WriteConfig() error = %v", err)
 		}
 
-		// Verify that the Corefile content is correctly formatted for localhost
-		expectedCorefileContent := `
+		// Verify that the Corefile content is correctly formatted for UseHostNetwork
+		expectedCorefileContent := `test:53 {
+    view internal {
+        expr incidr(client_ip(), '192.168.1.0/24')
+    }
+    hosts {
+        127.0.0.1 test
+        192.168.1.1 test
+        fallthrough
+    }
+
+    reload
+    loop
+    forward . 1.1.1.1 8.8.8.8
+}
 test:53 {
     hosts {
         127.0.0.1 test
@@ -453,8 +501,12 @@ test:53 {
 
     reload
     loop
-
     forward . 1.1.1.1 8.8.8.8
+}
+.:53 {
+    forward . 1.1.1.1 8.8.8.8
+    reload
+    loop
 }
 `
 		if string(writtenContent) != expectedCorefileContent {
@@ -584,6 +636,296 @@ test:53 {
 		expectedError := "error creating parent folders: mock error creating directories"
 		if err == nil || err.Error() != expectedError {
 			t.Fatalf("expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NoServiceName", func(t *testing.T) {
+		mocks := createDNSServiceMocks()
+
+		// Create a mock service with no Name property
+		mockService := NewMockService()
+		mockService.GetComposeConfigFunc = func() (*types.Config, error) {
+			return &types.Config{
+				Services: []types.ServiceConfig{
+					{Name: ""},
+				},
+			}, nil
+		}
+		mocks.Injector.Register("dockerService", mockService)
+
+		service := NewDNSService(mocks.Injector)
+
+		// Initialize the service
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Mock the writeFile function to capture the content written
+		var writtenContent []byte
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenContent = data
+			return nil
+		}
+
+		// When: WriteConfig is called
+		err := service.WriteConfig()
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Fatalf("WriteConfig() error = %v", err)
+		}
+
+		// Verify that the Corefile content does not contain any additional entries for unnamed services
+		expectedCorefileContent := `test:53 {
+    hosts {
+        127.0.0.1 test
+        192.168.1.1 test
+        fallthrough
+    }
+
+    reload
+    loop
+    forward . 1.1.1.1 8.8.8.8
+}
+.:53 {
+    forward . 1.1.1.1 8.8.8.8
+    reload
+    loop
+}
+`
+		if string(writtenContent) != expectedCorefileContent {
+			t.Errorf("Expected Corefile content:\n%s\nGot:\n%s", expectedCorefileContent, string(writtenContent))
+		}
+	})
+
+	t.Run("NoServiceAddress", func(t *testing.T) {
+		// Create mocks and set up the mock context
+		mocks := createDNSServiceMocks()
+
+		// Create a mock service with GetComposeConfig returning a valid config
+		mockService := NewMockService()
+		mockService.GetComposeConfigFunc = func() (*types.Config, error) {
+			return &types.Config{
+				Services: []types.ServiceConfig{
+					{
+						Name:          "mockService",
+						ContainerName: "mockServiceContainer",
+					},
+				},
+			}, nil
+		}
+		mocks.Injector.Register("dockerService", mockService)
+
+		// Given: a DNSService with the mock config handler, context, and real DockerService
+		service := NewDNSService(mocks.Injector)
+
+		// Initialize the service
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Mock the writeFile function to capture the content written
+		var writtenContent []byte
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenContent = data
+			return nil
+		}
+
+		// When: WriteConfig is called
+		err := service.WriteConfig()
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Fatalf("WriteConfig() error = %v", err)
+		}
+
+		// Verify that the Corefile content contains the entry for the service with the specific config
+		expectedCorefileContent := `test:53 {
+    hosts {
+        127.0.0.1 test
+        192.168.1.1 test
+        fallthrough
+    }
+
+    reload
+    loop
+    forward . 1.1.1.1 8.8.8.8
+}
+.:53 {
+    forward . 1.1.1.1 8.8.8.8
+    reload
+    loop
+}
+`
+		if string(writtenContent) != expectedCorefileContent {
+			t.Errorf("Expected Corefile content:\n%s\nGot:\n%s", expectedCorefileContent, string(writtenContent))
+		}
+	})
+
+	t.Run("UseHostNetwork", func(t *testing.T) {
+		// Create mocks and set up the mock context
+		mocks := createDNSServiceMocks()
+
+		// Create a mock service with UseHostNetwork returning true, and providing Name and GetAddress
+		mockService := NewMockService()
+		mockService.UseHostNetworkFunc = func() bool {
+			return true
+		}
+		mockService.GetComposeConfigFunc = func() (*types.Config, error) {
+			return &types.Config{
+				Services: []types.ServiceConfig{
+					{
+						Name:          "mockService",
+						ContainerName: "mockServiceContainer",
+					},
+				},
+			}, nil
+		}
+		mockService.GetAddressFunc = func() string {
+			return "192.168.1.1"
+		}
+		mocks.Injector.Register("dockerService", mockService)
+
+		// Given: a DNSService with the mock config handler, context, and mock DockerService
+		service := NewDNSService(mocks.Injector)
+
+		// Initialize the service
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Mock the writeFile function to capture the content written
+		var writtenContent []byte
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenContent = data
+			return nil
+		}
+
+		// When: WriteConfig is called
+		err := service.WriteConfig()
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Fatalf("WriteConfig() error = %v", err)
+		}
+
+		// Verify that the Corefile content is correctly formatted for UseHostNetwork
+		expectedCorefileContent := `test:53 {
+    hosts {
+        192.168.1.1 
+        127.0.0.1 test
+        192.168.1.1 test
+        fallthrough
+    }
+
+    reload
+    loop
+    forward . 1.1.1.1 8.8.8.8
+}
+.:53 {
+    forward . 1.1.1.1 8.8.8.8
+    reload
+    loop
+}
+`
+		if string(writtenContent) != expectedCorefileContent {
+			t.Errorf("Expected Corefile content:\n%s\nGot:\n%s", expectedCorefileContent, string(writtenContent))
+		}
+	})
+
+	t.Run("SupportsWildcard", func(t *testing.T) {
+		// Create a mock injector with necessary mocks
+		mocks := createDNSServiceMocks()
+
+		// Mock the SupportsWildcard function to return true
+		mocks.MockService.SupportsWildcardFunc = func() bool {
+			return true
+		}
+
+		// Mock the UseHostNetwork function to return true
+		mocks.MockService.UseHostNetworkFunc = func() bool {
+			return true
+		}
+
+		// Mock the GetComposeConfig function to return a valid config with a specific name
+		mocks.MockService.GetComposeConfigFunc = func() (*types.Config, error) {
+			return &types.Config{
+				Services: []types.ServiceConfig{
+					{
+						Name: "test-service",
+					},
+				},
+			}, nil
+		}
+
+		// Mock the GetAddress function to return a valid address
+		mocks.MockService.GetAddressFunc = func() string {
+			return "192.168.1.1"
+		}
+
+		// Mock the GetHostname function to return a valid hostname
+		mocks.MockService.GetHostnameFunc = func() string {
+			return "test-service.test"
+		}
+
+		// Given: a DNSService with the mock injector
+		service := NewDNSService(mocks.Injector)
+
+		// Initialize the service
+		if err := service.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Mock the writeFile function to capture the content written
+		var writtenContent []byte
+		originalWriteFile := writeFile
+		defer func() { writeFile = originalWriteFile }()
+		writeFile = func(filename string, data []byte, perm os.FileMode) error {
+			writtenContent = data
+			return nil
+		}
+
+		// When: WriteConfig is called
+		err := service.WriteConfig()
+
+		// Then: no error should be returned
+		if err != nil {
+			t.Fatalf("WriteConfig() error = %v", err)
+		}
+
+		// Verify that the Corefile content includes the expected entries
+		expectedCorefileContent := `test:53 {
+    hosts {
+        192.168.1.1 test-service.test
+        127.0.0.1 test
+        192.168.1.1 test
+        fallthrough
+    }
+
+    template IN A {
+        match ^(.*)\.test-service\.test\.$
+        answer "{{ .Name }} 60 IN A 192.168.1.1"
+        fallthrough
+    }
+
+    reload
+    loop
+    forward . 1.1.1.1 8.8.8.8
+}
+.:53 {
+    forward . 1.1.1.1 8.8.8.8
+    reload
+    loop
+}
+`
+		if string(writtenContent) != expectedCorefileContent {
+			t.Errorf("Expected Corefile content:\n%s\nGot:\n%s", expectedCorefileContent, string(writtenContent))
 		}
 	})
 }

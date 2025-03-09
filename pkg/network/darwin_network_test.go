@@ -360,29 +360,6 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessLocalhost", func(t *testing.T) {
-		mocks := setupDarwinNetworkManagerMocks()
-
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "docker-desktop"
-			}
-			return "some_value"
-		}
-
-		nm := NewBaseNetworkManager(mocks.Injector)
-
-		err := nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		err = nm.ConfigureDNS()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-
 	t.Run("NoDNSDomainConfigured", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
@@ -588,7 +565,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("IsLocalhostScenario", func(t *testing.T) {
+	t.Run("UseHostNetworkScenario", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
 		nm := NewBaseNetworkManager(mocks.Injector)

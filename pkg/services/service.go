@@ -38,8 +38,8 @@ type Service interface {
 	// GetHostname returns the name plus the tld from the config
 	GetHostname() string
 
-	// IsLocalhost checks if the current address is a localhost address
-	IsLocalhost() bool
+	// UseHostNetwork checks if we are running in localhost mode
+	UseHostNetwork() bool
 
 	// SupportsWildcard checks if the service supports wildcard subdomains
 	SupportsWildcard() bool
@@ -107,15 +107,10 @@ func (s *BaseService) GetHostname() string {
 	return fmt.Sprintf("%s.%s", s.name, tld)
 }
 
-// IsLocalhost checks if the current address is a localhost address
-func (s *BaseService) IsLocalhost() bool {
-	localhostAddresses := map[string]struct{}{
-		"localhost": {},
-		"127.0.0.1": {},
-		"::1":       {},
-	}
-	_, isLocalhost := localhostAddresses[s.address]
-	return isLocalhost
+// UseHostNetwork checks if the current environment is running on docker-desktop
+func (s *BaseService) UseHostNetwork() bool {
+	driver := s.configHandler.GetString("vm.driver", "")
+	return driver == "docker-desktop"
 }
 
 // SupportsWildcard checks if the service supports wildcard subdomains

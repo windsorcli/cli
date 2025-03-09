@@ -412,3 +412,34 @@ func TestMockService_SupportsWildcard(t *testing.T) {
 		}
 	})
 }
+
+func TestMockService_UseHostNetwork(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given: a mock service with a UseHostNetworkFunc
+		mockService := NewMockService()
+		mockService.UseHostNetworkFunc = func() bool {
+			return true
+		}
+
+		// When: UseHostNetwork is called
+		useHostNetwork := mockService.UseHostNetwork()
+
+		// Then: true should be returned
+		if !useHostNetwork {
+			t.Errorf("expected true, got %v", useHostNetwork)
+		}
+	})
+
+	t.Run("SuccessNoMock", func(t *testing.T) {
+		// Given: a mock service with no UseHostNetworkFunc
+		mockService := NewMockService()
+
+		// When: UseHostNetwork is called
+		useHostNetwork := mockService.UseHostNetwork()
+
+		// Then: false should be returned
+		if useHostNetwork {
+			t.Errorf("expected false, got %v", useHostNetwork)
+		}
+	})
+}
