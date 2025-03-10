@@ -87,11 +87,17 @@ func (s *WindsorStack) Up() error {
 }
 
 // executeTerraformCommand runs a Terraform command within the Windsor exec context
+// This is challenging to mock, so we're not going to test it now.
 func (s *WindsorStack) executeTerraformCommand(command, path string, args ...string) error {
 	// Select the appropriate shell based on the execution mode
 	var shellInstance shell.Shell
 	if os.Getenv("WINDSOR_EXEC_MODE") == "container" {
-		shellInstance = s.dockerShell
+		containerID, err := shell.GetWindsorExecContainerID()
+		if err != nil || containerID == "" {
+			shellInstance = s.shell
+		} else {
+			shellInstance = s.dockerShell
+		}
 	} else {
 		shellInstance = s.shell
 	}

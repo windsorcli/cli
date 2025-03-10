@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -20,6 +21,11 @@ type DockerShell struct {
 	DefaultShell
 }
 
+var (
+	cachedContainerID string
+	cacheOnce         sync.Once
+)
+
 // NewDockerShell creates a new instance of DockerShell.
 func NewDockerShell(injector di.Injector) *DockerShell {
 	return &DockerShell{
@@ -31,7 +37,7 @@ func NewDockerShell(injector di.Injector) *DockerShell {
 
 // Exec runs a command in a Docker container labeled "role=windsor_exec".
 func (s *DockerShell) Exec(command string, args ...string) (string, int, error) {
-	containerID, err := s.getWindsorExecContainerID()
+	containerID, err := GetWindsorExecContainerID()
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to get Windsor exec container ID: %w", err)
 	}
@@ -58,7 +64,7 @@ func (s *DockerShell) ExecProgress(message string, command string, args ...strin
 		return s.Exec(command, args...)
 	}
 
-	containerID, err := s.getWindsorExecContainerID()
+	containerID, err := GetWindsorExecContainerID()
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to get Windsor exec container ID: %w", err)
 	}
@@ -87,22 +93,6 @@ func (s *DockerShell) ExecProgress(message string, command string, args ...strin
 
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 	return stdout, exitCode, nil
-}
-
-// getWindsorExecContainerID retrieves the container ID of the Windsor exec container.
-func (s *DockerShell) getWindsorExecContainerID() (string, error) {
-	cmd := execCommand("docker", "ps", "--filter", "label=role=windsor_exec", "--format", "{{.ID}}")
-	output, err := cmdOutput(cmd)
-	if err != nil {
-		return "", fmt.Errorf("failed to list Docker containers: %w", err)
-	}
-
-	containerID := strings.TrimSpace(string(output))
-	if containerID == "" {
-		return "", fmt.Errorf("no Windsor exec container found")
-	}
-
-	return containerID, nil
 }
 
 // getWorkDir calculates the working directory inside the container.
@@ -161,3 +151,19 @@ func (s *DockerShell) runDockerCommand(cmdArgs []string, stdoutWriter, stderrWri
 
 // Ensure DockerShell implements the Shell interface
 var _ Shell = (*DockerShell)(nil)
+
+// GetWindsorExecContainerID retrieves the container ID of the Windsor exec container.
+func GetWindsorExecContainerID() (string, error) {
+	cacheOnce.Do(func() {
+		cmd := execCommand("docker", "ps", "--filter", "label=role=windsor_exec", "--format", "{{.ID}}")
+		output, err := cmdOutput(cmd)
+		if err != nil {
+			cachedContainerID = ""
+			return
+		}
+
+		cachedContainerID = strings.TrimSpace(string(output))
+	})
+
+	return cachedContainerID, nil
+}
