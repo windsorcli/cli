@@ -68,16 +68,13 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("DNS domain is not configured")
 	}
 
-	dnsIP := n.configHandler.GetString("dns.address")
-	if dnsIP == "" {
-		// If there's no DNS address to configure, we simply skip
-		return nil
+	dnsIP := "127.0.0.1"
+	if !n.UseHostNetwork() {
+		dnsIP = n.configHandler.GetString("dns.address")
 	}
 
-	// Prepend a "." to the domain for the namespace
 	namespace := "." + tld
 
-	// Check if the DNS rule for the host name is already set
 	checkScript := fmt.Sprintf(`
 $namespace = '%s'
 $allRules = Get-DnsClientNrptRule
@@ -103,7 +100,6 @@ if ($existingRule) {
 		return fmt.Errorf("failed to check existing DNS rules for %s: %w", tld, err)
 	}
 
-	// Add or update the DNS rule for the host name if necessary
 	if strings.TrimSpace(output) == "False" || output == "" {
 		addOrUpdateScript := fmt.Sprintf(`
 $namespace = '%s'
