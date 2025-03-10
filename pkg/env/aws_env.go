@@ -51,10 +51,18 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 
 	// Inject standard environment variables for different endpoints based on AWSConfig
-	envVars["AWS_ENDPOINT_URL"] = e.configHandler.GetString("aws.endpoint_url", "")
-	envVars["AWS_ENDPOINT_URL_S3"] = e.configHandler.GetString("aws.s3_hostname", "")
-	envVars["AWS_ENDPOINT_URL_MWAA"] = e.configHandler.GetString("aws.mwaa_endpoint", "")
-	envVars["AWS_REGION"] = e.configHandler.GetString("aws.region", "")
+	if endpointURL := e.configHandler.GetString("aws.endpoint_url", ""); endpointURL != "" {
+		envVars["AWS_ENDPOINT_URL"] = endpointURL
+	}
+	if s3Hostname := e.configHandler.GetString("aws.s3_hostname", ""); s3Hostname != "" {
+		envVars["AWS_ENDPOINT_URL_S3"] = s3Hostname
+	}
+	if mwaaEndpoint := e.configHandler.GetString("aws.mwaa_endpoint", ""); mwaaEndpoint != "" {
+		envVars["AWS_ENDPOINT_URL_MWAA"] = mwaaEndpoint
+	}
+	if region := e.configHandler.GetString("aws.region", ""); region != "" {
+		envVars["AWS_REGION"] = region
+	}
 
 	return envVars, nil
 }

@@ -35,10 +35,18 @@ func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServic
 	mockConfigHandler.SaveConfigFunc = func(path string) error { return nil }
 
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-		if key == "dns.domain" {
+		switch key {
+		case "dns.domain":
 			return "test"
+		case "aws.s3_hostname":
+			return "http://s3.aws.test:4566"
+		case "aws.mwaa_endpoint":
+			return "http://mwaa.aws.test:4566"
+		case "aws.endpoint_url":
+			return "http://aws.test:4566"
+		default:
+			return "mock-value"
 		}
-		return "mock-value"
 	}
 
 	mockShell := shell.NewMockShell()
@@ -221,6 +229,83 @@ func TestLocalstackService_SupportsWildcard(t *testing.T) {
 		expectedSupportsWildcard := true
 		if supportsWildcard != expectedSupportsWildcard {
 			t.Fatalf("expected SupportsWildcard to be %v, got %v", expectedSupportsWildcard, supportsWildcard)
+		}
+	})
+}
+
+func TestLocalstackService_SetAddress(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create mock injector with necessary mocks
+		mocks := createLocalstackServiceMocks()
+
+		// Create an instance of LocalstackService
+		localstackService := NewLocalstackService(mocks.Injector)
+
+		// Initialize the service
+		if err := localstackService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Define the address to set
+		address := "10.5.0.1"
+
+		// When: SetAddress is called
+		err := localstackService.SetAddress(address)
+		if err != nil {
+			t.Fatalf("SetAddress() error = %v", err)
+		}
+
+		// Then: the AWS configuration should be updated with the correct endpoints
+		expectedS3Hostname := "http://s3.aws.test:4566"
+		expectedMWAAEndpoint := "http://mwaa.aws.test:4566"
+		expectedEndpointURL := "http://aws.test:4566"
+
+		if s3Hostname := mocks.ConfigHandler.GetString("aws.s3_hostname", ""); s3Hostname != expectedS3Hostname {
+			t.Errorf("expected S3 hostname to be %v, got %v", expectedS3Hostname, s3Hostname)
+		}
+
+		if mwaaEndpoint := mocks.ConfigHandler.GetString("aws.mwaa_endpoint", ""); mwaaEndpoint != expectedMWAAEndpoint {
+			t.Errorf("expected MWAA endpoint to be %v, got %v", expectedMWAAEndpoint, mwaaEndpoint)
+		}
+
+		if endpointURL := mocks.ConfigHandler.GetString("aws.endpoint_url", ""); endpointURL != expectedEndpointURL {
+			t.Errorf("expected endpoint URL to be %v, got %v", expectedEndpointURL, endpointURL)
+		}
+	})
+
+	t.Run("AWSConfigNotFound", func(t *testing.T) {
+		// Create mock injector with necessary mocks
+		mocks := createLocalstackServiceMocks()
+
+		// Mock GetConfig to return nil for AWS configuration
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				AWS: nil,
+			}
+		}
+
+		// Create an instance of LocalstackService
+		localstackService := NewLocalstackService(mocks.Injector)
+
+		// Initialize the service
+		if err := localstackService.Initialize(); err != nil {
+			t.Fatalf("Initialize() error = %v", err)
+		}
+
+		// Define the address to set
+		address := "10.5.0.2"
+
+		// When: SetAddress is called
+		err := localstackService.SetAddress(address)
+
+		// Then: an error should be returned indicating AWS configuration not found
+		if err == nil {
+			t.Fatalf("expected error due to missing AWS configuration, got nil")
+		}
+
+		expectedError := "AWS configuration not found"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("expected error to contain %q, got %v", expectedError, err)
 		}
 	})
 }
