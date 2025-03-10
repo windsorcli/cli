@@ -50,6 +50,27 @@ func setupSafeAwsEnvMocks(injector ...di.Injector) *AwsEnvMocks {
 		return "test-context"
 	}
 
+	// Mock GetString method to return specific values for testing
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		switch key {
+		case "aws.profile":
+			return "default"
+		case "aws.endpoint_url":
+			return "https://aws.endpoint"
+		case "aws.s3_hostname":
+			return "s3.amazonaws.com"
+		case "aws.mwaa_endpoint":
+			return "https://mwaa.endpoint"
+		case "aws.region":
+			return "us-east-1"
+		default:
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+	}
+
 	// Create a mock Shell using its constructor
 	mockShell := shell.NewMockShell()
 
@@ -226,11 +247,15 @@ func TestAwsEnv_Print(t *testing.T) {
 
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{
-			"AWS_CONFIG_FILE": filepath.FromSlash("/mock/config/root/.aws/config"),
-			"AWS_PROFILE":     "default",
+			"AWS_CONFIG_FILE":       filepath.FromSlash("/mock/config/root/.aws/config"),
+			"AWS_PROFILE":           "default",
+			"AWS_ENDPOINT_URL":      "https://aws.endpoint",
+			"AWS_ENDPOINT_URL_S3":   "s3.amazonaws.com",
+			"AWS_ENDPOINT_URL_MWAA": "https://mwaa.endpoint",
+			"AWS_REGION":            "us-east-1",
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
-			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+			t.Errorf("capturedEnvVars = %v, got %v", expectedEnvVars, capturedEnvVars)
 		}
 	})
 

@@ -41,6 +41,11 @@ var execCmd = &cobra.Command{
 			return fmt.Errorf("Error creating environment components: %w", err)
 		}
 
+		// Create virtualization components
+		if err := controller.CreateVirtualizationComponents(); err != nil {
+			return fmt.Errorf("Error creating virtualization components: %w", err)
+		}
+
 		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)

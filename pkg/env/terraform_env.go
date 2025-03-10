@@ -188,7 +188,6 @@ func (e *TerraformEnvPrinter) generateProviderOverrideTf(projectPath string) err
 	tld := e.configHandler.GetString("dns.domain", "test")
 	fullName := service.GetName() + "." + tld
 	localstackPort := constants.DEFAULT_AWS_LOCALSTACK_PORT
-	localstackEndpoint := "http://" + fullName + ":" + localstackPort
 
 	// Determine the list of AWS services to use
 	var awsServices []string
@@ -231,7 +230,11 @@ func (e *TerraformEnvPrinter) generateProviderOverrideTf(projectPath string) err
 	endpointsBlock := providerBody.AppendNewBlock("endpoints", nil)
 	endpointsBody := endpointsBlock.Body()
 	for _, awsService := range validAwsServices {
-		endpointsBody.SetAttributeValue(awsService, cty.StringVal(localstackEndpoint))
+		if awsService == "s3" {
+			endpointsBody.SetAttributeValue(awsService, cty.StringVal("http://s3."+fullName+":"+localstackPort))
+		} else {
+			endpointsBody.SetAttributeValue(awsService, cty.StringVal("http://"+fullName+":"+localstackPort))
+		}
 	}
 
 	// Write the provider configuration to the file
