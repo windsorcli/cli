@@ -47,21 +47,21 @@ func TestWindsorStack_Up(t *testing.T) {
 
 		// Validate that the expected commands were executed
 		expectedCommands := []string{
-			"terraform init -migrate-state -upgrade",
-			"terraform plan",
+			"terraform init -migrate-state -force-copy -upgrade",
+			"terraform plan -input=false",
 			"terraform apply",
 		}
 
+		// Check that each expected command appears twice in the executed commands
 		for _, expected := range expectedCommands {
-			found := false
+			count := 0
 			for _, executed := range executedCommands {
 				if executed == expected {
-					found = true
-					break
+					count++
 				}
 			}
-			if !found {
-				t.Fatalf("Expected command %v to be executed, but it was not", expected)
+			if count != 2 {
+				t.Fatalf("Expected command %v to be executed twice, but it was executed %d times", expected, count)
 			}
 		}
 	})

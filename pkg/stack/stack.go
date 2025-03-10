@@ -6,7 +6,7 @@ import (
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
-	"github.com/windsorcli/cli/pkg/shell"
+	sh "github.com/windsorcli/cli/pkg/shell"
 )
 
 // Stack is an interface that represents a stack of components.
@@ -19,7 +19,8 @@ type Stack interface {
 type BaseStack struct {
 	injector         di.Injector
 	blueprintHandler blueprint.BlueprintHandler
-	shell            shell.Shell
+	shell            sh.Shell
+	dockerShell      sh.Shell
 	envPrinters      []env.EnvPrinter
 }
 
@@ -31,11 +32,15 @@ func NewBaseStack(injector di.Injector) *BaseStack {
 // Initialize initializes the stack of components.
 func (s *BaseStack) Initialize() error {
 	// Resolve the shell
-	shell, ok := s.injector.Resolve("shell").(shell.Shell)
+	shell, ok := s.injector.Resolve("shell").(sh.Shell)
 	if !ok {
 		return fmt.Errorf("error resolving shell")
 	}
 	s.shell = shell
+
+	// Resolve the dockerShell
+	dockerShell, _ := s.injector.Resolve("dockerShell").(sh.Shell)
+	s.dockerShell = dockerShell
 
 	// Resolve the blueprint handler
 	blueprintHandler, ok := s.injector.Resolve("blueprintHandler").(blueprint.BlueprintHandler)
