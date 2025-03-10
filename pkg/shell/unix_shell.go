@@ -51,8 +51,10 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 	// Iterate over the sorted keys and print the corresponding alias
 	for _, k := range keys {
 		if aliases[k] == "" {
-			// Print unset command if the value is an empty string
-			fmt.Printf("unalias %s\n", k)
+			// Check if the alias is already set before unaliasing
+			if _, err := execCommand("alias", k).Output(); err == nil {
+				fmt.Printf("unalias %s\n", k)
+			}
 		} else {
 			// Print alias command with the key and value
 			fmt.Printf("alias %s=\"%s\"\n", k, aliases[k])

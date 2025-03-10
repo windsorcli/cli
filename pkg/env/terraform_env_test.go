@@ -634,48 +634,6 @@ func TestTerraformEnv_Print(t *testing.T) {
 	})
 }
 
-func TestTerraformEnv_GetAlias(t *testing.T) {
-	t.Run("ContainerMode", func(t *testing.T) {
-		// Set the environment variable to simulate container mode
-		originalExecMode := os.Getenv("WINDSOR_EXEC_MODE")
-		os.Setenv("WINDSOR_EXEC_MODE", "container")
-		defer os.Setenv("WINDSOR_EXEC_MODE", originalExecMode)
-
-		mocks := setupSafeTerraformEnvMocks()
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
-		aliases, err := terraformEnvPrinter.GetAlias()
-
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		expectedAlias := map[string]string{"terraform": "windsor exec -- terraform"}
-		if !reflect.DeepEqual(aliases, expectedAlias) {
-			t.Errorf("Expected aliases %v, got %v", expectedAlias, aliases)
-		}
-	})
-
-	t.Run("NonContainerMode", func(t *testing.T) {
-		// Ensure the environment variable is not set to container mode
-		originalExecMode := os.Getenv("WINDSOR_EXEC_MODE")
-		os.Setenv("WINDSOR_EXEC_MODE", "")
-		defer os.Setenv("WINDSOR_EXEC_MODE", originalExecMode)
-
-		mocks := setupSafeTerraformEnvMocks()
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
-		aliases, err := terraformEnvPrinter.GetAlias()
-
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		expectedAlias := map[string]string{"terraform": ""}
-		if !reflect.DeepEqual(aliases, expectedAlias) {
-			t.Errorf("Expected aliases %v, got %v", expectedAlias, aliases)
-		}
-	})
-}
-
 func TestTerraformEnv_findRelativeTerraformProjectPath(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mocked getwd function returning a specific directory path

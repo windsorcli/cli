@@ -18,6 +18,7 @@ type MockSafeComponents struct {
 	BlueprintHandler *blueprint.MockBlueprintHandler
 	EnvPrinter       *env.MockEnvPrinter
 	Shell            *shell.MockShell
+	DockerShell      *shell.MockShell
 }
 
 // setupSafeMocks creates mock components for testing the stack
@@ -67,6 +68,10 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 	mockShell := shell.NewMockShell()
 	mockInjector.Register("shell", mockShell)
 
+	// Create a mock docker shell
+	mockDockerShell := shell.NewMockShell()
+	mockInjector.Register("dockerShell", mockDockerShell)
+
 	// Mock osStat and osChdir functions
 	osStat = func(_ string) (os.FileInfo, error) {
 		return nil, nil
@@ -83,6 +88,7 @@ func setupSafeMocks(injector ...di.Injector) MockSafeComponents {
 		BlueprintHandler: mockBlueprintHandler,
 		EnvPrinter:       mockEnvPrinter,
 		Shell:            mockShell,
+		DockerShell:      mockDockerShell,
 	}
 }
 

@@ -21,24 +21,24 @@ func NewWindsorEnvPrinter(injector di.Injector) *WindsorEnvPrinter {
 	return windsorEnvPrinter
 }
 
-// GetEnvVars retrieves the environment variables for the Windsor environment.
+// GetEnvVars constructs a map of environment variables for the Windsor environment,
+// including context, project root, and execution mode based on the OS.
 func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Add WINDSOR_CONTEXT to the environment variables
 	currentContext := e.configHandler.GetContext()
 	envVars["WINDSOR_CONTEXT"] = currentContext
 
-	// Get the project root and add WINDSOR_PROJECT_ROOT to the environment variables
 	projectRoot, err := e.shell.GetProjectRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving project root: %w", err)
 	}
 	envVars["WINDSOR_PROJECT_ROOT"] = projectRoot
 
-	// Set WINDSOR_EXEC_MODE to "container" if the OS is Darwin
 	if goos() == "darwin" {
-		envVars["WINDSOR_EXEC_MODE"] = "container"
+		if _, exists := envVars["WINDSOR_EXEC_MODE"]; !exists {
+			envVars["WINDSOR_EXEC_MODE"] = "container"
+		}
 	}
 
 	return envVars, nil
