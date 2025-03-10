@@ -127,19 +127,24 @@ func (s *LocalstackService) SetAddress(address string) error {
 	s3Hostname := s.configHandler.GetString("aws.s3_hostname", "")
 	if s3Hostname == "" {
 		s3Address := fmt.Sprintf("http://s3.%s:%s", fullName, port)
-		s.configHandler.SetContextValue("aws.s3_hostname", s3Address)
+		if err := s.configHandler.SetContextValue("aws.s3_hostname", s3Address); err != nil {
+			return fmt.Errorf("failed to set aws.s3_hostname: %w", err)
+		}
 	}
 
 	mwaaEndpoint := s.configHandler.GetString("aws.mwaa_endpoint", "")
 	if mwaaEndpoint == "" {
 		mwaaAddress := fmt.Sprintf("http://mwaa.%s:%s", fullName, port)
-		s.configHandler.SetContextValue("aws.mwaa_endpoint", mwaaAddress)
+		if err := s.configHandler.SetContextValue("aws.mwaa_endpoint", mwaaAddress); err != nil {
+			return fmt.Errorf("failed to set aws.mwaa_endpoint: %w", err)
+		}
 	}
-
 	endpointURL := s.configHandler.GetString("aws.endpoint_url", "")
 	if endpointURL == "" {
 		endpointAddress := fmt.Sprintf("http://%s:%s", fullName, port)
-		s.configHandler.SetContextValue("aws.endpoint_url", endpointAddress)
+		if err := s.configHandler.SetContextValue("aws.endpoint_url", endpointAddress); err != nil {
+			return fmt.Errorf("failed to set aws.endpoint_url: %w", err)
+		}
 	}
 
 	return nil

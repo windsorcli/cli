@@ -46,9 +46,10 @@ const (
 	// renovate: datasource=docker depName=localstack/localstack
 	DEFAULT_AWS_LOCALSTACK_IMAGE = "localstack/localstack:4.2.0"
 	// renovate: datasource=docker depName=localstack/localstack-pro
-	DEFAULT_AWS_LOCALSTACK_PRO_IMAGE  = "localstack/localstack-pro:4.2.0"
-	DEFAULT_AWS_REGION                = "us-east-1"
-	DEFAULT_AWS_LOCALSTACK_PORT       = "4566"
+	DEFAULT_AWS_LOCALSTACK_PRO_IMAGE = "localstack/localstack-pro:4.2.0"
+	DEFAULT_AWS_REGION               = "us-east-1"
+	DEFAULT_AWS_LOCALSTACK_PORT      = "4566"
+	// #nosec G101 -- These are development secrets and are safe to be hardcoded.
 	DEFAULT_AWS_LOCALSTACK_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE"
 	// #nosec G101 -- These are development secrets and are safe to be hardcoded.
 	DEFAULT_AWS_LOCALSTACK_SECRET_KEY = "test"
