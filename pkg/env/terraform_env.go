@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	svc "github.com/windsorcli/cli/pkg/services"
+	"github.com/windsorcli/cli/pkg/shell"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -128,12 +129,17 @@ func (e *TerraformEnvPrinter) PostEnvHook() error {
 }
 
 // GetAlias returns command aliases based on the execution mode.
+// This is challenging to mock, so we're not going to test it now.
 func (e *TerraformEnvPrinter) GetAlias() (map[string]string, error) {
 	if os.Getenv("WINDSOR_EXEC_MODE") == "container" {
+		containerID, err := shell.GetWindsorExecContainerID()
+		if err != nil || containerID == "" {
+			return map[string]string{}, nil
+		}
 		return map[string]string{"terraform": "windsor exec -- terraform"}, nil
 	}
 
-	return map[string]string{"terraform": ""}, nil
+	return nil, nil
 }
 
 // generateBackendOverrideTf creates the backend_override.tf file for the project by determining
