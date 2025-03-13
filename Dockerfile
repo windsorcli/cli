@@ -9,7 +9,7 @@ ENV AQUA_GLOBAL_CONFIG=/etc/aqua/aqua.yaml
 # renovate: datasource=github-releases depName=aquaproj/aqua-installer
 ARG AQUA_INSTALLER_VERSION=v3.1.1
 # renovate: datasource=github-releases depName=aquaproj/aqua
-ARG AQUA_VERSION=v2.45.0
+ARG AQUA_VERSION=v2.45.1
 
 # Update package index and install dependencies
 RUN apk update && apk add bash wget --no-cache wget
