@@ -1,8 +1,10 @@
 package env
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 
@@ -76,6 +78,7 @@ func (e *CustomEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 
 	re := regexp.MustCompile(secretPlaceholderPattern)
+	shellCmdRe := regexp.MustCompile(`^sh:\s*(.+)$`)
 	interpretedEnvVars := make(map[string]string, len(originalEnvVars))
 
 	currentContext := e.configHandler.GetContext()
@@ -95,12 +98,33 @@ func (e *CustomEnvPrinter) GetEnvVars() (map[string]string, error) {
 			}
 			parsedValue := e.parseAndCheckSecrets(v)
 			interpretedEnvVars[k] = parsedValue
+		} else if matches := shellCmdRe.FindStringSubmatch(v); len(matches) > 1 {
+			commandOutput, err := runShellCommand(matches[1])
+			if err != nil {
+				commandOutput = "EMPTY"
+			}
+			interpretedEnvVars[k] = commandOutput
 		} else {
 			interpretedEnvVars[k] = v
 		}
 	}
 
 	return interpretedEnvVars, nil
+}
+
+// runShellCommand executes a shell command and returns the output.
+func runShellCommand(command string) (string, error) {
+	cmd := exec.Command("sh", "-c", command)
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return "", fmt.Errorf("command failed: %s, error: %s", command, stderr.String())
+	}
+	return strings.TrimSpace(out.String()), nil
 }
 
 // parseAndCheckSecrets parses and replaces secret placeholders in the string value using the secrets provider.
