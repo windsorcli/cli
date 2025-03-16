@@ -25,7 +25,7 @@ packages:
 - name: docker/compose@v2.34.0
 - name: google/go-jsonnet@v0.20.0
 - name: mikefarah/yq@v4.45.1
-- name: goreleaser/goreleaser@v2.7.0
+- name: goreleaser/goreleaser@v2.8.1
 - name: helm/helm@v3.17.2
 - name: 1password/cli@v2.30.3
 - name: fluxcd/flux2@v2.5.1
