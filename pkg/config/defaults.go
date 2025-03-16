@@ -125,9 +125,6 @@ var DefaultConfig_Localhost = v1alpha1.Context{
 	DNS: &dns.DNSConfig{
 		Enabled: ptrBool(true),
 		Domain:  ptrString("test"),
-		Forward: []string{
-			"10.5.0.1:8053",
-		},
 	},
 }
 
@@ -150,8 +147,5 @@ var DefaultConfig_Full = v1alpha1.Context{
 	DNS: &dns.DNSConfig{
 		Enabled: ptrBool(true),
 		Domain:  ptrString("test"),
-		Forward: []string{
-			"10.5.1.1",
-		},
 	},
 }

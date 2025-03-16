@@ -106,8 +106,9 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("error executing command to list network interfaces: %w", err)
 	}
 
-	var dockerBridgeInterface string
 	interfaces := strings.Split(output, "\n")
+
+	var dockerBridgeInterface string
 	for _, iface := range interfaces {
 		if strings.HasPrefix(iface, "br-") {
 			dockerBridgeInterface = iface

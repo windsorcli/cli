@@ -43,8 +43,8 @@ type ClientConn interface {
 
 // Session interface abstracts the SSH session
 type Session interface {
-	Run(cmd string) error
-	CombinedOutput(cmd string) ([]byte, error)
+	Run(cmd string) (int, error)
+	CombinedOutput(cmd string) ([]byte, int, error)
 	SetStdout(w io.Writer)
 	SetStderr(w io.Writer)
 	Close() error
