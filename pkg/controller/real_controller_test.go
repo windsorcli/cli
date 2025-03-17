@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/secrets"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 func TestNewRealController(t *testing.T) {
@@ -164,12 +167,17 @@ func TestRealController_CreateSecretsProviders(t *testing.T) {
 			if key == "contexts.mock-context.secrets.onepassword.vaults" {
 				return map[string]secretsConfigType.OnePasswordVault{
 					"vault1": {ID: "vault1"},
+					"vault2": {ID: "vault2"},
 				}
 			}
 			return nil
 		}
 		injector.Register("configHandler", mockConfigHandler)
 		controller.configHandler = mockConfigHandler
+
+		// Create a mock shell instance and register it with the injector
+		mockShell := shell.NewMockShell()
+		injector.Register("shell", mockShell)
 
 		// Initialize the controller
 		if err := controller.Initialize(); err != nil {
@@ -184,11 +192,17 @@ func TestRealController_CreateSecretsProviders(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// And the OnePassword secrets provider should be registered
-		if provider := injector.Resolve("opVault1SecretsProvider"); provider == nil {
-			t.Fatalf("expected opVault1SecretsProvider to be registered, got error")
-		} else {
-			t.Logf("Success: opVault1SecretsProvider registered: %v", provider)
+		// Validate the presence of vault1 and vault2
+		for _, vaultID := range []string{"vault1", "vault2"} {
+			providerName := "op" + strings.ToUpper(vaultID[:1]) + vaultID[1:] + "SecretsProvider"
+			if provider := injector.Resolve(providerName); provider == nil {
+				t.Fatalf("expected %s to be registered, got error", providerName)
+			} else {
+				// Validate the provider by checking if it can be initialized
+				if err := provider.(secrets.SecretsProvider).Initialize(); err != nil {
+					t.Fatalf("expected %s to be initialized without error, got %v", providerName, err)
+				}
+			}
 		}
 	})
 }
