@@ -265,7 +265,6 @@ func (c *RealController) CreateSecretsProviders() error {
 			sopsSecretsProvider := secrets.NewSopsSecretsProvider(configRoot, c.injector)
 			c.injector.Register("sopsSecretsProvider", sopsSecretsProvider)
 			c.configHandler.SetSecretsProvider(sopsSecretsProvider)
-			break
 		}
 	}
 
@@ -276,7 +275,6 @@ func (c *RealController) CreateSecretsProviders() error {
 			opSecretsProvider := secrets.NewOnePasswordCLISecretsProvider(vault, c.injector)
 			c.injector.Register(fmt.Sprintf("op%sSecretsProvider", strings.ToUpper(key[:1])+key[1:]), opSecretsProvider)
 			c.configHandler.SetSecretsProvider(opSecretsProvider)
-			break
 		}
 	}
 
