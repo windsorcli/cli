@@ -49,7 +49,7 @@ func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
 // ParseSecrets identifies and replaces ${{ op.<id>.<secret>.<field> }} patterns in the input
 // with corresponding secret values from 1Password, ensuring the id matches the vault ID.
 func (s *OnePasswordCLISecretsProvider) ParseSecrets(input string) (string, error) {
-	opPattern := `(?i)\${{\s*op\.\s*([^}]+)\s*}}`
+	opPattern := `(?i)\${{\s*op(?:\.|\[)?\s*([^}]+)\s*}}`
 	re := regexp.MustCompile(opPattern)
 
 	input = re.ReplaceAllStringFunc(input, func(match string) string {
