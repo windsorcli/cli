@@ -31,7 +31,7 @@ jobs:
       - name: Install Aqua
         uses: aquaproj/aqua-installer@e2d0136abcf70b7a2f6f505720640750557c4b33 # v3.1.1
         with:
-          aqua_version: v2.45.0
+          aqua_version: v2.45.1
 
       - name: Install tools
         run: aqua install
@@ -84,7 +84,7 @@ jobs:
       - name: Install Aqua
         uses: aquaproj/aqua-installer@e2d0136abcf70b7a2f6f505720640750557c4b33 # v3.1.1
         with:
-          aqua_version: v2.45.0
+          aqua_version: v2.45.1
 
       - name: Install tools
         run: aqua install
@@ -125,7 +125,7 @@ jobs:
       - name: Install Aqua
         uses: aquaproj/aqua-installer@e2d0136abcf70b7a2f6f505720640750557c4b33 # v3.1.1
         with:
-          aqua_version: v2.45.0
+          aqua_version: v2.45.1
 
       - name: Install tools
         run: aqua install
@@ -181,7 +181,7 @@ jobs:
 
       - name: Log in to GitHub Container Registry
         if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

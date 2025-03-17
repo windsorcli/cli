@@ -22,7 +22,7 @@ const (
 // Default Talos settings
 const (
 	// renovate: datasource=docker depName=ghcr.io/siderolabs/talos
-	DEFAULT_TALOS_IMAGE             = "ghcr.io/siderolabs/talos:v1.9.4"
+	DEFAULT_TALOS_IMAGE             = "ghcr.io/siderolabs/talos:v1.9.5"
 	DEFAULT_TALOS_WORKER_CPU        = 4
 	DEFAULT_TALOS_WORKER_RAM        = 4
 	DEFAULT_TALOS_CONTROL_PLANE_CPU = 2

@@ -277,6 +277,40 @@ func TestOnePasswordCLISecretsProvider_ParseSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("DoesNotProcessMismatchedVaultID", func(t *testing.T) {
+		vault := secretsConfigType.OnePasswordVault{
+			URL:  "https://example.1password.com",
+			Name: "ExampleVault",
+			ID:   "exampleVaultID",
+		}
+
+		// Setup mocks
+		mocks := setupOnePasswordCLISecretsProviderMocks()
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
+
+		// Set the provider as unlocked
+		provider.unlocked = true
+
+		// Initialize the provider
+		err := provider.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Test with a secret that should not be processed due to ID mismatch
+		input := "This is a secret: ${{ op.differentVaultID.secretName.fieldName }}"
+		expectedOutput := "This is a secret: ${{ op.differentVaultID.secretName.fieldName }}"
+
+		output, err := provider.ParseSecrets(input)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if output != expectedOutput {
+			t.Errorf("expected %q, got %q", expectedOutput, output)
+		}
+	})
+
 	t.Run("ReturnsErrorForEmptySecret", func(t *testing.T) {
 		vault := secretsConfigType.OnePasswordVault{
 			URL:  "https://example.1password.com",
