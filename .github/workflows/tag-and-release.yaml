@@ -21,7 +21,7 @@ jobs:
           ref: release-process
 
       - name: Run Tag and Release Action
-        uses: windsorcli/windsortest/.github/actions/tag-and-release@release-process
+        uses: windsorcli/blueprint/.github/actions/tag-and-release@release-process
         with:
           release: ${{ inputs.release }}
           token: ${{ secrets.GH_TOKEN }}

@@ -25,7 +25,7 @@ jobs:
           ref: release-process
 
       - name: Run Create Release Branch Action
-        uses: windsorcli/windsortest/.github/actions/create-release-branch@release-process
+        uses: windsorcli/blueprint/.github/actions/create-release-branch@release-process
         with:
           src_branch: ${{ inputs.src_branch }}
           release: ${{ inputs.release }}

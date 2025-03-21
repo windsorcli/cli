@@ -19,7 +19,7 @@ jobs:
         ref: release-process
       
     - name: Run Integration Test Action
-      uses: windsorcli/windsortest/.github/actions/run-integration-test@release-process
+      uses: windsorcli/blueprint/.github/actions/run-integration-test@release-process
       with:
         release: ${{ inputs.release }}   
         token: ${{ secrets.GH_TOKEN }}  
