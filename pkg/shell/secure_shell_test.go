@@ -29,8 +29,8 @@ func setSafeSecureShellMocks(injector ...di.Injector) struct {
 	}
 
 	mockSession := &ssh.MockSession{
-		RunFunc: func(cmd string) error {
-			return nil
+		RunFunc: func(cmd string) (int, error) {
+			return 0, nil
 		},
 		SetStdoutFunc: func(w io.Writer) {
 			w.Write([]byte("command output"))
@@ -112,11 +112,11 @@ func TestSecureShell_Exec(t *testing.T) {
 		mocks := setSafeSecureShellMocks()
 		mocks.ClientConn.NewSessionFunc = func() (ssh.Session, error) {
 			return &ssh.MockSession{
-				RunFunc: func(cmd string) error {
+				RunFunc: func(cmd string) (int, error) {
 					if cmd != command+" "+strings.Join(args, " ") {
-						return fmt.Errorf("unexpected command: %s", cmd)
+						return 1, fmt.Errorf("unexpected command: %s", cmd)
 					}
-					return nil
+					return 0, nil
 				},
 				SetStdoutFunc: func(w io.Writer) {
 					w.Write([]byte(expectedOutput))
@@ -144,8 +144,8 @@ func TestSecureShell_Exec(t *testing.T) {
 		mocks := setSafeSecureShellMocks()
 		mocks.ClientConn.NewSessionFunc = func() (ssh.Session, error) {
 			return &ssh.MockSession{
-				RunFunc: func(cmd string) error {
-					return fmt.Errorf("command execution failed")
+				RunFunc: func(cmd string) (int, error) {
+					return 1, fmt.Errorf("command execution failed")
 				},
 				SetStdoutFunc: func(w io.Writer) {},
 				SetStderrFunc: func(w io.Writer) {
@@ -212,11 +212,11 @@ func TestSecureShell_Exec(t *testing.T) {
 		mocks := setSafeSecureShellMocks()
 		mocks.ClientConn.NewSessionFunc = func() (ssh.Session, error) {
 			return &ssh.MockSession{
-				RunFunc: func(cmd string) error {
+				RunFunc: func(cmd string) (int, error) {
 					if cmd != command+" "+strings.Join(args, " ") {
-						return fmt.Errorf("unexpected command: %s", cmd)
+						return 1, fmt.Errorf("unexpected command: %s", cmd)
 					}
-					return nil
+					return 0, nil
 				},
 				SetStdoutFunc: func(w io.Writer) {
 					w.Write([]byte(expectedOutput))

@@ -77,12 +77,26 @@ type RealSession struct {
 	session *gossh.Session
 }
 
-func (s *RealSession) Run(cmd string) error {
-	return s.session.Run(cmd)
+func (s *RealSession) Run(cmd string) (int, error) {
+	err := s.session.Run(cmd)
+	if err != nil {
+		if exitErr, ok := err.(*gossh.ExitError); ok {
+			return exitErr.ExitStatus(), nil
+		}
+		return 1, err
+	}
+	return 0, nil
 }
 
-func (s *RealSession) CombinedOutput(cmd string) ([]byte, error) {
-	return s.session.CombinedOutput(cmd)
+func (s *RealSession) CombinedOutput(cmd string) ([]byte, int, error) {
+	output, err := s.session.CombinedOutput(cmd)
+	if err != nil {
+		if exitErr, ok := err.(*gossh.ExitError); ok {
+			return output, exitErr.ExitStatus(), nil
+		}
+		return output, 1, err
+	}
+	return output, 0, nil
 }
 
 func (s *RealSession) SetStdout(w io.Writer) {
