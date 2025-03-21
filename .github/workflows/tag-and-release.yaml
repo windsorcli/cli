@@ -1,4 +1,4 @@
-name: 'Test and Release'
+name: 'Tag and Release'
 
 on:
   workflow_dispatch:
@@ -21,7 +21,7 @@ jobs:
           ref: release-process
 
       - name: Run Test and Release Action
-        uses: windsorcli/windsortest/.github/actions/test-and-release@release-process
+        uses: windsorcli/windsortest/.github/actions/tag-and-release@release-process
         with:
           release: ${{ inputs.release }}
           token: ${{ secrets.GH_TOKEN }}
