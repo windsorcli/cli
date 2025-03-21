@@ -1,0 +1,27 @@
+name: 'Run Integration Test'
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Release Branch: [latest, release-x.y.z, x.y.z]'
+        required: false
+        default: 'latest'
+
+jobs:
+  run-integration-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout main branch
+      uses: actions/checkout@v2
+      with:
+        # ref: main
+        ref: release-process
+      
+    - name: Run Integration Test Action
+      uses: windsorcli/windsortest/.github/actions/run-integration-test@release-process
+      with:
+        release: ${{ inputs.release }}   
+        token: ${{ secrets.GH_TOKEN }}  
+
+  
