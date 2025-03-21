@@ -11,6 +11,8 @@ on:
 jobs:
   run-integration-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - name: Checkout main branch
       uses: actions/checkout@v2
