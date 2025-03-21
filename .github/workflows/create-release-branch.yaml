@@ -8,10 +8,10 @@ on:
         required: false
         default: 'main'
       release:
-        description: 'Release Branch'
+        description: 'Release Branch: [latest, release-x.y.z, x.y.z]'
         required: false
         default: 'latest'
-
+  
 jobs:
   create-release-branch:
     runs-on: ubuntu-latest
