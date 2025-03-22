@@ -1,0 +1,31 @@
+name: 'Create Release Branch'
+
+on:
+  workflow_dispatch:
+    inputs:
+      src_branch:
+        description: 'Source Branch'
+        required: false
+        default: 'main'
+      release:
+        description: 'Release Branch'
+        required: false
+        default: 'latest'
+
+jobs:
+  create-release-branch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v2
+        with:
+          ref: main
+
+      - name: Run Create Release Branch Action
+        uses: windsorcli/blueprint/.github/actions/create-release-branch@release-process
+        with:
+          src_branch: ${{ inputs.src_branch }}
+          release: ${{ inputs.release }}
+          token: ${{ secrets.GH_TOKEN }}

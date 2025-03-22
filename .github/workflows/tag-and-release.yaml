@@ -1,0 +1,27 @@
+name: 'Tag and Release'
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Release Branch: [latest, release-x.y.z, x.y.z]'
+        required: false
+        default: 'latest'
+
+jobs:
+  tag-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v2
+        with:
+          # ref: main
+          ref: release-process
+
+      - name: Run Tag and Release Action
+        uses: windsorcli/blueprint/.github/actions/tag-and-release@release-process
+        with:
+          release: ${{ inputs.release }}
+          token: ${{ secrets.GH_TOKEN }}

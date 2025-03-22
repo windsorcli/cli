@@ -1,0 +1,30 @@
+name: 'Deploy Docs'
+
+on:
+  workflow_dispatch:
+    inputs:
+      src_branch:
+        description: 'Source Branch'
+        required: false
+        default: 'main'
+      docs:
+        description: 'Docs Branch: [latest, docs-x.y.z]'
+        required: false
+        default: 'latest'
+  
+jobs:
+  deploy-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v2
+        with:
+          ref: main
+
+      - name: Run Deploy Docs Action
+        uses: windsorcli/blueprint/.github/actions/deploy-docs@release-process
+        with:
+          docs: ${{ inputs.docs }}
+          token: ${{ secrets.GH_TOKEN }}
