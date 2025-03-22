@@ -101,7 +101,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	_, _, err = n.shell.ExecSudo(
-		fmt.Sprintf("🔐 Configuring DNS resolver at %s\n", resolverFile),
+		fmt.Sprintf("🔐 Configuring DNS resolver at %s", resolverFile),
 		"mv",
 		tempResolverFile,
 		resolverFile,

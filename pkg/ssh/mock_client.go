@@ -68,25 +68,25 @@ func (m *MockClientConn) Close() error {
 
 // MockSession is the mock implementation of the Session interface
 type MockSession struct {
-	RunFunc            func(cmd string) error
-	CombinedOutputFunc func(cmd string) ([]byte, error)
+	RunFunc            func(cmd string) (int, error)
+	CombinedOutputFunc func(cmd string) ([]byte, int, error)
 	SetStdoutFunc      func(w io.Writer)
 	SetStderrFunc      func(w io.Writer)
 	CloseFunc          func() error
 }
 
-func (m *MockSession) Run(cmd string) error {
+func (m *MockSession) Run(cmd string) (int, error) {
 	if m.RunFunc != nil {
 		return m.RunFunc(cmd)
 	}
-	return nil
+	return 0, nil
 }
 
-func (m *MockSession) CombinedOutput(cmd string) ([]byte, error) {
+func (m *MockSession) CombinedOutput(cmd string) ([]byte, int, error) {
 	if m.CombinedOutputFunc != nil {
 		return m.CombinedOutputFunc(cmd)
 	}
-	return []byte("mock output"), nil
+	return []byte("mock output"), 0, nil
 }
 
 func (m *MockSession) SetStdout(w io.Writer) {
