@@ -1,4 +1,4 @@
-name: 'Create Release Branch'
+name: 'Deploy Docs'
 
 on:
   workflow_dispatch:
@@ -7,13 +7,13 @@ on:
         description: 'Source Branch'
         required: false
         default: 'main'
-      release:
-        description: 'Release Branch'
+      docs:
+        description: 'Docs Branch: [latest, docs-x.y.z]'
         required: false
         default: 'latest'
-
+  
 jobs:
-  create-release-branch:
+  deploy-docs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -23,9 +23,8 @@ jobs:
         with:
           ref: main
 
-      - name: Run Create Release Branch Action
-        uses: windsorcli/blueprint/.github/actions/create-release-branch@release-process
+      - name: Run Deploy Docs Action
+        uses: windsorcli/blueprint/.github/actions/deploy-docs@release-process
         with:
-          src_branch: ${{ inputs.src_branch }}
-          release: ${{ inputs.release }}
+          docs: ${{ inputs.docs }}
           token: ${{ secrets.GH_TOKEN }}
