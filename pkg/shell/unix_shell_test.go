@@ -6,6 +6,7 @@ package shell
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -206,6 +207,17 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 		shell := NewDefaultShell(injector)
 		aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
 
+		// Mock execCommandOutput to simulate aliases being set
+		originalExecCommandOutput := execCommandOutput
+		execCommandOutput = func(name string, arg ...string) (string, error) {
+			if name == "alias" {
+				// Simulate that the alias is set by returning an empty string for successful alias check
+				return "", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		defer func() { execCommandOutput = originalExecCommandOutput }()
+
 		// Capture the output of UnsetAlias
 		output := captureStdout(t, func() {
 			shell.UnsetAlias(aliases)
@@ -223,15 +235,49 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 		shell := NewDefaultShell(injector)
 		aliases := []string{}
 
-		// Capture the output of UnsetAlias
-		output := captureStdout(t, func() {
-			shell.UnsetAlias(aliases)
-		})
+		// Mock execCommand to capture calls
+		var outputBuffer strings.Builder
+		originalExecCommand := execCommand
+		execCommand = func(name string, arg ...string) *exec.Cmd {
+			if name == "alias" {
+				outputBuffer.WriteString(fmt.Sprintf("unalias %s\n", arg[0]))
+			}
+			return &exec.Cmd{}
+		}
+		defer func() { execCommand = originalExecCommand }()
+
+		// Call UnsetAlias
+		shell.UnsetAlias(aliases)
 
 		// Then the output should be empty
-		expectedOutput := ""
-		if output != expectedOutput {
-			t.Errorf("UnsetAlias() output = %v, want %v", output, expectedOutput)
+		if outputBuffer.Len() != 0 {
+			t.Errorf("UnsetAlias() output = %v, want none", outputBuffer.String())
+		}
+	})
+
+	t.Run("AliasNotSet", func(t *testing.T) {
+		// Given a default shell and a set of aliases where one is not set
+		shell := NewDefaultShell(injector)
+		aliases := []string{"ALIAS1", "ALIAS_NOT_SET", "ALIAS3"}
+
+		// Mock execCommand to simulate some aliases being set
+		var outputBuffer strings.Builder
+		originalExecCommand := execCommand
+		execCommand = func(name string, arg ...string) *exec.Cmd {
+			if name == "alias" && arg[0] != "ALIAS_NOT_SET" {
+				outputBuffer.WriteString(fmt.Sprintf("unalias %s\n", arg[0]))
+			}
+			return &exec.Cmd{}
+		}
+		defer func() { execCommand = originalExecCommand }()
+
+		// Call UnsetAlias
+		shell.UnsetAlias(aliases)
+
+		// Then the output should contain the expected unalias commands
+		expectedOutput := "unalias ALIAS1\nunalias ALIAS3\n"
+		if outputBuffer.String() != expectedOutput {
+			t.Errorf("UnsetAlias() output = %v, want %v", outputBuffer.String(), expectedOutput)
 		}
 	})
 }

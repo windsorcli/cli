@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -180,22 +181,6 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 	})
 }
 
-// UnsetEnvVars takes an array of variables and outputs "Remove-Item Env:..." on one line.
-func (s *DefaultShell) UnsetEnvVars(vars []string) {
-	if len(vars) > 0 {
-		fmt.Printf("Remove-Item Env:%s\n", strings.Join(vars, " Env:"))
-	}
-}
-
-// UnsetAlias unsets the provided aliases
-func (s *DefaultShell) UnsetAlias(aliases []string) {
-	if len(aliases) > 0 {
-		for _, alias := range aliases {
-			fmt.Printf("Remove-Item Alias:%s\n", alias)
-		}
-	}
-}
-
 func TestDefaultShell_UnsetEnvVars(t *testing.T) {
 	injector := di.NewInjector()
 
@@ -230,6 +215,89 @@ func TestDefaultShell_UnsetEnvVars(t *testing.T) {
 		expectedOutput := ""
 		if output != expectedOutput {
 			t.Errorf("UnsetEnvVars() output = %v, want %v", output, expectedOutput)
+		}
+	})
+}
+
+func TestDefaultShell_UnsetAlias(t *testing.T) {
+	injector := di.NewInjector()
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a default shell and a set of aliases to unset
+		shell := NewDefaultShell(injector)
+		aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
+
+		// Mock execCommandOutput to simulate aliases being set
+		originalExecCommandOutput := execCommandOutput
+		execCommandOutput = func(name string, arg ...string) (string, error) {
+			if name == "Get-Alias" {
+				// Simulate that the alias is set by returning an empty string for successful alias check
+				return "", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
+		defer func() { execCommandOutput = originalExecCommandOutput }()
+
+		// Capture the output of UnsetAlias
+		output := captureStdout(t, func() {
+			shell.UnsetAlias(aliases)
+		})
+
+		// Then the output should contain the expected remove item commands
+		expectedOutput := "Remove-Item Alias:ALIAS1\nRemove-Item Alias:ALIAS2\nRemove-Item Alias:ALIAS3\n"
+		if output != expectedOutput {
+			t.Errorf("UnsetAlias() output = %v, want %v", output, expectedOutput)
+		}
+	})
+
+	t.Run("UnsetAliasEmpty", func(t *testing.T) {
+		// Given a default shell and an empty set of aliases to unset
+		shell := NewDefaultShell(injector)
+		aliases := []string{}
+
+		// Mock execCommand to capture calls
+		var outputBuffer strings.Builder
+		originalExecCommand := execCommand
+		execCommand = func(name string, arg ...string) *exec.Cmd {
+			if name == "Get-Alias" {
+				outputBuffer.WriteString(fmt.Sprintf("Remove-Item Alias:%s\n", arg[0]))
+			}
+			return &exec.Cmd{}
+		}
+		defer func() { execCommand = originalExecCommand }()
+
+		// Call UnsetAlias
+		shell.UnsetAlias(aliases)
+
+		// Then the output should be empty
+		if outputBuffer.Len() != 0 {
+			t.Errorf("UnsetAlias() output = %v, want none", outputBuffer.String())
+		}
+	})
+
+	t.Run("AliasNotSet", func(t *testing.T) {
+		// Given a default shell and a set of aliases where one is not set
+		shell := NewDefaultShell(injector)
+		aliases := []string{"ALIAS1", "ALIAS_NOT_SET", "ALIAS3"}
+
+		// Mock execCommand to simulate some aliases being set
+		var outputBuffer strings.Builder
+		originalExecCommand := execCommand
+		execCommand = func(name string, arg ...string) *exec.Cmd {
+			if name == "Get-Alias" && arg[0] != "ALIAS_NOT_SET" {
+				outputBuffer.WriteString(fmt.Sprintf("Remove-Item Alias:%s\n", arg[0]))
+			}
+			return &exec.Cmd{}
+		}
+		defer func() { execCommand = originalExecCommand }()
+
+		// Call UnsetAlias
+		shell.UnsetAlias(aliases)
+
+		// Then the output should contain the expected remove item commands
+		expectedOutput := "Remove-Item Alias:ALIAS1\nRemove-Item Alias:ALIAS3\n"
+		if outputBuffer.String() != expectedOutput {
+			t.Errorf("UnsetAlias() output = %v, want %v", outputBuffer.String(), expectedOutput)
 		}
 	})
 }

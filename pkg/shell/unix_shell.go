@@ -69,7 +69,7 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 	for _, k := range keys {
 		if aliases[k] == "" {
 			// Check if the alias is already set before unaliasing
-			if _, err := execCommand("alias", k).Output(); err == nil {
+			if _, err := execCommandOutput("alias", k); err == nil {
 				fmt.Printf("unalias %s\n", k)
 			}
 		} else {
@@ -84,7 +84,10 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 func (s *DefaultShell) UnsetAlias(aliases []string) {
 	if len(aliases) > 0 {
 		for _, alias := range aliases {
-			fmt.Printf("unalias %s\n", alias)
+			// Check if the alias is already set before unaliasing
+			if _, err := execCommandOutput("alias", alias); err == nil {
+				fmt.Printf("unalias %s\n", alias)
+			}
 		}
 	}
 }

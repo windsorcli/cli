@@ -2,7 +2,6 @@ package env
 
 import (
 	"fmt"
-	"maps"
 	"os"
 	"regexp"
 	"strings"
@@ -67,19 +66,8 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 	envVars["WINDSOR_PROJECT_ROOT"] = projectRoot
 
-	// On Darwin, set execution mode to "container" if not already defined.
-	if goos() == "darwin" {
-		if _, exists := envVars["WINDSOR_EXEC_MODE"]; !exists {
-			envVars["WINDSOR_EXEC_MODE"] = "container"
-		}
-	}
-
 	// Merge additional environment variables from the configuration.
 	originalEnvVars := e.configHandler.GetStringMap("environment")
-	if originalEnvVars == nil {
-		originalEnvVars = make(map[string]string)
-	}
-
 	re := regexp.MustCompile(secretPlaceholderPattern)
 	for k, v := range originalEnvVars {
 		// If the value contains secret placeholders, resolve them.
@@ -98,17 +86,19 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	// Merge any previously printed environment variables.
-	mu.Lock()
-	maps.Copy(envVars, printedEnvVars)
-	mu.Unlock()
-
 	// Build the WINDSOR_MANAGED_ENV variable as a comma-separated list of managed keys.
-	managedEnvKeys := []string{"WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_EXEC_MODE"}
+	managedEnvKeys := []string{"WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_EXEC_MODE", "WINDSOR_MANAGED_ENV", "WINDSOR_MANAGED_ALIASES"}
 	for key := range printedEnvVars {
 		managedEnvKeys = append(managedEnvKeys, key)
 	}
 	envVars["WINDSOR_MANAGED_ENV"] = strings.Join(managedEnvKeys, ",")
+
+	// Build the WINDSOR_MANAGED_ALIASES variable as a comma-separated list of managed keys.
+	managedAliasesKeys := []string{}
+	for key := range printedAliases {
+		managedAliasesKeys = append(managedAliasesKeys, key)
+	}
+	envVars["WINDSOR_MANAGED_ALIASES"] = strings.Join(managedAliasesKeys, ",")
 
 	return envVars, nil
 }

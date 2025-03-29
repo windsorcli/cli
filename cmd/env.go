@@ -17,9 +17,28 @@ var envCmd = &cobra.Command{
 
 		// Check if current directory is in the trusted list
 		shell := controller.ResolveShell()
+
+		// Reset the shell to ensure it's in a clean state
+		if err := shell.Reset(); err != nil {
+			if verbose {
+				return fmt.Errorf("Error executing Reset: %w", err)
+			}
+			return nil
+		}
+
+		// Check if the directory is trusted and has a windsor.yaml in its ancestry
 		if err := shell.CheckTrustedDirectory(); err != nil {
 			if verbose {
 				return fmt.Errorf("Error checking trusted directory: %w", err)
+			}
+			return nil
+		}
+
+		// Get the project root
+		projectRoot, err := shell.GetProjectRoot()
+		if err != nil || projectRoot == "" {
+			if verbose {
+				return fmt.Errorf("Error finding windsor.yaml in directory ancestry: %w", err)
 			}
 			return nil
 		}

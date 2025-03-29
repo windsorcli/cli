@@ -111,3 +111,9 @@ var hookTemplateExecute = func(tmpl *template.Template, wr io.Writer, data inter
 
 // filepathRel is a variable that points to filepath.Rel, allowing it to be overridden in tests
 var filepathRel = filepath.Rel
+
+// execCommandOutput is a shim for execCommand().Output, allowing it to be overridden in tests
+var execCommandOutput = func(name string, arg ...string) (string, error) {
+	cmd := execCommand(name, arg...)
+	return cmdOutput(cmd)
+}

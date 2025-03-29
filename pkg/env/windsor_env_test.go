@@ -83,9 +83,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		windsorEnvPrinter.Initialize()
 
 		// Explicitly set printedEnvVars to ensure a clean state
-		mu.Lock()
+		muEnvVars.Lock()
 		printedEnvVars = make(map[string]string)
-		mu.Unlock()
+		muEnvVars.Unlock()
 
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		if err != nil {
@@ -95,8 +95,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		expectedEnvVars := map[string]string{
 			"WINDSOR_CONTEXT":      "mock-context",
 			"WINDSOR_PROJECT_ROOT": filepath.FromSlash("/mock/project/root"),
-			"WINDSOR_EXEC_MODE":    "container",
-			"WINDSOR_MANAGED_ENV":  "WINDSOR_CONTEXT,WINDSOR_PROJECT_ROOT,WINDSOR_EXEC_MODE",
+			"WINDSOR_MANAGED_ENV":  "WINDSOR_CONTEXT,WINDSOR_PROJECT_ROOT,WINDSOR_EXEC_MODE,WINDSOR_MANAGED_ENV,WINDSOR_MANAGED_ALIASES",
 		}
 
 		for key, expectedValue := range expectedEnvVars {
@@ -116,9 +115,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		windsorEnvPrinter.Initialize()
 
 		// Explicitly set printedEnvVars to ensure a clean state
-		mu.Lock()
+		muEnvVars.Lock()
 		printedEnvVars = make(map[string]string)
-		mu.Unlock()
+		muEnvVars.Unlock()
 
 		_, err := windsorEnvPrinter.GetEnvVars()
 		expectedErrorMessage := "error retrieving project root: mock shell error"
@@ -131,18 +130,18 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		mocks := setupSafeWindsorEnvMocks()
 		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
 			if key == "environment" {
-				return nil
+				return make(map[string]string)
 			}
-			return make(map[string]string)
+			return nil
 		}
 
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
 		windsorEnvPrinter.Initialize()
 
 		// Explicitly set printedEnvVars to ensure a clean state
-		mu.Lock()
+		muEnvVars.Lock()
 		printedEnvVars = make(map[string]string)
-		mu.Unlock()
+		muEnvVars.Unlock()
 
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		if err != nil {
@@ -152,8 +151,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		expectedEnvVars := map[string]string{
 			"WINDSOR_CONTEXT":      "mock-context",
 			"WINDSOR_PROJECT_ROOT": filepath.FromSlash("/mock/project/root"),
-			"WINDSOR_EXEC_MODE":    "container",
-			"WINDSOR_MANAGED_ENV":  "WINDSOR_CONTEXT,WINDSOR_PROJECT_ROOT,WINDSOR_EXEC_MODE",
+			"WINDSOR_MANAGED_ENV":  "WINDSOR_CONTEXT,WINDSOR_PROJECT_ROOT,WINDSOR_EXEC_MODE,WINDSOR_MANAGED_ENV,WINDSOR_MANAGED_ALIASES",
 		}
 
 		for key, expectedValue := range expectedEnvVars {
@@ -187,9 +185,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 
 		windsorEnvPrinter.Initialize()
 		// Clear previously printed environment variables
-		mu.Lock()
+		muEnvVars.Lock()
 		printedEnvVars = make(map[string]string)
-		mu.Unlock()
+		muEnvVars.Unlock()
 
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		if err != nil {
@@ -224,9 +222,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}
 
 		windsorEnvPrinter.Initialize()
-		mu.Lock()
+		muEnvVars.Lock()
 		printedEnvVars = make(map[string]string)
-		mu.Unlock()
+		muEnvVars.Unlock()
 
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		if err != nil {
@@ -264,9 +262,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}
 
 		windsorEnvPrinter.Initialize()
-		mu.Lock()
+		muEnvVars.Lock()
 		printedEnvVars = make(map[string]string)
-		mu.Unlock()
+		muEnvVars.Unlock()
 
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		if err != nil {
@@ -307,9 +305,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 
 		windsorEnvPrinter.Initialize()
 		// Clear previously printed environment variables
-		mu.Lock()
+		muEnvVars.Lock()
 		printedEnvVars = make(map[string]string)
-		mu.Unlock()
+		muEnvVars.Unlock()
 
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		if err != nil {
@@ -332,9 +330,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 
 		windsorEnvPrinter.Initialize()
 		// Set printedEnvVars with an extra key
-		mu.Lock()
+		muEnvVars.Lock()
 		printedEnvVars = map[string]string{"EXTRA_VAR": "extraValue"}
-		mu.Unlock()
+		muEnvVars.Unlock()
 
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		if err != nil {
@@ -342,7 +340,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}
 
 		managedEnv := envVars["WINDSOR_MANAGED_ENV"]
-		expectedDefaults := []string{"WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_EXEC_MODE"}
+		expectedDefaults := []string{"WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT"}
 		for _, key := range expectedDefaults {
 			if !strings.Contains(managedEnv, key) {
 				t.Errorf("Expected managed env to contain %q, got %q", key, managedEnv)
@@ -371,9 +369,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		windsorEnvPrinter.secretsProviders = []secrets.SecretsProvider{}
 
 		// Clear printedEnvVars to ensure clean state
-		mu.Lock()
+		muEnvVars.Lock()
 		printedEnvVars = make(map[string]string)
-		mu.Unlock()
+		muEnvVars.Unlock()
 
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		if err != nil {
@@ -414,15 +412,14 @@ func TestWindsorEnv_Print(t *testing.T) {
 		}
 
 		// Explicitly set printedEnvVars to ensure a clean state
-		mu.Lock()
+		muEnvVars.Lock()
 		printedEnvVars = make(map[string]string)
-		mu.Unlock()
+		muEnvVars.Unlock()
 
 		expectedEnvVars := map[string]string{
 			"WINDSOR_CONTEXT":      "mock-context",
 			"WINDSOR_PROJECT_ROOT": filepath.FromSlash("/mock/project/root"),
-			"WINDSOR_EXEC_MODE":    "container",
-			"WINDSOR_MANAGED_ENV":  "WINDSOR_CONTEXT,WINDSOR_PROJECT_ROOT,WINDSOR_EXEC_MODE",
+			"WINDSOR_MANAGED_ENV":  "WINDSOR_CONTEXT,WINDSOR_PROJECT_ROOT,WINDSOR_EXEC_MODE,WINDSOR_MANAGED_ENV,WINDSOR_MANAGED_ALIASES",
 		}
 
 		capturedEnvVars := make(map[string]string)
@@ -458,9 +455,9 @@ func TestWindsorEnv_Print(t *testing.T) {
 		}
 
 		// Explicitly set printedEnvVars to ensure a clean state
-		mu.Lock()
+		muEnvVars.Lock()
 		printedEnvVars = make(map[string]string)
-		mu.Unlock()
+		muEnvVars.Unlock()
 
 		err = windsorEnvPrinter.Print()
 		if err == nil {

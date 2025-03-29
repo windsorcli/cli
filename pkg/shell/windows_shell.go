@@ -6,6 +6,7 @@ package shell
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // PrintEnvVars sorts and prints environment variables. Empty values trigger a removal command.
@@ -34,7 +35,7 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 	sort.Strings(keys)
 	for _, k := range keys {
 		if aliases[k] == "" {
-			if _, err := execCommand("Get-Alias", k).Output(); err == nil {
+			if _, err := execCommandOutput("Get-Alias", k); err == nil {
 				fmt.Printf("Remove-Item Alias:%s\n", k)
 			}
 		} else {
@@ -42,4 +43,22 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 		}
 	}
 	return nil
+}
+
+// UnsetEnvVars takes an array of variables and outputs "Remove-Item Env:..." for each.
+func (s *DefaultShell) UnsetEnvVars(envVars []string) {
+	if len(envVars) > 0 {
+		fmt.Printf("Remove-Item Env:%s\n", strings.Join(envVars, " Env:"))
+	}
+}
+
+// UnsetAlias removes each alias in the provided slice if it exists, using "Remove-Item Alias:<name>".
+func (s *DefaultShell) UnsetAlias(aliases []string) {
+	if len(aliases) > 0 {
+		for _, alias := range aliases {
+			if _, err := execCommandOutput("Get-Alias", alias); err == nil {
+				fmt.Printf("Remove-Item Alias:%s\n", alias)
+			}
+		}
+	}
 }

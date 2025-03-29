@@ -24,7 +24,11 @@ type EnvPrinter interface {
 
 // Global map to keep track of all printed environment variables
 var printedEnvVars = make(map[string]string)
-var mu sync.Mutex
+var muEnvVars sync.Mutex
+
+// Global map to keep track of all printed aliases
+var printedAliases = make(map[string]string)
+var muAliases sync.Mutex
 
 // Env is a struct that implements the EnvPrinter interface.
 type BaseEnvPrinter struct {
@@ -68,9 +72,9 @@ func (e *BaseEnvPrinter) Print() error {
 	}
 
 	// Update the global map with the printed environment variables
-	mu.Lock()
+	muEnvVars.Lock()
 	maps.Copy(printedEnvVars, envVars)
-	mu.Unlock()
+	muEnvVars.Unlock()
 
 	if err := e.shell.PrintEnvVars(envVars); err != nil {
 		return fmt.Errorf("error printing environment variables: %w", err)
@@ -80,6 +84,11 @@ func (e *BaseEnvPrinter) Print() error {
 	if err != nil {
 		return fmt.Errorf("error getting aliases: %w", err)
 	}
+
+	// Update the global map with the printed aliases
+	muAliases.Lock()
+	maps.Copy(printedAliases, aliases)
+	muAliases.Unlock()
 
 	return e.shell.PrintAlias(aliases)
 }
