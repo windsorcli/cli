@@ -25,7 +25,7 @@ func NewKubeEnvPrinter(injector di.Injector) *KubeEnvPrinter {
 	kubeEnvPrinter := &KubeEnvPrinter{}
 	kubeEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
 		injector:   injector,
-		EnvPrinter: kubeEnvPrinter,
+		envPrinter: kubeEnvPrinter,
 	}
 	return kubeEnvPrinter
 }

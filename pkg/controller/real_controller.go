@@ -140,7 +140,6 @@ func (c *RealController) CreateEnvComponents() error {
 		"talosEnv":     func(injector di.Injector) env.EnvPrinter { return env.NewTalosEnvPrinter(injector) },
 		"terraformEnv": func(injector di.Injector) env.EnvPrinter { return env.NewTerraformEnvPrinter(injector) },
 		"windsorEnv":   func(injector di.Injector) env.EnvPrinter { return env.NewWindsorEnvPrinter(injector) },
-		"customEnv":    func(injector di.Injector) env.EnvPrinter { return env.NewCustomEnvPrinter(injector) },
 	}
 
 	for key, constructor := range envPrinters {
