@@ -159,3 +159,79 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 		}
 	})
 }
+
+func TestDefaultShell_UnsetEnvVars(t *testing.T) {
+	injector := di.NewInjector()
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a default shell and a set of environment variables to unset
+		shell := NewDefaultShell(injector)
+		envVars := []string{"VAR1", "VAR2", "VAR3"}
+
+		// Capture the output of UnsetEnvVars
+		output := captureStdout(t, func() {
+			shell.UnsetEnvVars(envVars)
+		})
+
+		// Then the output should contain the expected unset command
+		expectedOutput := "unset VAR1 VAR2 VAR3\n"
+		if output != expectedOutput {
+			t.Errorf("UnsetEnvVars() output = %v, want %v", output, expectedOutput)
+		}
+	})
+
+	t.Run("UnsetEnvVarsEmpty", func(t *testing.T) {
+		// Given a default shell and an empty set of environment variables to unset
+		shell := NewDefaultShell(injector)
+		envVars := []string{}
+
+		// Capture the output of UnsetEnvVars
+		output := captureStdout(t, func() {
+			shell.UnsetEnvVars(envVars)
+		})
+
+		// Then the output should be empty
+		expectedOutput := ""
+		if output != expectedOutput {
+			t.Errorf("UnsetEnvVars() output = %v, want %v", output, expectedOutput)
+		}
+	})
+}
+
+func TestDefaultShell_UnsetAlias(t *testing.T) {
+	injector := di.NewInjector()
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a default shell and a set of aliases to unset
+		shell := NewDefaultShell(injector)
+		aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
+
+		// Capture the output of UnsetAlias
+		output := captureStdout(t, func() {
+			shell.UnsetAlias(aliases)
+		})
+
+		// Then the output should contain the expected unalias commands
+		expectedOutput := "unalias ALIAS1\nunalias ALIAS2\nunalias ALIAS3\n"
+		if output != expectedOutput {
+			t.Errorf("UnsetAlias() output = %v, want %v", output, expectedOutput)
+		}
+	})
+
+	t.Run("UnsetAliasEmpty", func(t *testing.T) {
+		// Given a default shell and an empty set of aliases to unset
+		shell := NewDefaultShell(injector)
+		aliases := []string{}
+
+		// Capture the output of UnsetAlias
+		output := captureStdout(t, func() {
+			shell.UnsetAlias(aliases)
+		})
+
+		// Then the output should be empty
+		expectedOutput := ""
+		if output != expectedOutput {
+			t.Errorf("UnsetAlias() output = %v, want %v", output, expectedOutput)
+		}
+	})
+}

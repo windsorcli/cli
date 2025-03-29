@@ -179,3 +179,57 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 		}
 	})
 }
+
+// UnsetEnvVars takes an array of variables and outputs "Remove-Item Env:..." on one line.
+func (s *DefaultShell) UnsetEnvVars(vars []string) {
+	if len(vars) > 0 {
+		fmt.Printf("Remove-Item Env:%s\n", strings.Join(vars, " Env:"))
+	}
+}
+
+// UnsetAlias unsets the provided aliases
+func (s *DefaultShell) UnsetAlias(aliases []string) {
+	if len(aliases) > 0 {
+		for _, alias := range aliases {
+			fmt.Printf("Remove-Item Alias:%s\n", alias)
+		}
+	}
+}
+
+func TestDefaultShell_UnsetEnvVars(t *testing.T) {
+	injector := di.NewInjector()
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a default shell and a set of environment variables to unset
+		shell := NewDefaultShell(injector)
+		envVars := []string{"VAR1", "VAR2", "VAR3"}
+
+		// Capture the output of UnsetEnvVars
+		output := captureStdout(t, func() {
+			shell.UnsetEnvVars(envVars)
+		})
+
+		// Then the output should contain the expected remove item command
+		expectedOutput := "Remove-Item Env:VAR1 Env:VAR2 Env:VAR3\n"
+		if output != expectedOutput {
+			t.Errorf("UnsetEnvVars() output = %v, want %v", output, expectedOutput)
+		}
+	})
+
+	t.Run("UnsetEnvVarsEmpty", func(t *testing.T) {
+		// Given a default shell and an empty set of environment variables to unset
+		shell := NewDefaultShell(injector)
+		envVars := []string{}
+
+		// Capture the output of UnsetEnvVars
+		output := captureStdout(t, func() {
+			shell.UnsetEnvVars(envVars)
+		})
+
+		// Then the output should be empty
+		expectedOutput := ""
+		if output != expectedOutput {
+			t.Errorf("UnsetEnvVars() output = %v, want %v", output, expectedOutput)
+		}
+	})
+}

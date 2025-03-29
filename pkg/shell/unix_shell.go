@@ -6,6 +6,7 @@ package shell
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // PrintEnvVars prints the provided environment variables in a sorted order.
@@ -22,17 +23,33 @@ func (s *DefaultShell) PrintEnvVars(envVars map[string]string) error {
 	// Sort the keys slice to ensure the environment variables are printed in order
 	sort.Strings(keys)
 
+	// Create a slice to hold the keys that need to be unset
+	var unsetKeys []string
+
 	// Iterate over the sorted keys and print the corresponding environment variable
 	for _, k := range keys {
 		if envVars[k] == "" {
-			// Print unset command if the value is an empty string
-			fmt.Printf("unset %s\n", k)
+			// Add to unsetKeys if the value is an empty string
+			unsetKeys = append(unsetKeys, k)
 		} else {
 			// Print export command with the key and value
 			fmt.Printf("export %s=\"%s\"\n", k, envVars[k])
 		}
 	}
+
+	// Call UnsetEnvVars to print unset commands for all keys with empty values
+	if len(unsetKeys) > 0 {
+		s.UnsetEnvVars(unsetKeys)
+	}
+
 	return nil
+}
+
+// UnsetEnvVars takes an array of variables and outputs "unset ..." on one line.
+func (s *DefaultShell) UnsetEnvVars(vars []string) {
+	if len(vars) > 0 {
+		fmt.Printf("unset %s\n", strings.Join(vars, " "))
+	}
 }
 
 // PrintAlias prints the aliases for the shell.
@@ -61,4 +78,13 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 		}
 	}
 	return nil
+}
+
+// UnsetAlias unsets the provided aliases
+func (s *DefaultShell) UnsetAlias(aliases []string) {
+	if len(aliases) > 0 {
+		for _, alias := range aliases {
+			fmt.Printf("unalias %s\n", alias)
+		}
+	}
 }

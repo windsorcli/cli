@@ -51,6 +51,10 @@ type Shell interface {
 	AddCurrentDirToTrustedFile() error
 	// CheckTrustedDirectory verifies if the current directory is in the trusted file list.
 	CheckTrustedDirectory() error
+	// UnsetEnvVars unsets the environment variables
+	UnsetEnvVars(vars []string)
+	// UnsetAlias unsets the provided aliases
+	UnsetAlias(aliases []string)
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -408,3 +412,6 @@ func (s *DefaultShell) CheckTrustedDirectory() error {
 
 	return nil
 }
+
+// Ensure DefaultShell implements the Shell interface
+var _ Shell = (*DefaultShell)(nil)
