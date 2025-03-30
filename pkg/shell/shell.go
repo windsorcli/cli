@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path"
 	"path/filepath"
@@ -51,14 +52,19 @@ type Shell interface {
 	AddCurrentDirToTrustedFile() error
 	// CheckTrustedDirectory verifies if the current directory is in the trusted file list.
 	CheckTrustedDirectory() error
+	// GetSessionToken retrieves or creates a unique session token for the current terminal
+	GetSessionToken() string
+	// ResetSessionToken resets the session token for the current terminal
+	ResetSessionToken() error
 }
 
 // DefaultShell is the default implementation of the Shell interface
 type DefaultShell struct {
 	Shell
-	projectRoot string
-	injector    di.Injector
-	verbose     bool
+	projectRoot  string
+	injector     di.Injector
+	verbose      bool
+	sessionToken string
 }
 
 // NewDefaultShell creates a new instance of DefaultShell
@@ -407,4 +413,53 @@ func (s *DefaultShell) CheckTrustedDirectory() error {
 	}
 
 	return nil
+}
+
+// GetSessionToken returns a token for the current session
+func (s *DefaultShell) GetSessionToken() string {
+	// If token is already set in environment variable, use it
+	if token := os.Getenv("WINDSOR_SESSION_TOKEN"); token != "" {
+		return token
+	}
+
+	// If we already have a cached token in memory, return it
+	if s.sessionToken != "" {
+		return s.sessionToken
+	}
+
+	// Generate and cache a new token
+	s.sessionToken = generateRandomString(8)
+	return s.sessionToken
+}
+
+// ResetSessionToken resets the session token for the current terminal
+func (s *DefaultShell) ResetSessionToken() error {
+	projectRoot, err := s.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("Error getting project root directory: %w", err)
+	}
+
+	token := s.GetSessionToken()
+	resetFilePath := filepath.Join(projectRoot, ".windsor", fmt.Sprintf(".session.%s.reset", token))
+	err = osMkdirAll(filepath.Dir(resetFilePath), 0750)
+	if err != nil {
+		return fmt.Errorf("Error creating directories for reset file: %w", err)
+	}
+
+	file, err := osCreate(resetFilePath)
+	if err != nil {
+		return fmt.Errorf("Error creating reset file: %w", err)
+	}
+	defer file.Close()
+	return nil
+}
+
+// generateRandomString creates a random session token that uniquely identifies a terminal session
+func generateRandomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	token := ""
+	for range make([]int, length) {
+		token += string(charset[rand.Intn(len(charset))])
+	}
+	return token
 }

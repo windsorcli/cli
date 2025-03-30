@@ -486,3 +486,51 @@ func TestMockShell_CheckTrustedDirectory(t *testing.T) {
 		assertError(t, err, false)
 	})
 }
+
+func TestMockShell_GetSessionToken(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		expectedToken := "mock-session-token"
+		mockShell.GetSessionTokenFunc = func() string {
+			return expectedToken
+		}
+		token := mockShell.GetSessionToken()
+		if token != expectedToken {
+			t.Errorf("Expected token %q, got %q", expectedToken, token)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		expectedToken := "mock-session-token"
+		token := mockShell.GetSessionToken()
+		if token != expectedToken {
+			t.Errorf("Expected token %q, got %q", expectedToken, token)
+		}
+	})
+}
+
+func TestMockShell_ResetSessionToken(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		mockShell.ResetSessionTokenFunc = func() error {
+			return nil
+		}
+		err := mockShell.ResetSessionToken()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		err := mockShell.ResetSessionToken()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}

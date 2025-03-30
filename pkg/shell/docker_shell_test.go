@@ -110,26 +110,6 @@ func TestDockerShell_Exec(t *testing.T) {
 		}
 	})
 
-	// t.Run("CommandError", func(t *testing.T) {
-	// 	injector := di.NewMockInjector()
-	// 	mocks := setSafeDockerShellMocks(injector)
-	// 	dockerShell := NewDockerShell(mocks.Injector)
-
-	// 	// Backup the original cmdOutput function to restore it later
-	// 	originalCmdOutput := cmdOutput
-	// 	defer func() { cmdOutput = originalCmdOutput }()
-
-	// 	// Mock cmdOutput to simulate a command execution failure
-	// 	cmdOutput = func(cmd *exec.Cmd) (string, error) {
-	// 		return "", fmt.Errorf("command execution failed")
-	// 	}
-
-	// 	_, _, err := dockerShell.Exec("echo", "hello")
-	// 	if err == nil {
-	// 		t.Fatalf("expected an error, got none")
-	// 	}
-	// })
-
 	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
 		injector := di.NewMockInjector()
 		mocks := setSafeDockerShellMocks(injector)
@@ -309,26 +289,6 @@ func TestDockerShell_ExecProgress(t *testing.T) {
 			t.Fatalf("expected execCommand to be called with 'docker exec', but it was not")
 		}
 	})
-
-	// t.Run("GetWindsorExecContainerIDError", func(t *testing.T) {
-	// 	injector := di.NewMockInjector()
-	// 	mocks := setSafeDockerShellMocks(injector)
-	// 	dockerShell := NewDockerShell(mocks.Injector)
-
-	// 	// Backup the original cmdOutput function to restore it later
-	// 	originalCmdOutput := cmdOutput
-	// 	defer func() { cmdOutput = originalCmdOutput }()
-
-	// 	// Mock cmdOutput to simulate a failure in retrieving the container ID
-	// 	cmdOutput = func(cmd *exec.Cmd) (string, error) {
-	// 		return "", fmt.Errorf("failed to get Windsor exec container ID")
-	// 	}
-
-	// 	_, _, err := dockerShell.ExecProgress("Running command", "echo", "hello")
-	// 	if err == nil || !strings.Contains(err.Error(), "failed to get Windsor exec container ID") {
-	// 		t.Fatalf("expected error containing 'failed to get Windsor exec container ID', got %v", err)
-	// 	}
-	// })
 
 	t.Run("GetWorkDirError", func(t *testing.T) {
 		injector := di.NewMockInjector()

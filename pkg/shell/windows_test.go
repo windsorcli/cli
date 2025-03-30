@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -159,6 +160,23 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 			"ALIAS2": "",
 		}
 
+		// Mock execCommand to simulate checking for an existing alias
+		originalExecCommand := execCommand
+		defer func() {
+			execCommand = originalExecCommand
+		}()
+		execCommand = func(name string, arg ...string) *exec.Cmd {
+			cmd := &exec.Cmd{
+				Path:   name,
+				Args:   append([]string{name}, arg...),
+				Stdout: &bytes.Buffer{},
+			}
+			if name == "Get-Alias" && len(arg) > 0 && arg[0] == "ALIAS2" {
+				cmd.Stdout.Write([]byte("")) // Simulate alias not found
+			}
+			return cmd
+		}
+
 		// Capture the output of PrintAlias
 		output := captureStdout(t, func() {
 			err := shell.PrintAlias(aliasVarsWithEmpty)
@@ -167,15 +185,18 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 			}
 		})
 
-		// Then the output should contain the expected alias and remove alias commands
+		// Then the output should contain the expected alias command but not the remove alias command
 		expectedAliasLine := fmt.Sprintf("Set-Alias -Name ALIAS1 -Value \"command1\"\n")
-		expectedRemoveAliasLine := fmt.Sprintf("Remove-Item Alias:ALIAS2\n")
+		unexpectedRemoveAliasLine := fmt.Sprintf("Remove-Item Alias:ALIAS2\n")
 
+		// Check for the expected alias line
 		if !strings.Contains(output, expectedAliasLine) {
 			t.Errorf("PrintAlias() output missing expected line: %v", expectedAliasLine)
 		}
-		if !strings.Contains(output, expectedRemoveAliasLine) {
-			t.Errorf("PrintAlias() output missing expected line: %v", expectedRemoveAliasLine)
+
+		// Ensure the remove alias line is not present
+		if strings.Contains(output, unexpectedRemoveAliasLine) {
+			t.Errorf("PrintAlias() output should not contain line: %v", unexpectedRemoveAliasLine)
 		}
 	})
 }

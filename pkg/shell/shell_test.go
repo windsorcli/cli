@@ -33,7 +33,6 @@ func setupSafeShellTestMocks(injector ...*di.BaseInjector) *MockObjects {
 		Injector: inj,
 		Shell:    NewMockShell(inj),
 	}
-
 	// Mock execCommand to simulate command execution
 	execCommand = func(command string, args ...string) *exec.Cmd {
 		cmd := exec.Command("echo", append([]string{command}, args...)...)
@@ -1304,6 +1303,219 @@ func TestDefaultShell_AddCurrentDirToTrustedFile(t *testing.T) {
 		expectedError := "Error writing to trusted file: error writing to trusted file"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+}
+
+func TestDefaultShell_GetSessionToken(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a default shell
+		injector := di.NewInjector()
+		shell := NewDefaultShell(injector)
+
+		// Ensure WINDSOR_SESSION_TOKEN is unset for this test
+		originalEnvToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		defer func() {
+			if originalEnvToken != "" {
+				os.Setenv("WINDSOR_SESSION_TOKEN", originalEnvToken)
+			}
+		}()
+
+		// Mock GetProjectRoot dependencies
+		originalGetwd := getwd
+		originalOsStat := osStat
+		defer func() {
+			getwd = originalGetwd
+			osStat = originalOsStat
+		}()
+
+		getwd = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+
+		osStat = func(name string) (os.FileInfo, error) {
+			if name == "/mock/project/root/windsor.yaml" || name == "/mock/project/root/windsor.yml" {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// When calling GetSessionToken
+		token1 := shell.GetSessionToken()
+		token2 := shell.GetSessionToken()
+
+		// Then the token should be consistent across calls
+		if token1 != token2 {
+			t.Errorf("Expected consistent token, got different tokens %q and %q", token1, token2)
+		}
+	})
+
+	t.Run("EnvironmentVariable", func(t *testing.T) {
+		// Given a default shell with an environment variable set
+		injector := di.NewInjector()
+		shell := NewDefaultShell(injector)
+		expectedToken := "env-session-token"
+		originalEnvToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		os.Setenv("WINDSOR_SESSION_TOKEN", expectedToken)
+		defer func() {
+			if originalEnvToken != "" {
+				os.Setenv("WINDSOR_SESSION_TOKEN", originalEnvToken)
+			} else {
+				os.Unsetenv("WINDSOR_SESSION_TOKEN")
+			}
+		}()
+
+		// Mock GetProjectRoot dependencies
+		originalGetwd := getwd
+		originalOsStat := osStat
+		defer func() {
+			getwd = originalGetwd
+			osStat = originalOsStat
+		}()
+
+		getwd = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+
+		osStat = func(name string) (os.FileInfo, error) {
+			if name == "/mock/project/root/windsor.yaml" || name == "/mock/project/root/windsor.yml" {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// When calling GetSessionToken
+		token := shell.GetSessionToken()
+
+		// Then the token should be the same as the environment variable
+		if token != expectedToken {
+			t.Errorf("Expected token %q, got %q", expectedToken, token)
+		}
+	})
+}
+
+func TestDefaultShell_ResetSessionToken(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a default shell with a mock environment
+		injector := di.NewInjector()
+		shell := NewDefaultShell(injector)
+
+		// Mock shims for GetProjectRoot dependencies
+		originalGetwd := getwd
+		originalOsStat := osStat
+		originalOsMkdirAll := osMkdirAll
+		originalOsCreate := osCreate
+		defer func() {
+			getwd = originalGetwd
+			osStat = originalOsStat
+			osMkdirAll = originalOsMkdirAll
+			osCreate = originalOsCreate
+		}()
+
+		getwd = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+
+		osStat = func(name string) (os.FileInfo, error) {
+			if name == "/mock/project/root/windsor.yaml" || name == "/mock/project/root/windsor.yml" {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		osCreate = func(name string) (*os.File, error) {
+			return &os.File{}, nil
+		}
+
+		// When calling ResetSessionToken
+		err := shell.ResetSessionToken()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorCreatingDirectories", func(t *testing.T) {
+		// Given a default shell with a mock environment that fails to create directories
+		injector := di.NewInjector()
+		shell := NewDefaultShell(injector)
+
+		// Mock shims to simulate an error in osMkdirAll
+		originalOsMkdirAll := osMkdirAll
+		defer func() {
+			osMkdirAll = originalOsMkdirAll
+		}()
+
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			return fmt.Errorf("error creating directories")
+		}
+
+		// When calling ResetSessionToken
+		err := shell.ResetSessionToken()
+
+		// Then an error should be returned
+		if err == nil || err.Error() != "Error creating directories for reset file: error creating directories" {
+			t.Errorf("Expected error creating directories, got %v", err)
+		}
+	})
+
+	t.Run("ErrorCreatingFile", func(t *testing.T) {
+		// Given a default shell with a mock environment that fails to create a file
+		injector := di.NewInjector()
+		shell := NewDefaultShell(injector)
+
+		// Mock shims to simulate an error in osMkdirAll and osCreate
+		originalOsMkdirAll := osMkdirAll
+		originalOsCreate := osCreate
+		defer func() {
+			osMkdirAll = originalOsMkdirAll
+			osCreate = originalOsCreate
+		}()
+
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		osCreate = func(name string) (*os.File, error) {
+			return nil, fmt.Errorf("error creating file")
+		}
+
+		// When calling ResetSessionToken
+		err := shell.ResetSessionToken()
+
+		// Then an error should be returned
+		if err == nil || err.Error() != "Error creating reset file: error creating file" {
+			t.Errorf("Expected error creating file, got %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		// Given a default shell with a mock environment that fails to get project root
+		injector := di.NewInjector()
+		shell := NewDefaultShell(injector)
+
+		// Mock shim to simulate an error in GetProjectRoot
+		originalGetwd := getwd
+		defer func() {
+			getwd = originalGetwd
+		}()
+
+		getwd = func() (string, error) {
+			return "", fmt.Errorf("error getting project root")
+		}
+
+		// When calling ResetSessionToken
+		err := shell.ResetSessionToken()
+
+		// Then an error should be returned
+		if err == nil || err.Error() != "Error getting project root directory: error getting project root" {
+			t.Errorf("Expected error getting project root, got %v", err)
 		}
 	})
 }

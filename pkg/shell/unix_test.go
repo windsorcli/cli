@@ -4,8 +4,10 @@
 package shell
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -137,6 +139,21 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 		aliasVarsWithEmpty := map[string]string{
 			"ALIAS1": "command1",
 			"ALIAS2": "",
+		}
+
+		// Mock osExecCommand to simulate checking for an existing alias
+		originalExecCommand := execCommand
+		defer func() {
+			execCommand = originalExecCommand
+		}()
+		execCommand = func(name string, arg ...string) *exec.Cmd {
+			cmd := exec.Command("echo", append([]string{name}, arg...)...)
+			if name == "alias" && len(arg) > 0 && arg[0] == "ALIAS2" {
+				cmd.Stdout = bytes.NewBufferString("alias ALIAS2='somecommand'\n")
+			} else {
+				cmd.Stdout = &bytes.Buffer{}
+			}
+			return cmd
 		}
 
 		// Capture the output of PrintAlias

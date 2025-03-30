@@ -4,6 +4,7 @@
 package shell
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
 )
@@ -52,7 +53,11 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 	for _, k := range keys {
 		if aliases[k] == "" {
 			// Check if the alias is already set before unaliasing
-			if _, err := execCommand("alias", k).Output(); err == nil {
+			cmd := execCommand("alias", k)
+			var buf bytes.Buffer
+			cmd.Stdout = &buf
+			cmd.Run()
+			if buf.Len() > 0 {
 				fmt.Printf("unalias %s\n", k)
 			}
 		} else {

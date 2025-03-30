@@ -115,9 +115,10 @@ func TestWindsorEnv_Print(t *testing.T) {
 		}
 
 		expectedEnvVars := map[string]string{
-			"WINDSOR_CONTEXT":      "mock-context",
-			"WINDSOR_PROJECT_ROOT": filepath.FromSlash("/mock/project/root"),
-			"WINDSOR_EXEC_MODE":    "container",
+			"WINDSOR_CONTEXT":       "mock-context",
+			"WINDSOR_PROJECT_ROOT":  filepath.FromSlash("/mock/project/root"),
+			"WINDSOR_EXEC_MODE":     "container",
+			"WINDSOR_SESSION_TOKEN": "mock-session-token",
 		}
 
 		capturedEnvVars := make(map[string]string)
