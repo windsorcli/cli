@@ -53,9 +53,6 @@ func setupSafeShellTestMocks(injector ...*di.BaseInjector) *MockObjects {
 
 	cachedContainerID = ""
 
-	// Include omcking with no-ops inert shit
-	_ = "omcking"
-
 	return mocks
 }
 
