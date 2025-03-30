@@ -3,13 +3,13 @@ package shell
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
-
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -18,6 +18,9 @@ import (
 
 // maxFolderSearchDepth is the maximum depth to search for the project root
 const maxFolderSearchDepth = 10
+
+// Global session token
+var sessionToken string
 
 // HookContext are the variables available during hook template evaluation
 type HookContext struct {
@@ -51,6 +54,10 @@ type Shell interface {
 	AddCurrentDirToTrustedFile() error
 	// CheckTrustedDirectory verifies if the current directory is in the trusted file list.
 	CheckTrustedDirectory() error
+	// GetSessionToken retrieves or creates a unique session token for the current terminal
+	GetSessionToken() string
+	// ResetSessionToken resets the session token for the current terminal
+	ResetSessionToken() error
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -407,4 +414,77 @@ func (s *DefaultShell) CheckTrustedDirectory() error {
 	}
 
 	return nil
+}
+
+// GetSessionToken retrieves or generates a unique token for the current session.
+// It first checks if the project root directory is accessible. If not, it returns an empty string.
+// It prefers the session token set in the environment variable "WINDSOR_SESSION_TOKEN" over the cached session token.
+// It checks for a reset file associated with the preferred token. If the reset file exists, it deletes the reset file and returns an empty string.
+// If no reset file is found, it returns the preferred token.
+// If no session token is set in the environment or cached, it generates a new random token, caches it, and returns it.
+func (s *DefaultShell) GetSessionToken() string {
+	projectRoot, err := s.GetProjectRoot()
+	if err != nil || projectRoot == "" {
+		return ""
+	}
+
+	// Prefer the environment token
+	envToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+	localToken := sessionToken
+	preferredToken := envToken
+	if preferredToken == "" {
+		preferredToken = localToken
+	}
+
+	if preferredToken != "" {
+		resetPath := filepath.Join(projectRoot, ".windsor", fmt.Sprintf(".session.%s.reset", preferredToken))
+		if _, err := osStat(resetPath); err == nil {
+			_ = osRemove(resetPath)
+			if preferredToken == sessionToken {
+				sessionToken = ""
+			}
+			return ""
+		}
+		return preferredToken
+	}
+
+	// Generate a new token if none is set
+	sessionToken = generateRandomString(8)
+	return sessionToken
+}
+
+// ResetSessionToken resets the session token for the current terminal
+func (s *DefaultShell) ResetSessionToken() error {
+	projectRoot, err := s.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("Error getting project root directory: %w", err)
+	}
+
+	token := s.GetSessionToken()
+	resetFilePath := filepath.Join(projectRoot, ".windsor", fmt.Sprintf(".session.%s.reset", token))
+	err = osMkdirAll(filepath.Dir(resetFilePath), 0750)
+	if err != nil {
+		return fmt.Errorf("Error creating directories for reset file: %w", err)
+	}
+
+	file, err := osCreate(resetFilePath)
+	if err != nil {
+		return fmt.Errorf("Error creating reset file: %w", err)
+	}
+	defer file.Close()
+	return nil
+}
+
+// generateRandomString creates a random session token that uniquely identifies a terminal session
+func generateRandomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	token := make([]byte, length)
+	randomBytes := make([]byte, length)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return ""
+	}
+	for i, b := range randomBytes {
+		token[i] = charset[b%byte(len(charset))]
+	}
+	return string(token)
 }

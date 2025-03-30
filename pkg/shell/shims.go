@@ -60,6 +60,12 @@ var osWriteFile = os.WriteFile
 // osMkdirAll is a variable that points to os.MkdirAll, allowing it to be overridden in tests
 var osMkdirAll = os.MkdirAll
 
+// osRemove is a variable that points to os.Remove, allowing it to be overridden in tests
+var osRemove = os.Remove
+
+// osCreate is a variable that points to os.Create, allowing it to be overridden in tests
+var osCreate = os.Create
+
 // cmdOutput is a shim for cmd.Output, allowing it to be overridden in tests
 var cmdOutput = func(cmd *exec.Cmd) (string, error) {
 	output, err := cmd.Output()

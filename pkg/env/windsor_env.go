@@ -22,7 +22,7 @@ func NewWindsorEnvPrinter(injector di.Injector) *WindsorEnvPrinter {
 }
 
 // GetEnvVars constructs a map of environment variables for the Windsor environment,
-// including context, project root, and execution mode based on the OS.
+// including context, project root, execution mode based on the OS, and session token.
 func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
@@ -40,6 +40,10 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 			envVars["WINDSOR_EXEC_MODE"] = "container"
 		}
 	}
+
+	// Set the WINDSOR_SESSION_TOKEN using the shell's GetSessionToken method
+	sessionToken := e.shell.GetSessionToken()
+	envVars["WINDSOR_SESSION_TOKEN"] = sessionToken
 
 	return envVars, nil
 }

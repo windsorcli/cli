@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -475,6 +477,83 @@ func TestEnvCmd(t *testing.T) {
 		// Then the error should indicate the load error
 		if err == nil || err.Error() != "Error loading secrets provider: load error" {
 			t.Fatalf("Expected load error, got %v", err)
+		}
+	})
+
+	t.Run("ResetEnvVariableWhenNotInTrustedDirectory", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller with a mock environment variable handler
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
+
+		// Set the WINDSOR_SESSION_TOKEN environment variable
+		expectedToken := "testToken123"
+		os.Setenv("WINDSOR_SESSION_TOKEN", expectedToken)
+		defer os.Unsetenv("WINDSOR_SESSION_TOKEN")
+
+		// Mock the CheckTrustedDirectory to simulate an untrusted directory
+		mockShell := shell.NewMockShell()
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("Current directory not in the trusted list")
+		}
+		mockShell.PrintEnvVarsFunc = func(vars map[string]string) error {
+			if vars["WINDSOR_SESSION_TOKEN"] != "" {
+				t.Errorf("Expected WINDSOR_SESSION_TOKEN to be reset, got %q", vars["WINDSOR_SESSION_TOKEN"])
+			}
+			return nil
+		}
+		mockController.ResolveShellFunc = func(name ...string) shell.Shell {
+			return mockShell
+		}
+
+		// Execute the command
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute(mockController)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("HandleErrorBasedOnVerbosity", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller with a mock shell
+		mocks, _ := setupSafeEnvCmdMocks()
+		mockController := mocks.Controller
+
+		// Mock the PrintEnvVars to simulate a failure
+		mockShell := shell.NewMockShell()
+		mockShell.PrintEnvVarsFunc = func(vars map[string]string) error {
+			return fmt.Errorf("Simulated failure in PrintEnvVars")
+		}
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("Simulated failure in CheckTrustedDirectory")
+		}
+		mockController.ResolveShellFunc = func(name ...string) shell.Shell {
+			return mockShell
+		}
+
+		// Set the WINDSOR_SESSION_TOKEN environment variable
+		os.Setenv("WINDSOR_SESSION_TOKEN", "testToken123")
+		defer os.Unsetenv("WINDSOR_SESSION_TOKEN")
+
+		// Execute the command with verbose mode
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mockController)
+
+		// Then the error should be returned due to verbosity
+		if err == nil || !strings.Contains(err.Error(), "Simulated failure in PrintEnvVars") {
+			t.Fatalf("Expected verbose error containing 'Simulated failure in PrintEnvVars', got %v", err)
+		}
+
+		// Execute the command without verbose mode
+		rootCmd.SetArgs([]string{"env"})
+		err = Execute(mockController)
+
+		// Then the error should be returned even without verbosity
+		if err == nil || !strings.Contains(err.Error(), "Simulated failure in PrintEnvVars") {
+			t.Fatalf("Expected error containing 'Simulated failure in PrintEnvVars', got %v", err)
 		}
 	})
 }

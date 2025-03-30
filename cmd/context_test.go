@@ -8,12 +8,14 @@ import (
 	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
+	shell "github.com/windsorcli/cli/pkg/shell"
 )
 
 type MockSafeContextCmdComponents struct {
 	Injector      di.Injector
 	Controller    *ctrl.MockController
 	ConfigHandler *config.MockConfigHandler
+	Shell         *shell.MockShell
 }
 
 // setupSafeContextCmdMocks creates mock components for testing the context command
@@ -55,12 +57,25 @@ func setupSafeContextCmdMocks(optionalInjector ...di.Injector) MockSafeContextCm
 		return true
 	}
 
+	// Setup mock shell
+	mockShell := shell.NewMockShell()
+	mockShell.ResetSessionTokenFunc = func() error {
+		return nil // Simulate successful session token reset
+	}
+	injector.Register("shell", mockShell)
+
+	// Set the ResolveShellFunc to return the mock shell
+	mockController.ResolveShellFunc = func(name ...string) shell.Shell {
+		return mockShell
+	}
+
 	osExit = func(code int) {}
 
 	return MockSafeContextCmdComponents{
 		Injector:      injector,
 		Controller:    mockController,
 		ConfigHandler: mockConfigHandler,
+		Shell:         mockShell,
 	}
 }
 
@@ -209,6 +224,25 @@ func TestContext_Set(t *testing.T) {
 
 		// Then the output should indicate the config is not loaded
 		expectedOutput := "Configuration is not loaded. Please ensure it is initialized."
+		if !strings.Contains(err.Error(), expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
+		}
+	})
+
+	t.Run("ErrorResettingSessionToken", func(t *testing.T) {
+		// Given a shell instance that returns an error on ResetSessionToken
+		mocks := setupSafeContextCmdMocks()
+		mocks.Shell.ResetSessionTokenFunc = func() error { return fmt.Errorf("reset session token error") }
+
+		// When the set context command is executed
+		rootCmd.SetArgs([]string{"context", "set", "new-context"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then the output should indicate the error
+		expectedOutput := "Error resetting session token: reset session token error"
 		if !strings.Contains(err.Error(), expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
 		}
