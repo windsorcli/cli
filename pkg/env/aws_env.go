@@ -18,7 +18,7 @@ func NewAwsEnvPrinter(injector di.Injector) *AwsEnvPrinter {
 	awsEnvPrinter := &AwsEnvPrinter{}
 	awsEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
 		injector:   injector,
-		EnvPrinter: awsEnvPrinter,
+		envPrinter: awsEnvPrinter,
 	}
 	return awsEnvPrinter
 }

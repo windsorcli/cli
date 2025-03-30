@@ -51,6 +51,12 @@ type Shell interface {
 	AddCurrentDirToTrustedFile() error
 	// CheckTrustedDirectory verifies if the current directory is in the trusted file list.
 	CheckTrustedDirectory() error
+	// UnsetEnvVars unsets the environment variables
+	UnsetEnvVars(vars []string)
+	// UnsetAlias unsets the provided aliases
+	UnsetAlias(aliases []string)
+	// Reset unsets all environment variables and aliases
+	Reset() error
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -408,3 +414,21 @@ func (s *DefaultShell) CheckTrustedDirectory() error {
 
 	return nil
 }
+
+// Reset unsets all environment variables and aliases
+func (s *DefaultShell) Reset() error {
+	managedEnv := os.Getenv("WINDSOR_MANAGED_ENV")
+	managedAliases := os.Getenv("WINDSOR_MANAGED_ALIASES")
+	if managedEnv != "" {
+		envVars := strings.Split(managedEnv, ",")
+		s.UnsetEnvVars(envVars)
+	}
+	if managedAliases != "" {
+		aliases := strings.Split(managedAliases, ",")
+		s.UnsetAlias(aliases)
+	}
+	return nil
+}
+
+// Ensure DefaultShell implements the Shell interface
+var _ Shell = (*DefaultShell)(nil)

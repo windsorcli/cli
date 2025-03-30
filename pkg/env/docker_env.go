@@ -19,7 +19,7 @@ func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
 	dockerEnvPrinter := &DockerEnvPrinter{}
 	dockerEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
 		injector:   injector,
-		EnvPrinter: dockerEnvPrinter,
+		envPrinter: dockerEnvPrinter,
 	}
 	return dockerEnvPrinter
 }

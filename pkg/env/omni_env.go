@@ -17,7 +17,7 @@ func NewOmniEnvPrinter(injector di.Injector) *OmniEnvPrinter {
 	omniEnvPrinter := &OmniEnvPrinter{}
 	omniEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
 		injector:   injector,
-		EnvPrinter: omniEnvPrinter,
+		envPrinter: omniEnvPrinter,
 	}
 	return omniEnvPrinter
 }

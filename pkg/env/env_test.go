@@ -2,6 +2,7 @@ package env
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"testing"
 
@@ -111,7 +112,7 @@ func TestEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
 		env := NewBaseEnvPrinter(mocks.Injector)
-		env.EnvPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
+		env.envPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
 		err := env.Initialize()
 		if err != nil {
 			t.Fatalf("unexpected error during initialization: %v", err)
@@ -140,7 +141,7 @@ func TestEnv_Print(t *testing.T) {
 	t.Run("NoCustomVars", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
 		env := NewBaseEnvPrinter(mocks.Injector)
-		env.EnvPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
+		env.envPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
 		err := env.Initialize()
 		if err != nil {
 			t.Fatalf("unexpected error during initialization: %v", err)
@@ -169,7 +170,7 @@ func TestEnv_Print(t *testing.T) {
 	t.Run("ErrorGettingEnvVars", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
 		env := NewBaseEnvPrinter(mocks.Injector)
-		env.EnvPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
+		env.envPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
 		err := env.Initialize()
 		if err != nil {
 			t.Fatalf("unexpected error during initialization: %v", err)
@@ -190,7 +191,7 @@ func TestEnv_Print(t *testing.T) {
 	t.Run("ErrorPrintingEnvVars", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
 		env := NewBaseEnvPrinter(mocks.Injector)
-		env.EnvPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
+		env.envPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
 		err := env.Initialize()
 		if err != nil {
 			t.Fatalf("unexpected error during initialization: %v", err)
@@ -232,7 +233,7 @@ func TestEnv_Print(t *testing.T) {
 	t.Run("ErrorGettingAliases", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
 		env := NewBaseEnvPrinter(mocks.Injector)
-		env.EnvPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
+		env.envPrinter = mocks.EnvPrinter // Ensure EnvPrinter is set
 		err := env.Initialize()
 		if err != nil {
 			t.Fatalf("unexpected error during initialization: %v", err)
@@ -247,6 +248,91 @@ func TestEnv_Print(t *testing.T) {
 		err = env.Print()
 		if err == nil || err.Error() != "error getting aliases: mock error getting aliases" {
 			t.Errorf("expected error 'error getting aliases: mock error getting aliases', got %v", err)
+		}
+	})
+}
+
+// TestUnsetEnvVars tests the UnsetEnvVars method of the Env struct
+func TestEnv_UnsetEnvVars(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupEnvMockTests(nil)
+		env := NewBaseEnvPrinter(mocks.Injector)
+		env.envPrinter = mocks.EnvPrinter
+		err := env.Initialize()
+		if err != nil {
+			t.Fatalf("unexpected error during initialization: %v", err)
+		}
+
+		// Set the WINDSOR_MANAGED_ENV environment variable for testing
+		os.Setenv("WINDSOR_MANAGED_ENV", "TEST_VAR")
+		defer os.Unsetenv("WINDSOR_MANAGED_ENV")
+
+		mocks.MockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			if envVars["TEST_VAR"] != "" {
+				return fmt.Errorf("expected TEST_VAR to be unset, got %v", envVars["TEST_VAR"])
+			}
+			return nil
+		}
+
+		out, err := env.UnsetEnvVars()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		expectedOutput := map[string]string{"TEST_VAR": ""}
+		if !reflect.DeepEqual(out, expectedOutput) {
+			t.Errorf("unexpected output: got %v, want %v", out, expectedOutput)
+		}
+	})
+
+	t.Run("NoCustomVars", func(t *testing.T) {
+		mocks := setupEnvMockTests(nil)
+		env := NewBaseEnvPrinter(mocks.Injector)
+		env.envPrinter = mocks.EnvPrinter
+		err := env.Initialize()
+		if err != nil {
+			t.Fatalf("unexpected error during initialization: %v", err)
+		}
+
+		// Ensure WINDSOR_MANAGED_ENV is not set
+		os.Unsetenv("WINDSOR_MANAGED_ENV")
+
+		mocks.MockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			if len(envVars) != 0 {
+				return fmt.Errorf("expected no env vars to be unset, got %v", envVars)
+			}
+			return nil
+		}
+
+		out, err := env.UnsetEnvVars()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		expectedOutput := map[string]string{}
+		if !reflect.DeepEqual(out, expectedOutput) {
+			t.Errorf("unexpected output: got %v, want %v", out, expectedOutput)
+		}
+	})
+
+	t.Run("ErrorUnsettingEnvVars", func(t *testing.T) {
+		mocks := setupEnvMockTests(nil)
+		env := NewBaseEnvPrinter(mocks.Injector)
+		env.envPrinter = mocks.EnvPrinter
+		err := env.Initialize()
+		if err != nil {
+			t.Fatalf("unexpected error during initialization: %v", err)
+		}
+
+		// Set the WINDSOR_MANAGED_ENV environment variable for testing
+		os.Setenv("WINDSOR_MANAGED_ENV", "TEST_VAR")
+		defer os.Unsetenv("WINDSOR_MANAGED_ENV")
+
+		mocks.MockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			return fmt.Errorf("mock error unsetting env vars")
+		}
+
+		_, err = env.UnsetEnvVars()
+		if err == nil || err.Error() != "error unsetting environment variables: mock error unsetting env vars" {
+			t.Errorf("expected error 'error unsetting environment variables: mock error unsetting env vars', got %v", err)
 		}
 	})
 }

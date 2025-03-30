@@ -7,6 +7,7 @@ import (
 // MockShell is a struct that simulates a shell environment for testing purposes.
 type MockShell struct {
 	DefaultShell
+	ResetFunc                      func() error
 	InitializeFunc                 func() error
 	PrintEnvVarsFunc               func(envVars map[string]string) error
 	PrintAliasFunc                 func(envVars map[string]string) error
@@ -126,6 +127,14 @@ func (s *MockShell) AddCurrentDirToTrustedFile() error {
 func (s *MockShell) CheckTrustedDirectory() error {
 	if s.CheckTrustedDirectoryFunc != nil {
 		return s.CheckTrustedDirectoryFunc()
+	}
+	return nil
+}
+
+// Reset calls the custom ResetFunc if provided.
+func (s *MockShell) Reset() error {
+	if s.ResetFunc != nil {
+		return s.ResetFunc()
 	}
 	return nil
 }

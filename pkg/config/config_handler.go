@@ -107,7 +107,7 @@ func (c *BaseConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider)
 	c.secretsProviders = append(c.secretsProviders, provider)
 }
 
-// GetContext retrieves the current context from the file or cache
+// GetContext retrieves the current context from the environment variable, file, or cache
 func (c *BaseConfigHandler) GetContext() string {
 	if c.context != "" {
 		return c.context

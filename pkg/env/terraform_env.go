@@ -26,7 +26,7 @@ func NewTerraformEnvPrinter(injector di.Injector) *TerraformEnvPrinter {
 	terraformEnvPrinter := &TerraformEnvPrinter{}
 	terraformEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
 		injector:   injector,
-		EnvPrinter: terraformEnvPrinter,
+		envPrinter: terraformEnvPrinter,
 	}
 	return terraformEnvPrinter
 }

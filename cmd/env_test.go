@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -19,6 +20,15 @@ func setupSafeEnvCmdMocks(optionalInjector ...di.Injector) (*MockObjects, di.Inj
 		injector = di.NewInjector()
 	}
 	mockController := ctrl.NewMockController(injector)
+
+	// Set up default mock shell to allow GetProjectRoot to succeed
+	defaultShell := shell.NewMockShell(injector)
+	defaultShell.ResetFunc = func() error { return nil }
+	defaultShell.CheckTrustedDirectoryFunc = func() error { return nil }
+	defaultShell.GetProjectRootFunc = func() (string, error) { return "project-root", nil }
+	mockController.ResolveShellFunc = func(name ...string) shell.Shell {
+		return defaultShell
+	}
 
 	osExit = func(code int) {}
 
@@ -475,6 +485,108 @@ func TestEnvCmd(t *testing.T) {
 		// Then the error should indicate the load error
 		if err == nil || err.Error() != "Error loading secrets provider: load error" {
 			t.Fatalf("Expected load error, got %v", err)
+		}
+	})
+
+	t.Run("ResetErrorWithVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+		mocks, injector := setupSafeEnvCmdMocks()
+		// Create a mock shell that returns an error for Reset
+		mockShell := shell.NewMockShell(injector)
+		mockShell.ResetFunc = func() error { return fmt.Errorf("reset error") }
+		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
+			return mockShell
+		}
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mocks.Controller)
+		expected := "Error executing Reset: reset error"
+		if err == nil || err.Error() != expected {
+			t.Fatalf("Expected error %q, got %v", expected, err)
+		}
+	})
+
+	t.Run("ResetErrorWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+		mocks, injector := setupSafeEnvCmdMocks()
+		// Create a mock shell that returns an error for Reset
+		mockShell := shell.NewMockShell(injector)
+		mockShell.ResetFunc = func() error { return fmt.Errorf("reset error") }
+		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
+			return mockShell
+		}
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("GetProjectRootErrorWithVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+		mocks, injector := setupSafeEnvCmdMocks()
+		// Create a mock shell that returns an error for GetProjectRoot
+		mockShell := shell.NewMockShell(injector)
+		mockShell.GetProjectRootFunc = func() (string, error) { return "", fmt.Errorf("get root error") }
+		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
+			return mockShell
+		}
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mocks.Controller)
+		expected := "error retrieving project root: get root error"
+		if err == nil || err.Error() != expected {
+			t.Fatalf("Expected error %q, got %v", expected, err)
+		}
+	})
+
+	t.Run("GetProjectRootErrorWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+		mocks, injector := setupSafeEnvCmdMocks()
+		// Create a mock shell that returns an error for GetProjectRoot
+		mockShell := shell.NewMockShell(injector)
+		mockShell.GetProjectRootFunc = func() (string, error) { return "", fmt.Errorf("get root error") }
+		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
+			return mockShell
+		}
+		// Set args and explicitly force verbose false
+		rootCmd.SetArgs([]string{"env", "--verbose=false"})
+		rootCmd.Flags().Set("verbose", "false")
+		err := Execute(mocks.Controller)
+		if err == nil || !strings.Contains(err.Error(), "get root error") {
+			t.Fatalf("Expected error containing 'get root error', got %v", err)
+		}
+	})
+
+	t.Run("EmptyProjectRootWithVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+		mocks, injector := setupSafeEnvCmdMocks()
+		// Create a mock shell that returns an empty project root and no error
+		mockShell := shell.NewMockShell(injector)
+		mockShell.GetProjectRootFunc = func() (string, error) { return "", nil }
+		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
+			return mockShell
+		}
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mocks.Controller)
+		expected := "Error finding windsor.yaml in directory ancestry: %!w(<nil>)"
+		if err == nil || err.Error() != expected {
+			t.Fatalf("Expected error %q, got %v", expected, err)
+		}
+	})
+
+	t.Run("EmptyProjectRootWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+		mocks, injector := setupSafeEnvCmdMocks()
+		// Create a mock shell that returns an empty project root and no error
+		mockShell := shell.NewMockShell(injector)
+		mockShell.GetProjectRootFunc = func() (string, error) { return "", nil }
+		mocks.Controller.ResolveShellFunc = func(name ...string) shell.Shell {
+			return mockShell
+		}
+		rootCmd.SetArgs([]string{"env", "--verbose=false"})
+		rootCmd.Flags().Set("verbose", "false")
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Fatalf("Expected no error in non-verbose mode with empty project root, got %v", err)
 		}
 	})
 }

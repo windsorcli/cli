@@ -201,7 +201,7 @@ func (y *YamlConfigHandler) GetStringMap(key string, defaultValue ...map[string]
 }
 
 // Set updates the value at the specified path in the configuration using reflection.
-func (y *YamlConfigHandler) Set(path string, value interface{}) error {
+func (y *YamlConfigHandler) Set(path string, value any) error {
 	if path == "" {
 		return nil
 	}
@@ -211,7 +211,7 @@ func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 }
 
 // SetContextValue sets a configuration value within the current context.
-func (y *YamlConfigHandler) SetContextValue(path string, value interface{}) error {
+func (y *YamlConfigHandler) SetContextValue(path string, value any) error {
 	y.GetContext()
 
 	currentContext := y.context

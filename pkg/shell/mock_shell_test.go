@@ -486,3 +486,28 @@ func TestMockShell_CheckTrustedDirectory(t *testing.T) {
 		assertError(t, err, false)
 	})
 }
+
+// Added test for the new Reset method in MockShell
+func TestMockShell_Reset(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		expectedError := "reset error"
+		mockShell.ResetFunc = func() error {
+			return fmt.Errorf(expectedError)
+		}
+		err := mockShell.Reset()
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		err := mockShell.Reset()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}

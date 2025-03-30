@@ -17,7 +17,7 @@ func NewTalosEnvPrinter(injector di.Injector) *TalosEnvPrinter {
 	talosEnvPrinter := &TalosEnvPrinter{}
 	talosEnvPrinter.BaseEnvPrinter = BaseEnvPrinter{
 		injector:   injector,
-		EnvPrinter: talosEnvPrinter,
+		envPrinter: talosEnvPrinter,
 	}
 	return talosEnvPrinter
 }
