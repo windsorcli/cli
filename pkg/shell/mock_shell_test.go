@@ -511,3 +511,28 @@ func TestMockShell_Reset(t *testing.T) {
 		}
 	})
 }
+
+func TestMockShell_GetSessionToken(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		expectedToken := "mock-session-token"
+		mockShell.GetSessionTokenFunc = func() string {
+			return expectedToken
+		}
+		token := mockShell.GetSessionToken()
+		if token != expectedToken {
+			t.Errorf("Expected token %q, got %q", expectedToken, token)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		expectedToken := "mock-session-token"
+		token := mockShell.GetSessionToken()
+		if token != expectedToken {
+			t.Errorf("Expected token %q, got %q", expectedToken, token)
+		}
+	})
+}

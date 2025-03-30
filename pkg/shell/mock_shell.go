@@ -20,6 +20,7 @@ type MockShell struct {
 	SetVerbosityFunc               func(verbose bool)
 	AddCurrentDirToTrustedFileFunc func() error
 	CheckTrustedDirectoryFunc      func() error
+	GetSessionTokenFunc            func() string
 }
 
 // NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
@@ -137,6 +138,14 @@ func (s *MockShell) Reset() error {
 		return s.ResetFunc()
 	}
 	return nil
+}
+
+// GetSessionToken calls the custom GetSessionTokenFunc if provided.
+func (s *MockShell) GetSessionToken() string {
+	if s.GetSessionTokenFunc != nil {
+		return s.GetSessionTokenFunc()
+	}
+	return "mock-session-token"
 }
 
 // Ensure MockShell implements the Shell interface

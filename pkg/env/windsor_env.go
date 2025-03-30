@@ -51,30 +51,34 @@ func (e *WindsorEnvPrinter) Initialize() error {
 	return nil
 }
 
-// GetEnvVars constructs the environment variables map by combining Windsor-specific variables
-// with additional environment variables provided via configuration, resolving secret placeholders when needed.
+// GetEnvVars builds a map of environment variables for Windsor. It combines Windsor-specific
+// variables with additional ones from the configuration, resolving secret placeholders. It also
+// manages context determination and caching, ensuring a comprehensive environment setup.
 func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Add Windsor-specific environment variables.
-	currentContext := e.configHandler.GetContext()
-	envVars["WINDSOR_CONTEXT"] = currentContext
-
+	// Get the project root directory
 	projectRoot, err := e.shell.GetProjectRoot()
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving project root: %w", err)
+		return nil, fmt.Errorf("error getting project root: %w", err)
 	}
-	envVars["WINDSOR_PROJECT_ROOT"] = projectRoot
 
-	// Merge additional environment variables from the configuration.
+	// Get the context (the GetContext method now internally checks for PID-based triggers)
+	context := e.configHandler.GetContext()
+
+	// Get the session token directly from the shell
+	sessionToken := e.shell.GetSessionToken()
+
+	envVars["WINDSOR_CONTEXT"] = context
+	envVars["WINDSOR_PROJECT_ROOT"] = projectRoot
+	envVars["WINDSOR_SESSION_TOKEN"] = sessionToken
+
+	// Merge additional environment variables from the configuration
 	originalEnvVars := e.configHandler.GetStringMap("environment")
 	re := regexp.MustCompile(secretPlaceholderPattern)
 	for k, v := range originalEnvVars {
-		// If the value contains secret placeholders, resolve them.
 		if re.MatchString(v) {
-			// Check if there's already a cached value using os.LookupEnv.
 			if existingValue, exists := os.LookupEnv(k); exists {
-				// If caching is enabled and the value doesn't contain error markers, use it.
 				if os.Getenv("NO_CACHE") != "true" && !strings.Contains(existingValue, "<ERROR") {
 					envVars[k] = existingValue
 					continue
@@ -86,14 +90,14 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	// Build the WINDSOR_MANAGED_ENV variable as a comma-separated list of managed keys.
-	managedEnvKeys := []string{"WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_EXEC_MODE", "WINDSOR_MANAGED_ENV", "WINDSOR_MANAGED_ALIASES"}
+	// Build the WINDSOR_MANAGED_ENV variable as a comma-separated list of managed keys
+	managedEnvKeys := []string{"WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_EXEC_MODE", "WINDSOR_MANAGED_ENV", "WINDSOR_MANAGED_ALIASES", "WINDSOR_SESSION_TOKEN"}
 	for key := range printedEnvVars {
 		managedEnvKeys = append(managedEnvKeys, key)
 	}
 	envVars["WINDSOR_MANAGED_ENV"] = strings.Join(managedEnvKeys, ",")
 
-	// Build the WINDSOR_MANAGED_ALIASES variable as a comma-separated list of managed keys.
+	// Build the WINDSOR_MANAGED_ALIASES variable as a comma-separated list of managed keys
 	managedAliasesKeys := []string{}
 	for key := range printedAliases {
 		managedAliasesKeys = append(managedAliasesKeys, key)
