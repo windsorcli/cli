@@ -1353,6 +1353,43 @@ func TestDefaultShell_GetSessionToken(t *testing.T) {
 		}
 	})
 
+	t.Run("ResetFileExists", func(t *testing.T) {
+		mocks := setupSafeShellTestMocks()
+		shell := NewDefaultShell(mocks.Injector)
+
+		// Set a session token directly to ensure the reset file check is triggered
+		expectedToken := "presetToken456"
+		shell.sessionToken = expectedToken
+
+		// Mock osStat to simulate the reset file exists
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, fmt.Sprintf(".session.%s.reset", expectedToken)) {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("unexpected file stat attempt")
+		}
+
+		// Mock osRemove to simulate successful removal of the reset file
+		originalOsRemove := osRemove
+		defer func() { osRemove = originalOsRemove }()
+		osRemove = func(name string) error {
+			if strings.Contains(name, fmt.Sprintf(".session.%s.reset", expectedToken)) {
+				return nil
+			}
+			return fmt.Errorf("unexpected file removal attempt")
+		}
+
+		// When calling GetSessionToken
+		token := shell.GetSessionToken()
+
+		// Then the token should be an empty string
+		if token != "" {
+			t.Errorf("Expected an empty string, got %q", token)
+		}
+	})
+
 	t.Run("EnvironmentVariableToken", func(t *testing.T) {
 		mocks := setupSafeShellTestMocks()
 		shell := NewDefaultShell(mocks.Injector)
