@@ -415,19 +415,39 @@ func (s *DefaultShell) CheckTrustedDirectory() error {
 	return nil
 }
 
-// GetSessionToken returns a token for the current session
+// GetSessionToken retrieves or generates a unique token for the current session.
+// It first checks if the project root directory is accessible. If not, it returns an empty string.
+// It prefers the session token set in the environment variable "WINDSOR_SESSION_TOKEN" over the cached session token.
+// It checks for a reset file associated with the preferred token. If the reset file exists, it deletes the reset file and returns an empty string.
+// If no reset file is found, it returns the preferred token.
+// If no session token is set in the environment or cached, it generates a new random token, caches it, and returns it.
 func (s *DefaultShell) GetSessionToken() string {
-	// If token is already set in environment variable, use it
-	if token := os.Getenv("WINDSOR_SESSION_TOKEN"); token != "" {
-		return token
+	projectRoot, err := s.GetProjectRoot()
+	if err != nil || projectRoot == "" {
+		return ""
 	}
 
-	// If we already have a cached token in memory, return it
-	if s.sessionToken != "" {
-		return s.sessionToken
+	// Prefer the environment token
+	envToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+	localToken := s.sessionToken
+	preferredToken := envToken
+	if preferredToken == "" {
+		preferredToken = localToken
 	}
 
-	// Generate and cache a new token
+	if preferredToken != "" {
+		resetPath := filepath.Join(projectRoot, ".windsor", fmt.Sprintf(".session.%s.reset", preferredToken))
+		if _, err := osStat(resetPath); err == nil {
+			_ = osRemove(resetPath)
+			if preferredToken == s.sessionToken {
+				s.sessionToken = ""
+			}
+			return ""
+		}
+		return preferredToken
+	}
+
+	// Generate a new token if none is set
 	s.sessionToken = generateRandomString(8)
 	return s.sessionToken
 }

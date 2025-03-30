@@ -66,6 +66,12 @@ var setContextCmd = &cobra.Command{
 			return fmt.Errorf("Error setting context: %w", err)
 		}
 
+		// Reset session token
+		shellInstance := controller.ResolveShell()
+		if err := shellInstance.ResetSessionToken(); err != nil {
+			return fmt.Errorf("Error resetting session token: %w", err)
+		}
+
 		// Print the context
 		fmt.Println("Context set to:", contextName)
 		return nil

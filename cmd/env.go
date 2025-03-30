@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -18,6 +19,10 @@ var envCmd = &cobra.Command{
 		// Check if current directory is in the trusted list
 		shell := controller.ResolveShell()
 		if err := shell.CheckTrustedDirectory(); err != nil {
+			// Use shell to print an empty value for WINDSOR_SESSION_TOKEN if it is defined
+			if _, exists := os.LookupEnv("WINDSOR_SESSION_TOKEN"); exists {
+				shell.PrintEnvVars(map[string]string{"WINDSOR_SESSION_TOKEN": ""})
+			}
 			if verbose {
 				return fmt.Errorf("Error checking trusted directory: %w", err)
 			}
