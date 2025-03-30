@@ -19,6 +19,9 @@ import (
 // maxFolderSearchDepth is the maximum depth to search for the project root
 const maxFolderSearchDepth = 10
 
+// Global session token
+var sessionToken string
+
 // HookContext are the variables available during hook template evaluation
 type HookContext struct {
 	// SelfPath is the unescaped absolute path to direnv
@@ -60,10 +63,9 @@ type Shell interface {
 // DefaultShell is the default implementation of the Shell interface
 type DefaultShell struct {
 	Shell
-	projectRoot  string
-	injector     di.Injector
-	verbose      bool
-	sessionToken string
+	projectRoot string
+	injector    di.Injector
+	verbose     bool
 }
 
 // NewDefaultShell creates a new instance of DefaultShell
@@ -428,7 +430,7 @@ func (s *DefaultShell) GetSessionToken() string {
 
 	// Prefer the environment token
 	envToken := os.Getenv("WINDSOR_SESSION_TOKEN")
-	localToken := s.sessionToken
+	localToken := sessionToken
 	preferredToken := envToken
 	if preferredToken == "" {
 		preferredToken = localToken
@@ -438,8 +440,8 @@ func (s *DefaultShell) GetSessionToken() string {
 		resetPath := filepath.Join(projectRoot, ".windsor", fmt.Sprintf(".session.%s.reset", preferredToken))
 		if _, err := osStat(resetPath); err == nil {
 			_ = osRemove(resetPath)
-			if preferredToken == s.sessionToken {
-				s.sessionToken = ""
+			if preferredToken == sessionToken {
+				sessionToken = ""
 			}
 			return ""
 		}
@@ -447,8 +449,8 @@ func (s *DefaultShell) GetSessionToken() string {
 	}
 
 	// Generate a new token if none is set
-	s.sessionToken = generateRandomString(8)
-	return s.sessionToken
+	sessionToken = generateRandomString(8)
+	return sessionToken
 }
 
 // ResetSessionToken resets the session token for the current terminal

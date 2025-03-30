@@ -1359,27 +1359,30 @@ func TestDefaultShell_GetSessionToken(t *testing.T) {
 
 		// Set a session token directly to ensure the reset file check is triggered
 		expectedToken := "presetToken456"
-		shell.sessionToken = expectedToken
+		sessionToken = expectedToken
 
 		// Mock osStat to simulate the reset file exists
 		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
 		osStat = func(name string) (os.FileInfo, error) {
 			if strings.Contains(name, fmt.Sprintf(".session.%s.reset", expectedToken)) {
 				return nil, nil
 			}
 			return nil, fmt.Errorf("unexpected file stat attempt")
 		}
+		defer func() { osStat = originalOsStat }()
 
 		// Mock osRemove to simulate successful removal of the reset file
 		originalOsRemove := osRemove
-		defer func() { osRemove = originalOsRemove }()
 		osRemove = func(name string) error {
 			if strings.Contains(name, fmt.Sprintf(".session.%s.reset", expectedToken)) {
 				return nil
 			}
 			return fmt.Errorf("unexpected file removal attempt")
 		}
+		defer func() { osRemove = originalOsRemove }()
+
+		// Clear the environment variable for the session token
+		os.Unsetenv("WINDSOR_SESSION_TOKEN")
 
 		// When calling GetSessionToken
 		token := shell.GetSessionToken()
@@ -1414,7 +1417,7 @@ func TestDefaultShell_GetSessionToken(t *testing.T) {
 
 		// Set a session token directly
 		expectedToken := "presetToken456"
-		shell.sessionToken = expectedToken
+		sessionToken = expectedToken
 
 		// When calling GetSessionToken
 		token := shell.GetSessionToken()
@@ -1443,7 +1446,7 @@ func TestDefaultShell_ResetSessionToken(t *testing.T) {
 		}
 
 		// Validate that the session token is reset
-		if shell.sessionToken == "" {
+		if sessionToken == "" {
 			t.Errorf("Expected session token to be set, got empty string")
 		}
 	})

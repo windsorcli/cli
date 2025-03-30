@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -51,12 +50,12 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			injector := di.NewInjector()
 
-			// Mock osStat to simulate the presence of the specified file
+			// Mock osStat to simulate the presence or absence of the specified file
 			originalOsStat := osStat
 			defer func() { osStat = originalOsStat }()
 			osStat = func(name string) (os.FileInfo, error) {
 				if strings.HasSuffix(name, tc.fileName) {
-					return &mockFileInfo{name: tc.fileName}, nil
+					return nil, nil
 				}
 				return nil, fmt.Errorf("file not found")
 			}
@@ -89,18 +88,6 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 		})
 	}
 }
-
-// mockFileInfo is a mock implementation of os.FileInfo
-type mockFileInfo struct {
-	name string
-}
-
-func (m *mockFileInfo) Name() string       { return m.name }
-func (m *mockFileInfo) Size() int64        { return 0 }
-func (m *mockFileInfo) Mode() os.FileMode  { return 0 }
-func (m *mockFileInfo) ModTime() time.Time { return time.Time{} }
-func (m *mockFileInfo) IsDir() bool        { return false }
-func (m *mockFileInfo) Sys() interface{}   { return nil }
 
 func TestDefaultShell_PrintAlias(t *testing.T) {
 	aliasVars := map[string]string{
@@ -173,6 +160,36 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 		}
 		if !strings.Contains(output, expectedUnaliasLine) {
 			t.Errorf("PrintAlias() output missing expected line: %v", expectedUnaliasLine)
+		}
+	})
+
+	t.Run("PrintAliasCommandError", func(t *testing.T) {
+		injector := di.NewInjector()
+
+		// Given a default shell with an alias having an empty value
+		shell := NewDefaultShell(injector)
+		aliasVarsWithEmpty := map[string]string{
+			"ALIAS1": "command1",
+			"ALIAS2": "",
+		}
+
+		// Mock cmdRun to simulate an error when checking for an existing alias
+		originalCmdRun := cmdRun
+		defer func() {
+			cmdRun = originalCmdRun
+		}()
+		cmdRun = func(cmd *exec.Cmd) error {
+			return fmt.Errorf("simulated command error")
+		}
+
+		// Capture the output of PrintAlias
+		err := shell.PrintAlias(aliasVarsWithEmpty)
+		if err == nil {
+			t.Fatalf("Expected PrintAlias to return an error, but it did not")
+		}
+		expectedError := "failed to check alias for ALIAS2"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error message to contain %q, got %q", expectedError, err.Error())
 		}
 	})
 }

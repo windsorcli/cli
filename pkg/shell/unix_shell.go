@@ -56,7 +56,7 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 			cmd := execCommand("alias", k)
 			var buf bytes.Buffer
 			cmd.Stdout = &buf
-			if err := cmd.Run(); err != nil {
+			if err := cmdRun(cmd); err != nil {
 				return fmt.Errorf("failed to check alias for %s: %w", k, err)
 			}
 			if buf.Len() > 0 {
