@@ -15,7 +15,7 @@ import (
 var getwd = os.Getwd
 
 // Command execution
-var execCommand = osExecCommand
+var execCommand = exec.Command
 
 // Process state exit code retrieval
 var processStateExitCode = func(ps *os.ProcessState) int {
@@ -117,3 +117,9 @@ var execCommandOutput = func(name string, arg ...string) (string, error) {
 	cmd := execCommand(name, arg...)
 	return cmdOutput(cmd)
 }
+
+// osGetppid is a variable to allow mocking os.Getppid in tests
+var osGetppid = os.Getppid
+
+// osGetpid is a variable to allow mocking os.Getpid in tests
+var osGetpid = os.Getpid

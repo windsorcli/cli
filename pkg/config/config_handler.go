@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
@@ -11,9 +13,10 @@ import (
 )
 
 const (
-	windsorDirName  = ".windsor"
-	contextDirName  = "contexts"
-	contextFileName = "context"
+	windsorDirName     = ".windsor"
+	contextDirName     = "contexts"
+	contextFileName    = "context"
+	sessionTokenLength = 16
 )
 
 // ConfigHandler defines the interface for handling configuration operations
@@ -58,6 +61,8 @@ type ConfigHandler interface {
 	GetConfig() *v1alpha1.Context
 
 	// GetContext retrieves the current context
+	// It uses a persistent session token to identify the terminal and ensure each terminal
+	// maintains its own context.
 	GetContext() string
 
 	// SetContext sets the current context
@@ -107,7 +112,13 @@ func (c *BaseConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider)
 	c.secretsProviders = append(c.secretsProviders, provider)
 }
 
-// GetContext retrieves the current context from the environment variable, file, or cache
+// GetContext retrieves the current context for the terminal session. It first checks if a context
+// is already cached in memory. If not, it attempts to determine the context by checking a series
+// of sources in order of priority: a session-specific context file, an environment variable, and
+// a shared context file. The session-specific context file is named using a session token unique
+// to the terminal, ensuring that each terminal maintains its own context. If a session-specific
+// context is found, it is read, cached, and the file is deleted. If no context is found in any
+// of these sources, the function defaults to returning "local" as the context.
 func (c *BaseConfigHandler) GetContext() string {
 	if c.context != "" {
 		return c.context
@@ -115,40 +126,66 @@ func (c *BaseConfigHandler) GetContext() string {
 
 	projectRoot, err := c.shell.GetProjectRoot()
 	if err != nil {
-		return "local"
+		c.context = "local"
+		return c.context
 	}
 
-	contextFilePath := filepath.Join(projectRoot, windsorDirName, contextFileName)
-	data, err := osReadFile(contextFilePath)
-	if err != nil {
-		return "local"
+	contextDirPath := filepath.Join(projectRoot, windsorDirName)
+	sessionToken := c.shell.GetSessionToken()
+	sessionContextPath := filepath.Join(contextDirPath, fmt.Sprintf(".session-%s.ctx", sessionToken))
+
+	if data, err := osReadFile(sessionContextPath); err == nil && len(data) > 0 {
+		c.context = strings.TrimSpace(string(data))
+		osRemove(sessionContextPath)
+		return c.context
 	}
 
-	c.context = string(data)
+	if envContext := os.Getenv("WINDSOR_CONTEXT"); envContext != "" {
+		c.context = envContext
+		return c.context
+	}
+
+	sharedContextPath := filepath.Join(contextDirPath, contextFileName)
+	if data, err := osReadFile(sharedContextPath); err == nil && len(data) > 0 {
+		c.context = strings.TrimSpace(string(data))
+		return c.context
+	}
+
+	c.context = "local"
 	return c.context
 }
 
-// SetContext sets the current context in the file and updates the cache
+// SetContext sets the context for this terminal session. It first clears the cached context
+// to ensure the new value is picked up. It then retrieves the project root directory and
+// ensures the context directory exists. The context is saved to a session-specific file,
+// which is unique to the terminal session, and also to a shared context file that is used
+// by new shells. Finally, the in-memory context is updated with the new value.
 func (c *BaseConfigHandler) SetContext(context string) error {
+	c.context = ""
+
 	projectRoot, err := c.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("error getting project root: %w", err)
 	}
-
 	contextDirPath := filepath.Join(projectRoot, windsorDirName)
 	if err := osMkdirAll(contextDirPath, 0755); err != nil {
 		return fmt.Errorf("error ensuring context directory exists: %w", err)
 	}
-
-	contextFilePath := filepath.Join(contextDirPath, contextFileName)
-	err = osWriteFile(contextFilePath, []byte(context), 0644)
-	if err != nil {
-		return fmt.Errorf("error writing context to file: %w", err)
+	sessionToken := c.shell.GetSessionToken()
+	sessionContextPath := filepath.Join(contextDirPath, fmt.Sprintf(".session-%s.ctx", sessionToken))
+	if err := osWriteFile(sessionContextPath, []byte(context), 0644); err != nil {
+		return fmt.Errorf("error writing session-specific context file: %w", err)
 	}
-
+	sharedContextPath := filepath.Join(contextDirPath, contextFileName)
+	if err := osWriteFile(sharedContextPath, []byte(context), 0644); err != nil {
+		return fmt.Errorf("error writing shared context file: %w", err)
+	}
 	c.context = context
 	return nil
 }
+
+// SetContext clears the current context, writes the new context to session-specific and shared files,
+// and updates the in-memory context for the terminal session.
 
 // GetConfigRoot retrieves the configuration root path based on the current context
 func (c *BaseConfigHandler) GetConfigRoot() (string, error) {

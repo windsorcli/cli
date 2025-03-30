@@ -167,12 +167,12 @@ func (m *MockConfigHandler) GetConfig() *v1alpha1.Context {
 	return &v1alpha1.Context{}
 }
 
-// GetContext calls the mock GetContextFunc if set, otherwise returns a reasonable default string
+// GetContext calls the mock GetContextFunc if set, otherwise returns "local"
 func (m *MockConfigHandler) GetContext() string {
 	if m.GetContextFunc != nil {
 		return m.GetContextFunc()
 	}
-	return "mock-context"
+	return "local"
 }
 
 // SetContext calls the mock SetContextFunc if set, otherwise returns nil

@@ -5,11 +5,11 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
-
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -57,6 +57,8 @@ type Shell interface {
 	UnsetAlias(aliases []string)
 	// Reset unsets all environment variables and aliases
 	Reset() error
+	// GetSessionToken retrieves or creates a unique session token for the current terminal
+	GetSessionToken() string
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -428,6 +430,41 @@ func (s *DefaultShell) Reset() error {
 		s.UnsetAlias(aliases)
 	}
 	return nil
+}
+
+// sessionToken holds the current terminal's session token
+// It acts as an in-memory cache for the token during this command execution
+var sessionTokenCache string
+
+// GetSessionToken returns a unique session token for the current terminal.
+// It checks cache, environment, or generates a new token.
+func (s *DefaultShell) GetSessionToken() string {
+	if sessionTokenCache != "" {
+		return sessionTokenCache
+	}
+
+	if token := os.Getenv("WINDSOR_SESSION_TOKEN"); token != "" {
+		sessionTokenCache = token
+		return token
+	}
+
+	token := s.generateSessionToken()
+	sessionTokenCache = token
+
+	return token
+}
+
+// generateSessionToken creates a random session token that uniquely identifies a terminal session
+func (s *DefaultShell) generateSessionToken() string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	const tokenLength = 8
+	// Create a simple random string
+	token := ""
+	for range make([]int, tokenLength) {
+		token += string(charset[rand.Intn(len(charset))])
+	}
+
+	return token
 }
 
 // Ensure DefaultShell implements the Shell interface
