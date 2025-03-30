@@ -3,14 +3,13 @@ package shell
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
-
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -477,9 +476,13 @@ func (s *DefaultShell) ResetSessionToken() error {
 // generateRandomString creates a random session token that uniquely identifies a terminal session
 func generateRandomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	token := ""
-	for range make([]int, length) {
-		token += string(charset[rand.Intn(len(charset))])
+	token := make([]byte, length)
+	randomBytes := make([]byte, length)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return ""
 	}
-	return token
+	for i, b := range randomBytes {
+		token[i] = charset[b%byte(len(charset))]
+	}
+	return string(token)
 }
