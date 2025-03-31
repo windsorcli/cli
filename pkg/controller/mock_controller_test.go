@@ -863,3 +863,31 @@ func TestMockController_ResolveBlueprintHandler(t *testing.T) {
 		}
 	})
 }
+
+func TestMockController_SetEnvironmentVariables(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new injector and mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+		// And the SetEnvironmentVariablesFunc is set to return nil
+		mockCtrl.SetEnvironmentVariablesFunc = func() error {
+			return nil
+		}
+		// When SetEnvironmentVariables is called
+		if err := mockCtrl.SetEnvironmentVariables(); err != nil {
+			// Then no error should be returned
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NoSetEnvironmentVariablesFunc", func(t *testing.T) {
+		// Given a new injector and mock controller
+		mocks := setSafeControllerMocks()
+		mockCtrl := NewMockController(mocks.Injector)
+		// When SetEnvironmentVariables is called without setting SetEnvironmentVariablesFunc
+		if err := mockCtrl.SetEnvironmentVariables(); err != nil {
+			// Then no error should be returned
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}

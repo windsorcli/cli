@@ -137,6 +137,9 @@ var initCmd = &cobra.Command{
 		}
 
 		// Create and initialize components
+		if err := controller.CreateEnvComponents(); err != nil {
+			return fmt.Errorf("Error creating environment components: %w", err)
+		}
 		if err := controller.CreateProjectComponents(); err != nil {
 			return fmt.Errorf("Error creating project components: %w", err)
 		}
