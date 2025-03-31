@@ -47,6 +47,7 @@ type MockController struct {
 	ResolveBlueprintHandlerFunc        func() blueprint.BlueprintHandler
 	ResolveAllSecretsProvidersFunc     func() []secrets.SecretsProvider
 	WriteConfigurationFilesFunc        func() error
+	SetEnvironmentVariablesFunc        func() error
 }
 
 func NewMockController(injector di.Injector) *MockController {
@@ -453,6 +454,14 @@ func (c *MockController) ResolveAllSecretsProviders() []secrets.SecretsProvider 
 		return c.ResolveAllSecretsProvidersFunc()
 	}
 	return c.BaseController.ResolveAllSecretsProviders()
+}
+
+// SetEnvironmentVariables calls the mock SetEnvironmentVariablesFunc if set, otherwise calls the parent function
+func (c *MockController) SetEnvironmentVariables() error {
+	if c.SetEnvironmentVariablesFunc != nil {
+		return c.SetEnvironmentVariablesFunc()
+	}
+	return c.BaseController.SetEnvironmentVariables()
 }
 
 // Ensure MockController implements Controller

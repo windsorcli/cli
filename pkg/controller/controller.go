@@ -2,7 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
@@ -440,7 +439,7 @@ func (c *BaseController) SetEnvironmentVariables() error {
 			return fmt.Errorf("error getting environment variables: %w", err)
 		}
 		for key, value := range envVars {
-			if err := os.Setenv(key, value); err != nil {
+			if err := osSetenv(key, value); err != nil {
 				return fmt.Errorf("error setting environment variable %s: %w", key, err)
 			}
 		}
