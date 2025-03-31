@@ -112,23 +112,25 @@ var upCmd = &cobra.Command{
 
 		// Resolve the network manager
 		networkManager := controller.ResolveNetworkManager()
-		if networkManager == nil {
+		if networkManager == nil && vmDriver != "" {
 			return fmt.Errorf("No network manager found")
 		}
 
-		// Configure networking for the virtual machine
-		if vmDriver == "colima" {
-			if err := networkManager.ConfigureGuest(); err != nil {
-				return fmt.Errorf("Error configuring guest network: %w", err)
+		if networkManager != nil {
+			// Configure networking for the virtual machine
+			if vmDriver == "colima" {
+				if err := networkManager.ConfigureGuest(); err != nil {
+					return fmt.Errorf("Error configuring guest network: %w", err)
+				}
+				if err := networkManager.ConfigureHostRoute(); err != nil {
+					return fmt.Errorf("Error configuring host network: %w", err)
+				}
 			}
-			if err := networkManager.ConfigureHostRoute(); err != nil {
-				return fmt.Errorf("Error configuring host network: %w", err)
-			}
-		}
 
-		// Configure DNS settings
-		if err := networkManager.ConfigureDNS(); err != nil {
-			return fmt.Errorf("Error configuring DNS: %w", err)
+			// Configure DNS settings
+			if err := networkManager.ConfigureDNS(); err != nil {
+				return fmt.Errorf("Error configuring DNS: %w", err)
+			}
 		}
 
 		// Start the stack components
