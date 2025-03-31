@@ -140,11 +140,13 @@ var initCmd = &cobra.Command{
 		if err := controller.CreateProjectComponents(); err != nil {
 			return fmt.Errorf("Error creating project components: %w", err)
 		}
-		if err := controller.CreateServiceComponents(); err != nil {
-			return fmt.Errorf("Error creating service components: %w", err)
-		}
-		if err := controller.CreateVirtualizationComponents(); err != nil {
-			return fmt.Errorf("Error creating virtualization components: %w", err)
+		if vmDriver != "" {
+			if err := controller.CreateServiceComponents(); err != nil {
+				return fmt.Errorf("Error creating service components: %w", err)
+			}
+			if err := controller.CreateVirtualizationComponents(); err != nil {
+				return fmt.Errorf("Error creating virtualization components: %w", err)
+			}
 		}
 		if err := controller.CreateStackComponents(); err != nil {
 			return fmt.Errorf("Error creating stack components: %w", err)
