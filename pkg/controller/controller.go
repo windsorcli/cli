@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
@@ -45,6 +46,7 @@ type Controller interface {
 	ResolveStack() stack.Stack
 	ResolveAllGenerators() []generators.Generator
 	WriteConfigurationFiles() error
+	SetEnvironmentVariables() error
 }
 
 // BaseController struct implements the Controller interface.
@@ -175,6 +177,11 @@ func (c *BaseController) InitializeComponents() error {
 		if err := stack.Initialize(); err != nil {
 			return fmt.Errorf("error initializing stack: %w", err)
 		}
+	}
+
+	// Set the environment variables
+	if err := c.SetEnvironmentVariables(); err != nil {
+		return fmt.Errorf("error setting environment variables: %w", err)
 	}
 
 	return nil
@@ -422,6 +429,23 @@ func (c *BaseController) ResolveAllGenerators() []generators.Generator {
 		generatorsInstances = append(generatorsInstances, generatorInstance)
 	}
 	return generatorsInstances
+}
+
+// SetEnvironmentVariables sets the environment variables in the session
+func (c *BaseController) SetEnvironmentVariables() error {
+	envPrinters := c.ResolveAllEnvPrinters()
+	for _, envPrinter := range envPrinters {
+		envVars, err := envPrinter.GetEnvVars()
+		if err != nil {
+			return fmt.Errorf("error getting environment variables: %w", err)
+		}
+		for key, value := range envVars {
+			if err := os.Setenv(key, value); err != nil {
+				return fmt.Errorf("error setting environment variable %s: %w", key, err)
+			}
+		}
+	}
+	return nil
 }
 
 // Ensure BaseController implements the Controller interface
