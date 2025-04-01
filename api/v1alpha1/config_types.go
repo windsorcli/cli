@@ -32,6 +32,7 @@ type Context struct {
 	Cluster     *cluster.ClusterConfig     `yaml:"cluster,omitempty"`
 	Network     *network.NetworkConfig     `yaml:"network,omitempty"`
 	DNS         *dns.DNSConfig             `yaml:"dns,omitempty"`
+	Platform    *string                    `yaml:"platform,omitempty"`
 }
 
 // Merge performs a deep merge of the current Context with another Context.
@@ -104,6 +105,9 @@ func (base *Context) Merge(overlay *Context) {
 		}
 		base.DNS.Merge(overlay.DNS)
 	}
+	if overlay.Platform != nil {
+		base.Platform = overlay.Platform
+	}
 }
 
 // DeepCopy creates a deep copy of the Context object
@@ -130,5 +134,6 @@ func (c *Context) DeepCopy() *Context {
 		Cluster:     c.Cluster.Copy(),
 		Network:     c.Network.Copy(),
 		DNS:         c.DNS.Copy(),
+		Platform:    c.Platform,
 	}
 }

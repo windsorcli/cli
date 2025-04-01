@@ -24,6 +24,7 @@ var (
 	gitLivereload  bool
 	blueprint      string
 	toolsManager   string
+	platform       string
 )
 
 var initCmd = &cobra.Command{
@@ -103,6 +104,7 @@ var initCmd = &cobra.Command{
 			{"vm-arch", "vm.arch", arch},
 			{"tools-manager", "toolsManager", toolsManager},
 			{"git-livereload", "git.livereload.enabled", gitLivereload},
+			{"platform", "platform", platform},
 		}
 
 		for _, config := range configurations {
@@ -178,5 +180,6 @@ func init() {
 	initCmd.Flags().StringVar(&arch, "vm-arch", "", "Specify the architecture for Colima")
 	initCmd.Flags().BoolVar(&docker, "docker", false, "Enable Docker")
 	initCmd.Flags().BoolVar(&gitLivereload, "git-livereload", false, "Enable Git Livereload")
+	initCmd.Flags().StringVar(&platform, "platform", "", "Specify the platform to use [local|metal]")
 	rootCmd.AddCommand(initCmd)
 }
