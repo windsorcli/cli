@@ -7,10 +7,6 @@ import (
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
-var (
-	platformFlag string // Declare the platform flag
-)
-
 var installCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install the blueprint's cluster-level services",
