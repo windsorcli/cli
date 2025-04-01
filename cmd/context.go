@@ -102,6 +102,9 @@ func init() {
 		Long:  "Manage contexts for the application",
 	})
 
+	getContextCmd.Flags().StringVar(&platformFlag, "platform", "", "Select the platform to use for the environment")
+	setContextCmd.Flags().StringVar(&platformFlag, "platform", "", "Select the platform to use for the environment")
+
 	contextCmd := rootCmd.Commands()[len(rootCmd.Commands())-1]
 	contextCmd.AddCommand(getContextCmd)
 	contextCmd.AddCommand(setContextCmd)
