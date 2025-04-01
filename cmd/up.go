@@ -30,34 +30,25 @@ var upCmd = &cobra.Command{
 			return nil
 		}
 
-		// Resolve configuration settings and determine if specific virtualization or container runtime
-		// actions are required based on the configuration.
-		vmDriver := configHandler.GetString("vm.driver")
-
 		// Don't do any caching of application state (secrets, etc.) when performing "up"
 		if err := osSetenv("NO_CACHE", "true"); err != nil {
 			return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
 		}
 
 		// Create and initialize all necessary components for the Windsor environment.
-		// This includes project, environment, and stack components.
+		// This includes project, environment, virtualization, service, and stack components.
 		if err := controller.CreateProjectComponents(); err != nil {
 			return fmt.Errorf("Error creating project components: %w", err)
 		}
 		if err := controller.CreateEnvComponents(); err != nil {
 			return fmt.Errorf("Error creating environment components: %w", err)
 		}
-
-		// If the virtualization driver is configured, create virtualization and service components.
-		if vmDriver != "" {
-			if err := controller.CreateVirtualizationComponents(); err != nil {
-				return fmt.Errorf("Error creating virtualization components: %w", err)
-			}
-			if err := controller.CreateServiceComponents(); err != nil {
-				return fmt.Errorf("Error creating services components: %w", err)
-			}
+		if err := controller.CreateVirtualizationComponents(); err != nil {
+			return fmt.Errorf("Error creating virtualization components: %w", err)
 		}
-
+		if err := controller.CreateServiceComponents(); err != nil {
+			return fmt.Errorf("Error creating services components: %w", err)
+		}
 		if err := controller.CreateStackComponents(); err != nil {
 			return fmt.Errorf("Error creating stack components: %w", err)
 		}
@@ -75,6 +66,10 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("Error loading secrets: %w", err)
 			}
 		}
+
+		// Resolve configuration settings and determine if specific virtualization or container runtime
+		// actions are required based on the configuration.
+		vmDriver := configHandler.GetString("vm.driver")
 
 		// Resolve the tools manager, check the tools, and install them
 		toolsManager := controller.ResolveToolsManager()
@@ -112,25 +107,23 @@ var upCmd = &cobra.Command{
 
 		// Resolve the network manager
 		networkManager := controller.ResolveNetworkManager()
-		if networkManager == nil && vmDriver != "" {
+		if networkManager == nil {
 			return fmt.Errorf("No network manager found")
 		}
 
-		if networkManager != nil {
-			// Configure networking for the virtual machine
-			if vmDriver == "colima" {
-				if err := networkManager.ConfigureGuest(); err != nil {
-					return fmt.Errorf("Error configuring guest network: %w", err)
-				}
-				if err := networkManager.ConfigureHostRoute(); err != nil {
-					return fmt.Errorf("Error configuring host network: %w", err)
-				}
+		// Configure networking for the virtual machine
+		if vmDriver == "colima" {
+			if err := networkManager.ConfigureGuest(); err != nil {
+				return fmt.Errorf("Error configuring guest network: %w", err)
 			}
+			if err := networkManager.ConfigureHostRoute(); err != nil {
+				return fmt.Errorf("Error configuring host network: %w", err)
+			}
+		}
 
-			// Configure DNS settings
-			if err := networkManager.ConfigureDNS(); err != nil {
-				return fmt.Errorf("Error configuring DNS: %w", err)
-			}
+		// Configure DNS settings
+		if err := networkManager.ConfigureDNS(); err != nil {
+			return fmt.Errorf("Error configuring DNS: %w", err)
 		}
 
 		// Start the stack components
