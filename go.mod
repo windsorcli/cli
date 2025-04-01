@@ -36,7 +36,7 @@ require (
 	cloud.google.com/go/kms v1.21.0 // indirect
 	cloud.google.com/go/longrunning v0.6.6 // indirect
 	cloud.google.com/go/monitoring v1.24.0 // indirect
-	cloud.google.com/go/storage v1.50.0 // indirect
+	cloud.google.com/go/storage v1.51.0 // indirect
 	filippo.io/age v1.2.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.17.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.8.2 // indirect
@@ -45,7 +45,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/internal v1.1.1 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.4.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.27.0 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.50.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.51.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.51.0 // indirect
 	github.com/ProtonMail/go-crypto v1.1.5 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
