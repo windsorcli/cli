@@ -7,6 +7,10 @@ import (
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
+var (
+	platformFlag string // Declare the platform flag
+)
+
 var installCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install the blueprint's cluster-level services",
@@ -65,5 +69,6 @@ var installCmd = &cobra.Command{
 }
 
 func init() {
+	installCmd.Flags().StringVar(&platformFlag, "platform", "", "Select the platform to use for the environment")
 	rootCmd.AddCommand(installCmd)
 }

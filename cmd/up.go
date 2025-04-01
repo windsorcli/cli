@@ -9,7 +9,8 @@ import (
 )
 
 var (
-	installFlag bool // Declare the install flag
+	installFlag  bool   // Declare the install flag
+	platformFlag string // Declare the platform flag
 )
 
 var upCmd = &cobra.Command{
@@ -155,5 +156,6 @@ var upCmd = &cobra.Command{
 
 func init() {
 	upCmd.Flags().BoolVar(&installFlag, "install", false, "Install the blueprint after setting up the environment")
+	upCmd.Flags().StringVar(&platformFlag, "platform", "", "Select the platform to use for the environment")
 	rootCmd.AddCommand(upCmd)
 }
