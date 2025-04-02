@@ -143,7 +143,7 @@ var initCmd = &cobra.Command{
 		if err := controller.CreateProjectComponents(); err != nil {
 			return fmt.Errorf("Error creating project components: %w", err)
 		}
-		if vmDriver != "" {
+		if vmDriverConfig != "" {
 			if err := controller.CreateServiceComponents(); err != nil {
 				return fmt.Errorf("Error creating service components: %w", err)
 			}

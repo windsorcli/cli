@@ -495,6 +495,27 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
+		// Given a mock controller with CreateEnvComponents set to fail
+		mocks := setupSafeInitCmdMocks()
+		mocks.Controller.CreateEnvComponentsFunc = func() error { return fmt.Errorf("create env components error") }
+
+		// When the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := Execute(mocks.Controller)
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then the output should indicate the error
+		expectedOutput := "Error creating environment components: create env components error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
 	t.Run("ErrorCreatingProjectComponents", func(t *testing.T) {
 		// Given a mock controller with CreateProjectComponents set to fail
 		mocks := setupSafeInitCmdMocks()
@@ -521,6 +542,17 @@ func TestInitCmd(t *testing.T) {
 		mocks := setupSafeInitCmdMocks()
 		mocks.Controller.CreateServiceComponentsFunc = func() error { return fmt.Errorf("create service components error") }
 
+		// Mock the config handler's GetString method to set vm.driver to true
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
 		// When the init command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"init", "test-context"})
@@ -541,6 +573,17 @@ func TestInitCmd(t *testing.T) {
 		// Given a mock controller with CreateVirtualizationComponents set to fail
 		mocks := setupSafeInitCmdMocks()
 		mocks.Controller.CreateVirtualizationComponentsFunc = func() error { return fmt.Errorf("create virtualization components error") }
+
+		// Mock the config handler's GetString method to set vm.driver to true
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
 
 		// When the init command is executed
 		output := captureStderr(func() {
