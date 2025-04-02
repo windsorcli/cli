@@ -135,13 +135,12 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 		return nil
 	}
 
-	contextConfig := e.configHandler.GetConfig()
-	backend := contextConfig.Terraform.Backend
+	backend := e.configHandler.GetString("terraform.backend.type", "local")
 
 	backendOverridePath := filepath.Join(currentPath, "backend_override.tf")
 	var backendConfig string
 
-	switch backend.Type {
+	switch backend {
 	case "local":
 		backendConfig = fmt.Sprintf(`terraform {
   backend "local" {}
@@ -155,7 +154,7 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
   backend "kubernetes" {}
 }`)
 	default:
-		return fmt.Errorf("unsupported backend: %s", backend.Type)
+		return fmt.Errorf("unsupported backend: %s", backend)
 	}
 
 	err = writeFile(backendOverridePath, []byte(backendConfig), os.ModePerm)
@@ -171,22 +170,8 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 // The function supports local, s3, and kubernetes backends.
 // It also includes backend.tfvars if present in the context directory.
 func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot string) ([]string, error) {
-	backend := e.configHandler.GetConfig().Terraform.Backend
-	backendType := e.configHandler.GetString("terraform.backend.type", "")
-	if backendType == "" {
-		switch {
-		case backend.S3 != nil:
-			backendType = "s3"
-		case backend.Kubernetes != nil:
-			backendType = "kubernetes"
-		case backend.Local != nil:
-			backendType = "local"
-		default:
-			backendType = "local"
-		}
-	}
-
 	var backendConfigArgs []string
+	backend := e.configHandler.GetString("terraform.backend.type", "local")
 
 	addBackendConfigArg := func(key, value string) {
 		if value != "" {
@@ -203,7 +188,7 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 
 	prefix := e.configHandler.GetString("terraform.backend.prefix", "")
 
-	switch backendType {
+	switch backend {
 	case "local":
 		path := filepath.Join(configRoot, ".tfstate")
 		if prefix != "" {
@@ -232,7 +217,7 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 			}
 		}
 	default:
-		return nil, fmt.Errorf("unsupported backend: %s", backend.Type)
+		return nil, fmt.Errorf("unsupported backend: %s", backend)
 	}
 
 	return backendConfigArgs, nil
@@ -242,13 +227,13 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 var _ EnvPrinter = (*TerraformEnvPrinter)(nil)
 
 // processBackendConfig processes the backend config and adds the key-value pairs to the backend config args.
-var processBackendConfig = func(backendConfig interface{}, addArg func(key, value string)) error {
+var processBackendConfig = func(backendConfig any, addArg func(key, value string)) error {
 	yamlData, err := yamlMarshal(backendConfig)
 	if err != nil {
 		return fmt.Errorf("error marshalling backend to YAML: %w", err)
 	}
 
-	var configMap map[string]interface{}
+	var configMap map[string]any
 	if err := yamlUnmarshal(yamlData, &configMap); err != nil {
 		return fmt.Errorf("error unmarshalling backend YAML: %w", err)
 	}
