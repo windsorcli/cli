@@ -37,14 +37,14 @@ func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
 	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 		return "/mock/config/root", nil
 	}
-	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-		return &v1alpha1.Context{
-			Terraform: &terraform.TerraformConfig{
-				Backend: &terraform.BackendConfig{
-					Type: "local",
-				},
-			},
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		if key == "terraform.backend.type" {
+			return "local"
 		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return ""
 	}
 	mockConfigHandler.GetContextFunc = func() string {
 		return "mock-context"
@@ -409,14 +409,14 @@ func TestTerraformEnv_PostEnvHook(t *testing.T) {
 
 	t.Run("UnsupportedBackend", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Type: "unsupported",
-					},
-				},
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "unsupported"
 			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root
@@ -867,14 +867,14 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 
 	t.Run("S3Backend", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Type: "s3",
-					},
-				},
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
 			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root
@@ -922,14 +922,14 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 
 	t.Run("KubernetesBackend", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Type: "kubernetes",
-					},
-				},
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
 			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root
@@ -977,14 +977,14 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 
 	t.Run("UnsupportedBackend", func(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Terraform: &terraform.TerraformConfig{
-					Backend: &terraform.BackendConfig{
-						Type: "unsupported",
-					},
-				},
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "unsupported"
 			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 
 		// Given a mocked getwd function simulating being in a terraform project root
@@ -1260,11 +1260,20 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 				},
 			}
 		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
 
 		// Mock yamlMarshal to return an error
 		originalYamlMarshal := yamlMarshal
 		defer func() { yamlMarshal = originalYamlMarshal }()
-		yamlMarshal = func(v interface{}) ([]byte, error) {
+		yamlMarshal = func(v any) ([]byte, error) {
 			return nil, fmt.Errorf("mock marshalling error")
 		}
 
@@ -1296,6 +1305,15 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 					},
 				},
 			}
+		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 
 		// Mock processBackendConfig to return an error
@@ -1332,8 +1350,6 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 				},
 			}
 		}
-
-		// Mock GetString to return "unsupported" for the backend type
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
 				return "unsupported"

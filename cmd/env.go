@@ -24,20 +24,25 @@ var envCmd = &cobra.Command{
 			return nil
 		}
 
-		// Create virtualization components
-		if err := controller.CreateVirtualizationComponents(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error creating virtualization components: %w", err)
-			}
-			return nil
-		}
+		// Resolve config handler to check vm.driver
+		configHandler := controller.ResolveConfigHandler()
+		vmDriver := configHandler.GetString("vm.driver")
 
-		// Create service components
-		if err := controller.CreateServiceComponents(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error creating service components: %w", err)
+		// Create virtualization and service components only if vm.driver is configured
+		if vmDriver != "" {
+			if err := controller.CreateVirtualizationComponents(); err != nil {
+				if verbose {
+					return fmt.Errorf("Error creating virtualization components: %w", err)
+				}
+				return nil
 			}
-			return nil
+
+			if err := controller.CreateServiceComponents(); err != nil {
+				if verbose {
+					return fmt.Errorf("Error creating service components: %w", err)
+				}
+				return nil
+			}
 		}
 
 		// Create environment components

@@ -19,6 +19,9 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("Cannot install blueprint. Please run `windsor init` to set up your project first.")
 		}
 
+		// Determine if specific virtualization or container runtime actions are required
+		vmDriver := configHandler.GetString("vm.driver")
+
 		// Unlock the SecretProvider
 		secretsProviders := controller.ResolveAllSecretsProviders()
 		if len(secretsProviders) > 0 {
@@ -34,14 +37,17 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("Error creating project components: %w", err)
 		}
 
-		// Create service components
-		if err := controller.CreateServiceComponents(); err != nil {
-			return fmt.Errorf("Error creating service components: %w", err)
-		}
+		// Determine if specific virtualization or container runtime actions are required
+		if vmDriver != "" {
+			// Create service components
+			if err := controller.CreateServiceComponents(); err != nil {
+				return fmt.Errorf("Error creating service components: %w", err)
+			}
 
-		// Create virtualization components
-		if err := controller.CreateVirtualizationComponents(); err != nil {
-			return fmt.Errorf("Error creating virtualization components: %w", err)
+			// Create virtualization components
+			if err := controller.CreateVirtualizationComponents(); err != nil {
+				return fmt.Errorf("Error creating virtualization components: %w", err)
+			}
 		}
 
 		// Initialize all components
