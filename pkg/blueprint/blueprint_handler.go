@@ -31,6 +31,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+//go:embed templates/default.jsonnet
+var defaultJsonnetTemplate string
+
 // BlueprintHandler defines the interface for handling blueprint operations
 type BlueprintHandler interface {
 	Initialize() error
@@ -93,12 +96,6 @@ func (b *BaseBlueprintHandler) Initialize() error {
 	return nil
 }
 
-//go:embed templates/local.jsonnet
-var localJsonnetTemplate string
-
-//go:embed templates/metal.jsonnet
-var metalJsonnetTemplate string
-
 // LoadConfig reads a blueprint configuration from a given path, supporting both
 // Jsonnet and YAML formats. It first establishes the base path for the blueprint
 // configuration and attempts to load data from Jsonnet and YAML files. The function
@@ -135,37 +132,29 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 		return fmt.Errorf("error unmarshalling context YAML to map: %w", err)
 	}
 
+	// Add "name" to the context map
+	context := b.configHandler.GetContext()
+	contextMap["name"] = context
+
 	contextJSON, err := jsonMarshal(contextMap)
 	if err != nil {
 		return fmt.Errorf("error marshalling context map to JSON: %w", err)
 	}
 
 	var evaluatedJsonnet string
-	context := b.configHandler.GetContext()
+
+	vm := jsonnetMakeVM()
+	vm.ExtCode("context", string(contextJSON))
 
 	if len(jsonnetData) > 0 {
-		vm := jsonnetMakeVM()
-		vm.ExtCode("context", string(contextJSON))
-
 		evaluatedJsonnet, err = vm.EvaluateAnonymousSnippet("blueprint.jsonnet", string(jsonnetData))
 		if err != nil {
 			return fmt.Errorf("error generating blueprint from jsonnet: %w", err)
 		}
 	} else {
-		vm := jsonnetMakeVM()
-		vm.ExtCode("context", string(contextJSON))
-
-		platform := b.configHandler.GetString("platform")
-		if platform == "metal" {
-			evaluatedJsonnet, err = vm.EvaluateAnonymousSnippet("metal.jsonnet", metalJsonnetTemplate)
-			if err != nil {
-				return fmt.Errorf("error generating blueprint from metal jsonnet: %w", err)
-			}
-		} else {
-			evaluatedJsonnet, err = vm.EvaluateAnonymousSnippet("local.jsonnet", localJsonnetTemplate)
-			if err != nil {
-				return fmt.Errorf("error generating blueprint from local jsonnet: %w", err)
-			}
+		evaluatedJsonnet, err = vm.EvaluateAnonymousSnippet("default.jsonnet", defaultJsonnetTemplate)
+		if err != nil {
+			return fmt.Errorf("error generating blueprint from default jsonnet: %w", err)
 		}
 	}
 

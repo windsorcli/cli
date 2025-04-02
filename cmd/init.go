@@ -25,6 +25,7 @@ var (
 	blueprint      string
 	toolsManager   string
 	platform       string
+	endpoint       string
 )
 
 var initCmd = &cobra.Command{
@@ -105,6 +106,8 @@ var initCmd = &cobra.Command{
 			{"tools-manager", "toolsManager", toolsManager},
 			{"git-livereload", "git.livereload.enabled", gitLivereload},
 			{"platform", "platform", platform},
+			{"blueprint", "blueprint", blueprint},
+			{"endpoint", "cluster.endpoint", endpoint},
 		}
 
 		for _, config := range configurations {
@@ -183,5 +186,7 @@ func init() {
 	initCmd.Flags().BoolVar(&docker, "docker", false, "Enable Docker")
 	initCmd.Flags().BoolVar(&gitLivereload, "git-livereload", false, "Enable Git Livereload")
 	initCmd.Flags().StringVar(&platform, "platform", "", "Specify the platform to use [local|metal]")
+	initCmd.Flags().StringVar(&blueprint, "blueprint", "", "Specify the blueprint to use")
+	initCmd.Flags().StringVar(&endpoint, "endpoint", "", "Specify the kubernetes API endpoint")
 	rootCmd.AddCommand(initCmd)
 }

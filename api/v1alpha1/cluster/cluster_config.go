@@ -2,15 +2,16 @@ package cluster
 
 // ClusterConfig represents the cluster configuration
 type ClusterConfig struct {
-	Enabled       *bool           `yaml:"enabled"`
-	Driver        *string         `yaml:"driver"`
+	Enabled       *bool           `yaml:"enabled,omitempty"`
+	Driver        *string         `yaml:"driver,omitempty"`
+	Endpoint      *string         `yaml:"endpoint,omitempty"`
 	ControlPlanes NodeGroupConfig `yaml:"controlplanes,omitempty"`
 	Workers       NodeGroupConfig `yaml:"workers,omitempty"`
 }
 
 // NodeConfig represents the node configuration
 type NodeConfig struct {
-	Hostname  *string  `yaml:"hostname"`
+	Hostname  *string  `yaml:"hostname,omitempty"`
 	Node      *string  `yaml:"node,omitempty"`
 	Endpoint  *string  `yaml:"endpoint,omitempty"`
 	HostPorts []string `yaml:"hostports,omitempty"`
@@ -33,6 +34,9 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 	}
 	if overlay.Driver != nil {
 		base.Driver = overlay.Driver
+	}
+	if overlay.Endpoint != nil {
+		base.Endpoint = overlay.Endpoint
 	}
 	if overlay.ControlPlanes.Count != nil {
 		base.ControlPlanes.Count = overlay.ControlPlanes.Count
@@ -117,8 +121,9 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 	copy(workersVolumesCopy, c.Workers.Volumes)
 
 	return &ClusterConfig{
-		Enabled: c.Enabled,
-		Driver:  c.Driver,
+		Enabled:  c.Enabled,
+		Driver:   c.Driver,
+		Endpoint: c.Endpoint,
 		ControlPlanes: NodeGroupConfig{
 			Count:     c.ControlPlanes.Count,
 			CPU:       c.ControlPlanes.CPU,

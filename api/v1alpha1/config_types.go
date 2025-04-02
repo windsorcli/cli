@@ -22,6 +22,8 @@ type Config struct {
 // Context represents the context configuration
 type Context struct {
 	ProjectName *string                    `yaml:"projectName,omitempty"`
+	Platform    *string                    `yaml:"platform,omitempty"`
+	Blueprint   *string                    `yaml:"blueprint,omitempty"`
 	Environment map[string]string          `yaml:"environment,omitempty"`
 	Secrets     *secrets.SecretsConfig     `yaml:"secrets,omitempty"`
 	AWS         *aws.AWSConfig             `yaml:"aws,omitempty"`
@@ -32,7 +34,6 @@ type Context struct {
 	Cluster     *cluster.ClusterConfig     `yaml:"cluster,omitempty"`
 	Network     *network.NetworkConfig     `yaml:"network,omitempty"`
 	DNS         *dns.DNSConfig             `yaml:"dns,omitempty"`
-	Platform    *string                    `yaml:"platform,omitempty"`
 }
 
 // Merge performs a deep merge of the current Context with another Context.
@@ -108,6 +109,9 @@ func (base *Context) Merge(overlay *Context) {
 	if overlay.Platform != nil {
 		base.Platform = overlay.Platform
 	}
+	if overlay.Blueprint != nil {
+		base.Blueprint = overlay.Blueprint
+	}
 }
 
 // DeepCopy creates a deep copy of the Context object
@@ -124,6 +128,8 @@ func (c *Context) DeepCopy() *Context {
 	}
 	return &Context{
 		ProjectName: c.ProjectName,
+		Platform:    c.Platform,
+		Blueprint:   c.Blueprint,
 		Environment: environmentCopy,
 		Secrets:     c.Secrets.Copy(),
 		AWS:         c.AWS.Copy(),
@@ -134,6 +140,5 @@ func (c *Context) DeepCopy() *Context {
 		Cluster:     c.Cluster.Copy(),
 		Network:     c.Network.Copy(),
 		DNS:         c.DNS.Copy(),
-		Platform:    c.Platform,
 	}
 }

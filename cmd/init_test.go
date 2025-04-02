@@ -56,6 +56,7 @@ func setupSafeInitCmdMocks(existingInjectors ...di.Injector) *initMockObjects {
 	gitLivereload = false
 	blueprint = ""
 	toolsManager = ""
+	endpoint = ""
 
 	return &initMockObjects{
 		Controller:    mockController,
@@ -127,6 +128,7 @@ func TestInitCmd(t *testing.T) {
 				"--vm-disk", "20",
 				"--vm-memory", "4096",
 				"--vm-arch", "x86_64",
+				"--endpoint", "http://mock-endpoint",
 			})
 			err := Execute(mocks.Controller)
 			if err != nil {
