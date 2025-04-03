@@ -80,8 +80,10 @@ builds:
 archives:
   - id: darwin_amd64
     format: "tar.gz"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
   - id: darwin_arm64
     format: "tar.gz"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 changelog:
   sort: asc
