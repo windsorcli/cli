@@ -79,9 +79,9 @@ builds:
 # Archive configuration
 archives:
   - id: darwin_amd64
-    format: ["zip", "tar.gz"]
+    format: "tar.gz"
   - id: darwin_arm64
-    format: ["zip", "tar.gz"]
+    format: "tar.gz"
 
 changelog:
   sort: asc
