@@ -10,41 +10,41 @@ before:
     - go generate ./...
 
 builds:
-  - id: linux_amd64
-    env:
-      - CGO_ENABLED=0
-    main: ./cmd/windsor
-    goos:
-      - linux
-    goarch:
-      - amd64
-    ldflags:
-      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
-      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
+  # - id: linux_amd64
+  #   env:
+  #     - CGO_ENABLED=0
+  #   main: ./cmd/windsor
+  #   goos:
+  #     - linux
+  #   goarch:
+  #     - amd64
+  #   ldflags:
+  #     - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
+  #     - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
 
-  - id: linux_arm64
-    env:
-      - CGO_ENABLED=0
-    main: ./cmd/windsor
-    goos:
-      - linux
-    goarch:
-      - arm64
-    ldflags:
-      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
-      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
+  # - id: linux_arm64
+  #   env:
+  #     - CGO_ENABLED=0
+  #   main: ./cmd/windsor
+  #   goos:
+  #     - linux
+  #   goarch:
+  #     - arm64
+  #   ldflags:
+  #     - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
+  #     - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
 
-  - id: windows_amd64
-    env:
-      - CGO_ENABLED=0
-    main: ./cmd/windsor
-    goos:
-      - windows
-    goarch:
-      - amd64
-    ldflags:
-      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
-      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
+  # - id: windows_amd64
+  #   env:
+  #     - CGO_ENABLED=0
+  #   main: ./cmd/windsor
+  #   goos:
+  #     - windows
+  #   goarch:
+  #     - amd64
+  #   ldflags:
+  #     - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
+  #     - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
 
   - id: darwin_amd64
     env:
@@ -115,8 +115,5 @@ brews:
     homepage: "https://windsorcli.github.io"      
     description: "The Windsor Command Line Interface"
     ids:
-      - linux_amd64
-      - linux_arm64
-      - windows_amd64
       - darwin_amd64
       - darwin_arm64
