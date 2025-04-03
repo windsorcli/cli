@@ -11,7 +11,7 @@ require (
 	github.com/fluxcd/pkg/apis/kustomize v1.9.0
 	github.com/fluxcd/pkg/apis/meta v1.10.0
 	github.com/fluxcd/source-controller/api v1.5.0
-	github.com/getsops/sops/v3 v3.9.4
+	github.com/getsops/sops/v3 v3.10.1
 	github.com/goccy/go-yaml v1.17.1
 	github.com/google/go-jsonnet v0.20.0
 	github.com/hashicorp/hcl/v2 v2.23.0
@@ -38,6 +38,7 @@ require (
 	cloud.google.com/go/monitoring v1.24.1 // indirect
 	cloud.google.com/go/storage v1.51.0 // indirect
 	filippo.io/age v1.2.1 // indirect
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.17.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.8.2 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.0 // indirect
@@ -73,7 +74,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.6.0 // indirect
-	github.com/cncf/xds/go v0.0.0-20250121191232-2f005788dc42 // indirect
+	github.com/cncf/xds/go v0.0.0-20250326154945-ae57f3c0d45f // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -162,8 +163,8 @@ require (
 	golang.org/x/time v0.11.0 // indirect
 	golang.org/x/tools v0.31.0 // indirect
 	google.golang.org/api v0.228.0 // indirect
-	google.golang.org/genproto v0.0.0-20250303144028-a0af3efb3deb // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250313205543-e70fdf4c4cb4 // indirect
+	google.golang.org/genproto v0.0.0-20250324211829-b45e905df463 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250324211829-b45e905df463 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250324211829-b45e905df463 // indirect
 	google.golang.org/grpc v1.71.1 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
