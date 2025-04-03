@@ -10,43 +10,7 @@ before:
     - go generate ./...
 
 builds:
-  # - id: linux_amd64
-  #   env:
-  #     - CGO_ENABLED=0
-  #   main: ./cmd/windsor
-  #   goos:
-  #     - linux
-  #   goarch:
-  #     - amd64
-  #   ldflags:
-  #     - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
-  #     - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
-
-  # - id: linux_arm64
-  #   env:
-  #     - CGO_ENABLED=0
-  #   main: ./cmd/windsor
-  #   goos:
-  #     - linux
-  #   goarch:
-  #     - arm64
-  #   ldflags:
-  #     - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
-  #     - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
-
-  # - id: windows_amd64
-  #   env:
-  #     - CGO_ENABLED=0
-  #   main: ./cmd/windsor
-  #   goos:
-  #     - windows
-  #   goarch:
-  #     - amd64
-  #   ldflags:
-  #     - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
-  #     - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
-
-  - id: darwin_amd64
+  - id: darwin
     env:
       - CGO_ENABLED=0
     main: ./cmd/windsor
@@ -54,36 +18,44 @@ builds:
       - darwin
     goarch:
       - amd64
-    ldflags:
-      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
-      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
-
-  - id: darwin_arm64
-    env:
-      - CGO_ENABLED=0
-    main: ./cmd/windsor
-    goos:
-      - darwin
-    goarch:
       - arm64
     ldflags:
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
 
+  - id: linux
+    env:
+      - CGO_ENABLED=0
+    main: ./cmd/windsor
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
+      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
 
-  # - id: linux_arm64
-  #   format: ["zip", "tar.gz"]
-  # - id: windows_amd64
-  #   format: ["zip", "tar.gz"]
+  - id: windows
+    env:
+      - CGO_ENABLED=0
+    main: ./cmd/windsor
+    goos:
+      - windows
+    goarch:
+      - amd64
+    ldflags:
+      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
+      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
 
 # Archive configuration
 archives:
-  - id: darwin_amd64
+  - id: linux
     format: "tar.gz"
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-  - id: darwin_arm64
+  - id: darwin
     format: "tar.gz"
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: windows
+    format: "zip"
 
 changelog:
   sort: asc
@@ -125,5 +97,4 @@ brews:
     homepage: "https://windsorcli.github.io"      
     description: "The Windsor Command Line Interface"
     ids:
-      - darwin_amd64
-      - darwin_arm64
+      - darwin
