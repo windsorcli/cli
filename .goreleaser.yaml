@@ -70,12 +70,14 @@ builds:
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
 
-# Archive configuration
-archives:
+
   # - id: linux_arm64
   #   format: ["zip", "tar.gz"]
   # - id: windows_amd64
   #   format: ["zip", "tar.gz"]
+
+# Archive configuration
+archives:
   - id: darwin_amd64
     format: ["zip", "tar.gz"]
   - id: darwin_arm64
