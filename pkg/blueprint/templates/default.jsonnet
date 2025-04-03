@@ -69,7 +69,7 @@ local sourceConfig = [
     url: "github.com/windsorcli/core",
     ref: {
       // renovate: datasource=github-branches depName=windsorcli/core
-      tag: "v0.5.4",
+      tag: "v0.3.0",
     },
   },
 ];
