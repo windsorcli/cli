@@ -93,7 +93,7 @@ var initCmd = &cobra.Command{
 		configurations := []struct {
 			flagName   string
 			configPath string
-			value      interface{}
+			value      any
 		}{
 			{"aws-endpoint-url", "aws.aws_endpoint_url", awsEndpointURL},
 			{"aws-profile", "aws.aws_profile", awsProfile},
@@ -105,9 +105,9 @@ var initCmd = &cobra.Command{
 			{"vm-arch", "vm.arch", arch},
 			{"tools-manager", "toolsManager", toolsManager},
 			{"git-livereload", "git.livereload.enabled", gitLivereload},
-			{"platform", "platform", platform},
 			{"blueprint", "blueprint", blueprint},
 			{"endpoint", "cluster.endpoint", endpoint},
+			{"platform", "cluster.platform", platform},
 		}
 
 		for _, config := range configurations {
