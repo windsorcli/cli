@@ -162,8 +162,8 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
             },
           })
       ),
-      worker_config_patches: std.manifestYamlDoc(
-        if std.objectHas(context.cluster, "workers") && std.objectHas(context.cluster.workers, "volumes") && std.length(context.cluster.workers.volumes) > 0 then
+      worker_config_patches: if std.objectHas(context.cluster, "workers") && std.objectHas(context.cluster.workers, "volumes") && std.length(context.cluster.workers.volumes) > 0 then
+        std.manifestYamlDoc(
           {
             machine: {
               kubelet: {
@@ -184,11 +184,11 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
               },
             },
           }
-        else
-          ""
-      ),
-      controlplane_config_patches: std.manifestYamlDoc(
-        if std.objectHas(context.cluster, "controlplanes") && std.objectHas(context.cluster.controlplanes, "volumes") && std.length(context.cluster.controlplanes.volumes) > 0 then
+        )
+      else
+        "",
+      controlplane_config_patches: if std.objectHas(context.cluster, "controlplanes") && std.objectHas(context.cluster.controlplanes, "volumes") && std.length(context.cluster.controlplanes.volumes) > 0 then
+        std.manifestYamlDoc(
           {
             machine: {
               kubelet: {
@@ -209,9 +209,9 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
               },
             },
           }
-        else
-          ""
-      ),
+        )
+      else
+        "",
     },
     variables: {
       context_path: {

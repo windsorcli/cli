@@ -97,6 +97,8 @@ var commonDNSConfig = dns.DNSConfig{
 }
 
 var DefaultConfig_Localhost = v1alpha1.Context{
+	Blueprint:   ptrString("full"),
+	Platform:    ptrString("local"),
 	Environment: map[string]string{},
 	Docker:      commonDockerConfig.Copy(),
 	Git:         commonGitConfig.Copy(),
