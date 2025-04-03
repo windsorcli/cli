@@ -72,8 +72,14 @@ builds:
 
 # Archive configuration
 archives:
-  - id: default
-    formats: ["zip", "tar.gz"]
+  # - id: linux_arm64
+  #   format: ["zip", "tar.gz"]
+  # - id: windows_amd64
+  #   format: ["zip", "tar.gz"]
+  - id: darwin_amd64
+    format: ["zip", "tar.gz"]
+  - id: darwin_arm64
+    format: ["zip", "tar.gz"]
 
 changelog:
   sort: asc
