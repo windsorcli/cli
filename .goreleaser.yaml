@@ -68,3 +68,4 @@ brews:
       token: "{{ .Env.HOMEBREW_CLI_WRITE_PAT }}"
     homepage: "https://windsorcli.github.io"      
     description: "The Windsor Command Line Interface"
+    ids: []
