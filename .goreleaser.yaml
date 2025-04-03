@@ -10,40 +10,17 @@ before:
     - go generate ./...
 
 builds:
-  - id: darwin
+  - id: windsor
     env:
       - CGO_ENABLED=0
     main: ./cmd/windsor
     goos:
       - darwin
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
-      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
-
-  - id: linux
-    env:
-      - CGO_ENABLED=0
-    main: ./cmd/windsor
-    goos:
       - linux
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
-      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
-
-  - id: windows
-    env:
-      - CGO_ENABLED=0
-    main: ./cmd/windsor
-    goos:
       - windows
     goarch:
       - amd64
+      - arm64
     ldflags:
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
