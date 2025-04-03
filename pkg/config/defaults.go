@@ -73,8 +73,9 @@ var commonTerraformConfig = terraform.TerraformConfig{
 }
 
 var commonClusterConfig = cluster.ClusterConfig{
-	Enabled: ptrBool(true),
-	Driver:  ptrString("talos"),
+	Enabled:  ptrBool(true),
+	Platform: ptrString("local"),
+	Driver:   ptrString("talos"),
 	ControlPlanes: cluster.NodeGroupConfig{
 		Count:  ptrInt(1),
 		CPU:    ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_CPU),
@@ -98,14 +99,14 @@ var commonDNSConfig = dns.DNSConfig{
 
 var DefaultConfig_Localhost = v1alpha1.Context{
 	Blueprint:   ptrString("full"),
-	Platform:    ptrString("local"),
 	Environment: map[string]string{},
 	Docker:      commonDockerConfig.Copy(),
 	Git:         commonGitConfig.Copy(),
 	Terraform:   commonTerraformConfig.Copy(),
 	Cluster: &cluster.ClusterConfig{
-		Enabled: ptrBool(true),
-		Driver:  ptrString("talos"),
+		Enabled:  ptrBool(true),
+		Platform: ptrString("local"),
+		Driver:   ptrString("talos"),
 		ControlPlanes: cluster.NodeGroupConfig{
 			Count:  ptrInt(1),
 			CPU:    ptrInt(constants.DEFAULT_TALOS_CONTROL_PLANE_CPU),
@@ -135,7 +136,6 @@ var DefaultConfig_Localhost = v1alpha1.Context{
 
 var DefaultConfig_Full = v1alpha1.Context{
 	Blueprint:   ptrString("full"),
-	Platform:    ptrString("local"),
 	Environment: map[string]string{},
 	Docker:      commonDockerConfig.Copy(),
 	Git:         commonGitConfig.Copy(),
