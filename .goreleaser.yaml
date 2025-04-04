@@ -28,7 +28,7 @@ builds:
 # Archive configuration
 archives:
   - id: windsor
-    format: "tar.gz"
+    formats: ["tar.gz"]
 
 changelog:
   sort: asc
