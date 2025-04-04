@@ -1,7 +1,7 @@
 local context = std.extVar("context");
 
 // Determine the platform, defaulting to an empty string if not defined
-local platform = if std.objectHas(context, "platform") then context.platform else "";
+local platform = if std.objectHas(context, "cluster") && std.objectHas(context.cluster, "platform") && context.cluster.platform != null then context.cluster.platform else "";
 
 // Determine the vmDriver, defaulting to an empty string if not defined
 local vmDriver = if std.objectHas(context, "vm") && std.objectHas(context.vm, "driver")
