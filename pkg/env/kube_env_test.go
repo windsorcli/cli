@@ -206,6 +206,7 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 		expectedEnvVars := map[string]string{
 			"KUBECONFIG":           filepath.FromSlash("/mock/config/root/.kube/config"),
 			"KUBE_CONFIG_PATH":     filepath.FromSlash("/mock/config/root/.kube/config"),
+			"K8S_AUTH_KUBECONFIG":  filepath.FromSlash("/mock/config/root/.kube/config"),
 			"PV_NAMESPACE_PVCNAME": "/mock/volume/dir/pvc-12345",
 		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
@@ -250,10 +251,11 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 
 		// Verify that GetEnvVars returns the correct envVars without calling queryPersistentVolumeClaims
 		expectedEnvVars := map[string]string{
-			"KUBECONFIG":        filepath.FromSlash("/mock/config/root/.kube/config"),
-			"KUBE_CONFIG_PATH":  filepath.FromSlash("/mock/config/root/.kube/config"),
-			"PV_DEFAULT_CLAIM1": "/mock/volume/dir/pvc-1234",
-			"PV_DEFAULT_CLAIM2": "/mock/volume/dir/pvc-5678",
+			"KUBECONFIG":          filepath.FromSlash("/mock/config/root/.kube/config"),
+			"KUBE_CONFIG_PATH":    filepath.FromSlash("/mock/config/root/.kube/config"),
+			"K8S_AUTH_KUBECONFIG": filepath.FromSlash("/mock/config/root/.kube/config"),
+			"PV_DEFAULT_CLAIM1":   "/mock/volume/dir/pvc-1234",
+			"PV_DEFAULT_CLAIM2":   "/mock/volume/dir/pvc-5678",
 		}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
@@ -294,8 +296,9 @@ func TestKubeEnvPrinter_Print(t *testing.T) {
 
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{
-			"KUBECONFIG":       filepath.FromSlash("/mock/config/root/.kube/config"),
-			"KUBE_CONFIG_PATH": filepath.FromSlash("/mock/config/root/.kube/config"),
+			"KUBECONFIG":          filepath.FromSlash("/mock/config/root/.kube/config"),
+			"KUBE_CONFIG_PATH":    filepath.FromSlash("/mock/config/root/.kube/config"),
+			"K8S_AUTH_KUBECONFIG": filepath.FromSlash("/mock/config/root/.kube/config"),
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)

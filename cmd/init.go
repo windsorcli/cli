@@ -24,6 +24,8 @@ var (
 	gitLivereload  bool
 	blueprint      string
 	toolsManager   string
+	platform       string
+	endpoint       string
 )
 
 var initCmd = &cobra.Command{
@@ -91,7 +93,7 @@ var initCmd = &cobra.Command{
 		configurations := []struct {
 			flagName   string
 			configPath string
-			value      interface{}
+			value      any
 		}{
 			{"aws-endpoint-url", "aws.aws_endpoint_url", awsEndpointURL},
 			{"aws-profile", "aws.aws_profile", awsProfile},
@@ -103,6 +105,9 @@ var initCmd = &cobra.Command{
 			{"vm-arch", "vm.arch", arch},
 			{"tools-manager", "toolsManager", toolsManager},
 			{"git-livereload", "git.livereload.enabled", gitLivereload},
+			{"blueprint", "blueprint", blueprint},
+			{"endpoint", "cluster.endpoint", endpoint},
+			{"platform", "cluster.platform", platform},
 		}
 
 		for _, config := range configurations {
@@ -137,14 +142,19 @@ var initCmd = &cobra.Command{
 		}
 
 		// Create and initialize components
+		if err := controller.CreateEnvComponents(); err != nil {
+			return fmt.Errorf("Error creating environment components: %w", err)
+		}
 		if err := controller.CreateProjectComponents(); err != nil {
 			return fmt.Errorf("Error creating project components: %w", err)
 		}
-		if err := controller.CreateServiceComponents(); err != nil {
-			return fmt.Errorf("Error creating service components: %w", err)
-		}
-		if err := controller.CreateVirtualizationComponents(); err != nil {
-			return fmt.Errorf("Error creating virtualization components: %w", err)
+		if vmDriverConfig != "" {
+			if err := controller.CreateServiceComponents(); err != nil {
+				return fmt.Errorf("Error creating service components: %w", err)
+			}
+			if err := controller.CreateVirtualizationComponents(); err != nil {
+				return fmt.Errorf("Error creating virtualization components: %w", err)
+			}
 		}
 		if err := controller.CreateStackComponents(); err != nil {
 			return fmt.Errorf("Error creating stack components: %w", err)
@@ -175,5 +185,8 @@ func init() {
 	initCmd.Flags().StringVar(&arch, "vm-arch", "", "Specify the architecture for Colima")
 	initCmd.Flags().BoolVar(&docker, "docker", false, "Enable Docker")
 	initCmd.Flags().BoolVar(&gitLivereload, "git-livereload", false, "Enable Git Livereload")
+	initCmd.Flags().StringVar(&platform, "platform", "", "Specify the platform to use [local|metal]")
+	initCmd.Flags().StringVar(&blueprint, "blueprint", "", "Specify the blueprint to use")
+	initCmd.Flags().StringVar(&endpoint, "endpoint", "", "Specify the kubernetes API endpoint")
 	rootCmd.AddCommand(initCmd)
 }

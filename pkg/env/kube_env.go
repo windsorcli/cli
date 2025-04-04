@@ -44,6 +44,7 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	kubeConfigPath := filepath.Join(configRoot, ".kube", "config")
 	envVars["KUBECONFIG"] = kubeConfigPath
 	envVars["KUBE_CONFIG_PATH"] = kubeConfigPath
+	envVars["K8S_AUTH_KUBECONFIG"] = kubeConfigPath
 
 	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 	volumeDir := filepath.Join(projectRoot, ".volumes")

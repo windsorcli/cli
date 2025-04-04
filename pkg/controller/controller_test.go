@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -80,6 +81,8 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	injector.Register("containerRuntime", mockContainerRuntime)
 	injector.Register("generator", mockGenerator)
 	injector.Register("stack", mockStack)
+
+	mockCustomEnvPrinter.Initialize()
 
 	return &MockObjects{
 		Injector:         injector,
@@ -1058,6 +1061,81 @@ func TestController_ResolveContainerRuntime(t *testing.T) {
 		// And the resolved container runtime should match the expected container runtime
 		if containerRuntime != mocks.ContainerRuntime {
 			t.Fatalf("expected %v, got %v", mocks.ContainerRuntime, containerRuntime)
+		}
+	})
+}
+
+func TestController_SetEnvironmentVariables(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new controller and injector
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// When setting environment variables
+		err := controller.SetEnvironmentVariables()
+
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the environment variables should be set correctly
+		envPrinters := controller.ResolveAllEnvPrinters()
+		for _, envPrinter := range envPrinters {
+			envVars, _ := envPrinter.GetEnvVars()
+			for key, value := range envVars {
+				if os.Getenv(key) != value {
+					t.Fatalf("expected environment variable %s to be %s, got %s", key, value, os.Getenv(key))
+				}
+			}
+		}
+	})
+
+	t.Run("ErrorGettingEnvVars", func(t *testing.T) {
+		// Given a new controller and injector with a faulty envPrinter
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// Simulate GetEnvVars returning an error
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return nil, fmt.Errorf("mock error")
+		}
+
+		// When setting environment variables
+		err := controller.SetEnvironmentVariables()
+
+		// Then there should be an error
+		if err == nil || !strings.Contains(err.Error(), "error getting environment variables") {
+			t.Fatalf("expected error getting environment variables, got %v", err)
+		}
+	})
+
+	t.Run("ErrorSettingEnvVars", func(t *testing.T) {
+		// Given a new controller and injector
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// Mock the env printer's GetEnvVars to return a specific set of environment variables
+		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{"TEST_VAR": "test_value"}, nil
+		}
+
+		// Simulate os.Setenv throwing an error
+		originalSetenv := osSetenv
+		defer func() { osSetenv = originalSetenv }()
+		osSetenv = func(key, value string) error {
+			return fmt.Errorf("mock setenv error")
+		}
+
+		// When setting environment variables
+		err := controller.SetEnvironmentVariables()
+
+		// Then there should be an error
+		if err == nil || !strings.Contains(err.Error(), "error setting environment variable") {
+			t.Fatalf("expected error setting environment variable, got %v", err)
 		}
 	})
 }

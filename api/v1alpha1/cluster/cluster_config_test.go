@@ -20,8 +20,10 @@ func ptrInt(i int) *int {
 func TestClusterConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNoNils", func(t *testing.T) {
 		base := &ClusterConfig{
-			Enabled: ptrBool(true),
-			Driver:  ptrString("base-driver"),
+			Enabled:  ptrBool(true),
+			Driver:   ptrString("base-driver"),
+			Platform: ptrString("base-platform"),
+			Endpoint: ptrString("base-endpoint"),
 			ControlPlanes: struct {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
@@ -63,8 +65,10 @@ func TestClusterConfig_Merge(t *testing.T) {
 		}
 
 		overlay := &ClusterConfig{
-			Enabled: ptrBool(false),
-			Driver:  ptrString("overlay-driver"),
+			Enabled:  ptrBool(false),
+			Driver:   ptrString("overlay-driver"),
+			Platform: ptrString("overlay-platform"),
+			Endpoint: ptrString("overlay-endpoint"),
 			ControlPlanes: struct {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
@@ -113,6 +117,12 @@ func TestClusterConfig_Merge(t *testing.T) {
 		if base.Driver == nil || *base.Driver != "overlay-driver" {
 			t.Errorf("Driver mismatch: expected 'overlay-driver', got '%s'", *base.Driver)
 		}
+		if base.Platform == nil || *base.Platform != "overlay-platform" {
+			t.Errorf("Platform mismatch: expected 'overlay-platform', got '%s'", *base.Platform)
+		}
+		if base.Endpoint == nil || *base.Endpoint != "overlay-endpoint" {
+			t.Errorf("Endpoint mismatch: expected 'overlay-endpoint', got '%s'", *base.Endpoint)
+		}
 		if len(base.ControlPlanes.HostPorts) != 2 || base.ControlPlanes.HostPorts[0] != "3000:3000/tcp" || base.ControlPlanes.HostPorts[1] != "4000:4000/tcp" {
 			t.Errorf("ControlPlanes HostPorts mismatch: expected ['3000:3000/tcp', '4000:4000/tcp'], got %v", base.ControlPlanes.HostPorts)
 		}
@@ -150,8 +160,10 @@ func TestClusterConfig_Merge(t *testing.T) {
 
 	t.Run("MergeWithAllNils", func(t *testing.T) {
 		base := &ClusterConfig{
-			Enabled: nil,
-			Driver:  nil,
+			Enabled:  nil,
+			Driver:   nil,
+			Platform: nil,
+			Endpoint: nil,
 			ControlPlanes: struct {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
@@ -185,8 +197,10 @@ func TestClusterConfig_Merge(t *testing.T) {
 		}
 
 		overlay := &ClusterConfig{
-			Enabled: nil,
-			Driver:  nil,
+			Enabled:  nil,
+			Driver:   nil,
+			Platform: nil,
+			Endpoint: nil,
 			ControlPlanes: struct {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
@@ -227,6 +241,12 @@ func TestClusterConfig_Merge(t *testing.T) {
 		if base.Driver != nil {
 			t.Errorf("Driver mismatch: expected nil, got '%s'", *base.Driver)
 		}
+		if base.Platform != nil {
+			t.Errorf("Platform mismatch: expected nil, got '%s'", *base.Platform)
+		}
+		if base.Endpoint != nil {
+			t.Errorf("Endpoint mismatch: expected nil, got '%s'", *base.Endpoint)
+		}
 		if base.Workers.HostPorts != nil {
 			t.Errorf("Workers HostPorts mismatch: expected nil, got %v", base.Workers.HostPorts)
 		}
@@ -266,8 +286,10 @@ func TestClusterConfig_Merge(t *testing.T) {
 func TestClusterConfig_Copy(t *testing.T) {
 	t.Run("CopyWithNonNilValues", func(t *testing.T) {
 		original := &ClusterConfig{
-			Enabled: ptrBool(true),
-			Driver:  ptrString("original-driver"),
+			Enabled:  ptrBool(true),
+			Driver:   ptrString("original-driver"),
+			Platform: ptrString("original-platform"),
+			Endpoint: ptrString("original-endpoint"),
 			ControlPlanes: struct {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
@@ -315,6 +337,12 @@ func TestClusterConfig_Copy(t *testing.T) {
 		}
 		if original.Driver == nil || copy.Driver == nil || *original.Driver != *copy.Driver {
 			t.Errorf("Driver mismatch: expected %v, got %v", *original.Driver, *copy.Driver)
+		}
+		if original.Platform == nil || copy.Platform == nil || *original.Platform != *copy.Platform {
+			t.Errorf("Platform mismatch: expected %v, got %v", *original.Platform, *copy.Platform)
+		}
+		if original.Endpoint == nil || copy.Endpoint == nil || *original.Endpoint != *copy.Endpoint {
+			t.Errorf("Endpoint mismatch: expected %v, got %v", *original.Endpoint, *copy.Endpoint)
 		}
 		if len(original.Workers.HostPorts) != len(copy.Workers.HostPorts) {
 			t.Errorf("Workers HostPorts length mismatch: expected %d, got %d", len(original.Workers.HostPorts), len(copy.Workers.HostPorts))

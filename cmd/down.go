@@ -30,9 +30,14 @@ var downCmd = &cobra.Command{
 			return fmt.Errorf("No configuration is loaded. Is there a project to tear down?")
 		}
 
-		// Create virtualization components
-		if err := controller.CreateVirtualizationComponents(); err != nil {
-			return fmt.Errorf("Error creating virtualization components: %w", err)
+		// Determine if specific virtualization or container runtime actions are required
+		vmDriver := configHandler.GetString("vm.driver")
+
+		// Create virtualization components if the virtualization driver is configured
+		if vmDriver != "" {
+			if err := controller.CreateVirtualizationComponents(); err != nil {
+				return fmt.Errorf("Error creating virtualization components: %w", err)
+			}
 		}
 
 		// Initialize all components
