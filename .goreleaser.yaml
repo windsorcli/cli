@@ -10,24 +10,25 @@ before:
     - go generate ./...
 
 builds:
-  - env:
+  - id: windsor
+    env:
       - CGO_ENABLED=0
     main: ./cmd/windsor
     goos:
+      - darwin
       - linux
       - windows
-      - darwin
     goarch:
-      - amd64
       - arm64
+      - amd64
     ldflags:
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
 
 # Archive configuration
 archives:
-  - id: default
-    formats: ["zip", "tar.gz"]
+  - id: windsor
+    formats: ["tar.gz"]
 
 changelog:
   sort: asc
@@ -68,3 +69,5 @@ brews:
       token: "{{ .Env.HOMEBREW_CLI_WRITE_PAT }}"
     homepage: "https://windsorcli.github.io"      
     description: "The Windsor Command Line Interface"
+    ids:
+      - windsor
