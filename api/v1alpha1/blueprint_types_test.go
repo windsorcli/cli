@@ -18,6 +18,12 @@ func TestBlueprint_Merge(t *testing.T) {
 				Description: "original description",
 				Authors:     []string{"author1"},
 			},
+			Repository: Repository{
+				Url: "http://example.com/repo1",
+				Ref: Reference{
+					Branch: "main",
+				},
+			},
 			Sources: []Source{
 				{
 					Name:       "source1",
@@ -28,20 +34,14 @@ func TestBlueprint_Merge(t *testing.T) {
 					},
 				},
 			},
-			Repository: Repository{
-				Url: "http://example.com/repo1",
-				Ref: Reference{
-					Branch: "main",
-				},
-			},
 			TerraformComponents: []TerraformComponent{
 				{
 					Source: "source1",
-					Path:   "path1",
+					Path:   "module/path1",
 					Variables: map[string]TerraformVariable{
 						"var1": {Default: "default1"},
 					},
-					Values:   nil, // Set Values to nil to test initialization
+					Values:   map[string]interface{}{"key1": "value1"},
 					FullPath: "original/full/path",
 				},
 			},
@@ -51,9 +51,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Path:       "kustomize/path1",
 					Components: []string{"component1"},
 					PostBuild: &PostBuild{
-						Substitute: map[string]string{
-							"key1": "value1",
-						},
+						Substitute: map[string]string{"key1": "value1"},
 						SubstituteFrom: []SubstituteReference{
 							{Kind: "ConfigMap", Name: "config1"},
 						},
@@ -62,23 +60,11 @@ func TestBlueprint_Merge(t *testing.T) {
 			},
 		}
 
-		src := &Blueprint{
-			Kind:       "Blueprint",
-			ApiVersion: "v1alpha1",
+		overlay := &Blueprint{
 			Metadata: Metadata{
 				Name:        "updated",
 				Description: "updated description",
 				Authors:     []string{"author2"},
-			},
-			Sources: []Source{
-				{
-					Name:       "source2",
-					Url:        "http://example.com/source2",
-					PathPrefix: "prefix2",
-					Ref: Reference{
-						Branch: "main",
-					},
-				},
 			},
 			Repository: Repository{
 				Url: "http://example.com/repo2",
@@ -86,27 +72,33 @@ func TestBlueprint_Merge(t *testing.T) {
 					Branch: "develop",
 				},
 			},
+			Sources: []Source{
+				{
+					Name:       "source2",
+					Url:        "http://example.com/source2",
+					PathPrefix: "prefix2",
+					Ref: Reference{
+						Branch: "feature",
+					},
+				},
+			},
 			TerraformComponents: []TerraformComponent{
 				{
 					Source: "source1",
-					Path:   "path1",
+					Path:   "module/path1",
 					Variables: map[string]TerraformVariable{
 						"var2": {Default: "default2"},
 					},
-					Values: map[string]interface{}{
-						"key2": "value2",
-					},
+					Values:   map[string]interface{}{"key2": "value2"},
 					FullPath: "updated/full/path",
 				},
 				{
-					Source: "source3",
-					Path:   "path3",
+					Source: "source2",
+					Path:   "module/path2",
 					Variables: map[string]TerraformVariable{
 						"var3": {Default: "default3"},
 					},
-					Values: map[string]interface{}{
-						"key3": "value3",
-					},
+					Values:   map[string]interface{}{"key3": "value3"},
 					FullPath: "new/full/path",
 				},
 			},
@@ -116,9 +108,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Path:       "kustomize/path2",
 					Components: []string{"component2"},
 					PostBuild: &PostBuild{
-						Substitute: map[string]string{
-							"key2": "value2",
-						},
+						Substitute: map[string]string{"key2": "value2"},
 						SubstituteFrom: []SubstituteReference{
 							{Kind: "Secret", Name: "secret1"},
 						},
@@ -127,7 +117,7 @@ func TestBlueprint_Merge(t *testing.T) {
 			},
 		}
 
-		dst.Merge(src)
+		dst.Merge(overlay)
 
 		if dst.Metadata.Name != "updated" {
 			t.Errorf("Expected Metadata.Name to be 'updated', but got '%s'", dst.Metadata.Name)
@@ -135,13 +125,27 @@ func TestBlueprint_Merge(t *testing.T) {
 		if dst.Metadata.Description != "updated description" {
 			t.Errorf("Expected Metadata.Description to be 'updated description', but got '%s'", dst.Metadata.Description)
 		}
-		if len(dst.Metadata.Authors) != 1 || dst.Metadata.Authors[0] != "author2" {
+		if !reflect.DeepEqual(dst.Metadata.Authors, []string{"author2"}) {
 			t.Errorf("Expected Metadata.Authors to be ['author2'], but got %v", dst.Metadata.Authors)
 		}
 
 		expectedSources := map[string]Source{
-			"source1": {Name: "source1", Url: "http://example.com/source1", PathPrefix: "prefix1", Ref: Reference{Branch: "main"}},
-			"source2": {Name: "source2", Url: "http://example.com/source2", PathPrefix: "prefix2", Ref: Reference{Branch: "main"}},
+			"source1": {
+				Name:       "source1",
+				Url:        "http://example.com/source1",
+				PathPrefix: "prefix1",
+				Ref: Reference{
+					Branch: "main",
+				},
+			},
+			"source2": {
+				Name:       "source2",
+				Url:        "http://example.com/source2",
+				PathPrefix: "prefix2",
+				Ref: Reference{
+					Branch: "feature",
+				},
+			},
 		}
 		if len(dst.Sources) != len(expectedSources) {
 			t.Fatalf("Expected %d Sources, but got %d", len(expectedSources), len(dst.Sources))
@@ -171,8 +175,8 @@ func TestBlueprint_Merge(t *testing.T) {
 		if len(component1.Variables) != 2 || component1.Variables["var1"].Default != "default1" || component1.Variables["var2"].Default != "default2" {
 			t.Errorf("Expected Variables to contain ['var1', 'var2'], but got %v", component1.Variables)
 		}
-		if component1.Values == nil || len(component1.Values) != 1 || component1.Values["key2"] != "value2" {
-			t.Errorf("Expected Values to be overwritten and contain 'key2', but got %v", component1.Values)
+		if component1.Values == nil || len(component1.Values) != 2 || component1.Values["key1"] != "value1" || component1.Values["key2"] != "value2" {
+			t.Errorf("Expected Values to contain both 'key1' and 'key2', but got %v", component1.Values)
 		}
 		if component1.FullPath != "updated/full/path" {
 			t.Errorf("Expected FullPath to be 'updated/full/path', but got '%s'", component1.FullPath)
@@ -188,17 +192,28 @@ func TestBlueprint_Merge(t *testing.T) {
 			t.Errorf("Expected FullPath to be 'new/full/path', but got '%s'", component2.FullPath)
 		}
 
-		expectedKustomizations := map[string]Kustomization{
-			"kustomization1": {Name: "kustomization1", Path: "kustomize/path1", Components: []string{"component1"}, PostBuild: &PostBuild{Substitute: map[string]string{"key1": "value1"}, SubstituteFrom: []SubstituteReference{{Kind: "ConfigMap", Name: "config1"}}}},
-			"kustomization2": {Name: "kustomization2", Path: "kustomize/path2", Components: []string{"component2"}, PostBuild: &PostBuild{Substitute: map[string]string{"key2": "value2"}, SubstituteFrom: []SubstituteReference{{Kind: "Secret", Name: "secret1"}}}},
+		if len(dst.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 Kustomization, but got %d", len(dst.Kustomizations))
 		}
-		if len(dst.Kustomizations) != len(expectedKustomizations) {
-			t.Fatalf("Expected %d Kustomizations, but got %d", len(expectedKustomizations), len(dst.Kustomizations))
+
+		if dst.Kustomizations[0].Name != "kustomization2" {
+			t.Errorf("Expected Kustomization to be 'kustomization2', but got '%s'", dst.Kustomizations[0].Name)
 		}
-		for _, kustomization := range dst.Kustomizations {
-			if expectedKustomization, exists := expectedKustomizations[kustomization.Name]; !exists || !reflect.DeepEqual(expectedKustomization, kustomization) {
-				t.Errorf("Unexpected kustomization found: %v", kustomization)
-			}
+
+		if dst.Kustomizations[0].Path != "kustomize/path2" {
+			t.Errorf("Expected Kustomization Path to be 'kustomize/path2', but got '%s'", dst.Kustomizations[0].Path)
+		}
+
+		if !reflect.DeepEqual(dst.Kustomizations[0].Components, []string{"component2"}) {
+			t.Errorf("Expected Kustomization Components to be ['component2'], but got %v", dst.Kustomizations[0].Components)
+		}
+
+		if dst.Kustomizations[0].PostBuild.Substitute["key2"] != "value2" {
+			t.Errorf("Expected Kustomization PostBuild.Substitute to have 'key2:value2', but got %v", dst.Kustomizations[0].PostBuild.Substitute)
+		}
+
+		if dst.Kustomizations[0].PostBuild.SubstituteFrom[0].Kind != "Secret" || dst.Kustomizations[0].PostBuild.SubstituteFrom[0].Name != "secret1" {
+			t.Errorf("Expected Kustomization PostBuild.SubstituteFrom to have 'Secret:secret1', but got %v", dst.Kustomizations[0].PostBuild.SubstituteFrom)
 		}
 	})
 
@@ -517,14 +532,14 @@ func TestBlueprint_Merge(t *testing.T) {
 		}
 
 		kustomization1 := dst.Kustomizations[0]
-		if len(kustomization1.Components) != 2 || !containsAll(kustomization1.Components, []string{"component1", "component2"}) {
-			t.Errorf("Expected Kustomization1 Components to contain ['component1', 'component2'], but got %v", kustomization1.Components)
+		if len(kustomization1.Components) != 1 || kustomization1.Components[0] != "component2" {
+			t.Errorf("Expected Kustomization1 Components to be ['component2'], but got %v", kustomization1.Components)
 		}
-		if len(kustomization1.Patches) != 2 || !containsAllPatches(kustomization1.Patches, []string{"patch1", "patch2"}) {
-			t.Errorf("Expected Kustomization1 Patches to contain ['patch1', 'patch2'], but got %v", kustomization1.Patches)
+		if len(kustomization1.Patches) != 1 || kustomization1.Patches[0].Patch != "patch2" {
+			t.Errorf("Expected Kustomization1 Patches to be ['patch2'], but got %v", kustomization1.Patches)
 		}
-		if len(kustomization1.PostBuild.SubstituteFrom) != 2 || !containsAllSubstitutes(kustomization1.PostBuild.SubstituteFrom, []SubstituteReference{{Kind: "ConfigMap", Name: "config1"}, {Kind: "Secret", Name: "secret1"}}) {
-			t.Errorf("Expected Kustomization1 SubstituteFrom to contain ['ConfigMap:config1', 'Secret:secret1'], but got %v", kustomization1.PostBuild.SubstituteFrom)
+		if len(kustomization1.PostBuild.SubstituteFrom) != 1 || kustomization1.PostBuild.SubstituteFrom[0].Kind != "Secret" || kustomization1.PostBuild.SubstituteFrom[0].Name != "secret1" {
+			t.Errorf("Expected Kustomization1 SubstituteFrom to be ['Secret:secret1'], but got %v", kustomization1.PostBuild.SubstituteFrom)
 		}
 
 		kustomization2 := dst.Kustomizations[1]
@@ -596,7 +611,7 @@ func TestBlueprint_Merge(t *testing.T) {
 			t.Errorf("Expected Variables to contain ['var1', 'var2'], but got %v", component1.Variables)
 		}
 		if component1.Values == nil || len(component1.Values) != 2 || component1.Values["key1"] != "value1" || component1.Values["key2"] != "value2" {
-			t.Errorf("Expected Values to contain ['key1', 'key2'], but got %v", component1.Values)
+			t.Errorf("Expected Values to contain both 'key1' and 'key2', but got %v", component1.Values)
 		}
 		if component1.FullPath != "updated/full/path" {
 			t.Errorf("Expected FullPath to be 'updated/full/path', but got '%s'", component1.FullPath)
@@ -791,6 +806,8 @@ func TestBlueprint_Merge(t *testing.T) {
 
 	t.Run("PostBuildMerge", func(t *testing.T) {
 		dst := &Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
 			Kustomizations: []Kustomization{
 				{
 					Name: "kustomization1",
@@ -833,65 +850,50 @@ func TestBlueprint_Merge(t *testing.T) {
 			t.Fatalf("Expected PostBuild to be non-nil")
 		}
 
-		if len(postBuild.Substitute) != 2 || postBuild.Substitute["key1"] != "value1" || postBuild.Substitute["key2"] != "value2" {
-			t.Errorf("Expected Substitute to contain ['key1', 'key2'], but got %v", postBuild.Substitute)
+		if len(postBuild.Substitute) != 1 || postBuild.Substitute["key2"] != "value2" {
+			t.Errorf("Expected Substitute to contain ['key2'], but got %v", postBuild.Substitute)
 		}
 
-		if len(postBuild.SubstituteFrom) != 2 {
-			t.Errorf("Expected SubstituteFrom to contain 2 items, but got %d", len(postBuild.SubstituteFrom))
+		if len(postBuild.SubstituteFrom) != 1 {
+			t.Errorf("Expected SubstituteFrom to contain 1 item, but got %d", len(postBuild.SubstituteFrom))
 		}
 	})
 
-	t.Run("MergePostBuild_NilChecks", func(t *testing.T) {
-		tests := []struct {
-			name     string
-			existing *PostBuild
-			overlay  *PostBuild
-			expected *PostBuild
-		}{
-			{
-				name:     "BothNil",
-				existing: nil,
-				overlay:  nil,
-				expected: nil,
-			},
-			{
-				name:     "ExistingNil",
-				existing: nil,
-				overlay: &PostBuild{
-					Substitute: map[string]string{
-						"key1": "value1",
-					},
-				},
-				expected: &PostBuild{
-					Substitute: map[string]string{
-						"key1": "value1",
-					},
-				},
-			},
-			{
-				name: "OverlayNil",
-				existing: &PostBuild{
-					Substitute: map[string]string{
-						"key2": "value2",
-					},
-				},
-				overlay: nil,
-				expected: &PostBuild{
-					Substitute: map[string]string{
-						"key2": "value2",
-					},
-				},
-			},
+	t.Run("KindAndApiVersionMerge", func(t *testing.T) {
+		dst := &Blueprint{
+			Kind:       "OldKind",
+			ApiVersion: "old/v1",
 		}
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				result := mergePostBuild(tt.existing, tt.overlay)
-				if !reflect.DeepEqual(result, tt.expected) {
-					t.Errorf("Expected %v, but got %v", tt.expected, result)
-				}
-			})
+		overlay := &Blueprint{
+			Kind:       "NewKind",
+			ApiVersion: "new/v2",
+		}
+
+		dst.Merge(overlay)
+
+		if dst.Kind != "NewKind" {
+			t.Errorf("Expected Kind to be 'NewKind', but got '%s'", dst.Kind)
+		}
+
+		if dst.ApiVersion != "new/v2" {
+			t.Errorf("Expected ApiVersion to be 'new/v2', but got '%s'", dst.ApiVersion)
+		}
+
+		// Test with empty values which shouldn't override
+		emptyOverlay := &Blueprint{
+			Kind:       "",
+			ApiVersion: "",
+		}
+
+		dst.Merge(emptyOverlay)
+
+		if dst.Kind != "NewKind" {
+			t.Errorf("Expected Kind to remain 'NewKind', but got '%s'", dst.Kind)
+		}
+
+		if dst.ApiVersion != "new/v2" {
+			t.Errorf("Expected ApiVersion to remain 'new/v2', but got '%s'", dst.ApiVersion)
 		}
 	})
 }
@@ -994,32 +996,6 @@ func containsAll(slice []string, elements []string) bool {
 	}
 	for _, el := range elements {
 		if !elementMap[el] {
-			return false
-		}
-	}
-	return true
-}
-
-func containsAllPatches(slice []kustomize.Patch, patches []string) bool {
-	patchMap := make(map[string]bool)
-	for _, patch := range slice {
-		patchMap[patch.Patch] = true
-	}
-	for _, patch := range patches {
-		if !patchMap[patch] {
-			return false
-		}
-	}
-	return true
-}
-
-func containsAllSubstitutes(slice []SubstituteReference, substitutes []SubstituteReference) bool {
-	substituteMap := make(map[string]bool)
-	for _, sub := range slice {
-		substituteMap[sub.Kind+":"+sub.Name] = true
-	}
-	for _, sub := range substitutes {
-		if !substituteMap[sub.Kind+":"+sub.Name] {
 			return false
 		}
 	}
