@@ -474,7 +474,6 @@ local kustomizeConfig = if blueprint == "full" then [
     source: "core",
     path: "dns",
     dependsOn: [
-      "ingress-base",
       "pki-base"
     ],
     force: true,
