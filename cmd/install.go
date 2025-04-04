@@ -55,6 +55,11 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
+		// Set the environment variables internally in the process
+		if err := controller.SetEnvironmentVariables(); err != nil {
+			return fmt.Errorf("Error setting environment variables: %w", err)
+		}
+
 		// Resolve the blueprint handler
 		blueprintHandler := controller.ResolveBlueprintHandler()
 		if blueprintHandler == nil {
