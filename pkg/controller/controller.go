@@ -178,11 +178,6 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Set the environment variables
-	if err := c.SetEnvironmentVariables(); err != nil {
-		return fmt.Errorf("error setting environment variables: %w", err)
-	}
-
 	return nil
 }
 

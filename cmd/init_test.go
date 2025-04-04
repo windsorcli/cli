@@ -670,3 +670,207 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 }
+
+func TestInitCmdSetEnvironmentVariables(t *testing.T) {
+	originalArgs := rootCmd.Args
+	originalExitFunc := exitFunc
+
+	t.Cleanup(func() {
+		rootCmd.Args = originalArgs
+		exitFunc = originalExitFunc
+		resetRootCmd()
+	})
+
+	// Mock the exit function to prevent the test from exiting
+	exitFunc = func(code int) {
+		panic("exit called")
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock controller with SetEnvironmentVariables set to succeed
+		mocks := setupSafeInitCmdMocks()
+		setEnvVarsCalled := false
+		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
+			setEnvVarsCalled = true
+			return nil
+		}
+
+		// When the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			if err := Execute(mocks.Controller); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+		})
+
+		// Then the output should indicate success
+		expectedOutput := "Initialization successful\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+
+		// And SetEnvironmentVariables should have been called
+		if !setEnvVarsCalled {
+			t.Fatal("Expected SetEnvironmentVariables to be called, but it wasn't")
+		}
+	})
+
+	t.Run("ErrorSettingEnvironmentVariables", func(t *testing.T) {
+		// Given a mock controller with SetEnvironmentVariables set to fail
+		mocks := setupSafeInitCmdMocks()
+		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
+			return fmt.Errorf("mock environment variables error")
+		}
+
+		// When the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			err := Execute(mocks.Controller)
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then the output should indicate the error
+		expectedError := "Error setting environment variables: mock environment variables error"
+		if !strings.Contains(output, expectedError) {
+			t.Errorf("Expected output to contain %q, got %q", expectedError, output)
+		}
+	})
+}
+
+func TestInitCmdConfigPathDetermination(t *testing.T) {
+	originalArgs := rootCmd.Args
+	originalExitFunc := exitFunc
+	originalOsStat := osStat
+
+	t.Cleanup(func() {
+		rootCmd.Args = originalArgs
+		exitFunc = originalExitFunc
+		osStat = originalOsStat
+		resetRootCmd()
+	})
+
+	// Mock the exit function to prevent the test from exiting
+	exitFunc = func(code int) {
+		panic("exit called")
+	}
+
+	t.Run("YamlFileExists", func(t *testing.T) {
+		// Given a mock setup where the .yaml file exists
+		mocks := setupSafeInitCmdMocks()
+
+		// Track which path was used to save config
+		var savedConfigPath string
+		mocks.ConfigHandler.SaveConfigFunc = func(path string) error {
+			savedConfigPath = path
+			return nil
+		}
+
+		// Mock osStat to indicate the .yaml file exists and .yml doesn't
+		osStat = func(path string) (os.FileInfo, error) {
+			if strings.HasSuffix(path, ".yaml") {
+				return nil, nil // No error means file exists
+			}
+			return nil, fmt.Errorf("file not found") // Error means file doesn't exist
+		}
+
+		// When the init command is executed
+		rootCmd.SetArgs([]string{"init", "test-context"})
+		if err := Execute(mocks.Controller); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		// Then the .yaml file path should be used
+		if !strings.HasSuffix(savedConfigPath, ".yaml") {
+			t.Errorf("Expected path to end with .yaml, got %s", savedConfigPath)
+		}
+	})
+
+	t.Run("YmlFileExists", func(t *testing.T) {
+		// Given a mock setup where only the .yml file exists
+		mocks := setupSafeInitCmdMocks()
+
+		// Track which path was used to save config
+		var savedConfigPath string
+		mocks.ConfigHandler.SaveConfigFunc = func(path string) error {
+			savedConfigPath = path
+			return nil
+		}
+
+		// Mock osStat to indicate the .yml file exists and .yaml doesn't
+		osStat = func(path string) (os.FileInfo, error) {
+			if strings.HasSuffix(path, ".yml") {
+				return nil, nil // No error means file exists
+			}
+			return nil, fmt.Errorf("file not found") // Error means file doesn't exist
+		}
+
+		// When the init command is executed
+		rootCmd.SetArgs([]string{"init", "test-context"})
+		if err := Execute(mocks.Controller); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		// Then the .yml file path should be used
+		if !strings.HasSuffix(savedConfigPath, ".yml") {
+			t.Errorf("Expected path to end with .yml, got %s", savedConfigPath)
+		}
+	})
+
+	t.Run("NeitherFileExists", func(t *testing.T) {
+		// Given a mock setup where neither file exists
+		mocks := setupSafeInitCmdMocks()
+
+		// Track which path was used to save config
+		var savedConfigPath string
+		mocks.ConfigHandler.SaveConfigFunc = func(path string) error {
+			savedConfigPath = path
+			return nil
+		}
+
+		// Mock osStat to indicate neither file exists
+		osStat = func(path string) (os.FileInfo, error) {
+			return nil, fmt.Errorf("file not found") // Error means file doesn't exist
+		}
+
+		// When the init command is executed
+		rootCmd.SetArgs([]string{"init", "test-context"})
+		if err := Execute(mocks.Controller); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		// Then the default .yaml file path should be used
+		if !strings.HasSuffix(savedConfigPath, ".yaml") {
+			t.Errorf("Expected path to end with .yaml, got %s", savedConfigPath)
+		}
+	})
+
+	t.Run("BothFilesExist", func(t *testing.T) {
+		// Given a mock setup where both files exist
+		mocks := setupSafeInitCmdMocks()
+
+		// Track which path was used to save config
+		var savedConfigPath string
+		mocks.ConfigHandler.SaveConfigFunc = func(path string) error {
+			savedConfigPath = path
+			return nil
+		}
+
+		// Mock osStat to indicate both files exist
+		osStat = func(path string) (os.FileInfo, error) {
+			return nil, nil // No error means file exists
+		}
+
+		// When the init command is executed
+		rootCmd.SetArgs([]string{"init", "test-context"})
+		if err := Execute(mocks.Controller); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+
+		// Then the .yaml file path should be preferred (first in the if-else chain)
+		if !strings.HasSuffix(savedConfigPath, ".yaml") {
+			t.Errorf("Expected path to end with .yaml, got %s", savedConfigPath)
+		}
+	})
+}

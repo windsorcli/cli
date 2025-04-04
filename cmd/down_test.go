@@ -295,4 +295,50 @@ func TestDownCmd(t *testing.T) {
 			t.Errorf("Expected error about configuration not loaded, got %v", err)
 		}
 	})
+
+	t.Run("ErrorSettingEnvironmentVariables", func(t *testing.T) {
+		// Given a mock controller that returns an error when setting environment variables
+		mocks := setupSafeDownCmdMocks()
+		mocks.MockController.SetEnvironmentVariablesFunc = func() error {
+			return fmt.Errorf("mock environment variables error")
+		}
+
+		// When the down command is executed
+		rootCmd.SetArgs([]string{"down"})
+		err := Execute(mocks.MockController)
+
+		// Then the error should contain the expected message
+		if err == nil || !strings.Contains(err.Error(), "Error setting environment variables: mock environment variables error") {
+			t.Fatalf("Expected error containing 'Error setting environment variables: mock environment variables error', got %v", err)
+		}
+	})
+
+	t.Run("SuccessSettingEnvironmentVariables", func(t *testing.T) {
+		// Given a mock controller where SetEnvironmentVariables is successful
+		mocks := setupSafeDownCmdMocks()
+		setEnvVarsCalled := false
+		mocks.MockController.SetEnvironmentVariablesFunc = func() error {
+			setEnvVarsCalled = true
+			return nil
+		}
+
+		// When the down command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"down"})
+			if err := Execute(mocks.MockController); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+		})
+
+		// Then SetEnvironmentVariables should have been called
+		if !setEnvVarsCalled {
+			t.Fatal("Expected SetEnvironmentVariables to be called, but it wasn't")
+		}
+
+		// And the output should indicate success
+		expectedOutput := "Windsor environment torn down successfully.\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
 }

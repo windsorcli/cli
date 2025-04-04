@@ -312,4 +312,51 @@ func TestInstallCmd(t *testing.T) {
 			t.Fatalf("Expected error about configuration not loaded, got %v", err.Error())
 		}
 	})
+
+	t.Run("ErrorSettingEnvironmentVariables", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Initialize mocks
+		mocks := setupMockInstallCmdComponents()
+		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
+			return fmt.Errorf("error setting environment variables")
+		}
+
+		// When the install command is executed
+		rootCmd.SetArgs([]string{"install"})
+		err := Execute(mocks.Controller)
+
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error setting environment variables: error setting environment variables"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("SuccessSettingEnvironmentVariables", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Initialize mocks
+		mocks := setupMockInstallCmdComponents()
+		setEnvVarsCalled := false
+		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
+			setEnvVarsCalled = true
+			return nil
+		}
+
+		// When the install command is executed
+		rootCmd.SetArgs([]string{"install"})
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then SetEnvironmentVariables should have been called
+		if !setEnvVarsCalled {
+			t.Fatal("Expected SetEnvironmentVariables to be called, but it wasn't")
+		}
+	})
 }

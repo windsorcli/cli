@@ -163,6 +163,11 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
+		// Set the environment variables internally in the process
+		if err := controller.SetEnvironmentVariables(); err != nil {
+			return fmt.Errorf("Error setting environment variables: %w", err)
+		}
+
 		// Write configurations to file
 		if err := controller.WriteConfigurationFiles(); err != nil {
 			return fmt.Errorf("Error writing configuration files: %w", err)
