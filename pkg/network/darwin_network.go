@@ -61,8 +61,10 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 }
 
 // ConfigureDNS sets up DNS by modifying system files to route DNS queries.
-// It creates a resolver file for a specified DNS IP. It ensures directories exist,
-// updates files, and flushes the DNS cache to apply changes.
+// It creates a resolver file for a specified DNS IP. The function ensures that the necessary
+// directories exist, writes the resolver file, and flushes the DNS cache to apply changes.
+// The function maintains idempotency by checking if the resolver file already exists with the
+// correct content, ensuring that no unnecessary changes are made.
 func (n *BaseNetworkManager) ConfigureDNS() error {
 	tld := n.configHandler.GetString("dns.domain")
 	if tld == "" {
@@ -71,6 +73,15 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	dnsIP := n.configHandler.GetString("dns.address")
 
 	resolverDir := "/etc/resolver"
+	resolverFile := fmt.Sprintf("%s/%s", resolverDir, tld)
+	content := fmt.Sprintf("nameserver %s\n", dnsIP)
+
+	existingContent, err := readFile(resolverFile)
+	if err == nil && string(existingContent) == content {
+		return nil
+	}
+
+	// Ensure the resolver directory exists
 	if _, err := stat(resolverDir); os.IsNotExist(err) {
 		if _, err := n.shell.ExecSilent(
 			"sudo",
@@ -80,14 +91,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		); err != nil {
 			return fmt.Errorf("Error creating resolver directory: %w", err)
 		}
-	}
-
-	resolverFile := fmt.Sprintf("%s/%s", resolverDir, tld)
-	content := fmt.Sprintf("nameserver %s\n", dnsIP)
-
-	existingContent, err := readFile(resolverFile)
-	if err == nil && string(existingContent) == content {
-		return nil
 	}
 
 	tempResolverFile := fmt.Sprintf("/tmp/%s", tld)
