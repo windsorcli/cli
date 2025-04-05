@@ -4,7 +4,6 @@
 package shell
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,24 +53,17 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 	// Expected output for PowerShell
 	expectedOutputPowerShell := "$env:VAR1='value1'\n$env:VAR2='value2'\nRemove-Item Env:VAR3\n"
 
-	// Capture the output
-	var output bytes.Buffer
-	originalStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	// Run PrintEnvVars in a goroutine and capture its output
-	go func() {
-		shell.PrintEnvVars(envVars)
-		w.Close()
-	}()
-
-	output.ReadFrom(r)
-	os.Stdout = originalStdout
+	// Capture the output using the captureStdout helper
+	output := captureStdout(t, func() {
+		err := shell.PrintEnvVars(envVars)
+		if err != nil {
+			t.Fatalf("PrintEnvVars returned an error: %v", err)
+		}
+	})
 
 	// Then the output should match the expected PowerShell format
-	if output.String() != expectedOutputPowerShell {
-		t.Errorf("PrintEnvVars() output = %v, want %v", output.String(), expectedOutputPowerShell)
+	if output != expectedOutputPowerShell {
+		t.Errorf("PrintEnvVars() output = %v, want %v", output, expectedOutputPowerShell)
 	}
 }
 
@@ -181,6 +173,106 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 		}
 		if !strings.Contains(output, expectedRemoveAliasLine) {
 			t.Errorf("PrintAlias() output missing expected line: %v", expectedRemoveAliasLine)
+		}
+	})
+}
+
+func TestDefaultShell_UnsetEnv(t *testing.T) {
+	injector := di.NewInjector()
+
+	t.Run("UnsetEnvWithVariables", func(t *testing.T) {
+		// Given a default shell and variables to unset
+		shell := NewDefaultShell(injector)
+		vars := []string{"VAR1", "VAR2", "VAR3"}
+
+		// Capture the output of UnsetEnv
+		output := captureStdout(t, func() {
+			err := shell.UnsetEnv(vars)
+			if err != nil {
+				t.Fatalf("UnsetEnv returned an error: %v", err)
+			}
+		})
+
+		// Then the output should contain the Remove-Item commands for each variable
+		expectedLines := []string{
+			"Remove-Item Env:VAR1 -ErrorAction SilentlyContinue\n",
+			"Remove-Item Env:VAR2 -ErrorAction SilentlyContinue\n",
+			"Remove-Item Env:VAR3 -ErrorAction SilentlyContinue\n",
+		}
+
+		for _, line := range expectedLines {
+			if !strings.Contains(output, line) {
+				t.Errorf("UnsetEnv() output missing expected line: %q", line)
+			}
+		}
+	})
+
+	t.Run("UnsetEnvWithNoVariables", func(t *testing.T) {
+		// Given a default shell and no variables to unset
+		shell := NewDefaultShell(injector)
+		var vars []string
+
+		// Capture the output of UnsetEnv
+		output := captureStdout(t, func() {
+			err := shell.UnsetEnv(vars)
+			if err != nil {
+				t.Fatalf("UnsetEnv returned an error: %v", err)
+			}
+		})
+
+		// Then the output should be empty
+		if output != "" {
+			t.Errorf("UnsetEnv() output = %q, want empty string", output)
+		}
+	})
+}
+
+func TestDefaultShell_UnsetAlias(t *testing.T) {
+	injector := di.NewInjector()
+
+	t.Run("UnsetAliasWithAliases", func(t *testing.T) {
+		// Given a default shell and aliases to unset
+		shell := NewDefaultShell(injector)
+		aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
+
+		// Capture the output of UnsetAlias
+		output := captureStdout(t, func() {
+			err := shell.UnsetAlias(aliases)
+			if err != nil {
+				t.Fatalf("UnsetAlias returned an error: %v", err)
+			}
+		})
+
+		// Then the output should contain Test-Path and Remove-Item commands for each alias
+		expectedLines := []string{
+			"if (Test-Path Alias:ALIAS1) { Remove-Item Alias:ALIAS1 }\n",
+			"if (Test-Path Alias:ALIAS2) { Remove-Item Alias:ALIAS2 }\n",
+			"if (Test-Path Alias:ALIAS3) { Remove-Item Alias:ALIAS3 }\n",
+		}
+
+		for _, line := range expectedLines {
+			if !strings.Contains(output, line) {
+				t.Errorf("UnsetAlias() output missing expected line: %q", line)
+			}
+		}
+	})
+
+	t.Run("UnsetAliasWithNoAliases", func(t *testing.T) {
+		// Given a default shell and no aliases to unset
+		shell := NewDefaultShell(injector)
+		var aliases []string
+
+		// Capture the output of UnsetAlias
+		output := captureStdout(t, func() {
+			err := shell.UnsetAlias(aliases)
+			if err != nil {
+				t.Fatalf("UnsetAlias returned an error: %v", err)
+			}
+		})
+
+		// Then the output should be empty
+		if output != "" {
+			t.Errorf("UnsetAlias() output = %q, want empty string", output)
 		}
 	})
 }

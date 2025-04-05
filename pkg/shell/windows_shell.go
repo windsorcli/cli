@@ -50,3 +50,43 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 	}
 	return nil
 }
+
+// UnsetEnv prints commands to unset the provided environment variables for Windows.
+// It uses PowerShell's Remove-Item for each environment variable.
+func (s *DefaultShell) UnsetEnv(vars []string) error {
+	if len(vars) == 0 {
+		return nil
+	}
+
+	// Sort variables for consistent output
+	sortedVars := make([]string, len(vars))
+	copy(sortedVars, vars)
+	sort.Strings(sortedVars)
+
+	// Print Remove-Item for each environment variable
+	for _, v := range sortedVars {
+		fmt.Printf("Remove-Item Env:%s -ErrorAction SilentlyContinue\n", v)
+	}
+
+	return nil
+}
+
+// UnsetAlias prints commands to unset the provided aliases for Windows.
+// It uses PowerShell's Remove-Item with error suppression for each alias.
+func (s *DefaultShell) UnsetAlias(aliases []string) error {
+	if len(aliases) == 0 {
+		return nil
+	}
+
+	// Sort aliases for consistent output
+	sortedAliases := make([]string, len(aliases))
+	copy(sortedAliases, aliases)
+	sort.Strings(sortedAliases)
+
+	// Print Remove-Item for each alias with error handling
+	for _, alias := range sortedAliases {
+		fmt.Printf("if (Test-Path Alias:%s) { Remove-Item Alias:%s }\n", alias, alias)
+	}
+
+	return nil
+}

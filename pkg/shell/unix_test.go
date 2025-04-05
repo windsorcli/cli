@@ -148,3 +148,96 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 		}
 	})
 }
+
+func TestDefaultShell_UnsetEnv(t *testing.T) {
+	injector := di.NewInjector()
+
+	t.Run("UnsetEnvWithVariables", func(t *testing.T) {
+		// Given a default shell and variables to unset
+		shell := NewDefaultShell(injector)
+		vars := []string{"VAR1", "VAR2", "VAR3"}
+
+		// Capture the output of UnsetEnv
+		output := captureStdout(t, func() {
+			err := shell.UnsetEnv(vars)
+			if err != nil {
+				t.Fatalf("UnsetEnv returned an error: %v", err)
+			}
+		})
+
+		// Then the output should contain the unset command with sorted variables
+		expectedOutput := "unset VAR1 VAR2 VAR3\n"
+		if output != expectedOutput {
+			t.Errorf("UnsetEnv() output = %q, want %q", output, expectedOutput)
+		}
+	})
+
+	t.Run("UnsetEnvWithNoVariables", func(t *testing.T) {
+		// Given a default shell and no variables to unset
+		shell := NewDefaultShell(injector)
+		var vars []string
+
+		// Capture the output of UnsetEnv
+		output := captureStdout(t, func() {
+			err := shell.UnsetEnv(vars)
+			if err != nil {
+				t.Fatalf("UnsetEnv returned an error: %v", err)
+			}
+		})
+
+		// Then the output should be empty
+		if output != "" {
+			t.Errorf("UnsetEnv() output = %q, want empty string", output)
+		}
+	})
+}
+
+func TestDefaultShell_UnsetAlias(t *testing.T) {
+	injector := di.NewInjector()
+
+	t.Run("UnsetAliasWithAliases", func(t *testing.T) {
+		// Given a default shell and aliases to unset
+		shell := NewDefaultShell(injector)
+		aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
+
+		// Capture the output of UnsetAlias
+		output := captureStdout(t, func() {
+			err := shell.UnsetAlias(aliases)
+			if err != nil {
+				t.Fatalf("UnsetAlias returned an error: %v", err)
+			}
+		})
+
+		// Then the output should contain unalias commands with checks
+		expectedLines := []string{
+			"alias ALIAS1 >/dev/null 2>&1 && unalias ALIAS1\n",
+			"alias ALIAS2 >/dev/null 2>&1 && unalias ALIAS2\n",
+			"alias ALIAS3 >/dev/null 2>&1 && unalias ALIAS3\n",
+		}
+
+		for _, line := range expectedLines {
+			if !strings.Contains(output, line) {
+				t.Errorf("UnsetAlias() output missing expected line: %q", line)
+			}
+		}
+	})
+
+	t.Run("UnsetAliasWithNoAliases", func(t *testing.T) {
+		// Given a default shell and no aliases to unset
+		shell := NewDefaultShell(injector)
+		var aliases []string
+
+		// Capture the output of UnsetAlias
+		output := captureStdout(t, func() {
+			err := shell.UnsetAlias(aliases)
+			if err != nil {
+				t.Fatalf("UnsetAlias returned an error: %v", err)
+			}
+		})
+
+		// Then the output should be empty
+		if output != "" {
+			t.Errorf("UnsetAlias() output = %q, want empty string", output)
+		}
+	})
+}

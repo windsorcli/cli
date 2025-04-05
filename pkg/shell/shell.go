@@ -35,6 +35,10 @@ type Shell interface {
 	PrintEnvVars(envVars map[string]string) error
 	// PrintAlias retrieves the shell alias
 	PrintAlias(envVars map[string]string) error
+	// UnsetEnv prints commands to unset the provided environment variables
+	UnsetEnv(vars []string) error
+	// UnsetAlias prints commands to unset the provided aliases
+	UnsetAlias(aliases []string) error
 	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
 	// Exec executes a command with optional privilege elevation

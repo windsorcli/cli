@@ -10,6 +10,8 @@ type MockShell struct {
 	InitializeFunc                 func() error
 	PrintEnvVarsFunc               func(envVars map[string]string) error
 	PrintAliasFunc                 func(envVars map[string]string) error
+	UnsetEnvFunc                   func(vars []string) error
+	UnsetAliasFunc                 func(aliases []string) error
 	GetProjectRootFunc             func() (string, error)
 	ExecFunc                       func(command string, args ...string) (string, error)
 	ExecSilentFunc                 func(command string, args ...string) (string, error)
@@ -125,6 +127,22 @@ func (s *MockShell) AddCurrentDirToTrustedFile() error {
 func (s *MockShell) CheckTrustedDirectory() error {
 	if s.CheckTrustedDirectoryFunc != nil {
 		return s.CheckTrustedDirectoryFunc()
+	}
+	return nil
+}
+
+// UnsetEnv calls the custom UnsetEnvFunc if provided.
+func (s *MockShell) UnsetEnv(vars []string) error {
+	if s.UnsetEnvFunc != nil {
+		return s.UnsetEnvFunc(vars)
+	}
+	return nil
+}
+
+// UnsetAlias calls the custom UnsetAliasFunc if provided.
+func (s *MockShell) UnsetAlias(aliases []string) error {
+	if s.UnsetAliasFunc != nil {
+		return s.UnsetAliasFunc(aliases)
 	}
 	return nil
 }
