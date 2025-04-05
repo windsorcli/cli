@@ -225,6 +225,44 @@ func TestDefaultShell_UnsetEnv(t *testing.T) {
 			t.Errorf("UnsetEnv() output = %q, want empty string", output)
 		}
 	})
+
+	t.Run("UnsetEnvWithOsUnsetenvError", func(t *testing.T) {
+		// Save the original function to restore it later
+		originalOsUnsetenv := osUnsetenv
+		defer func() { osUnsetenv = originalOsUnsetenv }()
+
+		// Mock osUnsetenv to return an error
+		osUnsetenv = func(key string) error {
+			return fmt.Errorf("simulated error unsetting %s", key)
+		}
+
+		// Given a default shell and a variable to unset
+		shell := NewDefaultShell(injector)
+		vars := []string{"ERROR_VAR"}
+
+		// Capture the output of UnsetEnv to ensure it still prints the command
+		output := captureStdout(t, func() {
+			// When calling UnsetEnv with the mocked osUnsetenv
+			err := shell.UnsetEnv(vars)
+
+			// Then an error should be returned
+			if err == nil {
+				t.Fatal("UnsetEnv did not return the expected error")
+			}
+
+			// And the error message should include the variable name
+			expectedErrorMsg := "failed to unset environment variable ERROR_VAR: simulated error unsetting ERROR_VAR"
+			if err.Error() != expectedErrorMsg {
+				t.Errorf("UnsetEnv() error = %v, want %v", err.Error(), expectedErrorMsg)
+			}
+		})
+
+		// Verify the command was still printed
+		expectedCommand := "Remove-Item Env:ERROR_VAR -ErrorAction SilentlyContinue\n"
+		if !strings.Contains(output, expectedCommand) {
+			t.Errorf("UnsetEnv() output missing expected command: %q", expectedCommand)
+		}
+	})
 }
 
 func TestDefaultShell_UnsetAlias(t *testing.T) {

@@ -190,6 +190,35 @@ func TestDefaultShell_UnsetEnv(t *testing.T) {
 			t.Errorf("UnsetEnv() output = %q, want empty string", output)
 		}
 	})
+
+	t.Run("UnsetEnvWithOsUnsetenvError", func(t *testing.T) {
+		// Save the original function to restore it later
+		originalOsUnsetenv := osUnsetenv
+		defer func() { osUnsetenv = originalOsUnsetenv }()
+
+		// Mock osUnsetenv to return an error
+		osUnsetenv = func(key string) error {
+			return fmt.Errorf("simulated error unsetting %s", key)
+		}
+
+		// Given a default shell and a variable to unset
+		shell := NewDefaultShell(injector)
+		vars := []string{"ERROR_VAR"}
+
+		// When calling UnsetEnv with the mocked osUnsetenv
+		err := shell.UnsetEnv(vars)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("UnsetEnv did not return the expected error")
+		}
+
+		// And the error message should include the variable name
+		expectedErrorMsg := "simulated error unsetting ERROR_VAR"
+		if !strings.Contains(err.Error(), expectedErrorMsg) {
+			t.Errorf("UnsetEnv() error = %v, expected to contain %v", err, expectedErrorMsg)
+		}
+	})
 }
 
 func TestDefaultShell_UnsetAlias(t *testing.T) {
