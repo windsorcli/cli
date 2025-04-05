@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -22,6 +23,48 @@ var envCmd = &cobra.Command{
 				return fmt.Errorf("Error checking trusted directory: %w", err)
 			}
 			return nil
+		}
+
+		// Get the initial session token and managed environment variables/aliases
+		initialSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		initialManagedEnv := os.Getenv("WINDSOR_MANAGED_ENV")
+		initialManagedAlias := os.Getenv("WINDSOR_MANAGED_ALIAS")
+
+		// Create environment components
+		if err := controller.CreateEnvComponents(); err != nil {
+			if verbose {
+				return fmt.Errorf("Error creating environment components: %w", err)
+			}
+			return nil
+		}
+
+		// Initialize components
+		if err := controller.InitializeComponents(); err != nil {
+			if verbose {
+				return fmt.Errorf("Error initializing components: %w", err)
+			}
+			return nil
+		}
+
+		// Resolve all environment printers
+		envPrinters := controller.ResolveAllEnvPrinters()
+		if len(envPrinters) == 0 && verbose {
+			return fmt.Errorf("Error resolving environment printers: no printers returned")
+		}
+
+		// Clear environment variables if we're in a new session (no session token)
+		if initialSessionToken == "" && len(envPrinters) > 0 {
+			// Set the initial managed env/alias values to ensure they're included in the clearing
+			if initialManagedEnv != "" {
+				os.Setenv("WINDSOR_MANAGED_ENV", initialManagedEnv)
+			}
+			if initialManagedAlias != "" {
+				os.Setenv("WINDSOR_MANAGED_ALIAS", initialManagedAlias)
+			}
+
+			if err := envPrinters[0].Clear(); err != nil && verbose {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to clear previous environment variables: %v\n", err)
+			}
 		}
 
 		// Resolve config handler to check vm.driver
@@ -45,22 +88,6 @@ var envCmd = &cobra.Command{
 			}
 		}
 
-		// Create environment components
-		if err := controller.CreateEnvComponents(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error creating environment components: %w", err)
-			}
-			return nil
-		}
-
-		// Initialize components
-		if err := controller.InitializeComponents(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error initializing components: %w", err)
-			}
-			return nil
-		}
-
 		// Check if --decrypt flag is set
 		decrypt, _ := cmd.Flags().GetBool("decrypt")
 		if decrypt {
@@ -76,12 +103,6 @@ var envCmd = &cobra.Command{
 					}
 				}
 			}
-		}
-
-		// Resolve all environment printers using the controller
-		envPrinters := controller.ResolveAllEnvPrinters()
-		if len(envPrinters) == 0 && verbose {
-			return fmt.Errorf("Error resolving environment printers: no printers returned")
 		}
 
 		// Iterate through all environment printers and run their Print and PostEnvHook functions
@@ -107,6 +128,23 @@ var envCmd = &cobra.Command{
 					return fmt.Errorf("Error executing PrintAlias: %w", err)
 				}
 				continue
+			}
+		}
+
+		// Check if session token has changed after running environment printers
+		currentSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		if initialSessionToken != "" && currentSessionToken != initialSessionToken && len(envPrinters) > 0 {
+			// Session token has changed, restore the initial managed env/alias values
+			if initialManagedEnv != "" {
+				os.Setenv("WINDSOR_MANAGED_ENV", initialManagedEnv)
+			}
+			if initialManagedAlias != "" {
+				os.Setenv("WINDSOR_MANAGED_ALIAS", initialManagedAlias)
+			}
+
+			// Clear previous environment variables
+			if err := envPrinters[0].Clear(); err != nil && verbose {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to clear previous environment variables: %v\n", err)
 			}
 		}
 
