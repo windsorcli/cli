@@ -98,9 +98,9 @@ func (e *TerraformEnvPrinter) PostEnvHook() error {
 	return e.generateBackendOverrideTf()
 }
 
-// Print outputs the environment variables for the Terraform environment.
+// Print outputs the Terraform environment variables to the console.
+// If customVars are provided, it prints those instead.
 func (e *TerraformEnvPrinter) Print(customVars ...map[string]string) error {
-	// If customVars are provided, use them
 	if len(customVars) > 0 {
 		return e.BaseEnvPrinter.Print(customVars[0])
 	}
@@ -109,18 +109,8 @@ func (e *TerraformEnvPrinter) Print(customVars ...map[string]string) error {
 	if err != nil {
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
+
 	return e.BaseEnvPrinter.Print(envVars)
-}
-
-// getAlias returns command aliases based on Localstack configuration.
-func (e *TerraformEnvPrinter) getAlias() (map[string]string, error) {
-	enableLocalstack := e.configHandler.GetBool("aws.localstack.create", false)
-
-	if enableLocalstack {
-		return map[string]string{"terraform": "tflocal"}, nil
-	}
-
-	return map[string]string{"terraform": ""}, nil
 }
 
 // generateBackendOverrideTf creates the backend_override.tf file for the project by determining

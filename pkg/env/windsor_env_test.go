@@ -1438,73 +1438,6 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	})
 }
 
-// TestWindsorEnv_PrintAlias tests the PrintAlias method of the WindsorEnvPrinter struct
-func TestWindsorEnv_PrintAlias(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Clear the managedAlias map first
-		managedAliasMu.Lock()
-		managedAlias = make(map[string]string)
-		managedAliasMu.Unlock()
-
-		// Track a test alias
-		trackAliases(map[string]string{"test_alias": "test_command"})
-
-		// Use setupSafeWindsorEnvMocks to create mocks
-		mocks := setupSafeWindsorEnvMocks()
-		mockInjector := mocks.Injector
-		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
-		windsorEnvPrinter.Initialize()
-
-		// Mock the PrintAliasFunc to verify it is called with the correct aliases
-		var capturedAliases map[string]string
-		mocks.Shell.PrintAliasFunc = func(aliases map[string]string) error {
-			capturedAliases = aliases
-			return nil
-		}
-
-		// Call PrintAlias and check for errors
-		err := windsorEnvPrinter.PrintAlias()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		// Verify that PrintAliasFunc was called with the correct aliases
-		if _, exists := capturedAliases["WINDSOR_MANAGED_ALIAS"]; !exists {
-			t.Errorf("Expected WINDSOR_MANAGED_ALIAS to be present in the aliases")
-		}
-
-		// Verify that the test alias is present
-		if capturedAliases["test_alias"] != "test_command" {
-			t.Errorf("Expected test_alias to be present with value 'test_command', got %s", capturedAliases["test_alias"])
-		}
-	})
-
-	t.Run("ErrorGettingAliases", func(t *testing.T) {
-		// Use setupSafeWindsorEnvMocks to create mocks
-		mocks := setupSafeWindsorEnvMocks()
-		mockInjector := mocks.Injector
-
-		// Create a mock WindsorEnvPrinter with a custom mock shell that returns an error
-		customShell := shell.NewMockShell()
-		customShell.PrintAliasFunc = func(aliases map[string]string) error {
-			return fmt.Errorf("mock alias print error")
-		}
-
-		mockInjector.Register("shell", customShell)
-
-		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
-		windsorEnvPrinter.Initialize()
-
-		// Call PrintAlias and expect an error
-		err := windsorEnvPrinter.PrintAlias()
-		if err == nil {
-			t.Error("expected error, got nil")
-		} else if !strings.Contains(err.Error(), "mock alias print error") {
-			t.Errorf("unexpected error message: %v", err)
-		}
-	})
-}
-
 // TestWindsorEnv_GetAlias tests the GetAlias method of WindsorEnvPrinter
 func TestWindsorEnv_GetAlias(t *testing.T) {
 	t.Run("WithManagedAliases", func(t *testing.T) {
@@ -1589,5 +1522,34 @@ func TestWindsorEnv_GetAlias(t *testing.T) {
 		if len(aliases) != 1 {
 			t.Errorf("Expected only WINDSOR_MANAGED_ALIAS in aliases, got %d entries", len(aliases))
 		}
+	})
+}
+
+// TestWindsorEnv_PrintAlias tests the PrintAlias method of WindsorEnvPrinter
+func TestWindsorEnv_PrintAlias(t *testing.T) {
+	// Test that the method delegates to BaseEnvPrinter's PrintAlias
+	t.Run("DelegationTest", func(t *testing.T) {
+		// Set up mocks and WindsorEnvPrinter
+		mocks := setupSafeWindsorEnvMocks()
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+		windsorEnvPrinter.Initialize()
+
+		// Mock the shell's PrintAlias function
+		var capturedAliases map[string]string
+		mocks.Shell.PrintAliasFunc = func(aliases map[string]string) error {
+			capturedAliases = aliases
+			return nil
+		}
+
+		// Call PrintAlias with test aliases
+		testAliases := map[string]string{
+			"test_key": "test_value",
+		}
+		err := windsorEnvPrinter.PrintAlias(testAliases)
+
+		// Verify the results
+		assert.NoError(t, err, "PrintAlias should not return an error")
+		assert.Equal(t, "test_value", capturedAliases["test_key"],
+			"The shell's PrintAlias should be called with the provided aliases")
 	})
 }

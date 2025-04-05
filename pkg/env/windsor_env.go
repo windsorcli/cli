@@ -84,8 +84,22 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 	managedEnvMu.RUnlock()
 
-	managedKeys = append(managedKeys, "WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_SESSION_TOKEN", "WINDSOR_MANAGED")
-	envVars["WINDSOR_MANAGED"] = strings.Join(managedKeys, ":")
+	managedKeys = append(managedKeys, "WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_SESSION_TOKEN", "WINDSOR_MANAGED_ENV", "WINDSOR_MANAGED_ALIAS")
+	envVars["WINDSOR_MANAGED_ENV"] = strings.Join(managedKeys, ":")
+
+	// Add the WINDSOR_MANAGED_ALIAS environment variable
+	managedAliasMu.RLock()
+	managedAliasKeys := make([]string, 0, len(managedAlias))
+	for key := range managedAlias {
+		managedAliasKeys = append(managedAliasKeys, key)
+	}
+	managedAliasMu.RUnlock()
+
+	if len(managedAliasKeys) > 0 {
+		envVars["WINDSOR_MANAGED_ALIAS"] = strings.Join(managedAliasKeys, ":")
+	} else {
+		envVars["WINDSOR_MANAGED_ALIAS"] = ""
+	}
 
 	customEnvVars := e.configHandler.GetStringMap("environment")
 	if customEnvVars != nil {
@@ -242,6 +256,36 @@ func (e *WindsorEnvPrinter) Print(customVars ...map[string]string) error {
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
 	return e.BaseEnvPrinter.Print(envVars)
+}
+
+// GetAlias returns all tracked command aliases and Windsor-specific aliases.
+func (e *WindsorEnvPrinter) GetAlias() (map[string]string, error) {
+	aliases := make(map[string]string)
+
+	// Get tracked alias keys
+	managedAliasMu.RLock()
+	managedAliasKeys := make([]string, 0, len(managedAlias))
+	for key, value := range managedAlias {
+		managedAliasKeys = append(managedAliasKeys, key)
+		// Also add the actual aliases to the returned map
+		aliases[key] = value
+	}
+	managedAliasMu.RUnlock()
+
+	// Always add WINDSOR_MANAGED_ALIAS variable with tracked keys
+	if len(managedAliasKeys) > 0 {
+		aliases["WINDSOR_MANAGED_ALIAS"] = strings.Join(managedAliasKeys, ":")
+	} else {
+		aliases["WINDSOR_MANAGED_ALIAS"] = ""
+	}
+
+	return aliases, nil
+}
+
+// PrintAlias delegates to the BaseEnvPrinter's PrintAlias method.
+// This method is required by the EnvPrinter interface.
+func (e *WindsorEnvPrinter) PrintAlias(customAliases ...map[string]string) error {
+	return e.BaseEnvPrinter.PrintAlias(customAliases...)
 }
 
 // Ensure WindsorEnvPrinter implements the EnvPrinter interface

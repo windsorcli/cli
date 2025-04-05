@@ -1,7 +1,9 @@
 package env
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -324,6 +326,94 @@ func TestBaseEnvPrinter_GetAlias(t *testing.T) {
 		expectedAliases := map[string]string{}
 		if !reflect.DeepEqual(aliases, expectedAliases) {
 			t.Errorf("GetAlias returned %v, expected %v", aliases, expectedAliases)
+		}
+	})
+}
+
+// TestBaseEnvPrinter_PrintAlias tests the PrintAlias method of the BaseEnvPrinter struct
+func TestBaseEnvPrinter_PrintAlias(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create mocks
+		mockInjector := di.NewMockInjector()
+		mockShell := shell.NewMockShell()
+		mockConfigHandler := config.NewMockConfigHandler()
+
+		// Register mocks in the injector
+		mockInjector.Register("shell", mockShell)
+		mockInjector.Register("configHandler", mockConfigHandler)
+
+		// Create a BaseEnvPrinter
+		baseEnvPrinter := NewBaseEnvPrinter(mockInjector)
+		err := baseEnvPrinter.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize BaseEnvPrinter: %v", err)
+		}
+
+		// Mock PrintAlias to capture the passed map
+		var capturedAliases map[string]string
+		mockShell.PrintAliasFunc = func(aliases map[string]string) error {
+			capturedAliases = aliases
+			return nil
+		}
+
+		// Create test aliases
+		testAliases := map[string]string{
+			"test_alias1": "command1",
+			"test_alias2": "command2",
+		}
+
+		// Call PrintAlias
+		err = baseEnvPrinter.PrintAlias(testAliases)
+		if err != nil {
+			t.Errorf("PrintAlias returned an error: %v", err)
+		}
+
+		// Verify that PrintAlias was called with the correct map
+		if len(capturedAliases) != len(testAliases) {
+			t.Errorf("Expected %d aliases, got %d", len(testAliases), len(capturedAliases))
+		}
+
+		for key, value := range testAliases {
+			if capturedAliases[key] != value {
+				t.Errorf("Expected alias %s=%s, got %s=%s", key, value, key, capturedAliases[key])
+			}
+		}
+	})
+
+	t.Run("ErrorCase", func(t *testing.T) {
+		// Create mocks
+		mockInjector := di.NewMockInjector()
+		mockShell := shell.NewMockShell()
+		mockConfigHandler := config.NewMockConfigHandler()
+
+		// Register mocks in the injector
+		mockInjector.Register("shell", mockShell)
+		mockInjector.Register("configHandler", mockConfigHandler)
+
+		// Create a BaseEnvPrinter
+		baseEnvPrinter := NewBaseEnvPrinter(mockInjector)
+		err := baseEnvPrinter.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize BaseEnvPrinter: %v", err)
+		}
+
+		// Mock PrintAlias to return an error
+		expectedError := "mock shell print alias error"
+		mockShell.PrintAliasFunc = func(aliases map[string]string) error {
+			return fmt.Errorf(expectedError)
+		}
+
+		// Create test aliases
+		testAliases := map[string]string{
+			"test_alias": "command",
+		}
+
+		// Call PrintAlias and expect an error
+		err = baseEnvPrinter.PrintAlias(testAliases)
+		if err == nil {
+			t.Errorf("Expected an error, but got nil")
+		} else if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error containing %q, got %q", expectedError, err.Error())
 		}
 	})
 }
