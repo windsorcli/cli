@@ -322,19 +322,10 @@ func (c *BaseController) ResolveEnvPrinter(name string) env.EnvPrinter {
 func (c *BaseController) ResolveAllEnvPrinters() []env.EnvPrinter {
 	instances, _ := c.injector.ResolveAll((*env.EnvPrinter)(nil))
 	envPrinters := make([]env.EnvPrinter, 0, len(instances))
-	var customEnvPrinter env.EnvPrinter
 
 	for _, instance := range instances {
 		envPrinter, _ := instance.(env.EnvPrinter)
-		if _, ok := envPrinter.(*env.CustomEnvPrinter); ok {
-			customEnvPrinter = envPrinter
-		} else {
-			envPrinters = append(envPrinters, envPrinter)
-		}
-	}
-
-	if customEnvPrinter != nil {
-		envPrinters = append(envPrinters, customEnvPrinter)
+		envPrinters = append(envPrinters, envPrinter)
 	}
 
 	return envPrinters

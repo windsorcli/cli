@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -48,6 +50,20 @@ func setupSafeWindsorEnvMocks(injector ...di.Injector) *WindsorEnvMocks {
 		ConfigHandler: mockConfigHandler,
 		Shell:         mockShell,
 	}
+}
+
+// customMockInjector is a custom injector for testing that returns non-castable objects
+type customMockInjector struct {
+	*di.MockInjector
+}
+
+// ResolveAll overrides the ResolveAll method to return non-castable objects
+func (c *customMockInjector) ResolveAll(targetType interface{}) ([]interface{}, error) {
+	if _, ok := targetType.(*secrets.SecretsProvider); ok {
+		// Return a non-castable int
+		return []interface{}{123}, nil
+	}
+	return c.MockInjector.ResolveAll(targetType)
 }
 
 func TestWindsorEnv_GetEnvVars(t *testing.T) {
@@ -497,6 +513,289 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("Unexpected error message: %v", err)
 		}
 	})
+
+	t.Run("NoEnvironmentVarsInConfig", func(t *testing.T) {
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Override random generation to avoid token generation errors
+		origCryptoRandRead := cryptoRandRead
+		cryptoRandRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i%26) + 'a' // Generate predictable letters
+			}
+			return len(b), nil
+		}
+		defer func() {
+			cryptoRandRead = origCryptoRandRead
+		}()
+
+		// Ensure environment is clean
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv(EnvSessionTokenVar)
+		t.Setenv("WINDSOR_CONTEXT", "")
+		t.Setenv(EnvSessionTokenVar, "")
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv(EnvSessionTokenVar, originalEnvToken)
+		}()
+
+		// Set GetStringMap to return nil to simulate no environment vars in config
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return nil
+			}
+			return map[string]string{}
+		}
+
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+		windsorEnvPrinter.Initialize()
+
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		assert.NoError(t, err, "GetEnvVars should not return an error")
+
+		// Verify we still have the base environment variables
+		assert.Equal(t, "mock-context", envVars["WINDSOR_CONTEXT"], "WINDSOR_CONTEXT should be set even when no environment vars are in config")
+		assert.Equal(t, filepath.FromSlash("/mock/project/root"), envVars["WINDSOR_PROJECT_ROOT"], "WINDSOR_PROJECT_ROOT should be set")
+		assert.NotEmpty(t, envVars[EnvSessionTokenVar], "Session token should be generated")
+
+		// Verify no additional variables were added from config (since there were none)
+		assert.Len(t, envVars, 3, "Should only have the three base environment variables")
+	})
+
+	t.Run("DifferentContextDisablesCache", func(t *testing.T) {
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Override random generation to avoid token generation errors
+		origCryptoRandRead := cryptoRandRead
+		cryptoRandRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i%26) + 'a' // Generate predictable letters
+			}
+			return len(b), nil
+		}
+		defer func() {
+			cryptoRandRead = origCryptoRandRead
+		}()
+
+		// Set up environment with a different context than the one in config
+		// to test the useCache=false path
+		envVarKey := "TEST_VAR_WITH_SECRET"
+		envVarValue := "value with ${{ secrets.mySecret }}"
+
+		// Save original environment values and restore them after test
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv(EnvSessionTokenVar)
+		originalTestVar := os.Getenv(envVarKey)
+
+		t.Setenv("WINDSOR_CONTEXT", "different-context")
+		t.Setenv(EnvSessionTokenVar, "")
+		t.Setenv(envVarKey, "existing-value")
+
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv(EnvSessionTokenVar, originalEnvToken)
+			os.Setenv(envVarKey, originalTestVar)
+		}()
+
+		// Set up mock config handler to return environment variables
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return "mock-context" // Different from "different-context" in env
+		}
+
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					envVarKey: envVarValue,
+				}
+			}
+			return map[string]string{}
+		}
+
+		// Mock secrets provider that will be called regardless of cache
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == envVarValue {
+				return "resolved-value", nil
+			}
+			return input, nil
+		}
+
+		// Create WindsorEnvPrinter with mock injector
+		mockInjector := mocks.Injector
+		mockInjector.Register("secretsProvider", mockSecretsProvider)
+		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
+		err := windsorEnvPrinter.Initialize()
+		assert.NoError(t, err, "Initialize should not return an error")
+
+		// Make secretsProviders accessible to the test
+		windsorEnvPrinter.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Get environment variables
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		assert.NoError(t, err, "GetEnvVars should not return an error")
+
+		// Verify the variable was resolved despite having an existing value in the environment
+		// This confirms that useCache=false worked as expected
+		assert.Equal(t, "resolved-value", envVars[envVarKey],
+			"Environment variable should be resolved even with existing value when contexts differ")
+	})
+
+	t.Run("NoCacheEnvVarDisablesCache", func(t *testing.T) {
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Override random generation to avoid token generation errors
+		origCryptoRandRead := cryptoRandRead
+		cryptoRandRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i%26) + 'a' // Generate predictable letters
+			}
+			return len(b), nil
+		}
+		defer func() {
+			cryptoRandRead = origCryptoRandRead
+		}()
+
+		// Set up test environment variables
+		envVarKey := "TEST_VAR_WITH_SECRET"
+		envVarValue := "value with ${{ secrets.mySecret }}"
+
+		// Save original environment values and restore them after test
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv(EnvSessionTokenVar)
+		originalTestVar := os.Getenv(envVarKey)
+		originalNoCache := os.Getenv("NO_CACHE")
+
+		// Setting NO_CACHE=true should disable the cache
+		t.Setenv("NO_CACHE", "true")
+		t.Setenv("WINDSOR_CONTEXT", "") // Use same context to test NO_CACHE specifically
+		t.Setenv(EnvSessionTokenVar, "")
+		t.Setenv(envVarKey, "existing-value-should-be-ignored")
+
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv(EnvSessionTokenVar, originalEnvToken)
+			os.Setenv(envVarKey, originalTestVar)
+			os.Setenv("NO_CACHE", originalNoCache)
+		}()
+
+		// Configure mock config handler
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					envVarKey: envVarValue,
+				}
+			}
+			return map[string]string{}
+		}
+
+		// Mock secrets provider that will resolve the secret
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == envVarValue {
+				return "resolved-value", nil
+			}
+			return input, nil
+		}
+
+		// Create WindsorEnvPrinter with mock injector
+		mockInjector := mocks.Injector
+		mockInjector.Register("secretsProvider", mockSecretsProvider)
+		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
+		err := windsorEnvPrinter.Initialize()
+		assert.NoError(t, err, "Initialize should not return an error")
+
+		// Make secretsProviders accessible to the test
+		windsorEnvPrinter.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Get environment variables
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		assert.NoError(t, err, "GetEnvVars should not return an error")
+
+		// Verify the variable was resolved despite having an existing value in the environment
+		// This confirms that NO_CACHE=true worked as expected
+		assert.Equal(t, "resolved-value", envVars[envVarKey],
+			"Environment variable should be resolved even with existing value when NO_CACHE=true")
+	})
+
+	t.Run("RegularEnvironmentVarsWithoutSecrets", func(t *testing.T) {
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Override random generation to avoid token generation errors
+		origCryptoRandRead := cryptoRandRead
+		cryptoRandRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i%26) + 'a' // Generate predictable letters
+			}
+			return len(b), nil
+		}
+		defer func() {
+			cryptoRandRead = origCryptoRandRead
+		}()
+
+		// Set up test environment variables with regular values (no secret placeholders)
+		regularVarKey1 := "REGULAR_ENV_VAR1"
+		regularVarValue1 := "regular value 1"
+		regularVarKey2 := "REGULAR_ENV_VAR2"
+		regularVarValue2 := "regular value 2"
+
+		// Save original environment values
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv(EnvSessionTokenVar)
+
+		// Clean environment for test
+		t.Setenv("WINDSOR_CONTEXT", "")
+		t.Setenv(EnvSessionTokenVar, "")
+
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv(EnvSessionTokenVar, originalEnvToken)
+		}()
+
+		// Configure mock config handler with regular environment variables
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					regularVarKey1: regularVarValue1,
+					regularVarKey2: regularVarValue2,
+					"WITH_SECRET":  "${{ secrets.mySecret }}", // Include one with secret to test both branches
+				}
+			}
+			return map[string]string{}
+		}
+
+		// Mock secrets provider
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == "${{ secrets.mySecret }}" {
+				return "resolved-secret", nil
+			}
+			return input, nil
+		}
+
+		// Create WindsorEnvPrinter with mock injector
+		mockInjector := mocks.Injector
+		mockInjector.Register("secretsProvider", mockSecretsProvider)
+		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
+		err := windsorEnvPrinter.Initialize()
+		assert.NoError(t, err, "Initialize should not return an error")
+
+		// Make secretsProviders accessible to the test
+		windsorEnvPrinter.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Get environment variables
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		assert.NoError(t, err, "GetEnvVars should not return an error")
+
+		// Verify the regular variables were set directly without parsing
+		assert.Equal(t, regularVarValue1, envVars[regularVarKey1],
+			"Regular environment variable should be set directly")
+		assert.Equal(t, regularVarValue2, envVars[regularVarKey2],
+			"Regular environment variable should be set directly")
+
+		// Also verify that the secret was parsed correctly
+		assert.Equal(t, "resolved-secret", envVars["WITH_SECRET"],
+			"Environment variable with secret should be resolved")
+	})
 }
 
 func TestWindsorEnv_PostEnvHook(t *testing.T) {
@@ -751,5 +1050,187 @@ func TestWindsorEnv_CreateSessionInvalidationSignal(t *testing.T) {
 		if err.Error() != expectedErrMsg {
 			t.Errorf("Error message = %q, want %q", err.Error(), expectedErrMsg)
 		}
+	})
+}
+
+// TestWindsorEnv_Initialize tests the Initialize method for WindsorEnvPrinter
+func TestWindsorEnv_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create a mock injector
+		injector := di.NewMockInjector()
+		mockShell := shell.NewMockShell()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+
+		// Register mocks in the injector
+		injector.Register("shell", mockShell)
+		injector.Register("configHandler", mockConfigHandler)
+		injector.Register("secretsProvider", mockSecretsProvider)
+
+		// Create a new WindsorEnvPrinter
+		windsorEnv := NewWindsorEnvPrinter(injector)
+
+		// Call Initialize and check for errors
+		err := windsorEnv.Initialize()
+		assert.NoError(t, err)
+
+		// Verify that secretsProviders is populated
+		assert.NotNil(t, windsorEnv.secretsProviders)
+		assert.Equal(t, 1, len(windsorEnv.secretsProviders))
+	})
+
+	t.Run("BaseInitializationError", func(t *testing.T) {
+		// Create a mock injector
+		injector := di.NewMockInjector()
+
+		// Don't register any components to cause initialization error
+
+		// Create a new WindsorEnvPrinter
+		windsorEnv := NewWindsorEnvPrinter(injector)
+
+		// Call Initialize and expect an error
+		err := windsorEnv.Initialize()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to initialize BaseEnvPrinter")
+	})
+
+	t.Run("ResolveAllError", func(t *testing.T) {
+		// Create a mock injector that returns an error for ResolveAll
+		mockInjector := di.NewMockInjector()
+		mockShell := shell.NewMockShell()
+		mockConfigHandler := config.NewMockConfigHandler()
+
+		// Register mocks in the injector
+		mockInjector.Register("shell", mockShell)
+		mockInjector.Register("configHandler", mockConfigHandler)
+
+		// Make ResolveAll return an error
+		mockInjector.SetResolveAllError((*secrets.SecretsProvider)(nil), fmt.Errorf("error resolving secrets providers"))
+
+		// Create a new WindsorEnvPrinter
+		windsorEnv := NewWindsorEnvPrinter(mockInjector)
+
+		// Call Initialize and expect an error
+		err := windsorEnv.Initialize()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to resolve secrets providers")
+	})
+
+	t.Run("CastError", func(t *testing.T) {
+		// Create a custom injector that returns something that can't be cast to SecretsProvider
+		customInjector := &customMockInjector{
+			MockInjector: di.NewMockInjector(),
+		}
+
+		mockShell := shell.NewMockShell()
+		mockConfigHandler := config.NewMockConfigHandler()
+
+		// Register mocks in the injector
+		customInjector.Register("shell", mockShell)
+		customInjector.Register("configHandler", mockConfigHandler)
+
+		// Create a new WindsorEnvPrinter
+		windsorEnv := NewWindsorEnvPrinter(customInjector)
+
+		// Call Initialize and expect an error
+		err := windsorEnv.Initialize()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to cast instance to SecretsProvider")
+	})
+}
+
+// TestWindsorEnv_ParseAndCheckSecrets tests the parseAndCheckSecrets method
+func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Setup
+		mockInjector := di.NewMockInjector()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == "value with ${{ secrets.mySecret }}" {
+				return "value with resolved-secret", nil
+			}
+			return input, nil
+		}
+
+		windsorEnv := NewWindsorEnvPrinter(mockInjector)
+		windsorEnv.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Call the method
+		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
+
+		// Verify result
+		assert.Equal(t, "value with resolved-secret", result)
+	})
+
+	t.Run("SecretsProviderError", func(t *testing.T) {
+		// Setup
+		mockInjector := di.NewMockInjector()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			return "", fmt.Errorf("error parsing secrets")
+		}
+
+		windsorEnv := NewWindsorEnvPrinter(mockInjector)
+		windsorEnv.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Call the method with a string containing a secret
+		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
+
+		// Verify result
+		assert.Contains(t, result, "<ERROR: failed to parse")
+		assert.Contains(t, result, "secrets.mySecret")
+	})
+
+	t.Run("NoSecretsProviders", func(t *testing.T) {
+		// Setup
+		mockInjector := di.NewMockInjector()
+		windsorEnv := NewWindsorEnvPrinter(mockInjector)
+		windsorEnv.secretsProviders = []secrets.SecretsProvider{} // Empty slice
+
+		// Call the method with a string containing a secret
+		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
+
+		// Verify result
+		assert.Equal(t, "<ERROR: No secrets providers configured>", result)
+	})
+
+	t.Run("UnparsedSecrets", func(t *testing.T) {
+		// Setup
+		mockInjector := di.NewMockInjector()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		// This provider doesn't recognize the secret pattern
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			return input, nil
+		}
+
+		windsorEnv := NewWindsorEnvPrinter(mockInjector)
+		windsorEnv.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Call the method with a string containing a secret
+		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
+
+		// Verify result
+		assert.Contains(t, result, "<ERROR: failed to parse")
+		assert.Contains(t, result, "secrets.mySecret")
+	})
+
+	t.Run("MultipleUnparsedSecrets", func(t *testing.T) {
+		// Setup
+		mockInjector := di.NewMockInjector()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		// This provider doesn't recognize any secrets
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			return input, nil
+		}
+
+		windsorEnv := NewWindsorEnvPrinter(mockInjector)
+		windsorEnv.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Call the method with multiple secrets
+		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.secretA }} and ${{ secrets.secretB }}")
+
+		// Verify result
+		assert.Contains(t, result, "<ERROR: failed to parse")
+		assert.Contains(t, result, "secrets.secretA, secrets.secretB")
 	})
 }

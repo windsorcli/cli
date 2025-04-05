@@ -111,6 +111,7 @@ func (c *RealController) CreateProjectComponents() error {
 
 // CreateEnvComponents creates components required for env and exec commands
 // Registers environment printers for AWS, Docker, Kube, Omni, Talos, Terraform, and Windsor.
+// Windsor environment printer also handles custom environment variables and secrets.
 // AWS and Docker printers are conditional on their respective configurations being enabled.
 // Each printer is created and registered with the dependency injector.
 // Returns nil on successful registration of all environment components.
@@ -123,7 +124,6 @@ func (c *RealController) CreateEnvComponents() error {
 		"talosEnv":     func(injector di.Injector) env.EnvPrinter { return env.NewTalosEnvPrinter(injector) },
 		"terraformEnv": func(injector di.Injector) env.EnvPrinter { return env.NewTerraformEnvPrinter(injector) },
 		"windsorEnv":   func(injector di.Injector) env.EnvPrinter { return env.NewWindsorEnvPrinter(injector) },
-		"customEnv":    func(injector di.Injector) env.EnvPrinter { return env.NewCustomEnvPrinter(injector) },
 	}
 
 	for key, constructor := range envPrinters {

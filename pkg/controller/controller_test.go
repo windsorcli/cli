@@ -21,21 +21,21 @@ import (
 )
 
 type MockObjects struct {
-	Injector         di.Injector
-	ConfigHandler    *config.MockConfigHandler
-	SecretsProvider  *secrets.MockSecretsProvider
-	EnvPrinter       *env.MockEnvPrinter
-	CustomEnvPrinter *env.CustomEnvPrinter
-	Shell            *shell.MockShell
-	SecureShell      *shell.MockShell
-	ToolsManager     *tools.MockToolsManager
-	NetworkManager   *network.MockNetworkManager
-	Service          *services.MockService
-	VirtualMachine   *virt.MockVirt
-	ContainerRuntime *virt.MockVirt
-	BlueprintHandler *blueprint.MockBlueprintHandler
-	Stack            *stack.MockStack
-	Generator        *generators.MockGenerator
+	Injector          di.Injector
+	ConfigHandler     *config.MockConfigHandler
+	SecretsProvider   *secrets.MockSecretsProvider
+	EnvPrinter        *env.MockEnvPrinter
+	WindsorEnvPrinter *env.WindsorEnvPrinter
+	Shell             *shell.MockShell
+	SecureShell       *shell.MockShell
+	ToolsManager      *tools.MockToolsManager
+	NetworkManager    *network.MockNetworkManager
+	Service           *services.MockService
+	VirtualMachine    *virt.MockVirt
+	ContainerRuntime  *virt.MockVirt
+	BlueprintHandler  *blueprint.MockBlueprintHandler
+	Stack             *stack.MockStack
+	Generator         *generators.MockGenerator
 }
 
 func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
@@ -51,7 +51,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	mockSecretsProvider := secrets.NewMockSecretsProvider()
 	mockEnvPrinter1 := &env.MockEnvPrinter{}
 	mockEnvPrinter2 := &env.MockEnvPrinter{}
-	mockCustomEnvPrinter := env.NewCustomEnvPrinter(injector)
+	mockWindsorEnvPrinter := env.NewWindsorEnvPrinter(injector)
 	mockShell := &shell.MockShell{}
 	mockSecureShell := &shell.MockShell{}
 	mockToolsManager := tools.NewMockToolsManager()
@@ -69,7 +69,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	injector.Register("secretsProvider", mockSecretsProvider)
 	injector.Register("envPrinter1", mockEnvPrinter1)
 	injector.Register("envPrinter2", mockEnvPrinter2)
-	injector.Register("customEnvPrinter", mockCustomEnvPrinter)
+	injector.Register("windsorEnv", mockWindsorEnvPrinter)
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("toolsManager", mockToolsManager)
@@ -82,24 +82,24 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	injector.Register("generator", mockGenerator)
 	injector.Register("stack", mockStack)
 
-	mockCustomEnvPrinter.Initialize()
+	mockWindsorEnvPrinter.Initialize()
 
 	return &MockObjects{
-		Injector:         injector,
-		ConfigHandler:    mockConfigHandler,
-		SecretsProvider:  mockSecretsProvider,
-		EnvPrinter:       mockEnvPrinter1, // Assuming the first envPrinter is the primary one
-		CustomEnvPrinter: mockCustomEnvPrinter,
-		Shell:            mockShell,
-		SecureShell:      mockSecureShell,
-		ToolsManager:     mockToolsManager,
-		NetworkManager:   mockNetworkManager,
-		BlueprintHandler: mockBlueprintHandler,
-		Service:          mockService1, // Assuming the first service is the primary one
-		VirtualMachine:   mockVirtualMachine,
-		ContainerRuntime: mockContainerRuntime,
-		Stack:            mockStack,
-		Generator:        mockGenerator,
+		Injector:          injector,
+		ConfigHandler:     mockConfigHandler,
+		SecretsProvider:   mockSecretsProvider,
+		EnvPrinter:        mockEnvPrinter1, // Assuming the first envPrinter is the primary one
+		WindsorEnvPrinter: mockWindsorEnvPrinter,
+		Shell:             mockShell,
+		SecureShell:       mockSecureShell,
+		ToolsManager:      mockToolsManager,
+		NetworkManager:    mockNetworkManager,
+		BlueprintHandler:  mockBlueprintHandler,
+		Service:           mockService1, // Assuming the first service is the primary one
+		VirtualMachine:    mockVirtualMachine,
+		ContainerRuntime:  mockContainerRuntime,
+		Stack:             mockStack,
+		Generator:         mockGenerator,
 	}
 }
 
@@ -848,10 +848,10 @@ func TestController_ResolveAllEnvPrinters(t *testing.T) {
 		expectedPrinters := make(map[interface{}]bool)
 		envPrinter1 := mocks.Injector.Resolve("envPrinter1")
 		envPrinter2 := mocks.Injector.Resolve("envPrinter2")
-		customEnvPrinter := mocks.Injector.Resolve("customEnvPrinter")
+		windsorEnvPrinter := mocks.Injector.Resolve("windsorEnv")
 		expectedPrinters[envPrinter1] = true
 		expectedPrinters[envPrinter2] = true
-		expectedPrinters[customEnvPrinter] = true
+		expectedPrinters[windsorEnvPrinter] = true
 
 		for _, printer := range envPrinters {
 			if _, exists := expectedPrinters[printer]; !exists {
