@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -515,13 +514,14 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("NoEnvironmentVarsInConfig", func(t *testing.T) {
+		// Set up mocks
 		mocks := setupSafeWindsorEnvMocks()
 
-		// Override random generation to avoid token generation errors
+		// Override random generation to avoid token generation errors and create predictable output
 		origCryptoRandRead := cryptoRandRead
 		cryptoRandRead = func(b []byte) (n int, err error) {
 			for i := range b {
-				b[i] = byte(i%26) + 'a' // Generate predictable letters
+				b[i] = "JKLMNOP"[i%7] // Predictable token
 			}
 			return len(b), nil
 		}
@@ -529,37 +529,43 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			cryptoRandRead = origCryptoRandRead
 		}()
 
-		// Ensure environment is clean
-		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
-		originalEnvToken := os.Getenv("WINDSOR_SESSION_TOKEN")
-		t.Setenv("WINDSOR_CONTEXT", "")
-		t.Setenv("WINDSOR_SESSION_TOKEN", "")
+		// Mock statLookupEnv to simulate environment variables being set
+		orgLookupEnv := osLookupEnv
+		osLookupEnv = func(key string) (string, bool) {
+			switch key {
+			case "TF_DATA_DIR", "TF_CLI_ARGS_init", "TF_CLI_ARGS_plan", "TF_CLI_ARGS_apply", "TF_CLI_ARGS_import", "TF_CLI_ARGS_destroy", "TF_VAR_context_path", "TF_VAR_os_type", "KUBECONFIG", "K8S_AUTH_KUBECONFIG", "KUBE_CONFIG_PATH", "OMNICONFIG", "TALOSCONFIG":
+				return key + ":", true
+			}
+			return "", false
+		}
 		defer func() {
-			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
-			os.Setenv("WINDSOR_SESSION_TOKEN", originalEnvToken)
+			osLookupEnv = orgLookupEnv
 		}()
 
-		// Set GetStringMap to return nil to simulate no environment vars in config
+		// Set up environment with minimal context
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return "mock-context"
+		}
 		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
-			if key == "environment" {
-				return nil
-			}
-			return map[string]string{}
+			return nil // No environment variables
 		}
 
+		// Create WindsorEnvPrinter
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
-		windsorEnvPrinter.Initialize()
+		err := windsorEnvPrinter.Initialize()
+		assert.NoError(t, err, "Initialize should not return an error")
 
+		// Get environment variables
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		assert.NoError(t, err, "GetEnvVars should not return an error")
 
-		// Verify we still have the base environment variables
-		assert.Equal(t, "mock-context", envVars["WINDSOR_CONTEXT"], "WINDSOR_CONTEXT should be set even when no environment vars are in config")
-		assert.Equal(t, filepath.FromSlash("/mock/project/root"), envVars["WINDSOR_PROJECT_ROOT"], "WINDSOR_PROJECT_ROOT should be set")
-		assert.NotEmpty(t, envVars["WINDSOR_SESSION_TOKEN"], "Session token should be generated")
-
-		// Verify no additional variables were added from config (since there were none)
-		assert.Len(t, envVars, 3, "Should only have the three base environment variables")
+		// There should be 4 environment variables: WINDSOR_CONTEXT, WINDSOR_PROJECT_ROOT, WINDSOR_SESSION_TOKEN, and WINDSOR_MANAGED
+		assert.Len(t, envVars, 4, "Should only have the four base environment variables")
+		assert.Equal(t, "mock-context", envVars["WINDSOR_CONTEXT"])
+		assert.Equal(t, filepath.FromSlash("/mock/project/root"), envVars["WINDSOR_PROJECT_ROOT"])
+		assert.NotEmpty(t, envVars["WINDSOR_SESSION_TOKEN"], "Session token should not be empty")
+		assert.Len(t, envVars["WINDSOR_SESSION_TOKEN"], 7, "Session token should be 7 characters long")
+		assert.Contains(t, envVars, "WINDSOR_MANAGED", "Should include WINDSOR_MANAGED variable")
 	})
 
 	t.Run("DifferentContextDisablesCache", func(t *testing.T) {
@@ -796,6 +802,54 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		assert.Equal(t, "resolved-secret", envVars["WITH_SECRET"],
 			"Environment variable with secret should be resolved")
 	})
+
+	t.Run("WindsorManagedVariable", func(t *testing.T) {
+		// Clear the managedEnv map first
+		ClearManagedEnv()
+
+		// Track some environment variables
+		trackEnvVars(map[string]string{
+			"TEST_VAR_1": "value1",
+			"TEST_VAR_2": "value2",
+			"TEST_VAR_3": "value3",
+		})
+
+		mocks := setupSafeWindsorEnvMocks()
+
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+		windsorEnvPrinter.Initialize()
+
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Verify the WINDSOR_MANAGED variable is present
+		if _, exists := envVars["WINDSOR_MANAGED"]; !exists {
+			t.Errorf("Expected WINDSOR_MANAGED environment variable to be present")
+		}
+
+		// Verify WINDSOR_MANAGED contains the tracked variables
+		managedVars := strings.Split(envVars["WINDSOR_MANAGED"], ":")
+		expectedVars := []string{"TEST_VAR_1", "TEST_VAR_2", "TEST_VAR_3"}
+
+		// Convert to maps for easier comparison (ignoring order)
+		managedMap := make(map[string]bool)
+		for _, v := range managedVars {
+			managedMap[v] = true
+		}
+
+		for _, expected := range expectedVars {
+			if !managedMap[expected] {
+				t.Errorf("Expected %s to be in WINDSOR_MANAGED, but it was not found", expected)
+			}
+		}
+
+		// Verify the number of managed variables is correct
+		if len(managedVars) != 3 {
+			t.Errorf("Expected 3 variables in WINDSOR_MANAGED, got %d", len(managedVars))
+		}
+	})
 }
 
 func TestWindsorEnv_PostEnvHook(t *testing.T) {
@@ -845,14 +899,21 @@ func TestWindsorEnv_Print(t *testing.T) {
 		}
 
 		// Verify that PrintEnvVarsFunc was called with the correct envVars
-		expectedEnvVars := map[string]string{
-			"WINDSOR_CONTEXT":       "mock-context",
-			"WINDSOR_PROJECT_ROOT":  filepath.FromSlash("/mock/project/root"),
-			"WINDSOR_SESSION_TOKEN": capturedEnvVars["WINDSOR_SESSION_TOKEN"], // Include session token
+		if _, exists := capturedEnvVars["WINDSOR_MANAGED"]; !exists {
+			t.Errorf("Expected WINDSOR_MANAGED to be present in the environment variables")
 		}
-		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
-			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+
+		// Check the other expected variables
+		expectedKeys := []string{"WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_SESSION_TOKEN", "WINDSOR_MANAGED"}
+		for _, key := range expectedKeys {
+			if _, exists := capturedEnvVars[key]; !exists {
+				t.Errorf("Expected %s to be present in the environment variables", key)
+			}
 		}
+
+		assert.Equal(t, "mock-context", capturedEnvVars["WINDSOR_CONTEXT"])
+		assert.Equal(t, filepath.FromSlash("/mock/project/root"), capturedEnvVars["WINDSOR_PROJECT_ROOT"])
+		assert.NotEmpty(t, capturedEnvVars["WINDSOR_SESSION_TOKEN"])
 	})
 
 	t.Run("GetProjectRootError", func(t *testing.T) {
