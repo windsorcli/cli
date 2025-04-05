@@ -1494,6 +1494,191 @@ func TestEnvCmd(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 	})
+
+	t.Run("SessionTokenChangeErrorWithVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Save original environment variables
+		origSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		origManagedEnv := os.Getenv("WINDSOR_MANAGED_ENV")
+		origManagedAlias := os.Getenv("WINDSOR_MANAGED_ALIAS")
+		defer func() {
+			os.Setenv("WINDSOR_SESSION_TOKEN", origSessionToken)
+			os.Setenv("WINDSOR_MANAGED_ENV", origManagedEnv)
+			os.Setenv("WINDSOR_MANAGED_ALIAS", origManagedAlias)
+		}()
+
+		// Set initial values
+		initialToken := "initial-token"
+		os.Setenv("WINDSOR_SESSION_TOKEN", initialToken)
+		os.Setenv("WINDSOR_MANAGED_ENV", "INITIAL_VAR1:INITIAL_VAR2")
+		os.Setenv("WINDSOR_MANAGED_ALIAS", "initial_alias1:initial_alias2")
+
+		// Initialize mocks and set the injector
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+
+		// Create mock shell that returns a valid project root
+		mockShell := shell.NewMockShell(injector)
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mockController.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		// Need to ensure we pass environment component creation
+		mockController.CreateEnvComponentsFunc = func() error {
+			return nil
+		}
+		mockController.InitializeComponentsFunc = func() error {
+			return nil
+		}
+
+		// Mock config handler for vm.driver check
+		configHandler := config.NewMockConfigHandler()
+		configHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return configHandler
+		}
+
+		// Mock the environment printer
+		mockEnv := createSafeMockEnvPrinter()
+		clearCalled := false
+
+		mockEnv.PrintFunc = func(customVars ...map[string]string) error {
+			// Change the session token when Print is called
+			os.Setenv("WINDSOR_SESSION_TOKEN", "new-token")
+			return nil
+		}
+		mockEnv.PrintAliasFunc = func(customAliases ...map[string]string) error {
+			return nil
+		}
+
+		// Return an error when Clear is called
+		mockEnv.ClearFunc = func(args ...[]string) error {
+			clearCalled = true
+			return fmt.Errorf("session token change clear error")
+		}
+
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnv}
+		}
+
+		// Execute the command with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mockController)
+
+		// Verify Clear was called because session token changed
+		if !clearCalled {
+			t.Errorf("Expected Clear to be called when session token changes, but it wasn't")
+		}
+
+		// Verify we got an error
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+
+		expectedError := "Error clearing previous environment variables: session token change clear error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("SessionTokenChangeErrorWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Save original environment variables
+		origSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		origManagedEnv := os.Getenv("WINDSOR_MANAGED_ENV")
+		origManagedAlias := os.Getenv("WINDSOR_MANAGED_ALIAS")
+		defer func() {
+			os.Setenv("WINDSOR_SESSION_TOKEN", origSessionToken)
+			os.Setenv("WINDSOR_MANAGED_ENV", origManagedEnv)
+			os.Setenv("WINDSOR_MANAGED_ALIAS", origManagedAlias)
+		}()
+
+		// Set initial values
+		initialToken := "initial-token"
+		os.Setenv("WINDSOR_SESSION_TOKEN", initialToken)
+		os.Setenv("WINDSOR_MANAGED_ENV", "INITIAL_VAR1:INITIAL_VAR2")
+		os.Setenv("WINDSOR_MANAGED_ALIAS", "initial_alias1:initial_alias2")
+
+		// Initialize mocks and set the injector
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+
+		// Create mock shell that returns a valid project root
+		mockShell := shell.NewMockShell(injector)
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mockController.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		// Need to ensure we pass environment component creation
+		mockController.CreateEnvComponentsFunc = func() error {
+			return nil
+		}
+		mockController.InitializeComponentsFunc = func() error {
+			return nil
+		}
+
+		// Mock config handler for vm.driver check
+		configHandler := config.NewMockConfigHandler()
+		configHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return configHandler
+		}
+
+		// Mock the environment printer
+		mockEnv := createSafeMockEnvPrinter()
+		clearCalled := false
+
+		mockEnv.PrintFunc = func(customVars ...map[string]string) error {
+			// Change the session token when Print is called
+			os.Setenv("WINDSOR_SESSION_TOKEN", "new-token")
+			return nil
+		}
+		mockEnv.PrintAliasFunc = func(customAliases ...map[string]string) error {
+			return nil
+		}
+
+		// Return an error when Clear is called
+		mockEnv.ClearFunc = func(args ...[]string) error {
+			clearCalled = true
+			return fmt.Errorf("session token change clear error")
+		}
+
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnv}
+		}
+
+		// Execute the command without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute(mockController)
+
+		// Verify Clear was called because session token changed
+		if !clearCalled {
+			t.Errorf("Expected Clear to be called when session token changes, but it wasn't")
+		}
+
+		// In non-verbose mode, errors should be ignored
+		if err != nil {
+			t.Fatalf("Expected no error without verbose flag, got %v", err)
+		}
+	})
 }
 
 // Helper function to compare string slices regardless of order
