@@ -539,9 +539,9 @@ func TestTerraformEnv_Print(t *testing.T) {
 		mocks := setupSafeTerraformEnvMocks()
 		mockInjector := mocks.Injector
 
-		// Create a modified BaseEnvPrinter that will be used directly
-		basePrinter := NewBaseEnvPrinter(mockInjector)
-		basePrinter.Initialize()
+		// Create a TerraformEnvPrinter to test its print method
+		terraformEnvPrinter := NewTerraformEnvPrinter(mockInjector)
+		terraformEnvPrinter.Initialize()
 
 		// Mock the PrintEnvVarsFunc to verify it is called with the custom vars
 		var capturedEnvVars map[string]string
@@ -550,21 +550,51 @@ func TestTerraformEnv_Print(t *testing.T) {
 			return nil
 		}
 
-		// Define custom variables
-		customVars := map[string]string{
-			"CUSTOM_TF_VAR1": "custom-value1",
-			"CUSTOM_TF_VAR2": "custom-value2",
+		// Mock functions needed for GetEnvVars to succeed
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+		getwd = func() (string, error) {
+			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
 		}
 
-		// Call Print directly on the basePrinter with custom vars
-		err := basePrinter.Print(customVars)
+		originalGlob := glob
+		defer func() { glob = originalGlob }()
+		glob = func(pattern string) ([]string, error) {
+			if strings.Contains(pattern, "*.tf") {
+				return []string{"main.tf"}, nil
+			}
+			return nil, nil
+		}
+
+		// Define custom variables with whitespace that should be trimmed
+		customVars := map[string]string{
+			"CUSTOM_TF_VAR1": "  custom-value1  ", // Leading and trailing whitespace
+			"CUSTOM_TF_VAR2": "\tcustom-value2\n", // Tab and newline whitespace
+			"CUSTOM_TF_VAR3": "custom-value3",     // No whitespace (control case)
+		}
+
+		// Call Print with custom vars containing whitespace
+		err := terraformEnvPrinter.Print(customVars)
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 
-		// Verify that the custom vars were passed correctly
-		if !reflect.DeepEqual(capturedEnvVars, customVars) {
-			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, customVars)
+		// Verify that the whitespace was trimmed from the values
+		expectedVars := map[string]string{
+			"CUSTOM_TF_VAR1": "custom-value1",
+			"CUSTOM_TF_VAR2": "custom-value2",
+			"CUSTOM_TF_VAR3": "custom-value3",
+		}
+
+		// Check that TF environment variables are also included (partial check)
+		if capturedEnvVars["CUSTOM_TF_VAR1"] != expectedVars["CUSTOM_TF_VAR1"] {
+			t.Errorf("CUSTOM_TF_VAR1 = %q, want %q", capturedEnvVars["CUSTOM_TF_VAR1"], expectedVars["CUSTOM_TF_VAR1"])
+		}
+		if capturedEnvVars["CUSTOM_TF_VAR2"] != expectedVars["CUSTOM_TF_VAR2"] {
+			t.Errorf("CUSTOM_TF_VAR2 = %q, want %q", capturedEnvVars["CUSTOM_TF_VAR2"], expectedVars["CUSTOM_TF_VAR2"])
+		}
+		if capturedEnvVars["CUSTOM_TF_VAR3"] != expectedVars["CUSTOM_TF_VAR3"] {
+			t.Errorf("CUSTOM_TF_VAR3 = %q, want %q", capturedEnvVars["CUSTOM_TF_VAR3"], expectedVars["CUSTOM_TF_VAR3"])
 		}
 	})
 
