@@ -2,6 +2,7 @@ package env
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -47,9 +48,7 @@ func trackAliases(aliases map[string]string) {
 	managedAliasMu.Lock()
 	defer managedAliasMu.Unlock()
 
-	for k, v := range aliases {
-		managedAlias[k] = v
-	}
+	maps.Copy(managedAlias, aliases)
 }
 
 // EnvPrinter defines the method for printing environment variables.
@@ -60,7 +59,7 @@ type EnvPrinter interface {
 	GetAlias() (map[string]string, error)
 	PrintAlias(customAliases ...map[string]string) error
 	PostEnvHook() error
-	Clear() error
+	Clear(envVarsToClear ...[]string) error
 }
 
 // Env is a struct that implements the EnvPrinter interface.
@@ -142,54 +141,79 @@ func (e *BaseEnvPrinter) PostEnvHook() error {
 	return nil
 }
 
-// Clear unsets all tracked environment variables and aliases
-func (e *BaseEnvPrinter) Clear() error {
-	// Get tracked environment variables from WINDSOR_MANAGED_ENV
-	envList := os.Getenv("WINDSOR_MANAGED_ENV")
-	envVars := []string{"WINDSOR_MANAGED_ENV"} // Always include the tracking variable itself
-	if envList != "" {
-		vars := strings.Split(envList, ":")
-		for _, v := range vars {
-			if v != "" && !contains(envVars, v) {
-				envVars = append(envVars, v)
+// Clear unsets all tracked environment variables and aliases.
+// It uses the provided lists of environment variables and aliases to clear if given,
+// otherwise, it defaults to using the tracked environment variables and aliases.
+func (e *BaseEnvPrinter) Clear(envVarsToClear ...[]string) error {
+	if len(envVarsToClear) > 2 {
+		return fmt.Errorf("too many arguments: expected at most 2, got %d", len(envVarsToClear))
+	}
+
+	var envVars []string
+	var aliases []string
+
+	if len(envVarsToClear) > 0 && len(envVarsToClear[0]) > 0 {
+		envVars = envVarsToClear[0]
+	} else {
+		// Get tracked environment variables from WINDSOR_MANAGED_ENV
+		envList := os.Getenv("WINDSOR_MANAGED_ENV")
+		if envList != "" {
+			vars := strings.Split(envList, ":")
+			for _, v := range vars {
+				if v != "" && !contains(envVars, v) {
+					envVars = append(envVars, v)
+				}
 			}
+		}
+
+		// Add all tracked environment variables from our internal tracking
+		managedEnvMu.RLock()
+		for key := range managedEnv {
+			if !contains(envVars, key) {
+				envVars = append(envVars, key)
+			}
+		}
+		managedEnvMu.RUnlock()
+
+		// Add WINDSOR_MANAGED_ENV itself to the list of vars to unset
+		if !contains(envVars, "WINDSOR_MANAGED_ENV") {
+			envVars = append(envVars, "WINDSOR_MANAGED_ENV")
 		}
 	}
 
-	// Add all tracked environment variables from our internal tracking
-	managedEnvMu.RLock()
-	for key := range managedEnv {
-		if !contains(envVars, key) {
-			envVars = append(envVars, key)
+	if len(envVarsToClear) > 1 && len(envVarsToClear[1]) > 0 {
+		aliases = envVarsToClear[1]
+	} else {
+		// Get tracked aliases from WINDSOR_MANAGED_ALIAS
+		aliasList := os.Getenv("WINDSOR_MANAGED_ALIAS")
+		if aliasList != "" {
+			als := strings.Split(aliasList, ":")
+			for _, a := range als {
+				if a != "" && !contains(aliases, a) {
+					aliases = append(aliases, a)
+				}
+			}
+		}
+
+		// Add all tracked aliases from our internal tracking
+		managedAliasMu.RLock()
+		for key := range managedAlias {
+			if !contains(aliases, key) {
+				aliases = append(aliases, key)
+			}
+		}
+		managedAliasMu.RUnlock()
+
+		// Add WINDSOR_MANAGED_ALIAS itself to the list of aliases to unset
+		if !contains(aliases, "WINDSOR_MANAGED_ALIAS") {
+			aliases = append(aliases, "WINDSOR_MANAGED_ALIAS")
 		}
 	}
-	managedEnvMu.RUnlock()
 
 	// Unset the environment variables
 	if err := e.shell.UnsetEnv(envVars); err != nil {
 		return fmt.Errorf("failed to unset environment variables: %w", err)
 	}
-
-	// Get tracked aliases from WINDSOR_MANAGED_ALIAS
-	aliasList := os.Getenv("WINDSOR_MANAGED_ALIAS")
-	aliases := []string{"WINDSOR_MANAGED_ALIAS"} // Always include the tracking variable itself
-	if aliasList != "" {
-		als := strings.Split(aliasList, ":")
-		for _, a := range als {
-			if a != "" && !contains(aliases, a) {
-				aliases = append(aliases, a)
-			}
-		}
-	}
-
-	// Add all tracked aliases from our internal tracking
-	managedAliasMu.RLock()
-	for key := range managedAlias {
-		if !contains(aliases, key) {
-			aliases = append(aliases, key)
-		}
-	}
-	managedAliasMu.RUnlock()
 
 	// Unset the aliases
 	if err := e.shell.UnsetAlias(aliases); err != nil {
