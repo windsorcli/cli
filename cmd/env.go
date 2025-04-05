@@ -43,9 +43,6 @@ var envCmd = &cobra.Command{
 		}
 
 		// Create environment components first
-		if verbose {
-			fmt.Fprintf(cmd.OutOrStdout(), "Debug: Creating environment components\n")
-		}
 		if err := controller.CreateEnvComponents(); err != nil {
 			if verbose {
 				return fmt.Errorf("Error creating environment components: %w", err)
@@ -54,9 +51,6 @@ var envCmd = &cobra.Command{
 		}
 
 		// Initialize components
-		if verbose {
-			fmt.Fprintf(cmd.OutOrStdout(), "Debug: Initializing components\n")
-		}
 		if err := controller.InitializeComponents(); err != nil {
 			if verbose {
 				return fmt.Errorf("Error initializing components: %w", err)
@@ -65,14 +59,7 @@ var envCmd = &cobra.Command{
 		}
 
 		// Now resolve environment printers after they've been created
-		if verbose {
-			fmt.Fprintf(cmd.OutOrStdout(), "Debug: Resolving environment printers\n")
-		}
 		envPrinters := controller.ResolveAllEnvPrinters()
-
-		if verbose {
-			fmt.Fprintf(cmd.OutOrStdout(), "Debug: Found %d environment printers\n", len(envPrinters))
-		}
 
 		// Check if we got any environment printers
 		if len(envPrinters) == 0 && verbose {
@@ -84,9 +71,6 @@ var envCmd = &cobra.Command{
 		if err != nil || projectRoot == "" {
 			// Not in a Windsor project folder, clear environment variables and exit
 			if len(envPrinters) > 0 {
-				if verbose {
-					fmt.Fprintf(cmd.OutOrStdout(), "Debug: Not in a Windsor project folder, clearing environment\n")
-				}
 				if err := envPrinters[0].Clear(envVars, aliases); err != nil {
 					if verbose {
 						return fmt.Errorf("Error clearing environment in non-Windsor project directory: %w", err)
@@ -98,9 +82,6 @@ var envCmd = &cobra.Command{
 
 		// Clear environment variables if we're in a new session (no session token)
 		if initialSessionToken == "" && len(envPrinters) > 0 {
-			if verbose {
-				fmt.Fprintf(cmd.OutOrStdout(), "Debug: Empty session token, clearing environment\n")
-			}
 			if err := envPrinters[0].Clear(envVars, aliases); err != nil {
 				if verbose {
 					return fmt.Errorf("Error clearing environment variables in new session: %w", err)
@@ -184,9 +165,6 @@ var envCmd = &cobra.Command{
 			}
 
 			// Clear environment variables with original values
-			if verbose {
-				fmt.Fprintf(cmd.OutOrStdout(), "Debug: Session token changed, clearing environment\n")
-			}
 			if err := envPrinters[0].Clear(envVars, aliases); err != nil {
 				if verbose {
 					return fmt.Errorf("Error clearing previous environment variables: %w", err)
