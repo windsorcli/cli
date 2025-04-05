@@ -639,6 +639,83 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		assert.Equal(t, "resolved-value", envVars[envVarKey],
 			"Environment variable should be resolved even with existing value when contexts differ")
 	})
+
+	t.Run("NoCacheEnvVarDisablesCache", func(t *testing.T) {
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Override random generation to avoid token generation errors
+		origCryptoRandRead := cryptoRandRead
+		cryptoRandRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i%26) + 'a' // Generate predictable letters
+			}
+			return len(b), nil
+		}
+		defer func() {
+			cryptoRandRead = origCryptoRandRead
+		}()
+
+		// Set up test environment variables
+		envVarKey := "TEST_VAR_WITH_SECRET"
+		envVarValue := "value with ${{ secrets.mySecret }}"
+
+		// Save original environment values and restore them after test
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv(EnvSessionTokenVar)
+		originalTestVar := os.Getenv(envVarKey)
+		originalNoCache := os.Getenv("NO_CACHE")
+
+		// Setting NO_CACHE=true should disable the cache
+		t.Setenv("NO_CACHE", "true")
+		t.Setenv("WINDSOR_CONTEXT", "") // Use same context to test NO_CACHE specifically
+		t.Setenv(EnvSessionTokenVar, "")
+		t.Setenv(envVarKey, "existing-value-should-be-ignored")
+
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv(EnvSessionTokenVar, originalEnvToken)
+			os.Setenv(envVarKey, originalTestVar)
+			os.Setenv("NO_CACHE", originalNoCache)
+		}()
+
+		// Configure mock config handler
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					envVarKey: envVarValue,
+				}
+			}
+			return map[string]string{}
+		}
+
+		// Mock secrets provider that will resolve the secret
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == envVarValue {
+				return "resolved-value", nil
+			}
+			return input, nil
+		}
+
+		// Create WindsorEnvPrinter with mock injector
+		mockInjector := mocks.Injector
+		mockInjector.Register("secretsProvider", mockSecretsProvider)
+		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
+		err := windsorEnvPrinter.Initialize()
+		assert.NoError(t, err, "Initialize should not return an error")
+
+		// Make secretsProviders accessible to the test
+		windsorEnvPrinter.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Get environment variables
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		assert.NoError(t, err, "GetEnvVars should not return an error")
+
+		// Verify the variable was resolved despite having an existing value in the environment
+		// This confirms that NO_CACHE=true worked as expected
+		assert.Equal(t, "resolved-value", envVars[envVarKey],
+			"Environment variable should be resolved even with existing value when NO_CACHE=true")
+	})
 }
 
 func TestWindsorEnv_PostEnvHook(t *testing.T) {
