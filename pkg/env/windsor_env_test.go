@@ -817,6 +817,25 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			"TEST_VAR_3": "value3",
 		})
 
+		// Save and mock cryptoRandRead
+		origCryptoRandRead := cryptoRandRead
+		cryptoRandRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte('a' + (i % 26))
+			}
+			return len(b), nil
+		}
+		defer func() {
+			cryptoRandRead = origCryptoRandRead
+		}()
+
+		// Clean environment variables that might affect the test
+		origEnvToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		t.Setenv("WINDSOR_SESSION_TOKEN", "")
+		defer func() {
+			os.Setenv("WINDSOR_SESSION_TOKEN", origEnvToken)
+		}()
+
 		mocks := setupSafeWindsorEnvMocks()
 
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
