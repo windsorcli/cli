@@ -11,6 +11,7 @@ import (
 
 // PrintEnvVars prints the provided environment variables in a sorted order.
 // If the value of an environment variable is an empty string, it will print an unset command.
+// It also sets the environment variables using os.Setenv.
 func (s *DefaultShell) PrintEnvVars(envVars map[string]string) error {
 	// Create a slice to hold the keys of the envVars map
 	keys := make([]string, 0, len(envVars))
@@ -28,9 +29,17 @@ func (s *DefaultShell) PrintEnvVars(envVars map[string]string) error {
 		if envVars[k] == "" {
 			// Print unset command if the value is an empty string
 			fmt.Printf("unset %s\n", k)
+			// Unset the environment variable
+			if err := osUnsetenv(k); err != nil {
+				return fmt.Errorf("failed to unset environment variable %s: %w", k, err)
+			}
 		} else {
 			// Print export command with the key and value
 			fmt.Printf("export %s=\"%s\"\n", k, envVars[k])
+			// Set the environment variable
+			if err := osSetenv(k, envVars[k]); err != nil {
+				return fmt.Errorf("failed to set environment variable %s: %w", k, err)
+			}
 		}
 	}
 	return nil
@@ -76,6 +85,13 @@ func (s *DefaultShell) UnsetEnv(vars []string) error {
 
 	// Join all variables with spaces and print a single unset command
 	fmt.Printf("unset %s\n", strings.Join(sortedVars, " "))
+
+	// Unset each environment variable
+	for _, v := range sortedVars {
+		if err := osUnsetenv(v); err != nil {
+			return fmt.Errorf("failed to unset environment variable %s: %w", v, err)
+		}
+	}
 
 	return nil
 }

@@ -410,7 +410,7 @@ func TestMockEnvPrinter_Clear(t *testing.T) {
 		// Given a mock environment with custom Clear implementation
 		mockEnv := NewMockEnvPrinter()
 		clearCalled := false
-		mockEnv.ClearFunc = func() error {
+		mockEnv.ClearFunc = func(envVarsToClear ...[]string) error {
 			clearCalled = true
 			return nil
 		}
@@ -431,7 +431,7 @@ func TestMockEnvPrinter_Clear(t *testing.T) {
 		// Given a mock environment with custom Clear implementation that returns an error
 		mockEnv := NewMockEnvPrinter()
 		expectedError := fmt.Errorf("custom clear error")
-		mockEnv.ClearFunc = func() error {
+		mockEnv.ClearFunc = func(envVarsToClear ...[]string) error {
 			return expectedError
 		}
 

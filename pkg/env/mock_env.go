@@ -9,7 +9,7 @@ type MockEnvPrinter struct {
 	PrintAliasFunc  func(customAliases ...map[string]string) error
 	PostEnvHookFunc func() error
 	GetEnvVarsFunc  func() (map[string]string, error)
-	ClearFunc       func() error
+	ClearFunc       func(envVarsToClear ...[]string) error
 }
 
 // NewMockEnvPrinter creates a new instance of MockEnvPrinter.
@@ -87,12 +87,12 @@ func (m *MockEnvPrinter) PostEnvHook() error {
 
 // Clear simulates clearing all tracked environment variables and aliases.
 // If a custom ClearFunc is provided, it will use that function instead.
-func (m *MockEnvPrinter) Clear() error {
+func (m *MockEnvPrinter) Clear(envVarsToClear ...[]string) error {
 	if m.ClearFunc != nil {
-		return m.ClearFunc()
+		return m.ClearFunc(envVarsToClear...)
 	}
 	// Defer to the base implementation if no custom function is provided
-	return m.BaseEnvPrinter.Clear()
+	return m.BaseEnvPrinter.Clear(envVarsToClear...)
 }
 
 // Ensure MockEnvPrinter implements the EnvPrinter interface

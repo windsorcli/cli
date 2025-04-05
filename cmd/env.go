@@ -54,14 +54,6 @@ var envCmd = &cobra.Command{
 
 		// Clear environment variables if we're in a new session (no session token)
 		if initialSessionToken == "" && len(envPrinters) > 0 {
-			// Set the initial managed env/alias values to ensure they're included in the clearing
-			if initialManagedEnv != "" {
-				os.Setenv("WINDSOR_MANAGED_ENV", initialManagedEnv)
-			}
-			if initialManagedAlias != "" {
-				os.Setenv("WINDSOR_MANAGED_ALIAS", initialManagedAlias)
-			}
-
 			if err := envPrinters[0].Clear(); err != nil && verbose {
 				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to clear previous environment variables: %v\n", err)
 			}

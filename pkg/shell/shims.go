@@ -32,6 +32,12 @@ var cmdStart = func(cmd *exec.Cmd) error {
 // osUserHomeDir is a variable that points to os.UserHomeDir, allowing it to be overridden in tests
 var osUserHomeDir = os.UserHomeDir
 
+// osSetenv is a variable that points to os.Setenv, allowing it to be overridden in tests
+var osSetenv = os.Setenv
+
+// osUnsetenv is a variable that points to os.Unsetenv, allowing it to be overridden in tests
+var osUnsetenv = os.Unsetenv
+
 // osStat is a variable that points to os.Stat, allowing it to be overridden in tests
 var osStat = os.Stat
 

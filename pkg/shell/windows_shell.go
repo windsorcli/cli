@@ -18,8 +18,14 @@ func (s *DefaultShell) PrintEnvVars(envVars map[string]string) error {
 	for _, k := range keys {
 		if envVars[k] == "" {
 			fmt.Printf("Remove-Item Env:%s\n", k)
+			if err := osUnsetenv(k); err != nil {
+				return fmt.Errorf("failed to unset environment variable %s: %w", k, err)
+			}
 		} else {
 			fmt.Printf("$env:%s='%s'\n", k, envVars[k])
+			if err := osSetenv(k, envVars[k]); err != nil {
+				return fmt.Errorf("failed to set environment variable %s: %w", k, err)
+			}
 		}
 	}
 	return nil
@@ -52,7 +58,7 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 }
 
 // UnsetEnv prints commands to unset the provided environment variables for Windows.
-// It uses PowerShell's Remove-Item for each environment variable.
+// It uses PowerShell's Remove-Item for each environment variable and also unsets them using osUnsetenv.
 func (s *DefaultShell) UnsetEnv(vars []string) error {
 	if len(vars) == 0 {
 		return nil
@@ -63,9 +69,12 @@ func (s *DefaultShell) UnsetEnv(vars []string) error {
 	copy(sortedVars, vars)
 	sort.Strings(sortedVars)
 
-	// Print Remove-Item for each environment variable
+	// Print Remove-Item for each environment variable and unset it using osUnsetenv
 	for _, v := range sortedVars {
 		fmt.Printf("Remove-Item Env:%s -ErrorAction SilentlyContinue\n", v)
+		if err := osUnsetenv(v); err != nil {
+			return fmt.Errorf("failed to unset environment variable %s: %w", v, err)
+		}
 	}
 
 	return nil
