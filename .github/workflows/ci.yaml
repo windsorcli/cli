@@ -29,7 +29,7 @@ jobs:
       - name: Install Aqua
         uses: aquaproj/aqua-installer@e2d0136abcf70b7a2f6f505720640750557c4b33 # v3.1.1
         with:
-          aqua_version: v2.47.2
+          aqua_version: v2.48.1
 
       - name: Install tools
         run: aqua install
@@ -82,7 +82,7 @@ jobs:
       - name: Install Aqua
         uses: aquaproj/aqua-installer@e2d0136abcf70b7a2f6f505720640750557c4b33 # v3.1.1
         with:
-          aqua_version: v2.47.2
+          aqua_version: v2.48.1
 
       - name: Install tools
         run: aqua install
@@ -123,7 +123,7 @@ jobs:
       - name: Install Aqua
         uses: aquaproj/aqua-installer@e2d0136abcf70b7a2f6f505720640750557c4b33 # v3.1.1
         with:
-          aqua_version: v2.47.2
+          aqua_version: v2.48.1
 
       - name: Install tools
         run: aqua install
