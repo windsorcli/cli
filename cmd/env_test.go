@@ -31,6 +31,10 @@ func TestEnvCmd(t *testing.T) {
 			fmt.Println("export VAR=value")
 			return nil
 		}
+		mockEnv.PrintAliasFunc = func(customAliases ...map[string]string) error {
+			fmt.Println("alias test_alias='test_command'")
+			return nil
+		}
 		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
 			return []env.EnvPrinter{mockEnv}
 		}
@@ -45,7 +49,7 @@ func TestEnvCmd(t *testing.T) {
 		})
 
 		// Verify the output
-		expectedOutput := "export VAR=value\n"
+		expectedOutput := "export VAR=value\nalias test_alias='test_command'\n"
 		if output != expectedOutput {
 			t.Errorf("Expected output %q, got %q", expectedOutput, output)
 		}
