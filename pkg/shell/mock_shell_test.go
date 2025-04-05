@@ -2,6 +2,7 @@ package shell
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -484,5 +485,145 @@ func TestMockShell_CheckTrustedDirectory(t *testing.T) {
 
 		// Then no error should be returned
 		assertError(t, err, false)
+	})
+}
+
+func TestMockShell_UnsetEnv(t *testing.T) {
+	// Test variables to unset
+	vars := []string{"VAR1", "VAR2", "VAR3"}
+
+	t.Run("DefaultUnsetEnv", func(t *testing.T) {
+		injector := di.NewInjector()
+		// Given a mock shell with default UnsetEnv implementation
+		mockShell := NewMockShell(injector)
+		// When calling UnsetEnv
+		output := captureStdout(t, func() {
+			err := mockShell.UnsetEnv(vars)
+			if err != nil {
+				t.Errorf("UnsetEnv() error = %v, want nil", err)
+			}
+		})
+		// Then the output should be empty as the default implementation does nothing
+		if output != "" {
+			t.Errorf("UnsetEnv() output = %q, want empty string", output)
+		}
+	})
+
+	t.Run("CustomUnsetEnv", func(t *testing.T) {
+		injector := di.NewInjector()
+		// Given a mock shell with custom UnsetEnv implementation
+		mockShell := NewMockShell(injector)
+		var capturedVars []string
+		mockShell.UnsetEnvFunc = func(v []string) error {
+			capturedVars = v
+			for _, variable := range v {
+				fmt.Printf("unset %s\n", variable)
+			}
+			return nil
+		}
+		// When calling UnsetEnv
+		output := captureStdout(t, func() {
+			err := mockShell.UnsetEnv(vars)
+			if err != nil {
+				t.Errorf("UnsetEnv() error = %v, want nil", err)
+			}
+		})
+		// Then the output should contain the expected variables
+		for _, v := range vars {
+			expectedLine := fmt.Sprintf("unset %s\n", v)
+			if !strings.Contains(output, expectedLine) {
+				t.Errorf("UnsetEnv() output missing expected line: %q", expectedLine)
+			}
+		}
+		// And the captured variables should match the input
+		if !reflect.DeepEqual(capturedVars, vars) {
+			t.Errorf("UnsetEnv() capturedVars = %v, want %v", capturedVars, vars)
+		}
+	})
+
+	t.Run("CustomUnsetEnvWithError", func(t *testing.T) {
+		injector := di.NewInjector()
+		// Given a mock shell with custom UnsetEnv implementation that returns an error
+		mockShell := NewMockShell(injector)
+		expectedError := fmt.Errorf("unset environment variables error")
+		mockShell.UnsetEnvFunc = func(v []string) error {
+			return expectedError
+		}
+		// When calling UnsetEnv
+		err := mockShell.UnsetEnv(vars)
+		// Then the expected error should be returned
+		if err != expectedError {
+			t.Errorf("UnsetEnv() error = %v, want %v", err, expectedError)
+		}
+	})
+}
+
+func TestMockShell_UnsetAlias(t *testing.T) {
+	// Test aliases to unset
+	aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
+
+	t.Run("DefaultUnsetAlias", func(t *testing.T) {
+		injector := di.NewInjector()
+		// Given a mock shell with default UnsetAlias implementation
+		mockShell := NewMockShell(injector)
+		// When calling UnsetAlias
+		output := captureStdout(t, func() {
+			err := mockShell.UnsetAlias(aliases)
+			if err != nil {
+				t.Errorf("UnsetAlias() error = %v, want nil", err)
+			}
+		})
+		// Then the output should be empty as the default implementation does nothing
+		if output != "" {
+			t.Errorf("UnsetAlias() output = %q, want empty string", output)
+		}
+	})
+
+	t.Run("CustomUnsetAlias", func(t *testing.T) {
+		injector := di.NewInjector()
+		// Given a mock shell with custom UnsetAlias implementation
+		mockShell := NewMockShell(injector)
+		var capturedAliases []string
+		mockShell.UnsetAliasFunc = func(a []string) error {
+			capturedAliases = a
+			for _, alias := range a {
+				fmt.Printf("unalias %s\n", alias)
+			}
+			return nil
+		}
+		// When calling UnsetAlias
+		output := captureStdout(t, func() {
+			err := mockShell.UnsetAlias(aliases)
+			if err != nil {
+				t.Errorf("UnsetAlias() error = %v, want nil", err)
+			}
+		})
+		// Then the output should contain the expected aliases
+		for _, a := range aliases {
+			expectedLine := fmt.Sprintf("unalias %s\n", a)
+			if !strings.Contains(output, expectedLine) {
+				t.Errorf("UnsetAlias() output missing expected line: %q", expectedLine)
+			}
+		}
+		// And the captured aliases should match the input
+		if !reflect.DeepEqual(capturedAliases, aliases) {
+			t.Errorf("UnsetAlias() capturedAliases = %v, want %v", capturedAliases, aliases)
+		}
+	})
+
+	t.Run("CustomUnsetAliasWithError", func(t *testing.T) {
+		injector := di.NewInjector()
+		// Given a mock shell with custom UnsetAlias implementation that returns an error
+		mockShell := NewMockShell(injector)
+		expectedError := fmt.Errorf("unset aliases error")
+		mockShell.UnsetAliasFunc = func(a []string) error {
+			return expectedError
+		}
+		// When calling UnsetAlias
+		err := mockShell.UnsetAlias(aliases)
+		// Then the expected error should be returned
+		if err != expectedError {
+			t.Errorf("UnsetAlias() error = %v, want %v", err, expectedError)
+		}
 	})
 }
