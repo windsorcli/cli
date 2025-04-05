@@ -98,6 +98,7 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 		if re.MatchString(v) {
 			if existingValue, exists := osLookupEnv(k); exists {
 				if os.Getenv("NO_CACHE") != "true" && useCache && !strings.Contains(existingValue, "<ERROR") {
+					// Challenging to test this case, so we'll skip it for now
 					continue
 				}
 			}
