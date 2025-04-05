@@ -539,6 +539,55 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		// Verify no additional variables were added from config (since there were none)
 		assert.Len(t, envVars, 3, "Should only have the three base environment variables")
 	})
+
+	t.Run("DifferentContextDisablesCache", func(t *testing.T) {
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Set up environment with a different context than the one in config
+		// to test the useCache=false path
+		envVarKey := "TEST_VAR_WITH_SECRET"
+		envVarValue := "value with ${{ secrets.mySecret }}"
+		t.Setenv("WINDSOR_CONTEXT", "different-context")
+		t.Setenv(envVarKey, "existing-value")
+
+		// Set up mock config handler to return environment variables
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return "mock-context" // Different from "different-context" in env
+		}
+
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					envVarKey: envVarValue,
+				}
+			}
+			return map[string]string{}
+		}
+
+		// Mock secrets provider that will be called regardless of cache
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == envVarValue {
+				return "resolved-value", nil
+			}
+			return input, nil
+		}
+
+		// Create WindsorEnvPrinter with mock injector
+		mockInjector := mocks.Injector
+		mockInjector.Register("secretsProvider", mockSecretsProvider)
+		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
+		windsorEnvPrinter.Initialize()
+
+		// Get environment variables
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		assert.NoError(t, err, "GetEnvVars should not return an error")
+
+		// Verify the variable was resolved despite having an existing value in the environment
+		// This confirms that useCache=false worked as expected
+		assert.Equal(t, "resolved-value", envVars[envVarKey],
+			"Environment variable should be resolved even with existing value when contexts differ")
+	})
 }
 
 func TestWindsorEnv_PostEnvHook(t *testing.T) {
