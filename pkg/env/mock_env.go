@@ -4,7 +4,7 @@ package env
 type MockEnvPrinter struct {
 	BaseEnvPrinter
 	InitializeFunc  func() error
-	PrintFunc       func() error
+	PrintFunc       func(customVars ...map[string]string) error
 	PostEnvHookFunc func() error
 	GetEnvVarsFunc  func() (map[string]string, error)
 }
@@ -24,10 +24,16 @@ func (m *MockEnvPrinter) Initialize() error {
 
 // Print simulates printing the provided environment variables.
 // If a custom PrintFunc is provided, it will use that function instead.
-func (m *MockEnvPrinter) Print() error {
+func (m *MockEnvPrinter) Print(customVars ...map[string]string) error {
 	if m.PrintFunc != nil {
-		return m.PrintFunc()
+		return m.PrintFunc(customVars...)
 	}
+
+	// If customVars are provided, use them with BaseEnvPrinter
+	if len(customVars) > 0 {
+		return m.BaseEnvPrinter.Print(customVars[0])
+	}
+
 	return nil
 }
 

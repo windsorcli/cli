@@ -135,7 +135,7 @@ func TestMockEnvPrinter_Print(t *testing.T) {
 		// Given a mock environment with custom Print implementation
 		mockEnv := NewMockEnvPrinter()
 		expectedError := fmt.Errorf("custom print error")
-		mockEnv.PrintFunc = func() error {
+		mockEnv.PrintFunc = func(customVars ...map[string]string) error {
 			return expectedError
 		}
 		// When calling Print

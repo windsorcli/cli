@@ -142,15 +142,6 @@ func (e *WindsorEnvPrinter) parseAndCheckSecrets(strValue string) string {
 	return strValue
 }
 
-// Print prints the environment variables for the Windsor environment.
-func (e *WindsorEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-	return e.shell.PrintEnvVars(envVars)
-}
-
 // CreateSessionInvalidationSignal creates a signal file to invalidate the session token
 // when the environment changes, ensuring a new token is generated during the next command
 // execution.
@@ -234,6 +225,23 @@ func (e *WindsorEnvPrinter) generateRandomString(length int) (string, error) {
 	}
 
 	return string(randomBytes), nil
+}
+
+// Print prints the environment variables for the Windsor environment.
+func (e *WindsorEnvPrinter) Print(customVars ...map[string]string) error {
+	// If customVars are provided, use them
+	if len(customVars) > 0 {
+		return e.BaseEnvPrinter.Print(customVars[0])
+	}
+
+	// Otherwise get the environment variables from this printer
+	envVars, err := e.GetEnvVars()
+	if err != nil {
+		return fmt.Errorf("error getting environment variables: %w", err)
+	}
+
+	// Call the Print method of the embedded BaseEnvPrinter struct
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
 // Ensure WindsorEnvPrinter implements the EnvPrinter interface

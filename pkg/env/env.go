@@ -2,16 +2,46 @@ package env
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// managedEnv tracks all environment variables set by the system
+var (
+	managedEnv   = make(map[string]string)
+	managedEnvMu sync.RWMutex
+)
+
+// trackEnvVars adds environment variables to the managed environment tracking
+func trackEnvVars(envVars map[string]string) {
+	if envVars == nil || len(envVars) == 0 {
+		return
+	}
+
+	managedEnvMu.Lock()
+	defer managedEnvMu.Unlock()
+
+	for k, v := range envVars {
+		managedEnv[k] = v
+	}
+}
+
+// ClearManagedEnv clears all managed environment variables
+func ClearManagedEnv() {
+	managedEnvMu.Lock()
+	defer managedEnvMu.Unlock()
+
+	// Clear the map by recreating it
+	managedEnv = make(map[string]string)
+}
+
 // EnvPrinter defines the method for printing environment variables.
 type EnvPrinter interface {
 	Initialize() error
-	Print() error
+	Print(customVars ...map[string]string) error
 	GetEnvVars() (map[string]string, error)
 	GetAlias() (map[string]string, error)
 	PostEnvHook() error
@@ -56,6 +86,9 @@ func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
 	} else {
 		envVars = make(map[string]string)
 	}
+
+	// Track the environment variables being printed
+	trackEnvVars(envVars)
 
 	return e.shell.PrintEnvVars(envVars)
 }

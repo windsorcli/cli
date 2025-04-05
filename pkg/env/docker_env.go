@@ -102,7 +102,12 @@ func (e *DockerEnvPrinter) GetAlias() (map[string]string, error) {
 }
 
 // Print retrieves and prints the environment variables for the Docker environment.
-func (e *DockerEnvPrinter) Print() error {
+func (e *DockerEnvPrinter) Print(customVars ...map[string]string) error {
+	// If customVars are provided, use them
+	if len(customVars) > 0 {
+		return e.BaseEnvPrinter.Print(customVars[0])
+	}
+
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		return fmt.Errorf("error getting environment variables: %w", err)

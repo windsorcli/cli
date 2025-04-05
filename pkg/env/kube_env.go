@@ -111,7 +111,12 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 }
 
 // Print prints the environment variables for the Kube environment.
-func (e *KubeEnvPrinter) Print() error {
+func (e *KubeEnvPrinter) Print(customVars ...map[string]string) error {
+	// If customVars are provided, use them
+	if len(customVars) > 0 {
+		return e.BaseEnvPrinter.Print(customVars[0])
+	}
+
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		// Return the error if GetEnvVars fails

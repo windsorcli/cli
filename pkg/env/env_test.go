@@ -149,3 +149,83 @@ func TestEnv_Print(t *testing.T) {
 		}
 	})
 }
+
+func TestEnvTracking(t *testing.T) {
+	// Clear the managed environment to start with a clean state
+	ClearManagedEnv()
+
+	// Set up test environment variables
+	testVars1 := map[string]string{
+		"TEST_VAR1": "value1",
+		"TEST_VAR2": "value2",
+	}
+
+	testVars2 := map[string]string{
+		"TEST_VAR3": "value3",
+		"TEST_VAR1": "updated_value1", // Override TEST_VAR1
+	}
+
+	// Test adding first set of environment variables
+	trackEnvVars(testVars1)
+
+	// Get a copy of the managed environment for testing
+	managedEnvMu.RLock()
+	envCopy := make(map[string]string)
+	for k, v := range managedEnv {
+		envCopy[k] = v
+	}
+	managedEnvMu.RUnlock()
+
+	// Check that the variables were tracked
+	if len(envCopy) != 2 {
+		t.Errorf("Expected 2 env vars, got %d", len(envCopy))
+	}
+
+	if envCopy["TEST_VAR1"] != "value1" {
+		t.Errorf("Expected TEST_VAR1 to be 'value1', got '%s'", envCopy["TEST_VAR1"])
+	}
+
+	if envCopy["TEST_VAR2"] != "value2" {
+		t.Errorf("Expected TEST_VAR2 to be 'value2', got '%s'", envCopy["TEST_VAR2"])
+	}
+
+	// Test adding second set of environment variables (with an override)
+	trackEnvVars(testVars2)
+
+	// Get an updated copy
+	managedEnvMu.RLock()
+	envCopy = make(map[string]string)
+	for k, v := range managedEnv {
+		envCopy[k] = v
+	}
+	managedEnvMu.RUnlock()
+
+	// Check that the variables were tracked and updated
+	if len(envCopy) != 3 {
+		t.Errorf("Expected 3 env vars, got %d", len(envCopy))
+	}
+
+	if envCopy["TEST_VAR1"] != "updated_value1" {
+		t.Errorf("Expected TEST_VAR1 to be 'updated_value1', got '%s'", envCopy["TEST_VAR1"])
+	}
+
+	if envCopy["TEST_VAR3"] != "value3" {
+		t.Errorf("Expected TEST_VAR3 to be 'value3', got '%s'", envCopy["TEST_VAR3"])
+	}
+
+	// Test clearing the managed environment
+	ClearManagedEnv()
+
+	// Get an updated copy
+	managedEnvMu.RLock()
+	envCopy = make(map[string]string)
+	for k, v := range managedEnv {
+		envCopy[k] = v
+	}
+	managedEnvMu.RUnlock()
+
+	// Check that the variables were cleared
+	if len(envCopy) != 0 {
+		t.Errorf("Expected 0 env vars after clearing, got %d", len(envCopy))
+	}
+}
