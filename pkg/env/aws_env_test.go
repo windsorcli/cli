@@ -236,6 +236,62 @@ func TestAwsEnv_Print(t *testing.T) {
 		}
 	})
 
+	t.Run("WithCustomVars", func(t *testing.T) {
+		// Use setupSafeAwsEnvMocks to create mocks
+		mocks := setupSafeAwsEnvMocks()
+		mockInjector := mocks.Injector
+		awsEnvPrinter := NewAwsEnvPrinter(mockInjector)
+		awsEnvPrinter.Initialize()
+
+		// Custom variables to print
+		customVars := map[string]string{
+			"CUSTOM_AWS_VAR1": "custom-value1",
+			"CUSTOM_AWS_VAR2": "custom-value2",
+		}
+
+		// Mock the stat function to simulate the existence of the AWS config file
+		stat = func(name string) (os.FileInfo, error) {
+			if name == filepath.FromSlash("/mock/config/root/.aws/config") {
+				return nil, nil // Simulate that the file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock the PrintEnvVarsFunc to verify it is called with the merged vars
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			capturedEnvVars = envVars
+			return nil
+		}
+
+		// Call Print with custom vars and check for errors
+		err := awsEnvPrinter.Print(customVars)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that the customVars were merged with the environment vars
+		for key, value := range customVars {
+			if capturedEnvVars[key] != value {
+				t.Errorf("capturedEnvVars[%s] = %v, want %v", key, capturedEnvVars[key], value)
+			}
+		}
+
+		// Verify that the environment vars are still present
+		expectedKeys := []string{
+			"AWS_CONFIG_FILE",
+			"AWS_PROFILE",
+			"AWS_ENDPOINT_URL",
+			"S3_HOSTNAME",
+			"MWAA_ENDPOINT",
+		}
+		for _, key := range expectedKeys {
+			if _, exists := capturedEnvVars[key]; !exists {
+				t.Errorf("expected key %s to exist in capturedEnvVars", key)
+			}
+		}
+	})
+
 	t.Run("Error", func(t *testing.T) {
 		// Use setupSafeAwsEnvMocks to create mocks
 		mocks := setupSafeAwsEnvMocks()

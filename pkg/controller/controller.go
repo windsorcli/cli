@@ -319,13 +319,23 @@ func (c *BaseController) ResolveEnvPrinter(name string) env.EnvPrinter {
 }
 
 // ResolveAllEnvPrinters resolves all envPrinter instances.
+// The WindsorEnvPrinter is resolved and appended last to ensure that the Windsor system is called last.
 func (c *BaseController) ResolveAllEnvPrinters() []env.EnvPrinter {
 	instances, _ := c.injector.ResolveAll((*env.EnvPrinter)(nil))
 	envPrinters := make([]env.EnvPrinter, 0, len(instances))
+	var windsorEnvPrinter env.EnvPrinter
 
 	for _, instance := range instances {
 		envPrinter, _ := instance.(env.EnvPrinter)
-		envPrinters = append(envPrinters, envPrinter)
+		if _, ok := instance.(*env.WindsorEnvPrinter); ok {
+			windsorEnvPrinter = envPrinter
+		} else {
+			envPrinters = append(envPrinters, envPrinter)
+		}
+	}
+
+	if windsorEnvPrinter != nil {
+		envPrinters = append(envPrinters, windsorEnvPrinter)
 	}
 
 	return envPrinters

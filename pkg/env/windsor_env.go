@@ -245,16 +245,20 @@ func (e *WindsorEnvPrinter) generateRandomString(length int) (string, error) {
 	return string(randomBytes), nil
 }
 
-// Print prints Windsor environment variables or provided custom variables.
+// Print retrieves and prints the environment variables for the Docker environment.
 func (e *WindsorEnvPrinter) Print(customVars ...map[string]string) error {
-	if len(customVars) > 0 {
-		// Challenge to test this case, so we'll skip it for now
-		return e.BaseEnvPrinter.Print(customVars[0])
-	}
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
+
+	// If customVars are provided, merge them with envVars
+	if len(customVars) > 0 {
+		for key, value := range customVars[0] {
+			envVars[key] = strings.TrimSpace(value)
+		}
+	}
+
 	return e.BaseEnvPrinter.Print(envVars)
 }
 

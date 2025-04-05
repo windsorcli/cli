@@ -271,9 +271,7 @@ func TestKubeEnvPrinter_Print(t *testing.T) {
 		kubeEnvPrinter := NewKubeEnvPrinter(mockInjector)
 		kubeEnvPrinter.Initialize()
 
-		// Mock the stat function to simulate the existence of the kubeconfig file
-		originalStat := stat
-		defer func() { stat = originalStat }()
+		// Mock the stat function to simulate the existence of the kube config file
 		stat = func(name string) (os.FileInfo, error) {
 			if name == filepath.FromSlash("/mock/config/root/.kube/config") {
 				return nil, nil // Simulate that the file exists
@@ -302,6 +300,60 @@ func TestKubeEnvPrinter_Print(t *testing.T) {
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+		}
+	})
+
+	t.Run("WithCustomVars", func(t *testing.T) {
+		// Use setupSafeKubeEnvPrinterMocks to create mocks
+		mocks := setupSafeKubeEnvPrinterMocks()
+		mockInjector := mocks.Injector
+		kubeEnvPrinter := NewKubeEnvPrinter(mockInjector)
+		kubeEnvPrinter.Initialize()
+
+		// Define custom variables
+		customVars := map[string]string{
+			"CUSTOM_KUBE_VAR1": "custom-value1",
+			"CUSTOM_KUBE_VAR2": "custom-value2",
+		}
+
+		// Mock the stat function to simulate the existence of the kube config file
+		stat = func(name string) (os.FileInfo, error) {
+			if name == filepath.FromSlash("/mock/config/root/.kube/config") {
+				return nil, nil // Simulate that the file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock the PrintEnvVarsFunc to verify it is called with the merged vars
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			capturedEnvVars = envVars
+			return nil
+		}
+
+		// Call Print with custom vars and check for errors
+		err := kubeEnvPrinter.Print(customVars)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that the customVars were merged with the environment vars
+		for key, value := range customVars {
+			if capturedEnvVars[key] != value {
+				t.Errorf("capturedEnvVars[%s] = %v, want %v", key, capturedEnvVars[key], value)
+			}
+		}
+
+		// Verify that default environment variables are still present
+		expectedKeys := []string{
+			"KUBECONFIG",
+			"KUBE_CONFIG_PATH",
+			"K8S_AUTH_KUBECONFIG",
+		}
+		for _, key := range expectedKeys {
+			if _, exists := capturedEnvVars[key]; !exists {
+				t.Errorf("expected key %s to exist in capturedEnvVars", key)
+			}
 		}
 	})
 

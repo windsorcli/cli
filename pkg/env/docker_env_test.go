@@ -463,6 +463,46 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 		}
 	})
 
+	t.Run("WithCustomVars", func(t *testing.T) {
+		mocks := setupSafeDockerEnvPrinterMocks()
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		// Define custom variables
+		customVars := map[string]string{
+			"CUSTOM_DOCKER_VAR1": "custom-value1",
+			"CUSTOM_DOCKER_VAR2": "custom-value2",
+		}
+
+		// Mock the Print method of BaseEnvPrinter to capture the envVars
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			capturedEnvVars = envVars
+			return nil
+		}
+
+		// Call Print with custom vars and check for errors
+		err := dockerEnvPrinter.Print(customVars)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that the customVars were merged with the environment vars
+		for key, value := range customVars {
+			if capturedEnvVars[key] != value {
+				t.Errorf("capturedEnvVars[%s] = %v, want %v", key, capturedEnvVars[key], value)
+			}
+		}
+
+		// Verify that default environment variables are still present
+		envVars, _ := dockerEnvPrinter.GetEnvVars()
+		for key := range envVars {
+			if _, exists := capturedEnvVars[key]; !exists {
+				t.Errorf("expected key %s to exist in capturedEnvVars", key)
+			}
+		}
+	})
+
 	t.Run("GetEnvVarsError", func(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {

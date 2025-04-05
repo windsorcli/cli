@@ -3,6 +3,7 @@ package env
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -40,14 +41,20 @@ func (e *OmniEnvPrinter) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
-// Print prints the environment variables for the Omni environment.
+// Print retrieves and prints the environment variables for the Docker environment.
 func (e *OmniEnvPrinter) Print(customVars ...map[string]string) error {
 	envVars, err := e.GetEnvVars()
 	if err != nil {
-		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded BaseEnvPrinter struct with the retrieved environment variables
+
+	// If customVars are provided, merge them with envVars
+	if len(customVars) > 0 {
+		for key, value := range customVars[0] {
+			envVars[key] = strings.TrimSpace(value)
+		}
+	}
+
 	return e.BaseEnvPrinter.Print(envVars)
 }
 

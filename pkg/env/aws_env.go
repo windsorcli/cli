@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/di"
 )
@@ -66,19 +67,20 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
-// Print prints the environment variables for the AWS environment.
+// Print retrieves and prints the environment variables for the Docker environment.
 func (e *AwsEnvPrinter) Print(customVars ...map[string]string) error {
-	// If customVars are provided, use them
-	if len(customVars) > 0 {
-		return e.BaseEnvPrinter.Print(customVars[0])
-	}
-
 	envVars, err := e.GetEnvVars()
 	if err != nil {
-		// Return the error if GetEnvVars fails
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	// Call the Print method of the embedded envPrinter struct with the retrieved environment variables
+
+	// If customVars are provided, merge them with envVars
+	if len(customVars) > 0 {
+		for key, value := range customVars[0] {
+			envVars[key] = strings.TrimSpace(value)
+		}
+	}
+
 	return e.BaseEnvPrinter.Print(envVars)
 }
 

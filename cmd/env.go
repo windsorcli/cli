@@ -100,6 +100,16 @@ var envCmd = &cobra.Command{
 			}
 		}
 
+		// Iterate through all environment printers and run their PrintAlias function
+		for _, envPrinter := range envPrinters {
+			if err := envPrinter.PrintAlias(); err != nil {
+				if verbose {
+					return fmt.Errorf("Error executing PrintAlias: %w", err)
+				}
+				continue
+			}
+		}
+
 		return nil
 	},
 }

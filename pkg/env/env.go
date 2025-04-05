@@ -15,6 +15,12 @@ var (
 	managedEnvMu sync.RWMutex
 )
 
+// managedAlias tracks all aliases set by the system
+var (
+	managedAlias   = make(map[string]string)
+	managedAliasMu sync.RWMutex
+)
+
 // trackEnvVars adds environment variables to the managed environment tracking
 func trackEnvVars(envVars map[string]string) {
 	if envVars == nil || len(envVars) == 0 {
@@ -29,13 +35,18 @@ func trackEnvVars(envVars map[string]string) {
 	}
 }
 
-// ClearManagedEnv clears all managed environment variables
-func ClearManagedEnv() {
-	managedEnvMu.Lock()
-	defer managedEnvMu.Unlock()
+// trackAliases adds aliases to the managed alias tracking
+func trackAliases(aliases map[string]string) {
+	if aliases == nil || len(aliases) == 0 {
+		return
+	}
 
-	// Clear the map by recreating it
-	managedEnv = make(map[string]string)
+	managedAliasMu.Lock()
+	defer managedAliasMu.Unlock()
+
+	for k, v := range aliases {
+		managedAlias[k] = v
+	}
 }
 
 // EnvPrinter defines the method for printing environment variables.
@@ -44,6 +55,7 @@ type EnvPrinter interface {
 	Print(customVars ...map[string]string) error
 	GetEnvVars() (map[string]string, error)
 	GetAlias() (map[string]string, error)
+	PrintAlias(customAliases ...map[string]string) error
 	PostEnvHook() error
 }
 
@@ -91,6 +103,21 @@ func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
 	trackEnvVars(envVars)
 
 	return e.shell.PrintEnvVars(envVars)
+}
+
+// PrintAlias outputs the aliases to the console.
+// If a map of key:value strings is provided, it prints those and returns.
+func (e *BaseEnvPrinter) PrintAlias(customAliases ...map[string]string) error {
+	if len(customAliases) > 0 {
+		aliases := customAliases[0]
+		trackAliases(aliases)
+		return e.shell.PrintAlias(aliases)
+	}
+
+	aliases, _ := e.GetAlias()
+	trackAliases(aliases)
+
+	return e.shell.PrintAlias(aliases)
 }
 
 // GetEnvVars is a placeholder for retrieving environment variables.

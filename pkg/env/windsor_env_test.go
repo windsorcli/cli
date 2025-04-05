@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1056,6 +1057,40 @@ func TestWindsorEnv_Print(t *testing.T) {
 		assert.Equal(t, "mock-context", capturedEnvVars["WINDSOR_CONTEXT"])
 		assert.Equal(t, filepath.FromSlash("/mock/project/root"), capturedEnvVars["WINDSOR_PROJECT_ROOT"])
 		assert.NotEmpty(t, capturedEnvVars["WINDSOR_SESSION_TOKEN"])
+	})
+
+	t.Run("WithCustomVars", func(t *testing.T) {
+		// Use setupSafeWindsorEnvMocks to create mocks
+		mocks := setupSafeWindsorEnvMocks()
+		mockInjector := mocks.Injector
+		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
+		windsorEnvPrinter.Initialize()
+
+		// Create custom environment variables
+		customVars := map[string]string{
+			"CUSTOM_VAR1": "value1",
+			"CUSTOM_VAR2": "value2",
+		}
+
+		// Let's check if BaseEnvPrinter.Print handles custom variables correctly
+		// Mock the PrintEnvVarsFunc to verify it is called
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			capturedEnvVars = envVars
+			return nil
+		}
+
+		// Call BaseEnvPrinter's Print directly with custom vars to verify it works correctly
+		err := windsorEnvPrinter.BaseEnvPrinter.Print(customVars)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that PrintEnvVarsFunc was called with the custom variables
+		if !reflect.DeepEqual(capturedEnvVars, customVars) {
+			t.Errorf("Expected PrintEnvVars to be called with %v, but was called with %v",
+				customVars, capturedEnvVars)
+		}
 	})
 
 	t.Run("GetProjectRootError", func(t *testing.T) {

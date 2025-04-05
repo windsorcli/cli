@@ -604,3 +604,52 @@ func TestBaseEnvPrinter_PrintAlias(t *testing.T) {
 		}
 	})
 }
+
+// Helper to test Print method in environment printers
+func testPrintMethod(t *testing.T, envPrinter EnvPrinter, customVars map[string]string) (map[string]string, error) {
+	// Create mocks
+	mockInjector := di.NewMockInjector()
+	mockShell := shell.NewMockShell()
+	mockConfigHandler := config.NewMockConfigHandler()
+
+	// Register mocks in the injector
+	mockInjector.Register("shell", mockShell)
+	mockInjector.Register("configHandler", mockConfigHandler)
+
+	// Set the shell and configHandler on the printer if possible
+	// Use reflection to set fields that are not directly accessible
+	printerValue := reflect.ValueOf(envPrinter).Elem()
+
+	shellField := printerValue.FieldByName("shell")
+	if shellField.IsValid() && shellField.CanSet() {
+		shellField.Set(reflect.ValueOf(mockShell))
+	}
+
+	configField := printerValue.FieldByName("configHandler")
+	if configField.IsValid() && configField.CanSet() {
+		configField.Set(reflect.ValueOf(mockConfigHandler))
+	}
+
+	// Mock the PrintEnvVarsFunc to capture what's passed to it
+	var capturedEnvVars map[string]string
+	mockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+		capturedEnvVars = envVars
+		return nil
+	}
+
+	// Set up any environment variables or other needed state
+	err := envPrinter.Initialize()
+	if err != nil {
+		return nil, fmt.Errorf("error initializing printer: %w", err)
+	}
+
+	// Call Print with the custom vars if provided
+	var printErr error
+	if customVars != nil {
+		printErr = envPrinter.Print(customVars)
+	} else {
+		printErr = envPrinter.Print()
+	}
+
+	return capturedEnvVars, printErr
+}
