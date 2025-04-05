@@ -2,6 +2,7 @@ package env
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -601,6 +602,252 @@ func TestBaseEnvPrinter_PrintAlias(t *testing.T) {
 			t.Errorf("Expected error from PrintAlias, got nil")
 		} else if err.Error() != expectedError.Error() {
 			t.Errorf("Expected error %q, got %q", expectedError.Error(), err.Error())
+		}
+	})
+}
+
+// TestBaseEnvPrinter_Clear tests the Clear method of the BaseEnvPrinter struct
+func TestBaseEnvPrinter_Clear(t *testing.T) {
+	t.Run("SuccessWithEnvAndAlias", func(t *testing.T) {
+		// Save original env
+		origEnv := os.Getenv("WINDSOR_MANAGED_ENV")
+		origAlias := os.Getenv("WINDSOR_MANAGED_ALIAS")
+		defer func() {
+			os.Setenv("WINDSOR_MANAGED_ENV", origEnv)
+			os.Setenv("WINDSOR_MANAGED_ALIAS", origAlias)
+		}()
+
+		// Set test environment variables
+		os.Setenv("WINDSOR_MANAGED_ENV", "ENV1:ENV2:ENV3")
+		os.Setenv("WINDSOR_MANAGED_ALIAS", "ALIAS1:ALIAS2:ALIAS3")
+
+		// Set up mocks
+		mocks := setupEnvMockTests(nil)
+		mocks.Env.Initialize()
+
+		// Add some tracked env vars
+		testEnvVars := map[string]string{
+			"TEST_ENV1": "value1",
+			"TEST_ENV2": "value2",
+		}
+		trackEnvVars(testEnvVars)
+
+		// Add some tracked aliases
+		testAliases := map[string]string{
+			"test_alias1": "command1",
+			"test_alias2": "command2",
+		}
+		trackAliases(testAliases)
+
+		// Track what vars/aliases are passed to the unset functions
+		varsUnsetCalled := false
+		aliasesUnsetCalled := false
+		var unsetEnvVars []string
+		var unsetAliases []string
+
+		// Mock the UnsetEnv function
+		mocks.Shell.UnsetEnvFunc = func(vars []string) error {
+			varsUnsetCalled = true
+			unsetEnvVars = vars
+			return nil
+		}
+
+		// Mock the UnsetAlias function
+		mocks.Shell.UnsetAliasFunc = func(aliases []string) error {
+			aliasesUnsetCalled = true
+			unsetAliases = aliases
+			return nil
+		}
+
+		// Call Clear and check for errors
+		err := mocks.Env.Clear()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify UnsetEnv was called with correct variables
+		if !varsUnsetCalled {
+			t.Error("UnsetEnv was not called")
+		}
+
+		// Check for expected environment variables
+		expectedVars := []string{"ENV1", "ENV2", "ENV3", "TEST_ENV1", "TEST_ENV2", "WINDSOR_MANAGED_ENV"}
+		for _, expected := range expectedVars {
+			found := false
+			for _, v := range unsetEnvVars {
+				if v == expected {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Expected variable %s to be unset, but it wasn't in: %v", expected, unsetEnvVars)
+			}
+		}
+
+		// Verify UnsetAlias was called with correct aliases
+		if !aliasesUnsetCalled {
+			t.Error("UnsetAlias was not called")
+		}
+
+		// Check for expected aliases
+		expectedAliases := []string{"ALIAS1", "ALIAS2", "ALIAS3", "test_alias1", "test_alias2", "WINDSOR_MANAGED_ALIAS"}
+		for _, expected := range expectedAliases {
+			found := false
+			for _, a := range unsetAliases {
+				if a == expected {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Expected alias %s to be unset, but it wasn't in: %v", expected, unsetAliases)
+			}
+		}
+
+		// Verify that the internal tracking maps were cleared
+		managedEnvMu.RLock()
+		if len(managedEnv) != 0 {
+			t.Errorf("Expected managedEnv to be empty after Clear, but had %d entries", len(managedEnv))
+		}
+		managedEnvMu.RUnlock()
+
+		managedAliasMu.RLock()
+		if len(managedAlias) != 0 {
+			t.Errorf("Expected managedAlias to be empty after Clear, but had %d entries", len(managedAlias))
+		}
+		managedAliasMu.RUnlock()
+	})
+
+	t.Run("SuccessWithEmptyEnvironmentVars", func(t *testing.T) {
+		// Save original env
+		origEnv := os.Getenv("WINDSOR_MANAGED_ENV")
+		origAlias := os.Getenv("WINDSOR_MANAGED_ALIAS")
+		defer func() {
+			os.Setenv("WINDSOR_MANAGED_ENV", origEnv)
+			os.Setenv("WINDSOR_MANAGED_ALIAS", origAlias)
+		}()
+
+		// Set empty environment variables
+		os.Setenv("WINDSOR_MANAGED_ENV", "")
+		os.Setenv("WINDSOR_MANAGED_ALIAS", "")
+
+		// Set up mocks
+		mocks := setupEnvMockTests(nil)
+		mocks.Env.Initialize()
+
+		// Clear tracking maps
+		managedEnvMu.Lock()
+		managedEnv = make(map[string]string)
+		managedEnvMu.Unlock()
+
+		managedAliasMu.Lock()
+		managedAlias = make(map[string]string)
+		managedAliasMu.Unlock()
+
+		// Track function calls and captured variables/aliases
+		varsUnsetCalled := false
+		aliasesUnsetCalled := false
+		var unsetEnvVars []string
+		var unsetAliases []string
+
+		// Mock the UnsetEnv function
+		mocks.Shell.UnsetEnvFunc = func(vars []string) error {
+			varsUnsetCalled = true
+			unsetEnvVars = vars
+			return nil
+		}
+
+		// Mock the UnsetAlias function
+		mocks.Shell.UnsetAliasFunc = func(aliases []string) error {
+			aliasesUnsetCalled = true
+			unsetAliases = aliases
+			return nil
+		}
+
+		// Call Clear and check for errors
+		err := mocks.Env.Clear()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify UnsetEnv was called
+		if !varsUnsetCalled {
+			t.Error("UnsetEnv was not called")
+		} else {
+			// Verify WINDSOR_MANAGED_ENV is included
+			found := false
+			for _, v := range unsetEnvVars {
+				if v == "WINDSOR_MANAGED_ENV" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Expected WINDSOR_MANAGED_ENV to be unset, but it wasn't in: %v", unsetEnvVars)
+			}
+		}
+
+		// Verify UnsetAlias was called
+		if !aliasesUnsetCalled {
+			t.Error("UnsetAlias was not called")
+		} else {
+			// Verify WINDSOR_MANAGED_ALIAS is included
+			found := false
+			for _, a := range unsetAliases {
+				if a == "WINDSOR_MANAGED_ALIAS" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Expected WINDSOR_MANAGED_ALIAS to be unset, but it wasn't in: %v", unsetAliases)
+			}
+		}
+	})
+
+	t.Run("ErrorUnsetEnv", func(t *testing.T) {
+		// Set up mocks
+		mocks := setupEnvMockTests(nil)
+		mocks.Env.Initialize()
+
+		// Mock the UnsetEnv function to return an error
+		expectedError := fmt.Errorf("unset env error")
+		mocks.Shell.UnsetEnvFunc = func(vars []string) error {
+			return expectedError
+		}
+
+		// Call Clear and check for errors
+		err := mocks.Env.Clear()
+		if err == nil {
+			t.Error("expected an error, got nil")
+		} else if err.Error() != "failed to unset environment variables: unset env error" {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("ErrorUnsetAlias", func(t *testing.T) {
+		// Set up mocks
+		mocks := setupEnvMockTests(nil)
+		mocks.Env.Initialize()
+
+		// Mock the UnsetEnv function to succeed
+		mocks.Shell.UnsetEnvFunc = func(vars []string) error {
+			return nil
+		}
+
+		// Mock the UnsetAlias function to return an error
+		expectedError := fmt.Errorf("unset alias error")
+		mocks.Shell.UnsetAliasFunc = func(aliases []string) error {
+			return expectedError
+		}
+
+		// Call Clear and check for errors
+		err := mocks.Env.Clear()
+		if err == nil {
+			t.Error("expected an error, got nil")
+		} else if err.Error() != "failed to unset aliases: unset alias error" {
+			t.Errorf("unexpected error: %v", err)
 		}
 	})
 }

@@ -2,6 +2,9 @@ package env
 
 import (
 	"fmt"
+	"os"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -57,6 +60,7 @@ type EnvPrinter interface {
 	GetAlias() (map[string]string, error)
 	PrintAlias(customAliases ...map[string]string) error
 	PostEnvHook() error
+	Clear() error
 }
 
 // Env is a struct that implements the EnvPrinter interface.
@@ -136,4 +140,75 @@ func (e *BaseEnvPrinter) GetAlias() (map[string]string, error) {
 func (e *BaseEnvPrinter) PostEnvHook() error {
 	// Placeholder for post-processing logic
 	return nil
+}
+
+// Clear unsets all tracked environment variables and aliases
+func (e *BaseEnvPrinter) Clear() error {
+	// Get tracked environment variables from WINDSOR_MANAGED_ENV
+	envList := os.Getenv("WINDSOR_MANAGED_ENV")
+	envVars := []string{"WINDSOR_MANAGED_ENV"} // Always include the tracking variable itself
+	if envList != "" {
+		vars := strings.Split(envList, ":")
+		for _, v := range vars {
+			if v != "" && !contains(envVars, v) {
+				envVars = append(envVars, v)
+			}
+		}
+	}
+
+	// Add all tracked environment variables from our internal tracking
+	managedEnvMu.RLock()
+	for key := range managedEnv {
+		if !contains(envVars, key) {
+			envVars = append(envVars, key)
+		}
+	}
+	managedEnvMu.RUnlock()
+
+	// Unset the environment variables
+	if err := e.shell.UnsetEnv(envVars); err != nil {
+		return fmt.Errorf("failed to unset environment variables: %w", err)
+	}
+
+	// Get tracked aliases from WINDSOR_MANAGED_ALIAS
+	aliasList := os.Getenv("WINDSOR_MANAGED_ALIAS")
+	aliases := []string{"WINDSOR_MANAGED_ALIAS"} // Always include the tracking variable itself
+	if aliasList != "" {
+		als := strings.Split(aliasList, ":")
+		for _, a := range als {
+			if a != "" && !contains(aliases, a) {
+				aliases = append(aliases, a)
+			}
+		}
+	}
+
+	// Add all tracked aliases from our internal tracking
+	managedAliasMu.RLock()
+	for key := range managedAlias {
+		if !contains(aliases, key) {
+			aliases = append(aliases, key)
+		}
+	}
+	managedAliasMu.RUnlock()
+
+	// Unset the aliases
+	if err := e.shell.UnsetAlias(aliases); err != nil {
+		return fmt.Errorf("failed to unset aliases: %w", err)
+	}
+
+	// Reset tracking maps
+	managedEnvMu.Lock()
+	managedEnv = make(map[string]string)
+	managedEnvMu.Unlock()
+
+	managedAliasMu.Lock()
+	managedAlias = make(map[string]string)
+	managedAliasMu.Unlock()
+
+	return nil
+}
+
+// contains checks if a string is in a slice
+func contains(slice []string, item string) bool {
+	return slices.Contains(slice, item)
 }

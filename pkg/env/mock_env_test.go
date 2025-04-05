@@ -354,3 +354,93 @@ func TestMockEnvPrinter_PrintAlias(t *testing.T) {
 		}
 	})
 }
+
+// TestMockEnvPrinter_Clear tests the Clear method of the MockEnvPrinter.
+func TestMockEnvPrinter_Clear(t *testing.T) {
+	t.Run("DefaultClear", func(t *testing.T) {
+		// Given a mock environment with default Clear implementation
+		mockEnv := NewMockEnvPrinter()
+
+		// Set up a shell to avoid nil pointer
+		mockShell := &shell.MockShell{}
+
+		// Set up variables to check if UnsetEnv and UnsetAlias were called
+		unsetEnvCalled := false
+		unsetAliasCalled := false
+
+		mockShell.UnsetEnvFunc = func(vars []string) error {
+			unsetEnvCalled = true
+			// Verify that WINDSOR_MANAGED_ENV is included
+			if !contains(vars, "WINDSOR_MANAGED_ENV") {
+				t.Errorf("UnsetEnv() did not include WINDSOR_MANAGED_ENV, got %v", vars)
+			}
+			return nil
+		}
+
+		mockShell.UnsetAliasFunc = func(aliases []string) error {
+			unsetAliasCalled = true
+			// Verify that WINDSOR_MANAGED_ALIAS is included
+			if !contains(aliases, "WINDSOR_MANAGED_ALIAS") {
+				t.Errorf("UnsetAlias() did not include WINDSOR_MANAGED_ALIAS, got %v", aliases)
+			}
+			return nil
+		}
+
+		// Assign the mock shell to the BaseEnvPrinter
+		mockEnv.BaseEnvPrinter.shell = mockShell
+
+		// When calling Clear
+		err := mockEnv.Clear()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Clear() error = %v, want nil", err)
+		}
+
+		// Verify that UnsetEnv and UnsetAlias were called
+		if !unsetEnvCalled {
+			t.Error("Expected UnsetEnv to be called, but it wasn't")
+		}
+		if !unsetAliasCalled {
+			t.Error("Expected UnsetAlias to be called, but it wasn't")
+		}
+	})
+
+	t.Run("CustomClear", func(t *testing.T) {
+		// Given a mock environment with custom Clear implementation
+		mockEnv := NewMockEnvPrinter()
+		clearCalled := false
+		mockEnv.ClearFunc = func() error {
+			clearCalled = true
+			return nil
+		}
+
+		// When calling Clear
+		err := mockEnv.Clear()
+
+		// Then no error should be returned and the custom function should be called
+		if err != nil {
+			t.Errorf("Clear() error = %v, want nil", err)
+		}
+		if !clearCalled {
+			t.Error("Expected custom Clear function to be called, but it wasn't")
+		}
+	})
+
+	t.Run("CustomClearWithError", func(t *testing.T) {
+		// Given a mock environment with custom Clear implementation that returns an error
+		mockEnv := NewMockEnvPrinter()
+		expectedError := fmt.Errorf("custom clear error")
+		mockEnv.ClearFunc = func() error {
+			return expectedError
+		}
+
+		// When calling Clear
+		err := mockEnv.Clear()
+
+		// Then the custom error should be returned
+		if err != expectedError {
+			t.Errorf("Clear() error = %v, want %v", err, expectedError)
+		}
+	})
+}
