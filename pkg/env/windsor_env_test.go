@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
@@ -48,6 +50,20 @@ func setupSafeWindsorEnvMocks(injector ...di.Injector) *WindsorEnvMocks {
 		ConfigHandler: mockConfigHandler,
 		Shell:         mockShell,
 	}
+}
+
+// customMockInjector is a custom injector for testing that returns non-castable objects
+type customMockInjector struct {
+	*di.MockInjector
+}
+
+// ResolveAll overrides the ResolveAll method to return non-castable objects
+func (c *customMockInjector) ResolveAll(targetType interface{}) ([]interface{}, error) {
+	if _, ok := targetType.(*secrets.SecretsProvider); ok {
+		// Return a non-castable int
+		return []interface{}{123}, nil
+	}
+	return c.MockInjector.ResolveAll(targetType)
 }
 
 func TestWindsorEnv_GetEnvVars(t *testing.T) {
@@ -751,5 +767,187 @@ func TestWindsorEnv_CreateSessionInvalidationSignal(t *testing.T) {
 		if err.Error() != expectedErrMsg {
 			t.Errorf("Error message = %q, want %q", err.Error(), expectedErrMsg)
 		}
+	})
+}
+
+// TestWindsorEnv_Initialize tests the Initialize method for WindsorEnvPrinter
+func TestWindsorEnv_Initialize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Create a mock injector
+		injector := di.NewMockInjector()
+		mockShell := shell.NewMockShell()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+
+		// Register mocks in the injector
+		injector.Register("shell", mockShell)
+		injector.Register("configHandler", mockConfigHandler)
+		injector.Register("secretsProvider", mockSecretsProvider)
+
+		// Create a new WindsorEnvPrinter
+		windsorEnv := NewWindsorEnvPrinter(injector)
+
+		// Call Initialize and check for errors
+		err := windsorEnv.Initialize()
+		assert.NoError(t, err)
+
+		// Verify that secretsProviders is populated
+		assert.NotNil(t, windsorEnv.secretsProviders)
+		assert.Equal(t, 1, len(windsorEnv.secretsProviders))
+	})
+
+	t.Run("BaseInitializationError", func(t *testing.T) {
+		// Create a mock injector
+		injector := di.NewMockInjector()
+
+		// Don't register any components to cause initialization error
+
+		// Create a new WindsorEnvPrinter
+		windsorEnv := NewWindsorEnvPrinter(injector)
+
+		// Call Initialize and expect an error
+		err := windsorEnv.Initialize()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to initialize BaseEnvPrinter")
+	})
+
+	t.Run("ResolveAllError", func(t *testing.T) {
+		// Create a mock injector that returns an error for ResolveAll
+		mockInjector := di.NewMockInjector()
+		mockShell := shell.NewMockShell()
+		mockConfigHandler := config.NewMockConfigHandler()
+
+		// Register mocks in the injector
+		mockInjector.Register("shell", mockShell)
+		mockInjector.Register("configHandler", mockConfigHandler)
+
+		// Make ResolveAll return an error
+		mockInjector.SetResolveAllError((*secrets.SecretsProvider)(nil), fmt.Errorf("error resolving secrets providers"))
+
+		// Create a new WindsorEnvPrinter
+		windsorEnv := NewWindsorEnvPrinter(mockInjector)
+
+		// Call Initialize and expect an error
+		err := windsorEnv.Initialize()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to resolve secrets providers")
+	})
+
+	t.Run("CastError", func(t *testing.T) {
+		// Create a custom injector that returns something that can't be cast to SecretsProvider
+		customInjector := &customMockInjector{
+			MockInjector: di.NewMockInjector(),
+		}
+
+		mockShell := shell.NewMockShell()
+		mockConfigHandler := config.NewMockConfigHandler()
+
+		// Register mocks in the injector
+		customInjector.Register("shell", mockShell)
+		customInjector.Register("configHandler", mockConfigHandler)
+
+		// Create a new WindsorEnvPrinter
+		windsorEnv := NewWindsorEnvPrinter(customInjector)
+
+		// Call Initialize and expect an error
+		err := windsorEnv.Initialize()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to cast instance to SecretsProvider")
+	})
+}
+
+// TestWindsorEnv_ParseAndCheckSecrets tests the parseAndCheckSecrets method
+func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Setup
+		mockInjector := di.NewMockInjector()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == "value with ${{ secrets.mySecret }}" {
+				return "value with resolved-secret", nil
+			}
+			return input, nil
+		}
+
+		windsorEnv := NewWindsorEnvPrinter(mockInjector)
+		windsorEnv.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Call the method
+		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
+
+		// Verify result
+		assert.Equal(t, "value with resolved-secret", result)
+	})
+
+	t.Run("SecretsProviderError", func(t *testing.T) {
+		// Setup
+		mockInjector := di.NewMockInjector()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			return "", fmt.Errorf("error parsing secrets")
+		}
+
+		windsorEnv := NewWindsorEnvPrinter(mockInjector)
+		windsorEnv.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Call the method with a string containing a secret
+		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
+
+		// Verify result
+		assert.Contains(t, result, "<ERROR: failed to parse")
+		assert.Contains(t, result, "secrets.mySecret")
+	})
+
+	t.Run("NoSecretsProviders", func(t *testing.T) {
+		// Setup
+		mockInjector := di.NewMockInjector()
+		windsorEnv := NewWindsorEnvPrinter(mockInjector)
+		windsorEnv.secretsProviders = []secrets.SecretsProvider{} // Empty slice
+
+		// Call the method with a string containing a secret
+		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
+
+		// Verify result
+		assert.Equal(t, "<ERROR: No secrets providers configured>", result)
+	})
+
+	t.Run("UnparsedSecrets", func(t *testing.T) {
+		// Setup
+		mockInjector := di.NewMockInjector()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		// This provider doesn't recognize the secret pattern
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			return input, nil
+		}
+
+		windsorEnv := NewWindsorEnvPrinter(mockInjector)
+		windsorEnv.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Call the method with a string containing a secret
+		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
+
+		// Verify result
+		assert.Contains(t, result, "<ERROR: failed to parse")
+		assert.Contains(t, result, "secrets.mySecret")
+	})
+
+	t.Run("MultipleUnparsedSecrets", func(t *testing.T) {
+		// Setup
+		mockInjector := di.NewMockInjector()
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		// This provider doesn't recognize any secrets
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			return input, nil
+		}
+
+		windsorEnv := NewWindsorEnvPrinter(mockInjector)
+		windsorEnv.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Call the method with multiple secrets
+		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.secretA }} and ${{ secrets.secretB }}")
+
+		// Verify result
+		assert.Contains(t, result, "<ERROR: failed to parse")
+		assert.Contains(t, result, "secrets.secretA, secrets.secretB")
 	})
 }
