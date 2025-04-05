@@ -13,7 +13,6 @@ import (
 
 const (
 	SessionTokenPrefix = ".session."
-	EnvSessionTokenVar = "WINDSOR_SESSION_TOKEN"
 )
 
 // WindsorEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
@@ -61,7 +60,6 @@ func (e *WindsorEnvPrinter) Initialize() error {
 // GetEnvVars returns a map of Windsor-specific environment variables, including the current context,
 // project root, session token, and custom environment variables with resolved secrets.
 func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
-	// Get Windsor-specific environment variables
 	envVars := make(map[string]string)
 
 	currentContext := e.configHandler.GetContext()
@@ -77,9 +75,8 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving session token: %w", err)
 	}
-	envVars[EnvSessionTokenVar] = sessionToken
+	envVars["WINDSOR_SESSION_TOKEN"] = sessionToken
 
-	// Get custom environment variables from configuration
 	originalEnvVars := e.configHandler.GetStringMap("environment")
 	if originalEnvVars == nil {
 		return envVars, nil
@@ -146,7 +143,7 @@ func (e *WindsorEnvPrinter) parseAndCheckSecrets(strValue string) string {
 // when the environment changes, ensuring a new token is generated during the next command
 // execution.
 func (e *WindsorEnvPrinter) CreateSessionInvalidationSignal() error {
-	envToken := os.Getenv(EnvSessionTokenVar)
+	envToken := os.Getenv("WINDSOR_SESSION_TOKEN")
 	if envToken == "" {
 		return nil
 	}
@@ -174,7 +171,7 @@ func (e *WindsorEnvPrinter) CreateSessionInvalidationSignal() error {
 // existence of a corresponding signal file. If the signal file exists, it deletes the file and generates a new token.
 // If no token is found in the environment or no signal file exists, it generates a new token.
 func (e *WindsorEnvPrinter) getSessionToken() (string, error) {
-	envToken := os.Getenv(EnvSessionTokenVar)
+	envToken := os.Getenv("WINDSOR_SESSION_TOKEN")
 	if envToken != "" {
 		projectRoot, err := e.shell.GetProjectRoot()
 		if err != nil {
@@ -219,7 +216,6 @@ func (e *WindsorEnvPrinter) generateRandomString(length int) (string, error) {
 		return "", err
 	}
 
-	// Map random bytes to charset
 	for i, b := range randomBytes {
 		randomBytes[i] = charset[b%byte(len(charset))]
 	}
@@ -227,20 +223,15 @@ func (e *WindsorEnvPrinter) generateRandomString(length int) (string, error) {
 	return string(randomBytes), nil
 }
 
-// Print prints the environment variables for the Windsor environment.
+// Print prints Windsor environment variables or provided custom variables.
 func (e *WindsorEnvPrinter) Print(customVars ...map[string]string) error {
-	// If customVars are provided, use them
 	if len(customVars) > 0 {
 		return e.BaseEnvPrinter.Print(customVars[0])
 	}
-
-	// Otherwise get the environment variables from this printer
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-
-	// Call the Print method of the embedded BaseEnvPrinter struct
 	return e.BaseEnvPrinter.Print(envVars)
 }
 
