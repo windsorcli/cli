@@ -13,17 +13,22 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-// Helper function to check if a string contains a substring
-func containsSubstring(s, substr string) bool {
-	return strings.Contains(s, substr)
-}
-
 func TestEnvCmd(t *testing.T) {
 	originalExitFunc := exitFunc
 	exitFunc = mockExit
 	t.Cleanup(func() {
 		exitFunc = originalExitFunc
 	})
+
+	// Helper function to create a properly initialized MockEnvPrinter with a ClearFunc to avoid nil pointer errors
+	createSafeMockEnvPrinter := func() *env.MockEnvPrinter {
+		mockEnv := env.NewMockEnvPrinter()
+		// Add a ClearFunc to prevent nil pointer dereference
+		mockEnv.ClearFunc = func(envVarsToClear ...[]string) error {
+			return nil
+		}
+		return mockEnv
+	}
 
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
@@ -33,7 +38,7 @@ func TestEnvCmd(t *testing.T) {
 		mockController := ctrl.NewMockController(injector)
 
 		// Mock the GetEnvPrinters method to return the mockEnv
-		mockEnv := env.NewMockEnvPrinter()
+		mockEnv := createSafeMockEnvPrinter()
 		mockEnv.PrintFunc = func(customVars ...map[string]string) error {
 			fmt.Println("export VAR=value")
 			return nil
@@ -125,6 +130,13 @@ func TestEnvCmd(t *testing.T) {
 			// Given a mock controller that returns an error when creating virtualization components
 			injector := di.NewInjector()
 			mockController := ctrl.NewMockController(injector)
+
+			// Add a safe mock env printer to the controller
+			mockEnv := createSafeMockEnvPrinter()
+			mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+				return []env.EnvPrinter{mockEnv}
+			}
+
 			mockController.CreateVirtualizationComponentsFunc = func() error {
 				return fmt.Errorf("error creating virtualization components")
 			}
@@ -161,6 +173,13 @@ func TestEnvCmd(t *testing.T) {
 			// Given a mock controller that returns an error when creating service components
 			injector := di.NewInjector()
 			mockController := ctrl.NewMockController(injector)
+
+			// Add a safe mock env printer to the controller
+			mockEnv := createSafeMockEnvPrinter()
+			mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+				return []env.EnvPrinter{mockEnv}
+			}
+
 			mockController.CreateServiceComponentsFunc = func() error {
 				return fmt.Errorf("error creating service components")
 			}
@@ -196,6 +215,13 @@ func TestEnvCmd(t *testing.T) {
 		// Given a mock controller that returns an error when creating environment components
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
+
+		// Add a safe mock env printer to the controller
+		mockEnv := createSafeMockEnvPrinter()
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnv}
+		}
+
 		mockController.CreateEnvComponentsFunc = func() error {
 			return fmt.Errorf("error creating environment components")
 		}
@@ -220,6 +246,13 @@ func TestEnvCmd(t *testing.T) {
 		// Given a mock controller that returns an error when creating environment components
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
+
+		// Add a safe mock env printer to the controller
+		mockEnv := createSafeMockEnvPrinter()
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnv}
+		}
+
 		mockController.CreateEnvComponentsFunc = func() error {
 			return fmt.Errorf("error creating environment components")
 		}
@@ -328,7 +361,7 @@ func TestEnvCmd(t *testing.T) {
 		// Given a mock controller that returns a valid list of environment printers
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
-		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter := createSafeMockEnvPrinter()
 		mockEnvPrinter.PrintFunc = func(customVars ...map[string]string) error {
 			return fmt.Errorf("expected error")
 		}
@@ -356,7 +389,7 @@ func TestEnvCmd(t *testing.T) {
 		// Given a mock controller that returns a valid list of environment printers
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
-		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter := createSafeMockEnvPrinter()
 		mockEnvPrinter.PrintFunc = func(customVars ...map[string]string) error {
 			return fmt.Errorf("expected error")
 		}
@@ -380,7 +413,7 @@ func TestEnvCmd(t *testing.T) {
 		// Given a mock controller that returns a valid list of environment printers
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
-		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter := createSafeMockEnvPrinter()
 		mockEnvPrinter.PostEnvHookFunc = func() error {
 			return fmt.Errorf("post env hook error")
 		}
@@ -408,7 +441,7 @@ func TestEnvCmd(t *testing.T) {
 		// Given a mock controller that returns a valid list of environment printers
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
-		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter := createSafeMockEnvPrinter()
 		mockEnvPrinter.PostEnvHookFunc = func() error {
 			return fmt.Errorf("post env hook error")
 		}
@@ -432,6 +465,13 @@ func TestEnvCmd(t *testing.T) {
 		// Given a mock controller with a mock secrets provider
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
+
+		// Add a safe mock env printer to the controller
+		mockEnv := createSafeMockEnvPrinter()
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnv}
+		}
+
 		mockSecretsProvider := secrets.NewMockSecretsProvider()
 		loadCalled := false
 		mockSecretsProvider.LoadSecretsFunc = func() error {
@@ -461,6 +501,13 @@ func TestEnvCmd(t *testing.T) {
 		// Given a mock controller with a mock secrets provider that returns an error on load
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
+
+		// Add a safe mock env printer to the controller
+		mockEnv := createSafeMockEnvPrinter()
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnv}
+		}
+
 		mockSecretsProvider := secrets.NewMockSecretsProvider()
 		mockSecretsProvider.LoadSecretsFunc = func() error {
 			return fmt.Errorf("load error")
@@ -502,10 +549,10 @@ func TestEnvCmd(t *testing.T) {
 		mockController := ctrl.NewMockController(injector)
 
 		// Mock the environment printer
-		mockEnv := env.NewMockEnvPrinter()
+		mockEnv := createSafeMockEnvPrinter()
 		clearCalled := false
 		var clearedEnv, clearedAlias string
-		mockEnv.ClearFunc = func() error {
+		mockEnv.ClearFunc = func(envVarsToClear ...[]string) error {
 			clearCalled = true
 			// Capture the environment variables at the time Clear is called
 			clearedEnv = os.Getenv("WINDSOR_MANAGED_ENV")
@@ -567,10 +614,10 @@ func TestEnvCmd(t *testing.T) {
 		mockController := ctrl.NewMockController(injector)
 
 		// Mock the environment printer
-		mockEnv := env.NewMockEnvPrinter()
+		mockEnv := createSafeMockEnvPrinter()
 		clearCalled := false
 		var clearedEnv, clearedAlias string
-		mockEnv.ClearFunc = func() error {
+		mockEnv.ClearFunc = func(envVarsToClear ...[]string) error {
 			clearCalled = true
 			// Capture the environment variables at the time Clear is called
 			clearedEnv = os.Getenv("WINDSOR_MANAGED_ENV")
@@ -636,9 +683,9 @@ func TestEnvCmd(t *testing.T) {
 		mockController := ctrl.NewMockController(injector)
 
 		// Mock the environment printer
-		mockEnv := env.NewMockEnvPrinter()
+		mockEnv := createSafeMockEnvPrinter()
 		clearCalled := false
-		mockEnv.ClearFunc = func() error {
+		mockEnv.ClearFunc = func(envVarsToClear ...[]string) error {
 			clearCalled = true
 			return nil
 		}
@@ -701,8 +748,8 @@ func TestEnvCmd(t *testing.T) {
 		mockController := ctrl.NewMockController(injector)
 
 		// Mock the environment printer
-		mockEnv := env.NewMockEnvPrinter()
-		mockEnv.ClearFunc = func() error {
+		mockEnv := createSafeMockEnvPrinter()
+		mockEnv.ClearFunc = func(envVarsToClear ...[]string) error {
 			return fmt.Errorf("error clearing environment")
 		}
 		mockEnv.PrintFunc = func(customVars ...map[string]string) error {
