@@ -57,8 +57,8 @@ func (e *WindsorEnvPrinter) Initialize() error {
 	return nil
 }
 
-// GetEnvVars returns a map of Windsor-specific environment variables, including the current context,
-// project root, session token, and custom environment variables with resolved secrets.
+// GetEnvVars returns Windsor-specific environment variables, including context, project root, and session token.
+// It resolves secrets in custom variables and lists Windsor-managed keys.
 func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
@@ -77,32 +77,40 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 	envVars["WINDSOR_SESSION_TOKEN"] = sessionToken
 
-	originalEnvVars := e.configHandler.GetStringMap("environment")
-	if originalEnvVars == nil {
-		return envVars, nil
+	managedEnvMu.RLock()
+	managedKeys := make([]string, 0, len(managedEnv))
+	for key := range managedEnv {
+		managedKeys = append(managedKeys, key)
 	}
+	managedEnvMu.RUnlock()
 
-	// #nosec G101 # This is just a regular expression not a secret
-	re := regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
-	windsorContext := os.Getenv("WINDSOR_CONTEXT")
+	managedKeys = append(managedKeys, "WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_SESSION_TOKEN", "WINDSOR_MANAGED")
+	envVars["WINDSOR_MANAGED"] = strings.Join(managedKeys, ":")
 
-	useCache := true
-	if windsorContext != "" && windsorContext != currentContext {
-		useCache = false
-	}
+	customEnvVars := e.configHandler.GetStringMap("environment")
+	if customEnvVars != nil {
+		// #nosec G101 # This is just a regular expression not a secret
+		re := regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
+		windsorContext := os.Getenv("WINDSOR_CONTEXT")
 
-	for k, v := range originalEnvVars {
-		if re.MatchString(v) {
-			if existingValue, exists := osLookupEnv(k); exists {
-				if os.Getenv("NO_CACHE") != "true" && useCache && !strings.Contains(existingValue, "<ERROR") {
-					// Challenging to test this case, so we'll skip it for now
-					continue
+		useCache := true
+		if windsorContext != "" && windsorContext != currentContext {
+			useCache = false
+		}
+
+		for k, v := range customEnvVars {
+			if re.MatchString(v) {
+				if existingValue, exists := osLookupEnv(k); exists {
+					if os.Getenv("NO_CACHE") != "true" && useCache && !strings.Contains(existingValue, "<ERROR") {
+						// Challenging to test this case, so we'll skip it for now
+						continue
+					}
 				}
+				parsedValue := e.parseAndCheckSecrets(v)
+				envVars[k] = parsedValue
+			} else {
+				envVars[k] = v
 			}
-			parsedValue := e.parseAndCheckSecrets(v)
-			envVars[k] = parsedValue
-		} else {
-			envVars[k] = v
 		}
 	}
 
@@ -226,6 +234,7 @@ func (e *WindsorEnvPrinter) generateRandomString(length int) (string, error) {
 // Print prints Windsor environment variables or provided custom variables.
 func (e *WindsorEnvPrinter) Print(customVars ...map[string]string) error {
 	if len(customVars) > 0 {
+		// Challenge to test this case, so we'll skip it for now
 		return e.BaseEnvPrinter.Print(customVars[0])
 	}
 	envVars, err := e.GetEnvVars()
