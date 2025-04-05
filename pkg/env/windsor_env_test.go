@@ -517,6 +517,28 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	t.Run("NoEnvironmentVarsInConfig", func(t *testing.T) {
 		mocks := setupSafeWindsorEnvMocks()
 
+		// Override random generation to avoid token generation errors
+		origCryptoRandRead := cryptoRandRead
+		cryptoRandRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i%26) + 'a' // Generate predictable letters
+			}
+			return len(b), nil
+		}
+		defer func() {
+			cryptoRandRead = origCryptoRandRead
+		}()
+
+		// Ensure environment is clean
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv(EnvSessionTokenVar)
+		t.Setenv("WINDSOR_CONTEXT", "")
+		t.Setenv(EnvSessionTokenVar, "")
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv(EnvSessionTokenVar, originalEnvToken)
+		}()
+
 		// Set GetStringMap to return nil to simulate no environment vars in config
 		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
 			if key == "environment" {
@@ -543,12 +565,37 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	t.Run("DifferentContextDisablesCache", func(t *testing.T) {
 		mocks := setupSafeWindsorEnvMocks()
 
+		// Override random generation to avoid token generation errors
+		origCryptoRandRead := cryptoRandRead
+		cryptoRandRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i%26) + 'a' // Generate predictable letters
+			}
+			return len(b), nil
+		}
+		defer func() {
+			cryptoRandRead = origCryptoRandRead
+		}()
+
 		// Set up environment with a different context than the one in config
 		// to test the useCache=false path
 		envVarKey := "TEST_VAR_WITH_SECRET"
 		envVarValue := "value with ${{ secrets.mySecret }}"
+
+		// Save original environment values and restore them after test
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv(EnvSessionTokenVar)
+		originalTestVar := os.Getenv(envVarKey)
+
 		t.Setenv("WINDSOR_CONTEXT", "different-context")
+		t.Setenv(EnvSessionTokenVar, "")
 		t.Setenv(envVarKey, "existing-value")
+
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv(EnvSessionTokenVar, originalEnvToken)
+			os.Setenv(envVarKey, originalTestVar)
+		}()
 
 		// Set up mock config handler to return environment variables
 		mocks.ConfigHandler.GetContextFunc = func() string {
@@ -577,7 +624,11 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		mockInjector := mocks.Injector
 		mockInjector.Register("secretsProvider", mockSecretsProvider)
 		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
-		windsorEnvPrinter.Initialize()
+		err := windsorEnvPrinter.Initialize()
+		assert.NoError(t, err, "Initialize should not return an error")
+
+		// Make secretsProviders accessible to the test
+		windsorEnvPrinter.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
 
 		// Get environment variables
 		envVars, err := windsorEnvPrinter.GetEnvVars()
