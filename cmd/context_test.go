@@ -136,6 +136,29 @@ func TestContext_Get(t *testing.T) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
+
+	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
+		// Given an error creating environment components
+		mocks := setupSafeContextCmdMocks()
+		mocks.Controller.CreateEnvComponentsFunc = func() error {
+			return fmt.Errorf("env components error")
+		}
+
+		// When the get context command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"context", "get"})
+			err := Execute(mocks.Controller)
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then the output should indicate the error
+		expectedOutput := "Error initializing environment components: env components error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
 }
 
 func TestContext_Set(t *testing.T) {
@@ -219,6 +242,27 @@ func TestContext_Set(t *testing.T) {
 
 		// Then the output should indicate the config is not loaded
 		expectedOutput := "Configuration is not loaded. Please ensure it is initialized."
+		if !strings.Contains(err.Error(), expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
+		}
+	})
+
+	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
+		// Given an error creating environment components
+		mocks := setupSafeContextCmdMocks()
+		mocks.Controller.CreateEnvComponentsFunc = func() error {
+			return fmt.Errorf("env components error")
+		}
+
+		// When the set context command is executed
+		rootCmd.SetArgs([]string{"context", "set", "new-context"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then the output should indicate the error
+		expectedOutput := "Error initializing environment components: env components error"
 		if !strings.Contains(err.Error(), expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
 		}

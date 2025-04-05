@@ -61,15 +61,38 @@ func (e *WindsorEnvPrinter) Print() error {
 	return e.BaseEnvPrinter.Print(envVars)
 }
 
+// CreateSessionInvalidationSignal creates a signal file to invalidate the session token
+// when the environment changes, ensuring a new token is generated during the next command
+// execution.
+func (e *WindsorEnvPrinter) CreateSessionInvalidationSignal() error {
+	envToken := os.Getenv(EnvSessionTokenVar)
+	if envToken == "" {
+		return nil
+	}
+
+	projectRoot, err := e.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	windsorDir := filepath.Join(projectRoot, ".windsor")
+	if err := mkdirAll(windsorDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .windsor directory: %w", err)
+	}
+
+	signalFilePath := filepath.Join(windsorDir, SessionTokenPrefix+envToken)
+	if err := writeFile(signalFilePath, []byte{}, 0644); err != nil {
+		return fmt.Errorf("failed to create signal file: %w", err)
+	}
+
+	return nil
+}
+
 // getSessionToken retrieves or generates a session token. It first checks if a token is already stored in memory.
 // If not, it looks for a token in the environment variable. If an environment token is found, it verifies the
 // existence of a corresponding signal file. If the signal file exists, it deletes the file and generates a new token.
 // If no token is found in the environment or no signal file exists, it generates a new token.
 func (e *WindsorEnvPrinter) getSessionToken() (string, error) {
-	if e.sessionToken != "" {
-		return e.sessionToken, nil
-	}
-
 	envToken := os.Getenv(EnvSessionTokenVar)
 	if envToken != "" {
 		projectRoot, err := e.shell.GetProjectRoot()
@@ -80,7 +103,9 @@ func (e *WindsorEnvPrinter) getSessionToken() (string, error) {
 		windsorDir := filepath.Join(projectRoot, ".windsor")
 		tokenFilePath := filepath.Join(windsorDir, SessionTokenPrefix+envToken)
 		if _, err := stat(tokenFilePath); err == nil {
-			osRemoveAll(tokenFilePath)
+			if err := osRemoveAll(tokenFilePath); err != nil {
+				return "", fmt.Errorf("error removing token file: %w", err)
+			}
 			token, err := e.generateRandomString(7)
 			if err != nil {
 				return "", fmt.Errorf("error generating session token: %w", err)
