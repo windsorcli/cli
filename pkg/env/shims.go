@@ -1,6 +1,7 @@
 package env
 
 import (
+	"crypto/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,17 @@ var yamlUnmarshal = yaml.Unmarshal
 
 // Wrapper function for yaml.Marshal
 var yamlMarshal = yaml.Marshal
+
+// Wrapper for os.Remove for mocking in tests
+var osRemove = os.Remove
+
+// Wrapper for os.RemoveAll for mocking in tests
+var osRemoveAll = os.RemoveAll
+
+// Wrapper for crypto/rand.Read for mocking in tests
+var cryptoRandRead = func(b []byte) (int, error) {
+	return rand.Read(b)
+}
 
 // intPtr returns a pointer to an int value
 func intPtr(i int) *int {
