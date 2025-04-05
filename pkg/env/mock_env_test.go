@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 func captureStdout(t *testing.T, f func()) string {
@@ -146,6 +149,54 @@ func TestMockEnvPrinter_Print(t *testing.T) {
 			t.Errorf("Print() error = %v, want %v", err, expectedError)
 		}
 	})
+
+	t.Run("WithCustomVars", func(t *testing.T) {
+		// Given a mock environment with default Print implementation
+		mockEnv := NewMockEnvPrinter()
+
+		// Setup a shell to avoid nil pointer
+		mockShell := &shell.MockShell{}
+
+		// Set up a variable to check if PrintEnvVars was called
+		var capturedVars map[string]string
+		mockShell.PrintEnvVarsFunc = func(vars map[string]string) error {
+			capturedVars = vars
+			return nil
+		}
+
+		// Assign the mock shell to the BaseEnvPrinter
+		mockEnv.BaseEnvPrinter.shell = mockShell
+
+		// Create custom vars to test with
+		customVars := map[string]string{
+			"CUSTOM_VAR1": "value1",
+			"CUSTOM_VAR2": "value2",
+		}
+
+		// Call Print with custom vars
+		err := mockEnv.Print(customVars)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Print(customVars) error = %v, want nil", err)
+		}
+
+		// Verify that PrintEnvVars was called with our custom vars
+		if capturedVars == nil {
+			t.Error("Expected PrintEnvVars to be called, but it wasn't")
+		} else {
+			for k, v := range customVars {
+				if capturedVars[k] != v {
+					t.Errorf("Expected %s to be %s, but got %s", k, v, capturedVars[k])
+				}
+			}
+		}
+	})
+}
+
+// Helper function to check if a string contains a substring
+func containsSubstring(s, substr string) bool {
+	return strings.Contains(s, substr)
 }
 
 func TestMockEnvPrinter_PostEnvHook(t *testing.T) {
@@ -260,6 +311,46 @@ func TestMockEnvPrinter_PrintAlias(t *testing.T) {
 
 		if !called {
 			t.Error("Expected custom PrintAliasFunc to be called, but it wasn't")
+		}
+	})
+
+	t.Run("WithCustomAliases", func(t *testing.T) {
+		mockEnv := NewMockEnvPrinter()
+
+		// Setup a shell to avoid nil pointer
+		mockShell := &shell.MockShell{}
+
+		// Set up a variable to check if PrintAlias was called
+		var capturedAliases map[string]string
+		mockShell.PrintAliasFunc = func(aliases map[string]string) error {
+			capturedAliases = aliases
+			return nil
+		}
+
+		// Assign the mock shell to the BaseEnvPrinter
+		mockEnv.BaseEnvPrinter.shell = mockShell
+
+		// Setup custom aliases
+		customAliases := map[string]string{
+			"custom_alias1": "command1",
+			"custom_alias2": "command2",
+		}
+
+		// Call PrintAlias with custom aliases
+		err := mockEnv.PrintAlias(customAliases)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify that PrintAlias was called with our custom aliases
+		if capturedAliases == nil {
+			t.Error("Expected PrintAlias to be called, but it wasn't")
+		} else {
+			for k, v := range customAliases {
+				if capturedAliases[k] != v {
+					t.Errorf("Expected %s to be %s, but got %s", k, v, capturedAliases[k])
+				}
+			}
 		}
 	})
 }
