@@ -831,7 +831,8 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 
 		// Verify WINDSOR_MANAGED contains the tracked variables
 		managedVars := strings.Split(envVars["WINDSOR_MANAGED"], ":")
-		expectedVars := []string{"TEST_VAR_1", "TEST_VAR_2", "TEST_VAR_3"}
+		expectedVars := []string{"TEST_VAR_1", "TEST_VAR_2", "TEST_VAR_3",
+			"WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_SESSION_TOKEN", "WINDSOR_MANAGED"}
 
 		// Convert to maps for easier comparison (ignoring order)
 		managedMap := make(map[string]bool)
@@ -845,9 +846,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			}
 		}
 
-		// Verify the number of managed variables is correct
-		if len(managedVars) != 3 {
-			t.Errorf("Expected 3 variables in WINDSOR_MANAGED, got %d", len(managedVars))
+		// Verify all tracked variables are in the managed map
+		if len(managedVars) != len(expectedVars) {
+			t.Errorf("Expected %d variables in WINDSOR_MANAGED, got %d", len(expectedVars), len(managedVars))
 		}
 	})
 }
