@@ -513,6 +513,32 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("Unexpected error message: %v", err)
 		}
 	})
+
+	t.Run("NoEnvironmentVarsInConfig", func(t *testing.T) {
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Set GetStringMap to return nil to simulate no environment vars in config
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return nil
+			}
+			return map[string]string{}
+		}
+
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+		windsorEnvPrinter.Initialize()
+
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		assert.NoError(t, err, "GetEnvVars should not return an error")
+
+		// Verify we still have the base environment variables
+		assert.Equal(t, "mock-context", envVars["WINDSOR_CONTEXT"], "WINDSOR_CONTEXT should be set even when no environment vars are in config")
+		assert.Equal(t, filepath.FromSlash("/mock/project/root"), envVars["WINDSOR_PROJECT_ROOT"], "WINDSOR_PROJECT_ROOT should be set")
+		assert.NotEmpty(t, envVars[EnvSessionTokenVar], "Session token should be generated")
+
+		// Verify no additional variables were added from config (since there were none)
+		assert.Len(t, envVars, 3, "Should only have the three base environment variables")
+	})
 }
 
 func TestWindsorEnv_PostEnvHook(t *testing.T) {
