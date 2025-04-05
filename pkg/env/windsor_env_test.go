@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1329,6 +1330,39 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 
 // TestWindsorEnv_PrintAlias tests the PrintAlias method of the WindsorEnvPrinter struct
 func TestWindsorEnv_PrintAlias(t *testing.T) {
+	// Test with custom aliases
+	t.Run("WithCustomAliases", func(t *testing.T) {
+		// Use setupSafeWindsorEnvMocks to create mocks
+		mocks := setupSafeWindsorEnvMocks()
+		mockInjector := mocks.Injector
+		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
+		windsorEnvPrinter.Initialize()
+
+		// Mock the PrintAliasFunc to verify it is called with the correct aliases
+		var capturedAliases map[string]string
+		mocks.Shell.PrintAliasFunc = func(aliases map[string]string) error {
+			capturedAliases = aliases
+			return nil
+		}
+
+		// Create custom aliases
+		customAliases := map[string]string{
+			"test_alias":  "test_command",
+			"test_alias2": "test_command2",
+		}
+
+		// Call PrintAlias with custom aliases
+		err := windsorEnvPrinter.PrintAlias(customAliases)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that the custom aliases were passed to the shell
+		if !reflect.DeepEqual(capturedAliases, customAliases) {
+			t.Errorf("Expected aliases %v, got %v", customAliases, capturedAliases)
+		}
+	})
+
 	t.Run("Success", func(t *testing.T) {
 		// Clear the managedAlias map first
 		managedAliasMu.Lock()
@@ -1373,12 +1407,11 @@ func TestWindsorEnv_PrintAlias(t *testing.T) {
 		mocks := setupSafeWindsorEnvMocks()
 		mockInjector := mocks.Injector
 
-		// Create a mock WindsorEnvPrinter with a custom mock shell that returns an error
+		// Create a custom shell that returns an error for PrintAlias
 		customShell := shell.NewMockShell()
 		customShell.PrintAliasFunc = func(aliases map[string]string) error {
 			return fmt.Errorf("mock alias print error")
 		}
-
 		mockInjector.Register("shell", customShell)
 
 		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)

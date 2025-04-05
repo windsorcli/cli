@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 )
 
@@ -171,6 +172,94 @@ func TestMockEnvPrinter_PostEnvHook(t *testing.T) {
 		// Then the custom error should be returned
 		if err != expectedError {
 			t.Errorf("PostEnvHook() error = %v, want %v", err, expectedError)
+		}
+	})
+}
+
+// TestMockEnvPrinter_GetAlias tests the GetAlias method of the MockEnvPrinter
+func TestMockEnvPrinter_GetAlias(t *testing.T) {
+	t.Run("DefaultGetAlias", func(t *testing.T) {
+		mockEnv := NewMockEnvPrinter()
+
+		// Call GetAlias with the default implementation
+		aliases, err := mockEnv.GetAlias()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedAliases := map[string]string{}
+		if !reflect.DeepEqual(aliases, expectedAliases) {
+			t.Errorf("Expected %v, got %v", expectedAliases, aliases)
+		}
+	})
+
+	t.Run("CustomGetAlias", func(t *testing.T) {
+		mockEnv := NewMockEnvPrinter()
+
+		// Define custom aliases to return
+		expectedAliases := map[string]string{
+			"alias1": "command1",
+			"alias2": "command2",
+		}
+
+		// Set custom GetAliasFunc
+		mockEnv.GetAliasFunc = func() (map[string]string, error) {
+			return expectedAliases, nil
+		}
+
+		// Call GetAlias with the custom implementation
+		aliases, err := mockEnv.GetAlias()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if !reflect.DeepEqual(aliases, expectedAliases) {
+			t.Errorf("Expected %v, got %v", expectedAliases, aliases)
+		}
+	})
+}
+
+// TestMockEnvPrinter_PrintAlias tests the PrintAlias method of the MockEnvPrinter
+func TestMockEnvPrinter_PrintAlias(t *testing.T) {
+	t.Run("DefaultPrintAlias", func(t *testing.T) {
+		mockEnv := NewMockEnvPrinter()
+
+		// Call PrintAlias with the default implementation
+		err := mockEnv.PrintAlias()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("CustomPrintAlias", func(t *testing.T) {
+		mockEnv := NewMockEnvPrinter()
+
+		// Track if the custom function was called
+		called := false
+
+		// Set custom PrintAliasFunc
+		mockEnv.PrintAliasFunc = func(customAliases ...map[string]string) error {
+			called = true
+
+			// Verify the custom aliases if provided
+			if len(customAliases) > 0 {
+				expectedAliases := map[string]string{"test": "alias"}
+				if !reflect.DeepEqual(customAliases[0], expectedAliases) {
+					t.Errorf("Expected %v, got %v", expectedAliases, customAliases[0])
+				}
+			}
+
+			return nil
+		}
+
+		// Call PrintAlias with custom aliases
+		err := mockEnv.PrintAlias(map[string]string{"test": "alias"})
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if !called {
+			t.Error("Expected custom PrintAliasFunc to be called, but it wasn't")
 		}
 	})
 }

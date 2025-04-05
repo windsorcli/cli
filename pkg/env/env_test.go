@@ -152,7 +152,9 @@ func TestEnv_Print(t *testing.T) {
 
 func TestEnvTracking(t *testing.T) {
 	// Clear the managed environment to start with a clean state
-	ClearManagedEnv()
+	managedEnvMu.Lock()
+	managedEnv = make(map[string]string)
+	managedEnvMu.Unlock()
 
 	// Set up test environment variables
 	testVars1 := map[string]string{
@@ -214,7 +216,9 @@ func TestEnvTracking(t *testing.T) {
 	}
 
 	// Test clearing the managed environment
-	ClearManagedEnv()
+	managedEnvMu.Lock()
+	managedEnv = make(map[string]string)
+	managedEnvMu.Unlock()
 
 	// Get an updated copy
 	managedEnvMu.RLock()
@@ -228,4 +232,98 @@ func TestEnvTracking(t *testing.T) {
 	if len(envCopy) != 0 {
 		t.Errorf("Expected 0 env vars after clearing, got %d", len(envCopy))
 	}
+}
+
+func TestAliasTracking(t *testing.T) {
+	// Save the original managedAlias map and restore it after the test
+	originalManagedAlias := managedAlias
+	defer func() {
+		managedAlias = originalManagedAlias
+	}()
+
+	t.Run("TrackNonEmptyAliases", func(t *testing.T) {
+		// Clear the managedAlias map first
+		managedAliasMu.Lock()
+		managedAlias = make(map[string]string)
+		managedAliasMu.Unlock()
+
+		// Test data
+		aliases := map[string]string{
+			"alias1": "value1",
+			"alias2": "value2",
+		}
+
+		// Track the aliases
+		trackAliases(aliases)
+
+		// Verify the aliases were tracked correctly
+		managedAliasMu.RLock()
+		defer managedAliasMu.RUnlock()
+
+		if len(managedAlias) != 2 {
+			t.Errorf("Expected managedAlias to have 2 entries, got %d", len(managedAlias))
+		}
+
+		if managedAlias["alias1"] != "value1" {
+			t.Errorf("Expected managedAlias[\"alias1\"] to be \"value1\", got %q", managedAlias["alias1"])
+		}
+
+		if managedAlias["alias2"] != "value2" {
+			t.Errorf("Expected managedAlias[\"alias2\"] to be \"value2\", got %q", managedAlias["alias2"])
+		}
+	})
+
+	t.Run("TrackNilAliases", func(t *testing.T) {
+		// Clear the managedAlias map first
+		managedAliasMu.Lock()
+		managedAlias = make(map[string]string)
+		managedAliasMu.Unlock()
+
+		// Track nil aliases (should be a no-op)
+		trackAliases(nil)
+
+		// Verify the managedAlias map is still empty
+		managedAliasMu.RLock()
+		defer managedAliasMu.RUnlock()
+
+		if len(managedAlias) != 0 {
+			t.Errorf("Expected managedAlias to be empty, got %d entries", len(managedAlias))
+		}
+	})
+
+	t.Run("TrackEmptyAliases", func(t *testing.T) {
+		// Clear the managedAlias map first
+		managedAliasMu.Lock()
+		managedAlias = make(map[string]string)
+		managedAliasMu.Unlock()
+
+		// Track empty aliases (should be a no-op)
+		trackAliases(map[string]string{})
+
+		// Verify the managedAlias map is still empty
+		managedAliasMu.RLock()
+		defer managedAliasMu.RUnlock()
+
+		if len(managedAlias) != 0 {
+			t.Errorf("Expected managedAlias to be empty, got %d entries", len(managedAlias))
+		}
+	})
+}
+
+// TestBaseEnvPrinter_GetAlias tests the GetAlias method of BaseEnvPrinter
+func TestBaseEnvPrinter_GetAlias(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		baseEnvPrinter := NewBaseEnvPrinter(nil)
+
+		// Call GetAlias and check the result
+		aliases, err := baseEnvPrinter.GetAlias()
+		if err != nil {
+			t.Errorf("GetAlias should not return an error, got %v", err)
+		}
+
+		expectedAliases := map[string]string{}
+		if !reflect.DeepEqual(aliases, expectedAliases) {
+			t.Errorf("GetAlias returned %v, expected %v", aliases, expectedAliases)
+		}
+	})
 }
