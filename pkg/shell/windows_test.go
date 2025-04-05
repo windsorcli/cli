@@ -67,6 +67,86 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 	}
 }
 
+func TestDefaultShell_PrintEnvVarsErrors(t *testing.T) {
+	injector := di.NewInjector()
+
+	t.Run("SetenvError", func(t *testing.T) {
+		// Save the original functions to restore them later
+		originalOsSetenv := osSetenv
+		defer func() { osSetenv = originalOsSetenv }()
+
+		// Mock osSetenv to return an error
+		osSetenv = func(key, value string) error {
+			if key == "ERROR_VAR" {
+				return fmt.Errorf("simulated error setting %s", key)
+			}
+			return nil
+		}
+
+		// Given a shell and environment variables with one that will cause an error
+		shell := NewDefaultShell(injector)
+		envVars := map[string]string{
+			"NORMAL_VAR": "value",
+			"ERROR_VAR":  "error_value",
+		}
+
+		// Capture stdout to prevent output in test
+		_ = captureStdout(t, func() {
+			// When calling PrintEnvVars
+			err := shell.PrintEnvVars(envVars)
+
+			// Then an error should be returned
+			if err == nil {
+				t.Fatal("PrintEnvVars did not return the expected error")
+			}
+
+			// And the error message should include the variable name
+			expectedErrorMsg := "failed to set environment variable ERROR_VAR"
+			if !strings.Contains(err.Error(), expectedErrorMsg) {
+				t.Errorf("PrintEnvVars() error = %v, expected to contain %v", err, expectedErrorMsg)
+			}
+		})
+	})
+
+	t.Run("UnsetenvError", func(t *testing.T) {
+		// Save the original function to restore it later
+		originalOsUnsetenv := osUnsetenv
+		defer func() { osUnsetenv = originalOsUnsetenv }()
+
+		// Mock osUnsetenv to return an error
+		osUnsetenv = func(key string) error {
+			if key == "EMPTY_ERROR_VAR" {
+				return fmt.Errorf("simulated error unsetting %s", key)
+			}
+			return nil
+		}
+
+		// Given a shell and environment variables with an empty one that will cause an error
+		shell := NewDefaultShell(injector)
+		envVars := map[string]string{
+			"NORMAL_VAR":      "value",
+			"EMPTY_ERROR_VAR": "",
+		}
+
+		// Capture stdout to prevent output in test
+		_ = captureStdout(t, func() {
+			// When calling PrintEnvVars
+			err := shell.PrintEnvVars(envVars)
+
+			// Then an error should be returned
+			if err == nil {
+				t.Fatal("PrintEnvVars did not return the expected error")
+			}
+
+			// And the error message should include the variable name
+			expectedErrorMsg := "failed to unset environment variable EMPTY_ERROR_VAR"
+			if !strings.Contains(err.Error(), expectedErrorMsg) {
+				t.Errorf("PrintEnvVars() error = %v, expected to contain %v", err, expectedErrorMsg)
+			}
+		})
+	})
+}
+
 func TestDefaultShell_GetProjectRoot(t *testing.T) {
 	injector := di.NewInjector()
 
