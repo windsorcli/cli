@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -882,6 +881,117 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("Expected WINDSOR_MANAGED_ALIAS environment variable to be present")
 		}
 	})
+
+	// Additional test cases specifically for WINDSOR_MANAGED_ALIAS in GetEnvVars
+	t.Run("ManagedAliasesInGetEnvVars", func(t *testing.T) {
+		// Sub-test for when we have aliases
+		t.Run("WithAliases", func(t *testing.T) {
+			// Clear and populate the managedAlias map
+			managedAliasMu.Lock()
+			managedAlias = make(map[string]string)
+			managedAlias["alias1"] = "command1"
+			managedAlias["alias2"] = "command2"
+			managedAliasMu.Unlock()
+
+			// Set up mocks and WindsorEnvPrinter
+			mocks := setupSafeWindsorEnvMocks()
+			windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+			windsorEnvPrinter.Initialize()
+
+			// Override random generation for consistent results
+			origRand := cryptoRandRead
+			cryptoRandRead = func(b []byte) (n int, err error) {
+				for i := range b {
+					b[i] = byte('a' + (i % 26))
+				}
+				return len(b), nil
+			}
+			defer func() { cryptoRandRead = origRand }()
+
+			// Set a consistent environment for testing
+			origToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+			t.Setenv("WINDSOR_SESSION_TOKEN", "")
+			defer func() { os.Setenv("WINDSOR_SESSION_TOKEN", origToken) }()
+
+			// Get environment variables
+			envVars, err := windsorEnvPrinter.GetEnvVars()
+			if err != nil {
+				t.Fatalf("GetEnvVars returned an error: %v", err)
+			}
+
+			// Check WINDSOR_MANAGED_ALIAS
+			if _, exists := envVars["WINDSOR_MANAGED_ALIAS"]; !exists {
+				t.Errorf("WINDSOR_MANAGED_ALIAS environment variable not found")
+			}
+
+			// Verify alias keys are included in WINDSOR_MANAGED_ALIAS
+			aliasesStr := envVars["WINDSOR_MANAGED_ALIAS"]
+			aliasesSlice := strings.Split(aliasesStr, ":")
+
+			// Create map for easier testing
+			aliasesMap := make(map[string]bool)
+			for _, alias := range aliasesSlice {
+				aliasesMap[alias] = true
+			}
+
+			// Check for expected aliases
+			if !aliasesMap["alias1"] {
+				t.Errorf("Expected alias1 to be in WINDSOR_MANAGED_ALIAS")
+			}
+			if !aliasesMap["alias2"] {
+				t.Errorf("Expected alias2 to be in WINDSOR_MANAGED_ALIAS")
+			}
+
+			// Check that we have exactly the expected number of aliases
+			if len(aliasesSlice) != 2 {
+				t.Errorf("Expected 2 aliases in WINDSOR_MANAGED_ALIAS, got %d", len(aliasesSlice))
+			}
+		})
+
+		// Sub-test for when we have no aliases
+		t.Run("WithNoAliases", func(t *testing.T) {
+			// Clear the managedAlias map
+			managedAliasMu.Lock()
+			managedAlias = make(map[string]string)
+			managedAliasMu.Unlock()
+
+			// Set up mocks and WindsorEnvPrinter
+			mocks := setupSafeWindsorEnvMocks()
+			windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+			windsorEnvPrinter.Initialize()
+
+			// Override random generation for consistent results
+			origRand := cryptoRandRead
+			cryptoRandRead = func(b []byte) (n int, err error) {
+				for i := range b {
+					b[i] = byte('a' + (i % 26))
+				}
+				return len(b), nil
+			}
+			defer func() { cryptoRandRead = origRand }()
+
+			// Set a consistent environment for testing
+			origToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+			t.Setenv("WINDSOR_SESSION_TOKEN", "")
+			defer func() { os.Setenv("WINDSOR_SESSION_TOKEN", origToken) }()
+
+			// Get environment variables
+			envVars, err := windsorEnvPrinter.GetEnvVars()
+			if err != nil {
+				t.Fatalf("GetEnvVars returned an error: %v", err)
+			}
+
+			// Check WINDSOR_MANAGED_ALIAS exists
+			if _, exists := envVars["WINDSOR_MANAGED_ALIAS"]; !exists {
+				t.Errorf("WINDSOR_MANAGED_ALIAS environment variable not found")
+			}
+
+			// Verify WINDSOR_MANAGED_ALIAS is empty
+			if envVars["WINDSOR_MANAGED_ALIAS"] != "" {
+				t.Errorf("Expected WINDSOR_MANAGED_ALIAS to be empty when no aliases exist")
+			}
+		})
+	})
 }
 
 func TestWindsorEnv_PostEnvHook(t *testing.T) {
@@ -1330,39 +1440,6 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 
 // TestWindsorEnv_PrintAlias tests the PrintAlias method of the WindsorEnvPrinter struct
 func TestWindsorEnv_PrintAlias(t *testing.T) {
-	// Test with custom aliases
-	t.Run("WithCustomAliases", func(t *testing.T) {
-		// Use setupSafeWindsorEnvMocks to create mocks
-		mocks := setupSafeWindsorEnvMocks()
-		mockInjector := mocks.Injector
-		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
-		windsorEnvPrinter.Initialize()
-
-		// Mock the PrintAliasFunc to verify it is called with the correct aliases
-		var capturedAliases map[string]string
-		mocks.Shell.PrintAliasFunc = func(aliases map[string]string) error {
-			capturedAliases = aliases
-			return nil
-		}
-
-		// Create custom aliases
-		customAliases := map[string]string{
-			"test_alias":  "test_command",
-			"test_alias2": "test_command2",
-		}
-
-		// Call PrintAlias with custom aliases
-		err := windsorEnvPrinter.PrintAlias(customAliases)
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		// Verify that the custom aliases were passed to the shell
-		if !reflect.DeepEqual(capturedAliases, customAliases) {
-			t.Errorf("Expected aliases %v, got %v", customAliases, capturedAliases)
-		}
-	})
-
 	t.Run("Success", func(t *testing.T) {
 		// Clear the managedAlias map first
 		managedAliasMu.Lock()
@@ -1407,11 +1484,12 @@ func TestWindsorEnv_PrintAlias(t *testing.T) {
 		mocks := setupSafeWindsorEnvMocks()
 		mockInjector := mocks.Injector
 
-		// Create a custom shell that returns an error for PrintAlias
+		// Create a mock WindsorEnvPrinter with a custom mock shell that returns an error
 		customShell := shell.NewMockShell()
 		customShell.PrintAliasFunc = func(aliases map[string]string) error {
 			return fmt.Errorf("mock alias print error")
 		}
+
 		mockInjector.Register("shell", customShell)
 
 		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
@@ -1423,6 +1501,93 @@ func TestWindsorEnv_PrintAlias(t *testing.T) {
 			t.Error("expected error, got nil")
 		} else if !strings.Contains(err.Error(), "mock alias print error") {
 			t.Errorf("unexpected error message: %v", err)
+		}
+	})
+}
+
+// TestWindsorEnv_GetAlias tests the GetAlias method of WindsorEnvPrinter
+func TestWindsorEnv_GetAlias(t *testing.T) {
+	t.Run("WithManagedAliases", func(t *testing.T) {
+		// Clear and populate the managedAlias map
+		managedAliasMu.Lock()
+		managedAlias = make(map[string]string)
+		managedAlias["alias1"] = "command1"
+		managedAlias["alias2"] = "command2"
+		managedAliasMu.Unlock()
+
+		// Set up mocks and WindsorEnvPrinter
+		mocks := setupSafeWindsorEnvMocks()
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+		windsorEnvPrinter.Initialize()
+
+		// Call GetAlias
+		aliases, err := windsorEnvPrinter.GetAlias()
+		if err != nil {
+			t.Fatalf("GetAlias returned an error: %v", err)
+		}
+
+		// Check WINDSOR_MANAGED_ALIAS exists
+		if _, exists := aliases["WINDSOR_MANAGED_ALIAS"]; !exists {
+			t.Errorf("WINDSOR_MANAGED_ALIAS not found in aliases")
+		}
+
+		// Verify aliases are correctly mapped
+		if aliases["alias1"] != "command1" {
+			t.Errorf("Expected alias1=command1, got alias1=%s", aliases["alias1"])
+		}
+		if aliases["alias2"] != "command2" {
+			t.Errorf("Expected alias2=command2, got alias2=%s", aliases["alias2"])
+		}
+
+		// Verify alias keys are included in WINDSOR_MANAGED_ALIAS
+		aliasesStr := aliases["WINDSOR_MANAGED_ALIAS"]
+		aliasesSlice := strings.Split(aliasesStr, ":")
+
+		// Create map for easier testing
+		aliasesMap := make(map[string]bool)
+		for _, alias := range aliasesSlice {
+			aliasesMap[alias] = true
+		}
+
+		// Check for expected aliases
+		if !aliasesMap["alias1"] {
+			t.Errorf("Expected alias1 to be in WINDSOR_MANAGED_ALIAS")
+		}
+		if !aliasesMap["alias2"] {
+			t.Errorf("Expected alias2 to be in WINDSOR_MANAGED_ALIAS")
+		}
+	})
+
+	t.Run("WithNoManagedAliases", func(t *testing.T) {
+		// Clear the managedAlias map
+		managedAliasMu.Lock()
+		managedAlias = make(map[string]string)
+		managedAliasMu.Unlock()
+
+		// Set up mocks and WindsorEnvPrinter
+		mocks := setupSafeWindsorEnvMocks()
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+		windsorEnvPrinter.Initialize()
+
+		// Call GetAlias
+		aliases, err := windsorEnvPrinter.GetAlias()
+		if err != nil {
+			t.Fatalf("GetAlias returned an error: %v", err)
+		}
+
+		// Check WINDSOR_MANAGED_ALIAS exists
+		if _, exists := aliases["WINDSOR_MANAGED_ALIAS"]; !exists {
+			t.Errorf("WINDSOR_MANAGED_ALIAS not found in aliases")
+		}
+
+		// Verify WINDSOR_MANAGED_ALIAS is empty
+		if aliases["WINDSOR_MANAGED_ALIAS"] != "" {
+			t.Errorf("Expected WINDSOR_MANAGED_ALIAS to be empty when no aliases exist")
+		}
+
+		// Check that there are no other aliases
+		if len(aliases) != 1 {
+			t.Errorf("Expected only WINDSOR_MANAGED_ALIAS in aliases, got %d entries", len(aliases))
 		}
 	})
 }
