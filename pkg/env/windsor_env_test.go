@@ -1093,6 +1093,52 @@ func TestWindsorEnv_Print(t *testing.T) {
 		}
 	})
 
+	t.Run("WithCustomVarsWithWhitespace", func(t *testing.T) {
+		// Use setupSafeWindsorEnvMocks to create mocks
+		mocks := setupSafeWindsorEnvMocks()
+		mockInjector := mocks.Injector
+		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
+		windsorEnvPrinter.Initialize()
+
+		// Mock the PrintEnvVarsFunc to verify it is called with the trimmed variables
+		var capturedEnvVars map[string]string
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+			capturedEnvVars = envVars
+			return nil
+		}
+
+		// Define custom variables with whitespace that should be trimmed
+		customVars := map[string]string{
+			"CUSTOM_VAR1": "  value1  ", // Leading and trailing whitespace
+			"CUSTOM_VAR2": "\tvalue2\n", // Tab and newline whitespace
+			"CUSTOM_VAR3": "value3",     // No whitespace (control case)
+		}
+
+		// Mock the stat function to avoid dependencies on file system
+		originalStat := stat
+		defer func() { stat = originalStat }()
+		stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// Call Print with custom vars containing whitespace
+		err := windsorEnvPrinter.Print(customVars)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that the whitespace was trimmed from the values
+		if capturedEnvVars["CUSTOM_VAR1"] != "value1" {
+			t.Errorf("CUSTOM_VAR1 = %q, want %q", capturedEnvVars["CUSTOM_VAR1"], "value1")
+		}
+		if capturedEnvVars["CUSTOM_VAR2"] != "value2" {
+			t.Errorf("CUSTOM_VAR2 = %q, want %q", capturedEnvVars["CUSTOM_VAR2"], "value2")
+		}
+		if capturedEnvVars["CUSTOM_VAR3"] != "value3" {
+			t.Errorf("CUSTOM_VAR3 = %q, want %q", capturedEnvVars["CUSTOM_VAR3"], "value3")
+		}
+	})
+
 	t.Run("GetProjectRootError", func(t *testing.T) {
 		// Use setupSafeWindsorEnvMocks to create mocks
 		mocks := setupSafeWindsorEnvMocks()
@@ -1523,6 +1569,11 @@ func TestWindsorEnv_GetAlias(t *testing.T) {
 		}
 		if !aliasesMap["alias2"] {
 			t.Errorf("Expected alias2 to be in WINDSOR_MANAGED_ALIAS")
+		}
+
+		// Check that we have exactly the expected number of aliases
+		if len(aliasesSlice) != 2 {
+			t.Errorf("Expected 2 aliases in WINDSOR_MANAGED_ALIAS, got %d", len(aliasesSlice))
 		}
 	})
 
