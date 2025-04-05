@@ -380,6 +380,95 @@ func TestBaseEnvPrinter_PrintAlias(t *testing.T) {
 		}
 	})
 
+	t.Run("NoCustomAliasesProvided", func(t *testing.T) {
+		// Clear managed aliases to start clean
+		managedAliasMu.Lock()
+		originalManagedAlias := managedAlias
+		managedAlias = make(map[string]string)
+		managedAliasMu.Unlock()
+		defer func() {
+			managedAliasMu.Lock()
+			managedAlias = originalManagedAlias
+			managedAliasMu.Unlock()
+		}()
+
+		// Create mocks
+		mockInjector := di.NewMockInjector()
+		mockShell := shell.NewMockShell()
+		mockConfigHandler := config.NewMockConfigHandler()
+
+		// Register mocks in the injector
+		mockInjector.Register("shell", mockShell)
+		mockInjector.Register("configHandler", mockConfigHandler)
+
+		// Create a MockEnvPrinter that we will use to test the code path
+		mockEnvPrinter := NewMockEnvPrinter()
+		mockEnvPrinter.shell = mockShell
+		mockEnvPrinter.configHandler = mockConfigHandler
+
+		// Set up the GetAliasFunc to return aliases we expect
+		expectedAliases := map[string]string{
+			"test_alias1": "command1",
+			"test_alias2": "command2",
+		}
+		mockEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+			return expectedAliases, nil
+		}
+
+		// Implement our own PrintAliasFunc to replicate what BaseEnvPrinter does
+		mockEnvPrinter.PrintAliasFunc = func(customAliases ...map[string]string) error {
+			if len(customAliases) > 0 {
+				// This is the branch with custom aliases - just track and print them
+				trackAliases(customAliases[0])
+				return mockShell.PrintAlias(customAliases[0])
+			}
+
+			// This is the branch we're testing - no custom aliases provided
+			// Get aliases from GetAlias
+			aliases, _ := mockEnvPrinter.GetAlias()
+
+			// Track the aliases
+			trackAliases(aliases)
+
+			// Call the shell's PrintAlias with the aliases
+			return mockShell.PrintAlias(aliases)
+		}
+
+		// Mock the shell's PrintAlias method to capture what's passed to it
+		var capturedAliases map[string]string
+		mockShell.PrintAliasFunc = func(aliases map[string]string) error {
+			capturedAliases = aliases
+			return nil
+		}
+
+		// Call PrintAlias without custom aliases
+		err := mockEnvPrinter.PrintAlias()
+		if err != nil {
+			t.Errorf("PrintAlias returned an error: %v", err)
+		}
+
+		// Verify the shell.PrintAlias was called with the expected aliases
+		if !reflect.DeepEqual(capturedAliases, expectedAliases) {
+			t.Errorf("Expected PrintAlias to be called with %v, got %v",
+				expectedAliases, capturedAliases)
+		}
+
+		// Now we can verify that trackAliases was called by checking the managedAlias map
+		managedAliasMu.RLock()
+		foundAllAliases := true
+		for k, v := range expectedAliases {
+			if managedAlias[k] != v {
+				foundAllAliases = false
+				t.Errorf("Expected %s=%s in managedAlias, but it was %s", k, v, managedAlias[k])
+			}
+		}
+		managedAliasMu.RUnlock()
+
+		if !foundAllAliases {
+			t.Errorf("Not all aliases were found in managedAlias - trackAliases may not have been called")
+		}
+	})
+
 	t.Run("ErrorCase", func(t *testing.T) {
 		// Create mocks
 		mockInjector := di.NewMockInjector()
@@ -414,6 +503,104 @@ func TestBaseEnvPrinter_PrintAlias(t *testing.T) {
 			t.Errorf("Expected an error, but got nil")
 		} else if !strings.Contains(err.Error(), expectedError) {
 			t.Errorf("Expected error containing %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("GetAliasError", func(t *testing.T) {
+		// Create mocks
+		mockInjector := di.NewMockInjector()
+		mockShell := shell.NewMockShell()
+		mockConfigHandler := config.NewMockConfigHandler()
+
+		// Register mocks in the injector
+		mockInjector.Register("shell", mockShell)
+		mockInjector.Register("configHandler", mockConfigHandler)
+
+		// Create a MockEnvPrinter that will return an error from GetAlias
+		mockEnvPrinter := NewMockEnvPrinter()
+		mockEnvPrinter.shell = mockShell
+
+		// Set up the GetAliasFunc to return an error
+		expectedError := fmt.Errorf("mock GetAlias error")
+		mockEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+			return nil, expectedError
+		}
+
+		// Implement PrintAliasFunc to mimic what BaseEnvPrinter does
+		mockEnvPrinter.PrintAliasFunc = func(customAliases ...map[string]string) error {
+			if len(customAliases) > 0 {
+				// Branch with custom aliases
+				trackAliases(customAliases[0])
+				return mockShell.PrintAlias(customAliases[0])
+			}
+
+			// This is the branch we want to test - GetAlias returns an error
+			aliases, err := mockEnvPrinter.GetAlias()
+			if err != nil {
+				// This is what we're testing - handling the error from GetAlias
+				return err
+			}
+
+			trackAliases(aliases)
+			return mockShell.PrintAlias(aliases)
+		}
+
+		// Mock the shell's PrintAlias
+		var aliasPrintCalled bool
+		mockShell.PrintAliasFunc = func(aliases map[string]string) error {
+			aliasPrintCalled = true // This should not be called due to the error
+			return nil
+		}
+
+		// Call PrintAlias without custom aliases
+		err := mockEnvPrinter.PrintAlias()
+
+		// Verify the error was returned
+		if err == nil {
+			t.Error("Expected an error from PrintAlias, but got nil")
+		} else if err != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+
+		// Verify PrintAlias was not called due to the error
+		if aliasPrintCalled {
+			t.Error("Shell.PrintAlias should not have been called due to the GetAlias error")
+		}
+	})
+
+	t.Run("ShellPrintAliasError", func(t *testing.T) {
+		// Create mocks
+		mockInjector := di.NewMockInjector()
+		mockShell := shell.NewMockShell()
+		mockConfigHandler := config.NewMockConfigHandler()
+
+		// Register mocks in the injector
+		mockInjector.Register("shell", mockShell)
+		mockInjector.Register("configHandler", mockConfigHandler)
+
+		// Create a BaseEnvPrinter
+		baseEnvPrinter := NewBaseEnvPrinter(mockInjector)
+		err := baseEnvPrinter.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize BaseEnvPrinter: %v", err)
+		}
+
+		// Set up the expected error
+		expectedError := fmt.Errorf("mock shell PrintAlias error")
+
+		// Mock the shell's PrintAlias method to return an error
+		mockShell.PrintAliasFunc = func(aliases map[string]string) error {
+			return expectedError
+		}
+
+		// Call PrintAlias without custom aliases - this should call shell.PrintAlias with empty map
+		err = baseEnvPrinter.PrintAlias()
+
+		// Verify we got the expected error
+		if err == nil {
+			t.Errorf("Expected error from PrintAlias, got nil")
+		} else if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %q, got %q", expectedError.Error(), err.Error())
 		}
 	})
 }

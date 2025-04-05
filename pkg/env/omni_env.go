@@ -42,11 +42,6 @@ func (e *OmniEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 // Print prints the environment variables for the Omni environment.
 func (e *OmniEnvPrinter) Print(customVars ...map[string]string) error {
-	// If customVars are provided, use them
-	if len(customVars) > 0 {
-		return e.BaseEnvPrinter.Print(customVars[0])
-	}
-
 	envVars, err := e.GetEnvVars()
 	if err != nil {
 		// Return the error if GetEnvVars fails
