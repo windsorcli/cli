@@ -1218,6 +1218,84 @@ func TestEnvCmd(t *testing.T) {
 			t.Errorf("Expected stderr to contain %q, got %q", expectedWarning, stderr)
 		}
 	})
+
+	t.Run("PrintAliasError", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller that returns a valid list of environment printers
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+
+		// Create mock shell with CheckTrustedDirectory mocked to return nil
+		mockShell := shell.NewMockShell(injector)
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mockController.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		mockEnvPrinter := createSafeMockEnvPrinter()
+		mockEnvPrinter.PrintAliasFunc = func(customAliases ...map[string]string) error {
+			return fmt.Errorf("print alias error")
+		}
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnvPrinter}
+		}
+
+		// When the env command is executed with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mockController)
+
+		// Then check the error contents
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+		expectedError := "Error executing PrintAlias: print alias error"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("PrintAliasErrorWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller that returns a valid list of environment printers
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+
+		// Create mock shell with CheckTrustedDirectory mocked to return nil
+		mockShell := shell.NewMockShell(injector)
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mockController.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		mockEnvPrinter := createSafeMockEnvPrinter()
+		mockEnvPrinter.PrintAliasFunc = func(customAliases ...map[string]string) error {
+			return fmt.Errorf("print alias error")
+		}
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnvPrinter}
+		}
+
+		// When the env command is executed without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute(mockController)
+
+		// Then the error should be nil and no output should be produced
+		if err != nil {
+			t.Fatalf("Expected error nil, got %v", err)
+		}
+	})
 }
 
 // Helper function to compare string slices regardless of order
