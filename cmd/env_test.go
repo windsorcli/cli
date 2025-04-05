@@ -27,7 +27,7 @@ func TestEnvCmd(t *testing.T) {
 
 		// Mock the GetEnvPrinters method to return the mockEnv
 		mockEnv := env.NewMockEnvPrinter()
-		mockEnv.PrintFunc = func() error {
+		mockEnv.PrintFunc = func(customVars ...map[string]string) error {
 			fmt.Println("export VAR=value")
 			return nil
 		}
@@ -318,8 +318,8 @@ func TestEnvCmd(t *testing.T) {
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
 		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.PrintFunc = func() error {
-			return fmt.Errorf("print error")
+		mockEnvPrinter.PrintFunc = func(customVars ...map[string]string) error {
+			return fmt.Errorf("expected error")
 		}
 		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
 			return []env.EnvPrinter{mockEnvPrinter}
@@ -333,7 +333,7 @@ func TestEnvCmd(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected an error, got nil")
 		}
-		expectedError := "Error executing Print: print error"
+		expectedError := "Error executing Print: expected error"
 		if err.Error() != expectedError {
 			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
 		}
@@ -346,8 +346,8 @@ func TestEnvCmd(t *testing.T) {
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
 		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.PrintFunc = func() error {
-			return fmt.Errorf("print error")
+		mockEnvPrinter.PrintFunc = func(customVars ...map[string]string) error {
+			return fmt.Errorf("expected error")
 		}
 		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
 			return []env.EnvPrinter{mockEnvPrinter}
