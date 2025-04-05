@@ -2,9 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -1013,7 +1011,7 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesClearErrorsGracefully", func(t *testing.T) {
+	t.Run("ClearErrorInNewSessionWithVerbose", func(t *testing.T) {
 		defer resetRootCmd()
 
 		// Save original environment variables
@@ -1037,11 +1035,31 @@ func TestEnvCmd(t *testing.T) {
 
 		// Create mock shell that returns a valid project root
 		mockShell := shell.NewMockShell(injector)
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
 		mockController.ResolveShellFunc = func() shell.Shell {
 			return mockShell
+		}
+
+		// Need to ensure we pass environment component creation
+		mockController.CreateEnvComponentsFunc = func() error {
+			return nil
+		}
+		mockController.InitializeComponentsFunc = func() error {
+			return nil
+		}
+
+		// Mock config handler for vm.driver check
+		configHandler := config.NewMockConfigHandler()
+		configHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return configHandler
 		}
 
 		// Mock the environment printer
@@ -1059,19 +1077,94 @@ func TestEnvCmd(t *testing.T) {
 			return []env.EnvPrinter{mockEnv}
 		}
 
-		// Capture stderr to verify warning is printed
-		output := captureStderr(func() {
-			// Execute the command with verbose flag to see warnings
-			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := Execute(mockController)
-			if err != nil {
-				t.Fatalf("Expected no error despite Clear failing, got %v", err)
-			}
-		})
+		// Execute the command with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mockController)
 
-		// Verify warning was printed
-		if !strings.Contains(output, "Warning: failed to clear previous environment variables: error clearing environment") {
-			t.Errorf("Expected warning about Clear error, got: %q", output)
+		// With the new behavior, we should get an error in verbose mode
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+
+		expectedError := "Error clearing environment variables in new session: error clearing environment"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ClearErrorInNewSessionWithoutVerbose", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Save original environment variables
+		origSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		origManagedEnv := os.Getenv("WINDSOR_MANAGED_ENV")
+		origManagedAlias := os.Getenv("WINDSOR_MANAGED_ALIAS")
+		defer func() {
+			os.Setenv("WINDSOR_SESSION_TOKEN", origSessionToken)
+			os.Setenv("WINDSOR_MANAGED_ENV", origManagedEnv)
+			os.Setenv("WINDSOR_MANAGED_ALIAS", origManagedAlias)
+		}()
+
+		// Set empty session token to trigger clearing
+		os.Setenv("WINDSOR_SESSION_TOKEN", "")
+		os.Setenv("WINDSOR_MANAGED_ENV", "ERROR_VAR1:ERROR_VAR2")
+		os.Setenv("WINDSOR_MANAGED_ALIAS", "error_alias1:error_alias2")
+
+		// Initialize mocks and set the injector
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+
+		// Create mock shell that returns a valid project root
+		mockShell := shell.NewMockShell(injector)
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return nil
+		}
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mockController.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		// Need to ensure we pass environment component creation
+		mockController.CreateEnvComponentsFunc = func() error {
+			return nil
+		}
+		mockController.InitializeComponentsFunc = func() error {
+			return nil
+		}
+
+		// Mock config handler for vm.driver check
+		configHandler := config.NewMockConfigHandler()
+		configHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return configHandler
+		}
+
+		// Mock the environment printer
+		mockEnv := createSafeMockEnvPrinter()
+		mockEnv.ClearFunc = func(args ...[]string) error {
+			return fmt.Errorf("error clearing environment")
+		}
+		mockEnv.PrintFunc = func(customVars ...map[string]string) error {
+			return nil
+		}
+		mockEnv.PrintAliasFunc = func(customAliases ...map[string]string) error {
+			return nil
+		}
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnv}
+		}
+
+		// Execute the command without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute(mockController)
+
+		// Without verbose, no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error without verbose flag, got %v", err)
 		}
 	})
 
@@ -1185,37 +1278,23 @@ func TestEnvCmd(t *testing.T) {
 			return []env.EnvPrinter{mockEnv}
 		}
 
-		// Capture stderr to check for the warning message
-		originalStderr := os.Stderr
-		r, w, _ := os.Pipe()
-		os.Stderr = w
-
-		// Execute the command with verbose flag to capture warning
+		// Execute the command with verbose flag
 		rootCmd.SetArgs([]string{"env", "--verbose"})
 		err := Execute(mockController)
-
-		// Restore stderr
-		w.Close()
-		os.Stderr = originalStderr
-
-		var stderrBuf strings.Builder
-		io.Copy(&stderrBuf, r)
-		stderr := stderrBuf.String()
-
-		// Verify no error is returned (warnings don't cause errors)
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
 
 		// Verify Clear was called
 		if !clearCalled {
 			t.Errorf("Expected Clear to be called when not in a Windsor project")
 		}
 
-		// Verify warning message
-		expectedWarning := "Warning: not in a Windsor project, clearing environment: error clearing environment"
-		if !strings.Contains(stderr, expectedWarning) {
-			t.Errorf("Expected stderr to contain %q, got %q", expectedWarning, stderr)
+		// With the new behavior, we should get an error in verbose mode
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+
+		expectedError := "Error clearing environment in non-Windsor project directory: error clearing environment"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
@@ -1339,80 +1418,48 @@ func TestEnvCmd(t *testing.T) {
 			os.Setenv("WINDSOR_MANAGED_ALIAS", origManagedAlias)
 		}()
 
-		// Capture stderr to check for warning message
-		stderr := captureStderr(func() {
-			// Execute the command with verbose flag
-			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := Execute(mockController)
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
+		// Execute the command with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mockController)
 
 		// Verify Clear was called
 		if !clearCalled {
 			t.Errorf("Expected Clear to be called when not in a Windsor project")
 		}
 
-		// Verify warning message is present in stderr
-		expectedWarning := "Warning: not in a Windsor project, clearing environment: mock clear error"
-		if !strings.Contains(stderr, expectedWarning) {
-			t.Errorf("Expected stderr to contain %q, got %q", expectedWarning, stderr)
+		// Verify we got an error
+		if err == nil {
+			t.Fatalf("Expected an error, got nil")
+		}
+
+		expectedError := "Error clearing environment in non-Windsor project directory: mock clear error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("ClearErrorWithVerboseFlag", func(t *testing.T) {
+	t.Run("NotInWindsorProjectWithoutVerboseFlag", func(t *testing.T) {
 		defer resetRootCmd()
-
-		// Save original environment variables
-		origSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
-		origManagedEnv := os.Getenv("WINDSOR_MANAGED_ENV")
-		origManagedAlias := os.Getenv("WINDSOR_MANAGED_ALIAS")
-		defer func() {
-			os.Setenv("WINDSOR_SESSION_TOKEN", origSessionToken)
-			os.Setenv("WINDSOR_MANAGED_ENV", origManagedEnv)
-			os.Setenv("WINDSOR_MANAGED_ALIAS", origManagedAlias)
-		}()
-
-		// Set empty session token to trigger clearing
-		os.Setenv("WINDSOR_SESSION_TOKEN", "")
-		os.Setenv("WINDSOR_MANAGED_ENV", "TEST_VAR1:TEST_VAR2")
-		os.Setenv("WINDSOR_MANAGED_ALIAS", "alias1:alias2")
 
 		// Initialize mocks and set the injector
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
 
-		// Create mock shell with project root
+		// Create a mock shell that indicates we're not in a Windsor project
 		mockShell := shell.NewMockShell(injector)
+		// First we need to allow CheckTrustedDirectory to pass
 		mockShell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
+		// Then simulate not being in a Windsor project
 		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project/root", nil
+			return "", nil
 		}
 		mockController.ResolveShellFunc = func() shell.Shell {
 			return mockShell
 		}
 
-		// Need to ensure we pass environment component creation
-		mockController.CreateEnvComponentsFunc = func() error {
-			return nil
-		}
-		mockController.InitializeComponentsFunc = func() error {
-			return nil
-		}
-
-		// Mock config handler for vm.driver check
-		configHandler := config.NewMockConfigHandler()
-		configHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			return ""
-		}
-		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-			return configHandler
-		}
-
-		// Mock environment printer with error during Clear
+		// Create a mock environment printer that returns an error when clearing
 		mockEnv := createSafeMockEnvPrinter()
 		clearCalled := false
 		mockEnv.ClearFunc = func(args ...[]string) error {
@@ -1423,25 +1470,28 @@ func TestEnvCmd(t *testing.T) {
 			return []env.EnvPrinter{mockEnv}
 		}
 
-		// Capture stderr to check for warning message
-		stderr := captureStderr(func() {
-			// Execute the command with verbose flag
-			rootCmd.SetArgs([]string{"env", "--verbose"})
-			err := Execute(mockController)
-			if err != nil {
-				t.Fatalf("Expected no error despite Clear error, got %v", err)
-			}
-		})
+		// Setup environment for test
+		origManagedEnv := os.Getenv("WINDSOR_MANAGED_ENV")
+		origManagedAlias := os.Getenv("WINDSOR_MANAGED_ALIAS")
+		os.Setenv("WINDSOR_MANAGED_ENV", "TEST_VAR1:TEST_VAR2")
+		os.Setenv("WINDSOR_MANAGED_ALIAS", "alias1:alias2")
+		defer func() {
+			os.Setenv("WINDSOR_MANAGED_ENV", origManagedEnv)
+			os.Setenv("WINDSOR_MANAGED_ALIAS", origManagedAlias)
+		}()
+
+		// Execute the command without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute(mockController)
 
 		// Verify Clear was called
 		if !clearCalled {
-			t.Errorf("Expected Clear to be called")
+			t.Errorf("Expected Clear to be called when not in a Windsor project")
 		}
 
-		// Verify warning message about failed clearing
-		expectedWarning := "Warning: failed to clear previous environment variables: mock clear error"
-		if !strings.Contains(stderr, expectedWarning) {
-			t.Errorf("Expected stderr to contain %q, got %q", expectedWarning, stderr)
+		// When not in verbose mode, errors should be ignored
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
 	})
 }

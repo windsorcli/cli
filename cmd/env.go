@@ -55,8 +55,10 @@ var envCmd = &cobra.Command{
 		if err != nil || projectRoot == "" {
 			// Not in a Windsor project folder, clear environment variables and exit
 			if len(envPrinters) > 0 {
-				if err := envPrinters[0].Clear(envVars, aliases); err != nil && verbose {
-					fmt.Fprintf(cmd.ErrOrStderr(), "Warning: not in a Windsor project, clearing environment: %v\n", err)
+				if err := envPrinters[0].Clear(envVars, aliases); err != nil {
+					if verbose {
+						return fmt.Errorf("Error clearing environment in non-Windsor project directory: %w", err)
+					}
 				}
 			}
 			return nil
@@ -80,8 +82,10 @@ var envCmd = &cobra.Command{
 
 		// Clear environment variables if we're in a new session (no session token)
 		if initialSessionToken == "" && len(envPrinters) > 0 {
-			if err := envPrinters[0].Clear(envVars, aliases); err != nil && verbose {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to clear previous environment variables: %v\n", err)
+			if err := envPrinters[0].Clear(envVars, aliases); err != nil {
+				if verbose {
+					return fmt.Errorf("Error clearing environment variables in new session: %w", err)
+				}
 			}
 		}
 
@@ -161,8 +165,10 @@ var envCmd = &cobra.Command{
 			}
 
 			// Clear environment variables with original values
-			if err := envPrinters[0].Clear(envVars, aliases); err != nil && verbose {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to clear previous environment variables: %v\n", err)
+			if err := envPrinters[0].Clear(envVars, aliases); err != nil {
+				if verbose {
+					return fmt.Errorf("Error clearing previous environment variables: %w", err)
+				}
 			}
 		}
 
