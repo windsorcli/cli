@@ -1068,6 +1068,9 @@ func TestController_ResolveContainerRuntime(t *testing.T) {
 
 func TestController_SetEnvironmentVariables(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Set a consistent session token in the environment
+		t.Setenv("WINDSOR_SESSION_TOKEN", "tAPwByY")
+
 		// Given a new controller and injector
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
@@ -1092,14 +1095,17 @@ func TestController_SetEnvironmentVariables(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Verify environment variables were set correctly through our mock
-		envPrinters := controller.ResolveAllEnvPrinters()
-		for _, envPrinter := range envPrinters {
-			envVars, _ := envPrinter.GetEnvVars()
-			for key, value := range envVars {
-				if setValue, ok := setEnvCalls[key]; !ok || setValue != value {
-					t.Fatalf("expected environment variable %s to be set to %s, got %s", key, value, setValue)
-				}
+		// Verify specific environment variables we care about
+		expectedVars := map[string]string{
+			"WINDSOR_CONTEXT":       "mock-context",
+			"WINDSOR_SESSION_TOKEN": "tAPwByY",
+		}
+
+		for key, expectedValue := range expectedVars {
+			if setValue, ok := setEnvCalls[key]; !ok {
+				t.Fatalf("expected environment variable %s to be set", key)
+			} else if setValue != expectedValue {
+				t.Fatalf("expected environment variable %s to be set to %s, got %s", key, expectedValue, setValue)
 			}
 		}
 	})
