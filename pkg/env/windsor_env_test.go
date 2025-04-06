@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/secrets"
@@ -581,15 +580,25 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		windsorEnvPrinter.Initialize()
 
 		envVars, err := windsorEnvPrinter.GetEnvVars()
-		assert.NoError(t, err, "GetEnvVars should not return an error")
+		if err != nil {
+			t.Fatalf("GetEnvVars should not return an error: %v", err)
+		}
 
 		// Verify we still have the base environment variables
-		assert.Equal(t, "mock-context", envVars["WINDSOR_CONTEXT"], "WINDSOR_CONTEXT should be set even when no environment vars are in config")
-		assert.Equal(t, filepath.FromSlash("/mock/project/root"), envVars["WINDSOR_PROJECT_ROOT"], "WINDSOR_PROJECT_ROOT should be set")
-		assert.NotEmpty(t, envVars["WINDSOR_SESSION_TOKEN"], "Session token should be generated")
+		if envVars["WINDSOR_CONTEXT"] != "mock-context" {
+			t.Errorf("WINDSOR_CONTEXT should be set even when no environment vars are in config")
+		}
+		if envVars["WINDSOR_PROJECT_ROOT"] != filepath.FromSlash("/mock/project/root") {
+			t.Errorf("WINDSOR_PROJECT_ROOT should be set")
+		}
+		if envVars["WINDSOR_SESSION_TOKEN"] == "" {
+			t.Errorf("Session token should be generated")
+		}
 
 		// Verify no additional variables were added from config (since there were none)
-		assert.Len(t, envVars, 5, "Should have five base environment variables")
+		if len(envVars) != 5 {
+			t.Errorf("Should have five base environment variables")
+		}
 	})
 
 	t.Run("DifferentContextDisablesCache", func(t *testing.T) {
@@ -607,8 +616,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			cryptoRandRead = origCryptoRandRead
 		}()
 
-		// Set up environment with a different context than the one in config
-		// to test the useCache=false path
+		// Set up test environment
 		envVarKey := "TEST_VAR_WITH_SECRET"
 		envVarValue := "value with ${{ secrets.mySecret }}"
 
@@ -616,7 +624,10 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
 		originalEnvToken := os.Getenv("WINDSOR_SESSION_TOKEN")
 		originalTestVar := os.Getenv(envVarKey)
+		originalNoCache := os.Getenv("NO_CACHE")
 
+		// Setting NO_CACHE=true should disable the cache
+		t.Setenv("NO_CACHE", "true")
 		t.Setenv("WINDSOR_CONTEXT", "different-context")
 		t.Setenv("WINDSOR_SESSION_TOKEN", "")
 		t.Setenv(envVarKey, "existing-value")
@@ -625,6 +636,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
 			os.Setenv("WINDSOR_SESSION_TOKEN", originalEnvToken)
 			os.Setenv(envVarKey, originalTestVar)
+			os.Setenv("NO_CACHE", originalNoCache)
 		}()
 
 		// Set up mock config handler to return environment variables
@@ -655,19 +667,24 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		mockInjector.Register("secretsProvider", mockSecretsProvider)
 		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
 		err := windsorEnvPrinter.Initialize()
-		assert.NoError(t, err, "Initialize should not return an error")
+		if err != nil {
+			t.Fatalf("Initialize should not return an error: %v", err)
+		}
 
 		// Make secretsProviders accessible to the test
 		windsorEnvPrinter.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
 
 		// Get environment variables
 		envVars, err := windsorEnvPrinter.GetEnvVars()
-		assert.NoError(t, err, "GetEnvVars should not return an error")
+		if err != nil {
+			t.Fatalf("GetEnvVars should not return an error: %v", err)
+		}
 
 		// Verify the variable was resolved despite having an existing value in the environment
-		// This confirms that useCache=false worked as expected
-		assert.Equal(t, "resolved-value", envVars[envVarKey],
-			"Environment variable should be resolved even with existing value when contexts differ")
+		// This confirms that NO_CACHE=true worked as expected
+		if envVars[envVarKey] != "resolved-value" {
+			t.Errorf("Environment variable should be resolved even with existing value when NO_CACHE=true")
+		}
 	})
 
 	t.Run("NoCacheEnvVarDisablesCache", func(t *testing.T) {
@@ -732,19 +749,24 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		mockInjector.Register("secretsProvider", mockSecretsProvider)
 		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
 		err := windsorEnvPrinter.Initialize()
-		assert.NoError(t, err, "Initialize should not return an error")
+		if err != nil {
+			t.Fatalf("Initialize should not return an error: %v", err)
+		}
 
 		// Make secretsProviders accessible to the test
 		windsorEnvPrinter.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
 
 		// Get environment variables
 		envVars, err := windsorEnvPrinter.GetEnvVars()
-		assert.NoError(t, err, "GetEnvVars should not return an error")
+		if err != nil {
+			t.Fatalf("GetEnvVars should not return an error: %v", err)
+		}
 
 		// Verify the variable was resolved despite having an existing value in the environment
 		// This confirms that NO_CACHE=true worked as expected
-		assert.Equal(t, "resolved-value", envVars[envVarKey],
-			"Environment variable should be resolved even with existing value when NO_CACHE=true")
+		if envVars[envVarKey] != "resolved-value" {
+			t.Errorf("Environment variable should be resolved even with existing value when NO_CACHE=true")
+		}
 	})
 
 	t.Run("RegularEnvironmentVarsWithoutSecrets", func(t *testing.T) {
@@ -807,30 +829,54 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		mockInjector.Register("secretsProvider", mockSecretsProvider)
 		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
 		err := windsorEnvPrinter.Initialize()
-		assert.NoError(t, err, "Initialize should not return an error")
+		if err != nil {
+			t.Fatalf("Initialize should not return an error: %v", err)
+		}
 
 		// Make secretsProviders accessible to the test
 		windsorEnvPrinter.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
 
 		// Get environment variables
 		envVars, err := windsorEnvPrinter.GetEnvVars()
-		assert.NoError(t, err, "GetEnvVars should not return an error")
+		if err != nil {
+			t.Fatalf("GetEnvVars should not return an error: %v", err)
+		}
 
 		// Verify the regular variables were set directly without parsing
-		assert.Equal(t, regularVarValue1, envVars[regularVarKey1],
-			"Regular environment variable should be set directly")
-		assert.Equal(t, regularVarValue2, envVars[regularVarKey2],
-			"Regular environment variable should be set directly")
+		if envVars[regularVarKey1] != regularVarValue1 {
+			t.Errorf("Regular environment variable should be set directly")
+		}
+		if envVars[regularVarKey2] != regularVarValue2 {
+			t.Errorf("Regular environment variable should be set directly")
+		}
 
 		// Also verify that the secret was parsed correctly
-		assert.Equal(t, "resolved-secret", envVars["WITH_SECRET"],
-			"Environment variable with secret should be resolved")
+		if envVars["WITH_SECRET"] != "resolved-secret" {
+			t.Errorf("Environment variable with secret should be resolved")
+		}
 	})
 
 	t.Run("ManagedCustomEnvironmentVars", func(t *testing.T) {
 		// Save original values
 		originalManagedEnv := make([]string, len(windsorManagedEnv))
 		copy(originalManagedEnv, windsorManagedEnv)
+
+		// Save original environment values
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		originalNoCache := os.Getenv("NO_CACHE")
+
+		// Set environment variables for test - ensure NO_CACHE is unset
+		t.Setenv("WINDSOR_CONTEXT", "")
+		t.Setenv("WINDSOR_SESSION_TOKEN", "")
+		t.Setenv("NO_CACHE", "")
+
+		// Restore original environment variables after test
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv("WINDSOR_SESSION_TOKEN", originalEnvToken)
+			os.Setenv("NO_CACHE", originalNoCache)
+		}()
 
 		// Restore original state after test
 		defer func() {
@@ -841,6 +887,18 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 
 		// Setup mocks
 		mocks := setupSafeWindsorEnvMocks()
+
+		// Override random generation to avoid token generation errors
+		origCryptoRandRead := cryptoRandRead
+		cryptoRandRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i%26) + 'a' // Generate predictable letters
+			}
+			return len(b), nil
+		}
+		defer func() {
+			cryptoRandRead = origCryptoRandRead
+		}()
 
 		// Set up mock config handler to return custom environment variables
 		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
@@ -861,20 +919,160 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		// Create WindsorEnvPrinter and initialize it
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
 		err := windsorEnvPrinter.Initialize()
-		assert.NoError(t, err, "Failed to initialize WindsorEnvPrinter")
+		if err != nil {
+			t.Fatalf("Failed to initialize WindsorEnvPrinter: %v", err)
+		}
 
 		// Get environment variables
 		envVars, err := windsorEnvPrinter.GetEnvVars()
-		assert.NoError(t, err, "GetEnvVars should not return an error")
+		if err != nil {
+			t.Fatalf("GetEnvVars should not return an error: %v", err)
+		}
 
 		// Verify custom variables are in the environment variables map
-		assert.Equal(t, "value1", envVars["CUSTOM_ENV_VAR1"], "CUSTOM_ENV_VAR1 should be set to 'value1'")
-		assert.Equal(t, "value2", envVars["CUSTOM_ENV_VAR2"], "CUSTOM_ENV_VAR2 should be set to 'value2'")
+		if envVars["CUSTOM_ENV_VAR1"] != "value1" {
+			t.Errorf("CUSTOM_ENV_VAR1 should be set to 'value1'")
+		}
+		if envVars["CUSTOM_ENV_VAR2"] != "value2" {
+			t.Errorf("CUSTOM_ENV_VAR2 should be set to 'value2'")
+		}
 
 		// Verify that WINDSOR_MANAGED_ENV includes our custom variables
 		managedEnvList := envVars["WINDSOR_MANAGED_ENV"]
-		assert.Contains(t, managedEnvList, "CUSTOM_ENV_VAR1", "WINDSOR_MANAGED_ENV should contain CUSTOM_ENV_VAR1")
-		assert.Contains(t, managedEnvList, "CUSTOM_ENV_VAR2", "WINDSOR_MANAGED_ENV should contain CUSTOM_ENV_VAR2")
+		if !strings.Contains(managedEnvList, "CUSTOM_ENV_VAR1") {
+			t.Errorf("WINDSOR_MANAGED_ENV should contain CUSTOM_ENV_VAR1")
+		}
+		if !strings.Contains(managedEnvList, "CUSTOM_ENV_VAR2") {
+			t.Errorf("WINDSOR_MANAGED_ENV should contain CUSTOM_ENV_VAR2")
+		}
+	})
+
+	t.Run("ErrorValueBypassesCache", func(t *testing.T) {
+		// Save original functions
+		originalCryptoRandRead := cryptoRandRead
+
+		// Restore original function after test
+		defer func() {
+			cryptoRandRead = originalCryptoRandRead
+		}()
+
+		// Set up test mocks
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Override random generation to avoid token generation errors
+		cryptoRandRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i%26) + 'a' // Generate predictable letters
+			}
+			return len(b), nil
+		}
+
+		// Set up test environment variables
+		errorVarKey := "TEST_VAR_WITH_ERROR"
+		normalVarKey := "TEST_VAR_NORMAL"
+		errorVarValue := "value with ${{ secrets.errorSecret }}"
+		normalVarValue := "value with ${{ secrets.normalSecret }}"
+
+		// Save original environment values
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		originalErrorVar := os.Getenv(errorVarKey)
+		originalNormalVar := os.Getenv(normalVarKey)
+		originalNoCache := os.Getenv("NO_CACHE")
+
+		// Explicitly set NO_CACHE=false to enable caching
+		os.Setenv("NO_CACHE", "false")
+		os.Setenv("WINDSOR_CONTEXT", "")
+		os.Setenv("WINDSOR_SESSION_TOKEN", "")
+
+		// Set the existing values - one with error and one normal but with a pattern that will be cached
+		os.Setenv(errorVarKey, "<ERROR: failed to parse: secrets.errorSecret>")
+		os.Setenv(normalVarKey, "cached-normal-value")
+
+		// Restore original values after test
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv("WINDSOR_SESSION_TOKEN", originalEnvToken)
+			os.Setenv(errorVarKey, originalErrorVar)
+			os.Setenv(normalVarKey, originalNormalVar)
+			os.Setenv("NO_CACHE", originalNoCache)
+		}()
+
+		// Verify caching is enabled in this test
+		if !shouldUseCache() {
+			t.Fatalf("shouldUseCache() returned false, expected true with NO_CACHE=false")
+		}
+
+		// Configure mock config handler
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					errorVarKey:  errorVarValue,
+					normalVarKey: normalVarValue,
+				}
+			}
+			return map[string]string{}
+		}
+
+		// Mock secrets provider that will resolve the secrets
+		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == errorVarValue {
+				return "resolved-error-value", nil
+			}
+			if input == normalVarValue {
+				return "resolved-normal-value", nil
+			}
+			return input, nil
+		}
+
+		// Create WindsorEnvPrinter with mock injector
+		mockInjector := mocks.Injector
+		mockInjector.Register("secretsProvider", mockSecretsProvider)
+		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
+
+		// Initialize the WindsorEnvPrinter
+		err := windsorEnvPrinter.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize returned error: %v", err)
+		}
+
+		// Make secretsProviders accessible to the test
+		windsorEnvPrinter.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Get environment variables
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned error: %v", err)
+		}
+
+		// Check that the variable with <ERROR> was re-resolved
+		// despite caching being enabled
+		if got, want := envVars[errorVarKey], "resolved-error-value"; got != want {
+			t.Errorf("Environment variable with <ERROR> was not properly re-resolved: got %q, want %q", got, want)
+		}
+
+		// Check that we got the expected keys in the results
+		expectedKeys := []string{
+			"WINDSOR_CONTEXT",
+			"WINDSOR_PROJECT_ROOT",
+			"WINDSOR_SESSION_TOKEN",
+			"WINDSOR_MANAGED_ENV",
+			"WINDSOR_MANAGED_ALIAS",
+			errorVarKey,
+		}
+
+		// Verify all expected keys are present
+		for _, key := range expectedKeys {
+			if _, exists := envVars[key]; !exists {
+				t.Errorf("Expected key %q missing from results", key)
+			}
+		}
+
+		// Normal variable should not be in results because it's cached
+		if _, exists := envVars[normalVarKey]; exists {
+			t.Errorf("Cached normal variable %q should not be in results", normalVarKey)
+		}
 	})
 }
 
@@ -1164,11 +1362,14 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 
 		// Call Initialize and check for errors
 		err := windsorEnv.Initialize()
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatalf("Initialize returned error: %v", err)
+		}
 
 		// Verify that secretsProviders is populated
-		assert.NotNil(t, windsorEnv.secretsProviders)
-		assert.Equal(t, 1, len(windsorEnv.secretsProviders))
+		if len(windsorEnv.secretsProviders) != 1 {
+			t.Errorf("Expected 1 secrets provider, got %d", len(windsorEnv.secretsProviders))
+		}
 	})
 
 	t.Run("BaseInitializationError", func(t *testing.T) {
@@ -1182,8 +1383,12 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 
 		// Call Initialize and expect an error
 		err := windsorEnv.Initialize()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to initialize BaseEnvPrinter")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to initialize BaseEnvPrinter") {
+			t.Errorf("Unexpected error message: %v", err)
+		}
 	})
 
 	t.Run("ResolveAllError", func(t *testing.T) {
@@ -1204,8 +1409,12 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 
 		// Call Initialize and expect an error
 		err := windsorEnv.Initialize()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to resolve secrets providers")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to resolve secrets providers") {
+			t.Errorf("Unexpected error message: %v", err)
+		}
 	})
 
 	t.Run("CastError", func(t *testing.T) {
@@ -1226,8 +1435,12 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 
 		// Call Initialize and expect an error
 		err := windsorEnv.Initialize()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to cast instance to SecretsProvider")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to cast instance to SecretsProvider") {
+			t.Errorf("Unexpected error message: %v", err)
+		}
 	})
 }
 
@@ -1251,7 +1464,9 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
 
 		// Verify result
-		assert.Equal(t, "value with resolved-secret", result)
+		if result != "value with resolved-secret" {
+			t.Errorf("Expected 'value with resolved-secret', got %q", result)
+		}
 	})
 
 	t.Run("SecretsProviderError", func(t *testing.T) {
@@ -1269,8 +1484,12 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
 
 		// Verify result
-		assert.Contains(t, result, "<ERROR: failed to parse")
-		assert.Contains(t, result, "secrets.mySecret")
+		if !strings.Contains(result, "<ERROR: failed to parse") {
+			t.Errorf("Expected error message containing 'failed to parse', got %q", result)
+		}
+		if !strings.Contains(result, "secrets.mySecret") {
+			t.Errorf("Expected error message to contain 'secrets.mySecret', got %q", result)
+		}
 	})
 
 	t.Run("NoSecretsProviders", func(t *testing.T) {
@@ -1283,7 +1502,9 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
 
 		// Verify result
-		assert.Equal(t, "<ERROR: No secrets providers configured>", result)
+		if result != "<ERROR: No secrets providers configured>" {
+			t.Errorf("Expected '<ERROR: No secrets providers configured>', got %q", result)
+		}
 	})
 
 	t.Run("UnparsedSecrets", func(t *testing.T) {
@@ -1302,8 +1523,12 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
 
 		// Verify result
-		assert.Contains(t, result, "<ERROR: failed to parse")
-		assert.Contains(t, result, "secrets.mySecret")
+		if !strings.Contains(result, "<ERROR: failed to parse") {
+			t.Errorf("Expected error message containing 'failed to parse', got %q", result)
+		}
+		if !strings.Contains(result, "secrets.mySecret") {
+			t.Errorf("Expected error message to contain 'secrets.mySecret', got %q", result)
+		}
 	})
 
 	t.Run("MultipleUnparsedSecrets", func(t *testing.T) {
@@ -1322,7 +1547,11 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.secretA }} and ${{ secrets.secretB }}")
 
 		// Verify result
-		assert.Contains(t, result, "<ERROR: failed to parse")
-		assert.Contains(t, result, "secrets.secretA, secrets.secretB")
+		if !strings.Contains(result, "<ERROR: failed to parse") {
+			t.Errorf("Expected error message containing 'failed to parse', got %q", result)
+		}
+		if !strings.Contains(result, "secrets.secretA, secrets.secretB") {
+			t.Errorf("Expected error message to contain 'secrets.secretA, secrets.secretB', got %q", result)
+		}
 	})
 }

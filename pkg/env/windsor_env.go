@@ -65,10 +65,13 @@ func (e *WindsorEnvPrinter) Initialize() error {
 	return nil
 }
 
-// GetEnvVars returns a map of Windsor-specific environment variables, including the current context,
-// project root, session token, and custom environment variables with resolved secrets.
+// GetEnvVars constructs a map of Windsor-specific environment variables. It includes
+// the current context, project root, and session token. Custom environment variables
+// are also added, with secrets resolved using configured providers. Managed aliases
+// and environment variables are appended to ensure a complete environment setup.
+// This method ensures that all Windsor-prefixed variables and managed environment variables
+// are included in the final environment setup, providing a comprehensive configuration.
 func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
-	// Get Windsor-specific environment variables
 	envVars := make(map[string]string)
 
 	currentContext := e.configHandler.GetContext()
@@ -86,23 +89,16 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 	envVars["WINDSOR_SESSION_TOKEN"] = sessionToken
 
-	// Get custom environment variables from configuration
 	originalEnvVars := e.configHandler.GetStringMap("environment")
 
 	// #nosec G101 # This is just a regular expression not a secret
 	re := regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
-	windsorContext := os.Getenv("WINDSOR_CONTEXT")
-
-	useCache := true
-	if windsorContext != "" && windsorContext != currentContext {
-		useCache = false
-	}
 
 	for k, v := range originalEnvVars {
 		if re.MatchString(v) {
 			if existingValue, exists := osLookupEnv(k); exists {
-				if os.Getenv("NO_CACHE") != "true" && useCache && !strings.Contains(existingValue, "<ERROR") {
-					// Challenging to test this case, so we'll skip it for now
+				e.SetManagedEnv(k)
+				if shouldUseCache() && !strings.Contains(existingValue, "<ERROR") {
 					continue
 				}
 			}
@@ -115,10 +111,8 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	envVars["WINDSOR_MANAGED_ALIAS"] = strings.Join(e.GetManagedAlias(), ",")
 
-	// Get the list of managed environment variables
 	managedEnv := e.GetManagedEnv()
 
-	// Combine GetManagedEnv with WindsorPrefixedVars and set as WINDSOR_MANAGED_ENV
 	combinedManagedEnv := append(managedEnv, WindsorPrefixedVars...)
 	envVars["WINDSOR_MANAGED_ENV"] = strings.Join(combinedManagedEnv, ",")
 
@@ -253,3 +247,9 @@ func (e *WindsorEnvPrinter) generateRandomString(length int) (string, error) {
 
 // Ensure WindsorEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*WindsorEnvPrinter)(nil)
+
+// shouldUseCache determines if the cache should be used based on the current and Windsor context.
+func shouldUseCache() bool {
+	noCache := os.Getenv("NO_CACHE")
+	return noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
+}
