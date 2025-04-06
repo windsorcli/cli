@@ -13,8 +13,15 @@ import (
 
 const (
 	SessionTokenPrefix = ".session."
-	EnvSessionTokenVar = "WINDSOR_SESSION_TOKEN"
 )
+
+var WindsorPrefixedVars = []string{
+	"WINDSOR_CONTEXT",
+	"WINDSOR_PROJECT_ROOT",
+	"WINDSOR_SESSION_TOKEN",
+	"WINDSOR_MANAGED_ENV",
+	"WINDSOR_MANAGED_ALIAS",
+}
 
 // WindsorEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
 type WindsorEnvPrinter struct {
@@ -77,13 +84,10 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving session token: %w", err)
 	}
-	envVars[EnvSessionTokenVar] = sessionToken
+	envVars["WINDSOR_SESSION_TOKEN"] = sessionToken
 
 	// Get custom environment variables from configuration
 	originalEnvVars := e.configHandler.GetStringMap("environment")
-	if originalEnvVars == nil {
-		return envVars, nil
-	}
 
 	// #nosec G101 # This is just a regular expression not a secret
 	re := regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
@@ -108,6 +112,12 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 			envVars[k] = v
 		}
 	}
+
+	envVars["WINDSOR_MANAGED_ALIAS"] = strings.Join(e.GetManagedAlias(), ",")
+
+	// Combine WindsorPrefixedVars with GetManagedEnv and set as WINDSOR_MANAGED_ENV
+	combinedManagedEnv := append(WindsorPrefixedVars, e.GetManagedEnv()...)
+	envVars["WINDSOR_MANAGED_ENV"] = strings.Join(combinedManagedEnv, ",")
 
 	return envVars, nil
 }
@@ -155,7 +165,7 @@ func (e *WindsorEnvPrinter) Print() error {
 // when the environment changes, ensuring a new token is generated during the next command
 // execution.
 func (e *WindsorEnvPrinter) CreateSessionInvalidationSignal() error {
-	envToken := os.Getenv(EnvSessionTokenVar)
+	envToken := os.Getenv("WINDSOR_SESSION_TOKEN")
 	if envToken == "" {
 		return nil
 	}
@@ -183,7 +193,7 @@ func (e *WindsorEnvPrinter) CreateSessionInvalidationSignal() error {
 // existence of a corresponding signal file. If the signal file exists, it deletes the file and generates a new token.
 // If no token is found in the environment or no signal file exists, it generates a new token.
 func (e *WindsorEnvPrinter) getSessionToken() (string, error) {
-	envToken := os.Getenv(EnvSessionTokenVar)
+	envToken := os.Getenv("WINDSOR_SESSION_TOKEN")
 	if envToken != "" {
 		projectRoot, err := e.shell.GetProjectRoot()
 		if err != nil {
