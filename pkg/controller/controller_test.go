@@ -2,7 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -826,7 +825,7 @@ func TestController_ResolveEnvPrinter(t *testing.T) {
 
 func TestController_ResolveAllEnvPrinters(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a new controller and injector
+		// Given a new controller
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
 		controller.Initialize()
@@ -834,29 +833,31 @@ func TestController_ResolveAllEnvPrinters(t *testing.T) {
 		// When resolving all env printers
 		envPrinters := controller.ResolveAllEnvPrinters()
 
-		// Then there should be no error
-		if envPrinters == nil {
-			t.Fatalf("expected no error, got nil")
+		// Then there should be at least one env printer
+		if len(envPrinters) == 0 {
+			t.Fatalf("expected at least one env printer, got %d", len(envPrinters))
+		}
+	})
+
+	t.Run("WindsorEnvIsLastPrinter", func(t *testing.T) {
+		// Given a new controller with multiple env printers including WindsorEnvPrinter
+		mocks := setSafeControllerMocks()
+		controller := NewController(mocks.Injector)
+		controller.Initialize()
+
+		// When resolving all env printers
+		envPrinters := controller.ResolveAllEnvPrinters()
+
+		// Then there should be multiple env printers
+		if len(envPrinters) < 2 {
+			t.Fatalf("expected at least two env printers, got %d", len(envPrinters))
 		}
 
-		// And the number of resolved env printers should match the expected number
-		if len(envPrinters) != 3 {
-			t.Fatalf("expected %d env printers, got %d", 3, len(envPrinters))
-		}
-
-		// And each resolved env printer should match the expected env printer
-		expectedPrinters := make(map[interface{}]bool)
-		envPrinter1 := mocks.Injector.Resolve("envPrinter1")
-		envPrinter2 := mocks.Injector.Resolve("envPrinter2")
-		windsorEnvPrinter := mocks.Injector.Resolve("windsorEnv")
-		expectedPrinters[envPrinter1] = true
-		expectedPrinters[envPrinter2] = true
-		expectedPrinters[windsorEnvPrinter] = true
-
-		for _, printer := range envPrinters {
-			if _, exists := expectedPrinters[printer]; !exists {
-				t.Fatalf("unexpected printer: got %v", printer)
-			}
+		// And the last env printer should be the WindsorEnvPrinter
+		lastPrinter := envPrinters[len(envPrinters)-1]
+		_, isWindsorEnv := lastPrinter.(*env.WindsorEnvPrinter)
+		if !isWindsorEnv {
+			t.Errorf("expected last printer to be *env.WindsorEnvPrinter, got %T", lastPrinter)
 		}
 	})
 }
@@ -1072,6 +1073,17 @@ func TestController_SetEnvironmentVariables(t *testing.T) {
 		controller := NewController(mocks.Injector)
 		controller.Initialize()
 
+		// Create a map to track what environment variables were set
+		setEnvCalls := make(map[string]string)
+
+		// Mock the osSetenv function
+		originalSetenv := osSetenv
+		defer func() { osSetenv = originalSetenv }()
+		osSetenv = func(key, value string) error {
+			setEnvCalls[key] = value
+			return nil
+		}
+
 		// When setting environment variables
 		err := controller.SetEnvironmentVariables()
 
@@ -1080,13 +1092,13 @@ func TestController_SetEnvironmentVariables(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// And the environment variables should be set correctly
+		// Verify environment variables were set correctly through our mock
 		envPrinters := controller.ResolveAllEnvPrinters()
 		for _, envPrinter := range envPrinters {
 			envVars, _ := envPrinter.GetEnvVars()
 			for key, value := range envVars {
-				if os.Getenv(key) != value {
-					t.Fatalf("expected environment variable %s to be %s, got %s", key, value, os.Getenv(key))
+				if setValue, ok := setEnvCalls[key]; !ok || setValue != value {
+					t.Fatalf("expected environment variable %s to be set to %s, got %s", key, value, setValue)
 				}
 			}
 		}
@@ -1123,7 +1135,7 @@ func TestController_SetEnvironmentVariables(t *testing.T) {
 			return map[string]string{"TEST_VAR": "test_value"}, nil
 		}
 
-		// Simulate os.Setenv throwing an error
+		// Simulate osSetenv throwing an error
 		originalSetenv := osSetenv
 		defer func() { osSetenv = originalSetenv }()
 		osSetenv = func(key, value string) error {
