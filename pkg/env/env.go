@@ -2,6 +2,7 @@ package env
 
 import (
 	"fmt"
+	"slices"
 
 	"sync"
 
@@ -27,8 +28,8 @@ type EnvPrinter interface {
 	PostEnvHook() error
 	GetManagedEnv() []string
 	GetManagedAlias() []string
-	SetManagedEnv(env []string)
-	SetManagedAlias(alias []string)
+	SetManagedEnv(env string)
+	SetManagedAlias(alias string)
 }
 
 // Env is a struct that implements the EnvPrinter interface.
@@ -127,15 +128,21 @@ func (e *BaseEnvPrinter) GetManagedAlias() []string {
 }
 
 // SetManagedEnv sets the environment variables that are managed by Windsor.
-func (e *BaseEnvPrinter) SetManagedEnv(env []string) {
+func (e *BaseEnvPrinter) SetManagedEnv(env string) {
 	windsorManagedMu.Lock()
 	defer windsorManagedMu.Unlock()
-	windsorManagedEnv = env
+	if slices.Contains(windsorManagedEnv, env) {
+		return
+	}
+	windsorManagedEnv = append(windsorManagedEnv, env)
 }
 
 // SetManagedAlias sets the shell aliases that are managed by Windsor.
-func (e *BaseEnvPrinter) SetManagedAlias(alias []string) {
+func (e *BaseEnvPrinter) SetManagedAlias(alias string) {
 	windsorManagedMu.Lock()
 	defer windsorManagedMu.Unlock()
-	windsorManagedAlias = alias
+	if slices.Contains(windsorManagedAlias, alias) {
+		return
+	}
+	windsorManagedAlias = append(windsorManagedAlias, alias)
 }
