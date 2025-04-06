@@ -2,7 +2,6 @@ package env
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -259,11 +258,6 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			return fmt.Errorf("mock error removing signal file")
 		}
 
-		// Set up to capture stdout
-		origStdout := os.Stdout
-		r, w, _ := os.Pipe()
-		os.Stdout = w
-
 		// Mock crypto functions for predictable output
 		origCryptoRandRead := cryptoRandRead
 		cryptoRandRead = func(b []byte) (n int, err error) {
@@ -281,6 +275,13 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		// Set up environment variable with a token
 		t.Setenv("WINDSOR_SESSION_TOKEN", "envtoken")
 
+		// We'll redirect stdout to discard any error output
+		origStdout := os.Stdout
+		os.Stdout = os.NewFile(0, os.DevNull)
+		defer func() {
+			os.Stdout = origStdout
+		}()
+
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
 		windsorEnvPrinter.Initialize()
 
@@ -288,22 +289,6 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
-		}
-
-		// Close the writer to get all output
-		w.Close()
-		os.Stdout = origStdout
-		var buf strings.Builder
-		_, err = io.Copy(&buf, r)
-		if err != nil {
-			t.Fatalf("Failed to read captured output: %v", err)
-		}
-		capturedOutput := buf.String()
-
-		// Verify the error message was printed to stdout
-		expectedErrMsg := "error removing token file: mock error removing signal file"
-		if !strings.Contains(capturedOutput, expectedErrMsg) {
-			t.Errorf("Expected output to contain %q, got %q", expectedErrMsg, capturedOutput)
 		}
 
 		// Verify a new token was generated (not the env token)

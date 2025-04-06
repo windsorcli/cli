@@ -158,7 +158,7 @@ func (e *WindsorEnvPrinter) Print() error {
 	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// CreateSessionInvalidationSignal creates a signal file to invalidate the session token
+// CreateSessionInvalidationSignal creates a session file to invalidate the session token
 // when the environment changes, ensuring a new token is generated during the next command
 // execution.
 func (e *WindsorEnvPrinter) CreateSessionInvalidationSignal() error {
@@ -177,8 +177,8 @@ func (e *WindsorEnvPrinter) CreateSessionInvalidationSignal() error {
 		return fmt.Errorf("failed to create .windsor directory: %w", err)
 	}
 
-	signalFilePath := filepath.Join(windsorDir, SessionTokenPrefix+envToken)
-	if err := writeFile(signalFilePath, []byte{}, 0644); err != nil {
+	sessionFilePath := filepath.Join(windsorDir, SessionTokenPrefix+envToken)
+	if err := writeFile(sessionFilePath, []byte{}, 0644); err != nil {
 		return fmt.Errorf("failed to create signal file: %w", err)
 	}
 
@@ -187,8 +187,9 @@ func (e *WindsorEnvPrinter) CreateSessionInvalidationSignal() error {
 
 // getSessionToken retrieves or generates a session token. It first checks if a token is already stored in memory.
 // If not, it looks for a token in the environment variable. If an environment token is found, it verifies the
-// existence of a corresponding signal file. If the signal file exists, it deletes the file and generates a new token.
-// If no token is found in the environment or no signal file exists, it generates a new token.
+// existence of a corresponding session file. If the specific session file exists, it deletes all session files and
+// generates a new token. If no token is found in the environment or the specific session file does not exist, it
+// generates a new token.
 func (e *WindsorEnvPrinter) getSessionToken() (string, error) {
 	envToken := os.Getenv("WINDSOR_SESSION_TOKEN")
 	if envToken != "" {
@@ -201,8 +202,16 @@ func (e *WindsorEnvPrinter) getSessionToken() (string, error) {
 		tokenFilePath := filepath.Join(windsorDir, SessionTokenPrefix+envToken)
 		if _, err := stat(tokenFilePath); err == nil {
 			defer func() {
-				if err := osRemoveAll(tokenFilePath); err != nil {
-					fmt.Printf("error removing token file: %v\n", err)
+				sessionFilesPattern := filepath.Join(windsorDir, SessionTokenPrefix+"*")
+				sessionFiles, err := filepath.Glob(sessionFilesPattern)
+				if err != nil {
+					fmt.Printf("error finding session files: %v\n", err)
+					return
+				}
+				for _, file := range sessionFiles {
+					if err := osRemoveAll(file); err != nil {
+						fmt.Printf("error removing session file %s: %v\n", file, err)
+					}
 				}
 			}()
 			token, err := e.generateRandomString(7)
