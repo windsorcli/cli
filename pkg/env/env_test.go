@@ -1,7 +1,9 @@
 package env
 
 import (
+	"os"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -487,6 +489,138 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 		// Verify expected aliases are present
 		if managedAlias[0] != "set_alias1" {
 			t.Errorf("expected [set_alias1], got %v", managedAlias)
+		}
+	})
+}
+
+// TestBaseEnvPrinter_Reset tests the Reset method of the BaseEnvPrinter struct
+func TestBaseEnvPrinter_Reset(t *testing.T) {
+	t.Run("ResetWithNoEnvVars", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
+		mocks := setupEnvMockTests(nil)
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
+
+		// Track calls to UnsetEnvs and UnsetAlias
+		var capturedEnvs []string
+		var capturedAliases []string
+		mocks.Shell.UnsetEnvsFunc = func(envVars []string) {
+			capturedEnvs = envVars
+		}
+		mocks.Shell.UnsetAliasFunc = func(aliases []string) {
+			capturedAliases = aliases
+		}
+
+		// Make sure environment variables are not set
+		os.Unsetenv("WINDSOR_MANAGED_ENV")
+		os.Unsetenv("WINDSOR_MANAGED_ALIAS")
+
+		// When calling Reset
+		envPrinter.Reset()
+
+		// Then UnsetEnvs and UnsetAlias should not be called
+		if capturedEnvs != nil {
+			t.Errorf("expected UnsetEnvs not to be called, but it was called with %v", capturedEnvs)
+		}
+		if capturedAliases != nil {
+			t.Errorf("expected UnsetAlias not to be called, but it was called with %v", capturedAliases)
+		}
+	})
+
+	t.Run("ResetWithEnvironmentVariables", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
+		mocks := setupEnvMockTests(nil)
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
+
+		// Set environment variables
+		os.Setenv("WINDSOR_MANAGED_ENV", "ENV1,ENV2, ENV3")
+		os.Setenv("WINDSOR_MANAGED_ALIAS", "alias1,alias2, alias3")
+		defer func() {
+			os.Unsetenv("WINDSOR_MANAGED_ENV")
+			os.Unsetenv("WINDSOR_MANAGED_ALIAS")
+		}()
+
+		// Track calls to UnsetEnvs and UnsetAlias
+		var capturedEnvs []string
+		var capturedAliases []string
+		mocks.Shell.UnsetEnvsFunc = func(envVars []string) {
+			capturedEnvs = envVars
+		}
+		mocks.Shell.UnsetAliasFunc = func(aliases []string) {
+			capturedAliases = aliases
+		}
+
+		// When calling Reset
+		envPrinter.Reset()
+
+		// Then UnsetEnvs should be called with the correct environment variables
+		expectedEnvs := []string{"ENV1", "ENV2", "ENV3"}
+		if len(capturedEnvs) != len(expectedEnvs) {
+			t.Errorf("expected UnsetEnvs to be called with %v items, got %v", len(expectedEnvs), len(capturedEnvs))
+		}
+		for _, env := range expectedEnvs {
+			if !slices.Contains(capturedEnvs, env) {
+				t.Errorf("expected UnsetEnvs to contain %s", env)
+			}
+		}
+
+		// And UnsetAlias should be called with the correct aliases
+		expectedAliases := []string{"alias1", "alias2", "alias3"}
+		if len(capturedAliases) != len(expectedAliases) {
+			t.Errorf("expected UnsetAlias to be called with %v items, got %v", len(expectedAliases), len(capturedAliases))
+		}
+		for _, alias := range expectedAliases {
+			if !slices.Contains(capturedAliases, alias) {
+				t.Errorf("expected UnsetAlias to contain %s", alias)
+			}
+		}
+	})
+
+	t.Run("InternalStatePersistsWithReset", func(t *testing.T) {
+		// Given a new BaseEnvPrinter with managed environment variables and aliases
+		mocks := setupEnvMockTests(nil)
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
+
+		// Set up some managed environment variables and aliases
+		envPrinter.SetManagedEnv("TEST_ENV1")
+		envPrinter.SetManagedEnv("TEST_ENV2")
+		envPrinter.SetManagedAlias("test_alias1")
+		envPrinter.SetManagedAlias("test_alias2")
+
+		// Make sure environment variables are not set
+		os.Unsetenv("WINDSOR_MANAGED_ENV")
+		os.Unsetenv("WINDSOR_MANAGED_ALIAS")
+
+		// Track calls to UnsetEnvs and UnsetAlias
+		var capturedEnvs []string
+		var capturedAliases []string
+		mocks.Shell.UnsetEnvsFunc = func(envVars []string) {
+			capturedEnvs = envVars
+		}
+		mocks.Shell.UnsetAliasFunc = func(aliases []string) {
+			capturedAliases = aliases
+		}
+
+		// When calling Reset
+		envPrinter.Reset()
+
+		// Then UnsetEnvs and UnsetAlias should not be called with internal values
+		if capturedEnvs != nil {
+			t.Errorf("expected UnsetEnvs not to be called, but it was called with %v", capturedEnvs)
+		}
+		if capturedAliases != nil {
+			t.Errorf("expected UnsetAlias not to be called, but it was called with %v", capturedAliases)
 		}
 	})
 }

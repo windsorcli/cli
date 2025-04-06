@@ -2,7 +2,9 @@ package env
 
 import (
 	"fmt"
+	"os"
 	"slices"
+	"strings"
 
 	"sync"
 
@@ -30,6 +32,7 @@ type EnvPrinter interface {
 	GetManagedAlias() []string
 	SetManagedEnv(env string)
 	SetManagedAlias(alias string)
+	Reset()
 }
 
 // Env is a struct that implements the EnvPrinter interface.
@@ -155,4 +158,38 @@ func (e *BaseEnvPrinter) SetManagedAlias(alias string) {
 		return
 	}
 	windsorManagedAlias = append(windsorManagedAlias, alias)
+}
+
+// Reset removes all managed environment variables and aliases.
+// It uses the environment variables "WINDSOR_MANAGED_ENV" and "WINDSOR_MANAGED_ALIAS"
+// to retrieve the previous set of managed environment variables and aliases, respectively.
+// These environment variables represent the previous set of managed values that need to be reset.
+func (e *BaseEnvPrinter) Reset() {
+	var managedEnvs []string
+	if envStr := os.Getenv("WINDSOR_MANAGED_ENV"); envStr != "" {
+		for _, env := range strings.Split(envStr, ",") {
+			env = strings.TrimSpace(env)
+			if env != "" {
+				managedEnvs = append(managedEnvs, env)
+			}
+		}
+	}
+
+	var managedAliases []string
+	if aliasStr := os.Getenv("WINDSOR_MANAGED_ALIAS"); aliasStr != "" {
+		for _, alias := range strings.Split(aliasStr, ",") {
+			alias = strings.TrimSpace(alias)
+			if alias != "" {
+				managedAliases = append(managedAliases, alias)
+			}
+		}
+	}
+
+	if len(managedEnvs) > 0 {
+		e.shell.UnsetEnvs(managedEnvs)
+	}
+
+	if len(managedAliases) > 0 {
+		e.shell.UnsetAlias(managedAliases)
+	}
 }

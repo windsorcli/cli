@@ -19,6 +19,8 @@ type MockShell struct {
 	SetVerbosityFunc               func(verbose bool)
 	AddCurrentDirToTrustedFileFunc func() error
 	CheckTrustedDirectoryFunc      func() error
+	UnsetEnvsFunc                  func(envVars []string)
+	UnsetAliasFunc                 func(aliases []string)
 }
 
 // NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
@@ -125,6 +127,20 @@ func (s *MockShell) CheckTrustedDirectory() error {
 		return s.CheckTrustedDirectoryFunc()
 	}
 	return nil
+}
+
+// UnsetEnvs calls the custom UnsetEnvsFunc if provided.
+func (s *MockShell) UnsetEnvs(envVars []string) {
+	if s.UnsetEnvsFunc != nil {
+		s.UnsetEnvsFunc(envVars)
+	}
+}
+
+// UnsetAlias calls the custom UnsetAliasFunc if provided.
+func (s *MockShell) UnsetAlias(aliases []string) {
+	if s.UnsetAliasFunc != nil {
+		s.UnsetAliasFunc(aliases)
+	}
 }
 
 // Ensure MockShell implements the Shell interface

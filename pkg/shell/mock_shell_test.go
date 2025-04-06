@@ -396,3 +396,261 @@ func TestMockShell_CheckTrustedDirectory(t *testing.T) {
 		assertError(t, err, false)
 	})
 }
+
+func TestMockShell_UnsetEnvs(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with a custom UnsetEnvsFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// Track which variables were passed to the function
+		var capturedEnvVars []string
+		mockShell.UnsetEnvsFunc = func(envVars []string) {
+			capturedEnvVars = envVars
+		}
+
+		// When calling UnsetEnvs with a list of environment variables
+		envVarsToUnset := []string{"VAR1", "VAR2", "VAR3"}
+		mockShell.UnsetEnvs(envVarsToUnset)
+
+		// Then the function should be called with the correct variables
+		if len(capturedEnvVars) != len(envVarsToUnset) {
+			t.Errorf("Expected %d env vars, got %d", len(envVarsToUnset), len(capturedEnvVars))
+		}
+
+		for i, envVar := range envVarsToUnset {
+			if capturedEnvVars[i] != envVar {
+				t.Errorf("Expected env var %s at position %d, got %s", envVar, i, capturedEnvVars[i])
+			}
+		}
+	})
+
+	t.Run("EmptyList", func(t *testing.T) {
+		// Given a mock shell with a custom UnsetEnvsFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// Track if the function was called
+		functionCalled := false
+		mockShell.UnsetEnvsFunc = func(envVars []string) {
+			functionCalled = true
+		}
+
+		// When calling UnsetEnvs with an empty list
+		mockShell.UnsetEnvs([]string{})
+
+		// Then the function should still be called
+		if !functionCalled {
+			t.Errorf("Expected UnsetEnvsFunc to be called even with empty list")
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with no UnsetEnvsFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// When calling UnsetEnvs
+		// Then no error should occur (function should not panic)
+		mockShell.UnsetEnvs([]string{"VAR1", "VAR2"})
+	})
+}
+
+func TestMockShell_UnsetAlias(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with a custom UnsetAliasFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// Track which aliases were passed to the function
+		var capturedAliases []string
+		mockShell.UnsetAliasFunc = func(aliases []string) {
+			capturedAliases = aliases
+		}
+
+		// When calling UnsetAlias with a list of aliases
+		aliasesToUnset := []string{"alias1", "alias2", "alias3"}
+		mockShell.UnsetAlias(aliasesToUnset)
+
+		// Then the function should be called with the correct aliases
+		if len(capturedAliases) != len(aliasesToUnset) {
+			t.Errorf("Expected %d aliases, got %d", len(aliasesToUnset), len(capturedAliases))
+		}
+
+		for i, alias := range aliasesToUnset {
+			if capturedAliases[i] != alias {
+				t.Errorf("Expected alias %s at position %d, got %s", alias, i, capturedAliases[i])
+			}
+		}
+	})
+
+	t.Run("EmptyList", func(t *testing.T) {
+		// Given a mock shell with a custom UnsetAliasFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// Track if the function was called
+		functionCalled := false
+		mockShell.UnsetAliasFunc = func(aliases []string) {
+			functionCalled = true
+		}
+
+		// When calling UnsetAlias with an empty list
+		mockShell.UnsetAlias([]string{})
+
+		// Then the function should still be called
+		if !functionCalled {
+			t.Errorf("Expected UnsetAliasFunc to be called even with empty list")
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with no UnsetAliasFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// When calling UnsetAlias
+		// Then no error should occur (function should not panic)
+		mockShell.UnsetAlias([]string{"alias1", "alias2"})
+	})
+}
+
+func TestMockShell_PrintEnvVars(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with a custom PrintEnvVarsFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// Track which environment variables were passed to the function
+		var capturedEnvVars map[string]string
+		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
+			capturedEnvVars = envVars
+		}
+
+		// When calling PrintEnvVars with a map of environment variables
+		envVarsToPrint := map[string]string{
+			"VAR1": "value1",
+			"VAR2": "value2",
+			"VAR3": "value3",
+		}
+		mockShell.PrintEnvVars(envVarsToPrint)
+
+		// Then the function should be called with the correct variables
+		if len(capturedEnvVars) != len(envVarsToPrint) {
+			t.Errorf("Expected %d env vars, got %d", len(envVarsToPrint), len(capturedEnvVars))
+		}
+
+		for key, value := range envVarsToPrint {
+			capturedValue, exists := capturedEnvVars[key]
+			if !exists {
+				t.Errorf("Expected env var %s to be passed to PrintEnvVarsFunc, but it wasn't", key)
+			}
+			if capturedValue != value {
+				t.Errorf("Expected env var %s to have value %s, got %s", key, value, capturedValue)
+			}
+		}
+	})
+
+	t.Run("EmptyMap", func(t *testing.T) {
+		// Given a mock shell with a custom PrintEnvVarsFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// Track if the function was called
+		functionCalled := false
+		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
+			functionCalled = true
+			if len(envVars) != 0 {
+				t.Errorf("Expected empty map, got map with %d elements", len(envVars))
+			}
+		}
+
+		// When calling PrintEnvVars with an empty map
+		mockShell.PrintEnvVars(map[string]string{})
+
+		// Then the function should still be called
+		if !functionCalled {
+			t.Errorf("Expected PrintEnvVarsFunc to be called even with empty map")
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with no PrintEnvVarsFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// When calling PrintEnvVars
+		// Then no error should occur (function should not panic)
+		mockShell.PrintEnvVars(map[string]string{"VAR1": "value1"})
+	})
+}
+
+func TestMockShell_PrintAlias(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with a custom PrintAliasFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// Track which aliases were passed to the function
+		var capturedAliases map[string]string
+		mockShell.PrintAliasFunc = func(aliases map[string]string) {
+			capturedAliases = aliases
+		}
+
+		// When calling PrintAlias with a map of aliases
+		aliasesToPrint := map[string]string{
+			"alias1": "command1",
+			"alias2": "command2",
+			"alias3": "command3",
+		}
+		mockShell.PrintAlias(aliasesToPrint)
+
+		// Then the function should be called with the correct aliases
+		if len(capturedAliases) != len(aliasesToPrint) {
+			t.Errorf("Expected %d aliases, got %d", len(aliasesToPrint), len(capturedAliases))
+		}
+
+		for key, value := range aliasesToPrint {
+			capturedValue, exists := capturedAliases[key]
+			if !exists {
+				t.Errorf("Expected alias %s to be passed to PrintAliasFunc, but it wasn't", key)
+			}
+			if capturedValue != value {
+				t.Errorf("Expected alias %s to have value %s, got %s", key, value, capturedValue)
+			}
+		}
+	})
+
+	t.Run("EmptyMap", func(t *testing.T) {
+		// Given a mock shell with a custom PrintAliasFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// Track if the function was called
+		functionCalled := false
+		mockShell.PrintAliasFunc = func(aliases map[string]string) {
+			functionCalled = true
+			if len(aliases) != 0 {
+				t.Errorf("Expected empty map, got map with %d elements", len(aliases))
+			}
+		}
+
+		// When calling PrintAlias with an empty map
+		mockShell.PrintAlias(map[string]string{})
+
+		// Then the function should still be called
+		if !functionCalled {
+			t.Errorf("Expected PrintAliasFunc to be called even with empty map")
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with no PrintAliasFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// When calling PrintAlias
+		// Then no error should occur (function should not panic)
+		mockShell.PrintAlias(map[string]string{"alias1": "command1"})
+	})
+}
