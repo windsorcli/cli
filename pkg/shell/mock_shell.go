@@ -8,8 +8,8 @@ import (
 type MockShell struct {
 	DefaultShell
 	InitializeFunc                 func() error
-	PrintEnvVarsFunc               func(envVars map[string]string) error
-	PrintAliasFunc                 func(envVars map[string]string) error
+	PrintEnvVarsFunc               func(envVars map[string]string)
+	PrintAliasFunc                 func(envVars map[string]string)
 	GetProjectRootFunc             func() (string, error)
 	ExecFunc                       func(command string, args ...string) (string, error)
 	ExecSilentFunc                 func(command string, args ...string) (string, error)
@@ -43,19 +43,17 @@ func (s *MockShell) Initialize() error {
 }
 
 // PrintEnvVars calls the custom PrintEnvVarsFunc if provided.
-func (s *MockShell) PrintEnvVars(envVars map[string]string) error {
+func (s *MockShell) PrintEnvVars(envVars map[string]string) {
 	if s.PrintEnvVarsFunc != nil {
-		return s.PrintEnvVarsFunc(envVars)
+		s.PrintEnvVarsFunc(envVars)
 	}
-	return nil
 }
 
 // PrintAlias calls the custom PrintAliasFunc if provided.
-func (s *MockShell) PrintAlias(envVars map[string]string) error {
+func (s *MockShell) PrintAlias(envVars map[string]string) {
 	if s.PrintAliasFunc != nil {
-		return s.PrintAliasFunc(envVars)
+		s.PrintAliasFunc(envVars)
 	}
-	return nil
 }
 
 // GetProjectRoot calls the custom GetProjectRootFunc if provided.

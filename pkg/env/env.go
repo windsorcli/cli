@@ -77,7 +77,8 @@ func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
 		e.SetManagedEnv(key)
 	}
 
-	return e.shell.PrintEnvVars(envVars)
+	e.shell.PrintEnvVars(envVars)
+	return nil
 }
 
 // GetEnvVars is a placeholder for retrieving environment variables.
@@ -106,7 +107,8 @@ func (e *BaseEnvPrinter) PrintAlias(customAlias ...map[string]string) error {
 		e.SetManagedAlias(key)
 	}
 
-	return e.shell.PrintAlias(aliasMap)
+	e.shell.PrintAlias(aliasMap)
+	return nil
 }
 
 // GetAlias is a placeholder for creating an alias for a command.

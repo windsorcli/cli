@@ -32,9 +32,9 @@ type Shell interface {
 	// SetVerbosity sets the verbosity flag
 	SetVerbosity(verbose bool)
 	// PrintEnvVars prints the provided environment variables
-	PrintEnvVars(envVars map[string]string) error
+	PrintEnvVars(envVars map[string]string)
 	// PrintAlias retrieves the shell alias
-	PrintAlias(envVars map[string]string) error
+	PrintAlias(envVars map[string]string)
 	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
 	// Exec executes a command with optional privilege elevation
@@ -52,9 +52,9 @@ type Shell interface {
 	// CheckTrustedDirectory verifies if the current directory is in the trusted file list.
 	CheckTrustedDirectory() error
 	// UnsetEnvs generates a command to unset multiple environment variables
-	UnsetEnvs(envVars []string) error
+	UnsetEnvs(envVars []string)
 	// UnsetAlias generates commands to unset multiple aliases
-	UnsetAlias(aliases []string) error
+	UnsetAlias(aliases []string)
 }
 
 // DefaultShell is the default implementation of the Shell interface

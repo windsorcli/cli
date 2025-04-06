@@ -103,10 +103,7 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 
 		// Capture the output of PrintAlias
 		output := captureStdout(t, func() {
-			err := shell.PrintAlias(aliasVars)
-			if err != nil {
-				t.Fatalf("PrintAlias returned an error: %v", err)
-			}
+			shell.PrintAlias(aliasVars)
 		})
 
 		// Then the output should contain all expected alias variables
@@ -130,10 +127,7 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 
 		// Capture the output of PrintAlias
 		output := captureStdout(t, func() {
-			err := shell.PrintAlias(aliasVarsWithEmpty)
-			if err != nil {
-				t.Fatalf("PrintAlias returned an error: %v", err)
-			}
+			shell.PrintAlias(aliasVarsWithEmpty)
 		})
 
 		// Then the output should contain the expected alias and unalias commands
@@ -159,10 +153,7 @@ func TestDefaultShell_UnsetEnvs(t *testing.T) {
 
 	// When capturing the output of UnsetEnvs
 	output := captureStdout(t, func() {
-		err := shell.UnsetEnvs(envVars)
-		if err != nil {
-			t.Fatalf("UnsetEnvs returned an error: %v", err)
-		}
+		shell.UnsetEnvs(envVars)
 	})
 
 	// Then the output should match the expected output
@@ -172,10 +163,7 @@ func TestDefaultShell_UnsetEnvs(t *testing.T) {
 
 	// Test with empty list
 	emptyOutput := captureStdout(t, func() {
-		err := shell.UnsetEnvs([]string{})
-		if err != nil {
-			t.Fatalf("UnsetEnvs with empty list returned an error: %v", err)
-		}
+		shell.UnsetEnvs([]string{})
 	})
 
 	// Then the output should be empty
@@ -194,10 +182,7 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 
 	// When capturing the output of UnsetAlias
 	output := captureStdout(t, func() {
-		err := shell.UnsetAlias(aliases)
-		if err != nil {
-			t.Fatalf("UnsetAlias returned an error: %v", err)
-		}
+		shell.UnsetAlias(aliases)
 	})
 
 	// Then the output should match the expected output
@@ -207,10 +192,7 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 
 	// Test with empty list
 	emptyOutput := captureStdout(t, func() {
-		err := shell.UnsetAlias([]string{})
-		if err != nil {
-			t.Fatalf("UnsetAlias with empty list returned an error: %v", err)
-		}
+		shell.UnsetAlias([]string{})
 	})
 
 	// Then the output should be empty

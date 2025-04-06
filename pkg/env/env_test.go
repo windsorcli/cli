@@ -129,9 +129,8 @@ func TestEnv_Print(t *testing.T) {
 
 		// Mock the PrintEnvVarsFunc to verify it is called
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
-			return nil
 		}
 
 		// Set up test environment variables
@@ -162,9 +161,8 @@ func TestEnv_Print(t *testing.T) {
 
 		// Mock the PrintEnvVarsFunc to verify it is called
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
-			return nil
 		}
 
 		// Call Print without custom vars and check for errors
@@ -195,9 +193,8 @@ func TestEnv_PrintAlias(t *testing.T) {
 
 		// Mock the PrintAliasFunc to verify it is called
 		var capturedAlias map[string]string
-		mocks.Shell.PrintAliasFunc = func(alias map[string]string) error {
+		mocks.Shell.PrintAliasFunc = func(alias map[string]string) {
 			capturedAlias = alias
-			return nil
 		}
 
 		// Set up test alias
@@ -228,9 +225,8 @@ func TestEnv_PrintAlias(t *testing.T) {
 
 		// Mock the PrintAliasFunc to verify it is called
 		var capturedAlias map[string]string
-		mocks.Shell.PrintAliasFunc = func(alias map[string]string) error {
+		mocks.Shell.PrintAliasFunc = func(alias map[string]string) {
 			capturedAlias = alias
-			return nil
 		}
 
 		// Call PrintAlias without custom alias

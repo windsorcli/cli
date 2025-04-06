@@ -11,7 +11,7 @@ import (
 
 // PrintEnvVars prints the provided environment variables in a sorted order.
 // If the value of an environment variable is an empty string, it will print an unset command.
-func (s *DefaultShell) PrintEnvVars(envVars map[string]string) error {
+func (s *DefaultShell) PrintEnvVars(envVars map[string]string) {
 	// Create a slice to hold the keys of the envVars map
 	keys := make([]string, 0, len(envVars))
 
@@ -33,11 +33,10 @@ func (s *DefaultShell) PrintEnvVars(envVars map[string]string) error {
 			fmt.Printf("export %s=\"%s\"\n", k, envVars[k])
 		}
 	}
-	return nil
 }
 
 // PrintAlias prints the aliases for the shell.
-func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
+func (s *DefaultShell) PrintAlias(aliases map[string]string) {
 	// Create a slice to hold the keys of the aliases map
 	keys := make([]string, 0, len(aliases))
 
@@ -59,33 +58,28 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 			fmt.Printf("alias %s=\"%s\"\n", k, aliases[k])
 		}
 	}
-	return nil
 }
 
 // UnsetEnvs generates a command to unset multiple environment variables.
 // For Unix shells, this produces a single 'unset' command with all variables in one line.
-func (s *DefaultShell) UnsetEnvs(envVars []string) error {
+func (s *DefaultShell) UnsetEnvs(envVars []string) {
 	if len(envVars) == 0 {
-		return nil
+		return
 	}
 
 	// Create a single unset command with all environment variables
 	fmt.Printf("unset %s\n", strings.Join(envVars, " "))
-
-	return nil
 }
 
 // UnsetAlias generates commands to unset multiple aliases.
 // For Unix shells, this produces a separate 'unalias' command for each alias.
-func (s *DefaultShell) UnsetAlias(aliases []string) error {
+func (s *DefaultShell) UnsetAlias(aliases []string) {
 	if len(aliases) == 0 {
-		return nil
+		return
 	}
 
 	// Print individual unalias commands for each alias
 	for _, alias := range aliases {
 		fmt.Printf("unalias %s\n", alias)
 	}
-
-	return nil
 }

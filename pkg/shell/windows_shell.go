@@ -9,7 +9,7 @@ import (
 )
 
 // PrintEnvVars sorts and prints environment variables. Empty values trigger a removal command.
-func (s *DefaultShell) PrintEnvVars(envVars map[string]string) error {
+func (s *DefaultShell) PrintEnvVars(envVars map[string]string) {
 	keys := make([]string, 0, len(envVars))
 	for k := range envVars {
 		keys = append(keys, k)
@@ -22,11 +22,10 @@ func (s *DefaultShell) PrintEnvVars(envVars map[string]string) error {
 			fmt.Printf("$env:%s='%s'\n", k, envVars[k])
 		}
 	}
-	return nil
 }
 
 // PrintAlias prints the aliases for the shell.
-func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
+func (s *DefaultShell) PrintAlias(aliases map[string]string) {
 	// Create a slice to hold the keys of the aliases map
 	keys := make([]string, 0, len(aliases))
 
@@ -48,35 +47,30 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 			fmt.Printf("Set-Alias -Name %s -Value \"%s\"\n", k, aliases[k])
 		}
 	}
-	return nil
 }
 
 // UnsetEnvs generates commands to unset multiple environment variables.
 // For Windows PowerShell, this produces a Remove-Item command for each environment variable.
-func (s *DefaultShell) UnsetEnvs(envVars []string) error {
+func (s *DefaultShell) UnsetEnvs(envVars []string) {
 	if len(envVars) == 0 {
-		return nil
+		return
 	}
 
 	// Print Remove-Item commands for each environment variable
 	for _, env := range envVars {
 		fmt.Printf("Remove-Item Env:%s\n", env)
 	}
-
-	return nil
 }
 
 // UnsetAlias generates commands to unset multiple aliases.
 // For Windows PowerShell, this produces a Remove-Item command for each alias.
-func (s *DefaultShell) UnsetAlias(aliases []string) error {
+func (s *DefaultShell) UnsetAlias(aliases []string) {
 	if len(aliases) == 0 {
-		return nil
+		return
 	}
 
 	// Print Remove-Item commands for each alias
 	for _, alias := range aliases {
 		fmt.Printf("Remove-Item Alias:%s\n", alias)
 	}
-
-	return nil
 }

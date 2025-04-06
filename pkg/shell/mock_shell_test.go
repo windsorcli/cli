@@ -2,7 +2,6 @@ package shell
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/di"
@@ -57,95 +56,6 @@ func TestMockShell_Initialize(t *testing.T) {
 
 		// Then no error should be returned as the default implementation does nothing
 		assertError(t, err, false)
-	})
-}
-
-func TestMockShell_PrintEnvVars(t *testing.T) {
-	envVars := map[string]string{
-		"VAR1": "value1",
-		"VAR2": "value2",
-	}
-
-	t.Run("DefaultPrintEnvVars", func(t *testing.T) {
-		injector := di.NewInjector()
-
-		// Given a mock shell with default PrintEnvVars implementation
-		mockShell := NewMockShell(injector)
-		// When calling PrintEnvVars
-		output := captureStdout(t, func() {
-			mockShell.PrintEnvVars(envVars)
-		})
-		// Then the output should be empty as the default implementation does nothing
-		if output != "" {
-			t.Errorf("PrintEnvVars() output = %v, want %v", output, "")
-		}
-	})
-
-	t.Run("CustomPrintEnvVars", func(t *testing.T) {
-		injector := di.NewInjector()
-		// Given a mock shell with custom PrintEnvVars implementation
-		mockShell := NewMockShell(injector)
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) error {
-			for key, value := range envVars {
-				fmt.Printf("%s=%s\n", key, value)
-			}
-			return nil
-		}
-		// When calling PrintEnvVars
-		output := captureStdout(t, func() {
-			mockShell.PrintEnvVars(envVars)
-		})
-		// Then the output should contain all expected environment variables
-		for key, value := range envVars {
-			expectedLine := fmt.Sprintf("%s=%s\n", key, value)
-			if !strings.Contains(output, expectedLine) {
-				t.Errorf("PrintEnvVars() output missing expected line: %v", expectedLine)
-			}
-		}
-	})
-}
-
-func TestMockShell_PrintAlias(t *testing.T) {
-	aliasVars := map[string]string{
-		"ALIAS1": "command1",
-		"ALIAS2": "command2",
-	}
-
-	t.Run("DefaultPrintAlias", func(t *testing.T) {
-		injector := di.NewInjector()
-		// Given a mock shell with default PrintAlias implementation
-		mockShell := NewMockShell(injector)
-		// When calling PrintAlias
-		output := captureStdout(t, func() {
-			mockShell.PrintAlias(aliasVars)
-		})
-		// Then the output should be empty as the default implementation does nothing
-		if output != "" {
-			t.Errorf("PrintAlias() output = %v, want %v", output, "")
-		}
-	})
-
-	t.Run("CustomPrintAlias", func(t *testing.T) {
-		injector := di.NewInjector()
-		// Given a mock shell with custom PrintAlias implementation
-		mockShell := NewMockShell(injector)
-		mockShell.PrintAliasFunc = func(aliasVars map[string]string) error {
-			for key, value := range aliasVars {
-				fmt.Printf("%s=%s\n", key, value)
-			}
-			return nil
-		}
-		// When calling PrintAlias
-		output := captureStdout(t, func() {
-			mockShell.PrintAlias(aliasVars)
-		})
-		// Then the output should contain all expected alias variables
-		for key, value := range aliasVars {
-			expectedLine := fmt.Sprintf("%s=%s\n", key, value)
-			if !strings.Contains(output, expectedLine) {
-				t.Errorf("PrintAlias() output missing expected line: %v", expectedLine)
-			}
-		}
 	})
 }
 
