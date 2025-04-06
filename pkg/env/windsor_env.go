@@ -115,8 +115,11 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	envVars["WINDSOR_MANAGED_ALIAS"] = strings.Join(e.GetManagedAlias(), ",")
 
-	// Combine WindsorPrefixedVars with GetManagedEnv and set as WINDSOR_MANAGED_ENV
-	combinedManagedEnv := append(WindsorPrefixedVars, e.GetManagedEnv()...)
+	// Get the list of managed environment variables
+	managedEnv := e.GetManagedEnv()
+
+	// Combine GetManagedEnv with WindsorPrefixedVars and set as WINDSOR_MANAGED_ENV
+	combinedManagedEnv := append(managedEnv, WindsorPrefixedVars...)
 	envVars["WINDSOR_MANAGED_ENV"] = strings.Join(combinedManagedEnv, ",")
 
 	return envVars, nil

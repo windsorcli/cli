@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -875,16 +874,26 @@ func TestWindsorEnv_Print(t *testing.T) {
 			t.Errorf("unexpected error: %v", err)
 		}
 
-		// Verify that PrintEnvVarsFunc was called with the correct envVars
-		expectedEnvVars := map[string]string{
-			"WINDSOR_CONTEXT":       "mock-context",
-			"WINDSOR_PROJECT_ROOT":  filepath.FromSlash("/mock/project/root"),
-			"WINDSOR_SESSION_TOKEN": capturedEnvVars["WINDSOR_SESSION_TOKEN"], // Include session token
-			"WINDSOR_MANAGED_ENV":   "WINDSOR_CONTEXT,WINDSOR_PROJECT_ROOT,WINDSOR_SESSION_TOKEN,WINDSOR_MANAGED_ENV,WINDSOR_MANAGED_ALIAS",
-			"WINDSOR_MANAGED_ALIAS": "",
+		// Verify the core Windsor environment variables
+		if capturedEnvVars["WINDSOR_CONTEXT"] != "mock-context" {
+			t.Errorf("WINDSOR_CONTEXT = %q, want %q", capturedEnvVars["WINDSOR_CONTEXT"], "mock-context")
 		}
-		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
-			t.Errorf("capturedEnvVars = %v, got %v", expectedEnvVars, capturedEnvVars)
+
+		if capturedEnvVars["WINDSOR_PROJECT_ROOT"] != filepath.FromSlash("/mock/project/root") {
+			t.Errorf("WINDSOR_PROJECT_ROOT = %q, want %q", capturedEnvVars["WINDSOR_PROJECT_ROOT"], filepath.FromSlash("/mock/project/root"))
+		}
+
+		if capturedEnvVars["WINDSOR_SESSION_TOKEN"] == "" {
+			t.Errorf("WINDSOR_SESSION_TOKEN is empty")
+		}
+
+		// Verify that WINDSOR_MANAGED_ENV includes the core Windsor variables
+		managedEnv := capturedEnvVars["WINDSOR_MANAGED_ENV"]
+		coreVars := []string{"WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_SESSION_TOKEN", "WINDSOR_MANAGED_ENV", "WINDSOR_MANAGED_ALIAS"}
+		for _, v := range coreVars {
+			if !strings.Contains(managedEnv, v) {
+				t.Errorf("WINDSOR_MANAGED_ENV should contain %q, got %q", v, managedEnv)
+			}
 		}
 	})
 

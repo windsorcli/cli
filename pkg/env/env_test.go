@@ -347,9 +347,13 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 			windsorManagedMu.Unlock()
 		}()
 
-		// Set test variables
-		testEnv := "SET_TEST_VAR1"
-		envPrinter.SetManagedEnv(testEnv)
+		// Reset managed environment variables for this test
+		windsorManagedMu.Lock()
+		windsorManagedEnv = []string{}
+		windsorManagedMu.Unlock()
+
+		// Set test variables (one string at a time)
+		envPrinter.SetManagedEnv("SET_TEST_VAR1")
 
 		// When calling GetManagedEnv to verify
 		managedEnv := envPrinter.GetManagedEnv()
@@ -359,7 +363,7 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 			t.Errorf("expected 1 variable, got %d", len(managedEnv))
 		}
 
-		// Verify expected variables are present and in the right order
+		// Verify expected variables are present
 		if managedEnv[0] != "SET_TEST_VAR1" {
 			t.Errorf("expected [SET_TEST_VAR1], got %v", managedEnv)
 		}
@@ -383,10 +387,14 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 			windsorManagedMu.Unlock()
 		}()
 
+		// Reset managed environment variables for this test
+		windsorManagedMu.Lock()
+		windsorManagedEnv = []string{}
+		windsorManagedMu.Unlock()
+
 		// Set duplicate test variables
-		testEnv := "SET_TEST_VAR1"
-		envPrinter.SetManagedEnv(testEnv)
-		envPrinter.SetManagedEnv(testEnv) // Attempt to add duplicate
+		envPrinter.SetManagedEnv("SET_TEST_VAR1")
+		envPrinter.SetManagedEnv("SET_TEST_VAR1") // Attempt to add duplicate
 
 		// When calling GetManagedEnv to verify
 		managedEnv := envPrinter.GetManagedEnv()
@@ -396,7 +404,7 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 			t.Errorf("expected 1 variable, got %d", len(managedEnv))
 		}
 
-		// Verify expected variables are present and in the right order
+		// Verify expected variables are present
 		if managedEnv[0] != "SET_TEST_VAR1" {
 			t.Errorf("expected [SET_TEST_VAR1], got %v", managedEnv)
 		}
@@ -423,9 +431,13 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 			windsorManagedMu.Unlock()
 		}()
 
-		// Set test aliases
-		testAlias := "set_alias1"
-		envPrinter.SetManagedAlias(testAlias)
+		// Reset managed aliases for this test
+		windsorManagedMu.Lock()
+		windsorManagedAlias = []string{}
+		windsorManagedMu.Unlock()
+
+		// Set test aliases (one string at a time)
+		envPrinter.SetManagedAlias("set_alias1")
 
 		// When calling GetManagedAlias to verify
 		managedAlias := envPrinter.GetManagedAlias()
@@ -435,7 +447,7 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 			t.Errorf("expected 1 alias, got %d", len(managedAlias))
 		}
 
-		// Verify expected aliases are present and in the right order
+		// Verify expected aliases are present
 		if managedAlias[0] != "set_alias1" {
 			t.Errorf("expected [set_alias1], got %v", managedAlias)
 		}
@@ -459,10 +471,14 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 			windsorManagedMu.Unlock()
 		}()
 
+		// Reset managed aliases for this test
+		windsorManagedMu.Lock()
+		windsorManagedAlias = []string{}
+		windsorManagedMu.Unlock()
+
 		// Set duplicate test aliases
-		testAlias := "set_alias1"
-		envPrinter.SetManagedAlias(testAlias)
-		envPrinter.SetManagedAlias(testAlias) // Attempt to add duplicate
+		envPrinter.SetManagedAlias("set_alias1")
+		envPrinter.SetManagedAlias("set_alias1") // Attempt to add duplicate
 
 		// When calling GetManagedAlias to verify
 		managedAlias := envPrinter.GetManagedAlias()
@@ -472,7 +488,7 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 			t.Errorf("expected 1 alias, got %d", len(managedAlias))
 		}
 
-		// Verify expected aliases are present and in the right order
+		// Verify expected aliases are present
 		if managedAlias[0] != "set_alias1" {
 			t.Errorf("expected [set_alias1], got %v", managedAlias)
 		}

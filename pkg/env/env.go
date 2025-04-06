@@ -73,6 +73,10 @@ func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
 		envVars = make(map[string]string)
 	}
 
+	for key := range envVars {
+		e.SetManagedEnv(key)
+	}
+
 	return e.shell.PrintEnvVars(envVars)
 }
 
@@ -96,6 +100,10 @@ func (e *BaseEnvPrinter) PrintAlias(customAlias ...map[string]string) error {
 			// Can't test as it just calls a stub
 			return fmt.Errorf("error getting alias: %w", err)
 		}
+	}
+
+	for key := range aliasMap {
+		e.SetManagedAlias(key)
 	}
 
 	return e.shell.PrintAlias(aliasMap)
