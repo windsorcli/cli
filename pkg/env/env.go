@@ -19,6 +19,7 @@ type EnvPrinter interface {
 
 // Env is a struct that implements the EnvPrinter interface.
 type BaseEnvPrinter struct {
+	EnvPrinter
 	injector      di.Injector
 	shell         shell.Shell
 	configHandler config.ConfigHandler
@@ -64,6 +65,25 @@ func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
 func (e *BaseEnvPrinter) GetEnvVars() (map[string]string, error) {
 	// Placeholder implementation
 	return map[string]string{}, nil
+}
+
+// PrintAlias retrieves and prints the shell alias.
+// If a map of key:value strings is provided, it prints those instead.
+func (e *BaseEnvPrinter) PrintAlias(customAlias ...map[string]string) error {
+	var aliasMap map[string]string
+
+	if len(customAlias) > 0 {
+		aliasMap = customAlias[0]
+	} else {
+		var err error
+		aliasMap, err = e.GetAlias()
+		if err != nil {
+			// Can't test as it just calls a stub
+			return fmt.Errorf("error getting alias: %w", err)
+		}
+	}
+
+	return e.shell.PrintAlias(aliasMap)
 }
 
 // GetAlias is a placeholder for creating an alias for a command.

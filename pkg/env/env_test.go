@@ -14,7 +14,7 @@ type Mocks struct {
 	Injector      *di.MockInjector
 	Shell         *shell.MockShell
 	ConfigHandler *config.MockConfigHandler
-	Env           *BaseEnvPrinter
+	Env           *MockEnvPrinter
 }
 
 // setupEnvMockTests sets up the mock injector and returns the Mocks object.
@@ -27,12 +27,13 @@ func setupEnvMockTests(injector *di.MockInjector) *Mocks {
 	mockConfigHandler := config.NewMockConfigHandler()
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
-	env := NewBaseEnvPrinter(injector)
+	mockEnv := NewMockEnvPrinter()
+	injector.Register("env", mockEnv)
 	return &Mocks{
 		Injector:      injector,
 		Shell:         mockShell,
 		ConfigHandler: mockConfigHandler,
-		Env:           env,
+		Env:           mockEnv,
 	}
 }
 
@@ -41,8 +42,11 @@ func TestEnv_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
 
+		// Use a BaseEnvPrinter for real initialization
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+
 		// Call Initialize and check for errors
-		err := mocks.Env.Initialize()
+		err := envPrinter.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -54,8 +58,11 @@ func TestEnv_Initialize(t *testing.T) {
 		// Register an invalid shell that cannot be cast to shell.Shell
 		mocks.Injector.Register("shell", "invalid")
 
+		// Use a BaseEnvPrinter for real initialization
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+
 		// Call Initialize and expect an error
-		err := mocks.Env.Initialize()
+		err := envPrinter.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if err.Error() != "error resolving or casting shell to shell.Shell" {
@@ -69,8 +76,11 @@ func TestEnv_Initialize(t *testing.T) {
 		// Register an invalid configHandler that cannot be cast to config.ConfigHandler
 		mocks.Injector.Register("configHandler", "invalid")
 
+		// Use a BaseEnvPrinter for real initialization
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+
 		// Call Initialize and expect an error
-		err := mocks.Env.Initialize()
+		err := envPrinter.Initialize()
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if err.Error() != "error resolving or casting configHandler to config.ConfigHandler" {
@@ -79,14 +89,20 @@ func TestEnv_Initialize(t *testing.T) {
 	})
 }
 
-// TestEnv_GetEnvVars tests the GetEnvVars method of the Env struct
-func TestEnv_GetEnvVars(t *testing.T) {
+// TestBaseEnvPrinter_GetEnvVars tests the GetEnvVars method of the BaseEnvPrinter struct
+func TestBaseEnvPrinter_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
-		mocks.Env.Initialize()
+
+		// Create a new BaseEnvPrinter and initialize it
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
 
 		// Call GetEnvVars and check for errors
-		envVars, err := mocks.Env.GetEnvVars()
+		envVars, err := envPrinter.GetEnvVars()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -103,7 +119,13 @@ func TestEnv_GetEnvVars(t *testing.T) {
 func TestEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
-		mocks.Env.Initialize()
+
+		// Create a new BaseEnvPrinter and initialize it
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
 
 		// Mock the PrintEnvVarsFunc to verify it is called
 		var capturedEnvVars map[string]string
@@ -112,8 +134,11 @@ func TestEnv_Print(t *testing.T) {
 			return nil
 		}
 
-		// Call Print and check for errors
-		err := mocks.Env.Print(map[string]string{"TEST_VAR": "test_value"})
+		// Set up test environment variables
+		testEnvVars := map[string]string{"TEST_VAR": "test_value"}
+
+		// Call Print with test environment variables
+		err = envPrinter.Print(testEnvVars)
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -127,7 +152,13 @@ func TestEnv_Print(t *testing.T) {
 
 	t.Run("NoCustomVars", func(t *testing.T) {
 		mocks := setupEnvMockTests(nil)
-		mocks.Env.Initialize()
+
+		// Create a new BaseEnvPrinter and initialize it
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
 
 		// Mock the PrintEnvVarsFunc to verify it is called
 		var capturedEnvVars map[string]string
@@ -137,7 +168,7 @@ func TestEnv_Print(t *testing.T) {
 		}
 
 		// Call Print without custom vars and check for errors
-		err := mocks.Env.Print()
+		err = envPrinter.Print()
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -146,6 +177,72 @@ func TestEnv_Print(t *testing.T) {
 		expectedEnvVars := map[string]string{}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+		}
+	})
+}
+
+// TestEnv_PrintAlias tests the PrintAlias method of the Env struct
+func TestEnv_PrintAlias(t *testing.T) {
+	t.Run("SuccessWithCustomAlias", func(t *testing.T) {
+		mocks := setupEnvMockTests(nil)
+
+		// Create a new BaseEnvPrinter and initialize it
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
+
+		// Mock the PrintAliasFunc to verify it is called
+		var capturedAlias map[string]string
+		mocks.Shell.PrintAliasFunc = func(alias map[string]string) error {
+			capturedAlias = alias
+			return nil
+		}
+
+		// Set up test alias
+		testAlias := map[string]string{"alias1": "command1"}
+
+		// Call PrintAlias with test alias
+		err = envPrinter.PrintAlias(testAlias)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that PrintAliasFunc was called with the correct alias
+		expectedAlias := map[string]string{"alias1": "command1"}
+		if !reflect.DeepEqual(capturedAlias, expectedAlias) {
+			t.Errorf("capturedAlias = %v, want %v", capturedAlias, expectedAlias)
+		}
+	})
+
+	t.Run("SuccessWithoutCustomAlias", func(t *testing.T) {
+		mocks := setupEnvMockTests(nil)
+
+		// Create a new BaseEnvPrinter and initialize it
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
+
+		// Mock the PrintAliasFunc to verify it is called
+		var capturedAlias map[string]string
+		mocks.Shell.PrintAliasFunc = func(alias map[string]string) error {
+			capturedAlias = alias
+			return nil
+		}
+
+		// Call PrintAlias without custom alias
+		err = envPrinter.PrintAlias()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify that PrintAliasFunc was called with an empty map
+		expectedAlias := map[string]string{}
+		if !reflect.DeepEqual(capturedAlias, expectedAlias) {
+			t.Errorf("capturedAlias = %v, want %v", capturedAlias, expectedAlias)
 		}
 	})
 }
