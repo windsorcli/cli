@@ -55,6 +55,8 @@ type Shell interface {
 	UnsetEnvs(envVars []string)
 	// UnsetAlias generates commands to unset multiple aliases
 	UnsetAlias(aliases []string)
+	// WriteResetToken writes a reset token file based on the session token
+	WriteResetToken() (string, error)
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -64,6 +66,11 @@ type DefaultShell struct {
 	injector    di.Injector
 	verbose     bool
 }
+
+// Constants
+const (
+	SessionTokenPrefix = ".session."
+)
 
 // NewDefaultShell creates a new instance of DefaultShell
 func NewDefaultShell(injector di.Injector) *DefaultShell {
@@ -414,4 +421,33 @@ func (s *DefaultShell) CheckTrustedDirectory() error {
 	}
 
 	return nil
+}
+
+// WriteResetToken writes a reset token file based on the WINDSOR_SESSION_TOKEN
+// environment variable. If the environment variable doesn't exist, no file is written.
+// Returns the path to the written file or an empty string if no file was written.
+func (s *DefaultShell) WriteResetToken() (string, error) {
+	sessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+	if sessionToken == "" {
+		return "", nil
+	}
+
+	projectRoot, err := s.GetProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("error getting project root: %w", err)
+	}
+
+	// Create .windsor directory if it doesn't exist
+	windsorDir := filepath.Join(projectRoot, ".windsor")
+	if err := osMkdirAll(windsorDir, 0750); err != nil {
+		return "", fmt.Errorf("error creating .windsor directory: %w", err)
+	}
+
+	sessionFilePath := filepath.Join(windsorDir, SessionTokenPrefix+sessionToken)
+
+	if err := osWriteFile(sessionFilePath, []byte{}, 0600); err != nil {
+		return "", fmt.Errorf("error writing reset token file: %w", err)
+	}
+
+	return sessionFilePath, nil
 }

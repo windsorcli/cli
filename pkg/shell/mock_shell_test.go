@@ -654,3 +654,66 @@ func TestMockShell_PrintAlias(t *testing.T) {
 		mockShell.PrintAlias(map[string]string{"alias1": "command1"})
 	})
 }
+
+func TestMockShell_WriteResetToken(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with a custom WriteResetTokenFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		expectedPath := "/test/project/root/.windsor/.session.test-token"
+		mockShell.WriteResetTokenFunc = func() (string, error) {
+			return expectedPath, nil
+		}
+
+		// When calling WriteResetToken
+		path, err := mockShell.WriteResetToken()
+
+		// Then no error should be returned and the expected path should be returned
+		if err != nil {
+			t.Errorf("WriteResetToken() error = %v, want nil", err)
+		}
+		if path != expectedPath {
+			t.Errorf("WriteResetToken() path = %v, want %v", path, expectedPath)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock shell whose WriteResetTokenFunc returns an error
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		expectedError := fmt.Errorf("error writing reset token")
+		mockShell.WriteResetTokenFunc = func() (string, error) {
+			return "", expectedError
+		}
+
+		// When calling WriteResetToken
+		path, err := mockShell.WriteResetToken()
+
+		// Then the expected error should be returned
+		if err != expectedError {
+			t.Errorf("WriteResetToken() error = %v, want %v", err, expectedError)
+		}
+		if path != "" {
+			t.Errorf("WriteResetToken() path = %v, want empty string", path)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with no WriteResetTokenFunc implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// When calling WriteResetToken
+		path, err := mockShell.WriteResetToken()
+
+		// Then no error should be returned and the path should be empty
+		if err != nil {
+			t.Errorf("WriteResetToken() error = %v, want nil", err)
+		}
+		if path != "" {
+			t.Errorf("WriteResetToken() path = %v, want empty string", path)
+		}
+	})
+}

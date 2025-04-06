@@ -21,6 +21,7 @@ type MockShell struct {
 	CheckTrustedDirectoryFunc      func() error
 	UnsetEnvsFunc                  func(envVars []string)
 	UnsetAliasFunc                 func(aliases []string)
+	WriteResetTokenFunc            func() (string, error)
 }
 
 // NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
@@ -141,6 +142,14 @@ func (s *MockShell) UnsetAlias(aliases []string) {
 	if s.UnsetAliasFunc != nil {
 		s.UnsetAliasFunc(aliases)
 	}
+}
+
+// WriteResetToken calls the custom WriteResetTokenFunc if provided.
+func (s *MockShell) WriteResetToken() (string, error) {
+	if s.WriteResetTokenFunc != nil {
+		return s.WriteResetTokenFunc()
+	}
+	return "", nil
 }
 
 // Ensure MockShell implements the Shell interface
