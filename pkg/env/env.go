@@ -3,9 +3,19 @@ package env
 import (
 	"fmt"
 
+	"sync"
+
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
+)
+
+// These are the environment variables that are managed by Windsor.
+// They are scoped to the current shell session.
+var (
+	windsorManagedEnv   = []string{}
+	windsorManagedAlias = []string{}
+	windsorManagedMu    sync.Mutex
 )
 
 // EnvPrinter defines the method for printing environment variables.
@@ -15,6 +25,10 @@ type EnvPrinter interface {
 	GetEnvVars() (map[string]string, error)
 	GetAlias() (map[string]string, error)
 	PostEnvHook() error
+	GetManagedEnv() []string
+	GetManagedAlias() []string
+	SetManagedEnv(env []string)
+	SetManagedAlias(alias []string)
 }
 
 // Env is a struct that implements the EnvPrinter interface.
@@ -96,4 +110,32 @@ func (e *BaseEnvPrinter) GetAlias() (map[string]string, error) {
 func (e *BaseEnvPrinter) PostEnvHook() error {
 	// Placeholder for post-processing logic
 	return nil
+}
+
+// GetManagedEnv returns the environment variables that are managed by Windsor.
+func (e *BaseEnvPrinter) GetManagedEnv() []string {
+	windsorManagedMu.Lock()
+	defer windsorManagedMu.Unlock()
+	return windsorManagedEnv
+}
+
+// GetManagedAlias returns the shell aliases that are managed by Windsor.
+func (e *BaseEnvPrinter) GetManagedAlias() []string {
+	windsorManagedMu.Lock()
+	defer windsorManagedMu.Unlock()
+	return windsorManagedAlias
+}
+
+// SetManagedEnv sets the environment variables that are managed by Windsor.
+func (e *BaseEnvPrinter) SetManagedEnv(env []string) {
+	windsorManagedMu.Lock()
+	defer windsorManagedMu.Unlock()
+	windsorManagedEnv = env
+}
+
+// SetManagedAlias sets the shell aliases that are managed by Windsor.
+func (e *BaseEnvPrinter) SetManagedAlias(alias []string) {
+	windsorManagedMu.Lock()
+	defer windsorManagedMu.Unlock()
+	windsorManagedAlias = alias
 }

@@ -246,3 +246,161 @@ func TestEnv_PrintAlias(t *testing.T) {
 		}
 	})
 }
+
+// TestBaseEnvPrinter_GetManagedEnv tests the GetManagedEnv method of the BaseEnvPrinter struct
+func TestBaseEnvPrinter_GetManagedEnv(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
+		mocks := setupEnvMockTests(nil)
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
+
+		// Save original value to restore it after the test
+		originalManagedEnv := make([]string, len(windsorManagedEnv))
+		copy(originalManagedEnv, windsorManagedEnv)
+		defer func() {
+			windsorManagedMu.Lock()
+			windsorManagedEnv = originalManagedEnv
+			windsorManagedMu.Unlock()
+		}()
+
+		// Set test variables
+		windsorManagedMu.Lock()
+		windsorManagedEnv = []string{"TEST_VAR1", "TEST_VAR2"}
+		windsorManagedMu.Unlock()
+
+		// When calling GetManagedEnv
+		managedEnv := envPrinter.GetManagedEnv()
+
+		// Then the returned list should contain our tracked variables
+		if len(managedEnv) != 2 {
+			t.Errorf("expected 2 variables, got %d", len(managedEnv))
+		}
+
+		// Verify expected variables are present
+		if managedEnv[0] != "TEST_VAR1" || managedEnv[1] != "TEST_VAR2" {
+			t.Errorf("expected [TEST_VAR1, TEST_VAR2], got %v", managedEnv)
+		}
+	})
+}
+
+// TestBaseEnvPrinter_GetManagedAlias tests the GetManagedAlias method of the BaseEnvPrinter struct
+func TestBaseEnvPrinter_GetManagedAlias(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
+		mocks := setupEnvMockTests(nil)
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
+
+		// Save original value to restore it after the test
+		originalManagedAlias := make([]string, len(windsorManagedAlias))
+		copy(originalManagedAlias, windsorManagedAlias)
+		defer func() {
+			windsorManagedMu.Lock()
+			windsorManagedAlias = originalManagedAlias
+			windsorManagedMu.Unlock()
+		}()
+
+		// Set test aliases
+		windsorManagedMu.Lock()
+		windsorManagedAlias = []string{"alias1", "alias2"}
+		windsorManagedMu.Unlock()
+
+		// When calling GetManagedAlias
+		managedAlias := envPrinter.GetManagedAlias()
+
+		// Then the returned list should contain our tracked aliases
+		if len(managedAlias) != 2 {
+			t.Errorf("expected 2 aliases, got %d", len(managedAlias))
+		}
+
+		// Verify expected aliases are present
+		if managedAlias[0] != "alias1" || managedAlias[1] != "alias2" {
+			t.Errorf("expected [alias1, alias2], got %v", managedAlias)
+		}
+	})
+}
+
+// TestBaseEnvPrinter_SetManagedEnv tests the SetManagedEnv method of the BaseEnvPrinter struct
+func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
+		mocks := setupEnvMockTests(nil)
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
+
+		// Save original value to restore it after the test
+		originalManagedEnv := make([]string, len(windsorManagedEnv))
+		copy(originalManagedEnv, windsorManagedEnv)
+		defer func() {
+			windsorManagedMu.Lock()
+			windsorManagedEnv = originalManagedEnv
+			windsorManagedMu.Unlock()
+		}()
+
+		// Set test variables
+		testEnv := []string{"SET_TEST_VAR1", "SET_TEST_VAR2"}
+		envPrinter.SetManagedEnv(testEnv)
+
+		// When calling GetManagedEnv to verify
+		managedEnv := envPrinter.GetManagedEnv()
+
+		// Then the returned list should contain our variables
+		if len(managedEnv) != 2 {
+			t.Errorf("expected 2 variables, got %d", len(managedEnv))
+		}
+
+		// Verify expected variables are present and in the right order
+		if managedEnv[0] != "SET_TEST_VAR1" || managedEnv[1] != "SET_TEST_VAR2" {
+			t.Errorf("expected [SET_TEST_VAR1, SET_TEST_VAR2], got %v", managedEnv)
+		}
+	})
+}
+
+// TestBaseEnvPrinter_SetManagedAlias tests the SetManagedAlias method of the BaseEnvPrinter struct
+func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
+		mocks := setupEnvMockTests(nil)
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
+
+		// Save original value to restore it after the test
+		originalManagedAlias := make([]string, len(windsorManagedAlias))
+		copy(originalManagedAlias, windsorManagedAlias)
+		defer func() {
+			windsorManagedMu.Lock()
+			windsorManagedAlias = originalManagedAlias
+			windsorManagedMu.Unlock()
+		}()
+
+		// Set test aliases
+		testAlias := []string{"set_alias1", "set_alias2"}
+		envPrinter.SetManagedAlias(testAlias)
+
+		// When calling GetManagedAlias to verify
+		managedAlias := envPrinter.GetManagedAlias()
+
+		// Then the returned list should contain our aliases
+		if len(managedAlias) != 2 {
+			t.Errorf("expected 2 aliases, got %d", len(managedAlias))
+		}
+
+		// Verify expected aliases are present and in the right order
+		if managedAlias[0] != "set_alias1" || managedAlias[1] != "set_alias2" {
+			t.Errorf("expected [set_alias1, set_alias2], got %v", managedAlias)
+		}
+	})
+}
