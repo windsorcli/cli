@@ -203,9 +203,11 @@ func (e *WindsorEnvPrinter) getSessionToken() (string, error) {
 		windsorDir := filepath.Join(projectRoot, ".windsor")
 		tokenFilePath := filepath.Join(windsorDir, SessionTokenPrefix+envToken)
 		if _, err := stat(tokenFilePath); err == nil {
-			if err := osRemoveAll(tokenFilePath); err != nil {
-				return "", fmt.Errorf("error removing token file: %w", err)
-			}
+			defer func() {
+				if err := osRemoveAll(tokenFilePath); err != nil {
+					fmt.Printf("error removing token file: %v\n", err)
+				}
+			}()
 			token, err := e.generateRandomString(7)
 			if err != nil {
 				return "", fmt.Errorf("error generating session token: %w", err)

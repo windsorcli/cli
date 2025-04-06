@@ -2,6 +2,7 @@ package env
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -260,11 +261,22 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			return fmt.Errorf("mock error removing signal file")
 		}
 
-		// Mock crypto functions - will not be reached due to error
+		// Set up to capture stdout
+		origStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		// Mock crypto functions for predictable output
+		origCryptoRandRead := cryptoRandRead
 		cryptoRandRead = func(b []byte) (n int, err error) {
-			t.Error("cryptoRandRead should not be called")
-			return 0, nil
+			for i := range b {
+				b[i] = byte(i % 62) // Will map to characters in charset
+			}
+			return len(b), nil
 		}
+		defer func() {
+			cryptoRandRead = origCryptoRandRead
+		}()
 
 		mocks := setupSafeWindsorEnvMocks()
 
@@ -274,15 +286,34 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
 		windsorEnvPrinter.Initialize()
 
-		// Call should fail with file removal error
-		_, err := windsorEnvPrinter.GetEnvVars()
-		if err == nil {
-			t.Fatal("Expected error from file removal, got nil")
+		// Call should not fail (error is deferred and printed to stdout)
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		expectedErr := "error retrieving session token: error removing token file: mock error removing signal file"
-		if err.Error() != expectedErr {
-			t.Errorf("Expected error %q, got %q", expectedErr, err.Error())
+		// Close the writer to get all output
+		w.Close()
+		os.Stdout = origStdout
+		var buf strings.Builder
+		_, err = io.Copy(&buf, r)
+		if err != nil {
+			t.Fatalf("Failed to read captured output: %v", err)
+		}
+		capturedOutput := buf.String()
+
+		// Verify the error message was printed to stdout
+		expectedErrMsg := "error removing token file: mock error removing signal file"
+		if !strings.Contains(capturedOutput, expectedErrMsg) {
+			t.Errorf("Expected output to contain %q, got %q", expectedErrMsg, capturedOutput)
+		}
+
+		// Verify a new token was generated (not the env token)
+		if envVars["WINDSOR_SESSION_TOKEN"] == "envtoken" {
+			t.Errorf("Expected a new token to be generated, but got the environment token")
+		}
+		if len(envVars["WINDSOR_SESSION_TOKEN"]) != 7 {
+			t.Errorf("Expected session token to have length 7, got %d", len(envVars["WINDSOR_SESSION_TOKEN"]))
 		}
 	})
 
