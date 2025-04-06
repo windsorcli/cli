@@ -50,3 +50,33 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 	}
 	return nil
 }
+
+// UnsetEnvs generates commands to unset multiple environment variables.
+// For Windows PowerShell, this produces a Remove-Item command for each environment variable.
+func (s *DefaultShell) UnsetEnvs(envVars []string) error {
+	if len(envVars) == 0 {
+		return nil
+	}
+
+	// Print Remove-Item commands for each environment variable
+	for _, env := range envVars {
+		fmt.Printf("Remove-Item Env:%s\n", env)
+	}
+
+	return nil
+}
+
+// UnsetAlias generates commands to unset multiple aliases.
+// For Windows PowerShell, this produces a Remove-Item command for each alias.
+func (s *DefaultShell) UnsetAlias(aliases []string) error {
+	if len(aliases) == 0 {
+		return nil
+	}
+
+	// Print Remove-Item commands for each alias
+	for _, alias := range aliases {
+		fmt.Printf("Remove-Item Alias:%s\n", alias)
+	}
+
+	return nil
+}

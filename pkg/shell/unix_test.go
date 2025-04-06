@@ -148,3 +148,73 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 		}
 	})
 }
+
+func TestDefaultShell_UnsetEnvs(t *testing.T) {
+	injector := di.NewInjector()
+
+	// Given a set of environment variables to unset
+	shell := NewDefaultShell(injector)
+	envVars := []string{"VAR1", "VAR2", "VAR3"}
+	expectedOutput := "unset VAR1 VAR2 VAR3\n"
+
+	// When capturing the output of UnsetEnvs
+	output := captureStdout(t, func() {
+		err := shell.UnsetEnvs(envVars)
+		if err != nil {
+			t.Fatalf("UnsetEnvs returned an error: %v", err)
+		}
+	})
+
+	// Then the output should match the expected output
+	if output != expectedOutput {
+		t.Errorf("UnsetEnvs() output = %v, want %v", output, expectedOutput)
+	}
+
+	// Test with empty list
+	emptyOutput := captureStdout(t, func() {
+		err := shell.UnsetEnvs([]string{})
+		if err != nil {
+			t.Fatalf("UnsetEnvs with empty list returned an error: %v", err)
+		}
+	})
+
+	// Then the output should be empty
+	if emptyOutput != "" {
+		t.Errorf("UnsetEnvs() with empty list should produce no output, got %v", emptyOutput)
+	}
+}
+
+func TestDefaultShell_UnsetAlias(t *testing.T) {
+	injector := di.NewInjector()
+
+	// Given a set of aliases to unset
+	shell := NewDefaultShell(injector)
+	aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
+	expectedOutput := "unalias ALIAS1\nunalias ALIAS2\nunalias ALIAS3\n"
+
+	// When capturing the output of UnsetAlias
+	output := captureStdout(t, func() {
+		err := shell.UnsetAlias(aliases)
+		if err != nil {
+			t.Fatalf("UnsetAlias returned an error: %v", err)
+		}
+	})
+
+	// Then the output should match the expected output
+	if output != expectedOutput {
+		t.Errorf("UnsetAlias() output = %v, want %v", output, expectedOutput)
+	}
+
+	// Test with empty list
+	emptyOutput := captureStdout(t, func() {
+		err := shell.UnsetAlias([]string{})
+		if err != nil {
+			t.Fatalf("UnsetAlias with empty list returned an error: %v", err)
+		}
+	})
+
+	// Then the output should be empty
+	if emptyOutput != "" {
+		t.Errorf("UnsetAlias() with empty list should produce no output, got %v", emptyOutput)
+	}
+}

@@ -6,6 +6,7 @@ package shell
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // PrintEnvVars prints the provided environment variables in a sorted order.
@@ -58,5 +59,33 @@ func (s *DefaultShell) PrintAlias(aliases map[string]string) error {
 			fmt.Printf("alias %s=\"%s\"\n", k, aliases[k])
 		}
 	}
+	return nil
+}
+
+// UnsetEnvs generates a command to unset multiple environment variables.
+// For Unix shells, this produces a single 'unset' command with all variables in one line.
+func (s *DefaultShell) UnsetEnvs(envVars []string) error {
+	if len(envVars) == 0 {
+		return nil
+	}
+
+	// Create a single unset command with all environment variables
+	fmt.Printf("unset %s\n", strings.Join(envVars, " "))
+
+	return nil
+}
+
+// UnsetAlias generates commands to unset multiple aliases.
+// For Unix shells, this produces a separate 'unalias' command for each alias.
+func (s *DefaultShell) UnsetAlias(aliases []string) error {
+	if len(aliases) == 0 {
+		return nil
+	}
+
+	// Print individual unalias commands for each alias
+	for _, alias := range aliases {
+		fmt.Printf("unalias %s\n", alias)
+	}
+
 	return nil
 }

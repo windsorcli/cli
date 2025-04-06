@@ -51,6 +51,10 @@ type Shell interface {
 	AddCurrentDirToTrustedFile() error
 	// CheckTrustedDirectory verifies if the current directory is in the trusted file list.
 	CheckTrustedDirectory() error
+	// UnsetEnvs generates a command to unset multiple environment variables
+	UnsetEnvs(envVars []string) error
+	// UnsetAlias generates commands to unset multiple aliases
+	UnsetAlias(aliases []string) error
 }
 
 // DefaultShell is the default implementation of the Shell interface
