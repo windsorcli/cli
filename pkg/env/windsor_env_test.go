@@ -826,6 +826,56 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		assert.Equal(t, "resolved-secret", envVars["WITH_SECRET"],
 			"Environment variable with secret should be resolved")
 	})
+
+	t.Run("ManagedCustomEnvironmentVars", func(t *testing.T) {
+		// Save original values
+		originalManagedEnv := make([]string, len(windsorManagedEnv))
+		copy(originalManagedEnv, windsorManagedEnv)
+
+		// Restore original state after test
+		defer func() {
+			windsorManagedMu.Lock()
+			windsorManagedEnv = originalManagedEnv
+			windsorManagedMu.Unlock()
+		}()
+
+		// Setup mocks
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Set up mock config handler to return custom environment variables
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					"CUSTOM_ENV_VAR1": "value1",
+					"CUSTOM_ENV_VAR2": "value2",
+				}
+			}
+			return map[string]string{}
+		}
+
+		// Track custom variables
+		windsorManagedMu.Lock()
+		windsorManagedEnv = []string{"CUSTOM_ENV_VAR1", "CUSTOM_ENV_VAR2"}
+		windsorManagedMu.Unlock()
+
+		// Create WindsorEnvPrinter and initialize it
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+		err := windsorEnvPrinter.Initialize()
+		assert.NoError(t, err, "Failed to initialize WindsorEnvPrinter")
+
+		// Get environment variables
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		assert.NoError(t, err, "GetEnvVars should not return an error")
+
+		// Verify custom variables are in the environment variables map
+		assert.Equal(t, "value1", envVars["CUSTOM_ENV_VAR1"], "CUSTOM_ENV_VAR1 should be set to 'value1'")
+		assert.Equal(t, "value2", envVars["CUSTOM_ENV_VAR2"], "CUSTOM_ENV_VAR2 should be set to 'value2'")
+
+		// Verify that WINDSOR_MANAGED_ENV includes our custom variables
+		managedEnvList := envVars["WINDSOR_MANAGED_ENV"]
+		assert.Contains(t, managedEnvList, "CUSTOM_ENV_VAR1", "WINDSOR_MANAGED_ENV should contain CUSTOM_ENV_VAR1")
+		assert.Contains(t, managedEnvList, "CUSTOM_ENV_VAR2", "WINDSOR_MANAGED_ENV should contain CUSTOM_ENV_VAR2")
+	})
 }
 
 func TestWindsorEnv_PostEnvHook(t *testing.T) {
