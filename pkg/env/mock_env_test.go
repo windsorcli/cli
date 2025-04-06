@@ -237,3 +237,32 @@ func TestMockEnvPrinter_PostEnvHook(t *testing.T) {
 		}
 	})
 }
+
+func TestMockEnvPrinter_Reset(t *testing.T) {
+	t.Run("DefaultReset", func(t *testing.T) {
+		// Given a mock environment with default Reset implementation
+		mockEnv := NewMockEnvPrinter()
+
+		// When calling Reset
+		// Then it should not panic
+		mockEnv.Reset()
+		// No assertion needed as default implementation does nothing
+	})
+
+	t.Run("CustomReset", func(t *testing.T) {
+		// Given a mock environment with custom Reset implementation
+		mockEnv := NewMockEnvPrinter()
+		resetCalled := false
+		mockEnv.ResetFunc = func() {
+			resetCalled = true
+		}
+
+		// When calling Reset
+		mockEnv.Reset()
+
+		// Then the custom function should have been called
+		if !resetCalled {
+			t.Errorf("Reset() did not call the custom ResetFunc")
+		}
+	})
+}

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -51,7 +52,7 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorCheckingTrustedDirectory", func(t *testing.T) {
+	t.Run("ResetWhenInUntrustedDirectoryWithSession", func(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock shell that returns an error when checking trusted directory
@@ -67,21 +68,35 @@ func TestEnvCmd(t *testing.T) {
 			return mockShell
 		}
 
+		// Set WINDSOR_SESSION_TOKEN to simulate being in a Windsor session
+		oldToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-session")
+		defer os.Setenv("WINDSOR_SESSION_TOKEN", oldToken)
+
+		// Mock environment printer to capture the Reset call
+		mockEnv := env.NewMockEnvPrinter()
+		resetCalled := false
+		mockEnv.ResetFunc = func() {
+			resetCalled = true
+		}
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{mockEnv}
+		}
+
 		// When the env command is executed with verbose flag
 		rootCmd.SetArgs([]string{"env", "--verbose"})
 		err := Execute(mockController)
 
-		// Then check the error contents
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
+		// Then no error should be returned, but Reset should be called
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
-		expectedError := "Error checking trusted directory: error checking trusted directory"
-		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		if !resetCalled {
+			t.Fatalf("Expected Reset to be called, but it wasn't")
 		}
 	})
 
-	t.Run("ErrorCheckingTrustedDirectoryWithoutVerbose", func(t *testing.T) {
+	t.Run("NoActionWhenInUntrustedDirectoryWithoutSession", func(t *testing.T) {
 		defer resetRootCmd()
 
 		// Given a mock shell that returns an error when checking trusted directory

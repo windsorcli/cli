@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -14,13 +15,16 @@ var envCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
-
-		// Check if current directory is in the trusted list
 		shell := controller.ResolveShell()
-		if err := shell.CheckTrustedDirectory(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error checking trusted directory: %w", err)
-			}
+
+		// Check trusted status
+		isTrusted := shell.CheckTrustedDirectory() == nil
+
+		// Check if WINDSOR_SESSION_TOKEN is set - indicates we've been in a Windsor session
+		hasSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN") != ""
+
+		// Early exit condition: Not trusted AND no session token
+		if !isTrusted && !hasSessionToken {
 			return nil
 		}
 
@@ -61,6 +65,21 @@ var envCmd = &cobra.Command{
 			return nil
 		}
 
+		// Resolve environment printers
+		envPrinters := controller.ResolveAllEnvPrinters()
+		if len(envPrinters) == 0 {
+			if verbose {
+				return fmt.Errorf("Error resolving environment printers: no printers returned")
+			}
+			return nil
+		}
+
+		// Handle untrusted case with session token - reset and exit
+		if !isTrusted && hasSessionToken {
+			envPrinters[0].Reset()
+			return nil
+		}
+
 		// Check if --decrypt flag is set
 		decrypt, _ := cmd.Flags().GetBool("decrypt")
 		if decrypt {
@@ -74,12 +93,6 @@ var envCmd = &cobra.Command{
 					return nil
 				}
 			}
-		}
-
-		// Resolve all environment printers using the controller
-		envPrinters := controller.ResolveAllEnvPrinters()
-		if len(envPrinters) == 0 && verbose {
-			return fmt.Errorf("Error resolving environment printers: no printers returned")
 		}
 
 		// Track first error from printers

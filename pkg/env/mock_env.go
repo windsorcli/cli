@@ -9,6 +9,7 @@ type MockEnvPrinter struct {
 	PostEnvHookFunc func() error
 	GetEnvVarsFunc  func() (map[string]string, error)
 	GetAliasFunc    func() (map[string]string, error)
+	ResetFunc       func()
 }
 
 // NewMockEnvPrinter creates a new instance of MockEnvPrinter.
@@ -70,6 +71,15 @@ func (m *MockEnvPrinter) PostEnvHook() error {
 	}
 	// Simulate post environment setup without doing anything real
 	return nil
+}
+
+// Reset simulates resetting environment variables.
+// If a custom ResetFunc is provided, it will use that function instead.
+func (m *MockEnvPrinter) Reset() {
+	if m.ResetFunc != nil {
+		m.ResetFunc()
+	}
+	// Do nothing if no custom function is provided
 }
 
 // Ensure MockEnvPrinter implements the EnvPrinter interface
