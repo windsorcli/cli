@@ -107,17 +107,6 @@ func (e *TerraformEnvPrinter) Print() error {
 	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// getAlias returns command aliases based on Localstack configuration.
-func (e *TerraformEnvPrinter) getAlias() (map[string]string, error) {
-	enableLocalstack := e.configHandler.GetBool("aws.localstack.create", false)
-
-	if enableLocalstack {
-		return map[string]string{"terraform": "tflocal"}, nil
-	}
-
-	return map[string]string{"terraform": ""}, nil
-}
-
 // generateBackendOverrideTf creates the backend_override.tf file for the project by determining
 // the backend type and writing the appropriate configuration to the file.
 func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
