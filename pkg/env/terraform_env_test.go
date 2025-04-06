@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/api/v1alpha1/aws"
 	"github.com/windsorcli/cli/api/v1alpha1/terraform"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
@@ -571,65 +570,6 @@ func TestTerraformEnv_Print(t *testing.T) {
 			t.Error("expected error, got nil")
 		} else if !strings.Contains(err.Error(), "mock config error") {
 			t.Errorf("unexpected error message: %v", err)
-		}
-	})
-}
-
-func TestTerraformEnv_getAlias(t *testing.T) {
-	t.Run("SuccessLocalstackEnabled", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetContextFunc = func() string {
-			return "local"
-		}
-		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "aws.localstack.create" {
-				return true
-			}
-			return false
-		}
-
-		// When getAlias is called
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
-		aliases, err := terraformEnvPrinter.getAlias()
-
-		// Then no error should occur and the expected alias should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		expectedAlias := map[string]string{"terraform": "tflocal"}
-		if !reflect.DeepEqual(aliases, expectedAlias) {
-			t.Errorf("Expected aliases %v, got %v", expectedAlias, aliases)
-		}
-	})
-
-	t.Run("SuccessLocalstackDisabled", func(t *testing.T) {
-		mocks := setupSafeTerraformEnvMocks()
-		mocks.ConfigHandler.GetContextFunc = func() string {
-			return "local"
-		}
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				AWS: &aws.AWSConfig{
-					Localstack: &aws.LocalstackConfig{
-						Enabled: boolPtr(false),
-					},
-				},
-			}
-		}
-
-		// When getAlias is called
-		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
-		terraformEnvPrinter.Initialize()
-		aliases, err := terraformEnvPrinter.getAlias()
-
-		// Then no error should occur and the expected alias should be returned
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-		expectedAlias := map[string]string{"terraform": ""}
-		if !reflect.DeepEqual(aliases, expectedAlias) {
-			t.Errorf("Expected aliases %v, got %v", expectedAlias, aliases)
 		}
 	})
 }

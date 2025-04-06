@@ -66,14 +66,12 @@ var envCmd = &cobra.Command{
 		if decrypt {
 			// Unlock the SecretProvider
 			secretsProviders := controller.ResolveAllSecretsProviders()
-			if len(secretsProviders) > 0 {
-				for _, secretsProvider := range secretsProviders {
-					if err := secretsProvider.LoadSecrets(); err != nil {
-						if verbose {
-							return fmt.Errorf("Error loading secrets provider: %w", err)
-						}
-						return nil
+			for _, secretsProvider := range secretsProviders {
+				if err := secretsProvider.LoadSecrets(); err != nil {
+					if verbose {
+						return fmt.Errorf("Error loading secrets provider: %w", err)
 					}
+					return nil
 				}
 			}
 		}
@@ -84,22 +82,23 @@ var envCmd = &cobra.Command{
 			return fmt.Errorf("Error resolving environment printers: no printers returned")
 		}
 
+		// Track first error from printers
+		var firstError error
+
 		// Iterate through all environment printers and run their Print and PostEnvHook functions
 		for _, envPrinter := range envPrinters {
-			if err := envPrinter.Print(); err != nil {
-				if verbose {
-					return fmt.Errorf("Error executing Print: %w", err)
-				}
-				continue
+			if err := envPrinter.Print(); err != nil && firstError == nil {
+				firstError = fmt.Errorf("Error executing Print: %w", err)
 			}
-			if err := envPrinter.PostEnvHook(); err != nil {
-				if verbose {
-					return fmt.Errorf("Error executing PostEnvHook: %w", err)
-				}
-				continue
+
+			if err := envPrinter.PostEnvHook(); err != nil && firstError == nil {
+				firstError = fmt.Errorf("Error executing PostEnvHook: %w", err)
 			}
 		}
 
+		if verbose {
+			return firstError
+		}
 		return nil
 	},
 }

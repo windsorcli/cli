@@ -13,8 +13,15 @@ import (
 
 const (
 	SessionTokenPrefix = ".session."
-	EnvSessionTokenVar = "WINDSOR_SESSION_TOKEN"
 )
+
+var WindsorPrefixedVars = []string{
+	"WINDSOR_CONTEXT",
+	"WINDSOR_PROJECT_ROOT",
+	"WINDSOR_SESSION_TOKEN",
+	"WINDSOR_MANAGED_ENV",
+	"WINDSOR_MANAGED_ALIAS",
+}
 
 // WindsorEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
 type WindsorEnvPrinter struct {
@@ -58,10 +65,13 @@ func (e *WindsorEnvPrinter) Initialize() error {
 	return nil
 }
 
-// GetEnvVars returns a map of Windsor-specific environment variables, including the current context,
-// project root, session token, and custom environment variables with resolved secrets.
+// GetEnvVars constructs a map of Windsor-specific environment variables. It includes
+// the current context, project root, and session token. Custom environment variables
+// are also added, with secrets resolved using configured providers. Managed aliases
+// and environment variables are appended to ensure a complete environment setup.
+// This method ensures that all Windsor-prefixed variables and managed environment variables
+// are included in the final environment setup, providing a comprehensive configuration.
 func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
-	// Get Windsor-specific environment variables
 	envVars := make(map[string]string)
 
 	currentContext := e.configHandler.GetContext()
@@ -77,28 +87,18 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving session token: %w", err)
 	}
-	envVars[EnvSessionTokenVar] = sessionToken
+	envVars["WINDSOR_SESSION_TOKEN"] = sessionToken
 
-	// Get custom environment variables from configuration
 	originalEnvVars := e.configHandler.GetStringMap("environment")
-	if originalEnvVars == nil {
-		return envVars, nil
-	}
 
 	// #nosec G101 # This is just a regular expression not a secret
 	re := regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
-	windsorContext := os.Getenv("WINDSOR_CONTEXT")
-
-	useCache := true
-	if windsorContext != "" && windsorContext != currentContext {
-		useCache = false
-	}
 
 	for k, v := range originalEnvVars {
 		if re.MatchString(v) {
 			if existingValue, exists := osLookupEnv(k); exists {
-				if os.Getenv("NO_CACHE") != "true" && useCache && !strings.Contains(existingValue, "<ERROR") {
-					// Challenging to test this case, so we'll skip it for now
+				e.SetManagedEnv(k)
+				if shouldUseCache() && !strings.Contains(existingValue, "<ERROR") {
 					continue
 				}
 			}
@@ -108,6 +108,13 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 			envVars[k] = v
 		}
 	}
+
+	envVars["WINDSOR_MANAGED_ALIAS"] = strings.Join(e.GetManagedAlias(), ",")
+
+	managedEnv := e.GetManagedEnv()
+
+	combinedManagedEnv := append(managedEnv, WindsorPrefixedVars...)
+	envVars["WINDSOR_MANAGED_ENV"] = strings.Join(combinedManagedEnv, ",")
 
 	return envVars, nil
 }
@@ -148,14 +155,14 @@ func (e *WindsorEnvPrinter) Print() error {
 	if err != nil {
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	return e.shell.PrintEnvVars(envVars)
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// CreateSessionInvalidationSignal creates a signal file to invalidate the session token
+// CreateSessionInvalidationSignal creates a session file to invalidate the session token
 // when the environment changes, ensuring a new token is generated during the next command
 // execution.
 func (e *WindsorEnvPrinter) CreateSessionInvalidationSignal() error {
-	envToken := os.Getenv(EnvSessionTokenVar)
+	envToken := os.Getenv("WINDSOR_SESSION_TOKEN")
 	if envToken == "" {
 		return nil
 	}
@@ -170,8 +177,8 @@ func (e *WindsorEnvPrinter) CreateSessionInvalidationSignal() error {
 		return fmt.Errorf("failed to create .windsor directory: %w", err)
 	}
 
-	signalFilePath := filepath.Join(windsorDir, SessionTokenPrefix+envToken)
-	if err := writeFile(signalFilePath, []byte{}, 0644); err != nil {
+	sessionFilePath := filepath.Join(windsorDir, SessionTokenPrefix+envToken)
+	if err := writeFile(sessionFilePath, []byte{}, 0644); err != nil {
 		return fmt.Errorf("failed to create signal file: %w", err)
 	}
 
@@ -180,10 +187,11 @@ func (e *WindsorEnvPrinter) CreateSessionInvalidationSignal() error {
 
 // getSessionToken retrieves or generates a session token. It first checks if a token is already stored in memory.
 // If not, it looks for a token in the environment variable. If an environment token is found, it verifies the
-// existence of a corresponding signal file. If the signal file exists, it deletes the file and generates a new token.
-// If no token is found in the environment or no signal file exists, it generates a new token.
+// existence of a corresponding session file. If the specific session file exists, it deletes all session files and
+// generates a new token. If no token is found in the environment or the specific session file does not exist, it
+// generates a new token.
 func (e *WindsorEnvPrinter) getSessionToken() (string, error) {
-	envToken := os.Getenv(EnvSessionTokenVar)
+	envToken := os.Getenv("WINDSOR_SESSION_TOKEN")
 	if envToken != "" {
 		projectRoot, err := e.shell.GetProjectRoot()
 		if err != nil {
@@ -193,9 +201,19 @@ func (e *WindsorEnvPrinter) getSessionToken() (string, error) {
 		windsorDir := filepath.Join(projectRoot, ".windsor")
 		tokenFilePath := filepath.Join(windsorDir, SessionTokenPrefix+envToken)
 		if _, err := stat(tokenFilePath); err == nil {
-			if err := osRemoveAll(tokenFilePath); err != nil {
-				return "", fmt.Errorf("error removing token file: %w", err)
-			}
+			defer func() {
+				sessionFilesPattern := filepath.Join(windsorDir, SessionTokenPrefix+"*")
+				sessionFiles, err := filepath.Glob(sessionFilesPattern)
+				if err != nil {
+					fmt.Printf("error finding session files: %v\n", err)
+					return
+				}
+				for _, file := range sessionFiles {
+					if err := osRemoveAll(file); err != nil {
+						fmt.Printf("error removing session file %s: %v\n", file, err)
+					}
+				}
+			}()
 			token, err := e.generateRandomString(7)
 			if err != nil {
 				return "", fmt.Errorf("error generating session token: %w", err)
@@ -238,3 +256,9 @@ func (e *WindsorEnvPrinter) generateRandomString(length int) (string, error) {
 
 // Ensure WindsorEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*WindsorEnvPrinter)(nil)
+
+// shouldUseCache determines if the cache should be used based on the current and Windsor context.
+func shouldUseCache() bool {
+	noCache := os.Getenv("NO_CACHE")
+	return noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
+}

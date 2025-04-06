@@ -467,4 +467,89 @@ func TestEnvCmd(t *testing.T) {
 			t.Fatalf("Expected load error, got %v", err)
 		}
 	})
+
+	t.Run("ContinuesThroughPrinterErrors", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller with multiple environment printers
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+
+		// First printer that will error on Print
+		failingPrinter := env.NewMockEnvPrinter()
+		failingPrinter.PrintFunc = func() error {
+			return fmt.Errorf("first printer error")
+		}
+
+		// Second printer to verify it still gets called
+		secondPrinterCalled := false
+		successPrinter := env.NewMockEnvPrinter()
+		successPrinter.PrintFunc = func() error {
+			secondPrinterCalled = true
+			return nil
+		}
+
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{failingPrinter, successPrinter}
+		}
+
+		// When the env command is executed without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute(mockController)
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And the second printer should have been called
+		if !secondPrinterCalled {
+			t.Fatalf("Second printer was not called, command stopped at first error")
+		}
+	})
+
+	t.Run("ContinuesThroughPrinterErrorsInVerboseMode", func(t *testing.T) {
+		defer resetRootCmd()
+
+		// Given a mock controller with multiple environment printers
+		injector := di.NewInjector()
+		mockController := ctrl.NewMockController(injector)
+
+		// First printer that will error on Print
+		failingPrinter := env.NewMockEnvPrinter()
+		failingPrinter.PrintFunc = func() error {
+			return fmt.Errorf("first printer error")
+		}
+
+		// Second printer to verify it still gets called
+		secondPrinterCalled := false
+		successPrinter := env.NewMockEnvPrinter()
+		successPrinter.PrintFunc = func() error {
+			secondPrinterCalled = true
+			return nil
+		}
+
+		mockController.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
+			return []env.EnvPrinter{failingPrinter, successPrinter}
+		}
+
+		// When the env command is executed with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute(mockController)
+
+		// Then an error should be returned for the first printer
+		if err == nil {
+			t.Fatalf("Expected error from first printer, got nil")
+		}
+		expectedError := "Error executing Print: first printer error"
+		if err.Error() != expectedError {
+			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		}
+
+		// With our implementation, the second printer still gets processed because
+		// we collect all errors first, then return the first one if we're in verbose mode
+		if !secondPrinterCalled {
+			t.Fatalf("Second printer was not called, but all printers should be processed")
+		}
+	})
 }

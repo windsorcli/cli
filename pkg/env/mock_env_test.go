@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 )
 
@@ -143,6 +144,68 @@ func TestMockEnvPrinter_Print(t *testing.T) {
 		// Then the custom error should be returned
 		if err != expectedError {
 			t.Errorf("Print() error = %v, want %v", err, expectedError)
+		}
+	})
+}
+
+func TestMockPrinter_GetAlias(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock environment with custom GetAlias implementation
+		mockEnv := NewMockEnvPrinter()
+		expectedAlias := map[string]string{"test": "echo test"}
+		mockEnv.GetAliasFunc = func() (map[string]string, error) {
+			return expectedAlias, nil
+		}
+		// When calling GetAlias
+		alias, err := mockEnv.GetAlias()
+		// Then no error should be returned and alias should match expectedAlias
+		if err != nil {
+			t.Errorf("GetAlias() error = %v, want nil", err)
+		}
+		if !reflect.DeepEqual(alias, expectedAlias) {
+			t.Errorf("GetAlias() = %v, want %v", alias, expectedAlias)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock environment with default GetAlias implementation
+		mockEnv := NewMockEnvPrinter()
+		// When calling GetAlias
+		alias, err := mockEnv.GetAlias()
+		// Then no error should be returned and alias should be an empty map
+		if err != nil {
+			t.Errorf("GetAlias() error = %v, want nil", err)
+		}
+		expectedAlias := map[string]string{}
+		if !reflect.DeepEqual(alias, expectedAlias) {
+			t.Errorf("GetAlias() = %v, want %v", alias, expectedAlias)
+		}
+	})
+}
+
+func TestMockEnvPrinter_PrintAlias(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock environment with custom PrintAlias implementation
+		mockEnv := NewMockEnvPrinter()
+		mockEnv.PrintAliasFunc = func() error {
+			return nil
+		}
+		// When calling PrintAlias
+		err := mockEnv.PrintAlias()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("PrintAlias() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock environment with default GetAlias implementation
+		mockEnv := NewMockEnvPrinter()
+		// When calling GetAlias
+		err := mockEnv.PrintAlias()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("GetAlias() error = %v, want nil", err)
 		}
 	})
 }

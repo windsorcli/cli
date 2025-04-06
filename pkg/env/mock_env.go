@@ -5,8 +5,10 @@ type MockEnvPrinter struct {
 	BaseEnvPrinter
 	InitializeFunc  func() error
 	PrintFunc       func() error
+	PrintAliasFunc  func() error
 	PostEnvHookFunc func() error
 	GetEnvVarsFunc  func() (map[string]string, error)
+	GetAliasFunc    func() (map[string]string, error)
 }
 
 // NewMockEnvPrinter creates a new instance of MockEnvPrinter.
@@ -31,11 +33,30 @@ func (m *MockEnvPrinter) Print() error {
 	return nil
 }
 
+// PrintAlias simulates printing the shell aliases.
+// If a custom PrintAliasFunc is provided, it will use that function instead.
+func (m *MockEnvPrinter) PrintAlias() error {
+	if m.PrintAliasFunc != nil {
+		return m.PrintAliasFunc()
+	}
+	return nil
+}
+
 // GetEnvVars simulates retrieving environment variables.
 // If a custom GetEnvVarsFunc is provided, it will use that function instead.
 func (m *MockEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if m.GetEnvVarsFunc != nil {
 		return m.GetEnvVarsFunc()
+	}
+	// Return an empty map as a placeholder
+	return map[string]string{}, nil
+}
+
+// GetAlias simulates retrieving the shell alias.
+// If a custom GetAliasFunc is provided, it will use that function instead.
+func (m *MockEnvPrinter) GetAlias() (map[string]string, error) {
+	if m.GetAliasFunc != nil {
+		return m.GetAliasFunc()
 	}
 	// Return an empty map as a placeholder
 	return map[string]string{}, nil
