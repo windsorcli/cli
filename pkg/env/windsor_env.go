@@ -148,7 +148,7 @@ func (e *WindsorEnvPrinter) Print() error {
 	if err != nil {
 		return fmt.Errorf("error getting environment variables: %w", err)
 	}
-	return e.shell.PrintEnvVars(envVars)
+	return e.BaseEnvPrinter.Print(envVars)
 }
 
 // CreateSessionInvalidationSignal creates a signal file to invalidate the session token
