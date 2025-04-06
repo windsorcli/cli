@@ -266,3 +266,61 @@ func TestMockEnvPrinter_Reset(t *testing.T) {
 		}
 	})
 }
+
+func TestMockEnvPrinter_WriteResetToken(t *testing.T) {
+	t.Run("DefaultWriteResetToken", func(t *testing.T) {
+		// Given a mock environment with default WriteResetToken implementation
+		mockEnv := NewMockEnvPrinter()
+
+		// When calling WriteResetToken
+		path, err := mockEnv.WriteResetToken()
+
+		// Then it should not return an error and path should be empty
+		if err != nil {
+			t.Errorf("WriteResetToken() error = %v, want nil", err)
+		}
+		if path != "" {
+			t.Errorf("WriteResetToken() path = %v, want empty string", path)
+		}
+	})
+
+	t.Run("CustomWriteResetToken", func(t *testing.T) {
+		// Given a mock environment with custom WriteResetToken implementation
+		mockEnv := NewMockEnvPrinter()
+		expectedPath := "/tmp/.session.abc123"
+		mockEnv.WriteResetTokenFunc = func() (string, error) {
+			return expectedPath, nil
+		}
+
+		// When calling WriteResetToken
+		path, err := mockEnv.WriteResetToken()
+
+		// Then it should return the expected path and no error
+		if err != nil {
+			t.Errorf("WriteResetToken() error = %v, want nil", err)
+		}
+		if path != expectedPath {
+			t.Errorf("WriteResetToken() path = %v, want %v", path, expectedPath)
+		}
+	})
+
+	t.Run("CustomWriteResetTokenWithError", func(t *testing.T) {
+		// Given a mock environment with custom WriteResetToken implementation that returns an error
+		mockEnv := NewMockEnvPrinter()
+		expectedError := fmt.Errorf("custom error")
+		mockEnv.WriteResetTokenFunc = func() (string, error) {
+			return "", expectedError
+		}
+
+		// When calling WriteResetToken
+		path, err := mockEnv.WriteResetToken()
+
+		// Then it should return the expected error
+		if err != expectedError {
+			t.Errorf("WriteResetToken() error = %v, want %v", err, expectedError)
+		}
+		if path != "" {
+			t.Errorf("WriteResetToken() path = %v, want empty string", path)
+		}
+	})
+}

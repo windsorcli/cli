@@ -11,10 +11,6 @@ import (
 	"github.com/windsorcli/cli/pkg/secrets"
 )
 
-const (
-	SessionTokenPrefix = ".session."
-)
-
 var WindsorPrefixedVars = []string{
 	"WINDSOR_CONTEXT",
 	"WINDSOR_PROJECT_ROOT",
