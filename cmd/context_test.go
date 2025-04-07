@@ -8,6 +8,7 @@ import (
 	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type MockSafeContextCmdComponents struct {
@@ -48,6 +49,18 @@ func setupSafeContextCmdMocks(optionalInjector ...di.Injector) MockSafeContextCm
 	// Set the ResolveConfigHandlerFunc to return the mock config handler
 	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
 		return mockConfigHandler
+	}
+
+	// Setup mock shell
+	mockShell := shell.NewMockShell(injector)
+	mockShell.WriteResetTokenFunc = func() (string, error) {
+		return "/mock/project/root/.windsor/.session.mock-token", nil
+	}
+	injector.Register("shell", mockShell)
+
+	// Set the ResolveShellFunc to return the mock shell
+	mockController.ResolveShellFunc = func() shell.Shell {
+		return mockShell
 	}
 
 	// Ensure the IsLoadedFunc returns true
@@ -159,6 +172,29 @@ func TestContext_Get(t *testing.T) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
 		}
 	})
+
+	t.Run("ErrorSettingEnvironmentVariables", func(t *testing.T) {
+		// Given an error when setting environment variables
+		mocks := setupSafeContextCmdMocks()
+		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
+			return fmt.Errorf("environment variables error")
+		}
+
+		// When the get context command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"context", "get"})
+			err := Execute(mocks.Controller)
+			if err == nil {
+				t.Fatalf("Expected error, got nil")
+			}
+		})
+
+		// Then the output should indicate the error
+		expectedOutput := "Error setting environment variables: environment variables error"
+		if !strings.Contains(output, expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
 }
 
 func TestContext_Set(t *testing.T) {
@@ -265,6 +301,91 @@ func TestContext_Set(t *testing.T) {
 		expectedOutput := "Error initializing environment components: env components error"
 		if !strings.Contains(err.Error(), expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
+		}
+	})
+
+	t.Run("ErrorWritingResetToken", func(t *testing.T) {
+		// Given a mock shell that returns an error on WriteResetToken
+		mocks := setupSafeContextCmdMocks()
+		mockShell := shell.NewMockShell()
+		mockShell.WriteResetTokenFunc = func() (string, error) {
+			return "", fmt.Errorf("error writing reset token")
+		}
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		// When the set context command is executed
+		rootCmd.SetArgs([]string{"context", "set", "new-context"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then the output should indicate the error
+		expectedOutput := "Error writing reset token: error writing reset token"
+		if !strings.Contains(err.Error(), expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
+		}
+	})
+
+	t.Run("ErrorSettingEnvironmentVariables", func(t *testing.T) {
+		// Given a controller that returns an error when setting environment variables
+		mocks := setupSafeContextCmdMocks()
+		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
+			return fmt.Errorf("error setting environment variables")
+		}
+
+		// When the set context command is executed
+		rootCmd.SetArgs([]string{"context", "set", "new-context"})
+		err := Execute(mocks.Controller)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		}
+
+		// Then the output should indicate the error
+		expectedOutput := "Error setting environment variables: error setting environment variables"
+		if !strings.Contains(err.Error(), expectedOutput) {
+			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
+		}
+	})
+
+	t.Run("ResetTokenWrittenBeforeContextChange", func(t *testing.T) {
+		// Given a controller that tracks execution order
+		mocks := setupSafeContextCmdMocks()
+
+		var executionOrder []string
+
+		// Mock WriteResetToken to record when it's called
+		mockShell := shell.NewMockShell()
+		mockShell.WriteResetTokenFunc = func() (string, error) {
+			executionOrder = append(executionOrder, "WriteResetToken")
+			return "/mock/path", nil
+		}
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		// Mock SetContext to record when it's called
+		mocks.ConfigHandler.SetContextFunc = func(contextName string) error {
+			executionOrder = append(executionOrder, "SetContext")
+			return nil
+		}
+
+		// When the set context command is executed
+		rootCmd.SetArgs([]string{"context", "set", "new-context"})
+		err := Execute(mocks.Controller)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// Then WriteResetToken should be called before SetContext
+		if len(executionOrder) != 2 {
+			t.Fatalf("Expected 2 operations, got %d: %v", len(executionOrder), executionOrder)
+		}
+
+		if executionOrder[0] != "WriteResetToken" || executionOrder[1] != "SetContext" {
+			t.Errorf("Expected WriteResetToken to be called before SetContext, got order: %v", executionOrder)
 		}
 	})
 }

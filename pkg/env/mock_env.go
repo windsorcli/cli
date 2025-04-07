@@ -3,14 +3,13 @@ package env
 // MockEnvPrinter is a struct that simulates an environment for testing purposes.
 type MockEnvPrinter struct {
 	BaseEnvPrinter
-	InitializeFunc      func() error
-	PrintFunc           func() error
-	PrintAliasFunc      func() error
-	PostEnvHookFunc     func() error
-	GetEnvVarsFunc      func() (map[string]string, error)
-	GetAliasFunc        func() (map[string]string, error)
-	ResetFunc           func()
-	WriteResetTokenFunc func() (string, error)
+	InitializeFunc  func() error
+	PrintFunc       func() error
+	PrintAliasFunc  func() error
+	PostEnvHookFunc func() error
+	GetEnvVarsFunc  func() (map[string]string, error)
+	GetAliasFunc    func() (map[string]string, error)
+	ResetFunc       func()
 }
 
 // NewMockEnvPrinter creates a new instance of MockEnvPrinter.
@@ -79,18 +78,8 @@ func (m *MockEnvPrinter) PostEnvHook() error {
 func (m *MockEnvPrinter) Reset() {
 	if m.ResetFunc != nil {
 		m.ResetFunc()
+		return
 	}
-	// Do nothing if no custom function is provided
-}
-
-// WriteResetToken simulates writing a reset token file.
-// If a custom WriteResetTokenFunc is provided, it will use that function instead.
-func (m *MockEnvPrinter) WriteResetToken() (string, error) {
-	if m.WriteResetTokenFunc != nil {
-		return m.WriteResetTokenFunc()
-	}
-	// Return empty string and nil error as the default behavior
-	return "", nil
 }
 
 // Ensure MockEnvPrinter implements the EnvPrinter interface

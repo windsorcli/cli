@@ -201,7 +201,7 @@ func (y *YamlConfigHandler) GetStringMap(key string, defaultValue ...map[string]
 }
 
 // Set updates the value at the specified path in the configuration using reflection.
-func (y *YamlConfigHandler) Set(path string, value interface{}) error {
+func (y *YamlConfigHandler) Set(path string, value any) error {
 	if path == "" {
 		return nil
 	}
@@ -211,10 +211,14 @@ func (y *YamlConfigHandler) Set(path string, value interface{}) error {
 }
 
 // SetContextValue sets a configuration value within the current context.
-func (y *YamlConfigHandler) SetContextValue(path string, value interface{}) error {
-	y.GetContext()
+func (y *YamlConfigHandler) SetContextValue(path string, value any) error {
+	if path == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
 
-	currentContext := y.context
+	// Ensure we have a current context
+	currentContext := y.GetContext()
+
 	fullPath := fmt.Sprintf("contexts.%s.%s", currentContext, path)
 	return y.Set(fullPath, value)
 }
@@ -308,7 +312,7 @@ func getFieldByYamlTag(v reflect.Value, tag string) reflect.Value {
 }
 
 // setValueByPath sets a value in a struct or map by navigating through it using YAML tags.
-func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{}, fullPath string) error {
+func setValueByPath(currValue reflect.Value, pathKeys []string, value any, fullPath string) error {
 	if len(pathKeys) == 0 {
 		return fmt.Errorf("pathKeys cannot be empty")
 	}
@@ -394,7 +398,7 @@ func setValueByPath(currValue reflect.Value, pathKeys []string, value interface{
 }
 
 // assignValue assigns a value to a field, converting types if necessary.
-func assignValue(fieldValue reflect.Value, value interface{}) (reflect.Value, error) {
+func assignValue(fieldValue reflect.Value, value any) (reflect.Value, error) {
 	if !fieldValue.CanSet() {
 		return reflect.Value{}, fmt.Errorf("cannot set field")
 	}

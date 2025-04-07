@@ -706,14 +706,45 @@ func TestMockShell_WriteResetToken(t *testing.T) {
 		mockShell := NewMockShell(injector)
 
 		// When calling WriteResetToken
-		path, err := mockShell.WriteResetToken()
+		_, err := mockShell.WriteResetToken()
 
-		// Then no error should be returned and the path should be empty
-		if err != nil {
-			t.Errorf("WriteResetToken() error = %v, want nil", err)
+		// Then an error should be returned
+		if err == nil {
+			t.Errorf("WriteResetToken() expected error, got nil")
 		}
-		if path != "" {
-			t.Errorf("WriteResetToken() path = %v, want empty string", path)
+		if err.Error() != "WriteResetToken not implemented" {
+			t.Errorf("WriteResetToken() error = %v, want %v", err, "WriteResetToken not implemented")
+		}
+	})
+}
+
+// TestMockShell_Reset tests the Reset method of the MockShell struct
+func TestMockShell_Reset(t *testing.T) {
+	t.Run("DefaultReset", func(t *testing.T) {
+		// Given a mock shell with default Reset implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// When calling Reset (without a custom implementation)
+		// This is a no-op, so we just call it to ensure it doesn't panic
+		mockShell.Reset()
+	})
+
+	t.Run("CustomReset", func(t *testing.T) {
+		// Given a mock shell with custom Reset implementation
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+		resetCalled := false
+		mockShell.ResetFunc = func() {
+			resetCalled = true
+		}
+
+		// When calling Reset
+		mockShell.Reset()
+
+		// Then it should call the custom reset function
+		if !resetCalled {
+			t.Error("Reset() did not call ResetFunc")
 		}
 	})
 }

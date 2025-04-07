@@ -1,6 +1,8 @@
 package shell
 
 import (
+	"fmt"
+
 	"github.com/windsorcli/cli/pkg/di"
 )
 
@@ -22,6 +24,9 @@ type MockShell struct {
 	UnsetEnvsFunc                  func(envVars []string)
 	UnsetAliasFunc                 func(aliases []string)
 	WriteResetTokenFunc            func() (string, error)
+	GetSessionTokenFunc            func() (string, error)
+	CheckResetFlagsFunc            func() (bool, error)
+	ResetFunc                      func()
 }
 
 // NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
@@ -30,11 +35,14 @@ func NewMockShell(injectors ...di.Injector) *MockShell {
 	if len(injectors) > 0 {
 		injector = injectors[0]
 	}
-	return &MockShell{
+
+	mockShell := &MockShell{
 		DefaultShell: DefaultShell{
 			injector: injector,
 		},
 	}
+
+	return mockShell
 }
 
 // Initialize calls the custom InitializeFunc if provided.
@@ -144,12 +152,35 @@ func (s *MockShell) UnsetAlias(aliases []string) {
 	}
 }
 
-// WriteResetToken calls the custom WriteResetTokenFunc if provided.
+// WriteResetToken writes a reset token file
 func (s *MockShell) WriteResetToken() (string, error) {
 	if s.WriteResetTokenFunc != nil {
 		return s.WriteResetTokenFunc()
 	}
-	return "", nil
+	return "", fmt.Errorf("WriteResetToken not implemented")
+}
+
+// GetSessionToken retrieves or generates a session token
+func (s *MockShell) GetSessionToken() (string, error) {
+	if s.GetSessionTokenFunc != nil {
+		return s.GetSessionTokenFunc()
+	}
+	return "", fmt.Errorf("GetSessionToken not implemented")
+}
+
+// CheckResetFlags checks if a reset signal file exists for the current session
+func (s *MockShell) CheckResetFlags() (bool, error) {
+	if s.CheckResetFlagsFunc != nil {
+		return s.CheckResetFlagsFunc()
+	}
+	return false, nil
+}
+
+// Reset calls the custom ResetFunc if provided.
+func (s *MockShell) Reset() {
+	if s.ResetFunc != nil {
+		s.ResetFunc()
+	}
 }
 
 // Ensure MockShell implements the Shell interface

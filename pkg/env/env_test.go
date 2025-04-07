@@ -1,12 +1,9 @@
 package env
 
 import (
-	"fmt"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -507,29 +504,18 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Track calls to UnsetEnvs and UnsetAlias
-		var capturedEnvs []string
-		var capturedAliases []string
-		mocks.Shell.UnsetEnvsFunc = func(envVars []string) {
-			capturedEnvs = envVars
+		// Track calls to Reset
+		resetCalled := false
+		mocks.Shell.ResetFunc = func() {
+			resetCalled = true
 		}
-		mocks.Shell.UnsetAliasFunc = func(aliases []string) {
-			capturedAliases = aliases
-		}
-
-		// Make sure environment variables are not set
-		os.Unsetenv("WINDSOR_MANAGED_ENV")
-		os.Unsetenv("WINDSOR_MANAGED_ALIAS")
 
 		// When calling Reset
 		envPrinter.Reset()
 
-		// Then UnsetEnvs and UnsetAlias should not be called
-		if capturedEnvs != nil {
-			t.Errorf("expected UnsetEnvs not to be called, but it was called with %v", capturedEnvs)
-		}
-		if capturedAliases != nil {
-			t.Errorf("expected UnsetAlias not to be called, but it was called with %v", capturedAliases)
+		// Then shell.Reset should be called
+		if !resetCalled {
+			t.Errorf("expected Shell.Reset to be called, but it wasn't")
 		}
 	})
 
@@ -550,39 +536,18 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 			os.Unsetenv("WINDSOR_MANAGED_ALIAS")
 		}()
 
-		// Track calls to UnsetEnvs and UnsetAlias
-		var capturedEnvs []string
-		var capturedAliases []string
-		mocks.Shell.UnsetEnvsFunc = func(envVars []string) {
-			capturedEnvs = envVars
-		}
-		mocks.Shell.UnsetAliasFunc = func(aliases []string) {
-			capturedAliases = aliases
+		// Track calls to Reset
+		resetCalled := false
+		mocks.Shell.ResetFunc = func() {
+			resetCalled = true
 		}
 
 		// When calling Reset
 		envPrinter.Reset()
 
-		// Then UnsetEnvs should be called with the correct environment variables
-		expectedEnvs := []string{"ENV1", "ENV2", "ENV3"}
-		if len(capturedEnvs) != len(expectedEnvs) {
-			t.Errorf("expected UnsetEnvs to be called with %v items, got %v", len(expectedEnvs), len(capturedEnvs))
-		}
-		for _, env := range expectedEnvs {
-			if !slices.Contains(capturedEnvs, env) {
-				t.Errorf("expected UnsetEnvs to contain %s", env)
-			}
-		}
-
-		// And UnsetAlias should be called with the correct aliases
-		expectedAliases := []string{"alias1", "alias2", "alias3"}
-		if len(capturedAliases) != len(expectedAliases) {
-			t.Errorf("expected UnsetAlias to be called with %v items, got %v", len(expectedAliases), len(capturedAliases))
-		}
-		for _, alias := range expectedAliases {
-			if !slices.Contains(capturedAliases, alias) {
-				t.Errorf("expected UnsetAlias to contain %s", alias)
-			}
+		// Then shell.Reset should be called
+		if !resetCalled {
+			t.Errorf("expected Shell.Reset to be called, but it wasn't")
 		}
 	})
 
@@ -601,288 +566,38 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 		envPrinter.SetManagedAlias("test_alias1")
 		envPrinter.SetManagedAlias("test_alias2")
 
-		// Make sure environment variables are not set
-		os.Unsetenv("WINDSOR_MANAGED_ENV")
-		os.Unsetenv("WINDSOR_MANAGED_ALIAS")
-
-		// Track calls to UnsetEnvs and UnsetAlias
-		var capturedEnvs []string
-		var capturedAliases []string
-		mocks.Shell.UnsetEnvsFunc = func(envVars []string) {
-			capturedEnvs = envVars
-		}
-		mocks.Shell.UnsetAliasFunc = func(aliases []string) {
-			capturedAliases = aliases
+		// Track calls to Reset
+		resetCalled := false
+		mocks.Shell.ResetFunc = func() {
+			resetCalled = true
 		}
 
 		// When calling Reset
 		envPrinter.Reset()
 
-		// Then UnsetEnvs and UnsetAlias should not be called with internal values
-		if capturedEnvs != nil {
-			t.Errorf("expected UnsetEnvs not to be called, but it was called with %v", capturedEnvs)
-		}
-		if capturedAliases != nil {
-			t.Errorf("expected UnsetAlias not to be called, but it was called with %v", capturedAliases)
-		}
-	})
-}
-
-// TestBaseEnvPrinter_WriteResetToken tests the WriteResetToken method of the BaseEnvPrinter struct
-func TestBaseEnvPrinter_WriteResetToken(t *testing.T) {
-	t.Run("NoSessionToken", func(t *testing.T) {
-		// Given a new BaseEnvPrinter
-		mocks := setupEnvMockTests(nil)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		err := envPrinter.Initialize()
-		if err != nil {
-			t.Errorf("unexpected error during initialization: %v", err)
+		// Then shell.Reset should be called
+		if !resetCalled {
+			t.Errorf("expected Shell.Reset to be called, but it wasn't")
 		}
 
-		// Save the original environment variable and restore it after the test
-		originalSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
-		defer os.Setenv("WINDSOR_SESSION_TOKEN", originalSessionToken)
+		// And the managed environment variables should still be available
+		managedEnv := envPrinter.GetManagedEnv()
 
-		// Ensure the environment variable is not set
-		os.Unsetenv("WINDSOR_SESSION_TOKEN")
-
-		// When calling WriteResetToken
-		path, err := envPrinter.WriteResetToken()
-
-		// Then no error should be returned and path should be empty
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-		if path != "" {
-			t.Errorf("expected empty path, got %s", path)
-		}
-	})
-
-	t.Run("SuccessfulTokenWrite", func(t *testing.T) {
-		// Given a new BaseEnvPrinter
-		mocks := setupEnvMockTests(nil)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		err := envPrinter.Initialize()
-		if err != nil {
-			t.Errorf("unexpected error during initialization: %v", err)
-		}
-
-		// Save the original environment variable and restore it after the test
-		originalSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
-		defer os.Setenv("WINDSOR_SESSION_TOKEN", originalSessionToken)
-
-		// Set up mock project root path
-		testProjectRoot := "/test/project/root"
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return testProjectRoot, nil
-		}
-
-		// Mock MkdirAll and WriteFile functions
-		originalMkdirAll := mkdirAll
-		originalWriteFile := writeFile
-
-		// Restore original functions after test
-		defer func() {
-			mkdirAll = originalMkdirAll
-			writeFile = originalWriteFile
-		}()
-
-		// Track function calls
-		mkdirAllCalled := false
-		writeFileCalled := false
-		expectedDirPath := filepath.Join(testProjectRoot, ".windsor")
-
-		mkdirAll = func(path string, perm os.FileMode) error {
-			mkdirAllCalled = true
-			if path != expectedDirPath {
-				t.Errorf("expected MkdirAll path %s, got %s", expectedDirPath, path)
+		// Verify that our test variables are in the managed env (without requiring exact count)
+		for _, env := range []string{"TEST_ENV1", "TEST_ENV2"} {
+			if !slices.Contains(managedEnv, env) {
+				t.Errorf("expected GetManagedEnv to contain %s", env)
 			}
-			if perm != 0750 {
-				t.Errorf("expected MkdirAll permissions 0750, got %v", perm)
+		}
+
+		// And the managed aliases should still be available
+		managedAlias := envPrinter.GetManagedAlias()
+
+		// Verify that our test aliases are in the managed aliases (without requiring exact count)
+		for _, alias := range []string{"test_alias1", "test_alias2"} {
+			if !slices.Contains(managedAlias, alias) {
+				t.Errorf("expected GetManagedAlias to contain %s", alias)
 			}
-			return nil
-		}
-
-		expectedTestToken := "test-token-123"
-		expectedFilePath := filepath.Join(expectedDirPath, SessionTokenPrefix+expectedTestToken)
-
-		writeFile = func(path string, data []byte, perm os.FileMode) error {
-			writeFileCalled = true
-			if path != expectedFilePath {
-				t.Errorf("expected WriteFile path %s, got %s", expectedFilePath, path)
-			}
-			if len(data) != 0 {
-				t.Errorf("expected empty file, got %v bytes", len(data))
-			}
-			if perm != 0600 {
-				t.Errorf("expected WriteFile permissions 0600, got %v", perm)
-			}
-			return nil
-		}
-
-		// Set the environment variable for the test
-		os.Setenv("WINDSOR_SESSION_TOKEN", expectedTestToken)
-
-		// When calling WriteResetToken
-		path, err := envPrinter.WriteResetToken()
-
-		// Then no error should be returned and path should match expected value
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-		if path != expectedFilePath {
-			t.Errorf("expected path %s, got %s", expectedFilePath, path)
-		}
-
-		// Verify that MkdirAll and WriteFile were called
-		if !mkdirAllCalled {
-			t.Error("expected MkdirAll to be called, but it wasn't")
-		}
-		if !writeFileCalled {
-			t.Error("expected WriteFile to be called, but it wasn't")
-		}
-	})
-
-	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
-		// Given a new BaseEnvPrinter
-		mocks := setupEnvMockTests(nil)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		err := envPrinter.Initialize()
-		if err != nil {
-			t.Errorf("unexpected error during initialization: %v", err)
-		}
-
-		// Save the original environment variable and restore it after the test
-		originalSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
-		defer os.Setenv("WINDSOR_SESSION_TOKEN", originalSessionToken)
-
-		// Set up mock to return an error when getting project root
-		expectedError := fmt.Errorf("error getting project root")
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", expectedError
-		}
-
-		// Set the environment variable for the test
-		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
-
-		// When calling WriteResetToken
-		path, err := envPrinter.WriteResetToken()
-
-		// Then the expected error should be returned and path should be empty
-		if err == nil {
-			t.Error("expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("expected error containing %q, got %q", expectedError.Error(), err.Error())
-		}
-		if path != "" {
-			t.Errorf("expected empty path, got %s", path)
-		}
-	})
-
-	t.Run("ErrorCreatingDirectory", func(t *testing.T) {
-		// Given a new BaseEnvPrinter
-		mocks := setupEnvMockTests(nil)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		err := envPrinter.Initialize()
-		if err != nil {
-			t.Errorf("unexpected error during initialization: %v", err)
-		}
-
-		// Save the original environment variable and restore it after the test
-		originalSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
-		defer os.Setenv("WINDSOR_SESSION_TOKEN", originalSessionToken)
-
-		// Set up mock project root path
-		testProjectRoot := "/test/project/root"
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return testProjectRoot, nil
-		}
-
-		// Mock MkdirAll function to return an error
-		originalMkdirAll := mkdirAll
-		defer func() {
-			mkdirAll = originalMkdirAll
-		}()
-
-		expectedError := fmt.Errorf("error creating directory")
-		mkdirAll = func(path string, perm os.FileMode) error {
-			return expectedError
-		}
-
-		// Set the environment variable for the test
-		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
-
-		// When calling WriteResetToken
-		path, err := envPrinter.WriteResetToken()
-
-		// Then the expected error should be returned and path should be empty
-		if err == nil {
-			t.Error("expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("expected error containing %q, got %q", expectedError.Error(), err.Error())
-		}
-		if path != "" {
-			t.Errorf("expected empty path, got %s", path)
-		}
-	})
-
-	t.Run("ErrorWritingFile", func(t *testing.T) {
-		// Given a new BaseEnvPrinter
-		mocks := setupEnvMockTests(nil)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		err := envPrinter.Initialize()
-		if err != nil {
-			t.Errorf("unexpected error during initialization: %v", err)
-		}
-
-		// Save the original environment variable and restore it after the test
-		originalSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
-		defer os.Setenv("WINDSOR_SESSION_TOKEN", originalSessionToken)
-
-		// Set up mock project root path
-		testProjectRoot := "/test/project/root"
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return testProjectRoot, nil
-		}
-
-		// Mock MkdirAll and WriteFile functions
-		originalMkdirAll := mkdirAll
-		originalWriteFile := writeFile
-
-		// Restore original functions after test
-		defer func() {
-			mkdirAll = originalMkdirAll
-			writeFile = originalWriteFile
-		}()
-
-		// Mock successful directory creation
-		mkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-
-		// Mock file writing error
-		expectedError := fmt.Errorf("error writing file")
-		writeFile = func(path string, data []byte, perm os.FileMode) error {
-			return expectedError
-		}
-
-		// Set the environment variable for the test
-		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
-
-		// When calling WriteResetToken
-		path, err := envPrinter.WriteResetToken()
-
-		// Then the expected error should be returned and path should be empty
-		if err == nil {
-			t.Error("expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("expected error containing %q, got %q", expectedError.Error(), err.Error())
-		}
-		if path != "" {
-			t.Errorf("expected empty path, got %s", path)
 		}
 	})
 }

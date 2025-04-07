@@ -2,10 +2,7 @@ package env
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 
 	"sync"
 
@@ -20,7 +17,6 @@ var (
 	windsorManagedEnv   = []string{}
 	windsorManagedAlias = []string{}
 	windsorManagedMu    sync.Mutex
-	SessionTokenPrefix  = ".session."
 )
 
 // EnvPrinter defines the method for printing environment variables.
@@ -35,7 +31,6 @@ type EnvPrinter interface {
 	SetManagedEnv(env string)
 	SetManagedAlias(alias string)
 	Reset()
-	WriteResetToken() (string, error)
 }
 
 // Env is a struct that implements the EnvPrinter interface.
@@ -164,64 +159,7 @@ func (e *BaseEnvPrinter) SetManagedAlias(alias string) {
 }
 
 // Reset removes all managed environment variables and aliases.
-// It uses the environment variables "WINDSOR_MANAGED_ENV" and "WINDSOR_MANAGED_ALIAS"
-// to retrieve the previous set of managed environment variables and aliases, respectively.
-// These environment variables represent the previous set of managed values that need to be reset.
+// It delegates to the shell's Reset method to handle the reset logic.
 func (e *BaseEnvPrinter) Reset() {
-	var managedEnvs []string
-	if envStr := os.Getenv("WINDSOR_MANAGED_ENV"); envStr != "" {
-		for _, env := range strings.Split(envStr, ",") {
-			env = strings.TrimSpace(env)
-			if env != "" {
-				managedEnvs = append(managedEnvs, env)
-			}
-		}
-	}
-
-	var managedAliases []string
-	if aliasStr := os.Getenv("WINDSOR_MANAGED_ALIAS"); aliasStr != "" {
-		for _, alias := range strings.Split(aliasStr, ",") {
-			alias = strings.TrimSpace(alias)
-			if alias != "" {
-				managedAliases = append(managedAliases, alias)
-			}
-		}
-	}
-
-	if len(managedEnvs) > 0 {
-		e.shell.UnsetEnvs(managedEnvs)
-	}
-
-	if len(managedAliases) > 0 {
-		e.shell.UnsetAlias(managedAliases)
-	}
-}
-
-// WriteResetToken writes a reset token file based on the WINDSOR_SESSION_TOKEN
-// environment variable. If the environment variable doesn't exist, no file is written.
-// Returns the path to the written file or an empty string if no file was written.
-func (e *BaseEnvPrinter) WriteResetToken() (string, error) {
-	sessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
-	if sessionToken == "" {
-		return "", nil
-	}
-
-	projectRoot, err := e.shell.GetProjectRoot()
-	if err != nil {
-		return "", fmt.Errorf("error getting project root: %w", err)
-	}
-
-	// Create .windsor directory if it doesn't exist
-	windsorDir := filepath.Join(projectRoot, ".windsor")
-	if err := mkdirAll(windsorDir, 0750); err != nil {
-		return "", fmt.Errorf("error creating .windsor directory: %w", err)
-	}
-
-	sessionFilePath := filepath.Join(windsorDir, SessionTokenPrefix+sessionToken)
-
-	if err := writeFile(sessionFilePath, []byte{}, 0600); err != nil {
-		return "", fmt.Errorf("error writing reset token file: %w", err)
-	}
-
-	return sessionFilePath, nil
+	e.shell.Reset()
 }
