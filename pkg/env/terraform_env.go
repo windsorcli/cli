@@ -25,9 +25,11 @@ func NewTerraformEnvPrinter(injector di.Injector) *TerraformEnvPrinter {
 	}
 }
 
-// GetEnvVars retrieves environment variables for Terraform by determining the config root and
-// project path, checking for tfvars files, and setting variables based on the OS. It returns
-// a map of environment variables or an error if any step fails.
+// GetEnvVars retrieves environment variables for Terraform.
+// It determines the config root and project path, checks for tfvars files,
+// and sets variables based on the OS. If not in a terraform project folder,
+// it resets all TF_ vars that are already set in the environment.
+// Returns a map of environment variables or an error if any step fails.
 func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
@@ -42,7 +44,24 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 
 	if projectPath == "" {
-		return nil, nil
+		managedVars := []string{
+			"TF_DATA_DIR",
+			"TF_CLI_ARGS_init",
+			"TF_CLI_ARGS_plan",
+			"TF_CLI_ARGS_apply",
+			"TF_CLI_ARGS_import",
+			"TF_CLI_ARGS_destroy",
+			"TF_VAR_context_path",
+			"TF_VAR_os_type",
+		}
+
+		for _, varName := range managedVars {
+			if _, exists := osLookupEnv(varName); exists {
+				envVars[varName] = ""
+			}
+		}
+
+		return envVars, nil
 	}
 
 	patterns := []string{

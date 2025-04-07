@@ -174,9 +174,56 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		terraformEnvPrinter.Initialize()
 		envVars, err := terraformEnvPrinter.GetEnvVars()
 
-		// Then it should return nil without an error
-		if envVars != nil {
-			t.Errorf("Expected nil, got %v", envVars)
+		// Then it should return an empty map without an error
+		if envVars == nil {
+			t.Errorf("Expected an empty map, got nil")
+		}
+		if len(envVars) != 0 {
+			t.Errorf("Expected empty map, got %v", envVars)
+		}
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ResetEnvVarsWhenNoProjectPathFound", func(t *testing.T) {
+		// Given a mocked getwd function returning a specific path
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+		getwd = func() (string, error) {
+			return filepath.FromSlash("/mock/project/root"), nil
+		}
+
+		// And some environment variables that should be reset
+		originalLookupEnv := osLookupEnv
+		defer func() { osLookupEnv = originalLookupEnv }()
+		osLookupEnv = func(key string) (string, bool) {
+			// Simulate that TF_DATA_DIR and TF_CLI_ARGS_init exist in environment
+			if key == "TF_DATA_DIR" || key == "TF_CLI_ARGS_init" {
+				return "some-value", true
+			}
+			return "", false
+		}
+
+		mocks := setupSafeTerraformEnvMocks()
+
+		// When the GetEnvVars function is called
+		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
+		terraformEnvPrinter.Initialize()
+		envVars, err := terraformEnvPrinter.GetEnvVars()
+
+		// Then it should return a map with only the variables that need to be reset
+		if envVars == nil {
+			t.Errorf("Expected a map with reset variables, got nil")
+		}
+		if len(envVars) != 2 {
+			t.Errorf("Expected map with 2 entries, got %v with %d entries", envVars, len(envVars))
+		}
+		if val, exists := envVars["TF_DATA_DIR"]; !exists || val != "" {
+			t.Errorf("Expected TF_DATA_DIR to be empty string, got %v", val)
+		}
+		if val, exists := envVars["TF_CLI_ARGS_init"]; !exists || val != "" {
+			t.Errorf("Expected TF_CLI_ARGS_init to be empty string, got %v", val)
 		}
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
