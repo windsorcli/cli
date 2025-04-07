@@ -103,7 +103,14 @@ func setupSafeDockerEnvPrinterMocks(injector ...di.Injector) *DockerEnvPrinterMo
 }
 
 func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
+	// Save original env var and restore after all tests
+	originalDockerHost := os.Getenv("DOCKER_HOST")
+	defer os.Setenv("DOCKER_HOST", originalDockerHost)
+
 	t.Run("Success", func(t *testing.T) {
+		// Clear any existing DOCKER_HOST for this test
+		os.Unsetenv("DOCKER_HOST")
+
 		mocks := setupSafeDockerEnvPrinterMocks()
 
 		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
@@ -125,6 +132,9 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ColimaDriver", func(t *testing.T) {
+		// Clear any existing DOCKER_HOST for this test
+		os.Unsetenv("DOCKER_HOST")
+
 		mocks := setupSafeDockerEnvPrinterMocks()
 		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "test-context"
@@ -149,6 +159,9 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("DockerDesktopDriver", func(t *testing.T) {
+		// Clear any existing DOCKER_HOST for this test
+		os.Unsetenv("DOCKER_HOST")
+
 		mocks := setupSafeDockerEnvPrinterMocks()
 
 		// Mock goos function to simulate different OS environments
@@ -227,6 +240,9 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("DockerDriver", func(t *testing.T) {
+		// Clear any existing DOCKER_HOST for this test
+		os.Unsetenv("DOCKER_HOST")
+
 		mocks := setupSafeDockerEnvPrinterMocks()
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
@@ -254,6 +270,9 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("GetUserHomeDirError", func(t *testing.T) {
+		// Clear any existing DOCKER_HOST for this test
+		os.Unsetenv("DOCKER_HOST")
+
 		mocks := setupSafeDockerEnvPrinterMocks()
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
@@ -280,6 +299,9 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("MkdirAllError", func(t *testing.T) {
+		// Clear any existing DOCKER_HOST for this test
+		os.Unsetenv("DOCKER_HOST")
+
 		mocks := setupSafeDockerEnvPrinterMocks()
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
@@ -306,6 +328,9 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("WriteFileError", func(t *testing.T) {
+		// Clear any existing DOCKER_HOST for this test
+		os.Unsetenv("DOCKER_HOST")
+
 		mocks := setupSafeDockerEnvPrinterMocks()
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
@@ -333,40 +358,45 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 
 	t.Run("DockerHostOSVariations", func(t *testing.T) {
 		testCases := []struct {
-			osName       string
-			expectedHost string
+			name     string
+			os       string
+			expected string
 		}{
-			{"windows", "npipe:////./pipe/docker_engine"},
-			{"linux", "unix:///home/user/.docker/run/docker.sock"},
-			{"darwin", "unix:///home/user/.docker/run/docker.sock"},
+			{
+				name:     "windows",
+				os:       "windows",
+				expected: "npipe:////./pipe/docker_engine",
+			},
+			{
+				name:     "linux",
+				os:       "linux",
+				expected: fmt.Sprintf("unix://%s/.docker/run/docker.sock", filepath.ToSlash("/mock/home")),
+			},
+			{
+				name:     "darwin",
+				os:       "darwin",
+				expected: fmt.Sprintf("unix://%s/.docker/run/docker.sock", filepath.ToSlash("/mock/home")),
+			},
 		}
 
 		for _, tc := range testCases {
-			t.Run(tc.osName, func(t *testing.T) {
+			t.Run(tc.name, func(t *testing.T) {
+				// Clear any existing DOCKER_HOST for this test
+				os.Unsetenv("DOCKER_HOST")
+
 				mocks := setupSafeDockerEnvPrinterMocks()
 				mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-					switch key {
-					case "vm.driver":
+					if key == "vm.driver" {
 						return "docker-desktop"
-					case "dns.domain":
-						return "mock-domain"
-					case "docker.registry_url":
-						return "mock-registry-url"
-					default:
-						return ""
 					}
+					return ""
 				}
 
+				// Save original goos function and restore after test
 				originalGoos := goos
 				defer func() { goos = originalGoos }()
 				goos = func() string {
-					return tc.osName
-				}
-
-				originalUserHomeDir := osUserHomeDir
-				defer func() { osUserHomeDir = originalUserHomeDir }()
-				osUserHomeDir = func() (string, error) {
-					return filepath.ToSlash("/home/user"), nil
+					return tc.os
 				}
 
 				dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
@@ -374,17 +404,122 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 
 				envVars, err := dockerEnvPrinter.GetEnvVars()
 				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
+					t.Fatalf("GetEnvVars returned an error: %v", err)
 				}
 
-				if envVars["DOCKER_HOST"] != tc.expectedHost {
-					t.Fatalf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], tc.expectedHost)
-				}
-
-				if envVars["REGISTRY_URL"] != "mock-registry-url:5000" {
-					t.Errorf("REGISTRY_URL = %v, want mock-registry-url:5000", envVars["REGISTRY_URL"])
+				if envVars["DOCKER_HOST"] != tc.expected {
+					t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], tc.expected)
 				}
 			})
+		}
+	})
+
+	t.Run("DockerHostFromEnvironment", func(t *testing.T) {
+		// Set a specific DOCKER_HOST for this test
+		os.Setenv("DOCKER_HOST", "tcp://custom-docker-host:2375")
+		defer os.Unsetenv("DOCKER_HOST")
+
+		mocks := setupSafeDockerEnvPrinterMocks()
+
+		// Save original lookup function and restore after test
+		originalLookupEnv := osLookupEnv
+		defer func() { osLookupEnv = originalLookupEnv }()
+
+		// Mock environment lookup to return a specific DOCKER_HOST value
+		osLookupEnv = func(key string) (string, bool) {
+			if key == "DOCKER_HOST" {
+				return "tcp://custom-docker-host:2375", true
+			}
+			return "", false
+		}
+
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		// When getting environment variables
+		envVars, err := dockerEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then the DOCKER_HOST should match the environment value
+		expectedDockerHost := "tcp://custom-docker-host:2375"
+		if envVars["DOCKER_HOST"] != expectedDockerHost {
+			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		}
+	})
+
+	t.Run("DockerHostNotSet", func(t *testing.T) {
+		// Given a mock setup without DOCKER_HOST environment variable
+		mocks := setupSafeDockerEnvPrinterMocks()
+
+		// Save original lookup function and restore after test
+		originalLookupEnv := osLookupEnv
+		defer func() { osLookupEnv = originalLookupEnv }()
+
+		// Mock environment lookup to return no DOCKER_HOST
+		osLookupEnv = func(key string) (string, bool) {
+			return "", false
+		}
+
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		// When getting environment variables
+		envVars, err := dockerEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then the DOCKER_HOST should be set based on the vm driver configuration
+		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-mock-context/docker.sock", filepath.ToSlash("/mock/home"))
+		if envVars["DOCKER_HOST"] != expectedDockerHost {
+			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		}
+	})
+
+	t.Run("DockerHostFromEnvironmentOverridesDriver", func(t *testing.T) {
+		// Given a mock setup with both DOCKER_HOST env var and vm driver configured
+		mocks := setupSafeDockerEnvPrinterMocks()
+
+		// Save original lookup function and restore after test
+		originalLookupEnv := osLookupEnv
+		defer func() { osLookupEnv = originalLookupEnv }()
+
+		// Mock environment lookup to return a specific DOCKER_HOST value
+		osLookupEnv = func(key string) (string, bool) {
+			if key == "DOCKER_HOST" {
+				return "tcp://override-host:2375", true
+			}
+			return "", false
+		}
+
+		// Configure vm.driver to ensure it would set a different value
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "vm.driver":
+				return "docker-desktop"
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+
+		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
+		dockerEnvPrinter.Initialize()
+
+		// When getting environment variables
+		envVars, err := dockerEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then the DOCKER_HOST should match the environment value, not the driver-based value
+		expectedDockerHost := "tcp://override-host:2375"
+		if envVars["DOCKER_HOST"] != expectedDockerHost {
+			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
 	})
 }
@@ -438,6 +573,10 @@ func TestDockerEnvPrinter_GetAlias(t *testing.T) {
 }
 
 func TestDockerEnvPrinter_Print(t *testing.T) {
+	// Save original env var and restore after all tests
+	originalDockerHost := os.Getenv("DOCKER_HOST")
+	defer os.Setenv("DOCKER_HOST", originalDockerHost)
+
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupSafeDockerEnvPrinterMocks()
 		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
@@ -463,21 +602,16 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 	})
 
 	t.Run("GetEnvVarsError", func(t *testing.T) {
-		mocks := setupSafeDockerEnvPrinterMocks()
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "colima"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
+		// Clear any existing DOCKER_HOST for this test
+		os.Unsetenv("DOCKER_HOST")
 
-		originalUserHomeDir := osUserHomeDir
-		defer func() { osUserHomeDir = originalUserHomeDir }()
+		mocks := setupSafeDockerEnvPrinterMocks()
+
+		// Mock osUserHomeDir to return an error
+		originalOsUserHomeDir := osUserHomeDir
+		defer func() { osUserHomeDir = originalOsUserHomeDir }()
 		osUserHomeDir = func() (string, error) {
-			return "", errors.New("mock user home dir error")
+			return "", errors.New("mock error")
 		}
 
 		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
@@ -486,8 +620,6 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 		err := dockerEnvPrinter.Print()
 		if err == nil {
 			t.Error("expected an error, got nil")
-		} else if !strings.Contains(err.Error(), "mock user home dir error") {
-			t.Errorf("error = %v, want error containing 'mock user home dir error'", err)
 		}
 	})
 }

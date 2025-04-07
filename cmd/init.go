@@ -57,6 +57,11 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error setting context value: %w", err)
 		}
 
+		// Write a reset token to reset the session
+		if _, err := shell.WriteResetToken(); err != nil {
+			return fmt.Errorf("Error writing reset token: %w", err)
+		}
+
 		// Determine the default vm driver to use if not set
 		vmDriverConfig := vmDriver
 		if vmDriverConfig == "" {

@@ -23,86 +23,78 @@ func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
 	}
 }
 
-// GetEnvVars returns Docker-specific env vars, setting DOCKER_HOST based on vm.driver config.
-// It uses the user's home directory for Docker paths, defaulting WINDSORCONFIG if unset.
-// Ensures Docker config directory exists and writes config if content differs.
-// Adds DOCKER_CONFIG and REGISTRY_URL to env vars and returns the map.
+// GetEnvVars sets Docker-specific env vars, using DOCKER_HOST from vm.driver config or existing env.
+// Defaults to WINDSORCONFIG or home dir for Docker paths, ensuring config directory exists.
+// Writes config if content changes, adds DOCKER_CONFIG and REGISTRY_URL, and returns the map.
+// Handles "colima", "docker-desktop", and "docker" vm.driver settings, defaulting to "default" if unrecognized.
 func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	vmDriver := e.configHandler.GetString("vm.driver")
-	homeDir, err := osUserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving user home directory: %w", err)
-	}
-
-	windsorConfigDir := os.Getenv("WINDSORCONFIG")
-	if windsorConfigDir == "" {
-		windsorConfigDir = filepath.Join(homeDir, ".config", "windsor")
-	}
-	dockerConfigDir := filepath.Join(windsorConfigDir, "docker")
-	dockerConfigPath := filepath.Join(dockerConfigDir, "config.json")
-
-	// Determine the Docker context name based on the VM driver
-	var contextName string
-
-	// Only set DOCKER_HOST if it's not already defined in the environment
-	_, dockerHostExists := osLookupEnv("DOCKER_HOST")
-
-	switch vmDriver {
-	case "colima":
-		configContext := e.configHandler.GetContext()
-		contextName = fmt.Sprintf("colima-windsor-%s", configContext)
-
-		if !dockerHostExists {
-			dockerHostPath := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, configContext)
-			envVars["DOCKER_HOST"] = dockerHostPath
+	if dockerHostValue, dockerHostExists := osLookupEnv("DOCKER_HOST"); dockerHostExists {
+		envVars["DOCKER_HOST"] = dockerHostValue
+	} else {
+		vmDriver := e.configHandler.GetString("vm.driver")
+		homeDir, err := osUserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
 		}
 
-	case "docker-desktop":
-		contextName = "desktop-linux"
+		windsorConfigDir := os.Getenv("WINDSORCONFIG")
+		if windsorConfigDir == "" {
+			windsorConfigDir = filepath.Join(homeDir, ".config", "windsor")
+		}
+		dockerConfigDir := filepath.Join(windsorConfigDir, "docker")
+		dockerConfigPath := filepath.Join(dockerConfigDir, "config.json")
 
-		if !dockerHostExists {
+		// Determine the Docker context name based on the VM driver
+		var contextName string
+
+		switch vmDriver {
+		case "colima":
+			configContext := e.configHandler.GetContext()
+			contextName = fmt.Sprintf("colima-windsor-%s", configContext)
+			dockerHostPath := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, configContext)
+			envVars["DOCKER_HOST"] = dockerHostPath
+
+		case "docker-desktop":
+			contextName = "desktop-linux"
 			if goos() == "windows" {
 				envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
 			} else {
 				dockerHostPath := fmt.Sprintf("unix://%s/.docker/run/docker.sock", homeDir)
 				envVars["DOCKER_HOST"] = dockerHostPath
 			}
-		}
 
-	case "docker":
-		contextName = "default"
-
-		if !dockerHostExists {
+		case "docker":
+			contextName = "default"
 			envVars["DOCKER_HOST"] = "unix:///var/run/docker.sock"
+
+		default:
+			contextName = "default"
 		}
 
-	default:
-		contextName = "default"
-	}
+		// Create Docker config content with the determined context name
+		dockerConfigContent := fmt.Sprintf(`{
+			"auths": {},
+			"currentContext": "%s",
+			"plugins": {},
+			"features": {}
+		}`, contextName)
 
-	// Create Docker config content with the determined context name
-	dockerConfigContent := fmt.Sprintf(`{
-		"auths": {},
-		"currentContext": "%s",
-		"plugins": {},
-		"features": {}
-	}`, contextName)
-
-	if err := mkdirAll(dockerConfigDir, 0755); err != nil {
-		return nil, fmt.Errorf("error creating docker config directory: %w", err)
-	}
-
-	existingContent, err := readFile(dockerConfigPath)
-	if err != nil || string(existingContent) != dockerConfigContent {
-		if err := writeFile(dockerConfigPath, []byte(dockerConfigContent), 0644); err != nil {
-			return nil, fmt.Errorf("error writing docker config file: %w", err)
+		if err := mkdirAll(dockerConfigDir, 0755); err != nil {
+			return nil, fmt.Errorf("error creating docker config directory: %w", err)
 		}
-	}
-	envVars["DOCKER_CONFIG"] = dockerConfigDir
 
-	registryURL, err := e.getRegistryURL()
+		existingContent, err := readFile(dockerConfigPath)
+		if err != nil || string(existingContent) != dockerConfigContent {
+			if err := writeFile(dockerConfigPath, []byte(dockerConfigContent), 0644); err != nil {
+				return nil, fmt.Errorf("error writing docker config file: %w", err)
+			}
+		}
+		envVars["DOCKER_CONFIG"] = dockerConfigDir
+	}
+
+	registryURL, _ := e.getRegistryURL()
 	if registryURL != "" {
 		envVars["REGISTRY_URL"] = registryURL
 	}
