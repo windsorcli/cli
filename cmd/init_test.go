@@ -36,6 +36,7 @@ func setupSafeInitCmdMocks(existingInjectors ...di.Injector) *initMockObjects {
 
 	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) { return "/mock/project/root", nil }
+	mockShell.WriteResetTokenFunc = func() (string, error) { return "/mock/project/root/.windsor/.session.mock-token", nil }
 	injector.Register("shell", mockShell)
 
 	osStat = func(_ string) (os.FileInfo, error) { return nil, nil }
@@ -667,6 +668,56 @@ func TestInitCmd(t *testing.T) {
 		expectedOutput := "Error writing configuration files: write configuration files error"
 		if !strings.Contains(output, expectedOutput) {
 			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("WriteResetTokenCalled", func(t *testing.T) {
+		// Given a mock shell that tracks if WriteResetToken is called
+		mocks := setupSafeInitCmdMocks()
+		writeResetTokenCalled := false
+		mocks.Shell.WriteResetTokenFunc = func() (string, error) {
+			writeResetTokenCalled = true
+			return "/mock/project/root/.windsor/.session.mock-token", nil
+		}
+
+		// When the init command is executed
+		output := captureStderr(func() {
+			rootCmd.SetArgs([]string{"init", "test-context"})
+			if err := Execute(mocks.Controller); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+		})
+
+		// Then WriteResetToken should be called
+		if !writeResetTokenCalled {
+			t.Error("Expected WriteResetToken to be called, but it wasn't")
+		}
+
+		// And the output should indicate success
+		expectedOutput := "Initialization successful\n"
+		if output != expectedOutput {
+			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		}
+	})
+
+	t.Run("WriteResetTokenError", func(t *testing.T) {
+		// Given a mock shell that returns an error from WriteResetToken
+		mocks := setupSafeInitCmdMocks()
+		expectedError := fmt.Errorf("error writing reset token")
+		mocks.Shell.WriteResetTokenFunc = func() (string, error) {
+			return "", expectedError
+		}
+
+		// When the init command is executed
+		rootCmd.SetArgs([]string{"init", "test-context"})
+		err := Execute(mocks.Controller)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error writing reset token") {
+			t.Errorf("Expected error containing 'Error writing reset token', got %v", err)
 		}
 	})
 }
