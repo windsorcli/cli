@@ -42,33 +42,53 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 	dockerConfigDir := filepath.Join(windsorConfigDir, "docker")
 	dockerConfigPath := filepath.Join(dockerConfigDir, "config.json")
-	dockerConfigContent := `{
+
+	// Determine the Docker context name based on the VM driver
+	var contextName string
+
+	// Only set DOCKER_HOST if it's not already defined in the environment
+	_, dockerHostExists := osLookupEnv("DOCKER_HOST")
+
+	switch vmDriver {
+	case "colima":
+		configContext := e.configHandler.GetContext()
+		contextName = fmt.Sprintf("colima-windsor-%s", configContext)
+
+		if !dockerHostExists {
+			dockerHostPath := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, configContext)
+			envVars["DOCKER_HOST"] = dockerHostPath
+		}
+
+	case "docker-desktop":
+		contextName = "desktop-linux"
+
+		if !dockerHostExists {
+			if goos() == "windows" {
+				envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
+			} else {
+				dockerHostPath := fmt.Sprintf("unix://%s/.docker/run/docker.sock", homeDir)
+				envVars["DOCKER_HOST"] = dockerHostPath
+			}
+		}
+
+	case "docker":
+		contextName = "default"
+
+		if !dockerHostExists {
+			envVars["DOCKER_HOST"] = "unix:///var/run/docker.sock"
+		}
+
+	default:
+		contextName = "default"
+	}
+
+	// Create Docker config content with the determined context name
+	dockerConfigContent := fmt.Sprintf(`{
 		"auths": {},
 		"currentContext": "%s",
 		"plugins": {},
 		"features": {}
-	}`
-
-	switch vmDriver {
-	case "colima":
-		contextName := e.configHandler.GetContext()
-		dockerHostPath := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, contextName)
-		envVars["DOCKER_HOST"] = dockerHostPath
-		dockerConfigContent = fmt.Sprintf(dockerConfigContent, fmt.Sprintf("colima-windsor-%s", contextName))
-
-	case "docker-desktop":
-		if goos() == "windows" {
-			envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
-		} else {
-			dockerHostPath := fmt.Sprintf("unix://%s/.docker/run/docker.sock", homeDir)
-			envVars["DOCKER_HOST"] = dockerHostPath
-		}
-		dockerConfigContent = fmt.Sprintf(dockerConfigContent, "desktop-linux")
-
-	case "docker":
-		envVars["DOCKER_HOST"] = "unix:///var/run/docker.sock"
-		dockerConfigContent = fmt.Sprintf(dockerConfigContent, "default")
-	}
+	}`, contextName)
 
 	if err := mkdirAll(dockerConfigDir, 0755); err != nil {
 		return nil, fmt.Errorf("error creating docker config directory: %w", err)
