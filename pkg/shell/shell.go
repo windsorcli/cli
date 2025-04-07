@@ -19,6 +19,19 @@ import (
 // maxFolderSearchDepth is the maximum depth to search for the project root
 const maxFolderSearchDepth = 10
 
+// Constants
+const (
+	SessionTokenPrefix = ".session."
+)
+
+// Static private variable to store the session token
+var sessionToken string
+
+// Reset the session token - used primarily for testing
+func ResetSessionToken() {
+	sessionToken = ""
+}
+
 // HookContext are the variables available during hook template evaluation
 type HookContext struct {
 	// SelfPath is the unescaped absolute path to direnv
@@ -32,9 +45,9 @@ type Shell interface {
 	// SetVerbosity sets the verbosity flag
 	SetVerbosity(verbose bool)
 	// PrintEnvVars prints the provided environment variables
-	PrintEnvVars(envVars map[string]string) error
+	PrintEnvVars(envVars map[string]string)
 	// PrintAlias retrieves the shell alias
-	PrintAlias(envVars map[string]string) error
+	PrintAlias(envVars map[string]string)
 	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
 	// Exec executes a command with optional privilege elevation
@@ -51,6 +64,18 @@ type Shell interface {
 	AddCurrentDirToTrustedFile() error
 	// CheckTrustedDirectory verifies if the current directory is in the trusted file list.
 	CheckTrustedDirectory() error
+	// UnsetEnvs generates a command to unset multiple environment variables
+	UnsetEnvs(envVars []string)
+	// UnsetAlias generates commands to unset multiple aliases
+	UnsetAlias(aliases []string)
+	// WriteResetToken writes a reset token file based on the session token
+	WriteResetToken() (string, error)
+	// GetSessionToken retrieves or generates a session token
+	GetSessionToken() (string, error)
+	// CheckResetFlags checks if a reset signal file exists for the current session
+	CheckResetFlags() (bool, error)
+	// Reset removes all managed environment variables and aliases
+	Reset()
 }
 
 // DefaultShell is the default implementation of the Shell interface
@@ -411,3 +436,149 @@ func (s *DefaultShell) CheckTrustedDirectory() error {
 
 	return nil
 }
+
+// WriteResetToken writes a reset token file based on the WINDSOR_SESSION_TOKEN
+// environment variable. If the environment variable doesn't exist, no file is written.
+// Returns the path to the written file or an empty string if no file was written.
+func (s *DefaultShell) WriteResetToken() (string, error) {
+	sessionToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+	if sessionToken == "" {
+		return "", nil
+	}
+
+	projectRoot, err := s.GetProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("error getting project root: %w", err)
+	}
+
+	// Create .windsor directory if it doesn't exist
+	windsorDir := filepath.Join(projectRoot, ".windsor")
+	if err := osMkdirAll(windsorDir, 0750); err != nil {
+		return "", fmt.Errorf("error creating .windsor directory: %w", err)
+	}
+
+	sessionFilePath := filepath.Join(windsorDir, SessionTokenPrefix+sessionToken)
+
+	if err := osWriteFile(sessionFilePath, []byte{}, 0600); err != nil {
+		return "", fmt.Errorf("error writing reset token file: %w", err)
+	}
+
+	return sessionFilePath, nil
+}
+
+// GetSessionToken retrieves or generates a session token. It first checks if a token is already stored in memory.
+// If not, it looks for a token in the environment variable. If no token is found in the environment, it generates a new token.
+func (s *DefaultShell) GetSessionToken() (string, error) {
+	// If we already have a token in memory, return it
+	if sessionToken != "" {
+		return sessionToken, nil
+	}
+
+	envToken := osGetenv("WINDSOR_SESSION_TOKEN")
+	if envToken != "" {
+		sessionToken = envToken
+		return envToken, nil
+	}
+
+	token, err := s.generateRandomString(7)
+	if err != nil {
+		return "", fmt.Errorf("error generating session token: %w", err)
+	}
+
+	sessionToken = token
+	return token, nil
+}
+
+// Reset removes all managed environment variables and aliases.
+// It uses the environment variables "WINDSOR_MANAGED_ENV" and "WINDSOR_MANAGED_ALIAS"
+// to retrieve the previous set of managed environment variables and aliases, respectively.
+// These environment variables represent the previous set of managed values that need to be reset.
+func (s *DefaultShell) Reset() {
+	var managedEnvs []string
+	if envStr := os.Getenv("WINDSOR_MANAGED_ENV"); envStr != "" {
+		for _, env := range strings.Split(envStr, ",") {
+			env = strings.TrimSpace(env)
+			if env != "" {
+				managedEnvs = append(managedEnvs, env)
+				os.Unsetenv(env)
+			}
+		}
+	}
+
+	var managedAliases []string
+	if aliasStr := os.Getenv("WINDSOR_MANAGED_ALIAS"); aliasStr != "" {
+		for _, alias := range strings.Split(aliasStr, ",") {
+			alias = strings.TrimSpace(alias)
+			if alias != "" {
+				managedAliases = append(managedAliases, alias)
+			}
+		}
+	}
+
+	if len(managedEnvs) > 0 {
+		s.UnsetEnvs(managedEnvs)
+	}
+
+	if len(managedAliases) > 0 {
+		s.UnsetAlias(managedAliases)
+	}
+}
+
+// generateRandomString creates a secure random string of the given length using a predefined charset.
+func (s *DefaultShell) generateRandomString(length int) (string, error) {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	randomBytes := make([]byte, length)
+
+	_, err := randRead(randomBytes)
+	if err != nil {
+		return "", err
+	}
+
+	// Map random bytes to charset
+	for i, b := range randomBytes {
+		randomBytes[i] = charset[b%byte(len(charset))]
+	}
+
+	return string(randomBytes), nil
+}
+
+// CheckResetFlags checks if a reset signal file exists for the current session token.
+// It returns true if the specific session token file exists and always removes all .session.* files.
+func (s *DefaultShell) CheckResetFlags() (bool, error) {
+	// Get current session token from environment
+	envToken := osGetenv("WINDSOR_SESSION_TOKEN")
+	if envToken == "" {
+		return false, nil
+	}
+
+	projectRoot, err := s.GetProjectRoot()
+	if err != nil {
+		return false, fmt.Errorf("error getting project root: %w", err)
+	}
+
+	windsorDir := filepath.Join(projectRoot, ".windsor")
+	tokenFilePath := filepath.Join(windsorDir, ".session."+envToken)
+
+	// Check for the specific session token file
+	tokenFileExists := false
+	if _, err := osStat(tokenFilePath); err == nil {
+		tokenFileExists = true
+	}
+
+	// Remove all .session.* files
+	sessionFiles, err := filepathGlob(filepath.Join(windsorDir, SessionTokenPrefix+"*"))
+	if err != nil {
+		return false, fmt.Errorf("error finding session files: %w", err)
+	}
+
+	for _, file := range sessionFiles {
+		if err := osRemoveAll(file); err != nil {
+			return false, fmt.Errorf("error removing session file %s: %w", file, err)
+		}
+	}
+
+	return tokenFileExists, nil
+}
+
+// Ensure DefaultShell implements the Shell interface
+var _ Shell = (*DefaultShell)(nil)

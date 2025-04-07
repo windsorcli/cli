@@ -30,6 +30,7 @@ type EnvPrinter interface {
 	GetManagedAlias() []string
 	SetManagedEnv(env string)
 	SetManagedAlias(alias string)
+	Reset()
 }
 
 // Env is a struct that implements the EnvPrinter interface.
@@ -77,7 +78,8 @@ func (e *BaseEnvPrinter) Print(customVars ...map[string]string) error {
 		e.SetManagedEnv(key)
 	}
 
-	return e.shell.PrintEnvVars(envVars)
+	e.shell.PrintEnvVars(envVars)
+	return nil
 }
 
 // GetEnvVars is a placeholder for retrieving environment variables.
@@ -106,7 +108,8 @@ func (e *BaseEnvPrinter) PrintAlias(customAlias ...map[string]string) error {
 		e.SetManagedAlias(key)
 	}
 
-	return e.shell.PrintAlias(aliasMap)
+	e.shell.PrintAlias(aliasMap)
+	return nil
 }
 
 // GetAlias is a placeholder for creating an alias for a command.
@@ -153,4 +156,10 @@ func (e *BaseEnvPrinter) SetManagedAlias(alias string) {
 		return
 	}
 	windsorManagedAlias = append(windsorManagedAlias, alias)
+}
+
+// Reset removes all managed environment variables and aliases.
+// It delegates to the shell's Reset method to handle the reset logic.
+func (e *BaseEnvPrinter) Reset() {
+	e.shell.Reset()
 }

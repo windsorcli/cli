@@ -445,9 +445,8 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 
 		// Mock the Print method of BaseEnvPrinter to capture the envVars
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
-			return nil
 		}
 
 		// Call Print and check for errors

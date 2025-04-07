@@ -1,7 +1,9 @@
 package env
 
 import (
+	"os"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -129,9 +131,8 @@ func TestEnv_Print(t *testing.T) {
 
 		// Mock the PrintEnvVarsFunc to verify it is called
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
-			return nil
 		}
 
 		// Set up test environment variables
@@ -162,9 +163,8 @@ func TestEnv_Print(t *testing.T) {
 
 		// Mock the PrintEnvVarsFunc to verify it is called
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
-			return nil
 		}
 
 		// Call Print without custom vars and check for errors
@@ -195,9 +195,8 @@ func TestEnv_PrintAlias(t *testing.T) {
 
 		// Mock the PrintAliasFunc to verify it is called
 		var capturedAlias map[string]string
-		mocks.Shell.PrintAliasFunc = func(alias map[string]string) error {
+		mocks.Shell.PrintAliasFunc = func(alias map[string]string) {
 			capturedAlias = alias
-			return nil
 		}
 
 		// Set up test alias
@@ -228,9 +227,8 @@ func TestEnv_PrintAlias(t *testing.T) {
 
 		// Mock the PrintAliasFunc to verify it is called
 		var capturedAlias map[string]string
-		mocks.Shell.PrintAliasFunc = func(alias map[string]string) error {
+		mocks.Shell.PrintAliasFunc = func(alias map[string]string) {
 			capturedAlias = alias
-			return nil
 		}
 
 		// Call PrintAlias without custom alias
@@ -491,6 +489,115 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 		// Verify expected aliases are present
 		if managedAlias[0] != "set_alias1" {
 			t.Errorf("expected [set_alias1], got %v", managedAlias)
+		}
+	})
+}
+
+// TestBaseEnvPrinter_Reset tests the Reset method of the BaseEnvPrinter struct
+func TestBaseEnvPrinter_Reset(t *testing.T) {
+	t.Run("ResetWithNoEnvVars", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
+		mocks := setupEnvMockTests(nil)
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
+
+		// Track calls to Reset
+		resetCalled := false
+		mocks.Shell.ResetFunc = func() {
+			resetCalled = true
+		}
+
+		// When calling Reset
+		envPrinter.Reset()
+
+		// Then shell.Reset should be called
+		if !resetCalled {
+			t.Errorf("expected Shell.Reset to be called, but it wasn't")
+		}
+	})
+
+	t.Run("ResetWithEnvironmentVariables", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
+		mocks := setupEnvMockTests(nil)
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
+
+		// Set environment variables
+		os.Setenv("WINDSOR_MANAGED_ENV", "ENV1,ENV2, ENV3")
+		os.Setenv("WINDSOR_MANAGED_ALIAS", "alias1,alias2, alias3")
+		defer func() {
+			os.Unsetenv("WINDSOR_MANAGED_ENV")
+			os.Unsetenv("WINDSOR_MANAGED_ALIAS")
+		}()
+
+		// Track calls to Reset
+		resetCalled := false
+		mocks.Shell.ResetFunc = func() {
+			resetCalled = true
+		}
+
+		// When calling Reset
+		envPrinter.Reset()
+
+		// Then shell.Reset should be called
+		if !resetCalled {
+			t.Errorf("expected Shell.Reset to be called, but it wasn't")
+		}
+	})
+
+	t.Run("InternalStatePersistsWithReset", func(t *testing.T) {
+		// Given a new BaseEnvPrinter with managed environment variables and aliases
+		mocks := setupEnvMockTests(nil)
+		envPrinter := NewBaseEnvPrinter(mocks.Injector)
+		err := envPrinter.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
+		}
+
+		// Set up some managed environment variables and aliases
+		envPrinter.SetManagedEnv("TEST_ENV1")
+		envPrinter.SetManagedEnv("TEST_ENV2")
+		envPrinter.SetManagedAlias("test_alias1")
+		envPrinter.SetManagedAlias("test_alias2")
+
+		// Track calls to Reset
+		resetCalled := false
+		mocks.Shell.ResetFunc = func() {
+			resetCalled = true
+		}
+
+		// When calling Reset
+		envPrinter.Reset()
+
+		// Then shell.Reset should be called
+		if !resetCalled {
+			t.Errorf("expected Shell.Reset to be called, but it wasn't")
+		}
+
+		// And the managed environment variables should still be available
+		managedEnv := envPrinter.GetManagedEnv()
+
+		// Verify that our test variables are in the managed env (without requiring exact count)
+		for _, env := range []string{"TEST_ENV1", "TEST_ENV2"} {
+			if !slices.Contains(managedEnv, env) {
+				t.Errorf("expected GetManagedEnv to contain %s", env)
+			}
+		}
+
+		// And the managed aliases should still be available
+		managedAlias := envPrinter.GetManagedAlias()
+
+		// Verify that our test aliases are in the managed aliases (without requiring exact count)
+		for _, alias := range []string{"test_alias1", "test_alias2"} {
+			if !slices.Contains(managedAlias, alias) {
+				t.Errorf("expected GetManagedAlias to contain %s", alias)
+			}
 		}
 	})
 }

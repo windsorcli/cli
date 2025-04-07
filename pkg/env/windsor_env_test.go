@@ -40,6 +40,23 @@ func setupSafeWindsorEnvMocks(injector ...di.Injector) *WindsorEnvMocks {
 		return filepath.FromSlash("/mock/project/root"), nil
 	}
 
+	// Default behavior for GetSessionToken that matches test expectations
+	mockShell.GetSessionTokenFunc = func() (string, error) {
+		// If WINDSOR_SESSION_TOKEN is set in the environment, check it
+		if envToken := os.Getenv("WINDSOR_SESSION_TOKEN"); envToken != "" {
+			// Check for signal file if env token exists
+			tokenFilePath := filepath.Join("/mock/project/root", ".windsor", ".session."+envToken)
+			if _, err := stat(tokenFilePath); err == nil {
+				// Signal file exists, generate new token
+				return "abcdefg", nil
+			}
+			// Signal file doesn't exist, return environment token
+			return envToken, nil
+		}
+		// No env token, return default mock token
+		return "mock-token", nil
+	}
+
 	mockInjector.Register("configHandler", mockConfigHandler)
 	mockInjector.Register("shell", mockShell)
 
@@ -65,90 +82,156 @@ func (c *customMockInjector) ResolveAll(targetType interface{}) ([]interface{}, 
 }
 
 func TestWindsorEnv_GetEnvVars(t *testing.T) {
-	// Save original functions
-	originalStat := stat
-	originalOsRemoveAll := osRemoveAll
-	originalCryptoRandRead := cryptoRandRead
-
-	// Restore original functions after tests
+	originalOsLookupEnv := osLookupEnv
 	defer func() {
-		stat = originalStat
-		osRemoveAll = originalOsRemoveAll
-		cryptoRandRead = originalCryptoRandRead
+		osLookupEnv = originalOsLookupEnv
 	}()
 
+	// Reset session token before each test
+	shell.ResetSessionToken()
+
+	// Set up mock environment variables
+	t.Setenv("NO_CACHE", "")
+
 	t.Run("Success", func(t *testing.T) {
+		// Reset session token to ensure consistent behavior
+		shell.ResetSessionToken()
+
+		// Given a WindsorEnvPrinter with mock dependencies
 		mocks := setupSafeWindsorEnvMocks()
+
+		// Make the shell return a consistent mock token
+		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
+			return "mock-token", nil
+		}
 
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
 		windsorEnvPrinter.Initialize()
 
+		// When GetEnvVars is called
 		envVars, err := windsorEnvPrinter.GetEnvVars()
+
+		// Then the result should not contain an error
 		if err != nil {
-			t.Fatalf("GetEnvVars returned an error: %v", err)
+			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		if envVars["WINDSOR_CONTEXT"] != "mock-context" {
-			t.Errorf("WINDSOR_CONTEXT = %v, want %v", envVars["WINDSOR_CONTEXT"], "mock-context")
+		// And the environment variables should contain the expected values
+		expectedContext := "mock-context"
+		if envVars["WINDSOR_CONTEXT"] != expectedContext {
+			t.Errorf("Expected WINDSOR_CONTEXT to be %q, got %q", expectedContext, envVars["WINDSOR_CONTEXT"])
 		}
 
-		expectedProjectRoot := filepath.FromSlash("/mock/project/root")
-		if envVars["WINDSOR_PROJECT_ROOT"] != expectedProjectRoot {
-			t.Errorf("WINDSOR_PROJECT_ROOT = %v, want %v", envVars["WINDSOR_PROJECT_ROOT"], expectedProjectRoot)
+		expectedProjectRoot := "/mock/project/root"
+		if filepath.ToSlash(envVars["WINDSOR_PROJECT_ROOT"]) != expectedProjectRoot {
+			t.Errorf("Expected WINDSOR_PROJECT_ROOT to be %q, got %q", expectedProjectRoot, envVars["WINDSOR_PROJECT_ROOT"])
 		}
 
-		// Verify session token is generated
-		if envVars["WINDSOR_SESSION_TOKEN"] == "" {
-			t.Errorf("Expected session token to be generated, but it was empty")
-		}
-		if len(envVars["WINDSOR_SESSION_TOKEN"]) != 7 {
-			t.Errorf("Expected session token to have length 7, got %d", len(envVars["WINDSOR_SESSION_TOKEN"]))
+		expectedSessionToken := "mock-token"
+		if envVars["WINDSOR_SESSION_TOKEN"] != expectedSessionToken {
+			t.Errorf("Expected WINDSOR_SESSION_TOKEN to be %q, got %q", expectedSessionToken, envVars["WINDSOR_SESSION_TOKEN"])
 		}
 	})
 
 	t.Run("ExistingSessionToken", func(t *testing.T) {
+		// Reset session token to ensure consistent behavior
+		shell.ResetSessionToken()
+
 		mocks := setupSafeWindsorEnvMocks()
 
-		// Add custom random generator to create a predictable "existing" token
-		origCryptoRandRead := cryptoRandRead
-		cryptoRandRead = func(b []byte) (n int, err error) {
-			// Generate predictable output that will produce "existing"
-			for i := range b {
-				// This is simplified but works for our test
-				b[i] = "existing"[i%8]
+		// Setup mock shell to simulate token regeneration
+		mockShell := shell.NewMockShell()
+		var callCount int
+		mockShell.GetSessionTokenFunc = func() (string, error) {
+			callCount++
+			if callCount == 1 {
+				return "first-token", nil
 			}
-			return len(b), nil
+			return "regenerated-token", nil
 		}
-		// Restore after test
-		defer func() {
-			cryptoRandRead = origCryptoRandRead
-		}()
+		mocks.Injector.Register("shell", mockShell)
 
-		// First generate a token
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
 		windsorEnvPrinter.Initialize()
 
-		// Set the environment to empty to ensure we use the generated token
-		t.Setenv("WINDSOR_SESSION_TOKEN", "")
-
-		// Get the token for the first time
+		// First call
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
+		firstToken := envVars["WINDSOR_SESSION_TOKEN"]
+		if firstToken != "first-token" {
+			t.Errorf("Expected first token to be 'first-token', got %s", firstToken)
+		}
 
-		// Now get it again to ensure we use the cached token
+		// Second call
 		envVars, err = windsorEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
+		secondToken := envVars["WINDSOR_SESSION_TOKEN"]
+		if secondToken != "regenerated-token" {
+			t.Errorf("Expected second token to be 'regenerated-token', got %s", secondToken)
+		}
+	})
 
-		// Check that we get the expected token
-		if len(envVars["WINDSOR_SESSION_TOKEN"]) != 7 {
-			t.Errorf("Expected session token to have length 7, got %d", len(envVars["WINDSOR_SESSION_TOKEN"]))
+	t.Run("SessionTokenError", func(t *testing.T) {
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Setup mock shell to simulate token error
+		mockShell := shell.NewMockShell()
+		mockShell.GetSessionTokenFunc = func() (string, error) {
+			return "", fmt.Errorf("mock session token error")
+		}
+		mocks.Injector.Register("shell", mockShell)
+
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+		windsorEnvPrinter.Initialize()
+
+		// Call should fail with session token error
+		_, err := windsorEnvPrinter.GetEnvVars()
+		if err == nil {
+			t.Fatal("Expected error from session token generation, got nil")
+		}
+		if !strings.Contains(err.Error(), "error retrieving session token") {
+			t.Errorf("Unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("NoEnvironmentVarsInConfig", func(t *testing.T) {
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Set GetStringMap to return an empty map to simulate no environment vars in config
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{}
+			}
+			return map[string]string{}
 		}
 
-		// Skip the exact token check for now since the random generation makes it difficult to test deterministically
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+		windsorEnvPrinter.Initialize()
+
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars should not return an error: %v", err)
+		}
+
+		// Verify we still have the base environment variables
+		if envVars["WINDSOR_CONTEXT"] != "mock-context" {
+			t.Errorf("WINDSOR_CONTEXT should be set even when no environment vars are in config")
+		}
+		if filepath.ToSlash(envVars["WINDSOR_PROJECT_ROOT"]) != "/mock/project/root" {
+			t.Errorf("WINDSOR_PROJECT_ROOT should be set")
+		}
+		if envVars["WINDSOR_SESSION_TOKEN"] == "" {
+			t.Errorf("Session token should be generated")
+		}
+
+		// Verify no additional variables were added from config (since there were none)
+		if len(envVars) != 5 {
+			t.Errorf("Should have five base environment variables")
+		}
 	})
 
 	t.Run("EnvironmentTokenWithoutSignalFile", func(t *testing.T) {
@@ -203,6 +286,11 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 
 	t.Run("EnvironmentTokenWithSignalFile", func(t *testing.T) {
 		// Mock file system functions
+		originalStat := stat
+		defer func() {
+			stat = originalStat
+		}()
+
 		stat = func(name string) (os.FileInfo, error) {
 			if strings.Contains(name, ".session.envtoken") {
 				return nil, nil // File exists
@@ -210,11 +298,21 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
+		originalOsRemoveAll := osRemoveAll
+		defer func() {
+			osRemoveAll = originalOsRemoveAll
+		}()
+
 		osRemoveAll = func(path string) error {
 			return nil
 		}
 
 		// Mock crypto functions for predictable output
+		origCryptoRandRead := cryptoRandRead
+		defer func() {
+			cryptoRandRead = origCryptoRandRead
+		}()
+
 		cryptoRandRead = func(b []byte) (n int, err error) {
 			for i := range b {
 				b[i] = byte(i % 62) // Will map to characters in charset
@@ -235,17 +333,22 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// Verify a new token was generated (not the env token)
+		// Verify a new token was generated (should be "abcdefg" per our mock)
 		if envVars["WINDSOR_SESSION_TOKEN"] == "envtoken" {
 			t.Errorf("Expected a new token to be generated, but got the environment token")
 		}
-		if len(envVars["WINDSOR_SESSION_TOKEN"]) != 7 {
-			t.Errorf("Expected session token to have length 7, got %d", len(envVars["WINDSOR_SESSION_TOKEN"]))
+		if envVars["WINDSOR_SESSION_TOKEN"] != "abcdefg" {
+			t.Errorf("Expected session token to be 'abcdefg', got %s", envVars["WINDSOR_SESSION_TOKEN"])
 		}
 	})
 
 	t.Run("SignalFileRemovalError", func(t *testing.T) {
 		// Mock file system functions
+		originalStat := stat
+		defer func() {
+			stat = originalStat
+		}()
+
 		stat = func(name string) (os.FileInfo, error) {
 			if strings.Contains(name, ".session.envtoken") {
 				return nil, nil // File exists
@@ -254,21 +357,27 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// Mock osRemoveAll to return an error
+		originalOsRemoveAll := osRemoveAll
+		defer func() {
+			osRemoveAll = originalOsRemoveAll
+		}()
+
 		osRemoveAll = func(path string) error {
 			return fmt.Errorf("mock error removing signal file")
 		}
 
 		// Mock crypto functions for predictable output
 		origCryptoRandRead := cryptoRandRead
+		defer func() {
+			cryptoRandRead = origCryptoRandRead
+		}()
+
 		cryptoRandRead = func(b []byte) (n int, err error) {
 			for i := range b {
 				b[i] = byte(i % 62) // Will map to characters in charset
 			}
 			return len(b), nil
 		}
-		defer func() {
-			cryptoRandRead = origCryptoRandRead
-		}()
 
 		mocks := setupSafeWindsorEnvMocks()
 
@@ -291,35 +400,34 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// Verify a new token was generated (not the env token)
+		// Verify a new token was generated (should be "abcdefg" per our mock)
 		if envVars["WINDSOR_SESSION_TOKEN"] == "envtoken" {
 			t.Errorf("Expected a new token to be generated, but got the environment token")
 		}
-		if len(envVars["WINDSOR_SESSION_TOKEN"]) != 7 {
-			t.Errorf("Expected session token to have length 7, got %d", len(envVars["WINDSOR_SESSION_TOKEN"]))
+		if envVars["WINDSOR_SESSION_TOKEN"] != "abcdefg" {
+			t.Errorf("Expected session token to be 'abcdefg', got %s", envVars["WINDSOR_SESSION_TOKEN"])
 		}
 	})
 
 	t.Run("ProjectRootErrorDuringEnvTokenSignalFileCheck", func(t *testing.T) {
-		// Mock file system and crypto functions
-		stat = func(name string) (os.FileInfo, error) {
-			// This mock won't be reached because we'll error out earlier
-			return nil, nil
-		}
-
 		// Set up environment variable with a token
 		t.Setenv("WINDSOR_SESSION_TOKEN", "envtoken")
 
 		mocks := setupSafeWindsorEnvMocks()
 
-		// First call succeeds, second fails
-		callCount := 0
+		// First call succeeds, second fails (during token check)
+		var callCount int
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			callCount++
-			if callCount == 1 {
-				return filepath.FromSlash("/mock/project/root"), nil
+			return filepath.FromSlash("/mock/project/root"), nil
+		}
+
+		// Make GetSessionToken return an error during the signal file check
+		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
+			if envToken := os.Getenv("WINDSOR_SESSION_TOKEN"); envToken != "" {
+				return "", fmt.Errorf("error getting project root: mock error getting project root during token check")
 			}
-			return "", fmt.Errorf("mock error getting project root during token check")
+			return "mock-token", nil
 		}
 
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
@@ -337,19 +445,46 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("RandomGenerationError", func(t *testing.T) {
-		// Mock crypto functions to return an error
-		cryptoRandRead = func(b []byte) (n int, err error) {
-			return 0, fmt.Errorf("mock random generation error")
+		// Mock file system functions
+		originalStat := stat
+		defer func() {
+			stat = originalStat
+		}()
+
+		stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, ".session.envtoken") {
+				return nil, nil // File exists
+			}
+			return nil, os.ErrNotExist
 		}
 
+		// Set up environment variable to trigger token regeneration
+		t.Setenv("WINDSOR_SESSION_TOKEN", "envtoken")
+
 		mocks := setupSafeWindsorEnvMocks()
+
+		// Make the shell's GetSessionToken return an error when regenerating token
+		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
+			// Check if we are being called for the environment token check
+			if envToken := os.Getenv("WINDSOR_SESSION_TOKEN"); envToken != "" {
+				// We are doing the check for the environment token
+				tokenFilePath := filepath.Join("/mock/project/root", ".windsor", ".session."+envToken)
+				if _, err := stat(tokenFilePath); err == nil {
+					// Signal file exists, mock error during regeneration
+					return "", fmt.Errorf("mock random generation error during token regeneration")
+				}
+				return envToken, nil
+			}
+			return "mock-token", nil
+		}
 
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
 		windsorEnvPrinter.Initialize()
 
+		// This should trigger an error in token regeneration
 		_, err := windsorEnvPrinter.GetEnvVars()
 		if err == nil {
-			t.Fatal("Expected error from random generation, got nil")
+			t.Fatal("Expected error from random generation during token regeneration, got nil")
 		}
 		if !strings.Contains(err.Error(), "error retrieving session token") {
 			t.Errorf("Unexpected error message: %v", err)
@@ -378,14 +513,12 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		// Set up environment variable with a token to trigger the token check code path
 		t.Setenv("WINDSOR_SESSION_TOKEN", "envtoken")
 
-		// First call succeeds, second fails (for project root during token check)
-		callCount := 0
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			callCount++
-			if callCount == 1 {
-				return filepath.FromSlash("/mock/project/root"), nil
+		// Make GetSessionToken return an error during the project root check
+		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
+			if envToken := os.Getenv("WINDSOR_SESSION_TOKEN"); envToken != "" {
+				return "", fmt.Errorf("error getting project root: mock shell error during token check")
 			}
-			return "", fmt.Errorf("mock shell error during token check")
+			return "mock-token", nil
 		}
 
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
@@ -393,49 +526,82 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 
 		_, err := windsorEnvPrinter.GetEnvVars()
 		if err == nil {
-			t.Error("Expected error, got nil")
-		} else if !strings.Contains(err.Error(), "error retrieving session token") {
-			t.Errorf("Unexpected error message: %v", err)
+			t.Fatal("Expected error, got nil")
+		}
+
+		expectedErr := "error retrieving session token: error getting project root: mock shell error during token check"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error %q, got %q", expectedErr, err.Error())
 		}
 	})
 
 	t.Run("ComprehensiveEnvironmentTokenTest", func(t *testing.T) {
-		// Save original functions to restore later for this test case
-		origStat := stat
-		origOsRemoveAll := osRemoveAll
-		origCryptoRandRead := cryptoRandRead
+		// Mock file system functions to handle various cases
+		originalStat := stat
+		defer func() {
+			stat = originalStat
+		}()
 
-		// First clear any existing env token
-		t.Setenv("WINDSOR_SESSION_TOKEN", "")
-
-		// Mock random generation for first call
-		cryptoRandRead = func(b []byte) (n int, err error) {
-			for i := range b {
-				// Generate a predictable but distinct token for the first call
-				b[i] = byte('a' + (i % 26))
+		stat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, ".session.testtoken") {
+				return nil, nil // Session file exists
 			}
-			return len(b), nil
+			return nil, os.ErrNotExist
 		}
 
-		// Mock for initial call with no env token
 		mocks := setupSafeWindsorEnvMocks()
+
+		// Phase 1: No environment token present
+		// Should generate a new token
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
 		windsorEnvPrinter.Initialize()
 
-		// First get a token with no env set (should generate a new one)
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 		firstToken := envVars["WINDSOR_SESSION_TOKEN"]
 
-		// Now set the env token
+		// Phase 2: Set environment token
+		// The mock should return this token since no signal file exists for it
 		t.Setenv("WINDSOR_SESSION_TOKEN", "testtoken")
 
-		// Reset the session token to force checking env
-		windsorEnvPrinter.sessionToken = ""
+		// Update the mock to handle the testtoken case
+		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
+			if envToken := os.Getenv("WINDSOR_SESSION_TOKEN"); envToken != "" {
+				// Our testtoken has a signal file
+				tokenFilePath := filepath.Join("/mock/project/root", ".windsor", ".session."+envToken)
+				if _, err := stat(tokenFilePath); err == nil {
+					return "newtoken", nil // Return a different token to show regeneration
+				}
+				return envToken, nil
+			}
+			return "mock-token", nil
+		}
 
-		// Mock stat to return nil, nil for signal file (exists)
+		// Now the test token should come back
+		envVars, err = windsorEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error in phase 2: %v", err)
+		}
+
+		secondToken := envVars["WINDSOR_SESSION_TOKEN"]
+		if secondToken != "newtoken" {
+			t.Errorf("Expected token 'newtoken', got %q", secondToken)
+		}
+
+		if secondToken == firstToken {
+			t.Errorf("Second token %q should be different from the first token %q", secondToken, firstToken)
+		}
+	})
+
+	t.Run("RandomErrorDuringSignalFileRegeneration", func(t *testing.T) {
+		// Mock file system functions
+		originalStat := stat
+		defer func() {
+			stat = originalStat
+		}()
+
 		stat = func(name string) (os.FileInfo, error) {
 			if strings.Contains(name, ".session.testtoken") {
 				return nil, nil // File exists
@@ -443,163 +609,41 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		// Mock removal to succeed
-		osRemoveAll = func(path string) error {
-			return nil
-		}
-
-		// Update crypto function to generate a different token for the second call
-		cryptoRandRead = func(b []byte) (n int, err error) {
-			for i := range b {
-				// Generate a predictable but distinct token from the first
-				b[i] = byte('A' + (i % 26))
-			}
-			return len(b), nil
-		}
-
-		// Second call with env token and signal file (should regenerate)
-		envVars, err = windsorEnvPrinter.GetEnvVars()
-		if err != nil {
-			t.Fatalf("GetEnvVars returned an error: %v", err)
-		}
-		secondToken := envVars["WINDSOR_SESSION_TOKEN"]
-
-		// Verify token was regenerated and is different from both env token and first token
-		if secondToken == "testtoken" {
-			t.Errorf("Token should not be the environment token, got %s", secondToken)
-		}
-		if secondToken == firstToken {
-			t.Errorf("Second token %s should be different from first token %s", secondToken, firstToken)
-		}
-
-		// Third call should use the cached session token
-		envVars, err = windsorEnvPrinter.GetEnvVars()
-		if err != nil {
-			t.Fatalf("GetEnvVars returned an error: %v", err)
-		}
-		thirdToken := envVars["WINDSOR_SESSION_TOKEN"]
-
-		// Verify cached token was used
-		if thirdToken != secondToken {
-			t.Errorf("Expected same token %s to be returned, but got %s", secondToken, thirdToken)
-		}
-
-		// Restore original functions
-		stat = origStat
-		osRemoveAll = origOsRemoveAll
-		cryptoRandRead = origCryptoRandRead
-	})
-
-	t.Run("RandomErrorDuringSignalFileRegeneration", func(t *testing.T) {
-		// Mock file system functions
-		stat = func(name string) (os.FileInfo, error) {
-			if strings.Contains(name, ".session.envtoken") {
-				return nil, nil // File exists
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// Mock osRemoveAll to succeed
-		osRemoveAll = func(path string) error {
-			return nil
-		}
-
-		// Mock crypto functions to return an error during regeneration
-		cryptoRandRead = func(b []byte) (n int, err error) {
-			return 0, fmt.Errorf("mock random generation error during token regeneration")
-		}
+		// Set up environment variable to trigger token regeneration
+		t.Setenv("WINDSOR_SESSION_TOKEN", "testtoken")
 
 		mocks := setupSafeWindsorEnvMocks()
 
-		// Set up environment variable with a token
-		t.Setenv("WINDSOR_SESSION_TOKEN", "envtoken")
+		// Make the shell's GetSessionToken return an error when regenerating token
+		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
+			// Check if we are being called for the environment token check
+			if envToken := os.Getenv("WINDSOR_SESSION_TOKEN"); envToken != "" {
+				// We are doing the check for the environment token
+				tokenFilePath := filepath.Join("/mock/project/root", ".windsor", ".session."+envToken)
+				if _, err := stat(tokenFilePath); err == nil {
+					// Signal file exists, mock error during regeneration
+					return "", fmt.Errorf("mock random generation error during token regeneration")
+				}
+				return envToken, nil
+			}
+			return "mock-token", nil
+		}
 
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
 		windsorEnvPrinter.Initialize()
 
-		// Call should fail with random generation error
+		// This should trigger an error in token regeneration
 		_, err := windsorEnvPrinter.GetEnvVars()
 		if err == nil {
 			t.Fatal("Expected error from random generation during token regeneration, got nil")
 		}
-		if !strings.Contains(err.Error(), "error retrieving session token") ||
-			!strings.Contains(err.Error(), "error generating session token") {
+		if !strings.Contains(err.Error(), "error retrieving session token") {
 			t.Errorf("Unexpected error message: %v", err)
-		}
-	})
-
-	t.Run("NoEnvironmentVarsInConfig", func(t *testing.T) {
-		mocks := setupSafeWindsorEnvMocks()
-
-		// Override random generation to avoid token generation errors
-		origCryptoRandRead := cryptoRandRead
-		cryptoRandRead = func(b []byte) (n int, err error) {
-			for i := range b {
-				b[i] = byte(i%26) + 'a' // Generate predictable letters
-			}
-			return len(b), nil
-		}
-		defer func() {
-			cryptoRandRead = origCryptoRandRead
-		}()
-
-		// Ensure environment is clean
-		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
-		originalEnvToken := os.Getenv("WINDSOR_SESSION_TOKEN")
-		t.Setenv("WINDSOR_CONTEXT", "")
-		t.Setenv("WINDSOR_SESSION_TOKEN", "")
-		defer func() {
-			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
-			os.Setenv("WINDSOR_SESSION_TOKEN", originalEnvToken)
-		}()
-
-		// Set GetStringMap to return an empty map to simulate no environment vars in config
-		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
-			if key == "environment" {
-				return map[string]string{}
-			}
-			return map[string]string{}
-		}
-
-		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
-		windsorEnvPrinter.Initialize()
-
-		envVars, err := windsorEnvPrinter.GetEnvVars()
-		if err != nil {
-			t.Fatalf("GetEnvVars should not return an error: %v", err)
-		}
-
-		// Verify we still have the base environment variables
-		if envVars["WINDSOR_CONTEXT"] != "mock-context" {
-			t.Errorf("WINDSOR_CONTEXT should be set even when no environment vars are in config")
-		}
-		if envVars["WINDSOR_PROJECT_ROOT"] != filepath.FromSlash("/mock/project/root") {
-			t.Errorf("WINDSOR_PROJECT_ROOT should be set")
-		}
-		if envVars["WINDSOR_SESSION_TOKEN"] == "" {
-			t.Errorf("Session token should be generated")
-		}
-
-		// Verify no additional variables were added from config (since there were none)
-		if len(envVars) != 5 {
-			t.Errorf("Should have five base environment variables")
 		}
 	})
 
 	t.Run("DifferentContextDisablesCache", func(t *testing.T) {
 		mocks := setupSafeWindsorEnvMocks()
-
-		// Override random generation to avoid token generation errors
-		origCryptoRandRead := cryptoRandRead
-		cryptoRandRead = func(b []byte) (n int, err error) {
-			for i := range b {
-				b[i] = byte(i%26) + 'a' // Generate predictable letters
-			}
-			return len(b), nil
-		}
-		defer func() {
-			cryptoRandRead = origCryptoRandRead
-		}()
 
 		// Set up test environment
 		envVarKey := "TEST_VAR_WITH_SECRET"
@@ -1096,9 +1140,8 @@ func TestWindsorEnv_Print(t *testing.T) {
 
 		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
-			return nil
 		}
 
 		// Call Print and check for errors
@@ -1150,180 +1193,6 @@ func TestWindsorEnv_Print(t *testing.T) {
 			t.Error("expected error, got nil")
 		} else if !strings.Contains(err.Error(), "mock project root error") {
 			t.Errorf("unexpected error message: %v", err)
-		}
-	})
-}
-
-// TestWindsorEnv_CreateSessionInvalidationSignal tests the CreateSessionInvalidationSignal method
-func TestWindsorEnv_CreateSessionInvalidationSignal(t *testing.T) {
-	// Save original functions
-	originalWriteFile := writeFile
-	originalMkdirAll := mkdirAll
-
-	// Restore original functions after tests
-	defer func() {
-		writeFile = originalWriteFile
-		mkdirAll = originalMkdirAll
-	}()
-
-	t.Run("SuccessfulSignalCreation", func(t *testing.T) {
-		// Set up environment variable with a token
-		t.Setenv("WINDSOR_SESSION_TOKEN", "testtoken")
-
-		// Mock file system functions
-		var capturedMkdirPath string
-		var capturedMkdirPerm os.FileMode
-		mkdirAll = func(path string, perm os.FileMode) error {
-			capturedMkdirPath = path
-			capturedMkdirPerm = perm
-			return nil
-		}
-
-		var capturedWritePath string
-		var capturedWriteData []byte
-		var capturedWritePerm os.FileMode
-		writeFile = func(name string, data []byte, perm os.FileMode) error {
-			capturedWritePath = name
-			capturedWriteData = data
-			capturedWritePerm = perm
-			return nil
-		}
-
-		mocks := setupSafeWindsorEnvMocks()
-		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
-		windsorEnvPrinter.Initialize()
-
-		// Create session invalidation signal
-		err := windsorEnvPrinter.CreateSessionInvalidationSignal()
-		if err != nil {
-			t.Fatalf("CreateSessionInvalidationSignal returned an error: %v", err)
-		}
-
-		// Verify mkdir was called correctly
-		expectedMkdirPath := filepath.FromSlash("/mock/project/root/.windsor")
-		if capturedMkdirPath != expectedMkdirPath {
-			t.Errorf("mkdirAll path = %q, want %q", capturedMkdirPath, expectedMkdirPath)
-		}
-		if capturedMkdirPerm != 0755 {
-			t.Errorf("mkdirAll perm = %v, want %v", capturedMkdirPerm, 0755)
-		}
-
-		// Verify writeFile was called correctly
-		expectedWritePath := filepath.FromSlash("/mock/project/root/.windsor/.session.testtoken")
-		if capturedWritePath != expectedWritePath {
-			t.Errorf("writeFile path = %q, want %q", capturedWritePath, expectedWritePath)
-		}
-		if len(capturedWriteData) != 0 {
-			t.Errorf("writeFile data should be empty, got %v", capturedWriteData)
-		}
-		if capturedWritePerm != 0644 {
-			t.Errorf("writeFile perm = %v, want %v", capturedWritePerm, 0644)
-		}
-	})
-
-	t.Run("NoSessionToken", func(t *testing.T) {
-		// Clear environment variable
-		t.Setenv("WINDSOR_SESSION_TOKEN", "")
-
-		// Mock file system functions to ensure they are not called
-		mkdirAll = func(path string, perm os.FileMode) error {
-			t.Error("mkdirAll should not be called")
-			return nil
-		}
-
-		writeFile = func(name string, data []byte, perm os.FileMode) error {
-			t.Error("writeFile should not be called")
-			return nil
-		}
-
-		mocks := setupSafeWindsorEnvMocks()
-		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
-		windsorEnvPrinter.Initialize()
-
-		// Create session invalidation signal
-		err := windsorEnvPrinter.CreateSessionInvalidationSignal()
-		if err != nil {
-			t.Fatalf("CreateSessionInvalidationSignal returned an error: %v", err)
-		}
-	})
-
-	t.Run("GetProjectRootError", func(t *testing.T) {
-		// Set up environment variable with a token
-		t.Setenv("WINDSOR_SESSION_TOKEN", "testtoken")
-
-		mocks := setupSafeWindsorEnvMocks()
-
-		// Mock GetProjectRootFunc to return an error
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock project root error")
-		}
-
-		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
-		windsorEnvPrinter.Initialize()
-
-		// Create session invalidation signal
-		err := windsorEnvPrinter.CreateSessionInvalidationSignal()
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-
-		expectedErrMsg := "failed to get project root: mock project root error"
-		if err.Error() != expectedErrMsg {
-			t.Errorf("Error message = %q, want %q", err.Error(), expectedErrMsg)
-		}
-	})
-
-	t.Run("MkdirAllError", func(t *testing.T) {
-		// Set up environment variable with a token
-		t.Setenv("WINDSOR_SESSION_TOKEN", "testtoken")
-
-		// Mock mkdir to return an error
-		mkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("mock mkdir error")
-		}
-
-		mocks := setupSafeWindsorEnvMocks()
-		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
-		windsorEnvPrinter.Initialize()
-
-		// Create session invalidation signal
-		err := windsorEnvPrinter.CreateSessionInvalidationSignal()
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-
-		expectedErrMsg := "failed to create .windsor directory: mock mkdir error"
-		if err.Error() != expectedErrMsg {
-			t.Errorf("Error message = %q, want %q", err.Error(), expectedErrMsg)
-		}
-	})
-
-	t.Run("WriteFileError", func(t *testing.T) {
-		// Set up environment variable with a token
-		t.Setenv("WINDSOR_SESSION_TOKEN", "testtoken")
-
-		// Mock file system functions
-		mkdirAll = func(path string, perm os.FileMode) error {
-			return nil
-		}
-
-		writeFile = func(name string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("mock write file error")
-		}
-
-		mocks := setupSafeWindsorEnvMocks()
-		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
-		windsorEnvPrinter.Initialize()
-
-		// Create session invalidation signal
-		err := windsorEnvPrinter.CreateSessionInvalidationSignal()
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-
-		expectedErrMsg := "failed to create signal file: mock write file error"
-		if err.Error() != expectedErrMsg {
-			t.Errorf("Error message = %q, want %q", err.Error(), expectedErrMsg)
 		}
 	})
 }

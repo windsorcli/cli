@@ -18,6 +18,48 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// Test utilities for shell tests
+
+// setupShellTest creates a new DefaultShell for testing
+func setupShellTest(t *testing.T) *DefaultShell {
+	// Create a new injector
+	injector := di.NewInjector()
+	// Create a new default shell
+	shell := NewDefaultShell(injector)
+	// Initialize the shell
+	err := shell.Initialize()
+	if err != nil {
+		t.Fatalf("Failed to initialize shell: %v", err)
+	}
+	return shell
+}
+
+// Helper function to test random string generation
+func testRandomStringGeneration(t *testing.T, shell *DefaultShell, length int) {
+	t.Helper()
+
+	// Generate a string of the specified length
+	token, err := shell.generateRandomString(length)
+
+	// Verify no errors
+	if err != nil {
+		t.Fatalf("generateRandomString() error: %v", err)
+	}
+
+	// Verify correct length
+	if len(token) != length {
+		t.Errorf("Expected token to have length %d, got %d", length, len(token))
+	}
+
+	// Check that token only contains expected characters
+	validChars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	for _, char := range token {
+		if !strings.ContainsRune(validChars, char) {
+			t.Errorf("Token contains unexpected character: %c", char)
+		}
+	}
+}
+
 func TestShell_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		injector := di.NewInjector()
@@ -935,15 +977,6 @@ func TestShell_InstallHook(t *testing.T) {
 	})
 }
 
-// Helper function to resolve symlinks
-func resolveSymlinks(t *testing.T, path string) string {
-	resolvedPath, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		t.Fatalf("Failed to evaluate symlinks for %s: %v", path, err)
-	}
-	return resolvedPath
-}
-
 var tempDirs []string
 
 // Helper function to create a temporary directory
@@ -980,15 +1013,6 @@ func changeDir(t *testing.T, dir string) {
 	})
 }
 
-// Helper function to initialize a git repository
-func initGitRepo(t *testing.T, dir string) {
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to initialize git repository: %v", err)
-	}
-}
-
 // Helper function to normalize a path
 func normalizePath(path string) string {
 	return strings.ReplaceAll(filepath.Clean(path), "\\", "/")
@@ -1015,25 +1039,6 @@ func captureStdout(t *testing.T, f func()) string {
 	<-done
 	os.Stdout = originalStdout
 	return output.String()
-}
-
-// Mock execCommand to simulate git command failure
-func mockCommand(_ string, _ ...string) *exec.Cmd {
-	return exec.Command("false")
-}
-
-// Updated helper function to mock exec.Command for successful execution using PowerShell
-func mockExecCommandSuccess(command string, args ...string) *exec.Cmd {
-	if runtime.GOOS == "windows" {
-		// Use PowerShell to execute the echo command
-		fullCommand := fmt.Sprintf("Write-Output 'mock output for: %s %s'", command, strings.Join(args, " "))
-		cmdArgs := []string{"-Command", fullCommand}
-		return exec.Command("powershell.exe", cmdArgs...)
-	} else {
-		// Use 'echo' on Unix-like systems
-		fullArgs := append([]string{"mock output for:", command}, args...)
-		return exec.Command("echo", fullArgs...)
-	}
 }
 
 // Updated helper function to mock exec.Command for failed execution using PowerShell
@@ -1221,180 +1226,1252 @@ func TestEnv_CheckTrustedDirectory(t *testing.T) {
 	})
 }
 
-func TestDefaultShell_AddCurrentDirToTrustedFile(t *testing.T) {
-	shell := &DefaultShell{}
+func TestDefaultShell_GetSessionToken(t *testing.T) {
+	t.Run("GenerateNewToken", func(t *testing.T) {
+		// Given
+		ResetSessionToken()
+		shell := setupShellTest(t)
 
-	// Mock the os functions at the top
+		// Save original functions to restore later
+		originalRandRead := randRead
+		originalOsGetenv := osGetenv
+		defer func() {
+			randRead = originalRandRead
+			osGetenv = originalOsGetenv
+		}()
+
+		// Mock osGetenv to return empty string (no env token)
+		osGetenv = func(key string) string {
+			return ""
+		}
+
+		// Create a deterministic token generator
+		randRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i % 62) // Use a deterministic pattern
+			}
+			return len(b), nil
+		}
+
+		// When
+		token, err := shell.GetSessionToken()
+
+		// Then
+		if err != nil {
+			t.Errorf("GetSessionToken() error = %v, want nil", err)
+		}
+		if len(token) != 7 {
+			t.Errorf("GetSessionToken() token length = %d, want 7", len(token))
+		}
+	})
+
+	t.Run("ReuseExistingToken", func(t *testing.T) {
+		// Given
+		ResetSessionToken()
+		shell := setupShellTest(t)
+
+		// Save original functions
+		originalRandRead := randRead
+		originalOsGetenv := osGetenv
+		defer func() {
+			randRead = originalRandRead
+			osGetenv = originalOsGetenv
+		}()
+
+		// Mock rand.Read to generate a predictable token
+		randRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i % 62) // Use a deterministic pattern
+			}
+			return len(b), nil
+		}
+
+		// Generate a first token to cache it
+		firstToken, _ := shell.GetSessionToken()
+
+		// When getting a second token
+		secondToken, err := shell.GetSessionToken()
+
+		// Then
+		if err != nil {
+			t.Errorf("GetSessionToken() error = %v, want nil", err)
+		}
+		if firstToken != secondToken {
+			t.Errorf("GetSessionToken() token = %s, want %s", secondToken, firstToken)
+		}
+	})
+
+	t.Run("UseEnvironmentToken", func(t *testing.T) {
+		// Given
+		ResetSessionToken()
+		shell := setupShellTest(t)
+
+		// Save original functions
+		originalOsGetenv := osGetenv
+		defer func() {
+			osGetenv = originalOsGetenv
+		}()
+
+		// Mock osGetenv to return a specific token
+		osGetenv = func(key string) string {
+			if key == "WINDSOR_SESSION_TOKEN" {
+				return "testtoken"
+			}
+			return ""
+		}
+
+		// When
+		token, err := shell.GetSessionToken()
+
+		// Then
+		if err != nil {
+			t.Errorf("GetSessionToken() error = %v, want nil", err)
+		}
+		if token != "testtoken" {
+			t.Errorf("GetSessionToken() token = %s, want testtoken", token)
+		}
+	})
+
+	t.Run("ErrorGeneratingRandomString", func(t *testing.T) {
+		// Given
+		ResetSessionToken()
+		shell := setupShellTest(t)
+
+		// Save original functions
+		originalRandRead := randRead
+		originalOsGetenv := osGetenv
+		defer func() {
+			randRead = originalRandRead
+			osGetenv = originalOsGetenv
+		}()
+
+		// Mock osGetenv to return empty string (no env token)
+		osGetenv = func(key string) string {
+			return ""
+		}
+
+		// Mock random generation to fail
+		randRead = func(b []byte) (n int, err error) {
+			return 0, fmt.Errorf("mock random generation error")
+		}
+
+		// When
+		token, err := shell.GetSessionToken()
+
+		// Then
+		if err == nil {
+			t.Error("GetSessionToken() expected error, got nil")
+			return
+		}
+		if token != "" {
+			t.Errorf("GetSessionToken() token = %s, want empty string", token)
+		}
+		expectedErr := "error generating session token: mock random generation error"
+		if err.Error() != expectedErr {
+			t.Errorf("GetSessionToken() error = %v, want %v", err, expectedErr)
+		}
+	})
+
+	t.Run("GenerateRandomString", func(t *testing.T) {
+		// This test checks that generateRandomString properly generates strings of the right length
+		shell := setupShellTest(t)
+
+		// Save original randRead
+		originalRandRead := randRead
+		defer func() { randRead = originalRandRead }()
+
+		// Make randRead produce deterministic output for testing
+		randRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i % 62) // Use a deterministic pattern
+			}
+			return len(b), nil
+		}
+
+		testRandomStringGeneration(t, shell, 7)
+		testRandomStringGeneration(t, shell, 10)
+		testRandomStringGeneration(t, shell, 15)
+	})
+}
+
+// TestDefaultShell_WriteResetToken tests the WriteResetToken method
+func TestDefaultShell_WriteResetToken(t *testing.T) {
+	// Save original functions and environment
+	originalOsMkdirAll := osMkdirAll
+	originalOsWriteFile := osWriteFile
+	originalEnvValue := os.Getenv("WINDSOR_SESSION_TOKEN")
+
+	// Restore original functions and environment after all tests
+	defer func() {
+		osMkdirAll = originalOsMkdirAll
+		osWriteFile = originalOsWriteFile
+		if originalEnvValue != "" {
+			os.Setenv("WINDSOR_SESSION_TOKEN", originalEnvValue)
+		} else {
+			os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		}
+	}()
+
+	t.Run("NoSessionToken", func(t *testing.T) {
+		// Given a default shell with no session token in environment
+		shell := setupShellTest(t)
+
+		// Ensure the environment variable is not set
+		os.Unsetenv("WINDSOR_SESSION_TOKEN")
+
+		// When calling WriteResetToken
+		path, err := shell.WriteResetToken()
+
+		// Then no error should be returned and path should be empty
+		if err != nil {
+			t.Errorf("WriteResetToken() error = %v, want nil", err)
+		}
+		if path != "" {
+			t.Errorf("WriteResetToken() path = %v, want empty string", path)
+		}
+	})
+
+	t.Run("SuccessfulTokenWrite", func(t *testing.T) {
+		// Given a default shell with a session token
+		shell := setupShellTest(t)
+
+		// Set up test data using platform-specific path functions
+		testProjectRoot := filepath.FromSlash("/test/project/root")
+		testToken := "test-token-123"
+		expectedDirPath := filepath.Join(testProjectRoot, ".windsor")
+		expectedFilePath := filepath.Join(expectedDirPath, SessionTokenPrefix+testToken)
+
+		// For comparison in errors, we'll use ToSlash to show normalized paths
+		expectedDirPathNormalized := filepath.ToSlash(expectedDirPath)
+		expectedFilePathNormalized := filepath.ToSlash(expectedFilePath)
+
+		// Track function calls
+		var mkdirAllCalled bool
+		var writeFileCalled bool
+		var mkdirAllPath string
+		var mkdirAllPerm os.FileMode
+		var writeFilePath string
+		var writeFileData []byte
+		var writeFilePerm os.FileMode
+
+		// Mock OS functions
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			mkdirAllCalled = true
+			mkdirAllPath = path
+			mkdirAllPerm = perm
+			return nil
+		}
+
+		osWriteFile = func(name string, data []byte, perm os.FileMode) error {
+			writeFileCalled = true
+			writeFilePath = name
+			writeFileData = data
+			writeFilePerm = perm
+			return nil
+		}
+
+		// Mock getwd to return our test project root
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+		getwd = func() (string, error) {
+			return testProjectRoot, nil
+		}
+
+		// Set the environment variable
+		os.Setenv("WINDSOR_SESSION_TOKEN", testToken)
+
+		// When calling WriteResetToken
+		path, err := shell.WriteResetToken()
+
+		// Then no error should be returned and the path should match expected
+		if err != nil {
+			t.Errorf("WriteResetToken() error = %v, want nil", err)
+		}
+
+		// Use ToSlash to normalize paths for comparison
+		if filepath.ToSlash(path) != expectedFilePathNormalized {
+			t.Errorf("WriteResetToken() path = %v, want %v",
+				filepath.ToSlash(path), expectedFilePathNormalized)
+		}
+
+		// Verify that MkdirAll was called with correct parameters
+		if !mkdirAllCalled {
+			t.Error("Expected MkdirAll to be called, but it wasn't")
+		} else {
+			if filepath.ToSlash(mkdirAllPath) != expectedDirPathNormalized {
+				t.Errorf("Expected MkdirAll path %s, got %s",
+					expectedDirPathNormalized, filepath.ToSlash(mkdirAllPath))
+			}
+			if mkdirAllPerm != 0750 {
+				t.Errorf("Expected MkdirAll permissions 0750, got %v", mkdirAllPerm)
+			}
+		}
+
+		// Verify that WriteFile was called with correct parameters
+		if !writeFileCalled {
+			t.Error("Expected WriteFile to be called, but it wasn't")
+		} else {
+			if filepath.ToSlash(writeFilePath) != expectedFilePathNormalized {
+				t.Errorf("Expected WriteFile path %s, got %s",
+					expectedFilePathNormalized, filepath.ToSlash(writeFilePath))
+			}
+			if len(writeFileData) != 0 {
+				t.Errorf("Expected empty file, got %v bytes", len(writeFileData))
+			}
+			if writeFilePerm != 0600 {
+				t.Errorf("Expected WriteFile permissions 0600, got %v", writeFilePerm)
+			}
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		// Given a default shell with a session token
+		shell := setupShellTest(t)
+
+		// Mock getwd to return an error
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+		getwd = func() (string, error) {
+			return "", fmt.Errorf("error getting project root")
+		}
+
+		// Set the environment variable
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+
+		// When calling WriteResetToken
+		path, err := shell.WriteResetToken()
+
+		// Then an error should be returned and the path should be empty
+		if err == nil {
+			t.Error("WriteResetToken() expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error getting project root") {
+			t.Errorf("WriteResetToken() error = %v, want error containing 'error getting project root'", err)
+		}
+		if path != "" {
+			t.Errorf("WriteResetToken() path = %v, want empty string", path)
+		}
+	})
+
+	t.Run("ErrorCreatingDirectory", func(t *testing.T) {
+		// Given a default shell with a session token
+		shell := setupShellTest(t)
+
+		// Mock getwd to return a test path
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+		getwd = func() (string, error) {
+			return "/test/project/root", nil
+		}
+
+		// Mock MkdirAll to return an error
+		expectedError := fmt.Errorf("error creating directory")
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			return expectedError
+		}
+
+		// Set the environment variable
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+
+		// When calling WriteResetToken
+		path, err := shell.WriteResetToken()
+
+		// Then an error should be returned and the path should be empty
+		if err == nil {
+			t.Error("WriteResetToken() expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), expectedError.Error()) {
+			t.Errorf("WriteResetToken() error = %v, want error containing %v", err, expectedError)
+		}
+		if path != "" {
+			t.Errorf("WriteResetToken() path = %v, want empty string", path)
+		}
+	})
+
+	t.Run("ErrorWritingFile", func(t *testing.T) {
+		// Given a default shell with a session token
+		shell := setupShellTest(t)
+
+		// Mock getwd to return a test path
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+		getwd = func() (string, error) {
+			return "/test/project/root", nil
+		}
+
+		// Mock MkdirAll to succeed but WriteFile to fail
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		expectedError := fmt.Errorf("error writing file")
+		osWriteFile = func(name string, data []byte, perm os.FileMode) error {
+			return expectedError
+		}
+
+		// Set the environment variable
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+
+		// When calling WriteResetToken
+		path, err := shell.WriteResetToken()
+
+		// Then an error should be returned and the path should be empty
+		if err == nil {
+			t.Error("WriteResetToken() expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), expectedError.Error()) {
+			t.Errorf("WriteResetToken() error = %v, want error containing %v", err, expectedError)
+		}
+		if path != "" {
+			t.Errorf("WriteResetToken() path = %v, want empty string", path)
+		}
+	})
+}
+
+// TestDefaultShell_AddCurrentDirToTrustedFile tests the AddCurrentDirToTrustedFile method
+func TestDefaultShell_AddCurrentDirToTrustedFile(t *testing.T) {
+	// Save original functions and environment
 	originalGetwd := getwd
 	originalOsUserHomeDir := osUserHomeDir
-	originalReadFile := osReadFile
-	originalMkdirAll := osMkdirAll
-	originalWriteFile := osWriteFile
+	originalOsReadFile := osReadFile
+	originalOsMkdirAll := osMkdirAll
+	originalOsWriteFile := osWriteFile
 
+	// Restore original functions after all tests
 	defer func() {
 		getwd = originalGetwd
 		osUserHomeDir = originalOsUserHomeDir
-		osReadFile = originalReadFile
-		osMkdirAll = originalMkdirAll
-		osWriteFile = originalWriteFile
+		osReadFile = originalOsReadFile
+		osMkdirAll = originalOsMkdirAll
+		osWriteFile = originalOsWriteFile
 	}()
 
-	// Default mock implementations for success scenarios
-	getwd = func() (string, error) {
-		return "/mock/current/dir", nil
-	}
-
-	osUserHomeDir = func() (string, error) {
-		return "/mock/home/dir", nil
-	}
-
-	osReadFile = func(filename string) ([]byte, error) {
-		return []byte{}, nil
-	}
-
-	osMkdirAll = func(path string, perm os.FileMode) error {
-		return nil
-	}
-
-	var capturedData []byte
-	osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
-		capturedData = data
-		return nil
-	}
-
 	t.Run("Success", func(t *testing.T) {
-		// Call AddCurrentDirToTrustedFile and check for errors
+		// Given a default shell
+		shell := setupShellTest(t)
+
+		// Mock required functions
+		getwd = func() (string, error) {
+			return "/mock/current/dir", nil
+		}
+
+		osUserHomeDir = func() (string, error) {
+			return "/mock/home/dir", nil
+		}
+
+		osReadFile = func(filename string) ([]byte, error) {
+			return []byte{}, nil // Empty trusted file
+		}
+
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			expectedPath := "/mock/home/dir/.config/windsor"
+			if filepath.ToSlash(path) != expectedPath {
+				t.Errorf("Expected MkdirAll path %s, got %s", expectedPath, path)
+			}
+			if perm != 0750 {
+				t.Errorf("Expected MkdirAll permissions 0750, got %v", perm)
+			}
+			return nil
+		}
+
+		var capturedData []byte
+		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			expectedPath := "/mock/home/dir/.config/windsor/.trusted"
+			if filepath.ToSlash(filename) != expectedPath {
+				t.Errorf("Expected WriteFile path %s, got %s", expectedPath, filename)
+			}
+			capturedData = data
+			if perm != 0600 {
+				t.Errorf("Expected WriteFile permissions 0600, got %v", perm)
+			}
+			return nil
+		}
+
+		// When adding the current directory to the trusted file
 		err := shell.AddCurrentDirToTrustedFile()
+
+		// Then no error should be returned
 		if err != nil {
-			t.Errorf("unexpected error: %v", err)
+			t.Errorf("AddCurrentDirToTrustedFile() error = %v, want nil", err)
 		}
 
 		// Verify that the current directory was added to the trusted file
 		expectedData := "/mock/current/dir\n"
 		if string(capturedData) != expectedData {
-			t.Errorf("capturedData = %v, want %v", string(capturedData), expectedData)
+			t.Errorf("Expected data %q, got %q", expectedData, string(capturedData))
 		}
 	})
 
 	t.Run("SuccessAlreadyTrusted", func(t *testing.T) {
-		// Save the original osReadFile function
-		originalReadFile := osReadFile
-		defer func() { osReadFile = originalReadFile }()
+		// Given a default shell
+		shell := setupShellTest(t)
 
-		// Override the osReadFile function locally to simulate a trusted directory already present
-		osReadFile = func(filename string) ([]byte, error) {
-			return []byte("/mock/current/dir\n"), nil
+		// Mock required functions
+		getwd = func() (string, error) {
+			return "/mock/current/dir", nil
 		}
 
-		// Call AddCurrentDirToTrustedFile and check for errors
+		osUserHomeDir = func() (string, error) {
+			return "/mock/home/dir", nil
+		}
+
+		osReadFile = func(filename string) ([]byte, error) {
+			return []byte("/mock/current/dir\n"), nil // Directory already in trusted file
+		}
+
+		// Track if WriteFile is called (it shouldn't be)
+		writeFileCalled := false
+		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			writeFileCalled = true
+			return nil
+		}
+
+		// When adding the current directory to the trusted file
 		err := shell.AddCurrentDirToTrustedFile()
+
+		// Then no error should be returned
 		if err != nil {
-			t.Errorf("unexpected error: %v", err)
+			t.Errorf("AddCurrentDirToTrustedFile() error = %v, want nil", err)
+		}
+
+		// Verify that WriteFile was not called
+		if writeFileCalled {
+			t.Error("Expected WriteFile not to be called, but it was")
 		}
 	})
 
 	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
-		// Save the original getwd function
-		originalGetwd := getwd
-		defer func() { getwd = originalGetwd }()
+		// Given a default shell
+		shell := setupShellTest(t)
 
-		// Override the getwd function locally to simulate an error
+		// Mock getwd to return an error
 		getwd = func() (string, error) {
 			return "", fmt.Errorf("error getting project root directory")
 		}
 
-		// Call AddCurrentDirToTrustedFile and expect an error
+		// When adding the current directory to the trusted file
 		err := shell.AddCurrentDirToTrustedFile()
+
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("expected error, got nil")
+			t.Error("AddCurrentDirToTrustedFile() expected error, got nil")
 		}
 		expectedError := "Error getting project root directory: error getting project root directory"
 		if err.Error() != expectedError {
-			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+			t.Errorf("AddCurrentDirToTrustedFile() error = %q, want %q", err.Error(), expectedError)
 		}
 	})
 
 	t.Run("ErrorGettingUserHomeDir", func(t *testing.T) {
-		// Save the original osUserHomeDir function
-		originalOsUserHomeDir := osUserHomeDir
-		defer func() { osUserHomeDir = originalOsUserHomeDir }()
+		// Given a default shell
+		shell := setupShellTest(t)
 
-		// Override the osUserHomeDir function locally to simulate an error
+		// Mock getwd to succeed but osUserHomeDir to fail
+		getwd = func() (string, error) {
+			return "/mock/current/dir", nil
+		}
+
 		osUserHomeDir = func() (string, error) {
 			return "", fmt.Errorf("error getting user home directory")
 		}
 
-		// Call AddCurrentDirToTrustedFile and expect an error
+		// When adding the current directory to the trusted file
 		err := shell.AddCurrentDirToTrustedFile()
+
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("expected error, got nil")
+			t.Error("AddCurrentDirToTrustedFile() expected error, got nil")
 		}
 		expectedError := "Error getting user home directory: error getting user home directory"
 		if err.Error() != expectedError {
-			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+			t.Errorf("AddCurrentDirToTrustedFile() error = %q, want %q", err.Error(), expectedError)
 		}
 	})
 
 	t.Run("ErrorCreatingDirectories", func(t *testing.T) {
-		// Save the original osMkdirAll function
-		originalMkdirAll := osMkdirAll
-		defer func() { osMkdirAll = originalMkdirAll }()
+		// Given a default shell
+		shell := setupShellTest(t)
 
-		// Override the osMkdirAll function locally to simulate an error
+		// Mock getwd and osUserHomeDir to succeed but osMkdirAll to fail
+		getwd = func() (string, error) {
+			return "/mock/current/dir", nil
+		}
+
+		osUserHomeDir = func() (string, error) {
+			return "/mock/home/dir", nil
+		}
+
+		expectedError := fmt.Errorf("error creating directories")
 		osMkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("error creating directories")
+			return expectedError
 		}
 
-		// Call AddCurrentDirToTrustedFile and expect an error
+		// When adding the current directory to the trusted file
 		err := shell.AddCurrentDirToTrustedFile()
+
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("expected error, got nil")
+			t.Error("AddCurrentDirToTrustedFile() expected error, got nil")
 		}
-		expectedError := "Error creating directories for trusted file: error creating directories"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+
+		expectedErrorMsg := "Error creating directories for trusted file: error creating directories"
+		if err.Error() != expectedErrorMsg {
+			t.Errorf("AddCurrentDirToTrustedFile() error = %q, want %q", err.Error(), expectedErrorMsg)
 		}
 	})
 
 	t.Run("ErrorReadingTrustedFile", func(t *testing.T) {
-		// Save the original osReadFile function
-		originalReadFile := osReadFile
-		defer func() { osReadFile = originalReadFile }()
+		// Given a default shell
+		shell := setupShellTest(t)
 
-		// Override the osReadFile function locally to simulate an error
+		// Mock getwd, osUserHomeDir, and osMkdirAll to succeed but osReadFile to fail
+		getwd = func() (string, error) {
+			return "/mock/current/dir", nil
+		}
+
+		osUserHomeDir = func() (string, error) {
+			return "/mock/home/dir", nil
+		}
+
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		expectedError := fmt.Errorf("error reading trusted file")
 		osReadFile = func(filename string) ([]byte, error) {
-			return nil, fmt.Errorf("error reading trusted file")
+			return nil, expectedError
 		}
 
-		// Call AddCurrentDirToTrustedFile and expect an error
+		// When adding the current directory to the trusted file
 		err := shell.AddCurrentDirToTrustedFile()
+
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("expected error, got nil")
+			t.Error("AddCurrentDirToTrustedFile() expected error, got nil")
 		}
-		expectedError := "Error reading trusted file: error reading trusted file"
-		if err.Error() != expectedError {
-			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+
+		expectedErrorMsg := "Error reading trusted file: error reading trusted file"
+		if err.Error() != expectedErrorMsg {
+			t.Errorf("AddCurrentDirToTrustedFile() error = %q, want %q", err.Error(), expectedErrorMsg)
+		}
+	})
+
+	t.Run("ErrorReadingNonExistentTrustedFile", func(t *testing.T) {
+		// Given a default shell
+		shell := setupShellTest(t)
+
+		// Mock getwd, osUserHomeDir, and osMkdirAll to succeed but osReadFile to return file not exist error
+		getwd = func() (string, error) {
+			return "/mock/current/dir", nil
+		}
+
+		osUserHomeDir = func() (string, error) {
+			return "/mock/home/dir", nil
+		}
+
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		osReadFile = func(filename string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		}
+
+		var capturedData []byte
+		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			capturedData = data
+			return nil
+		}
+
+		// When adding the current directory to the trusted file
+		err := shell.AddCurrentDirToTrustedFile()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("AddCurrentDirToTrustedFile() error = %v, want nil", err)
+		}
+
+		// Verify that the current directory was added to the trusted file
+		expectedData := "/mock/current/dir\n"
+		if string(capturedData) != expectedData {
+			t.Errorf("Expected data %q, got %q", expectedData, string(capturedData))
 		}
 	})
 
 	t.Run("ErrorWritingToTrustedFile", func(t *testing.T) {
-		// Save the original osWriteFile function
-		originalWriteFile := osWriteFile
-		defer func() { osWriteFile = originalWriteFile }()
+		// Given a default shell
+		shell := setupShellTest(t)
 
-		// Override the osWriteFile function locally to simulate an error
+		// Mock getwd, osUserHomeDir, osMkdirAll, and osReadFile to succeed but osWriteFile to fail
+		getwd = func() (string, error) {
+			return "/mock/current/dir", nil
+		}
+
+		osUserHomeDir = func() (string, error) {
+			return "/mock/home/dir", nil
+		}
+
+		osMkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+
+		osReadFile = func(filename string) ([]byte, error) {
+			return []byte{}, nil
+		}
+
+		expectedError := fmt.Errorf("error writing to trusted file")
 		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("error writing to trusted file")
+			return expectedError
 		}
 
-		// Call AddCurrentDirToTrustedFile and expect an error
+		// When adding the current directory to the trusted file
 		err := shell.AddCurrentDirToTrustedFile()
+
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("expected error, got nil")
+			t.Error("AddCurrentDirToTrustedFile() expected error, got nil")
 		}
-		expectedError := "Error writing to trusted file: error writing to trusted file"
+
+		expectedErrorMsg := "Error writing to trusted file: error writing to trusted file"
+		if err.Error() != expectedErrorMsg {
+			t.Errorf("AddCurrentDirToTrustedFile() error = %q, want %q", err.Error(), expectedErrorMsg)
+		}
+	})
+}
+
+// TestMockShell_GetSessionToken tests the MockShell's GetSessionToken method
+func TestMockShell_GetSessionToken(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		expectedToken := "mock-token"
+		mockShell.GetSessionTokenFunc = func() (string, error) {
+			return expectedToken, nil
+		}
+
+		// When
+		token, err := mockShell.GetSessionToken()
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if token != expectedToken {
+			t.Errorf("Expected token %s, got %s", expectedToken, token)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		expectedError := "custom error"
+		mockShell.GetSessionTokenFunc = func() (string, error) {
+			return "", fmt.Errorf(expectedError)
+		}
+
+		// When
+		token, err := mockShell.GetSessionToken()
+
+		// Then
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
 		if err.Error() != expectedError {
-			t.Errorf("expected error %q, got %q", expectedError, err.Error())
+			t.Errorf("Expected error %s, got %s", expectedError, err.Error())
+		}
+		if token != "" {
+			t.Errorf("Expected empty token, got %s", token)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// Don't set GetSessionTokenFunc
+
+		// When
+		token, err := mockShell.GetSessionToken()
+
+		// Then
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		expectedError := "GetSessionToken not implemented"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %s, got %s", expectedError, err.Error())
+		}
+		if token != "" {
+			t.Errorf("Expected empty token, got %s", token)
+		}
+	})
+}
+
+// TestDefaultShell_CheckResetFlags tests the CheckResetFlags method of DefaultShell
+func TestDefaultShell_CheckResetFlags(t *testing.T) {
+	// Save original environment variable and restore it after all tests
+	origEnv := os.Getenv("WINDSOR_SESSION_TOKEN")
+	defer func() { os.Setenv("WINDSOR_SESSION_TOKEN", origEnv) }()
+
+	// Save original session token and restore it after all tests
+	origSessionToken := sessionToken
+	defer func() { sessionToken = origSessionToken }()
+
+	t.Run("NoSessionToken", func(t *testing.T) {
+		// Given
+		shell := setupShellTest(t)
+		ResetSessionToken()
+
+		// When no session token is set in the environment
+		osSetenv("WINDSOR_SESSION_TOKEN", "")
+		result, err := shell.CheckResetFlags()
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result {
+			t.Errorf("Expected result to be false when no session token exists")
+		}
+	})
+
+	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
+		// Given
+		shell := setupShellTest(t)
+		ResetSessionToken()
+
+		// Save original getwd function
+		originalGetwd := getwd
+		defer func() { getwd = originalGetwd }()
+
+		// Mock the getwd function to return an error
+		getwd = func() (string, error) {
+			return "", fmt.Errorf("error getting working directory")
+		}
+
+		// Set a test session token
+		osSetenv("WINDSOR_SESSION_TOKEN", "test-token")
+
+		// When
+		result, err := shell.CheckResetFlags()
+
+		// Then
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error getting project root") {
+			t.Errorf("Expected error to contain 'error getting project root', got: %v", err)
+		}
+		if result {
+			t.Errorf("Expected result to be false when error occurs")
+		}
+	})
+
+	t.Run("WindsorDirectoryDoesNotExist", func(t *testing.T) {
+		// Given
+		shell := setupShellTest(t)
+		ResetSessionToken()
+
+		// Save original functions
+		originalGetwd := getwd
+		originalOsStat := osStat
+		defer func() {
+			getwd = originalGetwd
+			osStat = originalOsStat
+		}()
+
+		// Mock the getwd function
+		getwd = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		// Mock the osStat function to simulate .windsor directory not existing
+		osStat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "windsor.yaml") || strings.Contains(name, "windsor.yml") {
+				return nil, os.ErrNotExist
+			}
+			if strings.Contains(name, ".windsor") {
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Set a test session token
+		osSetenv("WINDSOR_SESSION_TOKEN", "test-token")
+
+		// When
+		result, err := shell.CheckResetFlags()
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result {
+			t.Errorf("Expected result to be false when .windsor directory doesn't exist")
+		}
+	})
+
+	t.Run("ResetFileExists", func(t *testing.T) {
+		// Given
+		shell := setupShellTest(t)
+		ResetSessionToken()
+
+		// Save original functions
+		originalGetwd := getwd
+		originalOsStat := osStat
+		defer func() {
+			getwd = originalGetwd
+			osStat = originalOsStat
+		}()
+
+		// Mock the getwd function
+		getwd = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		// Mock the osStat function to simulate reset file existing
+		osStat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "windsor.yaml") {
+				return nil, nil // windsor.yaml exists
+			}
+			if strings.Contains(name, ".windsor") {
+				return nil, nil // .windsor directory exists
+			}
+			if strings.Contains(name, ".session.test-token") {
+				return nil, nil // Reset file exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Set a test session token
+		osSetenv("WINDSOR_SESSION_TOKEN", "test-token")
+
+		// When
+		result, err := shell.CheckResetFlags()
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !result {
+			t.Errorf("Expected result to be true when reset file exists")
+		}
+	})
+
+	t.Run("ResetFileDoesNotExist", func(t *testing.T) {
+		// Given
+		shell := setupShellTest(t)
+		ResetSessionToken()
+
+		// Save original functions
+		originalGetwd := getwd
+		originalOsStat := osStat
+		defer func() {
+			getwd = originalGetwd
+			osStat = originalOsStat
+		}()
+
+		// Mock the getwd function
+		getwd = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		// Mock the osStat function to simulate reset file not existing
+		osStat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "windsor.yaml") {
+				return nil, nil // windsor.yaml exists
+			}
+			if strings.Contains(name, ".windsor") && !strings.Contains(name, ".session.") {
+				return nil, nil // .windsor directory exists
+			}
+			// Reset file does not exist
+			return nil, os.ErrNotExist
+		}
+
+		// Set a test session token
+		osSetenv("WINDSOR_SESSION_TOKEN", "test-token")
+
+		// When
+		result, err := shell.CheckResetFlags()
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result {
+			t.Errorf("Expected result to be false when reset file doesn't exist")
+		}
+	})
+
+	t.Run("ErrorFindingSessionFiles", func(t *testing.T) {
+		// Given
+		shell := setupShellTest(t)
+		ResetSessionToken()
+
+		// Save original functions
+		originalGetwd := getwd
+		originalOsStat := osStat
+		originalFilepathGlob := filepathGlob
+		defer func() {
+			getwd = originalGetwd
+			osStat = originalOsStat
+			filepathGlob = originalFilepathGlob
+		}()
+
+		// Mock the getwd function
+		getwd = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		// Mock osStat to simulate .windsor dir exists
+		osStat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "windsor.yaml") {
+				return nil, nil // windsor.yaml exists
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock filepath.Glob to return an error
+		filepathGlob = func(pattern string) ([]string, error) {
+			return nil, fmt.Errorf("mock error finding session files")
+		}
+
+		// Set a test session token
+		osSetenv("WINDSOR_SESSION_TOKEN", "test-token")
+
+		// When
+		result, err := shell.CheckResetFlags()
+
+		// Then
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error finding session files") {
+			t.Errorf("Expected error to contain 'error finding session files', got: %v", err)
+		}
+		if result {
+			t.Errorf("Expected result to be false when error occurs")
+		}
+	})
+
+	t.Run("ErrorRemovingSessionFiles", func(t *testing.T) {
+		// Given
+		shell := setupShellTest(t)
+		ResetSessionToken()
+
+		// Save original functions
+		originalGetwd := getwd
+		originalOsStat := osStat
+		originalFilepathGlob := filepathGlob
+		originalOsRemoveAll := osRemoveAll
+		defer func() {
+			getwd = originalGetwd
+			osStat = originalOsStat
+			filepathGlob = originalFilepathGlob
+			osRemoveAll = originalOsRemoveAll
+		}()
+
+		// Mock the getwd function
+		getwd = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		// Mock osStat to simulate .windsor dir exists
+		osStat = func(name string) (os.FileInfo, error) {
+			if strings.Contains(name, "windsor.yaml") || strings.Contains(name, ".windsor") {
+				return nil, nil // both config file and directory exist
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Mock filepath.Glob to return some session files
+		filepathGlob = func(pattern string) ([]string, error) {
+			return []string{"/test/project/.windsor/.session.test-token"}, nil
+		}
+
+		// Mock osRemoveAll to return an error
+		osRemoveAll = func(path string) error {
+			return fmt.Errorf("mock error removing session file")
+		}
+
+		// Set a test session token
+		osSetenv("WINDSOR_SESSION_TOKEN", "test-token")
+
+		// When
+		result, err := shell.CheckResetFlags()
+
+		// Then
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error removing session file") {
+			t.Errorf("Expected error to contain 'error removing session file', got: %v", err)
+		}
+		if result {
+			t.Errorf("Expected result to be false when error occurs")
+		}
+	})
+}
+
+// TestMockShell_CheckReset tests the MockShell's CheckReset method
+func TestMockShell_CheckReset(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// Configure the mock to return a success response
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return true, nil
+		}
+
+		// When
+		result, err := mockShell.CheckResetFlags()
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !result {
+			t.Errorf("Expected result to be true, got false")
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// Configure the mock to return an error
+		expectedError := fmt.Errorf("custom error")
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, expectedError
+		}
+
+		// When
+		result, err := mockShell.CheckResetFlags()
+
+		// Then
+		if err == nil || err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+		if result {
+			t.Errorf("Expected result to be false, got true")
+		}
+	})
+
+	t.Run("DefaultImplementation", func(t *testing.T) {
+		// Given
+		injector := di.NewInjector()
+		mockShell := NewMockShell(injector)
+
+		// When CheckResetFunc isn't set, the default implementation should be used
+		result, err := mockShell.CheckResetFlags()
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result {
+			t.Errorf("Expected result to be false by default, got true")
+		}
+	})
+}
+
+// TestDefaultShell_Reset tests the Reset method of the DefaultShell struct
+func TestDefaultShell_Reset(t *testing.T) {
+	t.Run("ResetWithNoEnvVars", func(t *testing.T) {
+		// Given a default shell
+		shell := setupShellTest(t)
+
+		// Make sure environment variables are not set
+		os.Unsetenv("WINDSOR_MANAGED_ENV")
+		os.Unsetenv("WINDSOR_MANAGED_ALIAS")
+
+		// Set up the test
+		origStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		// When calling Reset
+		shell.Reset()
+
+		// Capture and restore stdout
+		w.Close()
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+		os.Stdout = origStdout
+
+		// Then no unset commands should be issued
+		output := buf.String()
+		if strings.Contains(output, "unset") {
+			t.Errorf("Expected no unset commands, but got: %s", output)
+		}
+	})
+
+	t.Run("ResetWithEnvironmentVariables", func(t *testing.T) {
+		// Given a default shell
+		shell := setupShellTest(t)
+
+		// Set environment variables
+		os.Setenv("WINDSOR_MANAGED_ENV", "ENV1,ENV2, ENV3")
+		os.Setenv("WINDSOR_MANAGED_ALIAS", "alias1,alias2, alias3")
+		defer func() {
+			os.Unsetenv("WINDSOR_MANAGED_ENV")
+			os.Unsetenv("WINDSOR_MANAGED_ALIAS")
+		}()
+
+		// Set up the test
+		origStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		// When calling Reset
+		shell.Reset()
+
+		// Capture and restore stdout
+		w.Close()
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+		os.Stdout = origStdout
+
+		// Then unset commands should be issued
+		output := buf.String()
+		// Check for unset ENV1 ENV2 ENV3 (on Unix) or Remove-Item ENV:ENV1, etc on Windows
+		if runtime.GOOS == "windows" {
+			if !strings.Contains(output, "Remove-Item Env:ENV1") {
+				t.Errorf("Expected Remove-Item Env:ENV1 command, but got: %s", output)
+			}
+			if !strings.Contains(output, "Remove-Item Env:ENV2") {
+				t.Errorf("Expected Remove-Item Env:ENV2 command, but got: %s", output)
+			}
+			if !strings.Contains(output, "Remove-Item Env:ENV3") {
+				t.Errorf("Expected Remove-Item Env:ENV3 command, but got: %s", output)
+			}
+			// And unalias for aliases
+			if !strings.Contains(output, "Remove-Item Alias:alias1") {
+				t.Errorf("Expected Remove-Item Alias:alias1 command, but got: %s", output)
+			}
+		} else {
+			// For Unix
+			if !strings.Contains(output, "unset ENV1 ENV2 ENV3") {
+				t.Errorf("Expected unset ENV1 ENV2 ENV3 command, but got: %s", output)
+			}
+			// And unalias for aliases
+			if !strings.Contains(output, "unalias alias1") {
+				t.Errorf("Expected unalias alias1 command, but got: %s", output)
+			}
+			if !strings.Contains(output, "unalias alias2") {
+				t.Errorf("Expected unalias alias2 command, but got: %s", output)
+			}
+			if !strings.Contains(output, "unalias alias3") {
+				t.Errorf("Expected unalias alias3 command, but got: %s", output)
+			}
 		}
 	})
 }

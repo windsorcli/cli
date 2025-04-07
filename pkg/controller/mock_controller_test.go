@@ -866,28 +866,108 @@ func TestMockController_ResolveBlueprintHandler(t *testing.T) {
 
 func TestMockController_SetEnvironmentVariables(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a new injector and mock controller
-		mocks := setSafeControllerMocks()
-		mockCtrl := NewMockController(mocks.Injector)
-		// And the SetEnvironmentVariablesFunc is set to return nil
-		mockCtrl.SetEnvironmentVariablesFunc = func() error {
+		// Given a mock controller with a SetEnvironmentVariables function
+		mockInjector := di.NewInjector()
+
+		// Set up the environment printer mock with complete implementation
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{
+				"TEST_VAR":              "test_value",
+				"WINDSOR_SESSION_TOKEN": "mock-token",
+			}, nil
+		}
+		mockInjector.Register("env", mockEnvPrinter)
+
+		// Set up a proper shell mock with GetSessionToken implementation
+		mockShell := shell.NewMockShell()
+		mockShell.GetSessionTokenFunc = func() (string, error) {
+			return "mock-token", nil
+		}
+		// Mock WriteResetToken to prevent file operations
+		mockShell.WriteResetTokenFunc = func() (string, error) {
+			// Just pretend it worked without creating any files
+			return "/mock/project/root/.windsor/.session.mock-token", nil
+		}
+		mockInjector.Register("shell", mockShell)
+
+		mockController := NewMockController(mockInjector)
+
+		// Create a map to track what environment variables were set
+		setEnvCalls := make(map[string]string)
+
+		// Mock the osSetenv function
+		originalSetenv := osSetenv
+		defer func() { osSetenv = originalSetenv }()
+		osSetenv = func(key, value string) error {
+			setEnvCalls[key] = value
 			return nil
 		}
-		// When SetEnvironmentVariables is called
-		if err := mockCtrl.SetEnvironmentVariables(); err != nil {
-			// Then no error should be returned
-			t.Fatalf("expected no error, got %v", err)
+
+		// When calling SetEnvironmentVariables
+		err := mockController.SetEnvironmentVariables()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// Verify that environment variables were set
+		if len(setEnvCalls) == 0 {
+			t.Errorf("expected environment variables to be set")
 		}
 	})
 
 	t.Run("NoSetEnvironmentVariablesFunc", func(t *testing.T) {
 		// Given a new injector and mock controller
-		mocks := setSafeControllerMocks()
-		mockCtrl := NewMockController(mocks.Injector)
+		mockInjector := di.NewInjector()
+
+		// Set up the environment printer mock
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{
+				"TEST_VAR":              "test_value",
+				"WINDSOR_SESSION_TOKEN": "mock-token",
+			}, nil
+		}
+		mockInjector.Register("env", mockEnvPrinter)
+
+		// Set up the shell mock with GetSessionToken implementation
+		mockShell := shell.NewMockShell()
+		mockShell.GetSessionTokenFunc = func() (string, error) {
+			return "mock-token", nil
+		}
+		// Mock WriteResetToken to prevent file operations
+		mockShell.WriteResetTokenFunc = func() (string, error) {
+			// Just pretend it worked without creating any files
+			return "/mock/project/root/.windsor/.session.mock-token", nil
+		}
+		mockInjector.Register("shell", mockShell)
+
+		mockCtrl := NewMockController(mockInjector)
+
+		// Create a map to track what environment variables were set
+		setEnvCalls := make(map[string]string)
+
+		// Mock the osSetenv function
+		originalSetenv := osSetenv
+		defer func() { osSetenv = originalSetenv }()
+		osSetenv = func(key, value string) error {
+			setEnvCalls[key] = value
+			return nil
+		}
+
 		// When SetEnvironmentVariables is called without setting SetEnvironmentVariablesFunc
-		if err := mockCtrl.SetEnvironmentVariables(); err != nil {
-			// Then no error should be returned
-			t.Fatalf("expected no error, got %v", err)
+		err := mockCtrl.SetEnvironmentVariables()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// Verify that environment variables were set
+		if len(setEnvCalls) == 0 {
+			t.Errorf("expected environment variables to be set")
 		}
 	})
 }

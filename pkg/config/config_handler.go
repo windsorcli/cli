@@ -107,24 +107,28 @@ func (c *BaseConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider)
 	c.secretsProviders = append(c.secretsProviders, provider)
 }
 
-// GetContext retrieves the current context from the file or cache
+// GetContext retrieves the current context from the environment, file, or defaults to "local"
 func (c *BaseConfigHandler) GetContext() string {
-	if c.context != "" {
-		return c.context
+	contextName := "local"
+
+	envContext := osGetenv("WINDSOR_CONTEXT")
+	if envContext != "" {
+		c.context = envContext
+	} else {
+		projectRoot, err := c.shell.GetProjectRoot()
+		if err != nil {
+			c.context = contextName
+		} else {
+			contextFilePath := filepath.Join(projectRoot, windsorDirName, contextFileName)
+			data, err := osReadFile(contextFilePath)
+			if err != nil {
+				c.context = contextName
+			} else {
+				c.context = string(data)
+			}
+		}
 	}
 
-	projectRoot, err := c.shell.GetProjectRoot()
-	if err != nil {
-		return "local"
-	}
-
-	contextFilePath := filepath.Join(projectRoot, windsorDirName, contextFileName)
-	data, err := osReadFile(contextFilePath)
-	if err != nil {
-		return "local"
-	}
-
-	c.context = string(data)
 	return c.context
 }
 

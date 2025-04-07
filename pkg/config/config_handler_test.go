@@ -53,6 +53,11 @@ func TestBaseConfigHandler_SetSecretsProvider(t *testing.T) {
 }
 
 func TestBaseConfigHandler_GetContext(t *testing.T) {
+	// Reset all mocks before each test
+	defer func() {
+		osGetenv = os.Getenv
+	}()
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell that returns a valid project root and context file
 		mocks := setupSafeMocks()
@@ -74,6 +79,11 @@ func TestBaseConfigHandler_GetContext(t *testing.T) {
 				return nil
 			}
 			return fmt.Errorf("error creating directory")
+		}
+
+		// Mock os.Getenv to return no context
+		osGetenv = func(key string) string {
+			return ""
 		}
 
 		configHandler := NewBaseConfigHandler(mocks.Injector)
@@ -103,6 +113,11 @@ func TestBaseConfigHandler_GetContext(t *testing.T) {
 			return nil, fmt.Errorf("file not found")
 		}
 
+		// Mock os.Getenv to return no context
+		osGetenv = func(key string) string {
+			return ""
+		}
+
 		// Create a new Context instance
 		configHandler := NewBaseConfigHandler(mocks.Injector)
 		err := configHandler.Initialize()
@@ -121,15 +136,26 @@ func TestBaseConfigHandler_GetContext(t *testing.T) {
 	})
 
 	t.Run("ContextAlreadyDefined", func(t *testing.T) {
+		// Mock os.Getenv to return a predefined context
+		osGetenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return "predefined-context"
+			}
+			return ""
+		}
+
 		// Given a mock shell and a pre-defined context
 		mocks := setupSafeMocks()
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
 
-		// Create a new Context instance with a pre-defined context
+		// Create a new Context instance
 		configHandler := NewBaseConfigHandler(mocks.Injector)
-		configHandler.context = "predefined-context"
+		err := configHandler.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 
 		// When GetContext is called
 		actualContext := configHandler.GetContext()
@@ -264,6 +290,11 @@ func TestConfigHandler_SetContext(t *testing.T) {
 }
 
 func TestConfigHandler_GetConfigRoot(t *testing.T) {
+	// Reset all mocks after each test
+	defer func() {
+		osGetenv = os.Getenv
+	}()
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell that returns valid values
 		mocks := setupSafeMocks()
@@ -277,6 +308,14 @@ func TestConfigHandler_GetConfigRoot(t *testing.T) {
 				return []byte("test-context"), nil
 			}
 			return nil, fmt.Errorf("error reading file")
+		}
+
+		// Mock os.Getenv to return no context
+		osGetenv = func(key string) string {
+			if key == "WINDSOR_CONTEXT" {
+				return "test-context"
+			}
+			return ""
 		}
 
 		configHandler := NewBaseConfigHandler(mocks.Injector)

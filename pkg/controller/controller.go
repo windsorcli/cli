@@ -377,9 +377,9 @@ func (c *BaseController) ResolveBlueprintHandler() blueprint.BlueprintHandler {
 
 // ResolveService resolves the requested service instance.
 func (c *BaseController) ResolveService(name string) services.Service {
-	instance := c.injector.Resolve(name)
-	serviceInstance, _ := instance.(services.Service)
-	return serviceInstance
+	instance := c.injector.Resolve(fmt.Sprintf("%s", name))
+	service, _ := instance.(services.Service)
+	return service
 }
 
 // ResolveAllServices resolves all service instances.

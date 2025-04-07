@@ -3,8 +3,10 @@ package shell
 import (
 	"bufio"
 	"io"
+	"math/rand"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"text/template"
 )
 
@@ -89,3 +91,18 @@ var hookTemplateParse = func(tmpl *template.Template, text string) (*template.Te
 var hookTemplateExecute = func(tmpl *template.Template, wr io.Writer, data interface{}) error {
 	return tmpl.Execute(wr, data)
 }
+
+// randRead is a variable that points to rand.Read, allowing it to be overridden in tests
+var randRead = rand.Read
+
+// osGetenv is a variable that points to os.Getenv, allowing it to be overridden in tests
+var osGetenv = os.Getenv
+
+// filepathGlob is a variable that points to filepath.Glob, allowing it to be overridden in tests
+var filepathGlob = filepath.Glob
+
+// osRemoveAll is a variable that points to os.RemoveAll, allowing it to be overridden in tests
+var osRemoveAll = os.RemoveAll
+
+// osSetenv is a variable that points to os.Setenv, allowing it to be overridden in tests
+var osSetenv = os.Setenv

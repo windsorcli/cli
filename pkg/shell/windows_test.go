@@ -140,10 +140,7 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 
 		// Capture the output of PrintAlias
 		output := captureStdout(t, func() {
-			err := shell.PrintAlias(aliasVars)
-			if err != nil {
-				t.Fatalf("PrintAlias returned an error: %v", err)
-			}
+			shell.PrintAlias(aliasVars)
 		})
 
 		// Then the output should contain all expected alias variables
@@ -166,10 +163,7 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 
 		// Capture the output of PrintAlias
 		output := captureStdout(t, func() {
-			err := shell.PrintAlias(aliasVarsWithEmpty)
-			if err != nil {
-				t.Fatalf("PrintAlias returned an error: %v", err)
-			}
+			shell.PrintAlias(aliasVarsWithEmpty)
 		})
 
 		// Then the output should contain the expected alias and remove alias commands
@@ -183,4 +177,62 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 			t.Errorf("PrintAlias() output missing expected line: %v", expectedRemoveAliasLine)
 		}
 	})
+}
+
+func TestDefaultShell_UnsetEnvs(t *testing.T) {
+	injector := di.NewInjector()
+
+	// Given a set of environment variables to unset
+	shell := NewDefaultShell(injector)
+	envVars := []string{"VAR1", "VAR2", "VAR3"}
+	expectedOutput := "Remove-Item Env:VAR1\nRemove-Item Env:VAR2\nRemove-Item Env:VAR3\n"
+
+	// When capturing the output of UnsetEnvs
+	output := captureStdout(t, func() {
+		shell.UnsetEnvs(envVars)
+	})
+
+	// Then the output should match the expected output
+	if output != expectedOutput {
+		t.Errorf("UnsetEnvs() output = %v, want %v", output, expectedOutput)
+	}
+
+	// Test with empty list
+	emptyOutput := captureStdout(t, func() {
+		shell.UnsetEnvs([]string{})
+	})
+
+	// Then the output should be empty
+	if emptyOutput != "" {
+		t.Errorf("UnsetEnvs() with empty list should produce no output, got %v", emptyOutput)
+	}
+}
+
+func TestDefaultShell_UnsetAlias(t *testing.T) {
+	injector := di.NewInjector()
+
+	// Given a set of aliases to unset
+	shell := NewDefaultShell(injector)
+	aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
+	expectedOutput := "Remove-Item Alias:ALIAS1\nRemove-Item Alias:ALIAS2\nRemove-Item Alias:ALIAS3\n"
+
+	// When capturing the output of UnsetAlias
+	output := captureStdout(t, func() {
+		shell.UnsetAlias(aliases)
+	})
+
+	// Then the output should match the expected output
+	if output != expectedOutput {
+		t.Errorf("UnsetAlias() output = %v, want %v", output, expectedOutput)
+	}
+
+	// Test with empty list
+	emptyOutput := captureStdout(t, func() {
+		shell.UnsetAlias([]string{})
+	})
+
+	// Then the output should be empty
+	if emptyOutput != "" {
+		t.Errorf("UnsetAlias() with empty list should produce no output, got %v", emptyOutput)
+	}
 }

@@ -283,9 +283,8 @@ func TestKubeEnvPrinter_Print(t *testing.T) {
 
 		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
 		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) error {
+		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
-			return nil
 		}
 
 		// Call Print and check for errors

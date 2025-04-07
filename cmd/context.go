@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
-	"github.com/windsorcli/cli/pkg/env"
 )
 
 // getContextCmd represents the get command
@@ -33,6 +32,11 @@ var getContextCmd = &cobra.Command{
 		// Initialize components
 		if err := controller.InitializeComponents(); err != nil {
 			return fmt.Errorf("Error initializing components: %w", err)
+		}
+
+		// Set the environment variables internally in the process
+		if err := controller.SetEnvironmentVariables(); err != nil {
+			return fmt.Errorf("Error setting environment variables: %w", err)
 		}
 
 		// Get the current context
@@ -63,6 +67,11 @@ var setContextCmd = &cobra.Command{
 			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
+		// Set the environment variables internally in the process
+		if err := controller.SetEnvironmentVariables(); err != nil {
+			return fmt.Errorf("Error setting environment variables: %w", err)
+		}
+
 		// Resolve config handler
 		configHandler := controller.ResolveConfigHandler()
 
@@ -71,25 +80,16 @@ var setContextCmd = &cobra.Command{
 			return fmt.Errorf("Configuration is not loaded. Please ensure it is initialized.")
 		}
 
+		// Write a reset token to reset the session
+		shell := controller.ResolveShell()
+		if _, err := shell.WriteResetToken(); err != nil {
+			return fmt.Errorf("Error writing reset token: %w", err)
+		}
+
 		// Set the context
 		contextName := args[0]
 		if err := configHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("Error setting context: %w", err)
-		}
-
-		// Create a session invalidation signal to force regeneration of the session token
-		// since the context has changed
-		windsorEnvPrinter := controller.ResolveEnvPrinter("windsorEnv")
-		if windsorEnvPrinter != nil {
-			// Note: This type assertion makes testing challenging as mock implementations
-			// in tests won't pass this check. However, keeping this assertion ensures type safety
-			// in production code. The token invalidation functionality is tested at the
-			// WindsorEnvPrinter level instead.
-			if wEnv, ok := windsorEnvPrinter.(*env.WindsorEnvPrinter); ok {
-				if err := wEnv.CreateSessionInvalidationSignal(); err != nil {
-					return fmt.Errorf("Warning: Failed to reset session token: %w", err)
-				}
-			}
 		}
 
 		// Print the context
