@@ -231,16 +231,11 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		})
 	}
 
-	tld := s.configHandler.GetString("dns.domain", "test")
-	fullName := nodeName + "." + tld
-	if s.name == "" {
-		fullName = nodeType[:len(nodeType)-1] + "." + tld
-	}
-
 	serviceConfig := commonConfig
-	serviceConfig.Name = fullName
-	serviceConfig.ContainerName = fullName
-	serviceConfig.Hostname = fullName
+	serviceConfig.Name = nodeName
+	s.SetName(nodeName) // Set the name so GetContainerName works correctly
+	serviceConfig.ContainerName = s.GetContainerName()
+	serviceConfig.Hostname = nodeName
 	serviceConfig.Environment = map[string]*string{
 		"PLATFORM": ptrString("container"),
 		"TALOSSKU": ptrString(fmt.Sprintf("%dCPU-%dRAM", cpu, ram*1024)),

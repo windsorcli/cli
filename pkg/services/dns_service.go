@@ -53,12 +53,12 @@ func (s *DNSService) SetAddress(address string) error {
 // GetComposeConfig sets up CoreDNS with context and domain, configures ports if localhost.
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	contextName := s.configHandler.GetContext()
-	tld := s.configHandler.GetString("dns.domain", "test")
-	fullName := s.name + "." + tld
+	serviceName := s.GetName()
+	containerName := s.GetContainerName()
 
 	corednsConfig := types.ServiceConfig{
-		Name:          fullName,
-		ContainerName: fullName,
+		Name:          serviceName,
+		ContainerName: containerName,
 		Image:         constants.DEFAULT_DNS_IMAGE,
 		Restart:       "always",
 		Command:       []string{"-conf", "/etc/coredns/Corefile"},
@@ -115,7 +115,7 @@ func (s *DNSService) WriteConfig() error {
 			if svc.Name != "" {
 				address := service.GetAddress()
 				if address != "" {
-					hostname := service.GetHostname()
+					hostname := service.GetName()
 					if s.IsLocalhostMode() {
 						address = "127.0.0.1"
 					}

@@ -271,8 +271,8 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 		if len(cfg.Services) != 1 {
 			t.Errorf("Expected 1 service, got %d", len(cfg.Services))
 		}
-		if cfg.Services[0].Name != "dns.test" {
-			t.Errorf("Expected service name to be 'dns.test', got %s", cfg.Services[0].Name)
+		if cfg.Services[0].Name != "dns" {
+			t.Errorf("Expected service name to be 'dns', got %s", cfg.Services[0].Name)
 		}
 	})
 
@@ -474,8 +474,8 @@ test:53 {
 		mockService.GetAddressFunc = func() string {
 			return "192.168.1.1"
 		}
-		mockService.GetHostnameFunc = func() string {
-			return "mockService.test"
+		mockService.GetNameFunc = func() string {
+			return "mockService"
 		}
 		mocks.Injector.Register("dockerService", mockService)
 
@@ -572,9 +572,6 @@ test:53 {
 		mockService.GetNameFunc = func() string {
 			return "test-service"
 		}
-		mockService.GetHostnameFunc = func() string {
-			return "test-service.test"
-		}
 		mockService.GetAddressFunc = func() string {
 			return "192.168.1.2"
 		}
@@ -652,7 +649,7 @@ test:53 {
     reload
     loop
     hosts {
-        127.0.0.1 test-service.test
+        127.0.0.1 test-service
         127.0.0.1 test
         192.168.1.1 test
         fallthrough

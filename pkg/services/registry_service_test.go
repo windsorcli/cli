@@ -118,8 +118,12 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
 
-		// Then check for characteristic properties in the configuration
-		expectedName := "registry.test"
+		// Then: the compose configuration should include the registry service
+		if composeConfig == nil || len(composeConfig.Services) == 0 {
+			t.Fatalf("expected non-nil composeConfig with services, got %v", composeConfig)
+		}
+
+		expectedName := "registry"
 		expectedRemoteURL := "registry.remote"
 		expectedLocalURL := "registry.local"
 		found := false
@@ -273,7 +277,7 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		found := false
 
 		for _, config := range composeConfig.Services {
-			if config.Name == "local-registry.test" {
+			if config.Name == "local-registry" {
 				for _, portConfig := range config.Ports {
 					if portConfig.Target == expectedPortConfig.Target &&
 						portConfig.Published == expectedPortConfig.Published &&
@@ -286,7 +290,7 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		}
 
 		if !found {
-			t.Errorf("expected service with name %q to have port configuration %+v in the list of configurations:\n%+v", "local-registry.test", expectedPortConfig, composeConfig.Services)
+			t.Errorf("expected service with name %q to have port configuration %+v in the list of configurations:\n%+v", "local-registry", expectedPortConfig, composeConfig.Services)
 		}
 	})
 }
@@ -595,13 +599,13 @@ func TestRegistryService_GetHostname(t *testing.T) {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
-		// When GetHostname is called
-		hostname := registryService.GetHostname()
+		// When GetName is called
+		name := registryService.GetName()
 
-		// Then the hostname should be as expected, with the old domain removed
-		expectedHostname := "registry.test"
-		if hostname != expectedHostname {
-			t.Fatalf("expected hostname '%s', got %v", expectedHostname, hostname)
+		// Then the name should be as expected
+		expectedName := "registry.oldtld"
+		if name != expectedName {
+			t.Fatalf("expected name '%s', got %v", expectedName, name)
 		}
 	})
 }

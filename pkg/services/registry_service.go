@@ -3,7 +3,6 @@ package services
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
@@ -34,7 +33,7 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 	registries := contextConfig.Docker.Registries
 
 	if registry, exists := registries[s.name]; exists {
-		hostname := s.GetHostname()
+		hostname := s.GetName()
 		service, err := s.generateRegistryService(hostname, registry)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate registry service: %w", err)
@@ -56,7 +55,7 @@ func (s *RegistryService) SetAddress(address string) error {
 	}
 
 	defaultPort := constants.REGISTRY_DEFAULT_HOST_PORT
-	hostName := s.GetHostname()
+	hostName := s.GetName()
 
 	err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostname", s.name), hostName)
 	if err != nil {
@@ -87,27 +86,18 @@ func (s *RegistryService) SetAddress(address string) error {
 	return nil
 }
 
-// GetHostname returns the hostname of the registry service. This is constructed
-// by removing the existing domain from the name and appending the configured domain.
-func (s *RegistryService) GetHostname() string {
-	domain := s.configHandler.GetString("dns.domain", "test")
-	nameWithoutDomain := s.name
-	if dotIndex := strings.LastIndex(s.name, "."); dotIndex != -1 {
-		nameWithoutDomain = s.name[:dotIndex]
-	}
-	return nameWithoutDomain + "." + domain
-}
-
 // This function generates a ServiceConfig for a Registry service. It sets up the service's name, image,
 // restart policy, and labels. It configures environment variables based on registry URLs, creates a
 // cache directory, and sets volume mounts. Ports are assigned only for non-proxy registries when the
 // network mode is localhost. It returns the configured ServiceConfig or an error if any step fails.
 func (s *RegistryService) generateRegistryService(hostname string, registry docker.RegistryConfig) (types.ServiceConfig, error) {
 	contextName := s.configHandler.GetContext()
+	serviceName := s.GetName()
+	containerName := s.GetContainerName()
 
 	service := types.ServiceConfig{
-		Name:          hostname,
-		ContainerName: hostname,
+		Name:          serviceName,
+		ContainerName: containerName,
 		Image:         constants.REGISTRY_DEFAULT_IMAGE,
 		Restart:       "always",
 		Labels: map[string]string{

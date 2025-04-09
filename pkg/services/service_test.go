@@ -181,13 +181,13 @@ func TestBaseService_GetHostname(t *testing.T) {
 
 		service.Initialize()
 
-		// When: GetHostname is called
-		hostname := service.GetHostname()
+		// When: GetName is called
+		name := service.GetName()
 
-		// Then: the hostname should be as expected
-		expectedHostname := "TestService.example"
-		if hostname != expectedHostname {
-			t.Fatalf("expected hostname '%s', got %v", expectedHostname, hostname)
+		// Then: the name should be as expected
+		expectedName := "TestService"
+		if name != expectedName {
+			t.Fatalf("expected name '%s', got %v", expectedName, name)
 		}
 	})
 }

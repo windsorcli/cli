@@ -35,9 +35,6 @@ type Service interface {
 	// Initialize performs any necessary initialization for the service.
 	Initialize() error
 
-	// GetHostname returns the name plus the tld from the config
-	GetHostname() string
-
 	// IsLocalhostMode checks if we are in localhost mode (vm.driver == "docker-desktop")
 	IsLocalhostMode() bool
 }
@@ -98,10 +95,10 @@ func (s *BaseService) GetName() string {
 	return s.name
 }
 
-// GetHostname returns the name plus the tld from the config
-func (s *BaseService) GetHostname() string {
-	tld := s.configHandler.GetString("dns.domain", "test")
-	return fmt.Sprintf("%s.%s", s.name, tld)
+// GetContainerName returns the container name with the "windsor-" prefix and without the DNS domain
+func (s *BaseService) GetContainerName() string {
+	contextName := s.configHandler.GetContext()
+	return fmt.Sprintf("windsor-%s-%s", contextName, s.name)
 }
 
 // IsLocalhostMode checks if we are in localhost mode (vm.driver == "docker-desktop")
