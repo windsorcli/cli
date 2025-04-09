@@ -386,16 +386,18 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.MockShell.ExecSudoFunc = func(description, command string, args ...string) (string, error) {
 			if command == "bash" && args[0] == "-c" {
 				// Extract the content from the echo command
-				content := args[1]
-				if strings.HasPrefix(content, "echo '") {
-					// Extract the content between the first and last single quote
-					start := 5
-					end := strings.LastIndex(content, "'")
-					if end > start {
-						content = content[start:end]
+				cmdStr := args[1]
+
+				// The command is in the format: echo '[Resolve]\nDNS=127.0.0.1\n' | sudo tee /etc/systemd/resolved.conf.d/dns-override-example.com.con
+				// We need to extract the content between the first and last single quote before the pipe
+				if strings.Contains(cmdStr, "echo '") && strings.Contains(cmdStr, "' | sudo tee") {
+					start := strings.Index(cmdStr, "echo '") + 6
+					end := strings.Index(cmdStr, "' | sudo tee")
+					if start < end {
+						content := cmdStr[start:end]
+						capturedContent = []byte(content)
 					}
 				}
-				capturedContent = []byte(content)
 				return "", nil
 			}
 			return "", nil
