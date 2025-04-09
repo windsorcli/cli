@@ -277,19 +277,24 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 	})
 
 	t.Run("LocalhostPorts", func(t *testing.T) {
-		// Create a mock injector with necessary mocks
+		// Setup mock components
 		mocks := createDNSServiceMocks()
-
-		// Given: a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
+		service.Initialize()
 
-		// Initialize the service
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
+		// Set vm.driver to docker-desktop to simulate localhost mode
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if key == "dns.domain" {
+				return "test"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
-
-		// Set the address to localhost
-		service.SetAddress("127.0.0.1")
 
 		// When: GetComposeConfig is called
 		cfg, err := service.GetComposeConfig()
