@@ -192,33 +192,60 @@ func TestBaseService_GetHostname(t *testing.T) {
 	})
 }
 
-func TestBaseService_IsLocalhost(t *testing.T) {
-	tests := []struct {
-		name          string
-		address       string
-		expectedLocal bool
-	}{
-		{"Localhost by name", "localhost", true},
-		{"Localhost by IPv4", "127.0.0.1", true},
-		{"Localhost by IPv6", "::1", true},
-		{"Non-localhost IPv4", "192.168.1.1", false},
-		{"Non-localhost IPv6", "2001:0db8:85a3:0000:0000:8a2e:0370:7334", false},
-		{"Empty address", "", false},
-	}
+func TestBaseService_IsLocalhostMode(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeBaseServiceMocks()
+		service := &BaseService{
+			injector: mocks.Injector,
+		}
+		service.Initialize()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Given: a new BaseService with a mocked IsLocalhost method
-			service := &BaseService{}
-			service.address = tt.address
-
-			// Mocking IsLocalhost by directly setting the address
-			isLocal := service.IsLocalhost()
-
-			// Then: the result should match the expected outcome
-			if isLocal != tt.expectedLocal {
-				t.Fatalf("expected IsLocalhost to be %v for address '%s', got %v", tt.expectedLocal, tt.address, isLocal)
+		// Configure mock behavior
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
 			}
-		})
-	}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// When: IsLocalhostMode is called
+		isLocal := service.IsLocalhostMode()
+
+		// Then: the result should be true for docker-desktop
+		if !isLocal {
+			t.Fatal("expected IsLocalhostMode to be true for docker-desktop driver")
+		}
+	})
+
+	t.Run("NotDockerDesktop", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeBaseServiceMocks()
+		service := &BaseService{
+			injector: mocks.Injector,
+		}
+		service.Initialize()
+
+		// Configure mock behavior
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "lima"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		// When: IsLocalhostMode is called
+		isLocal := service.IsLocalhostMode()
+
+		// Then: the result should be false for non-docker-desktop driver
+		if isLocal {
+			t.Fatal("expected IsLocalhostMode to be false for non-docker-desktop driver")
+		}
+	})
 }

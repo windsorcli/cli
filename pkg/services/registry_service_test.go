@@ -213,6 +213,28 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 	t.Run("LocalRegistry", func(t *testing.T) {
 		// Given a mock config handler, shell, context, and service
 		mocks := setupSafeRegistryServiceMocks()
+		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				Docker: &docker.DockerConfig{
+					Registries: map[string]docker.RegistryConfig{
+						"local-registry": {HostPort: 5000},
+					},
+				},
+			}
+		}
+		// Set vm.driver to docker-desktop for localhost tests
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if key == "dns.domain" {
+				return "test"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
 		registryService := NewRegistryService(mocks.Injector)
 		registryService.SetName("local-registry")
 		err := registryService.Initialize()
@@ -344,7 +366,7 @@ func TestRegistryService_SetAddress(t *testing.T) {
 	})
 
 	t.Run("NoHostPortSetAndLocalhost", func(t *testing.T) {
-		// Given a mock config handler, shell, context, and service with no HostPort set
+		// Given a mock config handler, shell, context, and service with no HostPort
 		mocks := setupSafeRegistryServiceMocks()
 		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
@@ -354,6 +376,19 @@ func TestRegistryService_SetAddress(t *testing.T) {
 					},
 				},
 			}
+		}
+		// Set vm.driver to docker-desktop for localhost tests
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if key == "dns.domain" {
+				return "test"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 		registryService := NewRegistryService(mocks.Injector)
 		registryService.SetName("registry")
@@ -418,6 +453,19 @@ func TestRegistryService_SetAddress(t *testing.T) {
 					},
 				},
 			}
+		}
+		// Set vm.driver to docker-desktop for localhost tests
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if key == "dns.domain" {
+				return "test"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
 		}
 		registryService := NewRegistryService(mocks.Injector)
 		registryService.SetName("registry")
@@ -487,14 +535,8 @@ func TestRegistryService_SetAddress(t *testing.T) {
 	})
 
 	t.Run("SetContextValueErrorForRegistryURL", func(t *testing.T) {
-		// Given a mock config handler that will fail to set context value for registry URL
+		// Given a mock config handler, shell, context, and service with no HostPort and no Remote
 		mocks := setupSafeRegistryServiceMocks()
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
-			if key == "docker.registry_url" {
-				return fmt.Errorf("failed to set registry URL")
-			}
-			return nil
-		}
 		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
 				Docker: &docker.DockerConfig{
@@ -503,6 +545,26 @@ func TestRegistryService_SetAddress(t *testing.T) {
 					},
 				},
 			}
+		}
+		// Set vm.driver to docker-desktop for localhost tests
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if key == "dns.domain" {
+				return "test"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		// Mock the SetContextValue function to return an error for registry URL
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if key == "docker.registry_url" {
+				return fmt.Errorf("failed to set registry URL")
+			}
+			return nil
 		}
 		registryService := NewRegistryService(mocks.Injector)
 		registryService.SetName("registry")

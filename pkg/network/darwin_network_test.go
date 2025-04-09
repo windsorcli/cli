@@ -360,14 +360,22 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessLocalhost", func(t *testing.T) {
+	t.Run("SuccessLocalhostMode", func(t *testing.T) {
 		mocks := setupDarwinNetworkManagerMocks()
 
+		// Mock the config handler to return docker-desktop for vm.driver
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
+			switch key {
+			case "vm.driver":
 				return "docker-desktop"
+			case "dns.domain":
+				return "example.com"
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
 			}
-			return "some_value"
 		}
 
 		nm := NewBaseNetworkManager(mocks.Injector)
@@ -377,9 +385,22 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
+		// Mock the writeFile function to capture the content
+		var capturedContent []byte
+		writeFile = func(_ string, content []byte, _ os.FileMode) error {
+			capturedContent = content
+			return nil
+		}
+
 		err = nm.ConfigureDNS()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Verify that the resolver file contains 127.0.0.1
+		expectedContent := "nameserver 127.0.0.1\n"
+		if string(capturedContent) != expectedContent {
+			t.Errorf("expected resolver file content to be %q, got %q", expectedContent, string(capturedContent))
 		}
 	})
 
@@ -405,6 +426,43 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "DNS domain is not configured"
+		if err.Error() != expectedError {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("NoDNSAddressConfigured", func(t *testing.T) {
+		mocks := setupDarwinNetworkManagerMocks()
+
+		// Mock the config handler to return empty DNS address but valid domain
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "dns.domain":
+				return "example.com"
+			case "dns.address":
+				return ""
+			case "vm.driver":
+				return "lima" // Not localhost mode
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+
+		nm := NewBaseNetworkManager(mocks.Injector)
+
+		err := nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		err = nm.ConfigureDNS()
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "DNS address is not configured"
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}

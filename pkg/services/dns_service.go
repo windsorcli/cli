@@ -72,7 +72,7 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
-	if s.IsLocalhost() {
+	if s.IsLocalhostMode() {
 		corednsConfig.Ports = []types.ServicePortConfig{
 			{
 				Target:    53,
@@ -116,6 +116,9 @@ func (s *DNSService) WriteConfig() error {
 				address := service.GetAddress()
 				if address != "" {
 					hostname := service.GetHostname()
+					if s.IsLocalhostMode() {
+						address = "127.0.0.1"
+					}
 					hostEntries += fmt.Sprintf("        %s %s\n", address, hostname)
 				}
 			}
@@ -139,14 +142,19 @@ func (s *DNSService) WriteConfig() error {
 	var corefileContent string
 	corefileContent = fmt.Sprintf(`
 %s:53 {
+    errors
+    reload
+    loop
     hosts {
 %s        fallthrough
     }
-
+    forward . %s
+}
+.:53 {
+    errors
     reload
     loop
-
-    forward . %s
+    forward . 1.1.1.1 8.8.8.8
 }
 `, tld, hostEntries, forwardAddressesStr)
 

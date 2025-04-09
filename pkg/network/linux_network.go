@@ -74,7 +74,16 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	if tld == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
-	dnsIP := n.configHandler.GetString("dns.address")
+
+	var dnsIP string
+	if n.isLocalhostMode() {
+		dnsIP = "127.0.0.1"
+	} else {
+		dnsIP = n.configHandler.GetString("dns.address")
+		if dnsIP == "" {
+			return fmt.Errorf("DNS address is not configured")
+		}
+	}
 
 	// If DNS address is configured, use systemd-resolved
 	resolvConf, err := readLink("/etc/resolv.conf")

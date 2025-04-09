@@ -34,7 +34,6 @@ type BaseNetworkManager struct {
 	configHandler            config.ConfigHandler
 	networkInterfaceProvider NetworkInterfaceProvider
 	services                 []services.Service
-	isLocalhost              bool
 }
 
 // NewNetworkManager creates a new NetworkManager
@@ -75,26 +74,15 @@ func (n *BaseNetworkManager) Initialize() error {
 
 	n.services = serviceList
 
-	vmDriver := n.configHandler.GetString("vm.driver")
-	n.isLocalhost = vmDriver == "docker-desktop"
-
-	if n.isLocalhost {
-		for _, service := range n.services {
-			if err := service.SetAddress("127.0.0.1"); err != nil {
-				return fmt.Errorf("error setting address for service: %w", err)
-			}
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
+	if networkCIDR == "" {
+		networkCIDR = constants.DEFAULT_NETWORK_CIDR
+		if err := n.configHandler.SetContextValue("network.cidr_block", networkCIDR); err != nil {
+			return fmt.Errorf("error setting default network CIDR: %w", err)
 		}
-	} else {
-		networkCIDR := n.configHandler.GetString("network.cidr_block")
-		if networkCIDR == "" {
-			networkCIDR = constants.DEFAULT_NETWORK_CIDR
-			if err := n.configHandler.SetContextValue("network.cidr_block", networkCIDR); err != nil {
-				return fmt.Errorf("error setting default network CIDR: %w", err)
-			}
-		}
-		if err := assignIPAddresses(n.services, &networkCIDR); err != nil {
-			return fmt.Errorf("error assigning IP addresses: %w", err)
-		}
+	}
+	if err := assignIPAddresses(n.services, &networkCIDR); err != nil {
+		return fmt.Errorf("error assigning IP addresses: %w", err)
 	}
 
 	return nil
@@ -108,6 +96,11 @@ func (n *BaseNetworkManager) ConfigureGuest() error {
 
 // Ensure BaseNetworkManager implements NetworkManager
 var _ NetworkManager = (*BaseNetworkManager)(nil)
+
+// isLocalhostMode checks if the system is in localhost mode
+func (n *BaseNetworkManager) isLocalhostMode() bool {
+	return n.configHandler.GetString("vm.driver") == "docker-desktop"
+}
 
 // assignIPAddresses assigns IP addresses to services based on the network CIDR.
 var assignIPAddresses = func(services []services.Service, networkCIDR *string) error {

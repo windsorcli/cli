@@ -832,4 +832,111 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("expected volumes, got 0")
 		}
 	})
+
+	t.Run("LocalhostModeControlPlaneLeader", func(t *testing.T) {
+		// Setup mocks for this test
+		mocks := setupTalosServiceMocks()
+		service := NewTalosService(mocks.Injector, "controlplane")
+
+		// Mock vm.driver to enable localhost mode
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			return ""
+		}
+
+		// Set isLeader to true
+		service.isLeader = true
+
+		// Initialize the service
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// When the GetComposeConfig method is called
+		config, err := service.GetComposeConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the config should contain both API and Kubernetes ports
+		if len(config.Services) != 1 {
+			t.Fatalf("expected 1 service, got %d", len(config.Services))
+		}
+
+		serviceConfig := config.Services[0]
+		if len(serviceConfig.Ports) != 2 {
+			t.Fatalf("expected 2 ports, got %d", len(serviceConfig.Ports))
+		}
+
+		// Verify API port
+		foundAPIPort := false
+		foundKubePort := false
+		for _, port := range serviceConfig.Ports {
+			if port.Target == 50000 && port.Protocol == "tcp" {
+				foundAPIPort = true
+			}
+			if port.Target == 6443 && port.Published == "6443" && port.Protocol == "tcp" {
+				foundKubePort = true
+			}
+		}
+
+		if !foundAPIPort {
+			t.Error("expected to find API port configuration")
+		}
+		if !foundKubePort {
+			t.Error("expected to find Kubernetes API port configuration")
+		}
+	})
+
+	t.Run("LocalhostModeControlPlaneNonLeader", func(t *testing.T) {
+		// Setup mocks for this test
+		mocks := setupTalosServiceMocks()
+		service := NewTalosService(mocks.Injector, "controlplane")
+
+		// Mock vm.driver to enable localhost mode
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			return ""
+		}
+
+		// Set isLeader to false
+		service.isLeader = false
+
+		// Initialize the service
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// When the GetComposeConfig method is called
+		config, err := service.GetComposeConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the config should contain only the API port
+		if len(config.Services) != 1 {
+			t.Fatalf("expected 1 service, got %d", len(config.Services))
+		}
+
+		serviceConfig := config.Services[0]
+		if len(serviceConfig.Ports) != 1 {
+			t.Fatalf("expected 1 port, got %d", len(serviceConfig.Ports))
+		}
+
+		// Verify only API port is present
+		port := serviceConfig.Ports[0]
+		if port.Target != 50000 || port.Protocol != "tcp" {
+			t.Errorf("expected API port configuration, got target=%d protocol=%s", port.Target, port.Protocol)
+		}
+	})
 }

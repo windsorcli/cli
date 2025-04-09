@@ -6,6 +6,7 @@ package network
 import (
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"testing"
 
@@ -338,6 +339,83 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessLocalhostMode", func(t *testing.T) {
+		mocks := setupLinuxNetworkManagerMocks()
+
+		// Mock the config handler to return docker-desktop for vm.driver
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "vm.driver":
+				return "docker-desktop"
+			case "dns.domain":
+				return "example.com"
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+
+		// Mock the readLink function to simulate systemd-resolved being in use
+		originalReadLink := readLink
+		defer func() { readLink = originalReadLink }()
+		readLink = func(_ string) (string, error) {
+			return "../run/systemd/resolve/stub-resolv.conf", nil
+		}
+
+		// Mock the readFile function to capture the content
+		var capturedContent []byte
+		originalReadFile := readFile
+		defer func() { readFile = originalReadFile }()
+		readFile = func(_ string) ([]byte, error) {
+			if capturedContent != nil {
+				return capturedContent, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// Create a networkManager using NewBaseNetworkManager with the mock DI container
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Mock the shell.ExecSudo function to capture the content
+		mocks.MockShell.ExecSudoFunc = func(description, command string, args ...string) (string, error) {
+			if command == "bash" && args[0] == "-c" {
+				// Extract the content from the echo command
+				cmdStr := args[1]
+
+				// The command is in the format: echo '[Resolve]\nDNS=127.0.0.1\n' | sudo tee /etc/systemd/resolved.conf.d/dns-override-example.com.con
+				// We need to extract the content between the first and last single quote before the pipe
+				if strings.Contains(cmdStr, "echo '") && strings.Contains(cmdStr, "' | sudo tee") {
+					start := strings.Index(cmdStr, "echo '") + 6
+					end := strings.Index(cmdStr, "' | sudo tee")
+					if start < end {
+						content := cmdStr[start:end]
+						capturedContent = []byte(content)
+					}
+				}
+				return "", nil
+			}
+			return "", nil
+		}
+
+		// Call the ConfigureDNS method
+		err = nm.ConfigureDNS()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Verify that the drop-in file contains 127.0.0.1
+		expectedContent := "[Resolve]\nDNS=127.0.0.1\n"
+		if string(capturedContent) != expectedContent {
+			t.Errorf("expected drop-in file content to be %q, got %q", expectedContent, string(capturedContent))
+		}
+	})
+
 	t.Run("domainNotConfigured", func(t *testing.T) {
 		mocks := setupLinuxNetworkManagerMocks()
 
@@ -362,6 +440,51 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 		expectedError := "DNS domain is not configured"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("NoDNSAddressConfigured", func(t *testing.T) {
+		mocks := setupLinuxNetworkManagerMocks()
+
+		// Mock the config handler to return empty DNS address but valid domain
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "dns.domain":
+				return "example.com"
+			case "dns.address":
+				return ""
+			case "vm.driver":
+				return "lima" // Not localhost mode
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+
+		// Mock the readLink function to simulate systemd-resolved being in use
+		originalReadLink := readLink
+		defer func() { readLink = originalReadLink }()
+		readLink = func(_ string) (string, error) {
+			return "../run/systemd/resolve/stub-resolv.conf", nil
+		}
+
+		// Create a networkManager using NewBaseNetworkManager with the mock DI container
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Call the ConfigureDNS method and expect an error due to missing DNS address
+		err = nm.ConfigureDNS()
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "DNS address is not configured"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}

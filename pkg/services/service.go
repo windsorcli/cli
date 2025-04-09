@@ -38,8 +38,8 @@ type Service interface {
 	// GetHostname returns the name plus the tld from the config
 	GetHostname() string
 
-	// IsLocalhost checks if the current address is a localhost address
-	IsLocalhost() bool
+	// IsLocalhostMode checks if we are in localhost mode (vm.driver == "docker-desktop")
+	IsLocalhostMode() bool
 }
 
 // BaseService is a base implementation of the Service interface
@@ -104,13 +104,8 @@ func (s *BaseService) GetHostname() string {
 	return fmt.Sprintf("%s.%s", s.name, tld)
 }
 
-// IsLocalhost checks if the current address is a localhost address
-func (s *BaseService) IsLocalhost() bool {
-	localhostAddresses := []string{"localhost", "127.0.0.1", "::1"}
-	for _, localhost := range localhostAddresses {
-		if s.address == localhost {
-			return true
-		}
-	}
-	return false
+// IsLocalhostMode checks if we are in localhost mode (vm.driver == "docker-desktop")
+func (s *BaseService) IsLocalhostMode() bool {
+	vmDriver := s.configHandler.GetString("vm.driver")
+	return vmDriver == "docker-desktop"
 }
