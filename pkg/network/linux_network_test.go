@@ -388,7 +388,12 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 				// Extract the content from the echo command
 				content := args[1]
 				if strings.HasPrefix(content, "echo '") {
-					content = content[5 : len(content)-1]
+					// Extract the content between the first and last single quote
+					start := 5
+					end := strings.LastIndex(content, "'")
+					if end > start {
+						content = content[start:end]
+					}
 				}
 				capturedContent = []byte(content)
 				return "", nil
