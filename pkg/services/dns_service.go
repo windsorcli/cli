@@ -116,6 +116,9 @@ func (s *DNSService) WriteConfig() error {
 				address := service.GetAddress()
 				if address != "" {
 					hostname := service.GetHostname()
+					if s.IsLocalhostMode() {
+						address = "127.0.0.1"
+					}
 					hostEntries += fmt.Sprintf("        %s %s\n", address, hostname)
 				}
 			}
