@@ -75,26 +75,15 @@ func (n *BaseNetworkManager) Initialize() error {
 
 	n.services = serviceList
 
-	vmDriver := n.configHandler.GetString("vm.driver")
-	n.isLocalhost = vmDriver == "docker-desktop"
-
-	if n.isLocalhost {
-		for _, service := range n.services {
-			if err := service.SetAddress("127.0.0.1"); err != nil {
-				return fmt.Errorf("error setting address for service: %w", err)
-			}
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
+	if networkCIDR == "" {
+		networkCIDR = constants.DEFAULT_NETWORK_CIDR
+		if err := n.configHandler.SetContextValue("network.cidr_block", networkCIDR); err != nil {
+			return fmt.Errorf("error setting default network CIDR: %w", err)
 		}
-	} else {
-		networkCIDR := n.configHandler.GetString("network.cidr_block")
-		if networkCIDR == "" {
-			networkCIDR = constants.DEFAULT_NETWORK_CIDR
-			if err := n.configHandler.SetContextValue("network.cidr_block", networkCIDR); err != nil {
-				return fmt.Errorf("error setting default network CIDR: %w", err)
-			}
-		}
-		if err := assignIPAddresses(n.services, &networkCIDR); err != nil {
-			return fmt.Errorf("error assigning IP addresses: %w", err)
-		}
+	}
+	if err := assignIPAddresses(n.services, &networkCIDR); err != nil {
+		return fmt.Errorf("error assigning IP addresses: %w", err)
 	}
 
 	return nil

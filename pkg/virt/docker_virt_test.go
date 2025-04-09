@@ -1346,241 +1346,241 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 			t.Errorf("expected %d networks, got %d", expectedNetworks, len(project.Networks))
 		}
 	})
-}
 
-func TestDockerVirt_getFullComposeConfig_WithDNS(t *testing.T) {
-	// Setup mock components
-	mocks := setupSafeDockerContainerMocks()
-	dockerVirt := NewDockerVirt(mocks.Injector)
-	dockerVirt.services = []services.Service{}         // Initialize empty services slice
-	dockerVirt.configHandler = mocks.MockConfigHandler // Set the config handler
+	t.Run("WithDNS", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.services = []services.Service{}         // Initialize empty services slice
+		dockerVirt.configHandler = mocks.MockConfigHandler // Set the config handler
 
-	// Configure mock behavior for DNS
-	mocks.MockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-		if key == "docker.enabled" {
-			return true
-		}
-		if key == "dns.enabled" {
-			return true
-		}
-		if len(defaultValue) > 0 {
-			return defaultValue[0]
-		}
-		return false
-	}
-
-	mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-		if key == "network.cidr_block" {
-			return "10.0.0.0/24"
-		}
-		if key == "dns.address" {
-			return ""
-		}
-		if len(defaultValue) > 0 {
-			return defaultValue[0]
-		}
-		return ""
-	}
-
-	mocks.MockConfigHandler.GetContextFunc = func() string {
-		return "mock-context"
-	}
-
-	// Setup mock DNS service
-	mockDNS := services.NewMockService()
-	mockDNS.GetAddressFunc = func() string {
-		return "10.0.0.53"
-	}
-	mocks.Injector.Register("dns", mockDNS)
-
-	// Call the function
-	project, err := dockerVirt.getFullComposeConfig()
-
-	// Assertions
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if project == nil {
-		t.Fatal("expected project to be non-nil")
-	}
-	if project.Networks == nil {
-		t.Fatal("expected networks to be non-nil")
-	}
-
-	// Check network configuration
-	networkName := "windsor-mock-context"
-	network, exists := project.Networks[networkName]
-	if !exists {
-		t.Fatalf("expected network %s to exist", networkName)
-	}
-	if network.Driver != "bridge" {
-		t.Errorf("expected driver to be bridge, got %s", network.Driver)
-	}
-	if network.Ipam.Config == nil {
-		t.Fatal("expected Ipam config to be non-nil")
-	}
-	if len(network.Ipam.Config) != 1 {
-		t.Fatalf("expected 1 Ipam config, got %d", len(network.Ipam.Config))
-	}
-	if network.Ipam.Config[0].Subnet != "10.0.0.0/24" {
-		t.Errorf("expected subnet to be 10.0.0.0/24, got %s", network.Ipam.Config[0].Subnet)
-	}
-}
-
-func TestDockerVirt_getFullComposeConfig_Disabled(t *testing.T) {
-	// Setup mock components
-	mocks := setupSafeDockerContainerMocks()
-	dockerVirt := NewDockerVirt(mocks.Injector)
-	dockerVirt.services = []services.Service{}         // Initialize empty services slice
-	dockerVirt.configHandler = mocks.MockConfigHandler // Set the config handler
-
-	// Configure mock behavior
-	mocks.MockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-		if key == "docker.enabled" {
+		// Configure mock behavior for DNS
+		mocks.MockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return true
+			}
+			if key == "dns.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
 			return false
 		}
-		if len(defaultValue) > 0 {
-			return defaultValue[0]
-		}
-		return false
-	}
 
-	// Call the function
-	project, err := dockerVirt.getFullComposeConfig()
-
-	// Assertions
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if project != nil {
-		t.Fatal("expected project to be nil")
-	}
-}
-
-func TestDockerVirt_getFullComposeConfig_WithServices(t *testing.T) {
-	// Setup mock components
-	mocks := setupSafeDockerContainerMocks()
-	dockerVirt := NewDockerVirt(mocks.Injector)
-	dockerVirt.configHandler = mocks.MockConfigHandler // Set the config handler
-
-	// Configure mock behavior
-	mocks.MockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-		if key == "docker.enabled" {
-			return true
-		}
-		if key == "dns.enabled" {
-			return true
-		}
-		if len(defaultValue) > 0 {
-			return defaultValue[0]
-		}
-		return false
-	}
-
-	mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-		if key == "network.cidr_block" {
-			return "10.0.0.0/24"
-		}
-		if key == "dns.address" {
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "network.cidr_block" {
+				return "10.0.0.0/24"
+			}
+			if key == "dns.address" {
+				return ""
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
 			return ""
 		}
-		if len(defaultValue) > 0 {
-			return defaultValue[0]
+
+		mocks.MockConfigHandler.GetContextFunc = func() string {
+			return "mock-context"
 		}
-		return ""
-	}
 
-	mocks.MockConfigHandler.GetContextFunc = func() string {
-		return "mock-context"
-	}
+		// Setup mock DNS service
+		mockDNS := services.NewMockService()
+		mockDNS.GetAddressFunc = func() string {
+			return "10.0.0.53"
+		}
+		mocks.Injector.Register("dns", mockDNS)
 
-	// Create a mock service
-	mockService := services.NewMockService()
-	mockService.GetNameFunc = func() string {
-		return "test-service"
-	}
-	mockService.GetAddressFunc = func() string {
-		return "10.0.0.2"
-	}
-	mockService.GetComposeConfigFunc = func() (*types.Config, error) {
-		return &types.Config{
-			Services: []types.ServiceConfig{
-				{
-					Name:  "test-service",
-					Image: "test-image:latest",
-					Ports: []types.ServicePortConfig{
-						{
-							Published: "8080",
-							Target:    80,
+		// Call the function
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assertions
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if project == nil {
+			t.Fatal("expected project to be non-nil")
+		}
+		if project.Networks == nil {
+			t.Fatal("expected networks to be non-nil")
+		}
+
+		// Check network configuration
+		networkName := "windsor-mock-context"
+		network, exists := project.Networks[networkName]
+		if !exists {
+			t.Fatalf("expected network %s to exist", networkName)
+		}
+		if network.Driver != "bridge" {
+			t.Errorf("expected driver to be bridge, got %s", network.Driver)
+		}
+		if network.Ipam.Config == nil {
+			t.Fatal("expected Ipam config to be non-nil")
+		}
+		if len(network.Ipam.Config) != 1 {
+			t.Fatalf("expected 1 Ipam config, got %d", len(network.Ipam.Config))
+		}
+		if network.Ipam.Config[0].Subnet != "10.0.0.0/24" {
+			t.Errorf("expected subnet to be 10.0.0.0/24, got %s", network.Ipam.Config[0].Subnet)
+		}
+	})
+
+	t.Run("Disabled", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.services = []services.Service{}         // Initialize empty services slice
+		dockerVirt.configHandler = mocks.MockConfigHandler // Set the config handler
+
+		// Configure mock behavior
+		mocks.MockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+
+		// Call the function
+		project, err := dockerVirt.getFullComposeConfig()
+
+		// Assertions
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if project != nil {
+			t.Fatal("expected project to be nil")
+		}
+	})
+
+	t.Run("WithServices", func(t *testing.T) {
+		// Setup mock components
+		mocks := setupSafeDockerContainerMocks()
+		dockerVirt := NewDockerVirt(mocks.Injector)
+		dockerVirt.configHandler = mocks.MockConfigHandler // Set the config handler
+
+		// Configure mock behavior
+		mocks.MockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return true
+			}
+			if key == "dns.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "network.cidr_block" {
+				return "10.0.0.0/24"
+			}
+			if key == "dns.address" {
+				return ""
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mocks.MockConfigHandler.GetContextFunc = func() string {
+			return "mock-context"
+		}
+
+		// Create a mock service
+		mockService := services.NewMockService()
+		mockService.GetNameFunc = func() string {
+			return "test-service"
+		}
+		mockService.GetAddressFunc = func() string {
+			return "10.0.0.2"
+		}
+		mockService.GetComposeConfigFunc = func() (*types.Config, error) {
+			return &types.Config{
+				Services: []types.ServiceConfig{
+					{
+						Name:  "test-service",
+						Image: "test-image:latest",
+						Ports: []types.ServicePortConfig{
+							{
+								Published: "8080",
+								Target:    80,
+							},
 						},
-					},
-					Environment: map[string]*string{
-						"ENV": ptrString("test"),
-					},
-					Volumes: []types.ServiceVolumeConfig{
-						{
-							Source: "/host:/container",
+						Environment: map[string]*string{
+							"ENV": ptrString("test"),
+						},
+						Volumes: []types.ServiceVolumeConfig{
+							{
+								Source: "/host:/container",
+							},
 						},
 					},
 				},
-			},
-		}, nil
-	}
+			}, nil
+		}
 
-	// Register the mock service
-	mocks.Injector.Register("test-service", mockService)
-	dockerVirt.services = []services.Service{mockService}
+		// Register the mock service
+		mocks.Injector.Register("test-service", mockService)
+		dockerVirt.services = []services.Service{mockService}
 
-	// Setup mock DNS service
-	mockDNS := services.NewMockService()
-	mockDNS.GetAddressFunc = func() string {
-		return "10.0.0.53"
-	}
-	mocks.Injector.Register("dns", mockDNS)
+		// Setup mock DNS service
+		mockDNS := services.NewMockService()
+		mockDNS.GetAddressFunc = func() string {
+			return "10.0.0.53"
+		}
+		mocks.Injector.Register("dns", mockDNS)
 
-	// Call the function
-	project, err := dockerVirt.getFullComposeConfig()
+		// Call the function
+		project, err := dockerVirt.getFullComposeConfig()
 
-	// Assertions
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if project == nil {
-		t.Fatal("expected project to be non-nil")
-	}
-	if len(project.Services) != 1 {
-		t.Fatalf("expected 1 service, got %d", len(project.Services))
-	}
+		// Assertions
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if project == nil {
+			t.Fatal("expected project to be non-nil")
+		}
+		if len(project.Services) != 1 {
+			t.Fatalf("expected 1 service, got %d", len(project.Services))
+		}
 
-	service := project.Services[0]
-	if service.Name != "test-service" {
-		t.Errorf("expected service name to be test-service, got %s", service.Name)
-	}
-	if service.Image != "test-image:latest" {
-		t.Errorf("expected image to be test-image:latest, got %s", service.Image)
-	}
-	if len(service.Ports) != 1 {
-		t.Fatalf("expected 1 port, got %d", len(service.Ports))
-	}
-	if service.Ports[0].Published != "8080" || service.Ports[0].Target != 80 {
-		t.Errorf("expected port to be 8080:80, got %s:%d", service.Ports[0].Published, service.Ports[0].Target)
-	}
-	if service.Environment["ENV"] == nil || *service.Environment["ENV"] != "test" {
-		t.Errorf("expected environment ENV to be test, got %v", service.Environment["ENV"])
-	}
-	if len(service.Volumes) != 1 {
-		t.Fatalf("expected 1 volume, got %d", len(service.Volumes))
-	}
-	if service.Volumes[0].Source != "/host:/container" {
-		t.Errorf("expected volume source to be /host:/container, got %s", service.Volumes[0].Source)
-	}
-	if len(service.Networks) != 1 {
-		t.Fatalf("expected 1 network, got %d", len(service.Networks))
-	}
-	if service.Networks["windsor-mock-context"] == nil {
-		t.Error("expected network windsor-mock-context to exist")
-	}
-	if service.DNS == nil || len(service.DNS) != 1 || service.DNS[0] != "10.0.0.53" {
-		t.Errorf("expected DNS to be [10.0.0.53], got %v", service.DNS)
-	}
+		service := project.Services[0]
+		if service.Name != "test-service" {
+			t.Errorf("expected service name to be test-service, got %s", service.Name)
+		}
+		if service.Image != "test-image:latest" {
+			t.Errorf("expected image to be test-image:latest, got %s", service.Image)
+		}
+		if len(service.Ports) != 1 {
+			t.Fatalf("expected 1 port, got %d", len(service.Ports))
+		}
+		if service.Ports[0].Published != "8080" || service.Ports[0].Target != 80 {
+			t.Errorf("expected port to be 8080:80, got %s:%d", service.Ports[0].Published, service.Ports[0].Target)
+		}
+		if service.Environment["ENV"] == nil || *service.Environment["ENV"] != "test" {
+			t.Errorf("expected environment ENV to be test, got %v", service.Environment["ENV"])
+		}
+		if len(service.Volumes) != 1 {
+			t.Fatalf("expected 1 volume, got %d", len(service.Volumes))
+		}
+		if service.Volumes[0].Source != "/host:/container" {
+			t.Errorf("expected volume source to be /host:/container, got %s", service.Volumes[0].Source)
+		}
+		if len(service.Networks) != 1 {
+			t.Fatalf("expected 1 network, got %d", len(service.Networks))
+		}
+		if service.Networks["windsor-mock-context"] == nil {
+			t.Error("expected network windsor-mock-context to exist")
+		}
+		if service.DNS == nil || len(service.DNS) != 1 || service.DNS[0] != "10.0.0.53" {
+			t.Errorf("expected DNS to be [10.0.0.53], got %v", service.DNS)
+		}
+	})
 }
