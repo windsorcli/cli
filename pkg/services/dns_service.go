@@ -139,14 +139,19 @@ func (s *DNSService) WriteConfig() error {
 	var corefileContent string
 	corefileContent = fmt.Sprintf(`
 %s:53 {
+    errors
+    reload
+    loop
     hosts {
 %s        fallthrough
     }
-
+    forward . %s
+}
+.:53 {
+    errors
     reload
     loop
-
-    forward . %s
+    forward . 1.1.1.1 8.8.8.8
 }
 `, tld, hostEntries, forwardAddressesStr)
 

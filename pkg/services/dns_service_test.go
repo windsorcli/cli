@@ -349,20 +349,25 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		// Verify that the Corefile content is correctly formatted
 		expectedCorefileContent := `
 test:53 {
+    errors
+    reload
+    loop
     hosts {
         127.0.0.1 test
         192.168.1.1 test
         fallthrough
     }
-
+    forward . 1.1.1.1 8.8.8.8
+}
+.:53 {
+    errors
     reload
     loop
-
     forward . 1.1.1.1 8.8.8.8
 }
 `
 		if string(writtenContent) != expectedCorefileContent {
-			t.Errorf("Expected Corefile content:\n%s\nGot:\n%s", expectedCorefileContent, string(writtenContent))
+			t.Errorf("Expected Corefile content:\\n%s\\nGot:\\n%s", expectedCorefileContent, string(writtenContent))
 		}
 	})
 	t.Run("SuccessLocalhost", func(t *testing.T) {
@@ -400,20 +405,25 @@ test:53 {
 		// Verify that the Corefile content is correctly formatted for localhost
 		expectedCorefileContent := `
 test:53 {
+    errors
+    reload
+    loop
     hosts {
         127.0.0.1 test
         192.168.1.1 test
         fallthrough
     }
-
+    forward . 1.1.1.1 8.8.8.8
+}
+.:53 {
+    errors
     reload
     loop
-
     forward . 1.1.1.1 8.8.8.8
 }
 `
 		if string(writtenContent) != expectedCorefileContent {
-			t.Errorf("Expected Corefile content:\n%s\nGot:\n%s", expectedCorefileContent, string(writtenContent))
+			t.Errorf("Expected Corefile content:\\n%s\\nGot:\\n%s", expectedCorefileContent, string(writtenContent))
 		}
 	})
 
