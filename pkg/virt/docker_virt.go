@@ -380,7 +380,7 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 					}
 
 					networkCIDR := v.configHandler.GetString("network.cidr_block")
-					if networkCIDR != "" && ipAddress != "127.0.0.1" && ipAddress != "" {
+					if networkCIDR != "" && ipAddress != "" {
 						containerConfig.Networks[networkName].Ipv4Address = ipAddress
 					}
 
