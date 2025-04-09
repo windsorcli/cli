@@ -68,10 +68,13 @@ func (s *TalosService) SetAddress(address string) error {
 		nodeType = "controlplanes"
 	}
 
+	// Always use DNS name for hostname
 	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.hostname", nodeType, s.name), s.name+"."+tld); err != nil {
 		return err
 	}
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.node", nodeType, s.name), address); err != nil {
+
+	// Always use DNS name for node
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.node", nodeType, s.name), s.name+"."+tld); err != nil {
 		return err
 	}
 
@@ -86,7 +89,7 @@ func (s *TalosService) SetAddress(address string) error {
 		nextAPIPort++
 	}
 
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, s.name), fmt.Sprintf("%s:%d", address, port)); err != nil {
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, s.name), fmt.Sprintf("%s.%s:%d", s.name, tld, port)); err != nil {
 		return err
 	}
 

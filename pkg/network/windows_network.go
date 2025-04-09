@@ -68,10 +68,14 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("DNS domain is not configured")
 	}
 
-	dnsIP := n.configHandler.GetString("dns.address")
-	if dnsIP == "" {
-		// If there's no DNS address to configure, we simply skip
-		return nil
+	var dnsIP string
+	if n.isLocalhostMode() {
+		dnsIP = "127.0.0.1"
+	} else {
+		dnsIP = n.configHandler.GetString("dns.address")
+		if dnsIP == "" {
+			return fmt.Errorf("DNS address is not configured")
+		}
 	}
 
 	// Prepend a "." to the domain for the namespace

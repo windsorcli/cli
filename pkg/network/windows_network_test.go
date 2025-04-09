@@ -304,6 +304,84 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessLocalhostMode", func(t *testing.T) {
+		// Given setup mocks using setupWindowsNetworkManagerMocks
+		mocks := setupWindowsNetworkManagerMocks()
+
+		// Mock the config handler to return valid DNS domain and set VM driver to docker-desktop
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "dns.domain":
+				return "example.com"
+			case "dns.address":
+				return "" // Empty DNS address is fine in localhost mode
+			case "vm.driver":
+				return "docker-desktop" // This enables localhost mode
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+
+		// Mock the shell to capture the namespace and nameservers
+		var capturedNamespace string
+		var capturedNameServers string
+		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "powershell" && len(args) > 1 && args[0] == "-Command" {
+				script := args[1]
+				if strings.Contains(script, "Get-DnsClientNrptRule") {
+					// Extract namespace from the script
+					namespaceMatch := strings.Split(script, "$namespace = '")
+					if len(namespaceMatch) > 1 {
+						namespaceParts := strings.Split(namespaceMatch[1], "'")
+						if len(namespaceParts) > 0 {
+							capturedNamespace = namespaceParts[0]
+						}
+					}
+
+					// Extract nameservers from the script
+					nameserversMatch := strings.Split(script, "NameServers -ne \"")
+					if len(nameserversMatch) > 1 {
+						parts := strings.Split(nameserversMatch[1], "\"")
+						if len(parts) > 1 {
+							capturedNameServers = strings.Trim(parts[0], "\"")
+						}
+					}
+					return "", nil
+				}
+			}
+			return "", nil
+		}
+
+		// And create a network manager using NewBaseNetworkManager with the mock injector
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
+		if err != nil {
+			t.Errorf("expected no error during initialization, got %v", err)
+		}
+
+		// When call the method under test
+		err = nm.ConfigureDNS()
+
+		// Then expect no error
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// Verify that the DNS rule is configured with 127.0.0.1
+		expectedNamespace := ".example.com"
+		if capturedNamespace != expectedNamespace {
+			t.Errorf("expected namespace to be %q, got %q", expectedNamespace, capturedNamespace)
+		}
+
+		expectedNameServers := "127.0.0.1"
+		if capturedNameServers != expectedNameServers {
+			t.Errorf("expected nameservers to be %q, got %q", expectedNameServers, capturedNameServers)
+		}
+	})
+
 	t.Run("NoDNSName", func(t *testing.T) {
 		// Given setup mocks using setupWindowsNetworkManagerMocks
 		mocks := setupWindowsNetworkManagerMocks()
@@ -348,6 +426,9 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			if key == "dns.address" {
 				return ""
 			}
+			if key == "vm.driver" {
+				return "hyperv" // Not localhost mode
+			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
 			}
@@ -367,9 +448,9 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		// When call the method under test
 		err = nm.ConfigureDNS()
 
-		// Then expect no error since DNS IP is not required for NRPT rule configuration
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
+		// Then expect error since DNS IP is required when not in localhost mode
+		if err == nil || !strings.Contains(err.Error(), "DNS address is not configured") {
+			t.Errorf("expected error 'DNS address is not configured', got %v", err)
 		}
 	})
 
@@ -469,6 +550,42 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		// Then expect error about failing to add or update DNS rule
 		if err == nil || !strings.Contains(err.Error(), "failed to add or update DNS rule") {
 			t.Errorf("expected error about failing to add or update DNS rule, got %v", err)
+		}
+	})
+
+	t.Run("NoDNSAddressConfigured", func(t *testing.T) {
+		mocks := setupWindowsNetworkManagerMocks()
+
+		// Mock the config handler to return empty DNS address but valid domain
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "dns.domain":
+				return "example.com"
+			case "dns.address":
+				return ""
+			case "vm.driver":
+				return "hyperv" // Not localhost mode
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+
+		nm := NewBaseNetworkManager(mocks.Injector)
+		err := nm.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		err = nm.ConfigureDNS()
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "DNS address is not configured"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 }

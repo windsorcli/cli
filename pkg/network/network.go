@@ -34,7 +34,6 @@ type BaseNetworkManager struct {
 	configHandler            config.ConfigHandler
 	networkInterfaceProvider NetworkInterfaceProvider
 	services                 []services.Service
-	isLocalhost              bool
 }
 
 // NewNetworkManager creates a new NetworkManager
@@ -97,6 +96,11 @@ func (n *BaseNetworkManager) ConfigureGuest() error {
 
 // Ensure BaseNetworkManager implements NetworkManager
 var _ NetworkManager = (*BaseNetworkManager)(nil)
+
+// isLocalhostMode checks if the system is in localhost mode
+func (n *BaseNetworkManager) isLocalhostMode() bool {
+	return n.configHandler.GetString("vm.driver") == "docker-desktop"
+}
 
 // assignIPAddresses assigns IP addresses to services based on the network CIDR.
 var assignIPAddresses = func(services []services.Service, networkCIDR *string) error {

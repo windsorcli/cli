@@ -558,10 +558,8 @@ test:53 {
 	})
 
 	t.Run("SuccessLocalhostMode", func(t *testing.T) {
-		// Create mocks and set up the mock context
+		// Setup mock components
 		mocks := createDNSServiceMocks()
-
-		// Given: a DNSService with the mock config handler, context, and real DockerService
 		service := NewDNSService(mocks.Injector)
 
 		// Initialize the service
@@ -569,7 +567,29 @@ test:53 {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
-		// Set vm.driver to docker-desktop to simulate localhost mode
+		// Create a mock service with a hostname
+		mockService := NewMockService()
+		mockService.GetNameFunc = func() string {
+			return "test-service"
+		}
+		mockService.GetHostnameFunc = func() string {
+			return "test-service.test"
+		}
+		mockService.GetAddressFunc = func() string {
+			return "192.168.1.2"
+		}
+		mockService.GetComposeConfigFunc = func() (*types.Config, error) {
+			return &types.Config{
+				Services: []types.ServiceConfig{
+					{
+						Name: "test-service",
+					},
+				},
+			}, nil
+		}
+		service.services = []Service{mockService}
+
+		// Mock the config handler to return docker-desktop for vm.driver and DNS records
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
 				return "docker-desktop"
@@ -583,27 +603,30 @@ test:53 {
 			return ""
 		}
 
-		// Create a mock service with a non-localhost address
-		mockService := NewMockService()
-		mockService.GetNameFunc = func() string {
-			return "test-service"
+		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			if key == "dns.records" {
+				return []string{
+					"127.0.0.1 test",
+					"192.168.1.1 test",
+				}
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return nil
 		}
-		mockService.GetAddressFunc = func() string {
-			return "10.0.0.2"
+
+		// Mock the GetProjectRoot function to return a valid path
+		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+			return "/valid/path", nil
 		}
-		mockService.GetHostnameFunc = func() string {
-			return "test-service.test"
+
+		// Mock the mkdirAll function to simulate successful directory creation
+		originalMkdirAll := mkdirAll
+		defer func() { mkdirAll = originalMkdirAll }()
+		mkdirAll = func(path string, perm os.FileMode) error {
+			return nil
 		}
-		mockService.GetComposeConfigFunc = func() (*types.Config, error) {
-			return &types.Config{
-				Services: []types.ServiceConfig{
-					{
-						Name: "test-service",
-					},
-				},
-			}, nil
-		}
-		service.services = []Service{mockService}
 
 		// Mock the writeFile function to capture the content written
 		var writtenContent []byte
@@ -630,6 +653,8 @@ test:53 {
     loop
     hosts {
         127.0.0.1 test-service.test
+        127.0.0.1 test
+        192.168.1.1 test
         fallthrough
     }
     forward . 1.1.1.1 8.8.8.8
