@@ -246,4 +246,144 @@ func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
 		}
 	})
 
+	t.Run("WarningInUntrustedDirectory", func(t *testing.T) {
+		// Setup mocks
+		mocks := setupSafeRootMocks()
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mocks.Shell
+		}
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("Current directory not in the trusted list")
+		}
+
+		// Create a command and register the controller
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
+
+		// Capture stderr
+		output := captureStderr(func() {
+			// Run preRunEInitializeCommonComponents
+			err := preRunEInitializeCommonComponents(cmd, []string{})
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+		})
+
+		// Check for warning message
+		expectedWarning := "Warning: You are not in a trusted directory"
+		if !strings.Contains(output, expectedWarning) {
+			t.Errorf("Expected output to contain %q, got %q", expectedWarning, output)
+		}
+	})
+
+	t.Run("NoWarningForHookCommand", func(t *testing.T) {
+		// Setup mocks
+		mocks := setupSafeRootMocks()
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("Current directory not in the trusted list")
+		}
+
+		// Capture stderr
+		output := captureStderr(func() {
+			// Create a hook command
+			cmd := hookCmd
+			cmd.SetArgs([]string{"bash"})
+
+			// Run preRunEInitializeCommonComponents
+			err := preRunEInitializeCommonComponents(cmd, []string{})
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+		})
+
+		// Check that no warning was printed
+		unexpectedWarning := "Warning: You are not in a trusted directory"
+		if strings.Contains(output, unexpectedWarning) {
+			t.Errorf("Expected output to not contain %q, got %q", unexpectedWarning, output)
+		}
+	})
+
+	t.Run("NoWarningForEnvCommand", func(t *testing.T) {
+		// Setup mocks
+		mocks := setupSafeRootMocks()
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("Current directory not in the trusted list")
+		}
+
+		// Capture stderr
+		output := captureStderr(func() {
+			// Create an env command
+			cmd := envCmd
+			cmd.SetArgs([]string{})
+
+			// Run preRunEInitializeCommonComponents
+			err := preRunEInitializeCommonComponents(cmd, []string{})
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+		})
+
+		// Check that no warning was printed
+		unexpectedWarning := "Warning: You are not in a trusted directory"
+		if strings.Contains(output, unexpectedWarning) {
+			t.Errorf("Expected output to not contain %q, got %q", unexpectedWarning, output)
+		}
+	})
+
+	t.Run("NoWarningForEnvCommandWithDecrypt", func(t *testing.T) {
+		// Setup mocks
+		mocks := setupSafeRootMocks()
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("Current directory not in the trusted list")
+		}
+
+		// Capture stderr
+		output := captureStderr(func() {
+			// Create an env command with --decrypt flag
+			cmd := envCmd
+			cmd.SetArgs([]string{"--decrypt"})
+
+			// Run preRunEInitializeCommonComponents
+			err := preRunEInitializeCommonComponents(cmd, []string{})
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+		})
+
+		// Check that no warning was printed
+		unexpectedWarning := "Warning: You are not in a trusted directory"
+		if strings.Contains(output, unexpectedWarning) {
+			t.Errorf("Expected output to not contain %q, got %q", unexpectedWarning, output)
+		}
+	})
+
+	t.Run("WarningForEnvCommandWithoutDecrypt", func(t *testing.T) {
+		// Setup mocks
+		mocks := setupSafeRootMocks()
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mocks.Shell
+		}
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("Current directory not in the trusted list")
+		}
+
+		// Create a command and register the controller
+		cmd := &cobra.Command{Use: "env"}
+		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
+
+		// Capture stderr
+		output := captureStderr(func() {
+			// Run preRunEInitializeCommonComponents
+			err := preRunEInitializeCommonComponents(cmd, []string{})
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+		})
+
+		// Check for warning message
+		expectedWarning := "Warning: You are not in a trusted directory"
+		if !strings.Contains(output, expectedWarning) {
+			t.Errorf("Expected output to contain %q, got %q", expectedWarning, output)
+		}
+	})
 }
