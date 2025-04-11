@@ -24,23 +24,19 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 
 	mockShell := shell.NewMockShell(injector)
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockService1 := services.NewMockService()
-	mockService2 := services.NewMockService()
+	mockService := services.NewMockService()
 
 	// Register mock instances in the injector
 	injector.Register("shell", mockShell)
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("service1", mockService1)
-	injector.Register("service2", mockService2)
+	injector.Register("service", mockService)
 
-	// Implement GetContextFunc on mock context
-	mockConfigHandler.GetContextFunc = func() string {
-		return "mock-context"
-	}
-
-	// Set up the mock config handler to return specific values for Docker configuration
+	// Set up default mock behaviors
 	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 		if key == "docker.enabled" {
+			return true
+		}
+		if key == "dns.enabled" {
 			return true
 		}
 		if len(defaultValue) > 0 {
@@ -51,12 +47,19 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 		if key == "network.cidr_block" {
-			return "192.168.1.0/24"
+			return "10.0.0.0/24"
+		}
+		if key == "dns.address" {
+			return ""
 		}
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
-		return "default-value"
+		return ""
+	}
+
+	mockConfigHandler.GetContextFunc = func() string {
+		return "mock-context"
 	}
 
 	// Mock the shell Exec function to return generic JSON structures for two containers
@@ -89,7 +92,7 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	}
 
 	// Mock the service's GetComposeConfigFunc to return a default configuration for two services
-	mockService1.GetComposeConfigFunc = func() (*types.Config, error) {
+	mockService.GetComposeConfigFunc = func() (*types.Config, error) {
 		return &types.Config{
 			Services: []types.ServiceConfig{
 				{Name: "service1", Networks: map[string]*types.ServiceNetworkConfig{"windsor-mock-context": {Ipv4Address: "192.168.1.2"}}},
@@ -111,11 +114,8 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 	}
 
 	// Mock the GetAddress function to return specific IP addresses for services
-	mockService1.GetAddressFunc = func() string {
+	mockService.GetAddressFunc = func() string {
 		return "192.168.1.2"
-	}
-	mockService2.GetAddressFunc = func() string {
-		return "192.168.1.3"
 	}
 
 	// Mock the GetProjectRootFunc to return a mock project root path
@@ -123,22 +123,11 @@ func setupSafeDockerContainerMocks(optionalInjector ...di.Injector) *MockCompone
 		return "/mock/project/root", nil
 	}
 
-	// Mock the GetString function to return a specific value for network.cidr_block
-	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-		if key == "network.cidr_block" {
-			return "192.168.1.0/24"
-		}
-		if len(defaultValue) > 0 {
-			return defaultValue[0]
-		}
-		return "default-value"
-	}
-
 	return &MockComponents{
 		Injector:          injector,
 		MockShell:         mockShell,
 		MockConfigHandler: mockConfigHandler,
-		MockService:       mockService1,
+		MockService:       mockService,
 	}
 }
 
@@ -1373,7 +1362,7 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 				return "10.0.0.0/24"
 			}
 			if key == "dns.address" {
-				return ""
+				return "10.0.0.53"
 			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -1413,7 +1402,7 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 			t.Fatalf("expected network %s to exist", networkName)
 		}
 		if network.Driver != "bridge" {
-			t.Errorf("expected driver to be bridge, got %s", network.Driver)
+			t.Errorf("expected network driver to be bridge, got %s", network.Driver)
 		}
 		if network.Ipam.Config == nil {
 			t.Fatal("expected Ipam config to be non-nil")
@@ -1460,9 +1449,9 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		// Setup mock components
 		mocks := setupSafeDockerContainerMocks()
 		dockerVirt := NewDockerVirt(mocks.Injector)
-		dockerVirt.configHandler = mocks.MockConfigHandler // Set the config handler
+		dockerVirt.Initialize()
 
-		// Configure mock behavior
+		// Enable DNS in configuration
 		mocks.MockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
 				return true
@@ -1474,23 +1463,6 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 				return defaultValue[0]
 			}
 			return false
-		}
-
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "network.cidr_block" {
-				return "10.0.0.0/24"
-			}
-			if key == "dns.address" {
-				return ""
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mocks.MockConfigHandler.GetContextFunc = func() string {
-			return "mock-context"
 		}
 
 		// Create a mock service
@@ -1521,6 +1493,7 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 								Source: "/host:/container",
 							},
 						},
+						DNS: []string{"10.0.0.53"},
 					},
 				},
 			}, nil
@@ -1578,9 +1551,6 @@ func TestDockerVirt_getFullComposeConfig(t *testing.T) {
 		}
 		if service.Networks["windsor-mock-context"] == nil {
 			t.Error("expected network windsor-mock-context to exist")
-		}
-		if service.DNS == nil || len(service.DNS) != 1 || service.DNS[0] != "10.0.0.53" {
-			t.Errorf("expected DNS to be [10.0.0.53], got %v", service.DNS)
 		}
 	})
 }

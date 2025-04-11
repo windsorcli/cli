@@ -151,3 +151,19 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestLocalstackService_SupportsWildcard(t *testing.T) {
+	// Create a mock injector
+	mockInjector := di.NewMockInjector()
+
+	// Create a LocalstackService
+	service := NewLocalstackService(mockInjector)
+
+	// Call SupportsWildcard
+	supportsWildcard := service.SupportsWildcard()
+
+	// Verify that SupportsWildcard returns true
+	if !supportsWildcard {
+		t.Errorf("Expected SupportsWildcard to return true, got false")
+	}
+}

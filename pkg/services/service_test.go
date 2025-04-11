@@ -168,26 +168,51 @@ func TestBaseService_GetName(t *testing.T) {
 
 func TestBaseService_GetHostname(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a new BaseService with a mock config handler
-		mocks := setupSafeBaseServiceMocks()
-		service := &BaseService{injector: mocks.Injector}
-		service.SetName("TestService")
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		// Setup mock components
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.domain" {
-				return "example"
+				return "example.com"
 			}
 			return ""
 		}
 
-		service.Initialize()
+		// Initialize service
+		service := &BaseService{
+			name:          "test-service",
+			configHandler: mockConfig,
+		}
 
-		// When: GetName is called
-		name := service.GetName()
+		// Get hostname
+		hostname := service.GetHostname()
 
-		// Then: the name should be as expected
-		expectedName := "TestService"
-		if name != expectedName {
-			t.Fatalf("expected name '%s', got %v", expectedName, name)
+		// Verify hostname
+		expectedHostname := "test-service.example.com"
+		if hostname != expectedHostname {
+			t.Errorf("Expected hostname %q, got %q", expectedHostname, hostname)
+		}
+	})
+
+	t.Run("DefaultTLD", func(t *testing.T) {
+		// Setup mock components
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			return defaultValue[0]
+		}
+
+		// Initialize service
+		service := &BaseService{
+			name:          "test-service",
+			configHandler: mockConfig,
+		}
+
+		// Get hostname
+		hostname := service.GetHostname()
+
+		// Verify hostname uses default TLD
+		expectedHostname := "test-service.test"
+		if hostname != expectedHostname {
+			t.Errorf("Expected hostname %q, got %q", expectedHostname, hostname)
 		}
 	})
 }
@@ -246,6 +271,18 @@ func TestBaseService_IsLocalhostMode(t *testing.T) {
 		// Then: the result should be false for non-docker-desktop driver
 		if isLocal {
 			t.Fatal("expected isLocalhostMode to be false for non-docker-desktop driver")
+		}
+	})
+}
+
+func TestBaseService_SupportsWildcard(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Initialize service
+		service := &BaseService{}
+
+		// Verify wildcard support is false by default
+		if service.SupportsWildcard() {
+			t.Error("Expected SupportsWildcard to return false")
 		}
 	})
 }

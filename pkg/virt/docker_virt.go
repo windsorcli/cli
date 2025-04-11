@@ -308,8 +308,7 @@ func (v *DockerVirt) checkDockerDaemon() error {
 // settings from all services. It creates a network configuration with optional IPAM
 // settings based on the network CIDR, collects service configurations with their
 // network settings and IP addresses, and aggregates volumes and networks from all
-// services into a single project configuration. When DNS is enabled, it configures
-// all services to use the DNS service for name resolution.
+// services into a single project configuration.
 func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	contextName := v.configHandler.GetContext()
 
@@ -343,17 +342,6 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	}
 
 	combinedNetworks[networkName] = networkConfig
-
-	var dnsAddress string
-	dnsEnabled := v.configHandler.GetBool("dns.enabled")
-	if dnsEnabled {
-		dnsAddress = v.configHandler.GetString("dns.address")
-		if dnsAddress == "" {
-			if dnsService, ok := v.injector.Resolve("dns").(services.Service); ok {
-				dnsAddress = dnsService.GetAddress()
-			}
-		}
-	}
 
 	for _, service := range v.services {
 		if serviceInstance, ok := service.(interface {
