@@ -98,8 +98,8 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		}
 
 		service := composeConfig.Services[0]
-		if service.Name != "aws.test" {
-			t.Errorf("expected service name 'localstack', got %v", service.Name)
+		if service.Name != "aws" {
+			t.Errorf("expected service name 'aws', got %v", service.Name)
 		}
 		if service.Environment["SERVICES"] == nil || *service.Environment["SERVICES"] != "s3,dynamodb" {
 			t.Errorf("expected SERVICES environment variable to be 's3,dynamodb', got %v", service.Environment["SERVICES"])
@@ -150,4 +150,20 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 			t.Errorf("expected service to have LOCALSTACK_AUTH_TOKEN secret, got %v", service.Secrets)
 		}
 	})
+}
+
+func TestLocalstackService_SupportsWildcard(t *testing.T) {
+	// Create a mock injector
+	mockInjector := di.NewMockInjector()
+
+	// Create a LocalstackService
+	service := NewLocalstackService(mockInjector)
+
+	// Call SupportsWildcard
+	supportsWildcard := service.SupportsWildcard()
+
+	// Verify that SupportsWildcard returns true
+	if !supportsWildcard {
+		t.Errorf("Expected SupportsWildcard to return true, got false")
+	}
 }

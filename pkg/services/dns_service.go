@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -53,12 +54,12 @@ func (s *DNSService) SetAddress(address string) error {
 // GetComposeConfig sets up CoreDNS with context and domain, configures ports if localhost.
 func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	contextName := s.configHandler.GetContext()
-	tld := s.configHandler.GetString("dns.domain", "test")
-	fullName := s.name + "." + tld
+	serviceName := s.GetName()
+	containerName := s.GetContainerName()
 
 	corednsConfig := types.ServiceConfig{
-		Name:          fullName,
-		ContainerName: fullName,
+		Name:          serviceName,
+		ContainerName: containerName,
 		Image:         constants.DEFAULT_DNS_IMAGE,
 		Restart:       "always",
 		Command:       []string{"-conf", "/etc/coredns/Corefile"},
@@ -72,7 +73,7 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
-	if s.IsLocalhostMode() {
+	if s.isLocalhostMode() {
 		corednsConfig.Ports = []types.ServicePortConfig{
 			{
 				Target:    53,
@@ -92,11 +93,11 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 	return &types.Config{Services: services}, nil
 }
 
-// WriteConfig generates a Corefile for DNS configuration by gathering project root, TLD, and service IPs,
-// constructing DNS host entries, and appending static DNS records. It adapts the Corefile for localhost
-// by adding a template for local DNS resolution. Additionally, it configures DNS forwarding by including
-// specified forward addresses, ensuring DNS queries are directed appropriately. The final Corefile is
-// written to the .windsor config directory
+// WriteConfig generates a Corefile by collecting the project root directory, top-level domain (TLD), and IP addresses.
+// It adds DNS entries for each service, ensuring that each service's hostname resolves to its IP address.
+// For localhost environments, it uses a specific DNS template to handle local DNS resolution and sets up forwarding
+// rules to direct DNS queries to the appropriate addresses.
+// The Corefile is saved in the .windsor directory, which is used by CoreDNS to manage DNS queries for the project.
 func (s *DNSService) WriteConfig() error {
 	projectRoot, err := s.shell.GetProjectRoot()
 	if err != nil {
@@ -104,68 +105,106 @@ func (s *DNSService) WriteConfig() error {
 	}
 
 	tld := s.configHandler.GetString("dns.domain", "test")
+	networkCIDR := s.configHandler.GetString("network.cidr_block")
 
-	var hostEntries string
+	var (
+		hostEntries              string
+		localhostHostEntries     string
+		wildcardEntries          string
+		localhostWildcardEntries string
+	)
+
+	wildcardTemplate := `
+    template IN A {
+        match ^(.*)\.%s\.$
+        answer "{{ .Name }} 60 IN A %s"
+        fallthrough
+    }
+`
+	localhostTemplate := `
+    template IN A {
+        match ^(.*)\.%s\.$
+        answer "{{ .Name }} 60 IN A 127.0.0.1"
+        fallthrough
+    }
+`
+
 	for _, service := range s.services {
 		composeConfig, err := service.GetComposeConfig()
 		if err != nil || composeConfig == nil {
 			continue
 		}
 		for _, svc := range composeConfig.Services {
-			if svc.Name != "" {
-				address := service.GetAddress()
-				if address != "" {
-					hostname := service.GetHostname()
-					if s.IsLocalhostMode() {
-						address = "127.0.0.1"
-					}
-					hostEntries += fmt.Sprintf("        %s %s\n", address, hostname)
+			if svc.Name == "" {
+				continue
+			}
+			address := service.GetAddress()
+			if address == "" {
+				continue
+			}
+
+			hostname := service.GetHostname()
+			escapedHostname := strings.ReplaceAll(hostname, ".", "\\.")
+
+			hostEntries += fmt.Sprintf("        %s %s\n", address, hostname)
+			if s.isLocalhostMode() {
+				localhostHostEntries += fmt.Sprintf("        127.0.0.1 %s\n", hostname)
+			}
+			if service.SupportsWildcard() {
+				wildcardEntries += fmt.Sprintf(wildcardTemplate, escapedHostname, address)
+				if s.isLocalhostMode() {
+					localhostWildcardEntries += fmt.Sprintf(localhostTemplate, escapedHostname)
 				}
 			}
 		}
 	}
 
-	dnsRecords := s.configHandler.GetStringSlice("dns.records", nil)
-	for _, record := range dnsRecords {
+	for _, record := range s.configHandler.GetStringSlice("dns.records", nil) {
 		hostEntries += fmt.Sprintf("        %s\n", record)
+		if s.isLocalhostMode() {
+			localhostHostEntries += fmt.Sprintf("        %s\n", record)
+		}
 	}
 
 	forwardAddresses := s.configHandler.GetStringSlice("dns.forward", nil)
 	if len(forwardAddresses) == 0 {
 		forwardAddresses = []string{"1.1.1.1", "8.8.8.8"}
 	}
-	forwardAddressesStr := fmt.Sprintf("%s", forwardAddresses[0])
-	for _, addr := range forwardAddresses[1:] {
-		forwardAddressesStr += fmt.Sprintf(" %s", addr)
-	}
+	forwardAddressesStr := strings.Join(forwardAddresses, " ")
 
-	var corefileContent string
-	corefileContent = fmt.Sprintf(`
-%s:53 {
-    errors
-    reload
-    loop
-    hosts {
+	serverBlockTemplate := `%s:53 {
+%s    hosts {
 %s        fallthrough
     }
+%s
+    reload
+    loop
     forward . %s
 }
-.:53 {
-    errors
+`
+
+	var corefileContent string
+	if s.isLocalhostMode() {
+		internalView := fmt.Sprintf("    view internal {\n        expr incidr(client_ip(), '%s')\n    }\n", networkCIDR)
+		corefileContent = fmt.Sprintf(serverBlockTemplate, tld, internalView, hostEntries, wildcardEntries, forwardAddressesStr)
+		corefileContent += fmt.Sprintf(serverBlockTemplate, tld, "", localhostHostEntries, localhostWildcardEntries, forwardAddressesStr)
+	} else {
+		corefileContent = fmt.Sprintf(serverBlockTemplate, tld, "", hostEntries, wildcardEntries, forwardAddressesStr)
+	}
+
+	corefileContent += `.:53 {
     reload
     loop
     forward . 1.1.1.1 8.8.8.8
 }
-`, tld, hostEntries, forwardAddressesStr)
+`
 
 	corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
-
 	if err := mkdirAll(filepath.Dir(corefilePath), 0755); err != nil {
 		return fmt.Errorf("error creating parent folders: %w", err)
 	}
 
-	err = writeFile(corefilePath, []byte(corefileContent), 0644)
-	if err != nil {
+	if err := writeFile(corefilePath, []byte(corefileContent), 0644); err != nil {
 		return fmt.Errorf("error writing Corefile: %w", err)
 	}
 

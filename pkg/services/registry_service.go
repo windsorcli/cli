@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
@@ -11,10 +12,16 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+var (
+	registryNextPort = constants.REGISTRY_DEFAULT_HOST_PORT + 1
+	registryMu       sync.Mutex
+	localRegistry    *RegistryService
+)
+
 // RegistryService is a service struct that provides Registry-specific utility functions
 type RegistryService struct {
 	BaseService
-	HostPort int // If set, this port is routed to the registry port from the host
+	hostPort int
 }
 
 // NewRegistryService is a constructor for RegistryService
@@ -34,8 +41,7 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 	registries := contextConfig.Docker.Registries
 
 	if registry, exists := registries[s.name]; exists {
-		hostname := s.GetHostname()
-		service, err := s.generateRegistryService(hostname, registry)
+		service, err := s.generateRegistryService(registry)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate registry service: %w", err)
 		}
@@ -46,16 +52,12 @@ func (s *RegistryService) GetComposeConfig() (*types.Config, error) {
 }
 
 // SetAddress configures the registry's address, forms a hostname, and updates the registry config.
-// It selects a port by checking the registry's HostPort; if unset and on localhost, it defaults to
-// REGISTRY_DEFAULT_HOST_PORT. The port's availability is verified before assignment. If the registry
-// is not a proxy ("remote" is not set), and it is localhost, it attempts to set HostPort to
-// the default registry port.
+// It assigns the "registry_url" and the default host port for the first non-remote registry, storing it as "localRegistry".
 func (s *RegistryService) SetAddress(address string) error {
 	if err := s.BaseService.SetAddress(address); err != nil {
 		return fmt.Errorf("failed to set address for base service: %w", err)
 	}
 
-	defaultPort := constants.REGISTRY_DEFAULT_HOST_PORT
 	hostName := s.GetHostname()
 
 	err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostname", s.name), hostName)
@@ -68,16 +70,25 @@ func (s *RegistryService) SetAddress(address string) error {
 
 	if registryConfig.HostPort != 0 {
 		hostPort = registryConfig.HostPort
-	} else if registryConfig.Remote == "" && s.IsLocalhostMode() {
-		hostPort = defaultPort
-		err = s.configHandler.SetContextValue("docker.registry_url", hostName)
-		if err != nil {
-			return fmt.Errorf("failed to set registry URL for registry %s: %w", s.name, err)
+	} else if s.isLocalhostMode() {
+		registryMu.Lock()
+		defer registryMu.Unlock()
+
+		if registryConfig.Remote == "" && localRegistry == nil {
+			localRegistry = s
+			hostPort = constants.REGISTRY_DEFAULT_HOST_PORT
+			err = s.configHandler.SetContextValue("docker.registry_url", hostName)
+			if err != nil {
+				return fmt.Errorf("failed to set registry URL for registry %s: %w", s.name, err)
+			}
+		} else {
+			hostPort = registryNextPort
+			registryNextPort++
 		}
 	}
 
 	if hostPort != 0 {
-		s.HostPort = hostPort
+		s.hostPort = hostPort
 		err := s.configHandler.SetContextValue(fmt.Sprintf("docker.registries[%s].hostport", s.name), hostPort)
 		if err != nil {
 			return fmt.Errorf("failed to set host port for registry %s: %w", s.name, err)
@@ -87,27 +98,24 @@ func (s *RegistryService) SetAddress(address string) error {
 	return nil
 }
 
-// GetHostname returns the hostname of the registry service. This is constructed
-// by removing the existing domain from the name and appending the configured domain.
+// GetHostname returns the hostname for the registry service, removing the last domain part
 func (s *RegistryService) GetHostname() string {
-	domain := s.configHandler.GetString("dns.domain", "test")
-	nameWithoutDomain := s.name
-	if dotIndex := strings.LastIndex(s.name, "."); dotIndex != -1 {
-		nameWithoutDomain = s.name[:dotIndex]
-	}
-	return nameWithoutDomain + "." + domain
+	tld := s.configHandler.GetString("dns.domain", "test")
+	return getBasename(s.GetName()) + "." + tld
 }
 
 // This function generates a ServiceConfig for a Registry service. It sets up the service's name, image,
 // restart policy, and labels. It configures environment variables based on registry URLs, creates a
 // cache directory, and sets volume mounts. Ports are assigned only for non-proxy registries when the
 // network mode is localhost. It returns the configured ServiceConfig or an error if any step fails.
-func (s *RegistryService) generateRegistryService(hostname string, registry docker.RegistryConfig) (types.ServiceConfig, error) {
+func (s *RegistryService) generateRegistryService(registry docker.RegistryConfig) (types.ServiceConfig, error) {
 	contextName := s.configHandler.GetContext()
+	serviceName := getBasename(s.GetHostname())
+	containerName := s.GetContainerName()
 
 	service := types.ServiceConfig{
-		Name:          hostname,
-		ContainerName: hostname,
+		Name:          serviceName,
+		ContainerName: containerName,
 		Image:         constants.REGISTRY_DEFAULT_IMAGE,
 		Restart:       "always",
 		Labels: map[string]string{
@@ -117,19 +125,23 @@ func (s *RegistryService) generateRegistryService(hostname string, registry dock
 		},
 	}
 
-	env := make(types.MappingWithEquals)
+	// Initialize environment variables
+	env := make(map[string]*string)
 
+	// Set remote URL if specified
 	if registry.Remote != "" {
-		env["REGISTRY_PROXY_REMOTEURL"] = &registry.Remote
+		remoteURL := registry.Remote
+		env["REGISTRY_PROXY_REMOTEURL"] = &remoteURL
 	}
 
+	// Set local URL if specified
 	if registry.Local != "" {
-		env["REGISTRY_PROXY_LOCALURL"] = &registry.Local
+		localURL := registry.Local
+		env["REGISTRY_PROXY_LOCALURL"] = &localURL
 	}
 
-	if len(env) > 0 {
-		service.Environment = env
-	}
+	// Always set environment, even if empty
+	service.Environment = env
 
 	projectRoot, err := s.shell.GetProjectRoot()
 	if err != nil {
@@ -144,11 +156,11 @@ func (s *RegistryService) generateRegistryService(hostname string, registry dock
 		{Type: "bind", Source: "${WINDSOR_PROJECT_ROOT}/.windsor/.docker-cache", Target: "/var/lib/registry"},
 	}
 
-	if registry.Remote == "" && s.IsLocalhostMode() {
+	if s.isLocalhostMode() {
 		service.Ports = []types.ServicePortConfig{
 			{
 				Target:    5000,
-				Published: fmt.Sprintf("%d", s.HostPort),
+				Published: fmt.Sprintf("%d", s.hostPort),
 				Protocol:  "tcp",
 			},
 		}
@@ -159,3 +171,11 @@ func (s *RegistryService) generateRegistryService(hostname string, registry dock
 
 // Ensure RegistryService implements Service interface
 var _ Service = (*RegistryService)(nil)
+
+// getBasename removes the last part of a domain name if it exists
+func getBasename(name string) string {
+	if parts := strings.Split(name, "."); len(parts) > 1 {
+		return strings.Join(parts[:len(parts)-1], ".")
+	}
+	return name
+}

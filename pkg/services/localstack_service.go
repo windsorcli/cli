@@ -44,15 +44,15 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 		servicesList = strings.Join(contextConfig.AWS.Localstack.Services, ",")
 	}
 
-	// Get the domain from the configuration
-	tld := s.configHandler.GetString("dns.domain", "test")
-	fullName := s.name + "." + tld
+	// Get the service name and container name
+	serviceName := s.GetName()
+	containerName := s.GetContainerName()
 
 	// Create the service config
 	services := []types.ServiceConfig{
 		{
-			Name:          fullName,
-			ContainerName: fullName,
+			Name:          serviceName,
+			ContainerName: containerName,
 			Image:         image,
 			Restart:       "always",
 			Environment: map[string]*string{
@@ -84,3 +84,8 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 
 // Ensure LocalstackService implements Service interface
 var _ Service = (*LocalstackService)(nil)
+
+// SupportsWildcard returns whether the service supports wildcard DNS entries
+func (s *LocalstackService) SupportsWildcard() bool {
+	return true
+}

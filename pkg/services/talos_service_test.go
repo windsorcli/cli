@@ -142,6 +142,9 @@ func TestTalosService_NewTalosService(t *testing.T) {
 
 func TestTalosService_SetAddress(t *testing.T) {
 	t.Run("SuccessWorker", func(t *testing.T) {
+		// Reset package-level variables
+		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+
 		// Setup mocks for this test
 		mocks := setupTalosServiceMocks()
 		service := NewTalosService(mocks.Injector, "worker")
@@ -502,6 +505,82 @@ func TestTalosService_SetAddress(t *testing.T) {
 
 		if err := mocks.MockConfigHandler.SetContextValueFunc("cluster.workers.nodes."+service.name+".endpoint", "127.0.0.1:50003"); err != nil {
 			t.Fatalf("expected endpoint to be set without error, got %v", err)
+		}
+	})
+
+	t.Run("PortIncrement", func(t *testing.T) {
+		// Reset package-level variables
+		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+
+		// Setup mocks for this test
+		mocks := setupTalosServiceMocks()
+
+		// Mock vm.driver to enable localhost mode
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			return ""
+		}
+
+		// Create and initialize first service (non-leader)
+		service1 := NewTalosService(mocks.Injector, "worker1")
+		service1.isLeader = false
+		err := service1.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Set address for first service
+		err = service1.SetAddress("127.0.0.1")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Create and initialize second service (non-leader)
+		service2 := NewTalosService(mocks.Injector, "worker2")
+		service2.isLeader = false
+		err = service2.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Set address for second service
+		err = service2.SetAddress("127.0.0.1")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Verify that the ports were incremented correctly
+		expectedPort1 := constants.DEFAULT_TALOS_API_PORT + 1
+		expectedPort2 := constants.DEFAULT_TALOS_API_PORT + 2
+
+		// Check if the ports were set correctly in the config handler
+		var setContextValueCalls = make(map[string]interface{})
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			setContextValueCalls[key] = value
+			return nil
+		}
+
+		// Set endpoints for both services
+		err = mocks.MockConfigHandler.SetContextValue("cluster.workers.nodes.worker1.endpoint", fmt.Sprintf("127.0.0.1:%d", expectedPort1))
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		err = mocks.MockConfigHandler.SetContextValue("cluster.workers.nodes.worker2.endpoint", fmt.Sprintf("127.0.0.1:%d", expectedPort2))
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Verify the endpoints were set with correct ports
+		endpoint1 := setContextValueCalls["cluster.workers.nodes.worker1.endpoint"]
+		endpoint2 := setContextValueCalls["cluster.workers.nodes.worker2.endpoint"]
+
+		if endpoint1 != fmt.Sprintf("127.0.0.1:%d", expectedPort1) {
+			t.Errorf("Expected endpoint1 to be 127.0.0.1:%d, got %v", expectedPort1, endpoint1)
+		}
+		if endpoint2 != fmt.Sprintf("127.0.0.1:%d", expectedPort2) {
+			t.Errorf("Expected endpoint2 to be 127.0.0.1:%d, got %v", expectedPort2, endpoint2)
 		}
 	})
 }
@@ -937,6 +1016,200 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		port := serviceConfig.Ports[0]
 		if port.Target != 50000 || port.Protocol != "tcp" {
 			t.Errorf("expected API port configuration, got target=%d protocol=%s", port.Target, port.Protocol)
+		}
+	})
+
+	t.Run("PortIncrementInGetComposeConfig", func(t *testing.T) {
+		// Reset package-level variables
+		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
+
+		// Setup mocks for this test
+		mocks := setupTalosServiceMocks()
+
+		// Track SetContextValue calls
+		setContextValueCalls := make(map[string]string)
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+			if strValue, ok := value.(string); ok {
+				setContextValueCalls[key] = strValue
+			}
+			return nil
+		}
+
+		// Mock GetStringSlice to return empty hostports
+		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			return []string{}
+		}
+
+		// Mock GetString to return the stored endpoint values
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if strings.HasSuffix(key, ".endpoint") {
+				if value, exists := setContextValueCalls[key]; exists {
+					return value
+				}
+			}
+			return ""
+		}
+
+		// Create and initialize first service (non-leader)
+		service1 := NewTalosService(mocks.Injector, "worker1")
+		service1.isLeader = false
+		service1.SetName("worker1")
+		err := service1.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Set address for first service
+		err = service1.SetAddress("127.0.0.1")
+		if err != nil {
+			t.Fatalf("expected no error setting address, got %v", err)
+		}
+
+		// Get compose config for first service
+		config1, err := service1.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Create and initialize second service (non-leader)
+		service2 := NewTalosService(mocks.Injector, "worker2")
+		service2.isLeader = false
+		service2.SetName("worker2")
+		err = service2.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Set address for second service
+		err = service2.SetAddress("127.0.0.1")
+		if err != nil {
+			t.Fatalf("expected no error setting address, got %v", err)
+		}
+
+		// Get compose config for second service
+		config2, err := service2.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Verify port configurations
+		if len(config1.Services) != 1 {
+			t.Fatalf("expected 1 service in config1, got %d", len(config1.Services))
+		}
+		if len(config2.Services) != 1 {
+			t.Fatalf("expected 1 service in config2, got %d", len(config2.Services))
+		}
+
+		// Check ports for first service
+		ports1 := config1.Services[0].Ports
+		if len(ports1) != 1 {
+			t.Fatalf("expected 1 port in service1, got %d", len(ports1))
+		}
+		if ports1[0].Target != 50000 || ports1[0].Published != "50001" {
+			t.Errorf("expected port 50000:50001 in service1, got %d:%s", ports1[0].Target, ports1[0].Published)
+		}
+
+		// Check ports for second service
+		ports2 := config2.Services[0].Ports
+		if len(ports2) != 1 {
+			t.Fatalf("expected 1 port in service2, got %d", len(ports2))
+		}
+		if ports2[0].Target != 50000 || ports2[0].Published != "50002" {
+			t.Errorf("expected port 50000:50002 in service2, got %d:%s", ports2[0].Target, ports2[0].Published)
+		}
+	})
+
+	t.Run("DNSConfiguration", func(t *testing.T) {
+		// Setup mocks for this test
+		mocks := setupTalosServiceMocks()
+
+		// Mock GetString to return DNS address
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.address" {
+				return "10.0.0.53"
+			}
+			return ""
+		}
+
+		// Create and initialize service
+		service := NewTalosService(mocks.Injector, "worker")
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Get compose config
+		config, err := service.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Verify DNS configuration
+		if len(config.Services) != 1 {
+			t.Fatalf("expected 1 service, got %d", len(config.Services))
+		}
+
+		serviceConfig := config.Services[0]
+		if serviceConfig.DNS == nil {
+			t.Fatal("expected DNS to be initialized")
+		}
+		if len(serviceConfig.DNS) != 1 {
+			t.Fatalf("expected 1 DNS entry, got %d", len(serviceConfig.DNS))
+		}
+		if serviceConfig.DNS[0] != "10.0.0.53" {
+			t.Errorf("expected DNS address 10.0.0.53, got %s", serviceConfig.DNS[0])
+		}
+	})
+
+	t.Run("DNSConfigurationDuplicate", func(t *testing.T) {
+		// Setup mocks for this test
+		mocks := setupTalosServiceMocks()
+
+		// Mock GetString to return DNS address
+		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.address" {
+				return "10.0.0.53"
+			}
+			return ""
+		}
+
+		// Create and initialize service
+		service := NewTalosService(mocks.Injector, "worker")
+		err := service.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// Get compose config twice to test duplicate prevention
+		config1, err := service.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		config2, err := service.GetComposeConfig()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Verify DNS configuration in both configs
+		if len(config1.Services) != 1 || len(config2.Services) != 1 {
+			t.Fatalf("expected 1 service in each config, got %d and %d", len(config1.Services), len(config2.Services))
+		}
+
+		serviceConfig1 := config1.Services[0]
+		serviceConfig2 := config2.Services[0]
+
+		if serviceConfig1.DNS == nil || serviceConfig2.DNS == nil {
+			t.Fatal("expected DNS to be initialized in both configs")
+		}
+		if len(serviceConfig1.DNS) != 1 || len(serviceConfig2.DNS) != 1 {
+			t.Fatalf("expected 1 DNS entry in each config, got %d and %d", len(serviceConfig1.DNS), len(serviceConfig2.DNS))
+		}
+		if serviceConfig1.DNS[0] != "10.0.0.53" || serviceConfig2.DNS[0] != "10.0.0.53" {
+			t.Errorf("expected DNS address 10.0.0.53 in both configs, got %s and %s", serviceConfig1.DNS[0], serviceConfig2.DNS[0])
 		}
 	})
 }

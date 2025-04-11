@@ -350,34 +350,63 @@ func TestMockService_GetName(t *testing.T) {
 }
 
 func TestMockService_GetHostname(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a mock service
+	t.Run("WithFunction", func(t *testing.T) {
+		// Create a mock service with a GetHostname function
 		mockService := NewMockService()
-		expectedHostname := "localhost"
-
-		// When: GetHostnameFunc is called
-		mockGetHostnameFunc := func() string {
-			return expectedHostname
+		mockService.GetHostnameFunc = func() string {
+			return "test-hostname"
 		}
-		mockService.GetHostnameFunc = mockGetHostnameFunc
 
-		// Then: the GetHostnameFunc should be set and return the expected hostname
+		// Call GetHostname
 		hostname := mockService.GetHostname()
-		if hostname != expectedHostname {
-			t.Errorf("expected hostname %v, got %v", expectedHostname, hostname)
+
+		// Verify that GetHostname returns the expected value
+		if hostname != "test-hostname" {
+			t.Errorf("Expected hostname 'test-hostname', got %q", hostname)
 		}
 	})
 
-	t.Run("SuccessNoMock", func(t *testing.T) {
-		// Given: a mock service with no GetHostnameFunc
+	t.Run("WithoutFunction", func(t *testing.T) {
+		// Create a mock service without a GetHostname function
 		mockService := NewMockService()
 
-		// When: GetHostname is called
+		// Call GetHostname
 		hostname := mockService.GetHostname()
 
-		// Then: an empty string should be returned
+		// Verify that GetHostname returns an empty string
 		if hostname != "" {
-			t.Errorf("expected empty hostname, got %v", hostname)
+			t.Errorf("Expected empty hostname, got %q", hostname)
+		}
+	})
+}
+
+func TestMockService_SupportsWildcard(t *testing.T) {
+	t.Run("WithFunction", func(t *testing.T) {
+		// Create a mock service with a SupportsWildcard function
+		mockService := NewMockService()
+		mockService.SupportsWildcardFunc = func() bool {
+			return true
+		}
+
+		// Call SupportsWildcard
+		supportsWildcard := mockService.SupportsWildcard()
+
+		// Verify that SupportsWildcard returns the expected value
+		if !supportsWildcard {
+			t.Errorf("Expected SupportsWildcard to return true, got false")
+		}
+	})
+
+	t.Run("WithoutFunction", func(t *testing.T) {
+		// Create a mock service without a SupportsWildcard function
+		mockService := NewMockService()
+
+		// Call SupportsWildcard
+		supportsWildcard := mockService.SupportsWildcard()
+
+		// Verify that SupportsWildcard returns false
+		if supportsWildcard {
+			t.Errorf("Expected SupportsWildcard to return false, got true")
 		}
 	})
 }

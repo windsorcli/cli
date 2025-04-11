@@ -23,6 +23,7 @@ const (
 	DEFAULT_TALOS_WORKER_RAM        = 4
 	DEFAULT_TALOS_CONTROL_PLANE_CPU = 2
 	DEFAULT_TALOS_CONTROL_PLANE_RAM = 2
+	DEFAULT_TALOS_API_PORT          = 50000
 )
 
 const (
@@ -55,7 +56,7 @@ const (
 const (
 	// renovate: datasource=docker depName=registry
 	REGISTRY_DEFAULT_IMAGE     = "registry:2.8.3"
-	REGISTRY_DEFAULT_HOST_PORT = 5002
+	REGISTRY_DEFAULT_HOST_PORT = 5001
 )
 
 // Default network settings
