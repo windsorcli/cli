@@ -49,16 +49,24 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 		return fmt.Errorf("Error creating common components: %w", err)
 	}
 
+	// Resolve the shell and config handler
+	shell := controller.ResolveShell()
+	if shell != nil {
+		shell.SetVerbosity(verbose)
+	}
+
+	// Check if we're in a trusted directory, but only for needed commands
+	cmdName := cmd.Name()
+	if cmdName != "hook" && cmdName != "init" && (cmdName != "env" || !cmd.Flags().Changed("decrypt")) {
+		if err := shell.CheckTrustedDirectory(); err != nil {
+			fmt.Fprintf(os.Stderr, "\033[33mWarning: You are not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve.\033[0m\n")
+		}
+	}
+
 	// Resolve the config handler
 	configHandler := controller.ResolveConfigHandler()
 	if configHandler == nil {
 		return fmt.Errorf("No config handler found")
-	}
-
-	// Set the verbosity
-	shell := controller.ResolveShell()
-	if shell != nil {
-		shell.SetVerbosity(verbose)
 	}
 
 	// Determine the cliConfig path
