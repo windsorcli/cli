@@ -84,3 +84,8 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 
 // Ensure LocalstackService implements Service interface
 var _ Service = (*LocalstackService)(nil)
+
+// SupportsWildcard returns whether the service supports wildcard DNS entries
+func (s *LocalstackService) SupportsWildcard() bool {
+	return true
+}

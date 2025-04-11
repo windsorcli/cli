@@ -16,8 +16,20 @@ local cpNodes = if std.objectHas(context, "cluster") && std.objectHas(context.cl
 // Select the first node or default to null if no nodes are present
 local firstNode = if std.length(cpNodes) > 0 then cpNodes[0] else null;
 
+// Extract baseUrl from endpoint
+local extractBaseUrl(endpoint) = 
+  if endpoint == "" then "" else
+    local parts = std.split(endpoint, "://");
+    if std.length(parts) > 1 then
+      local hostParts = std.split(parts[1], ":");
+      hostParts[0]
+    else
+      local hostParts = std.split(endpoint, ":");
+      hostParts[0];
+
 // Determine the endpoint, using cluster.endpoint if available, otherwise falling back to firstNode
-local endpoint = if std.objectHas(context.cluster, "endpoint") then context.cluster.endpoint else if firstNode != null then firstNode.node else "";
+local endpoint = if std.objectHas(context.cluster, "endpoint") then context.cluster.endpoint else if firstNode != null then firstNode.endpoint else "";
+local baseUrl = extractBaseUrl(endpoint);
 
 // Build the mirrors dynamically, only if registries are defined
 local registryMirrors = if std.objectHas(context, "docker") && std.objectHas(context.docker, "registries") then
@@ -81,7 +93,7 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
     source: "core",
     values: {
       // Use the determined endpoint
-      cluster_endpoint: if endpoint != "" then "https://" + endpoint + ":6443" else "",
+      cluster_endpoint: if endpoint != "" then "https://" + baseUrl + ":6443" else "",
       cluster_name: "talos",
 
       // Create a list of control plane nodes
@@ -89,7 +101,6 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
         std.map(
           function(v) {
             endpoint: v.endpoint,
-            hostname: v.hostname,
             node: v.node,
           },
           std.objectValues(context.cluster.controlplanes.nodes)
@@ -101,7 +112,6 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
         std.map(
           function(v) {
             endpoint: v.endpoint,
-            hostname: v.hostname,
             node: v.node,
           },
           std.objectValues(context.cluster.workers.nodes)
@@ -117,7 +127,7 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
             apiServer: {
               certSANs: [
                 "localhost",
-                endpoint,
+                baseUrl,
               ],
             },
             extraManifests: [
@@ -132,7 +142,7 @@ local terraformConfig = if platform == "local" || platform == "metal" then [
           machine: {
             certSANs: [
               "localhost",
-              endpoint,
+              baseUrl,
             ],
             network: if vmDriver == "docker-desktop" then {
               interfaces: [

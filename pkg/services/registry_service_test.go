@@ -271,7 +271,7 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		// Then check that the service has the expected port configuration
 		expectedPortConfig := types.ServicePortConfig{
 			Target:    5000,
-			Published: fmt.Sprintf("%d", registryService.HostPort),
+			Published: fmt.Sprintf("%d", registryService.hostPort),
 			Protocol:  "tcp",
 		}
 		found := false
@@ -409,8 +409,8 @@ func TestRegistryService_SetAddress(t *testing.T) {
 		}
 
 		// Then the default port should be set
-		if registryService.HostPort != constants.REGISTRY_DEFAULT_HOST_PORT {
-			t.Errorf("expected HostPort to be set to default, got %v", registryService.HostPort)
+		if registryService.hostPort != constants.REGISTRY_DEFAULT_HOST_PORT {
+			t.Errorf("expected HostPort to be set to default, got %v", registryService.hostPort)
 		}
 	})
 
@@ -441,8 +441,8 @@ func TestRegistryService_SetAddress(t *testing.T) {
 		}
 
 		// Then the HostPort should be set to the configured port
-		if registryService.HostPort != 5000 {
-			t.Errorf("expected HostPort to be 5000, got %v", registryService.HostPort)
+		if registryService.hostPort != 5000 {
+			t.Errorf("expected HostPort to be 5000, got %v", registryService.hostPort)
 		}
 	})
 
@@ -495,8 +495,8 @@ func TestRegistryService_SetAddress(t *testing.T) {
 		}
 
 		// Then the default port should be set and registry URL should be set
-		if registryService.HostPort != constants.REGISTRY_DEFAULT_HOST_PORT {
-			t.Errorf("expected HostPort to be set to default, got %v", registryService.HostPort)
+		if registryService.hostPort != constants.REGISTRY_DEFAULT_HOST_PORT {
+			t.Errorf("expected HostPort to be set to default, got %v", registryService.hostPort)
 		}
 		if !setContextValueCalled {
 			t.Errorf("expected SetContextValue to be called for registry URL, but it was not")

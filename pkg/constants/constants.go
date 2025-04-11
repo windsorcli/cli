@@ -55,7 +55,7 @@ const (
 const (
 	// renovate: datasource=docker depName=registry
 	REGISTRY_DEFAULT_IMAGE     = "registry:2.8.3"
-	REGISTRY_DEFAULT_HOST_PORT = 5002
+	REGISTRY_DEFAULT_HOST_PORT = 5001
 )
 
 // Default network settings

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -68,13 +69,10 @@ func (s *TalosService) SetAddress(address string) error {
 		nodeType = "controlplanes"
 	}
 
-	// Always use DNS name for hostname
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.hostname", nodeType, s.name), s.name+"."+tld); err != nil {
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.hostname", nodeType, s.name), s.name); err != nil {
 		return err
 	}
-
-	// Always use DNS name for node
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.node", nodeType, s.name), s.name+"."+tld); err != nil {
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.node", nodeType, s.name), s.name); err != nil {
 		return err
 	}
 
@@ -82,7 +80,7 @@ func (s *TalosService) SetAddress(address string) error {
 	defer portLock.Unlock()
 
 	var port int
-	if s.isLeader || !s.IsLocalhostMode() {
+	if s.isLeader || !s.isLocalhostMode() {
 		port = defaultAPIPort
 	} else {
 		port = nextAPIPort
@@ -98,8 +96,8 @@ func (s *TalosService) SetAddress(address string) error {
 	hostPortsCopy := make([]string, len(hostPorts))
 	copy(hostPortsCopy, hostPorts)
 
-	for i := 0; i < len(hostPortsCopy); i++ {
-		parts := strings.Split(hostPortsCopy[i], ":")
+	for i, hostPortStr := range hostPortsCopy {
+		parts := strings.Split(hostPortStr, ":")
 		var hostPort, nodePort int
 		protocol := "tcp"
 
@@ -130,7 +128,7 @@ func (s *TalosService) SetAddress(address string) error {
 				}
 			}
 		default:
-			return fmt.Errorf("invalid hostPort format: %s", hostPortsCopy[i])
+			return fmt.Errorf("invalid hostPort format: %s", hostPortStr)
 		}
 
 		// Check for conflicts in hostPort
@@ -233,7 +231,7 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 
 	serviceConfig := commonConfig
 	serviceConfig.Name = nodeName
-	s.SetName(nodeName) // Set the name so GetContainerName works correctly
+	s.SetName(nodeName)
 	serviceConfig.ContainerName = s.GetContainerName()
 	serviceConfig.Hostname = nodeName
 	serviceConfig.Environment = map[string]*string{
@@ -249,7 +247,7 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	}
 	defaultAPIPortUint32 := uint32(defaultAPIPort)
 
-	if s.IsLocalhostMode() {
+	if s.isLocalhostMode() {
 		ports = append(ports, types.ServicePortConfig{
 			Target:    defaultAPIPortUint32,
 			Published: publishedPort,
@@ -290,6 +288,19 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	}
 
 	serviceConfig.Ports = ports
+
+	dnsAddress := s.configHandler.GetString("dns.address")
+	if dnsAddress != "" {
+		if serviceConfig.DNS == nil {
+			serviceConfig.DNS = []string{}
+		}
+
+		dnsExists := slices.Contains(serviceConfig.DNS, dnsAddress)
+
+		if !dnsExists {
+			serviceConfig.DNS = append(serviceConfig.DNS, dnsAddress)
+		}
+	}
 
 	volumesMap := map[string]types.VolumeConfig{
 		strings.ReplaceAll(nodeName+"_system_state", "-", "_"):           {},

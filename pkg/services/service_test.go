@@ -212,12 +212,12 @@ func TestBaseService_IsLocalhostMode(t *testing.T) {
 			return ""
 		}
 
-		// When: IsLocalhostMode is called
-		isLocal := service.IsLocalhostMode()
+		// When: isLocalhostMode is called
+		isLocal := service.isLocalhostMode()
 
 		// Then: the result should be true for docker-desktop
 		if !isLocal {
-			t.Fatal("expected IsLocalhostMode to be true for docker-desktop driver")
+			t.Fatal("expected isLocalhostMode to be true for docker-desktop driver")
 		}
 	})
 
@@ -240,12 +240,12 @@ func TestBaseService_IsLocalhostMode(t *testing.T) {
 			return ""
 		}
 
-		// When: IsLocalhostMode is called
-		isLocal := service.IsLocalhostMode()
+		// When: isLocalhostMode is called
+		isLocal := service.isLocalhostMode()
 
 		// Then: the result should be false for non-docker-desktop driver
 		if isLocal {
-			t.Fatal("expected IsLocalhostMode to be false for non-docker-desktop driver")
+			t.Fatal("expected isLocalhostMode to be false for non-docker-desktop driver")
 		}
 	})
 }

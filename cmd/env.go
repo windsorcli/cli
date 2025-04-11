@@ -58,6 +58,26 @@ var envCmd = &cobra.Command{
 			}
 		}
 
+		// Resolve config handler to check vm.driver
+		vmDriver := configHandler.GetString("vm.driver")
+
+		// Create virtualization and service components only if vm.driver is configured
+		if vmDriver != "" {
+			if err := controller.CreateVirtualizationComponents(); err != nil {
+				if verbose {
+					return fmt.Errorf("Error creating virtualization components: %w", err)
+				}
+				return nil
+			}
+
+			if err := controller.CreateServiceComponents(); err != nil {
+				if verbose {
+					return fmt.Errorf("Error creating service components: %w", err)
+				}
+				return nil
+			}
+		}
+
 		// Create environment components
 		if err := controller.CreateEnvComponents(); err != nil {
 			if verbose {
@@ -84,26 +104,6 @@ var envCmd = &cobra.Command{
 				return fmt.Errorf("Error resolving environment printers: no printers returned")
 			}
 			return nil
-		}
-
-		// Resolve config handler to check vm.driver
-		vmDriver := configHandler.GetString("vm.driver")
-
-		// Create virtualization and service components only if vm.driver is configured
-		if vmDriver != "" {
-			if err := controller.CreateVirtualizationComponents(); err != nil {
-				if verbose {
-					return fmt.Errorf("Error creating virtualization components: %w", err)
-				}
-				return nil
-			}
-
-			if err := controller.CreateServiceComponents(); err != nil {
-				if verbose {
-					return fmt.Errorf("Error creating service components: %w", err)
-				}
-				return nil
-			}
 		}
 
 		// Check if --decrypt flag is set

@@ -35,8 +35,11 @@ type Service interface {
 	// Initialize performs any necessary initialization for the service.
 	Initialize() error
 
-	// IsLocalhostMode checks if we are in localhost mode (vm.driver == "docker-desktop")
-	IsLocalhostMode() bool
+	// SupportsWildcard returns whether the service supports wildcard DNS entries
+	SupportsWildcard() bool
+
+	// GetHostname returns the hostname for the service, which may include domain processing
+	GetHostname() string
 }
 
 // BaseService is a base implementation of the Service interface
@@ -102,7 +105,18 @@ func (s *BaseService) GetContainerName() string {
 }
 
 // IsLocalhostMode checks if we are in localhost mode (vm.driver == "docker-desktop")
-func (s *BaseService) IsLocalhostMode() bool {
+func (s *BaseService) isLocalhostMode() bool {
 	vmDriver := s.configHandler.GetString("vm.driver")
 	return vmDriver == "docker-desktop"
+}
+
+// SupportsWildcard returns whether the service supports wildcard DNS entries
+func (s *BaseService) SupportsWildcard() bool {
+	return false
+}
+
+// GetHostname returns the hostname for the service with the configured TLD
+func (s *BaseService) GetHostname() string {
+	tld := s.configHandler.GetString("dns.domain", "test")
+	return s.name + "." + tld
 }

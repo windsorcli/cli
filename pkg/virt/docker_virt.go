@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -382,18 +381,6 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 					networkCIDR := v.configHandler.GetString("network.cidr_block")
 					if networkCIDR != "" && ipAddress != "" {
 						containerConfig.Networks[networkName].Ipv4Address = ipAddress
-					}
-
-					if dnsEnabled && dnsAddress != "" {
-						if containerConfig.DNS == nil {
-							containerConfig.DNS = []string{}
-						}
-
-						dnsExists := slices.Contains(containerConfig.DNS, dnsAddress)
-
-						if !dnsExists {
-							containerConfig.DNS = append(containerConfig.DNS, dnsAddress)
-						}
 					}
 
 					combinedServices = append(combinedServices, containerConfig)
