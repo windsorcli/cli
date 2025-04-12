@@ -113,7 +113,8 @@ func (t *BaseToolsManager) Check() error {
 			return fmt.Errorf("colima check failed: %v", err)
 		}
 	}
-	if len(t.configHandler.GetStringMap("1password.vaults")) > 0 {
+
+	if vaults := t.configHandler.Get(fmt.Sprintf("contexts.%s.secrets.onepassword.vaults", t.configHandler.GetContext())); vaults != nil {
 		if err := t.checkOnePassword(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
@@ -159,10 +160,7 @@ func (t *BaseToolsManager) checkDocker() error {
 
 	output, _ := t.shell.ExecSilent("docker", "version", "--format", "{{.Client.Version}}")
 	dockerVersion := extractVersion(output)
-	if dockerVersion == "" {
-		return fmt.Errorf("failed to extract Docker version")
-	}
-	if compareVersion(dockerVersion, constants.MINIMUM_VERSION_DOCKER) < 0 {
+	if dockerVersion != "" && compareVersion(dockerVersion, constants.MINIMUM_VERSION_DOCKER) < 0 {
 		return fmt.Errorf("docker version %s is below the minimum required version %s", dockerVersion, constants.MINIMUM_VERSION_DOCKER)
 	}
 
@@ -289,13 +287,19 @@ func (t *BaseToolsManager) checkOnePassword() error {
 	if _, err := execLookPath("op"); err != nil {
 		return fmt.Errorf("1Password CLI is not available in the PATH")
 	}
-	output, _ := t.shell.ExecSilent("op", "--version")
-	opVersion := extractVersion(output)
-	if opVersion == "" {
+
+	out, err := t.shell.ExecSilent("op", "--version")
+	if err != nil {
+		return fmt.Errorf("1Password CLI is not available in the PATH")
+	}
+
+	version := extractVersion(out)
+	if version == "" {
 		return fmt.Errorf("failed to extract 1Password CLI version")
 	}
-	if compareVersion(opVersion, constants.MINIMUM_VERSION_1PASSWORD) < 0 {
-		return fmt.Errorf("1Password CLI version %s is below the minimum required version %s", opVersion, constants.MINIMUM_VERSION_1PASSWORD)
+
+	if compareVersion(version, constants.MINIMUM_VERSION_1PASSWORD) < 0 {
+		return fmt.Errorf("1Password CLI version %s is below the minimum required version %s", version, constants.MINIMUM_VERSION_1PASSWORD)
 	}
 
 	return nil
@@ -320,11 +324,9 @@ func compareVersion(version1, version2 string) int {
 	v1 := strings.Split(main1, ".")
 	v2 := strings.Split(main2, ".")
 	length := len(v1)
-	if len(v2) > length {
-		length = len(v2)
-	}
+	length = max(length, len(v2))
 
-	for i := 0; i < length; i++ {
+	for i := range make([]int, length) {
 		var comp1, comp2 int
 
 		if i < len(v1) {
