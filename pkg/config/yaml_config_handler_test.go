@@ -1672,3 +1672,75 @@ func TestAssignValue(t *testing.T) {
 		}
 	})
 }
+
+func TestYamlConfigHandler_LoadConfigString(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		handler.SetContext("test")
+
+		yamlContent := `
+version: v1alpha1
+contexts:
+  test:
+    environment:
+      TEST_VAR: test_value`
+
+		err := handler.LoadConfigString(yamlContent)
+		if err != nil {
+			t.Fatalf("LoadConfigString() unexpected error: %v", err)
+		}
+
+		value := handler.GetString("environment.TEST_VAR")
+		if value != "test_value" {
+			t.Errorf("Expected TEST_VAR = 'test_value', got '%s'", value)
+		}
+	})
+
+	t.Run("EmptyContent", func(t *testing.T) {
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+
+		err := handler.LoadConfigString("")
+		if err != nil {
+			t.Fatalf("LoadConfigString() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("InvalidYAML", func(t *testing.T) {
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+
+		yamlContent := `invalid: yaml: content: [}`
+
+		err := handler.LoadConfigString(yamlContent)
+		if err == nil {
+			t.Fatal("LoadConfigString() expected error for invalid YAML")
+		}
+		if !strings.Contains(err.Error(), "error unmarshalling yaml") {
+			t.Errorf("Expected error about invalid YAML, got: %v", err)
+		}
+	})
+
+	t.Run("UnsupportedVersion", func(t *testing.T) {
+		mocks := setupSafeMocks()
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+
+		yamlContent := `
+version: v2alpha1
+contexts:
+  test: {}`
+
+		err := handler.LoadConfigString(yamlContent)
+		if err == nil {
+			t.Fatal("LoadConfigString() expected error for unsupported version")
+		}
+		if !strings.Contains(err.Error(), "unsupported config version") {
+			t.Errorf("Expected error about unsupported version, got: %v", err)
+		}
+	})
+}
