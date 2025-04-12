@@ -14,6 +14,7 @@ import (
 
 var (
 	globalClient *onepassword.Client
+	globalCtx    context.Context
 	clientLock   sync.Mutex
 )
 
@@ -21,9 +22,7 @@ var (
 // that uses the 1Password SDK to manage secrets.
 type OnePasswordSDKSecretsProvider struct {
 	*BaseSecretsProvider
-	vault  secretsConfigType.OnePasswordVault
-	client *onepassword.Client
-	ctx    context.Context
+	vault secretsConfigType.OnePasswordVault
 }
 
 // NewOnePasswordSDKSecretsProvider creates a new OnePasswordSDKSecretsProvider instance
@@ -32,7 +31,6 @@ func NewOnePasswordSDKSecretsProvider(vault secretsConfigType.OnePasswordVault, 
 	return &OnePasswordSDKSecretsProvider{
 		BaseSecretsProvider: baseProvider,
 		vault:               vault,
-		ctx:                 context.Background(),
 	}
 }
 
@@ -51,13 +49,16 @@ func (s *OnePasswordSDKSecretsProvider) Initialize() error {
 	return nil
 }
 
-// GetSecret retrieves a secret value for the specified key
+// GetSecret retrieves a secret value for the specified key. It first checks if the provider is unlocked.
+// If not, it returns a masked value. It then ensures the 1Password client is initialized using a
+// service account token from the environment. The key is split into item and field parts, and the
+// item name is sanitized. A secret reference URI is constructed and used to resolve the secret value
+// from 1Password. If successful, the secret value is returned; otherwise, an error is reported.
 func (s *OnePasswordSDKSecretsProvider) GetSecret(key string) (string, error) {
 	if !s.isUnlocked() {
 		return "********", nil
 	}
 
-	// Get the service account token from environment
 	token := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN")
 	if token == "" {
 		return "", fmt.Errorf("OP_SERVICE_ACCOUNT_TOKEN environment variable is required for 1Password SDK")
@@ -67,8 +68,9 @@ func (s *OnePasswordSDKSecretsProvider) GetSecret(key string) (string, error) {
 	defer clientLock.Unlock()
 
 	if globalClient == nil {
+		globalCtx = context.Background()
 		client, err := newOnePasswordClient(
-			s.ctx,
+			globalCtx,
 			onepassword.WithServiceAccountToken(token),
 			onepassword.WithIntegrationInfo("windsor-cli", version),
 		)
@@ -79,7 +81,6 @@ func (s *OnePasswordSDKSecretsProvider) GetSecret(key string) (string, error) {
 			return "", fmt.Errorf("failed to create 1Password client: client is nil")
 		}
 		globalClient = client
-		s.client = globalClient
 	}
 
 	parts := strings.SplitN(key, ".", 2)
@@ -90,9 +91,11 @@ func (s *OnePasswordSDKSecretsProvider) GetSecret(key string) (string, error) {
 	itemName := parts[0]
 	fieldName := parts[1]
 
-	// Use secret reference URI format: op://vault/item/field
-	secretRef := fmt.Sprintf("op://%s/%s/%s", s.vault.ID, itemName, fieldName)
-	value, err := resolveSecret(s.client, s.ctx, secretRef)
+	// Construct the secret reference URI
+	secretRef := fmt.Sprintf("op://%s/%s/%s", s.vault.Name, itemName, fieldName)
+
+	// Resolve the secret using the SDK
+	value, err := resolveSecret(globalClient, globalCtx, secretRef)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve secret: %w", err)
 	}

@@ -135,6 +135,18 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 			return "secret-value", nil
 		}
 
+		// Initialize the global client
+		client, err := newOnePasswordClient(context.Background(), onepassword.WithServiceAccountToken("test-token"))
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+		globalClient = client
+
+		// Initialize the provider
+		if err := provider.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize provider: %v", err)
+		}
+
 		// Call GetSecret
 		value, err := provider.GetSecret("test-secret.password")
 
