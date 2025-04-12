@@ -40,6 +40,13 @@ contexts:
 func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	t.Helper()
 
+	// Store original working directory
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	// Create temp dir using testing.TempDir()
 	tmpDir := t.TempDir()
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatalf("Failed to change to temp directory: %v", err)
@@ -125,16 +132,13 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	}
 
 	t.Cleanup(func() {
-		// Restore original functions
 		execLookPath = originalExecLookPath
 		osStat = originalOsStat
 
-		// Clear environment variables
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
 
-		// Change back to original directory before cleanup
-		if err := os.Chdir(".."); err != nil {
-			t.Logf("Warning: Failed to change directory before cleanup: %v", err)
+		if err := os.Chdir(origDir); err != nil {
+			t.Logf("Warning: Failed to change back to original directory: %v", err)
 		}
 	})
 
