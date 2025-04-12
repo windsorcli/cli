@@ -6,6 +6,7 @@ nav:
     - 'Contexts': guides/contexts.md
     - 'Environment Injection': guides/environment-injection.md
     - 'Local Workstation': guides/local-workstation.md
+    - 'Secrets Management': guides/secrets-management.md
     - 'Terraform': guides/terraform.md
     - 'Kustomize': guides/kustomize.md
   - 'Tutorial': 
