@@ -16,8 +16,8 @@ import (
 
 // Initialize the global port settings
 var (
-	nextAPIPort        = 50001
-	defaultAPIPort     = 50000
+	nextAPIPort        = constants.DEFAULT_TALOS_API_PORT + 1
+	defaultAPIPort     = constants.DEFAULT_TALOS_API_PORT
 	portLock           sync.Mutex
 	extraPortIndex     = 0
 	controlPlaneLeader *TalosService
@@ -150,11 +150,11 @@ func (s *TalosService) SetAddress(address string) error {
 // GetComposeConfig creates a Docker Compose configuration for Talos services.
 // It dynamically retrieves CPU and RAM settings based on whether the node is a worker
 // or part of the control plane. The function identifies endpoint ports for service communication and ensures
-// that all necessary volume directories are defined. It configures the container with the latest image,
+// that all necessary volume directories are defined. It configures the container with the appropriate image
+// (prioritizing node-specific, then group-specific, then cluster-wide, and finally default image settings),
 // environment variables, security options, and volume mounts. The service name is constructed using the node
 // name, and port mappings are set up, including both default and node-specific ports. The resulting configuration
-// provides comprehensive service and volume specifications for deployment, ensuring compatibility with the
-// docker-compose.yml file.
+// provides comprehensive service and volume specifications for deployment.
 func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	config := s.configHandler.GetConfig()
 	if config.Cluster == nil {
@@ -186,8 +186,27 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		publishedPort = parts[1]
 	}
 
+	var image string
+
+	nodeImage := s.configHandler.GetString(fmt.Sprintf("cluster.%s.nodes.%s.image", nodeType, nodeName), "")
+	if nodeImage != "" {
+		image = nodeImage
+	} else {
+		groupImage := s.configHandler.GetString(fmt.Sprintf("cluster.%s.image", nodeType), "")
+		if groupImage != "" {
+			image = groupImage
+		} else {
+			clusterImage := s.configHandler.GetString("cluster.image", "")
+			if clusterImage != "" {
+				image = clusterImage
+			} else {
+				image = constants.DEFAULT_TALOS_IMAGE
+			}
+		}
+	}
+
 	commonConfig := types.ServiceConfig{
-		Image:       constants.DEFAULT_TALOS_IMAGE,
+		Image:       image,
 		Environment: map[string]*string{"PLATFORM": ptrString("container")},
 		Restart:     "always",
 		ReadOnly:    true,

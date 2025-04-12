@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -50,7 +51,7 @@ func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 		switch key {
 		case "cluster.workers.nodes.worker1.endpoint":
-			return "192.168.1.1:50000"
+			return "192.168.1.1:" + strconv.Itoa(constants.DEFAULT_TALOS_API_PORT)
 		case "cluster.workers.nodes.worker2.endpoint":
 			return "192.168.1.2:50001"
 		case "dns.domain":
@@ -483,7 +484,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Simulate used ports to trigger the loop
-		usedHostPorts[50000] = true // Ensure the defaultAPIPort is also marked as used
+		usedHostPorts[constants.DEFAULT_TALOS_API_PORT] = true // Ensure the defaultAPIPort is also marked as used
 		usedHostPorts[50001] = true
 		usedHostPorts[50002] = true
 
@@ -956,7 +957,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		foundAPIPort := false
 		foundKubePort := false
 		for _, port := range serviceConfig.Ports {
-			if port.Target == 50000 && port.Protocol == "tcp" {
+			if port.Target == uint32(constants.DEFAULT_TALOS_API_PORT) && port.Protocol == "tcp" {
 				foundAPIPort = true
 			}
 			if port.Target == 6443 && port.Published == "6443" && port.Protocol == "tcp" {
@@ -1014,7 +1015,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 		// Verify only API port is present
 		port := serviceConfig.Ports[0]
-		if port.Target != 50000 || port.Protocol != "tcp" {
+		if port.Target != uint32(constants.DEFAULT_TALOS_API_PORT) || port.Protocol != "tcp" {
 			t.Errorf("expected API port configuration, got target=%d protocol=%s", port.Target, port.Protocol)
 		}
 	})
@@ -1108,8 +1109,8 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		if len(ports1) != 1 {
 			t.Fatalf("expected 1 port in service1, got %d", len(ports1))
 		}
-		if ports1[0].Target != 50000 || ports1[0].Published != "50001" {
-			t.Errorf("expected port 50000:50001 in service1, got %d:%s", ports1[0].Target, ports1[0].Published)
+		if ports1[0].Target != uint32(constants.DEFAULT_TALOS_API_PORT) || ports1[0].Published != "50001" {
+			t.Errorf("expected port %d:50001 in service1, got %d:%s", constants.DEFAULT_TALOS_API_PORT, ports1[0].Target, ports1[0].Published)
 		}
 
 		// Check ports for second service
@@ -1117,8 +1118,8 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		if len(ports2) != 1 {
 			t.Fatalf("expected 1 port in service2, got %d", len(ports2))
 		}
-		if ports2[0].Target != 50000 || ports2[0].Published != "50002" {
-			t.Errorf("expected port 50000:50002 in service2, got %d:%s", ports2[0].Target, ports2[0].Published)
+		if ports2[0].Target != uint32(constants.DEFAULT_TALOS_API_PORT) || ports2[0].Published != "50002" {
+			t.Errorf("expected port %d:50002 in service2, got %d:%s", constants.DEFAULT_TALOS_API_PORT, ports2[0].Target, ports2[0].Published)
 		}
 	})
 

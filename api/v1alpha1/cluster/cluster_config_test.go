@@ -24,10 +24,12 @@ func TestClusterConfig_Merge(t *testing.T) {
 			Driver:   ptrString("base-driver"),
 			Platform: ptrString("base-platform"),
 			Endpoint: ptrString("base-endpoint"),
+			Image:    ptrString("base-image"),
 			ControlPlanes: struct {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
+				Image     *string               `yaml:"image,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
@@ -35,9 +37,11 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Count:  ptrInt(3),
 				CPU:    ptrInt(4),
 				Memory: ptrInt(8192),
+				Image:  ptrString("base-controlplane-image"),
 				Nodes: map[string]NodeConfig{
 					"node1": {
 						Hostname: ptrString("base-node1"),
+						Image:    ptrString("base-node1-image"),
 					},
 				},
 				HostPorts: []string{"1000:1000/tcp", "2000:2000/tcp"},
@@ -47,6 +51,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
+				Image     *string               `yaml:"image,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
@@ -54,9 +59,11 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Count:  ptrInt(5),
 				CPU:    ptrInt(2),
 				Memory: ptrInt(4096),
+				Image:  ptrString("base-worker-image"),
 				Nodes: map[string]NodeConfig{
 					"worker1": {
 						Hostname: ptrString("base-worker1"),
+						Image:    ptrString("base-worker1-image"),
 					},
 				},
 				HostPorts: []string{"8080", "9090"},
@@ -69,10 +76,12 @@ func TestClusterConfig_Merge(t *testing.T) {
 			Driver:   ptrString("overlay-driver"),
 			Platform: ptrString("overlay-platform"),
 			Endpoint: ptrString("overlay-endpoint"),
+			Image:    ptrString("overlay-image"),
 			ControlPlanes: struct {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
+				Image     *string               `yaml:"image,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
@@ -80,9 +89,11 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Count:  ptrInt(1),
 				CPU:    ptrInt(2),
 				Memory: ptrInt(4096),
+				Image:  ptrString("overlay-controlplane-image"),
 				Nodes: map[string]NodeConfig{
 					"node2": {
 						Hostname: ptrString("overlay-node2"),
+						Image:    ptrString("overlay-node2-image"),
 					},
 				},
 				HostPorts: []string{"3000:3000/tcp", "4000:4000/tcp"},
@@ -92,6 +103,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
+				Image     *string               `yaml:"image,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
@@ -99,9 +111,11 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Count:  ptrInt(3),
 				CPU:    ptrInt(1),
 				Memory: ptrInt(2048),
+				Image:  ptrString("overlay-worker-image"),
 				Nodes: map[string]NodeConfig{
 					"worker2": {
 						Hostname: ptrString("overlay-worker2"),
+						Image:    ptrString("overlay-worker2-image"),
 					},
 				},
 				HostPorts: []string{"8082", "9092"},
@@ -123,6 +137,9 @@ func TestClusterConfig_Merge(t *testing.T) {
 		if base.Endpoint == nil || *base.Endpoint != "overlay-endpoint" {
 			t.Errorf("Endpoint mismatch: expected 'overlay-endpoint', got '%s'", *base.Endpoint)
 		}
+		if base.Image == nil || *base.Image != "overlay-image" {
+			t.Errorf("Image mismatch: expected 'overlay-image', got '%s'", *base.Image)
+		}
 		if len(base.ControlPlanes.HostPorts) != 2 || base.ControlPlanes.HostPorts[0] != "3000:3000/tcp" || base.ControlPlanes.HostPorts[1] != "4000:4000/tcp" {
 			t.Errorf("ControlPlanes HostPorts mismatch: expected ['3000:3000/tcp', '4000:4000/tcp'], got %v", base.ControlPlanes.HostPorts)
 		}
@@ -138,8 +155,14 @@ func TestClusterConfig_Merge(t *testing.T) {
 		if base.ControlPlanes.Memory == nil || *base.ControlPlanes.Memory != 4096 {
 			t.Errorf("ControlPlanes Memory mismatch: expected 4096, got %v", *base.ControlPlanes.Memory)
 		}
+		if base.ControlPlanes.Image == nil || *base.ControlPlanes.Image != "overlay-controlplane-image" {
+			t.Errorf("ControlPlanes Image mismatch: expected 'overlay-controlplane-image', got '%s'", *base.ControlPlanes.Image)
+		}
 		if len(base.ControlPlanes.Nodes) != 1 || base.ControlPlanes.Nodes["node2"].Hostname == nil || *base.ControlPlanes.Nodes["node2"].Hostname != "overlay-node2" {
 			t.Errorf("ControlPlanes Nodes mismatch: expected 'overlay-node2', got %v", base.ControlPlanes.Nodes)
+		}
+		if base.ControlPlanes.Nodes["node2"].Image == nil || *base.ControlPlanes.Nodes["node2"].Image != "overlay-node2-image" {
+			t.Errorf("ControlPlanes Nodes Image mismatch: expected 'overlay-node2-image', got '%s'", *base.ControlPlanes.Nodes["node2"].Image)
 		}
 		if base.Workers.Count == nil || *base.Workers.Count != 3 {
 			t.Errorf("Workers Count mismatch: expected 3, got %v", *base.Workers.Count)
@@ -150,8 +173,14 @@ func TestClusterConfig_Merge(t *testing.T) {
 		if base.Workers.Memory == nil || *base.Workers.Memory != 2048 {
 			t.Errorf("Workers Memory mismatch: expected 2048, got %v", *base.Workers.Memory)
 		}
+		if base.Workers.Image == nil || *base.Workers.Image != "overlay-worker-image" {
+			t.Errorf("Workers Image mismatch: expected 'overlay-worker-image', got '%s'", *base.Workers.Image)
+		}
 		if len(base.Workers.Nodes) != 1 || base.Workers.Nodes["worker2"].Hostname == nil || *base.Workers.Nodes["worker2"].Hostname != "overlay-worker2" {
 			t.Errorf("Workers Nodes mismatch: expected 'overlay-worker2', got %v", base.Workers.Nodes)
+		}
+		if base.Workers.Nodes["worker2"].Image == nil || *base.Workers.Nodes["worker2"].Image != "overlay-worker2-image" {
+			t.Errorf("Workers Nodes Image mismatch: expected 'overlay-worker2-image', got '%s'", *base.Workers.Nodes["worker2"].Image)
 		}
 		if len(base.Workers.Volumes) != 1 || base.Workers.Volumes[0] != "${WINDSOR_PROJECT_ROOT}/overlay/worker/volume2:/var/local/worker2" {
 			t.Errorf("Workers Volumes mismatch: expected ['${WINDSOR_PROJECT_ROOT}/overlay/worker/volume2:/var/local/worker2'], got %v", base.Workers.Volumes)
@@ -164,10 +193,12 @@ func TestClusterConfig_Merge(t *testing.T) {
 			Driver:   nil,
 			Platform: nil,
 			Endpoint: nil,
+			Image:    nil,
 			ControlPlanes: struct {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
+				Image     *string               `yaml:"image,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
@@ -175,6 +206,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Count:     nil,
 				CPU:       nil,
 				Memory:    nil,
+				Image:     nil,
 				Nodes:     nil,
 				HostPorts: nil,
 				Volumes:   nil,
@@ -183,6 +215,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
+				Image     *string               `yaml:"image,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
@@ -190,6 +223,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Count:     nil,
 				CPU:       nil,
 				Memory:    nil,
+				Image:     nil,
 				Nodes:     nil,
 				HostPorts: nil,
 				Volumes:   nil,
@@ -201,10 +235,12 @@ func TestClusterConfig_Merge(t *testing.T) {
 			Driver:   nil,
 			Platform: nil,
 			Endpoint: nil,
+			Image:    nil,
 			ControlPlanes: struct {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
+				Image     *string               `yaml:"image,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
@@ -212,6 +248,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Count:     nil,
 				CPU:       nil,
 				Memory:    nil,
+				Image:     nil,
 				Nodes:     nil,
 				HostPorts: nil,
 				Volumes:   nil,
@@ -220,6 +257,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
+				Image     *string               `yaml:"image,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
@@ -227,6 +265,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				Count:     nil,
 				CPU:       nil,
 				Memory:    nil,
+				Image:     nil,
 				Nodes:     nil,
 				HostPorts: nil,
 				Volumes:   nil,
@@ -247,6 +286,9 @@ func TestClusterConfig_Merge(t *testing.T) {
 		if base.Endpoint != nil {
 			t.Errorf("Endpoint mismatch: expected nil, got '%s'", *base.Endpoint)
 		}
+		if base.Image != nil {
+			t.Errorf("Image mismatch: expected nil, got '%s'", *base.Image)
+		}
 		if base.Workers.HostPorts != nil {
 			t.Errorf("Workers HostPorts mismatch: expected nil, got %v", base.Workers.HostPorts)
 		}
@@ -262,6 +304,9 @@ func TestClusterConfig_Merge(t *testing.T) {
 		if base.ControlPlanes.Memory != nil {
 			t.Errorf("ControlPlanes Memory mismatch: expected nil, got %v", *base.ControlPlanes.Memory)
 		}
+		if base.ControlPlanes.Image != nil {
+			t.Errorf("ControlPlanes Image mismatch: expected nil, got '%s'", *base.ControlPlanes.Image)
+		}
 		if base.ControlPlanes.Nodes != nil {
 			t.Errorf("ControlPlanes Nodes mismatch: expected nil, got %v", base.ControlPlanes.Nodes)
 		}
@@ -273,6 +318,9 @@ func TestClusterConfig_Merge(t *testing.T) {
 		}
 		if base.Workers.Memory != nil {
 			t.Errorf("Workers Memory mismatch: expected nil, got %v", *base.Workers.Memory)
+		}
+		if base.Workers.Image != nil {
+			t.Errorf("Workers Image mismatch: expected nil, got '%s'", *base.Workers.Image)
 		}
 		if base.Workers.Nodes != nil {
 			t.Errorf("Workers Nodes mismatch: expected nil, got %v", base.Workers.Nodes)
@@ -290,10 +338,12 @@ func TestClusterConfig_Copy(t *testing.T) {
 			Driver:   ptrString("original-driver"),
 			Platform: ptrString("original-platform"),
 			Endpoint: ptrString("original-endpoint"),
+			Image:    ptrString("original-image"),
 			ControlPlanes: struct {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
+				Image     *string               `yaml:"image,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
@@ -301,9 +351,11 @@ func TestClusterConfig_Copy(t *testing.T) {
 				Count:  ptrInt(3),
 				CPU:    ptrInt(4),
 				Memory: ptrInt(8192),
+				Image:  ptrString("original-controlplane-image"),
 				Nodes: map[string]NodeConfig{
 					"node1": {
 						Hostname: ptrString("original-node1"),
+						Image:    ptrString("original-node1-image"),
 					},
 				},
 				HostPorts: []string{"1000:1000/tcp", "2000:2000/tcp"},
@@ -313,6 +365,7 @@ func TestClusterConfig_Copy(t *testing.T) {
 				Count     *int                  `yaml:"count,omitempty"`
 				CPU       *int                  `yaml:"cpu,omitempty"`
 				Memory    *int                  `yaml:"memory,omitempty"`
+				Image     *string               `yaml:"image,omitempty"`
 				Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 				HostPorts []string              `yaml:"hostports,omitempty"`
 				Volumes   []string              `yaml:"volumes,omitempty"`
@@ -320,9 +373,11 @@ func TestClusterConfig_Copy(t *testing.T) {
 				Count:  ptrInt(5),
 				CPU:    ptrInt(2),
 				Memory: ptrInt(4096),
+				Image:  ptrString("original-worker-image"),
 				Nodes: map[string]NodeConfig{
 					"worker1": {
 						Hostname: ptrString("original-worker1"),
+						Image:    ptrString("original-worker1-image"),
 					},
 				},
 				HostPorts: []string{"3000:3000/tcp", "4000:4000/tcp"},
@@ -344,6 +399,9 @@ func TestClusterConfig_Copy(t *testing.T) {
 		if original.Endpoint == nil || copy.Endpoint == nil || *original.Endpoint != *copy.Endpoint {
 			t.Errorf("Endpoint mismatch: expected %v, got %v", *original.Endpoint, *copy.Endpoint)
 		}
+		if original.Image == nil || copy.Image == nil || *original.Image != *copy.Image {
+			t.Errorf("Image mismatch: expected %v, got %v", *original.Image, *copy.Image)
+		}
 		if len(original.Workers.HostPorts) != len(copy.Workers.HostPorts) {
 			t.Errorf("Workers HostPorts length mismatch: expected %d, got %d", len(original.Workers.HostPorts), len(copy.Workers.HostPorts))
 		}
@@ -360,6 +418,9 @@ func TestClusterConfig_Copy(t *testing.T) {
 		}
 		if original.Workers.Memory == nil || copy.Workers.Memory == nil || *original.Workers.Memory != *copy.Workers.Memory {
 			t.Errorf("Workers Memory mismatch: expected %v, got %v", *original.Workers.Memory, *copy.Workers.Memory)
+		}
+		if original.Workers.Image == nil || copy.Workers.Image == nil || *original.Workers.Image != *copy.Workers.Image {
+			t.Errorf("Workers Image mismatch: expected %v, got %v", *original.Workers.Image, *copy.Workers.Image)
 		}
 		if len(original.Workers.Nodes) != len(copy.Workers.Nodes) {
 			t.Errorf("Workers Nodes length mismatch: expected %d, got %d", len(original.Workers.Nodes), len(copy.Workers.Nodes))
@@ -382,6 +443,9 @@ func TestClusterConfig_Copy(t *testing.T) {
 		if original.ControlPlanes.Memory == nil || copy.ControlPlanes.Memory == nil || *original.ControlPlanes.Memory != *copy.ControlPlanes.Memory {
 			t.Errorf("ControlPlanes Memory mismatch: expected %v, got %v", *original.ControlPlanes.Memory, *copy.ControlPlanes.Memory)
 		}
+		if original.ControlPlanes.Image == nil || copy.ControlPlanes.Image == nil || *original.ControlPlanes.Image != *copy.ControlPlanes.Image {
+			t.Errorf("ControlPlanes Image mismatch: expected %v, got %v", *original.ControlPlanes.Image, *copy.ControlPlanes.Image)
+		}
 		if len(original.ControlPlanes.Nodes) != len(copy.ControlPlanes.Nodes) {
 			t.Errorf("ControlPlanes Nodes length mismatch: expected %d, got %d", len(original.ControlPlanes.Nodes), len(copy.ControlPlanes.Nodes))
 		}
@@ -389,6 +453,9 @@ func TestClusterConfig_Copy(t *testing.T) {
 			if node.Hostname == nil || copy.ControlPlanes.Nodes[key].Hostname == nil || *node.Hostname != *copy.ControlPlanes.Nodes[key].Hostname {
 				t.Errorf("ControlPlanes Nodes mismatch for key %s: expected %v, got %v", key, *node.Hostname, *copy.ControlPlanes.Nodes[key].Hostname)
 			}
+		}
+		if original.ControlPlanes.Nodes["node1"].Image == nil || copy.ControlPlanes.Nodes["node1"].Image == nil || *original.ControlPlanes.Nodes["node1"].Image != *copy.ControlPlanes.Nodes["node1"].Image {
+			t.Errorf("ControlPlanes Nodes Image mismatch: expected %v, got %v", *original.ControlPlanes.Nodes["node1"].Image, *copy.ControlPlanes.Nodes["node1"].Image)
 		}
 		if original.Workers.Count == nil || copy.Workers.Count == nil || *original.Workers.Count != *copy.Workers.Count {
 			t.Errorf("Workers Count mismatch: expected %v, got %v", *original.Workers.Count, *copy.Workers.Count)
@@ -399,6 +466,9 @@ func TestClusterConfig_Copy(t *testing.T) {
 		if original.Workers.Memory == nil || copy.Workers.Memory == nil || *original.Workers.Memory != *copy.Workers.Memory {
 			t.Errorf("Workers Memory mismatch: expected %v, got %v", *original.Workers.Memory, *copy.Workers.Memory)
 		}
+		if original.Workers.Image == nil || copy.Workers.Image == nil || *original.Workers.Image != *copy.Workers.Image {
+			t.Errorf("Workers Image mismatch: expected %v, got %v", *original.Workers.Image, *copy.Workers.Image)
+		}
 		if len(original.Workers.Nodes) != len(copy.Workers.Nodes) {
 			t.Errorf("Workers Nodes length mismatch: expected %d, got %d", len(original.Workers.Nodes), len(copy.Workers.Nodes))
 		}
@@ -406,6 +476,12 @@ func TestClusterConfig_Copy(t *testing.T) {
 			if node.Hostname == nil || copy.Workers.Nodes[key].Hostname == nil || *node.Hostname != *copy.Workers.Nodes[key].Hostname {
 				t.Errorf("Workers Nodes mismatch for key %s: expected %v, got %v", key, *node.Hostname, *copy.Workers.Nodes[key].Hostname)
 			}
+		}
+		if original.ControlPlanes.Nodes["node1"].Image == nil || copy.ControlPlanes.Nodes["node1"].Image == nil || *original.ControlPlanes.Nodes["node1"].Image != *copy.ControlPlanes.Nodes["node1"].Image {
+			t.Errorf("ControlPlanes Nodes Image mismatch: expected %v, got %v", *original.ControlPlanes.Nodes["node1"].Image, *copy.ControlPlanes.Nodes["node1"].Image)
+		}
+		if original.Workers.Nodes["worker1"].Image == nil || copy.Workers.Nodes["worker1"].Image == nil || *original.Workers.Nodes["worker1"].Image != *copy.Workers.Nodes["worker1"].Image {
+			t.Errorf("Workers Nodes Image mismatch: expected %v, got %v", *original.Workers.Nodes["worker1"].Image, *copy.Workers.Nodes["worker1"].Image)
 		}
 
 		// Modify the copy and ensure original is unchanged
