@@ -14,7 +14,7 @@
         "request": "launch",
         "mode": "auto",
         "program": "${workspaceFolder}/cmd/windsor/main.go",
-        "args": ["env", "--verbose"],
+        "args": ["env", "--verbose", "--decrypt"],
         "env": {
           "WINDSOR_SESSION_TOKEN": "local"
         }

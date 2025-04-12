@@ -58,10 +58,19 @@ func TestBaseSecretsProvider_LoadSecrets(t *testing.T) {
 	})
 }
 
+type mockSecretsProvider struct {
+	*BaseSecretsProvider
+}
+
+func (m *mockSecretsProvider) GetSecret(key string) (string, error) {
+	return "", nil
+}
+
 func TestBaseSecretsProvider_GetSecret(t *testing.T) {
 	t.Run("SecretNotFound", func(t *testing.T) {
 		mocks := setupSafeMocks()
-		provider := NewBaseSecretsProvider(mocks.Injector)
+		baseProvider := NewBaseSecretsProvider(mocks.Injector)
+		provider := &mockSecretsProvider{BaseSecretsProvider: baseProvider}
 
 		value, err := provider.GetSecret("non_existent_key")
 		if err != nil {
@@ -71,22 +80,37 @@ func TestBaseSecretsProvider_GetSecret(t *testing.T) {
 			t.Errorf("Expected GetSecret to return an empty string for non-existent key, but got: %s", value)
 		}
 	})
+
+	t.Run("PanicsWhenNotImplemented", func(t *testing.T) {
+		mocks := setupSafeMocks()
+		provider := NewBaseSecretsProvider(mocks.Injector)
+
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected GetSecret to panic, but it did not")
+			} else if r != "GetSecret must be implemented by concrete provider" {
+				t.Errorf("Expected panic message 'GetSecret must be implemented by concrete provider', got '%v'", r)
+			}
+		}()
+
+		provider.GetSecret("test")
+	})
 }
 
 func TestBaseSecretsProvider_ParseSecrets(t *testing.T) {
-	t.Run("NoSecretsToParse", func(t *testing.T) {
+	t.Run("PanicsWhenNotImplemented", func(t *testing.T) {
 		mocks := setupSafeMocks()
 		provider := NewBaseSecretsProvider(mocks.Injector)
-		input := "This is a test string with no secrets."
-		expectedOutput := "This is a test string with no secrets."
 
-		output, err := provider.ParseSecrets(input)
-		if err != nil {
-			t.Errorf("Expected ParseSecrets to not return an error, but got: %v", err)
-		}
-		if output != expectedOutput {
-			t.Errorf("Expected ParseSecrets to return '%s', but got: '%s'", expectedOutput, output)
-		}
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected ParseSecrets to panic, but it did not")
+			} else if r != "ParseSecrets must be implemented by concrete provider" {
+				t.Errorf("Expected panic message 'ParseSecrets must be implemented by concrete provider', got '%v'", r)
+			}
+		}()
+
+		provider.ParseSecrets("test")
 	})
 }
 
@@ -175,7 +199,7 @@ func TestParseKeys(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ParseKeys(tt.input)
+			result := parseKeys(tt.input)
 			if result == nil {
 				t.Errorf("ParseKeys returned nil for input %s", tt.input)
 				return

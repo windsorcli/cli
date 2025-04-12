@@ -47,7 +47,7 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 
 	// Create necessary mocks
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockSecretsProvider := secrets.NewMockSecretsProvider()
+	mockSecretsProvider := secrets.NewMockSecretsProvider(injector)
 	mockEnvPrinter1 := env.NewMockEnvPrinter()
 	mockEnvPrinter2 := env.NewMockEnvPrinter()
 	// Use a mock instead of a real WindsorEnvPrinter
@@ -451,7 +451,7 @@ func TestController_InitializeComponents(t *testing.T) {
 		mocks := setSafeControllerMocks()
 		controller := NewController(mocks.Injector)
 		controller.Initialize()
-		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
 		mockSecretsProvider.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing secrets provider")
 		}

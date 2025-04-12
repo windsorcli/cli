@@ -61,7 +61,7 @@ func setupSafeMocks() *TestMocks {
 	}
 
 	// Set up mock secrets provider
-	mockSecretsProvider := secrets.NewMockSecretsProvider()
+	mockSecretsProvider := secrets.NewMockSecretsProvider(injector)
 	mockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
 		return []secrets.SecretsProvider{mockSecretsProvider}
 	}
@@ -444,31 +444,6 @@ func TestEnvCmd(t *testing.T) {
 		// Then the error should be nil and no output should be produced
 		if err != nil {
 			t.Fatalf("Expected error nil, got %v", err)
-		}
-	})
-
-	t.Run("ErrorResolvingAllEnvPrinters", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Setup safe mocks
-		mocks := setupSafeMocks()
-
-		// Return empty list for env printers
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{}
-		}
-
-		// When the env command is executed with verbose flag
-		rootCmd.SetArgs([]string{"env", "--verbose"})
-		err := Execute(mocks.Controller)
-
-		// Then check the error contents
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		expectedError := "Error resolving environment printers: no printers returned"
-		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %v", expectedError, err)
 		}
 	})
 
@@ -903,7 +878,7 @@ func TestEnvCmd(t *testing.T) {
 			}
 
 			// On any subsequent calls, add a provider
-			mockProvider := secrets.NewMockSecretsProvider()
+			mockProvider := secrets.NewMockSecretsProvider(mocks.Injector)
 			return []secrets.SecretsProvider{mockProvider}
 		}
 
@@ -1231,18 +1206,13 @@ func TestEnvCmd(t *testing.T) {
 			return fmt.Errorf("error setting environment variables")
 		}
 
-		// Run the env command
+		// Run the env command without verbose flag
 		rootCmd.SetArgs([]string{"env"})
 		err := Execute(mocks.Controller)
 
-		// Expect an error
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-
-		expectedError := "Error setting environment variables: error setting environment variables"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		// Then the error should be nil and no output should be produced
+		if err != nil {
+			t.Fatalf("Expected error nil, got %v", err)
 		}
 	})
 

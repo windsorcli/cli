@@ -59,12 +59,13 @@ func (e *WindsorEnvPrinter) Initialize() error {
 	return nil
 }
 
-// GetEnvVars constructs a map of Windsor-specific environment variables. It includes
-// the current context, project root, and session token. Custom environment variables
-// are also added, with secrets resolved using configured providers. Managed aliases
-// and environment variables are appended to ensure a complete environment setup.
-// This method ensures that all Windsor-prefixed variables and managed environment variables
-// are included in the final environment setup, providing a comprehensive configuration.
+// GetEnvVars constructs a map of Windsor-specific environment variables including
+// the current context, project root, and session token. It resolves secrets in custom
+// environment variables using configured providers, handles caching of values, and
+// manages environment variables and aliases. For secrets, it leverages the secrets cache
+// to avoid unnecessary decryption while ensuring variables are properly tracked in the
+// managed environment list. Windsor-prefixed variables are automatically included in
+// the final environment setup to provide a comprehensive configuration.
 func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
@@ -85,13 +86,20 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	originalEnvVars := e.configHandler.GetStringMap("environment")
 
-	// #nosec G101 # This is just a regular expression not a secret
 	re := regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
 
+	_, managedEnvExists := osLookupEnv("WINDSOR_MANAGED_ENV")
+
 	for k, v := range originalEnvVars {
+		if !managedEnvExists {
+			e.SetManagedEnv(k)
+		}
+
 		if re.MatchString(v) {
 			if existingValue, exists := osLookupEnv(k); exists {
-				e.SetManagedEnv(k)
+				if managedEnvExists {
+					e.SetManagedEnv(k)
+				}
 				if shouldUseCache() && !strings.Contains(existingValue, "<ERROR") {
 					continue
 				}
