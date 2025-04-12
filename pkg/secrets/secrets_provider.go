@@ -2,11 +2,14 @@ package secrets
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
+
+var version = "dev"
 
 // SecretsProvider defines the interface for handling secrets operations
 type SecretsProvider interface {
@@ -21,10 +24,14 @@ type SecretsProvider interface {
 
 	// ParseSecrets parses a string and replaces ${{ secrets.<key> }} references with their values
 	ParseSecrets(input string) (string, error)
+
+	// isUnlocked returns true if the secrets provider is locked (not unlocked)
+	isUnlocked() bool
 }
 
 // BaseSecretsProvider is a base implementation of the SecretsProvider interface
 type BaseSecretsProvider struct {
+	SecretsProvider
 	secrets  map[string]string
 	unlocked bool
 	shell    shell.Shell
@@ -68,20 +75,56 @@ func (s *BaseSecretsProvider) LoadSecrets() error {
 
 // GetSecret retrieves a secret value for the specified key
 func (s *BaseSecretsProvider) GetSecret(key string) (string, error) {
-	// Placeholder logic for retrieving a secret
-	return "", nil
+	panic("GetSecret must be implemented by concrete provider")
 }
 
 // ParseSecrets is a placeholder function for parsing secrets
 func (s *BaseSecretsProvider) ParseSecrets(input string) (string, error) {
-	// Placeholder logic for parsing secrets
-	return input, nil
+	panic("ParseSecrets must be implemented by concrete provider")
+}
+
+// isUnlocked returns true if the secrets provider is unlocked
+func (s *BaseSecretsProvider) isUnlocked() bool {
+	return s.unlocked
+}
+
+// Ensure BaseSecretsProvider implements SecretsProvider
+var _ SecretsProvider = (*BaseSecretsProvider)(nil)
+
+// parseSecrets is a helper function that parses a string and replaces secret references with their values.
+// It takes a pattern to match secret references, a function to validate the keys, and a function to get the secret value.
+func parseSecrets(input string, pattern string, validateKeys func([]string) bool, getSecretValue func([]string) (string, bool)) string {
+	re := regexp.MustCompile(pattern)
+
+	return re.ReplaceAllStringFunc(input, func(match string) string {
+		// Extract the key path from the match
+		submatches := re.FindStringSubmatch(match)
+		if len(submatches) < 2 || submatches[1] == "" {
+			return "<ERROR: invalid secret format>"
+		}
+		keyPath := strings.TrimSpace(submatches[1])
+
+		// Parse the key path using parseKeys
+		keys := parseKeys(keyPath)
+
+		// Validate the keys
+		if !validateKeys(keys) {
+			return fmt.Sprintf("<ERROR: invalid key path: %s>", keyPath)
+		}
+
+		// Get the secret value
+		value, shouldReplace := getSecretValue(keys)
+		if !shouldReplace {
+			return match
+		}
+		return value
+	})
 }
 
 // ParseKeys processes a string path that may contain mixed dot and bracket notations,
 // extracting and returning an array of keys. It handles quoted strings within brackets
 // and treats consecutive dots as empty keys unless they follow a closing bracket.
-func ParseKeys(path string) []string {
+func parseKeys(path string) []string {
 	var keys []string
 	var currentKey strings.Builder
 	var bracketDepth int
@@ -174,6 +217,3 @@ func ParseKeys(path string) []string {
 
 	return keys
 }
-
-// Ensure BaseSecretsProvider implements SecretsProvider
-var _ SecretsProvider = (*BaseSecretsProvider)(nil)

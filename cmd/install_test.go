@@ -51,7 +51,7 @@ func setupMockInstallCmdComponents(optionalInjector ...di.Injector) InstallCmdCo
 	injector.Register("configHandler", configHandler)
 
 	// Setup mock secrets provider
-	secretsProvider := secrets.NewMockSecretsProvider()
+	secretsProvider := secrets.NewMockSecretsProvider(injector)
 	controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
 		return []secrets.SecretsProvider{secretsProvider}
 	}

@@ -2,7 +2,6 @@ package secrets
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
@@ -27,9 +26,10 @@ func NewOnePasswordCLISecretsProvider(vault secretsConfigType.OnePasswordVault, 
 
 // GetSecret retrieves a secret value for the specified key
 func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
-	if !s.unlocked {
+	if !s.isUnlocked() {
 		return "********", nil
 	}
+
 	parts := strings.SplitN(key, ".", 2)
 	if len(parts) != 2 {
 		return "", fmt.Errorf("invalid key notation: %s. Expected format is 'secret.field'", key)
@@ -42,38 +42,27 @@ func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
 		return "", fmt.Errorf("failed to retrieve secret from 1Password: %w", err)
 	}
 
-	secret := strings.TrimSpace(string(output))
-	return secret, nil
+	return strings.TrimSpace(string(output)), nil
 }
 
 // ParseSecrets identifies and replaces ${{ op.<id>.<secret>.<field> }} patterns in the input
 // with corresponding secret values from 1Password, ensuring the id matches the vault ID.
 func (s *OnePasswordCLISecretsProvider) ParseSecrets(input string) (string, error) {
-	opPattern := `(?i)\${{\s*op(?:\.|\[)?\s*([^}]+)\s*}}`
-	re := regexp.MustCompile(opPattern)
-
-	input = re.ReplaceAllStringFunc(input, func(match string) string {
-		submatches := re.FindStringSubmatch(match)
-		keyPath := strings.TrimSpace(submatches[1])
-
-		keys := ParseKeys(keyPath)
-		if len(keys) != 3 {
-			return "<ERROR: invalid key path>"
-		}
+	pattern := `(?i)\${{\s*op(?:\.|\[)?\s*([^}]+)\s*}}`
+	result := parseSecrets(input, pattern, func(keys []string) bool {
+		return len(keys) == 3
+	}, func(keys []string) (string, bool) {
 		id, secret, field := keys[0], keys[1], keys[2]
-
 		if id != s.vault.ID {
-			return match
+			return "", false
 		}
-
 		value, err := s.GetSecret(fmt.Sprintf("%s.%s", secret, field))
 		if err != nil {
-			return "<ERROR: secret not found>"
+			return "<ERROR: secret not found>", true
 		}
-		return value
+		return value, true
 	})
-
-	return input, nil
+	return result, nil
 }
 
 // Ensure OnePasswordCLISecretsProvider implements SecretsProvider

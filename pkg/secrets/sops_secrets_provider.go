@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/di"
@@ -95,7 +94,7 @@ func (s *SopsSecretsProvider) LoadSecrets() error {
 
 // GetSecret retrieves a secret value for the specified key
 func (s *SopsSecretsProvider) GetSecret(key string) (string, error) {
-	if !s.unlocked {
+	if !s.isUnlocked() {
 		return "********", nil
 	}
 	if value, ok := s.secrets[key]; ok {
@@ -106,33 +105,22 @@ func (s *SopsSecretsProvider) GetSecret(key string) (string, error) {
 
 // ParseSecrets parses a string and replaces ${{ sops.<key> }} references with their values
 func (s *SopsSecretsProvider) ParseSecrets(input string) (string, error) {
-	re := regexp.MustCompile(sopsPattern)
-
-	input = re.ReplaceAllStringFunc(input, func(match string) string {
-		// Extract the key path from the match
-		submatches := re.FindStringSubmatch(match)
-		if len(submatches) < 2 || submatches[1] == "" {
-			return "<ERROR: invalid secret format>"
-		}
-		keyPath := submatches[1]
-
-		// Parse the key path using ParseKeys
-		keys := ParseKeys(keyPath)
+	result := parseSecrets(input, sopsPattern, func(keys []string) bool {
 		for _, key := range keys {
 			if key == "" {
-				return fmt.Sprintf("<ERROR: invalid key path: %s>", keyPath)
+				return false
 			}
 		}
-
-		// Retrieve the secret value
-		value, err := s.GetSecret(strings.Join(keys, "."))
+		return true
+	}, func(keys []string) (string, bool) {
+		key := strings.Join(keys, ".")
+		value, err := s.GetSecret(key)
 		if err != nil {
-			return "<ERROR: secret not found: " + strings.Join(keys, ".") + ">"
+			return fmt.Sprintf("<ERROR: secret not found: %s>", key), true
 		}
-		return value
+		return value, true
 	})
-
-	return input, nil
+	return result, nil
 }
 
 // Ensure SopsSecretsProvider implements the SecretsProvider interface

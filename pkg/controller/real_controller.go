@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -270,9 +271,18 @@ func (c *RealController) CreateSecretsProviders() error {
 
 	vaults, ok := c.configHandler.Get(fmt.Sprintf("contexts.%s.secrets.onepassword.vaults", contextName)).(map[string]secretsConfigType.OnePasswordVault)
 	if ok && len(vaults) > 0 {
+		useSDK := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != ""
+
 		for key, vault := range vaults {
 			vault.ID = key
-			opSecretsProvider := secrets.NewOnePasswordCLISecretsProvider(vault, c.injector)
+			var opSecretsProvider secrets.SecretsProvider
+
+			if useSDK {
+				opSecretsProvider = secrets.NewOnePasswordSDKSecretsProvider(vault, c.injector)
+			} else {
+				opSecretsProvider = secrets.NewOnePasswordCLISecretsProvider(vault, c.injector)
+			}
+
 			c.injector.Register(fmt.Sprintf("op%sSecretsProvider", strings.ToUpper(key[:1])+key[1:]), opSecretsProvider)
 			c.configHandler.SetSecretsProvider(opSecretsProvider)
 		}

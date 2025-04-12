@@ -7,6 +7,13 @@
   ],
   "packageRules": [
     {
+      "description": "Pin SOPS to v3.9.0",
+      "matchPackageNames": [
+        "getsops/sops"
+      ],
+      "allowedVersions": "3.9.0"
+    },
+    {
       "description": "Pin GitHub Actions to specific commit SHAs",
       "matchManagers": [
         "github-actions"

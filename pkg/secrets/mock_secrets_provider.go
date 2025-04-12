@@ -1,9 +1,14 @@
 package secrets
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/windsorcli/cli/pkg/di"
+)
 
 // MockSecretsProvider is a mock implementation of the SecretsProvider interface for testing purposes
 type MockSecretsProvider struct {
+	BaseSecretsProvider
 	InitializeFunc   func() error
 	LoadSecretsFunc  func() error
 	GetSecretFunc    func(key string) (string, error)
@@ -12,8 +17,10 @@ type MockSecretsProvider struct {
 }
 
 // NewMockSecretsProvider creates a new instance of MockSecretsProvider
-func NewMockSecretsProvider() *MockSecretsProvider {
-	return &MockSecretsProvider{}
+func NewMockSecretsProvider(injector di.Injector) *MockSecretsProvider {
+	return &MockSecretsProvider{
+		BaseSecretsProvider: *NewBaseSecretsProvider(injector),
+	}
 }
 
 // Initialize calls the mock InitializeFunc if set, otherwise returns nil

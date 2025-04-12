@@ -117,7 +117,7 @@ func (m *MockController) CreateSecretsProviders() error {
 	}
 
 	// Create a new mock secrets provider
-	secretsProvider := secrets.NewMockSecretsProvider()
+	secretsProvider := secrets.NewMockSecretsProvider(m.injector)
 	m.injector.Register("secretsProvider", secretsProvider)
 
 	return nil

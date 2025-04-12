@@ -199,6 +199,12 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("NoEnvironmentVarsInConfig", func(t *testing.T) {
+		// Reset managed environment variables and aliases
+		windsorManagedMu.Lock()
+		windsorManagedEnv = []string{}
+		windsorManagedAlias = []string{}
+		windsorManagedMu.Unlock()
+
 		mocks := setupSafeWindsorEnvMocks()
 
 		// Set GetStringMap to return an empty map to simulate no environment vars in config
@@ -229,6 +235,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// Verify no additional variables were added from config (since there were none)
+		t.Logf("Environment variables: %v", envVars)
 		if len(envVars) != 5 {
 			t.Errorf("Should have five base environment variables")
 		}
@@ -669,10 +676,6 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}()
 
 		// Set up mock config handler to return environment variables
-		mocks.ConfigHandler.GetContextFunc = func() string {
-			return "mock-context" // Different from "different-context" in env
-		}
-
 		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
 			if key == "environment" {
 				return map[string]string{
@@ -683,7 +686,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// Mock secrets provider that will be called regardless of cache
-		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			if input == envVarValue {
 				return "resolved-value", nil
@@ -765,7 +768,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// Mock secrets provider that will resolve the secret
-		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			if input == envVarValue {
 				return "resolved-value", nil
@@ -845,7 +848,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// Mock secrets provider
-		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			if input == "${{ secrets.mySecret }}" {
 				return "resolved-secret", nil
@@ -966,13 +969,21 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("CUSTOM_ENV_VAR2 should be set to 'value2'")
 		}
 
-		// Verify that WINDSOR_MANAGED_ENV includes our custom variables
+		// Verify that WINDSOR_MANAGED_ENV includes our custom variables and Windsor prefixed vars
 		managedEnvList := envVars["WINDSOR_MANAGED_ENV"]
-		if !strings.Contains(managedEnvList, "CUSTOM_ENV_VAR1") {
-			t.Errorf("WINDSOR_MANAGED_ENV should contain CUSTOM_ENV_VAR1")
+		expectedVars := []string{
+			"CUSTOM_ENV_VAR1",
+			"CUSTOM_ENV_VAR2",
+			"WINDSOR_CONTEXT",
+			"WINDSOR_PROJECT_ROOT",
+			"WINDSOR_SESSION_TOKEN",
+			"WINDSOR_MANAGED_ENV",
+			"WINDSOR_MANAGED_ALIAS",
 		}
-		if !strings.Contains(managedEnvList, "CUSTOM_ENV_VAR2") {
-			t.Errorf("WINDSOR_MANAGED_ENV should contain CUSTOM_ENV_VAR2")
+		for _, v := range expectedVars {
+			if !strings.Contains(managedEnvList, v) {
+				t.Errorf("WINDSOR_MANAGED_ENV should contain %s", v)
+			}
 		}
 	})
 
@@ -1044,7 +1055,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// Mock secrets provider that will resolve the secrets
-		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			if input == errorVarValue {
 				return "resolved-error-value", nil
@@ -1101,6 +1112,368 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		// Normal variable should not be in results because it's cached
 		if _, exists := envVars[normalVarKey]; exists {
 			t.Errorf("Cached normal variable %q should not be in results", normalVarKey)
+		}
+	})
+
+	t.Run("ManagedEnv", func(t *testing.T) {
+		// Setup mocks
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Create a test environment
+		env := NewWindsorEnvPrinter(mocks.Injector)
+		env.Initialize()
+
+		// Set up managed environment
+		env.SetManagedEnv("test-env")
+
+		// Get environment variables
+		vars, err := env.GetEnvVars()
+
+		// Verify the result
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify managed environment contains the test-env and Windsor prefixed vars
+		expectedVars := append([]string{"test-env"}, WindsorPrefixedVars...)
+		managedEnvVars := strings.Split(vars["WINDSOR_MANAGED_ENV"], ",")
+
+		for _, expected := range expectedVars {
+			found := false
+			for _, actual := range managedEnvVars {
+				if actual == expected {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Expected WINDSOR_MANAGED_ENV to contain %q", expected)
+			}
+		}
+	})
+
+	t.Run("CachedVariableAddedToManagedEnv", func(t *testing.T) {
+		// Setup mocks
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Set up test environment variables
+		cachedVarKey := "CACHED_VAR"
+		cachedVarValue := "value with ${{ secrets.cachedSecret }}"
+		secretVarKey := "SECRET_VAR"
+		secretVarValue := "value with ${{ secrets.mySecret }}"
+
+		// Save original environment values
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		originalCachedVar := os.Getenv(cachedVarKey)
+		originalSecretVar := os.Getenv(secretVarKey)
+		originalNoCache := os.Getenv("NO_CACHE")
+
+		// Set up environment with cached variable
+		t.Setenv("NO_CACHE", "false")
+		t.Setenv("WINDSOR_CONTEXT", "")
+		t.Setenv("WINDSOR_SESSION_TOKEN", "")
+		t.Setenv(cachedVarKey, "cached-value")
+
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv("WINDSOR_SESSION_TOKEN", originalEnvToken)
+			os.Setenv(cachedVarKey, originalCachedVar)
+			os.Setenv(secretVarKey, originalSecretVar)
+			os.Setenv("NO_CACHE", originalNoCache)
+		}()
+
+		// Configure mock config handler
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					cachedVarKey: cachedVarValue,
+					secretVarKey: secretVarValue,
+				}
+			}
+			return map[string]string{}
+		}
+
+		// Mock secrets provider
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == secretVarValue {
+				return "resolved-secret", nil
+			}
+			if input == cachedVarValue {
+				return "resolved-cached", nil
+			}
+			return input, nil
+		}
+
+		// Create WindsorEnvPrinter with mock injector
+		mockInjector := mocks.Injector
+		mockInjector.Register("secretsProvider", mockSecretsProvider)
+		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
+		err := windsorEnvPrinter.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize returned error: %v", err)
+		}
+
+		// Make secretsProviders accessible to the test
+		windsorEnvPrinter.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Get environment variables
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned error: %v", err)
+		}
+
+		// Verify cached variable is not in returned environment variables
+		if _, exists := envVars[cachedVarKey]; exists {
+			t.Errorf("Cached variable %q should not be in returned environment variables", cachedVarKey)
+		}
+
+		// Verify secret variable is in returned environment variables
+		if envVars[secretVarKey] != "resolved-secret" {
+			t.Errorf("Secret variable should be resolved and returned")
+		}
+
+		// Verify both variables are in managed env list
+		managedEnvList := envVars["WINDSOR_MANAGED_ENV"]
+		expectedVars := []string{cachedVarKey, secretVarKey}
+		for _, v := range expectedVars {
+			if !strings.Contains(managedEnvList, v) {
+				t.Errorf("WINDSOR_MANAGED_ENV should contain %q", v)
+			}
+		}
+	})
+
+	t.Run("ExistingVariableNotInManagedEnv", func(t *testing.T) {
+		// Reset managed environment variables
+		windsorManagedMu.Lock()
+		windsorManagedEnv = []string{}
+		windsorManagedAlias = []string{}
+		windsorManagedMu.Unlock()
+
+		// Setup mocks
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Set up test environment variables
+		envVarKey := "EXISTING_VAR"
+		envVarValue := "regular value"
+
+		// Save original environment values
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		originalEnvVar := os.Getenv(envVarKey)
+		originalManagedEnv := os.Getenv("WINDSOR_MANAGED_ENV")
+		originalNoCache := os.Getenv("NO_CACHE")
+
+		// Set up environment with variable but not in managed env
+		t.Setenv("NO_CACHE", "false")
+		t.Setenv("WINDSOR_CONTEXT", "")
+		t.Setenv("WINDSOR_SESSION_TOKEN", "")
+		t.Setenv(envVarKey, "existing-value")
+		os.Unsetenv("WINDSOR_MANAGED_ENV")
+
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv("WINDSOR_SESSION_TOKEN", originalEnvToken)
+			os.Setenv(envVarKey, originalEnvVar)
+			os.Setenv("WINDSOR_MANAGED_ENV", originalManagedEnv)
+			os.Setenv("NO_CACHE", originalNoCache)
+		}()
+
+		// Configure mock config handler
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					envVarKey: envVarValue,
+				}
+			}
+			return map[string]string{}
+		}
+
+		// Create WindsorEnvPrinter with mock injector
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+		err := windsorEnvPrinter.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize returned error: %v", err)
+		}
+
+		// Get environment variables
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned error: %v", err)
+		}
+
+		// Verify variable is in returned environment variables
+		if envVars[envVarKey] != envVarValue {
+			t.Errorf("Variable should be in returned environment variables with value %q, got %q", envVarValue, envVars[envVarKey])
+		}
+
+		// Verify variable is added to managed env list
+		managedEnvList := envVars["WINDSOR_MANAGED_ENV"]
+		if !strings.Contains(managedEnvList, envVarKey) {
+			t.Errorf("WINDSOR_MANAGED_ENV should contain %q", envVarKey)
+		}
+	})
+
+	t.Run("ExistingVariableInManagedEnv", func(t *testing.T) {
+		// Reset managed environment variables
+		windsorManagedMu.Lock()
+		windsorManagedEnv = []string{}
+		windsorManagedAlias = []string{}
+		windsorManagedMu.Unlock()
+
+		// Setup mocks
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Set up test environment variables
+		envVarKey := "EXISTING_VAR"
+		envVarValue := "regular value"
+
+		// Save original environment values
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		originalEnvVar := os.Getenv(envVarKey)
+		originalManagedEnv := os.Getenv("WINDSOR_MANAGED_ENV")
+		originalNoCache := os.Getenv("NO_CACHE")
+
+		// Set up environment with variable already in managed env
+		t.Setenv("NO_CACHE", "false")
+		t.Setenv("WINDSOR_CONTEXT", "")
+		t.Setenv("WINDSOR_SESSION_TOKEN", "")
+		t.Setenv(envVarKey, "existing-value")
+		t.Setenv("WINDSOR_MANAGED_ENV", envVarKey)
+
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv("WINDSOR_SESSION_TOKEN", originalEnvToken)
+			os.Setenv(envVarKey, originalEnvVar)
+			os.Setenv("WINDSOR_MANAGED_ENV", originalManagedEnv)
+			os.Setenv("NO_CACHE", originalNoCache)
+		}()
+
+		// Configure mock config handler
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					envVarKey: envVarValue,
+				}
+			}
+			return map[string]string{}
+		}
+
+		// Create WindsorEnvPrinter with mock injector
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
+		err := windsorEnvPrinter.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize returned error: %v", err)
+		}
+
+		// Set managed environment variable
+		windsorEnvPrinter.SetManagedEnv(envVarKey)
+
+		// Get environment variables
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned error: %v", err)
+		}
+
+		// Verify variable is in returned environment variables
+		if envVars[envVarKey] != envVarValue {
+			t.Errorf("Variable should be in returned environment variables with value %q, got %q", envVarValue, envVars[envVarKey])
+		}
+
+		// Verify variable is still in managed env list
+		managedEnvList := envVars["WINDSOR_MANAGED_ENV"]
+		if !strings.Contains(managedEnvList, envVarKey) {
+			t.Errorf("WINDSOR_MANAGED_ENV should contain %q", envVarKey)
+		}
+	})
+
+	t.Run("ManagedEnvExistsWithSecretPlaceholder", func(t *testing.T) {
+		// Reset managed environment variables
+		windsorManagedMu.Lock()
+		windsorManagedEnv = []string{}
+		windsorManagedAlias = []string{}
+		windsorManagedMu.Unlock()
+
+		// Setup mocks
+		mocks := setupSafeWindsorEnvMocks()
+
+		// Set up test environment variables
+		envVarKey := "SECRET_VAR"
+		envVarValue := "value with ${{ secrets.mySecret }}"
+
+		// Save original environment values
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		originalEnvToken := os.Getenv("WINDSOR_SESSION_TOKEN")
+		originalManagedEnv := os.Getenv("WINDSOR_MANAGED_ENV")
+		originalNoCache := os.Getenv("NO_CACHE")
+		originalEnvVar := os.Getenv(envVarKey)
+
+		// Set up environment with WINDSOR_MANAGED_ENV already set
+		t.Setenv("NO_CACHE", "true") // Disable caching to force secret resolution
+		t.Setenv("WINDSOR_CONTEXT", "")
+		t.Setenv("WINDSOR_SESSION_TOKEN", "")
+		t.Setenv("WINDSOR_MANAGED_ENV", envVarKey)
+		t.Setenv(envVarKey, "existing-value")
+
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			os.Setenv("WINDSOR_SESSION_TOKEN", originalEnvToken)
+			os.Setenv("WINDSOR_MANAGED_ENV", originalManagedEnv)
+			os.Setenv("NO_CACHE", originalNoCache)
+			os.Setenv(envVarKey, originalEnvVar)
+		}()
+
+		// Configure mock config handler
+		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+			if key == "environment" {
+				return map[string]string{
+					envVarKey: envVarValue,
+				}
+			}
+			return map[string]string{}
+		}
+
+		// Mock secrets provider
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == envVarValue {
+				return "resolved-secret", nil
+			}
+			return input, nil
+		}
+
+		// Create WindsorEnvPrinter with mock injector
+		mockInjector := mocks.Injector
+		mockInjector.Register("secretsProvider", mockSecretsProvider)
+		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
+		err := windsorEnvPrinter.Initialize()
+		if err != nil {
+			t.Fatalf("Initialize returned error: %v", err)
+		}
+
+		// Make secretsProviders accessible to the test
+		windsorEnvPrinter.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		// Set managed environment variable
+		windsorEnvPrinter.SetManagedEnv(envVarKey)
+
+		// Get environment variables
+		envVars, err := windsorEnvPrinter.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned error: %v", err)
+		}
+
+		// Verify variable is in returned environment variables with resolved secret
+		if envVars[envVarKey] != "resolved-secret" {
+			t.Errorf("Variable should be in returned environment variables with resolved secret, got %q", envVars[envVarKey])
+		}
+
+		// Verify variable is added to managed env list
+		managedEnvList := envVars["WINDSOR_MANAGED_ENV"]
+		if !strings.Contains(managedEnvList, envVarKey) {
+			t.Errorf("WINDSOR_MANAGED_ENV should contain %q", envVarKey)
 		}
 	})
 }
@@ -1204,7 +1577,7 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 		injector := di.NewMockInjector()
 		mockShell := shell.NewMockShell()
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider := secrets.NewMockSecretsProvider(injector)
 
 		// Register mocks in the injector
 		injector.Register("shell", mockShell)
@@ -1303,7 +1676,7 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup
 		mockInjector := di.NewMockInjector()
-		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mockInjector)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			if input == "value with ${{ secrets.mySecret }}" {
 				return "value with resolved-secret", nil
@@ -1326,7 +1699,7 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	t.Run("SecretsProviderError", func(t *testing.T) {
 		// Setup
 		mockInjector := di.NewMockInjector()
-		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mockInjector)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			return "", fmt.Errorf("error parsing secrets")
 		}
@@ -1364,7 +1737,7 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	t.Run("UnparsedSecrets", func(t *testing.T) {
 		// Setup
 		mockInjector := di.NewMockInjector()
-		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mockInjector)
 		// This provider doesn't recognize the secret pattern
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			return input, nil
@@ -1388,7 +1761,7 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	t.Run("MultipleUnparsedSecrets", func(t *testing.T) {
 		// Setup
 		mockInjector := di.NewMockInjector()
-		mockSecretsProvider := secrets.NewMockSecretsProvider()
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mockInjector)
 		// This provider doesn't recognize any secrets
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			return input, nil

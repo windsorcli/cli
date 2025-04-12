@@ -23,6 +23,7 @@ builds:
       - amd64
     ldflags:
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.version={{ .Version }}'"
+      - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/pkg/secrets.version={{ .Version }}'"
       - "-X 'github.com/{{ .Env.GITHUB_REPOSITORY }}/cmd.commitSHA={{ .Env.GITHUB_SHA }}'"
 
 # Archive configuration

@@ -93,11 +93,6 @@ var envCmd = &cobra.Command{
 			return nil
 		}
 
-		// Set the environment variables internally in the process
-		if err := controller.SetEnvironmentVariables(); err != nil {
-			return fmt.Errorf("Error setting environment variables: %w", err)
-		}
-
 		envPrinters := controller.ResolveAllEnvPrinters()
 		if len(envPrinters) == 0 {
 			if verbose {
