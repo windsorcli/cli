@@ -13,48 +13,64 @@ import (
 	sh "github.com/windsorcli/cli/pkg/shell"
 )
 
-type MockToolsComponents struct {
+type Mocks struct {
 	Injector      di.Injector
 	ConfigHandler *config.MockConfigHandler
 	Shell         *sh.MockShell
 }
 
-// setupToolsMocks function creates safe mocks for the tools manager and CheckExistingToolsManager
-func setupToolsMocks(injector ...di.Injector) MockToolsComponents {
-	// Mock the dependencies for the tools manager
-	var mockInjector di.Injector
-	if len(injector) > 0 {
-		mockInjector = injector[0]
-	} else {
-		mockInjector = di.NewInjector()
+// setupMocks sets up all necessary mocks and shims for testing, with cleanup registered via t.Cleanup.
+func setupMocks(t *testing.T) *Mocks {
+	t.Helper()
+
+	// Save original shim values
+	originalOsStat := osStat
+	originalExecLookPath := execLookPath
+
+	// Set up mock implementations
+	osStat = func(name string) (os.FileInfo, error) {
+		return nil, os.ErrNotExist
 	}
 
-	// Create a mock config handler
-	mockConfigHandler := config.NewMockConfigHandler()
-
-	// Create a mock shell
-	mockShell := sh.NewMockShell()
-
-	// Register the mock config handler and shell in the injector
-	mockInjector.Register("configHandler", mockConfigHandler)
-	mockInjector.Register("shell", mockShell)
-
-	// Mock execLookPath for different tools
 	execLookPath = func(name string) (string, error) {
 		switch name {
-		case "docker", "colima", "limactl", "kubectl", "talosctl", "terraform", "asdf", "aqua", "op":
+		case "docker", "colima", "limactl", "kubectl", "talosctl", "terraform", "asdf", "aqua", "op", "docker-compose", "docker-cli-plugin-docker-compose":
 			return "/usr/bin/" + name, nil
 		default:
 			return "", exec.ErrNotFound
 		}
 	}
 
-	// Mock ExecSilent for different tools
+	// Create a mock injector
+	mockInjector := di.NewInjector()
+
+	// Create a mock config handler
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return false
+	}
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return ""
+	}
+
+	// Create a mock shell
+	mockShell := sh.NewMockShell()
+
+	// Set up default version responses
 	mockShell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 		switch name {
 		case "docker":
 			if args[0] == "version" {
 				return fmt.Sprintf("Docker version %s", constants.MINIMUM_VERSION_DOCKER), nil
+			}
+			if args[0] == "compose" {
+				return fmt.Sprintf("Docker Compose version %s", constants.MINIMUM_VERSION_DOCKER_COMPOSE), nil
 			}
 		case "colima":
 			if args[0] == "version" {
@@ -69,7 +85,7 @@ func setupToolsMocks(injector ...di.Injector) MockToolsComponents {
 				return fmt.Sprintf("Client Version: v%s", constants.MINIMUM_VERSION_KUBECTL), nil
 			}
 		case "talosctl":
-			if args[0] == "version" && args[1] == "--client" && args[2] == "--short" {
+			if len(args) == 3 && args[0] == "version" && args[1] == "--client" && args[2] == "--short" {
 				return fmt.Sprintf("v%s", constants.MINIMUM_VERSION_TALOSCTL), nil
 			}
 		case "terraform":
@@ -84,15 +100,17 @@ func setupToolsMocks(injector ...di.Injector) MockToolsComponents {
 		return "", fmt.Errorf("command not found")
 	}
 
-	// Mock osStat for CheckExistingToolsManager
-	osStat = func(name string) (os.FileInfo, error) {
-		if strings.Contains(name, "aqua.yaml") {
-			return nil, nil
-		}
-		return nil, os.ErrNotExist
-	}
+	// Register the mock config handler and shell in the injector
+	mockInjector.Register("configHandler", mockConfigHandler)
+	mockInjector.Register("shell", mockShell)
 
-	return MockToolsComponents{
+	// Register cleanup to restore original shim values
+	t.Cleanup(func() {
+		osStat = originalOsStat
+		execLookPath = originalExecLookPath
+	})
+
+	return &Mocks{
 		Injector:      mockInjector,
 		ConfigHandler: mockConfigHandler,
 		Shell:         mockShell,
@@ -101,7 +119,7 @@ func setupToolsMocks(injector ...di.Injector) MockToolsComponents {
 
 func TestToolsManager_NewToolsManager(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		toolsManager := NewToolsManager(mocks.Injector)
 
@@ -113,7 +131,7 @@ func TestToolsManager_NewToolsManager(t *testing.T) {
 
 func TestToolsManager_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		toolsManager := NewToolsManager(mocks.Injector)
 
@@ -127,7 +145,7 @@ func TestToolsManager_Initialize(t *testing.T) {
 
 func TestToolsManager_WriteManifest(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		toolsManager := NewToolsManager(mocks.Injector)
 
@@ -141,7 +159,7 @@ func TestToolsManager_WriteManifest(t *testing.T) {
 
 func TestToolsManager_Install(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -165,15 +183,16 @@ func TestToolsManager_Check(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		toolVersions := map[string]string{
 			"docker":         constants.MINIMUM_VERSION_DOCKER,
-			"docker-compose": constants.MINIMUM_VERSION_DOCKER_COMPOSE,
-			"kubectl":        constants.MINIMUM_VERSION_KUBECTL,
-			"terraform":      constants.MINIMUM_VERSION_TERRAFORM,
-			"talosctl":       constants.MINIMUM_VERSION_TALOSCTL,
 			"colima":         constants.MINIMUM_VERSION_COLIMA,
+			"limactl":        constants.MINIMUM_VERSION_LIMA,
+			"kubectl":        constants.MINIMUM_VERSION_KUBECTL,
+			"talosctl":       constants.MINIMUM_VERSION_TALOSCTL,
+			"terraform":      constants.MINIMUM_VERSION_TERRAFORM,
 			"op":             constants.MINIMUM_VERSION_1PASSWORD,
+			"docker-compose": constants.MINIMUM_VERSION_DOCKER_COMPOSE,
 		}
 		mocks.Shell.ExecSilentFunc = mockShellExec(toolVersions)
 
@@ -188,23 +207,20 @@ func TestToolsManager_Check(t *testing.T) {
 	})
 
 	t.Run("DockerCheckFailed", func(t *testing.T) {
-		mocks := setupToolsMocks()
-		originalGetBoolFunc := mocks.ConfigHandler.GetBoolFunc
+		mocks := setupMocks(t)
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
 				return true
 			}
-			return originalGetBoolFunc(key, defaultValue...)
+			return false
 		}
 
-		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			if name == "docker" {
 				return "", fmt.Errorf("docker is not available in the PATH")
 			}
-			return originalExecLookPath(name)
+			return "/usr/bin/" + name, nil
 		}
-		defer func() { execLookPath = originalExecLookPath }()
 
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -217,7 +233,7 @@ func TestToolsManager_Check(t *testing.T) {
 	})
 
 	t.Run("KubectlCheckFailed", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "cluster.enabled" {
 				return true
@@ -231,7 +247,6 @@ func TestToolsManager_Check(t *testing.T) {
 			}
 			return "/usr/bin/" + name, nil
 		}
-		defer func() { execLookPath = nil }()
 
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -244,7 +259,7 @@ func TestToolsManager_Check(t *testing.T) {
 	})
 
 	t.Run("TerraformCheckFailed", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "terraform.enabled" {
 				return true
@@ -258,7 +273,6 @@ func TestToolsManager_Check(t *testing.T) {
 			}
 			return "/usr/bin/" + name, nil
 		}
-		defer func() { execLookPath = nil }()
 
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -271,7 +285,13 @@ func TestToolsManager_Check(t *testing.T) {
 	})
 
 	t.Run("TalosctlCheckFailed", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "cluster.enabled" {
+				return false
+			}
+			return false
+		}
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "cluster.driver" {
 				return "talos"
@@ -283,9 +303,21 @@ func TestToolsManager_Check(t *testing.T) {
 			if name == "talosctl" {
 				return "", fmt.Errorf("talosctl is not available in the PATH")
 			}
-			return "/usr/bin/" + name, nil
+			if name == "docker" || name == "docker-compose" || name == "docker-cli-plugin-docker-compose" {
+				return "/usr/bin/" + name, nil
+			}
+			return "", fmt.Errorf("%s is not available in the PATH", name)
 		}
-		defer func() { execLookPath = nil }()
+
+		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
+			if name == "docker" && args[0] == "version" {
+				return "Docker version 25.0.0", nil
+			}
+			if name == "docker" && args[0] == "compose" {
+				return "Docker Compose version 2.24.0", nil
+			}
+			return "", fmt.Errorf("command not found")
+		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -298,7 +330,13 @@ func TestToolsManager_Check(t *testing.T) {
 	})
 
 	t.Run("ColimaCheckFailed", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "cluster.enabled" {
+				return false
+			}
+			return false
+		}
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
 				return "colima"
@@ -310,16 +348,20 @@ func TestToolsManager_Check(t *testing.T) {
 			if name == "colima" {
 				return "", fmt.Errorf("colima is not available in the PATH")
 			}
-			return "/usr/bin/" + name, nil
+			if name == "docker" || name == "docker-compose" || name == "docker-cli-plugin-docker-compose" {
+				return "/usr/bin/" + name, nil
+			}
+			return "", fmt.Errorf("%s is not available in the PATH", name)
 		}
-		defer func() { execLookPath = nil }()
 
-		originalExecSilentFunc := mocks.Shell.ExecSilentFunc
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "docker" && args[0] == "version" {
 				return "Docker version 25.0.0", nil
 			}
-			return originalExecSilentFunc(name, args...)
+			if name == "docker" && args[0] == "compose" {
+				return "Docker Compose version 2.24.0", nil
+			}
+			return "", fmt.Errorf("command not found")
 		}
 
 		toolsManager := NewToolsManager(mocks.Injector)
@@ -333,10 +375,10 @@ func TestToolsManager_Check(t *testing.T) {
 	})
 
 	t.Run("OnePasswordCheckFailed", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		mocks.ConfigHandler.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
 			if key == "1password.vaults" {
-				return map[string]string{"vault1": "value1"}
+				return map[string]string{"test": "test"}
 			}
 			return nil
 		}
@@ -347,7 +389,6 @@ func TestToolsManager_Check(t *testing.T) {
 			}
 			return "/usr/bin/" + name, nil
 		}
-		defer func() { execLookPath = nil }()
 
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -362,7 +403,7 @@ func TestToolsManager_Check(t *testing.T) {
 
 func TestToolsManager_checkDocker(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		originalGetBoolFunc := mocks.ConfigHandler.GetBoolFunc
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
@@ -401,7 +442,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 	})
 
 	t.Run("DockerNotAvailable", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		originalGetBoolFunc := mocks.ConfigHandler.GetBoolFunc
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
@@ -430,7 +471,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 	})
 
 	t.Run("InvalidDockerVersionResponse", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		originalGetBoolFunc := mocks.ConfigHandler.GetBoolFunc
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
@@ -466,23 +507,20 @@ func TestToolsManager_checkDocker(t *testing.T) {
 	})
 
 	t.Run("DockerVersionTooLow", func(t *testing.T) {
-		mocks := setupToolsMocks()
-		originalGetBoolFunc := mocks.ConfigHandler.GetBoolFunc
+		mocks := setupMocks(t)
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
 				return true
 			}
-			return originalGetBoolFunc(key, defaultValue...)
+			return false
 		}
 
-		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			if name == "docker" {
 				return "/usr/bin/docker", nil
 			}
-			return originalExecLookPath(name)
+			return "/usr/bin/" + name, nil
 		}
-		defer func() { execLookPath = originalExecLookPath }()
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "docker" && args[0] == "version" {
@@ -494,7 +532,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
 
-		err := toolsManager.checkDocker()
+		err := toolsManager.Check()
 
 		if err == nil || !strings.Contains(err.Error(), "docker version 19.03.0 is below the minimum required version") {
 			t.Errorf("Expected docker version too low error, got %v", err)
@@ -502,7 +540,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 	})
 
 	t.Run("DockerComposePluginInstalled", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		originalGetBoolFunc := mocks.ConfigHandler.GetBoolFunc
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
@@ -538,7 +576,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 	})
 
 	t.Run("DockerComposeInstalled", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		originalGetBoolFunc := mocks.ConfigHandler.GetBoolFunc
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
@@ -577,7 +615,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 	})
 
 	t.Run("DockerCliPluginComposeInstalled", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		originalGetBoolFunc := mocks.ConfigHandler.GetBoolFunc
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
@@ -613,30 +651,27 @@ func TestToolsManager_checkDocker(t *testing.T) {
 	})
 
 	t.Run("DockerComposeVersionTooLow", func(t *testing.T) {
-		mocks := setupToolsMocks()
-		originalGetBoolFunc := mocks.ConfigHandler.GetBoolFunc
+		mocks := setupMocks(t)
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
 				return true
 			}
-			return originalGetBoolFunc(key, defaultValue...)
+			return false
 		}
 
-		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			if name == "docker" || name == "docker-compose" {
 				return "/usr/bin/" + name, nil
 			}
-			return originalExecLookPath(name)
+			return "", fmt.Errorf("%s is not available in the PATH", name)
 		}
-		defer func() { execLookPath = originalExecLookPath }()
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "docker" && args[0] == "version" {
 				return "Docker version 25.0.0", nil
 			}
-			if name == "docker-compose" && args[0] == "version" {
-				return "Docker Compose version 1.25.0", nil
+			if name == "docker-compose" && args[0] == "version" && args[1] == "--short" {
+				return "1.0.0", nil
 			}
 			return "", fmt.Errorf("command not found")
 		}
@@ -646,33 +681,36 @@ func TestToolsManager_checkDocker(t *testing.T) {
 
 		err := toolsManager.checkDocker()
 
-		if err == nil || !strings.Contains(err.Error(), "docker-compose version 1.25.0 is below the minimum required version") {
+		if err == nil || !strings.Contains(err.Error(), "docker-compose version 1.0.0 is below the minimum required version") {
 			t.Errorf("Expected docker-compose version too low error, got %v", err)
 		}
 	})
 
 	t.Run("DockerComposeNotAvailable", func(t *testing.T) {
-		mocks := setupToolsMocks()
-		originalGetBoolFunc := mocks.ConfigHandler.GetBoolFunc
+		mocks := setupMocks(t)
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
 				return true
 			}
-			return originalGetBoolFunc(key, defaultValue...)
+			return false
 		}
 
-		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			if name == "docker" {
-				return "/usr/bin/" + name, nil
+				return "/usr/bin/docker", nil
 			}
-			return originalExecLookPath(name)
+			if name == "docker-compose" || name == "docker-cli-plugin-docker-compose" {
+				return "", fmt.Errorf("docker-compose is not available in the PATH")
+			}
+			return "", fmt.Errorf("%s is not available in the PATH", name)
 		}
-		defer func() { execLookPath = originalExecLookPath }()
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "docker" && args[0] == "version" {
 				return "Docker version 25.0.0", nil
+			}
+			if name == "docker" && args[0] == "compose" {
+				return "", fmt.Errorf("docker compose is not available")
 			}
 			return "", fmt.Errorf("command not found")
 		}
@@ -690,7 +728,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 
 func TestToolsManager_checkColima(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "colima" && args[0] == "version" {
@@ -713,7 +751,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 	})
 
 	t.Run("ColimaNotAvailable", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
@@ -742,7 +780,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 	})
 
 	t.Run("InvalidColimaVersionResponse", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "colima" && args[0] == "version" {
@@ -765,7 +803,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 	})
 
 	t.Run("ColimaVersionTooLow", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "colima" && args[0] == "version" {
@@ -788,7 +826,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 	})
 
 	t.Run("LimactlNotAvailable", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
@@ -817,7 +855,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 	})
 
 	t.Run("InvalidLimactlVersionResponse", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "limactl" && args[0] == "--version" {
@@ -840,7 +878,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 	})
 
 	t.Run("LimactlVersionTooLow", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "limactl" && args[0] == "--version" {
@@ -865,7 +903,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 
 func TestToolsManager_checkKubectl(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -878,7 +916,7 @@ func TestToolsManager_checkKubectl(t *testing.T) {
 	})
 
 	t.Run("KubectlVersionInvalidResponse", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "kubectl" && args[0] == "version" && args[1] == "--client" {
@@ -898,7 +936,7 @@ func TestToolsManager_checkKubectl(t *testing.T) {
 	})
 
 	t.Run("KubectlVersionTooLow", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "kubectl" && args[0] == "version" && args[1] == "--client" {
@@ -920,7 +958,7 @@ func TestToolsManager_checkKubectl(t *testing.T) {
 
 func TestToolsManager_checkTalosctl(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -933,7 +971,7 @@ func TestToolsManager_checkTalosctl(t *testing.T) {
 	})
 
 	t.Run("TalosctlVersionInvalidResponse", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "talosctl" && len(args) == 3 && args[0] == "version" && args[1] == "--client" && args[2] == "--short" {
@@ -952,7 +990,7 @@ func TestToolsManager_checkTalosctl(t *testing.T) {
 	})
 
 	t.Run("TalosctlVersionTooLow", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "talosctl" && len(args) == 3 && args[0] == "version" && args[1] == "--client" && args[2] == "--short" {
@@ -974,7 +1012,7 @@ func TestToolsManager_checkTalosctl(t *testing.T) {
 
 func TestToolsManager_checkTerraform(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -987,7 +1025,7 @@ func TestToolsManager_checkTerraform(t *testing.T) {
 	})
 
 	t.Run("TerraformVersionInvalidResponse", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "terraform" && args[0] == "version" {
@@ -1007,7 +1045,7 @@ func TestToolsManager_checkTerraform(t *testing.T) {
 	})
 
 	t.Run("TerraformVersionTooLow", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "terraform" && args[0] == "version" {
@@ -1029,7 +1067,7 @@ func TestToolsManager_checkTerraform(t *testing.T) {
 
 func TestToolsManager_checkOnePassword(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
 
@@ -1041,7 +1079,7 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 	})
 
 	t.Run("OnePasswordNotAvailable", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		execLookPath = func(name string) (string, error) {
 			if name == "op" {
 				return "", fmt.Errorf("1Password CLI is not available in the PATH")
@@ -1061,7 +1099,7 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 	})
 
 	t.Run("OnePasswordVersionInvalidResponse", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "op" && args[0] == "--version" {
 				return "Invalid version response", nil
@@ -1080,10 +1118,10 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 	})
 
 	t.Run("OnePasswordVersionTooLow", func(t *testing.T) {
-		mocks := setupToolsMocks()
+		mocks := setupMocks(t)
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "op" && args[0] == "--version" {
-				return "1Password CLI 0.1.0", nil
+				return "1Password CLI 1.0.0", nil
 			}
 			return "", fmt.Errorf("command not found")
 		}
@@ -1093,7 +1131,7 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 
 		err := toolsManager.checkOnePassword()
 
-		if err == nil || !strings.Contains(err.Error(), "1Password CLI version 0.1.0 is below the minimum required version") {
+		if err == nil || !strings.Contains(err.Error(), "1Password CLI version 1.0.0 is below the minimum required version") {
 			t.Errorf("Expected 1Password CLI version too low error, got %v", err)
 		}
 	})
@@ -1103,7 +1141,7 @@ func TestCheckExistingToolsManager(t *testing.T) {
 	t.Run("NoToolsManager", func(t *testing.T) {
 		projectRoot := "/path/to/project"
 
-		setupToolsMocks()
+		setupMocks(t)
 
 		osStat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
@@ -1125,7 +1163,7 @@ func TestCheckExistingToolsManager(t *testing.T) {
 	t.Run("DetectsAqua", func(t *testing.T) {
 		projectRoot := "/path/to/project/with/aqua"
 
-		setupToolsMocks()
+		setupMocks(t)
 
 		osStat = func(name string) (os.FileInfo, error) {
 			if strings.Contains(name, "aqua.yaml") {
@@ -1154,7 +1192,7 @@ func TestCheckExistingToolsManager(t *testing.T) {
 	t.Run("DetectsAsdf", func(t *testing.T) {
 		projectRoot := "/path/to/project/with/asdf"
 
-		setupToolsMocks()
+		setupMocks(t)
 
 		osStat = func(name string) (os.FileInfo, error) {
 			if strings.Contains(name, ".tool-versions") {
@@ -1189,7 +1227,7 @@ func TestCheckExistingToolsManager(t *testing.T) {
 	t.Run("DetectsAquaInPath", func(t *testing.T) {
 		projectRoot := "/path/to/project"
 
-		setupToolsMocks()
+		setupMocks(t)
 
 		osStat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
@@ -1215,7 +1253,7 @@ func TestCheckExistingToolsManager(t *testing.T) {
 	t.Run("DetectsAsdfInPath", func(t *testing.T) {
 		projectRoot := "/path/to/project"
 
-		setupToolsMocks()
+		setupMocks(t)
 
 		osStat = func(_ string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
