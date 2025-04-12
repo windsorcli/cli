@@ -6,6 +6,7 @@ type ClusterConfig struct {
 	Platform      *string         `yaml:"platform,omitempty"`
 	Driver        *string         `yaml:"driver,omitempty"`
 	Endpoint      *string         `yaml:"endpoint,omitempty"`
+	Image         *string         `yaml:"image,omitempty"`
 	ControlPlanes NodeGroupConfig `yaml:"controlplanes,omitempty"`
 	Workers       NodeGroupConfig `yaml:"workers,omitempty"`
 }
@@ -15,6 +16,7 @@ type NodeConfig struct {
 	Hostname  *string  `yaml:"hostname,omitempty"`
 	Node      *string  `yaml:"node,omitempty"`
 	Endpoint  *string  `yaml:"endpoint,omitempty"`
+	Image     *string  `yaml:"image,omitempty"`
 	HostPorts []string `yaml:"hostports,omitempty"`
 }
 
@@ -23,6 +25,7 @@ type NodeGroupConfig struct {
 	Count     *int                  `yaml:"count,omitempty"`
 	CPU       *int                  `yaml:"cpu,omitempty"`
 	Memory    *int                  `yaml:"memory,omitempty"`
+	Image     *string               `yaml:"image,omitempty"`
 	Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
 	HostPorts []string              `yaml:"hostports,omitempty"`
 	Volumes   []string              `yaml:"volumes,omitempty"`
@@ -42,6 +45,9 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 	if overlay.Endpoint != nil {
 		base.Endpoint = overlay.Endpoint
 	}
+	if overlay.Image != nil {
+		base.Image = overlay.Image
+	}
 	if overlay.ControlPlanes.Count != nil {
 		base.ControlPlanes.Count = overlay.ControlPlanes.Count
 	}
@@ -50,6 +56,9 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 	}
 	if overlay.ControlPlanes.Memory != nil {
 		base.ControlPlanes.Memory = overlay.ControlPlanes.Memory
+	}
+	if overlay.ControlPlanes.Image != nil {
+		base.ControlPlanes.Image = overlay.ControlPlanes.Image
 	}
 	if overlay.ControlPlanes.Nodes != nil {
 		base.ControlPlanes.Nodes = make(map[string]NodeConfig, len(overlay.ControlPlanes.Nodes))
@@ -73,6 +82,9 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 	}
 	if overlay.Workers.Memory != nil {
 		base.Workers.Memory = overlay.Workers.Memory
+	}
+	if overlay.Workers.Image != nil {
+		base.Workers.Image = overlay.Workers.Image
 	}
 	if overlay.Workers.Nodes != nil {
 		base.Workers.Nodes = make(map[string]NodeConfig, len(overlay.Workers.Nodes))
@@ -102,6 +114,7 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 			Hostname:  node.Hostname,
 			Node:      node.Node,
 			Endpoint:  node.Endpoint,
+			Image:     node.Image,
 			HostPorts: append([]string{}, node.HostPorts...),
 		}
 	}
@@ -116,6 +129,7 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 			Hostname:  node.Hostname,
 			Node:      node.Node,
 			Endpoint:  node.Endpoint,
+			Image:     node.Image,
 			HostPorts: append([]string{}, node.HostPorts...),
 		}
 	}
@@ -129,10 +143,12 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 		Platform: c.Platform,
 		Driver:   c.Driver,
 		Endpoint: c.Endpoint,
+		Image:    c.Image,
 		ControlPlanes: NodeGroupConfig{
 			Count:     c.ControlPlanes.Count,
 			CPU:       c.ControlPlanes.CPU,
 			Memory:    c.ControlPlanes.Memory,
+			Image:     c.ControlPlanes.Image,
 			Nodes:     controlPlanesNodesCopy,
 			HostPorts: controlPlanesHostPortsCopy,
 			Volumes:   controlPlanesVolumesCopy,
@@ -141,6 +157,7 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 			Count:     c.Workers.Count,
 			CPU:       c.Workers.CPU,
 			Memory:    c.Workers.Memory,
+			Image:     c.Workers.Image,
 			Nodes:     workersNodesCopy,
 			HostPorts: workersHostPortsCopy,
 			Volumes:   workersVolumesCopy,
