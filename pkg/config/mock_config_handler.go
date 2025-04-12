@@ -10,6 +10,7 @@ type MockConfigHandler struct {
 	InitializeFunc         func() error
 	SetSecretsProviderFunc func(provider secrets.SecretsProvider)
 	LoadConfigFunc         func(path string) error
+	LoadConfigStringFunc   func(content string) error
 	IsLoadedFunc           func() bool
 	GetStringFunc          func(key string, defaultValue ...string) string
 	GetIntFunc             func(key string, defaultValue ...int) int
@@ -52,6 +53,14 @@ func (m *MockConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider)
 func (m *MockConfigHandler) LoadConfig(path string) error {
 	if m.LoadConfigFunc != nil {
 		return m.LoadConfigFunc(path)
+	}
+	return nil
+}
+
+// LoadConfigString calls the mock LoadConfigStringFunc if set, otherwise returns nil
+func (m *MockConfigHandler) LoadConfigString(content string) error {
+	if m.LoadConfigStringFunc != nil {
+		return m.LoadConfigStringFunc(content)
 	}
 	return nil
 }

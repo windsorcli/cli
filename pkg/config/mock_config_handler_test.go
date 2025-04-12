@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/secrets"
@@ -29,6 +30,9 @@ func setupSafeMocks(injector ...di.Injector) *MockObjects {
 
 	// Mock necessary dependencies
 	mockShell := &shell.MockShell{}
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return "/tmp", nil
+	}
 	inj.Register("shell", mockShell)
 
 	// Mock secrets provider
@@ -40,10 +44,8 @@ func setupSafeMocks(injector ...di.Injector) *MockObjects {
 		return nil, nil
 	}
 
-	// Mock yamlUnmarshal to return an error
-	yamlUnmarshal = func(data []byte, v interface{}) error {
-		return nil
-	}
+	// Use real YAML unmarshaling
+	yamlUnmarshal = yaml.Unmarshal
 
 	// Mock osReadFile to simulate reading a file
 	osReadFile = func(filename string) ([]byte, error) {
@@ -723,6 +725,36 @@ func TestMockConfigHandler_IsLoaded(t *testing.T) {
 		// Then the returned value should be false
 		if loaded {
 			t.Errorf("Expected IsLoaded to return false, got %v", loaded)
+		}
+	})
+}
+
+func TestMockConfigHandler_LoadConfigString(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock config handler with LoadConfigStringFunc set
+		handler := NewMockConfigHandler()
+		mockErr := fmt.Errorf("mock load config string error")
+		handler.LoadConfigStringFunc = func(content string) error { return mockErr }
+
+		// When LoadConfigString is called
+		err := handler.LoadConfigString("some content")
+
+		// Then the error should match the expected mock error
+		if err != mockErr {
+			t.Errorf("Expected error = %v, got = %v", mockErr, err)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without LoadConfigStringFunc set
+		handler := NewMockConfigHandler()
+
+		// When LoadConfigString is called
+		err := handler.LoadConfigString("some content")
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
 	})
 }
