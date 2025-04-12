@@ -14,7 +14,6 @@ import (
 // YamlConfigHandler implements the ConfigHandler interface using goccy/go-yaml
 type YamlConfigHandler struct {
 	BaseConfigHandler
-	config               v1alpha1.Config
 	path                 string
 	defaultContextConfig v1alpha1.Context
 }
@@ -26,6 +25,28 @@ func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
 			injector: injector,
 		},
 	}
+}
+
+// LoadConfigString loads the configuration from the provided string content.
+func (y *YamlConfigHandler) LoadConfigString(content string) error {
+	if content == "" {
+		return nil
+	}
+
+	if err := yamlUnmarshal([]byte(content), &y.BaseConfigHandler.config); err != nil {
+		return fmt.Errorf("error unmarshalling yaml: %w", err)
+	}
+
+	// Check and set the config version
+	if y.BaseConfigHandler.config.Version == "" {
+		y.BaseConfigHandler.config.Version = "v1alpha1"
+	} else if y.BaseConfigHandler.config.Version != "v1alpha1" {
+		return fmt.Errorf("unsupported config version: %s", y.BaseConfigHandler.config.Version)
+	}
+
+	y.BaseConfigHandler.loaded = true
+
+	return nil
 }
 
 // LoadConfig loads the configuration from the specified path. If the file does not exist, it does nothing.
@@ -40,20 +61,7 @@ func (y *YamlConfigHandler) LoadConfig(path string) error {
 		return fmt.Errorf("error reading config file: %w", err)
 	}
 
-	if err := yamlUnmarshal(data, &y.config); err != nil {
-		return fmt.Errorf("error unmarshalling yaml: %w", err)
-	}
-
-	// Check and set the config version
-	if y.config.Version == "" {
-		y.config.Version = "v1alpha1"
-	} else if y.config.Version != "v1alpha1" {
-		return fmt.Errorf("unsupported config version: %s", y.config.Version)
-	}
-
-	y.loaded = true
-
-	return nil
+	return y.LoadConfigString(string(data))
 }
 
 // SaveConfig saves the current configuration to the specified path. If the path is empty, it uses the previously loaded path.

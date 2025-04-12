@@ -24,6 +24,9 @@ type ConfigHandler interface {
 	// LoadConfig loads the configuration from the specified path
 	LoadConfig(path string) error
 
+	// LoadConfigString loads the configuration from the provided string content
+	LoadConfigString(content string) error
+
 	// GetString retrieves a string value for the specified key from the configuration
 	GetString(key string, defaultValue ...string) string
 
@@ -78,7 +81,6 @@ type ConfigHandler interface {
 
 // BaseConfigHandler is a base implementation of the ConfigHandler interface
 type BaseConfigHandler struct {
-	ConfigHandler
 	injector         di.Injector
 	shell            shell.Shell
 	config           v1alpha1.Config
