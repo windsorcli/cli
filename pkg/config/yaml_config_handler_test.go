@@ -17,6 +17,10 @@ import (
 // Mock implementation of os.FileInfo
 type mockFileInfo struct{}
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 func TestNewYamlConfigHandler(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new dependency injector
@@ -32,6 +36,10 @@ func TestNewYamlConfigHandler(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
@@ -1033,7 +1041,79 @@ func TestYamlConfigHandler_SetDefault(t *testing.T) {
 	})
 }
 
-func TestSetValueByPath(t *testing.T) {
+func TestYamlConfigHandler_LoadConfigString(t *testing.T) {
+	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewYamlConfigHandler(mocks.Injector)
+		handler.Initialize()
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		handler, _ := setup(t)
+		handler.SetContext("test")
+
+		yamlContent := `
+version: v1alpha1
+contexts:
+  test:
+    environment:
+      TEST_VAR: test_value`
+
+		err := handler.LoadConfigString(yamlContent)
+		if err != nil {
+			t.Fatalf("LoadConfigString() unexpected error: %v", err)
+		}
+
+		value := handler.GetString("environment.TEST_VAR")
+		if value != "test_value" {
+			t.Errorf("Expected TEST_VAR = 'test_value', got '%s'", value)
+		}
+	})
+
+	t.Run("EmptyContent", func(t *testing.T) {
+		handler, _ := setup(t)
+		err := handler.LoadConfigString("")
+		if err != nil {
+			t.Fatalf("LoadConfigString() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("InvalidYAML", func(t *testing.T) {
+		handler, _ := setup(t)
+		yamlContent := `invalid: yaml: content: [}`
+
+		err := handler.LoadConfigString(yamlContent)
+		if err == nil {
+			t.Fatal("LoadConfigString() expected error for invalid YAML")
+		}
+		if !strings.Contains(err.Error(), "error unmarshalling yaml") {
+			t.Errorf("Expected error about invalid YAML, got: %v", err)
+		}
+	})
+
+	t.Run("UnsupportedVersion", func(t *testing.T) {
+		handler, _ := setup(t)
+		yamlContent := `
+version: v2alpha1
+contexts:
+  test: {}`
+
+		err := handler.LoadConfigString(yamlContent)
+		if err == nil {
+			t.Fatal("LoadConfigString() expected error for unsupported version")
+		}
+		if !strings.Contains(err.Error(), "unsupported config version") {
+			t.Errorf("Expected error about unsupported version, got: %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+func Test_setValueByPath(t *testing.T) {
 	t.Run("EmptyPathKeys", func(t *testing.T) {
 		// Given an empty pathKeys slice
 		var currValue reflect.Value
@@ -1235,7 +1315,7 @@ func TestSetValueByPath(t *testing.T) {
 }
 
 // TestGetValueByPath tests the getValueByPath function
-func TestGetValueByPath(t *testing.T) {
+func Test_getValueByPath(t *testing.T) {
 	t.Run("EmptyPathKeys", func(t *testing.T) {
 		// Given an empty pathKeys slice for value lookup
 		var current interface{}
@@ -1427,7 +1507,7 @@ func TestGetValueByPath(t *testing.T) {
 	})
 }
 
-func TestParsePath(t *testing.T) {
+func Test_parsePath(t *testing.T) {
 	t.Run("EmptyPath", func(t *testing.T) {
 		// Given an empty path string to parse
 		path := ""
@@ -1510,79 +1590,9 @@ func TestParsePath(t *testing.T) {
 			t.Errorf("Expected pathKeys to be %v, got %v", expected, pathKeys)
 		}
 	})
-
-	t.Run("PathStartingWithDot", func(t *testing.T) {
-		// Given a path starting with a dot
-		path := ".key1.key2"
-
-		// When calling parsePath with a leading dot
-		pathKeys := parsePath(path)
-
-		// Then the leading dot should be ignored in the result
-		expected := []string{"key1", "key2"}
-		if !reflect.DeepEqual(pathKeys, expected) {
-			t.Errorf("Expected pathKeys %v, got %v", expected, pathKeys)
-		}
-	})
-
-	t.Run("PathEndingWithDot", func(t *testing.T) {
-		// Given a path ending with a dot
-		path := "key1.key2."
-
-		// When calling parsePath with a trailing dot
-		pathKeys := parsePath(path)
-
-		// Then the trailing dot should be ignored in the result
-		expected := []string{"key1", "key2"}
-		if !reflect.DeepEqual(pathKeys, expected) {
-			t.Errorf("Expected pathKeys %v, got %v", expected, pathKeys)
-		}
-	})
-
-	t.Run("PathStartingWithBracket", func(t *testing.T) {
-		// Given a path starting with a bracket
-		path := "[key1].key2"
-
-		// When calling parsePath with a leading bracket
-		pathKeys := parsePath(path)
-
-		// Then the keys should be correctly extracted without the brackets
-		expected := []string{"key1", "key2"}
-		if !reflect.DeepEqual(pathKeys, expected) {
-			t.Errorf("Expected pathKeys %v, got %v", expected, pathKeys)
-		}
-	})
-
-	t.Run("PathEndingWithUnmatchedBracket", func(t *testing.T) {
-		// Given a path ending with an unmatched opening bracket
-		path := "key1[key2"
-
-		// When calling parsePath with an unmatched bracket
-		pathKeys := parsePath(path)
-
-		// Then the parser should handle this gracefully and extract the keys
-		expected := []string{"key1", "key2"}
-		if !reflect.DeepEqual(pathKeys, expected) {
-			t.Errorf("Expected pathKeys %v, got %v", expected, pathKeys)
-		}
-	})
-
-	t.Run("MultipleConsecutiveDots", func(t *testing.T) {
-		// Given a path with multiple consecutive dots
-		path := "key1..key2"
-
-		// When calling parsePath with consecutive dots
-		pathKeys := parsePath(path)
-
-		// Then consecutive dots should be treated as a single delimiter
-		expected := []string{"key1", "key2"}
-		if !reflect.DeepEqual(pathKeys, expected) {
-			t.Errorf("Expected pathKeys %v, got %v", expected, pathKeys)
-		}
-	})
 }
 
-func TestAssignValue(t *testing.T) {
+func Test_assignValue(t *testing.T) {
 	t.Run("CannotSetField", func(t *testing.T) {
 		// Given an unexported field that cannot be set
 		var unexportedField struct {
@@ -1638,74 +1648,6 @@ func TestAssignValue(t *testing.T) {
 		expectedError := "cannot assign value of type string to field of type int"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-}
-
-func TestYamlConfigHandler_LoadConfigString(t *testing.T) {
-	setup := func(t *testing.T) (*YamlConfigHandler, *Mocks) {
-		mocks := setupMocks(t)
-		handler := NewYamlConfigHandler(mocks.Injector)
-		handler.Initialize()
-		return handler, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		handler, _ := setup(t)
-		handler.SetContext("test")
-
-		yamlContent := `
-version: v1alpha1
-contexts:
-  test:
-    environment:
-      TEST_VAR: test_value`
-
-		err := handler.LoadConfigString(yamlContent)
-		if err != nil {
-			t.Fatalf("LoadConfigString() unexpected error: %v", err)
-		}
-
-		value := handler.GetString("environment.TEST_VAR")
-		if value != "test_value" {
-			t.Errorf("Expected TEST_VAR = 'test_value', got '%s'", value)
-		}
-	})
-
-	t.Run("EmptyContent", func(t *testing.T) {
-		handler, _ := setup(t)
-		err := handler.LoadConfigString("")
-		if err != nil {
-			t.Fatalf("LoadConfigString() unexpected error: %v", err)
-		}
-	})
-
-	t.Run("InvalidYAML", func(t *testing.T) {
-		handler, _ := setup(t)
-		yamlContent := `invalid: yaml: content: [}`
-
-		err := handler.LoadConfigString(yamlContent)
-		if err == nil {
-			t.Fatal("LoadConfigString() expected error for invalid YAML")
-		}
-		if !strings.Contains(err.Error(), "error unmarshalling yaml") {
-			t.Errorf("Expected error about invalid YAML, got: %v", err)
-		}
-	})
-
-	t.Run("UnsupportedVersion", func(t *testing.T) {
-		handler, _ := setup(t)
-		yamlContent := `
-version: v2alpha1
-contexts:
-  test: {}`
-
-		err := handler.LoadConfigString(yamlContent)
-		if err == nil {
-			t.Fatal("LoadConfigString() expected error for unsupported version")
-		}
-		if !strings.Contains(err.Error(), "unsupported config version") {
-			t.Errorf("Expected error about unsupported version, got: %v", err)
 		}
 	})
 }

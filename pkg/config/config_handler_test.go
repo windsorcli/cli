@@ -111,7 +111,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 }
 
 // =============================================================================
-// Test Runners
+// Test Public Methods
 // =============================================================================
 
 func TestBaseConfigHandler_Initialize(t *testing.T) {
@@ -141,23 +141,6 @@ func TestBaseConfigHandler_Initialize(t *testing.T) {
 		// Then an error should be returned due to missing shell dependency
 		if err == nil {
 			t.Errorf("Expected error when resolving shell, got nil")
-		}
-	})
-}
-
-func TestBaseConfigHandler_SetSecretsProvider(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a BaseConfigHandler instance and a secrets provider
-		mocks := setupMocks(t)
-		handler := NewBaseConfigHandler(mocks.Injector)
-		secretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
-
-		// When setting the secrets provider on the handler
-		handler.SetSecretsProvider(secretsProvider)
-
-		// Then the secrets provider should be correctly registered with the handler
-		if len(handler.secretsProviders) != 1 || handler.secretsProviders[0] != secretsProvider {
-			t.Errorf("Expected secretsProvider to be set correctly in the handler's providers list")
 		}
 	})
 }

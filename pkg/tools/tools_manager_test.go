@@ -153,7 +153,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 }
 
 // =============================================================================
-// Test Runners
+// Test Public Methods
 // =============================================================================
 
 // Tests for core ToolsManager functionality
@@ -473,6 +473,10 @@ contexts:
 		}
 	})
 }
+
+// =============================================================================
+// Test Private Methods
+// =============================================================================
 
 // Tests for Docker and Docker Compose version validation
 func TestToolsManager_checkDocker(t *testing.T) {
@@ -1024,7 +1028,7 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 }
 
 // =============================================================================
-// Utility Function Tests
+// Test Public Helpers
 // =============================================================================
 
 // Tests for existing tools manager detection
@@ -1200,8 +1204,12 @@ func TestCheckExistingToolsManager(t *testing.T) {
 	})
 }
 
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
 // Tests for version comparison logic
-func TestCompareVersion(t *testing.T) {
+func Test_compareVersion(t *testing.T) {
 	tests := []struct {
 		name     string
 		version1 string
@@ -1235,7 +1243,7 @@ func TestCompareVersion(t *testing.T) {
 }
 
 // Tests for version string extraction
-func TestExtractVersion(t *testing.T) {
+func Test_extractVersion(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string

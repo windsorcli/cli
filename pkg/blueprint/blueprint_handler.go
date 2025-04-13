@@ -31,10 +31,14 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-//go:embed templates/default.jsonnet
-var defaultJsonnetTemplate string
+// The BlueprintHandler is a core component that manages infrastructure and application configurations
+// through a declarative, GitOps-based approach. It handles the lifecycle of infrastructure blueprints,
+// which are composed of Terraform components, Kubernetes Kustomizations, and associated metadata.
+// The handler facilitates the resolution of component sources, manages repository configurations,
+// and orchestrates the deployment of infrastructure components across different environments.
+// It integrates with Kubernetes for resource management and supports both local and remote
+// infrastructure definitions, enabling consistent and reproducible infrastructure deployments.
 
-// BlueprintHandler defines the interface for handling blueprint operations
 type BlueprintHandler interface {
 	Initialize() error
 	LoadConfig(path ...string) error
@@ -52,9 +56,9 @@ type BlueprintHandler interface {
 	SetKustomizations(kustomizations []blueprintv1alpha1.Kustomization) error
 }
 
-// BaseBlueprintHandler implements the BlueprintHandler interface, providing core functionality
-// for managing blueprint configurations, including loading/saving configs and managing
-// Kubernetes resources like GitRepositories, Kustomizations and ConfigMaps.
+//go:embed templates/default.jsonnet
+var defaultJsonnetTemplate string
+
 type BaseBlueprintHandler struct {
 	injector       di.Injector
 	configHandler  config.ConfigHandler

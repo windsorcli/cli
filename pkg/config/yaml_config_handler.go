@@ -11,12 +11,22 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// YamlConfigHandler implements the ConfigHandler interface using goccy/go-yaml
+// YamlConfigHandler extends BaseConfigHandler to implement YAML-based configuration
+// management. It handles serialization/deserialization of v1alpha1.Context objects
+// to/from YAML files, with version validation and context-specific overrides. The
+// handler maintains configuration state through file-based persistence, implementing
+// atomic writes and proper error handling. Configuration values can be accessed through
+// strongly-typed getters with support for default values.
+
 type YamlConfigHandler struct {
 	BaseConfigHandler
 	path                 string
 	defaultContextConfig v1alpha1.Context
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewYamlConfigHandler creates a new instance of YamlConfigHandler with default context configuration.
 func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
@@ -26,6 +36,10 @@ func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
 		},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // LoadConfigString loads the configuration from the provided string content.
 func (y *YamlConfigHandler) LoadConfigString(content string) error {
@@ -251,6 +265,10 @@ func (y *YamlConfigHandler) GetConfig() *v1alpha1.Context {
 
 // Ensure YamlConfigHandler implements ConfigHandler
 var _ ConfigHandler = (*YamlConfigHandler)(nil)
+
+// =============================================================================
+// Private Methods
+// =============================================================================
 
 // getValueByPath retrieves a value by navigating through a struct or map using YAML tags.
 func getValueByPath(current interface{}, pathKeys []string) interface{} {

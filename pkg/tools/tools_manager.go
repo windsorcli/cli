@@ -17,9 +17,15 @@ import (
 	sh "github.com/windsorcli/cli/pkg/shell"
 )
 
-// ToolsManager is responsible for managing the cli toolchain required
-// by the project. It leverages existing package ecosystems and modifies
-// tools manifests to ensure the appropriate tools are installed and configured.
+// The ToolsManager is a core component that manages development tools and dependencies
+// required for infrastructure and application development. It handles the lifecycle of
+// development tools through a manifest-based approach, ensuring consistent tooling
+// across development environments. The manager facilitates tool version management,
+// installation verification, and dependency resolution. It integrates with the project's
+// configuration system to determine required tools and their versions, enabling
+// reproducible development environments. The manager supports both local and remote
+// tool installations, with built-in version checking and compatibility validation.
+
 type ToolsManager interface {
 	Initialize() error
 	WriteManifest() error
@@ -34,12 +40,20 @@ type BaseToolsManager struct {
 	shell         shell.Shell
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // Creates a new ToolsManager instance with the given injector.
 func NewToolsManager(injector di.Injector) *BaseToolsManager {
 	return &BaseToolsManager{
 		injector: injector,
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize the tools manager by resolving the config handler and shell.
 func (t *BaseToolsManager) Initialize() error {
@@ -149,6 +163,10 @@ func CheckExistingToolsManager(projectRoot string) (string, error) {
 
 	return "", nil
 }
+
+// =============================================================================
+// Private Methods
+// =============================================================================
 
 // checkDocker ensures Docker and Docker Compose are available in the system's PATH using execLookPath and shell.ExecSilent.
 // It checks for 'docker', 'docker-compose', 'docker-cli-plugin-docker-compose', or 'docker compose'.

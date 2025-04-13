@@ -265,7 +265,6 @@ func (c *RealController) CreateSecretsProviders() error {
 		if _, err := osStat(filepath.Join(configRoot, filePath)); err == nil {
 			sopsSecretsProvider := secrets.NewSopsSecretsProvider(configRoot, c.injector)
 			c.injector.Register("sopsSecretsProvider", sopsSecretsProvider)
-			c.configHandler.SetSecretsProvider(sopsSecretsProvider)
 		}
 	}
 
@@ -284,7 +283,6 @@ func (c *RealController) CreateSecretsProviders() error {
 			}
 
 			c.injector.Register(fmt.Sprintf("op%sSecretsProvider", strings.ToUpper(key[:1])+key[1:]), opSecretsProvider)
-			c.configHandler.SetSecretsProvider(opSecretsProvider)
 		}
 	}
 

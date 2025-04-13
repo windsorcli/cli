@@ -10,74 +10,40 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// The ConfigHandler is a core component that manages configuration state and context across the application.
+// It provides a unified interface for loading, saving, and accessing configuration data, with support for
+// multiple contexts and secret management. The handler facilitates environment-specific configurations,
+// manages context switching, and integrates with various secret providers for secure credential handling.
+// It maintains configuration persistence through YAML files and supports hierarchical configuration
+// structures with default values and context-specific overrides.
+
+type ConfigHandler interface {
+	Initialize() error
+	LoadConfig(path string) error
+	LoadConfigString(content string) error
+	GetString(key string, defaultValue ...string) string
+	GetInt(key string, defaultValue ...int) int
+	GetBool(key string, defaultValue ...bool) bool
+	GetStringSlice(key string, defaultValue ...[]string) []string
+	GetStringMap(key string, defaultValue ...map[string]string) map[string]string
+	Set(key string, value any) error
+	SetContextValue(key string, value any) error
+	Get(key string) any
+	SaveConfig(path string) error
+	SetDefault(context v1alpha1.Context) error
+	GetConfig() *v1alpha1.Context
+	GetContext() string
+	SetContext(context string) error
+	GetConfigRoot() (string, error)
+	Clean() error
+	IsLoaded() bool
+}
+
 const (
 	windsorDirName  = ".windsor"
 	contextDirName  = "contexts"
 	contextFileName = "context"
 )
-
-// ConfigHandler defines the interface for handling configuration operations
-type ConfigHandler interface {
-	// Initialize initializes the config handler
-	Initialize() error
-
-	// LoadConfig loads the configuration from the specified path
-	LoadConfig(path string) error
-
-	// LoadConfigString loads the configuration from the provided string content
-	LoadConfigString(content string) error
-
-	// GetString retrieves a string value for the specified key from the configuration
-	GetString(key string, defaultValue ...string) string
-
-	// GetInt retrieves an integer value for the specified key from the configuration
-	GetInt(key string, defaultValue ...int) int
-
-	// GetBool retrieves a boolean value for the specified key from the configuration
-	GetBool(key string, defaultValue ...bool) bool
-
-	// GetStringSlice retrieves a slice of strings for the specified key from the configuration
-	GetStringSlice(key string, defaultValue ...[]string) []string
-
-	// GetStringMap retrieves a map of string key-value pairs for the specified key from the configuration
-	GetStringMap(key string, defaultValue ...map[string]string) map[string]string
-
-	// Set sets the value for the specified key in the configuration
-	Set(key string, value interface{}) error
-
-	// SetContextValue sets the value for the specified key in the configuration
-	SetContextValue(key string, value interface{}) error
-
-	// Get retrieves a value for the specified key from the configuration
-	Get(key string) interface{}
-
-	// SaveConfig saves the current configuration to the specified path
-	SaveConfig(path string) error
-
-	// SetDefault sets the default context configuration
-	SetDefault(context v1alpha1.Context) error
-
-	// GetConfig returns the context config object
-	GetConfig() *v1alpha1.Context
-
-	// GetContext retrieves the current context
-	GetContext() string
-
-	// SetContext sets the current context
-	SetContext(context string) error
-
-	// GetConfigRoot retrieves the configuration root path based on the current context
-	GetConfigRoot() (string, error)
-
-	// Clean cleans up context specific artifacts
-	Clean() error
-
-	// SetSecretsProvider sets the secrets provider for the config handler
-	SetSecretsProvider(provider secrets.SecretsProvider)
-
-	// IsLoaded checks if the configuration has been loaded
-	IsLoaded() bool
-}
 
 // BaseConfigHandler is a base implementation of the ConfigHandler interface
 type BaseConfigHandler struct {
@@ -89,10 +55,18 @@ type BaseConfigHandler struct {
 	loaded           bool
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewBaseConfigHandler creates a new BaseConfigHandler instance
 func NewBaseConfigHandler(injector di.Injector) *BaseConfigHandler {
 	return &BaseConfigHandler{injector: injector}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize sets up the config handler by resolving and storing the shell dependency.
 func (c *BaseConfigHandler) Initialize() error {
@@ -102,11 +76,6 @@ func (c *BaseConfigHandler) Initialize() error {
 	}
 	c.shell = shell
 	return nil
-}
-
-// SetSecretsProvider sets the secrets provider for the config handler
-func (c *BaseConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {
-	c.secretsProviders = append(c.secretsProviders, provider)
 }
 
 // GetContext retrieves the current context from the environment, file, or defaults to "local"

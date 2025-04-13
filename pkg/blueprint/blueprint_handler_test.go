@@ -1136,27 +1136,44 @@ metadata:
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
 
-		// And a mock yaml unmarshaller that returns an error
+		// And a mock yaml unmarshaller that returns an error for context YAML
 		originalYamlUnmarshal := yamlUnmarshal
 		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
 		yamlUnmarshal = func(data []byte, obj any) error {
 			if _, ok := obj.(map[string]any); ok {
 				return fmt.Errorf("error unmarshalling context YAML")
 			}
-			if bp, ok := obj.(*blueprintv1alpha1.Blueprint); ok {
-				bp.Metadata.Name = "test"
-				bp.Metadata.Description = "test"
-				bp.Metadata.Authors = []string{"test"}
-			}
 			return nil
+		}
+
+		// And a mock file system that returns a blueprint file
+		originalOsStat := osStat
+		defer func() { osStat = originalOsStat }()
+		osStat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		originalOsReadFile := osReadFile
+		defer func() { osReadFile = originalOsReadFile }()
+		osReadFile = func(name string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// And a mock jsonnet VM that returns an error
+		originalJsonnetMakeVM := jsonnetMakeVM
+		defer func() { jsonnetMakeVM = originalJsonnetMakeVM }()
+		jsonnetMakeVM = func() JsonnetVM {
+			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
+				return "", fmt.Errorf("error evaluating jsonnet")
+			})
 		}
 
 		// When loading the config
 		err := handler.LoadConfig()
 
 		// Then an error should be returned
-		if err == nil || !strings.Contains(err.Error(), "blueprint name is required") {
-			t.Errorf("Expected error containing 'blueprint name is required', got: %v", err)
+		if err == nil || !strings.Contains(err.Error(), "error evaluating jsonnet") {
+			t.Errorf("Expected error containing 'error evaluating jsonnet', got: %v", err)
 		}
 	})
 
@@ -1409,12 +1426,9 @@ metadata:
 		baseHandler := handler.(*BaseBlueprintHandler)
 		err := baseHandler.processBlueprintData(data, blueprint)
 
-		// Then an error about missing description should be returned
-		if err == nil {
-			t.Error("Expected error for missing description, got nil")
-		}
-		if !strings.Contains(err.Error(), "blueprint description is required") {
-			t.Errorf("Expected error about missing description, got: %v", err)
+		// Then no error should be returned since validation is removed
+		if err != nil {
+			t.Errorf("Expected no error for missing description, got: %v", err)
 		}
 	})
 
@@ -1436,12 +1450,9 @@ metadata:
 		baseHandler := handler.(*BaseBlueprintHandler)
 		err := baseHandler.processBlueprintData(data, blueprint)
 
-		// Then an error about missing authors should be returned
-		if err == nil {
-			t.Error("Expected error for missing authors, got nil")
-		}
-		if !strings.Contains(err.Error(), "blueprint must have at least one author") {
-			t.Errorf("Expected error about missing authors, got: %v", err)
+		// Then no error should be returned since validation is removed
+		if err != nil {
+			t.Errorf("Expected no error for empty authors list, got: %v", err)
 		}
 	})
 }
@@ -3109,12 +3120,9 @@ metadata:
 		baseHandler := handler.(*BaseBlueprintHandler)
 		err := baseHandler.processBlueprintData(data, blueprint)
 
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error for missing required fields, got nil")
-		}
-		if !strings.Contains(err.Error(), "blueprint name is required") {
-			t.Errorf("Expected error about missing name, got: %v", err)
+		// Then no error should be returned since validation is removed
+		if err != nil {
+			t.Errorf("Expected no error for missing required fields, got: %v", err)
 		}
 	})
 
@@ -3299,14 +3307,9 @@ metadata:
 		baseHandler := handler.(*BaseBlueprintHandler)
 		err := baseHandler.processBlueprintData(data, blueprint)
 
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error for missing description, got nil")
-		}
-
-		// And the error should indicate missing description
-		if !strings.Contains(err.Error(), "blueprint description is required") {
-			t.Errorf("Expected error about missing description, got: %v", err)
+		// Then no error should be returned since validation is removed
+		if err != nil {
+			t.Errorf("Expected no error for missing description, got: %v", err)
 		}
 	})
 
@@ -3328,14 +3331,9 @@ metadata:
 		baseHandler := handler.(*BaseBlueprintHandler)
 		err := baseHandler.processBlueprintData(data, blueprint)
 
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error for missing authors, got nil")
-		}
-
-		// And the error should indicate missing authors
-		if !strings.Contains(err.Error(), "blueprint must have at least one author") {
-			t.Errorf("Expected error about missing authors, got: %v", err)
+		// Then no error should be returned since validation is removed
+		if err != nil {
+			t.Errorf("Expected no error for empty authors list, got: %v", err)
 		}
 	})
 }

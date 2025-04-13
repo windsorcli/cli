@@ -4,6 +4,10 @@ import (
 	"testing"
 )
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 // Tests for mock tools manager initialization
 func TestMockToolsManager_Initialize(t *testing.T) {
 	t.Run("Initialize", func(t *testing.T) {
