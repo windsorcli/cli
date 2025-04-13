@@ -2,73 +2,13 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"reflect"
 	"testing"
 
-	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/secrets"
-	"github.com/windsorcli/cli/pkg/shell"
 )
-
-type MockObjects struct {
-	MockShell       *shell.MockShell
-	ConfigHandler   *MockConfigHandler
-	SecretsProvider *secrets.MockSecretsProvider
-	Injector        di.Injector
-}
-
-func setupSafeMocks(injector ...di.Injector) *MockObjects {
-	var inj di.Injector
-	if len(injector) > 0 {
-		inj = injector[0]
-	} else {
-		inj = di.NewInjector()
-	}
-
-	// Mock necessary dependencies
-	mockShell := &shell.MockShell{}
-	mockShell.GetProjectRootFunc = func() (string, error) {
-		return "/tmp", nil
-	}
-	inj.Register("shell", mockShell)
-
-	// Mock secrets provider
-	mockSecretsProvider := &secrets.MockSecretsProvider{}
-	inj.Register("secretsProvider", mockSecretsProvider)
-
-	// Mock osStat to simulate a successful file existence check
-	osStat = func(name string) (os.FileInfo, error) {
-		return nil, nil
-	}
-
-	// Use real YAML unmarshaling
-	yamlUnmarshal = yaml.Unmarshal
-
-	// Mock osReadFile to simulate reading a file
-	osReadFile = func(filename string) ([]byte, error) {
-		return []byte("dummy: data"), nil
-	}
-
-	// Mock osWriteFile to simulate writing a file
-	osWriteFile = func(name string, data []byte, perm os.FileMode) error {
-		return nil
-	}
-
-	// Mock osMkdirAll to simulate creating directories
-	osMkdirAll = func(path string, perm os.FileMode) error {
-		return nil
-	}
-
-	// Return the mock objects including the handler
-	return &MockObjects{
-		MockShell:       mockShell,
-		SecretsProvider: mockSecretsProvider,
-		Injector:        inj,
-	}
-}
 
 func TestMockConfigHandler_Initialize(t *testing.T) {
 	mockInitializeErr := fmt.Errorf("mock initialize error")

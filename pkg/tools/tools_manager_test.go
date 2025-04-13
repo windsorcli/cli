@@ -13,7 +13,10 @@ import (
 	sh "github.com/windsorcli/cli/pkg/shell"
 )
 
-// Test setup types and variables
+// =============================================================================
+// Test Setup
+// =============================================================================
+
 type Mocks struct {
 	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
