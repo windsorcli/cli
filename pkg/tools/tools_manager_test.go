@@ -159,6 +159,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 // Tests for core ToolsManager functionality
 func TestToolsManager_NewToolsManager(t *testing.T) {
 	setup := func(t *testing.T) *Mocks {
+		t.Helper()
 		return setupMocks(t)
 	}
 
@@ -177,6 +178,7 @@ func TestToolsManager_NewToolsManager(t *testing.T) {
 // Tests for initialization process
 func TestToolsManager_Initialize(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.Injector)
 		return mocks, toolsManager
@@ -218,6 +220,7 @@ func TestToolsManager_WriteManifest(t *testing.T) {
 // Tests for installation process
 func TestToolsManager_Install(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -239,6 +242,7 @@ func TestToolsManager_Install(t *testing.T) {
 // Tests for the main Check functionality that validates tool versions
 func TestToolsManager_Check(t *testing.T) {
 	setup := func(t *testing.T, configStr string) (*Mocks, *BaseToolsManager) {
+		t.Helper()
 		mocks := setupMocks(t, &SetupOptions{ConfigStr: configStr})
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -470,13 +474,10 @@ contexts:
 	})
 }
 
-// =============================================================================
-// Individual Tool Check Tests
-// =============================================================================
-
 // Tests for Docker and Docker Compose version validation
 func TestToolsManager_checkDocker(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -611,6 +612,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 // Tests for Colima and Limactl version validation
 func TestToolsManager_checkColima(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -753,6 +755,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 // Tests for Kubectl version validation
 func TestToolsManager_checkKubectl(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -805,6 +808,7 @@ func TestToolsManager_checkKubectl(t *testing.T) {
 // Tests for Talosctl version validation
 func TestToolsManager_checkTalosctl(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -860,6 +864,7 @@ func TestToolsManager_checkTalosctl(t *testing.T) {
 // Tests for Terraform version validation
 func TestToolsManager_checkTerraform(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -932,6 +937,7 @@ func TestToolsManager_checkTerraform(t *testing.T) {
 // Tests for 1Password CLI version validation
 func TestToolsManager_checkOnePassword(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
 		mocks := setupMocks(t)
 		toolsManager := NewToolsManager(mocks.Injector)
 		toolsManager.Initialize()
@@ -1024,6 +1030,7 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 // Tests for existing tools manager detection
 func TestCheckExistingToolsManager(t *testing.T) {
 	setup := func(t *testing.T) *Mocks {
+		t.Helper()
 		return setupMocks(t)
 	}
 

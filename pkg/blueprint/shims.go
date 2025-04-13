@@ -13,6 +13,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// YAML and JSON shims
 // yamlMarshalNonNull marshals the given struct into YAML data, omitting null values
 var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
 	return yaml.Marshal(v)
@@ -24,63 +25,83 @@ var yamlMarshal = yaml.Marshal
 // yamlUnmarshal is a wrapper around yaml.Unmarshal
 var yamlUnmarshal = yaml.Unmarshal
 
+// jsonMarshal is a wrapper around json.Marshal
+var jsonMarshal = json.Marshal
+
+// jsonUnmarshal is a wrapper around json.Unmarshal
+var jsonUnmarshal = json.Unmarshal
+
+// k8sYamlUnmarshal is a wrapper around yaml.Unmarshal for Kubernetes YAML
+var k8sYamlUnmarshal = yaml.Unmarshal
+
+// File system shims
 // osWriteFile is a wrapper around os.WriteFile
 var osWriteFile = os.WriteFile
 
 // osMkdirAll is a wrapper around os.MkdirAll
 var osMkdirAll = os.MkdirAll
 
-// jsonMarshal is a wrapper around json.Marshal
-var jsonMarshal = json.Marshal
+// osStat is a wrapper around os.Stat
+var osStat = os.Stat
 
-// jsonnetMakeVMFunc is a function type for creating a new jsonnet VM
-type jsonnetMakeVMFunc func() jsonnetVMInterface
+// osReadFile is a wrapper around os.ReadFile
+var osReadFile = os.ReadFile
 
-// jsonnetVMInterface defines the interface for a jsonnet VM
-type jsonnetVMInterface interface {
-	TLACode(key, val string)
-	EvaluateAnonymousSnippet(filename, snippet string) (string, error)
-	ExtCode(key, val string)
-}
+// Other utility shims
+// regexpMatchString is a wrapper around regexp.MatchString
+var regexpMatchString = regexp.MatchString
 
-// jsonnetMakeVM is a variable holding the function to create a new jsonnet VM
-var jsonnetMakeVM jsonnetMakeVMFunc = func() jsonnetVMInterface {
-	return &jsonnetVM{VM: jsonnet.MakeVM()}
-}
-
-// jsonnetVM is a wrapper around jsonnet.VM that implements jsonnetVMInterface
-type jsonnetVM struct {
-	*jsonnet.VM
-}
-
-// EvaluateAnonymousSnippet is a wrapper around jsonnet.VM.EvaluateAnonymousSnippet
-func (vm *jsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
-	return vm.VM.EvaluateAnonymousSnippet(filename, snippet)
-}
-
-// ExtCode is a wrapper around jsonnet.VM.ExtCode
-func (vm *jsonnetVM) ExtCode(key, val string) {
-	vm.VM.ExtCode(key, val)
-}
-
-// Shim for Kubernetes client-go functions
-
+// Kubernetes client-go shims
 // clientcmdBuildConfigFromFlags is a shim for clientcmd.BuildConfigFromFlags
 var clientcmdBuildConfigFromFlags = clientcmd.BuildConfigFromFlags
 
 // restInClusterConfig is a shim for rest.InClusterConfig
 var restInClusterConfig = rest.InClusterConfig
 
-// kubernetesNewForConfigFunc is a function type for creating a new Kubernetes client
-type kubernetesNewForConfigFunc func(config *rest.Config) (kubernetes.Interface, error)
+// kubernetesNewForConfig is a shim for kubernetes.NewForConfig
+var kubernetesNewForConfig = kubernetes.NewForConfig
 
 // metav1Duration is a shim for metav1.Duration
 type metav1Duration = metav1.Duration
 
-// Add back the missing functions from file_context_0
-var (
-	regexpMatchString = regexp.MatchString
-	osStat            = os.Stat
-	osReadFile        = os.ReadFile
-	k8sYamlUnmarshal  = yaml.Unmarshal
-)
+// ----------------------------------------------------------------------------
+// Jsonnet VM Implementation
+// ----------------------------------------------------------------------------
+
+// JsonnetVM defines the interface for Jsonnet virtual machines
+type JsonnetVM interface {
+	// TLACode sets a top-level argument using code
+	TLACode(key, val string)
+	// ExtCode sets an external variable using code
+	ExtCode(key, val string)
+	// EvaluateAnonymousSnippet evaluates a jsonnet snippet
+	EvaluateAnonymousSnippet(filename, snippet string) (string, error)
+}
+
+// realJsonnetVM implements JsonnetVM using the actual jsonnet implementation
+type realJsonnetVM struct {
+	vm *jsonnet.VM
+}
+
+// NewJsonnetVM creates a new JsonnetVM using the real jsonnet implementation
+var NewJsonnetVM = func() JsonnetVM {
+	return &realJsonnetVM{vm: jsonnet.MakeVM()}
+}
+
+func (j *realJsonnetVM) TLACode(key, val string) {
+	j.vm.TLACode(key, val)
+}
+
+func (j *realJsonnetVM) ExtCode(key, val string) {
+	j.vm.ExtCode(key, val)
+}
+
+func (j *realJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
+	return j.vm.EvaluateAnonymousSnippet(filename, snippet)
+}
+
+// jsonnetMakeVM is the main shim used by the application to create JsonnetVMs
+// By default it uses the real implementation but can be replaced in tests
+var jsonnetMakeVM = NewJsonnetVM
+
+func ptrString(s string) *string { return &s }
