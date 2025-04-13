@@ -19,6 +19,10 @@ import (
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestMockController_Initialize(t *testing.T) {
 	t.Run("Initialize", func(t *testing.T) {
 		// Given a new injector and mock controller

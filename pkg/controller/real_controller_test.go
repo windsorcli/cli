@@ -14,6 +14,10 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
 func TestNewRealController(t *testing.T) {
 	t.Run("NewRealController", func(t *testing.T) {
 		injector := di.NewInjector()
@@ -29,6 +33,10 @@ func TestNewRealController(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
 func TestRealController_CreateCommonComponents(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {

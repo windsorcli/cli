@@ -28,6 +28,10 @@ type RealController struct {
 	BaseController
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewRealController creates a new controller.
 func NewRealController(injector di.Injector) *RealController {
 	return &RealController{
@@ -37,8 +41,9 @@ func NewRealController(injector di.Injector) *RealController {
 	}
 }
 
-// Ensure RealController implements the Controller interface
-var _ Controller = (*RealController)(nil)
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // CreateCommonComponents sets up config and shell for command execution.
 // It registers and initializes these components.

@@ -19,6 +19,10 @@ import (
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
 type MockObjects struct {
 	Injector          di.Injector
 	ConfigHandler     *config.MockConfigHandler
@@ -110,6 +114,10 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 	}
 }
 
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
 func TestNewController(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setSafeControllerMocks()
@@ -125,6 +133,10 @@ func TestNewController(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
 func TestController_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
