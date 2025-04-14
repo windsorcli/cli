@@ -1,5 +1,11 @@
 package stack
 
+// The WindsorStack is a specialized implementation of the Stack interface for Terraform-based infrastructure.
+// It provides a concrete implementation for managing Terraform components through the Windsor CLI,
+// handling directory management, environment configuration, and Terraform operations.
+// The WindsorStack orchestrates Terraform initialization, planning, and application,
+// while managing environment variables and backend configurations.
+
 import (
 	"fmt"
 	"os"
@@ -8,10 +14,18 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// =============================================================================
+// Types
+// =============================================================================
+
 // WindsorStack is a struct that implements the Stack interface.
 type WindsorStack struct {
 	BaseStack
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewWindsorStack creates a new WindsorStack.
 func NewWindsorStack(injector di.Injector) *WindsorStack {
@@ -21,6 +35,10 @@ func NewWindsorStack(injector di.Injector) *WindsorStack {
 		},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Up creates a new stack of components.
 func (s *WindsorStack) Up() error {
