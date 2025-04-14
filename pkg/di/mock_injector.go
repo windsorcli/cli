@@ -12,6 +12,10 @@ type MockInjector struct {
 	mu               sync.RWMutex
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewMockInjector creates a new mock DI injector
 func NewMockInjector() *MockInjector {
 	return &MockInjector{
@@ -19,6 +23,10 @@ func NewMockInjector() *MockInjector {
 		resolveAllErrors: make(map[interface{}]error),
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // SetResolveAllError sets a specific error to be returned when resolving all instances of a specific type
 func (m *MockInjector) SetResolveAllError(targetType interface{}, err error) {

@@ -6,6 +6,13 @@ import (
 	"sync"
 )
 
+// The Injector is a core component that manages dependency injection throughout the application.
+// It provides a thread-safe registry for storing and retrieving service instances, enabling loose
+// coupling between components. The injector supports both named registrations and interface-based
+// resolution, allowing components to be retrieved by their registered name or by matching a target
+// interface type. This facilitates the creation of modular, testable applications by centralizing
+// the management of dependencies and their lifecycle.
+
 // Injector defines the methods for the injector.
 type Injector interface {
 	Register(name string, instance interface{})
@@ -19,12 +26,20 @@ type BaseInjector struct {
 	items map[string]interface{}
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewInjector creates a new injector.
 func NewInjector() *BaseInjector {
 	return &BaseInjector{
 		items: make(map[string]interface{}),
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Register registers an instance with the injector.
 func (i *BaseInjector) Register(name string, instance interface{}) {
