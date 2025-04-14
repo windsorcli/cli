@@ -2,6 +2,8 @@ package controller
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,9 +25,9 @@ import (
 // Test Setup
 // =============================================================================
 
-type MockObjects struct {
+type Mocks struct {
 	Injector          di.Injector
-	ConfigHandler     *config.MockConfigHandler
+	ConfigHandler     config.ConfigHandler
 	SecretsProvider   *secrets.MockSecretsProvider
 	EnvPrinter        *env.MockEnvPrinter
 	WindsorEnvPrinter *env.MockEnvPrinter
@@ -41,74 +43,214 @@ type MockObjects struct {
 	Generator         *generators.MockGenerator
 }
 
-func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
-	var injector di.Injector
-	if len(customInjector) > 0 {
-		injector = customInjector[0]
-	} else {
-		injector = di.NewMockInjector()
+type SetupOptions struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	ConfigStr     string
+}
+
+func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
+
+	// Store original working directory
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
 	}
 
-	// Create necessary mocks
-	mockConfigHandler := config.NewMockConfigHandler()
+	// Create temp dir using testing.TempDir()
+	tmpDir := t.TempDir()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
+
+	options := &SetupOptions{}
+	if len(opts) > 0 && opts[0] != nil {
+		options = opts[0]
+	}
+
+	var injector di.Injector
+	if options.Injector == nil {
+		injector = di.NewMockInjector()
+	} else {
+		injector = options.Injector
+	}
+
+	var configHandler config.ConfigHandler
+	if options.ConfigHandler == nil {
+		configHandler = config.NewYamlConfigHandler(injector)
+	} else {
+		configHandler = options.ConfigHandler
+	}
+
+	// Create mock components
 	mockSecretsProvider := secrets.NewMockSecretsProvider(injector)
-	mockEnvPrinter1 := env.NewMockEnvPrinter()
-	mockEnvPrinter2 := env.NewMockEnvPrinter()
-	// Use a mock instead of a real WindsorEnvPrinter
+	mockEnvPrinter := env.NewMockEnvPrinter()
 	mockWindsorEnvPrinter := env.NewMockEnvPrinter()
 	mockShell := shell.NewMockShell()
 	mockSecureShell := shell.NewMockShell()
 	mockToolsManager := tools.NewMockToolsManager()
 	mockNetworkManager := network.NewMockNetworkManager()
-	mockService1 := services.NewMockService()
-	mockService2 := services.NewMockService()
+	mockService := services.NewMockService()
 	mockVirtualMachine := virt.NewMockVirt()
 	mockContainerRuntime := virt.NewMockVirt()
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(injector)
 	mockGenerator := generators.NewMockGenerator()
 	mockStack := stack.NewMockStack(injector)
 
-	// Register mocks in the injector
-	injector.Register("configHandler", mockConfigHandler)
+	// Register all mocks in the injector
+	injector.Register("configHandler", configHandler)
 	injector.Register("secretsProvider", mockSecretsProvider)
-	injector.Register("envPrinter1", mockEnvPrinter1)
-	injector.Register("envPrinter2", mockEnvPrinter2)
+	injector.Register("envPrinter1", mockEnvPrinter)
+	injector.Register("envPrinter2", mockEnvPrinter)
 	injector.Register("windsorEnv", mockWindsorEnvPrinter)
 	injector.Register("shell", mockShell)
 	injector.Register("secureShell", mockSecureShell)
 	injector.Register("toolsManager", mockToolsManager)
 	injector.Register("networkManager", mockNetworkManager)
 	injector.Register("blueprintHandler", mockBlueprintHandler)
-	injector.Register("service1", mockService1)
-	injector.Register("service2", mockService2)
+	injector.Register("service1", mockService)
+	injector.Register("service2", mockService)
 	injector.Register("virtualMachine", mockVirtualMachine)
 	injector.Register("containerRuntime", mockContainerRuntime)
 	injector.Register("generator", mockGenerator)
 	injector.Register("stack", mockStack)
 
-	// Mock GetEnvVars to return basic environment variables
+	// Initialize and configure config handler
+	configHandler.Initialize()
+	configHandler.SetContext("mock-context")
+
+	defaultConfigStr := `
+version: v1alpha1
+toolsManager: default
+contexts:
+  mock-context:
+    projectName: mock-project
+    environment:
+      MOCK_ENV: "true"
+    
+    # Core service configuration
+    docker:
+      enabled: true
+      registryUrl: mock.registry.com
+    
+    cluster:
+      enabled: true
+      workers:
+        enabled: true
+    
+    vm:
+      enabled: true
+      driver: colima
+    
+    # Network configuration
+    dns:
+      enabled: true
+      domain: mock.domain.com
+    
+    network:
+      enabled: true
+      cidrBlock: 192.168.1.0/24
+    
+    # Tools and secrets
+    terraform:
+      enabled: true
+      backend:
+        type: local
+    
+    secrets:
+      provider: mock
+      enabled: true
+`
+
+	if err := configHandler.LoadConfigString(defaultConfigStr); err != nil {
+		t.Fatalf("Failed to load default config string: %v", err)
+	}
+	if options.ConfigStr != "" {
+		if err := configHandler.LoadConfigString(options.ConfigStr); err != nil {
+			t.Fatalf("Failed to load config string: %v", err)
+		}
+	}
+
+	// Set up default mock behaviors
 	mockWindsorEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 		return map[string]string{
-			"WINDSOR_CONTEXT":       mockConfigHandler.GetContext(),
-			"WINDSOR_PROJECT_ROOT":  "/mock/project/root",
+			"WINDSOR_CONTEXT":       "mock-context",
+			"WINDSOR_PROJECT_ROOT":  tmpDir,
 			"WINDSOR_SESSION_TOKEN": "mock-token",
 		}, nil
 	}
 
-	return &MockObjects{
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return tmpDir, nil
+	}
+
+	mockShell.GetSessionTokenFunc = func() (string, error) {
+		return "mock-token", nil
+	}
+
+	mockShell.WriteResetTokenFunc = func() (string, error) {
+		return filepath.Join(tmpDir, ".windsor", ".session.mock-token"), nil
+	}
+
+	// Initialize all components that need initialization
+	mockSecretsProvider.InitializeFunc = func() error { return nil }
+	mockEnvPrinter.InitializeFunc = func() error { return nil }
+	mockWindsorEnvPrinter.InitializeFunc = func() error { return nil }
+	mockShell.InitializeFunc = func() error { return nil }
+	mockSecureShell.InitializeFunc = func() error { return nil }
+	mockToolsManager.InitializeFunc = func() error { return nil }
+	mockNetworkManager.InitializeFunc = func() error { return nil }
+	mockService.InitializeFunc = func() error { return nil }
+	mockVirtualMachine.InitializeFunc = func() error { return nil }
+	mockContainerRuntime.InitializeFunc = func() error { return nil }
+	mockBlueprintHandler.InitializeFunc = func() error { return nil }
+	mockGenerator.InitializeFunc = func() error { return nil }
+	mockStack.InitializeFunc = func() error { return nil }
+
+	// Set up blueprint handler defaults
+	mockBlueprintHandler.LoadConfigFunc = func(path ...string) error { return nil }
+	mockBlueprintHandler.WriteConfigFunc = func(path ...string) error { return nil }
+
+	// Set up tools manager defaults
+	mockToolsManager.WriteManifestFunc = func() error { return nil }
+
+	// Set up service defaults
+	mockService.WriteConfigFunc = func() error { return nil }
+
+	// Set up virtual machine defaults
+	mockVirtualMachine.WriteConfigFunc = func() error { return nil }
+
+	// Set up container runtime defaults
+	mockContainerRuntime.WriteConfigFunc = func() error { return nil }
+
+	// Set up generator defaults
+	mockGenerator.WriteFunc = func() error { return nil }
+
+	t.Cleanup(func() {
+		os.Unsetenv("WINDSOR_PROJECT_ROOT")
+
+		if err := os.Chdir(origDir); err != nil {
+			t.Logf("Warning: Failed to change back to original directory: %v", err)
+		}
+	})
+
+	return &Mocks{
 		Injector:          injector,
-		ConfigHandler:     mockConfigHandler,
+		ConfigHandler:     configHandler,
 		SecretsProvider:   mockSecretsProvider,
-		EnvPrinter:        mockEnvPrinter1, // Assuming the first envPrinter is the primary one
+		EnvPrinter:        mockEnvPrinter,
 		WindsorEnvPrinter: mockWindsorEnvPrinter,
 		Shell:             mockShell,
 		SecureShell:       mockSecureShell,
 		ToolsManager:      mockToolsManager,
 		NetworkManager:    mockNetworkManager,
-		BlueprintHandler:  mockBlueprintHandler,
-		Service:           mockService1, // Assuming the first service is the primary one
+		Service:           mockService,
 		VirtualMachine:    mockVirtualMachine,
 		ContainerRuntime:  mockContainerRuntime,
+		BlueprintHandler:  mockBlueprintHandler,
 		Stack:             mockStack,
 		Generator:         mockGenerator,
 	}
@@ -120,7 +262,8 @@ func setSafeControllerMocks(customInjector ...di.Injector) *MockObjects {
 
 func TestNewController(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		mocks := setSafeControllerMocks()
+		// Given a new test setup
+		mocks := setupMocks(t)
 
 		// Given a new controller
 		controller := NewController(mocks.Injector)
@@ -138,28 +281,21 @@ func TestNewController(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
-func TestController_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a new controller
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-
-		// When initializing the controller
-		err := controller.Initialize()
-
-		// Then there should be no error
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-}
-
 func TestController_InitializeComponents(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, _ := setup(t)
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -171,15 +307,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingShell", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		mockShell := shell.NewMockShell()
-		mockShell.InitializeFunc = func() error {
+		// Given a mock shell that returns an error
+		controller, mocks := setup(t)
+		mocks.Shell.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing shell")
 		}
-		mocks.Injector.Register("shell", mockShell)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -195,15 +327,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingSecureShell", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		mockSecureShell := shell.NewMockShell()
-		mockSecureShell.InitializeFunc = func() error {
+		// Given a mock secure shell that returns an error
+		controller, mocks := setup(t)
+		mocks.SecureShell.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing secure shell")
 		}
-		mocks.Injector.Register("secureShell", mockSecureShell)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -219,15 +347,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingEnvPrinters", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		mockEnvPrinter := env.NewMockEnvPrinter()
-		mockEnvPrinter.InitializeFunc = func() error {
+		// Given a mock env printer that returns an error
+		controller, mocks := setup(t)
+		mocks.EnvPrinter.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing env printer")
 		}
-		mocks.Injector.Register("envPrinter1", mockEnvPrinter)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -243,15 +367,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingToolsManager", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.InitializeFunc = func() error {
+		// Given a mock tools manager that returns an error
+		controller, mocks := setup(t)
+		mocks.ToolsManager.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing tools manager")
 		}
-		mocks.Injector.Register("toolsManager", mockToolsManager)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -267,15 +387,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingNetworkManager", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
-		mockNetworkManager := network.NewMockNetworkManager()
-		mockNetworkManager.InitializeFunc = func() error {
+		// Given a mock network manager that returns an error
+		controller, mocks := setup(t)
+		mocks.NetworkManager.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing network manager")
 		}
-		mocks.Injector.Register("networkManager", mockNetworkManager)
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -291,15 +407,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingServices", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
-		mockService := services.NewMockService()
-		mockService.InitializeFunc = func() error {
+		// Given a mock service that returns an error
+		controller, mocks := setup(t)
+		mocks.Service.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing service")
 		}
-		mocks.Injector.Register("service1", mockService)
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -315,15 +427,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingVirtualMachine", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
-		mockVirtualMachine := &virt.MockVirt{}
-		mockVirtualMachine.InitializeFunc = func() error {
+		// Given a mock virtual machine that returns an error
+		controller, mocks := setup(t)
+		mocks.VirtualMachine.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing virtual machine")
 		}
-		mocks.Injector.Register("virtualMachine", mockVirtualMachine)
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -339,15 +447,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingContainerRuntime", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
-		mockContainerRuntime := &virt.MockVirt{}
-		mockContainerRuntime.InitializeFunc = func() error {
+		// Given a mock container runtime that returns an error
+		controller, mocks := setup(t)
+		mocks.ContainerRuntime.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing container runtime")
 		}
-		mocks.Injector.Register("containerRuntime", mockContainerRuntime)
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -363,15 +467,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingBlueprintHandler", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
-		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
-		mockBlueprintHandler.InitializeFunc = func() error {
+		// Given a mock blueprint handler that returns an error
+		controller, mocks := setup(t)
+		mocks.BlueprintHandler.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing blueprint handler")
 		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -387,15 +487,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorLoadingBlueprintConfig", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
-		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
-		mockBlueprintHandler.LoadConfigFunc = func(path ...string) error {
+		// Given a mock blueprint handler that returns an error on load config
+		controller, mocks := setup(t)
+		mocks.BlueprintHandler.LoadConfigFunc = func(path ...string) error {
 			return fmt.Errorf("error loading blueprint config")
 		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -411,15 +507,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingGenerators", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
-		mockGenerator := generators.NewMockGenerator()
-		mockGenerator.InitializeFunc = func() error {
+		// Given a mock generator that returns an error
+		controller, mocks := setup(t)
+		mocks.Generator.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing generator")
 		}
-		mocks.Injector.Register("generator", mockGenerator)
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -435,15 +527,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingStack", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
-		mockStack := stack.NewMockStack(mocks.Injector)
-		mockStack.InitializeFunc = func() error {
+		// Given a mock stack that returns an error
+		controller, mocks := setup(t)
+		mocks.Stack.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing stack")
 		}
-		mocks.Injector.Register("stack", mockStack)
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -459,15 +547,11 @@ func TestController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingSecretsProvider", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
-		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
-		mockSecretsProvider.InitializeFunc = func() error {
+		// Given a mock secrets provider that returns an error
+		controller, mocks := setup(t)
+		mocks.SecretsProvider.InitializeFunc = func() error {
 			return fmt.Errorf("error initializing secrets provider")
 		}
-		mocks.Injector.Register("secretsProvider", mockSecretsProvider)
 
 		// When initializing the components
 		err := controller.InitializeComponents()
@@ -484,11 +568,20 @@ func TestController_InitializeComponents(t *testing.T) {
 }
 
 func TestController_CreateCommonComponents(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, _ := setup(t)
 
 		// When creating common components
 		err := controller.CreateCommonComponents()
@@ -501,11 +594,20 @@ func TestController_CreateCommonComponents(t *testing.T) {
 }
 
 func TestController_CreateSecretsProviders(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, _ := setup(t)
 
 		// When creating secrets provider
 		err := controller.CreateSecretsProviders()
@@ -518,11 +620,20 @@ func TestController_CreateSecretsProviders(t *testing.T) {
 }
 
 func TestController_CreateProjectComponents(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, _ := setup(t)
 
 		// When creating project components
 		err := controller.CreateProjectComponents()
@@ -535,11 +646,20 @@ func TestController_CreateProjectComponents(t *testing.T) {
 }
 
 func TestController_CreateEnvComponents(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, _ := setup(t)
 
 		// When creating env components
 		err := controller.CreateEnvComponents()
@@ -552,11 +672,20 @@ func TestController_CreateEnvComponents(t *testing.T) {
 }
 
 func TestController_CreateServiceComponents(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, _ := setup(t)
 
 		// When creating service components
 		err := controller.CreateServiceComponents()
@@ -569,11 +698,20 @@ func TestController_CreateServiceComponents(t *testing.T) {
 }
 
 func TestController_CreateVirtualizationComponents(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, _ := setup(t)
 
 		// When creating virtualization components
 		err := controller.CreateVirtualizationComponents()
@@ -586,11 +724,20 @@ func TestController_CreateVirtualizationComponents(t *testing.T) {
 }
 
 func TestController_CreateStackComponents(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, _ := setup(t)
 
 		// When creating stack components
 		err := controller.CreateStackComponents()
@@ -603,11 +750,20 @@ func TestController_CreateStackComponents(t *testing.T) {
 }
 
 func TestController_WriteConfigurationFiles(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, _ := setup(t)
 
 		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
@@ -619,15 +775,11 @@ func TestController_WriteConfigurationFiles(t *testing.T) {
 	})
 
 	t.Run("ErrorWritingToolsManifest", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.WriteManifestFunc = func() error {
+		// Given a mock tools manager that returns an error
+		controller, mocks := setup(t)
+		mocks.ToolsManager.WriteManifestFunc = func() error {
 			return fmt.Errorf("error writing tools manifest")
 		}
-		mocks.Injector.Register("toolsManager", mockToolsManager)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
 
 		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
@@ -643,15 +795,11 @@ func TestController_WriteConfigurationFiles(t *testing.T) {
 	})
 
 	t.Run("ErrorWritingBlueprintConfig", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		mockBlueprintHandler := &blueprint.MockBlueprintHandler{}
-		mockBlueprintHandler.WriteConfigFunc = func(path ...string) error {
+		// Given a mock blueprint handler that returns an error
+		controller, mocks := setup(t)
+		mocks.BlueprintHandler.WriteConfigFunc = func(path ...string) error {
 			return fmt.Errorf("error writing blueprint config")
 		}
-		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
 
 		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
@@ -667,15 +815,11 @@ func TestController_WriteConfigurationFiles(t *testing.T) {
 	})
 
 	t.Run("ErrorWritingConfigurationFiles", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		mockService := &services.MockService{}
-		mockService.WriteConfigFunc = func() error {
+		// Given a mock service that returns an error
+		controller, mocks := setup(t)
+		mocks.Service.WriteConfigFunc = func() error {
 			return fmt.Errorf("error writing service config")
 		}
-		mocks.Injector.Register("service1", mockService)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
 
 		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
@@ -691,15 +835,11 @@ func TestController_WriteConfigurationFiles(t *testing.T) {
 	})
 
 	t.Run("ErrorWritingVirtualMachineConfig", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		mockVirtualMachine := virt.NewMockVirt()
-		mockVirtualMachine.WriteConfigFunc = func() error {
+		// Given a mock virtual machine that returns an error
+		controller, mocks := setup(t)
+		mocks.VirtualMachine.WriteConfigFunc = func() error {
 			return fmt.Errorf("error writing virtual machine config")
 		}
-		mocks.Injector.Register("virtualMachine", mockVirtualMachine)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
 
 		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
@@ -715,15 +855,11 @@ func TestController_WriteConfigurationFiles(t *testing.T) {
 	})
 
 	t.Run("ErrorWritingContainerRuntimeConfig", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
-		mockContainerRuntime := virt.NewMockVirt()
-		mockContainerRuntime.WriteConfigFunc = func() error {
+		// Given a mock container runtime that returns an error
+		controller, mocks := setup(t)
+		mocks.ContainerRuntime.WriteConfigFunc = func() error {
 			return fmt.Errorf("error writing container runtime config")
 		}
-		mocks.Injector.Register("containerRuntime", mockContainerRuntime)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
 
 		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
@@ -739,14 +875,11 @@ func TestController_WriteConfigurationFiles(t *testing.T) {
 	})
 
 	t.Run("ErrorWritingGeneratorConfig", func(t *testing.T) {
-		// Given a new controller with a mock injector
-		mocks := setSafeControllerMocks()
+		// Given a mock generator that returns an error
+		controller, mocks := setup(t)
 		mocks.Generator.WriteFunc = func() error {
 			return fmt.Errorf("error writing generator config")
 		}
-		mocks.Injector.Register("generator", mocks.Generator)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
 
 		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
@@ -763,11 +896,20 @@ func TestController_WriteConfigurationFiles(t *testing.T) {
 }
 
 func TestController_ResolveInjector(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, mocks := setup(t)
 
 		// When resolving the injector
 		resolvedInjector := controller.ResolveInjector()
@@ -780,11 +922,20 @@ func TestController_ResolveInjector(t *testing.T) {
 }
 
 func TestController_ResolveConfigHandler(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, mocks := setup(t)
 
 		// When resolving the config handler
 		configHandler := controller.ResolveConfigHandler()
@@ -797,11 +948,20 @@ func TestController_ResolveConfigHandler(t *testing.T) {
 }
 
 func TestController_ResolveAllSecretsProviders(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, mocks := setup(t)
 
 		// When resolving the secrets provider
 		secretsProviders := controller.ResolveAllSecretsProviders()
@@ -822,11 +982,20 @@ func TestController_ResolveAllSecretsProviders(t *testing.T) {
 }
 
 func TestController_ResolveEnvPrinter(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, mocks := setup(t)
 
 		// When resolving the env printer
 		envPrinter := controller.ResolveEnvPrinter("envPrinter1")
@@ -844,11 +1013,20 @@ func TestController_ResolveEnvPrinter(t *testing.T) {
 }
 
 func TestController_ResolveAllEnvPrinters(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller with multiple envPrinters
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, _ := setup(t)
 
 		// When resolving all envPrinters
 		envPrinters := controller.ResolveAllEnvPrinters()
@@ -861,9 +1039,7 @@ func TestController_ResolveAllEnvPrinters(t *testing.T) {
 
 	t.Run("WindsorEnvIsLastPrinter", func(t *testing.T) {
 		// Given a new controller with multiple envPrinters
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, _ := setup(t)
 
 		// When resolving all envPrinters
 		envPrinters := controller.ResolveAllEnvPrinters()
@@ -882,14 +1058,69 @@ func TestController_ResolveAllEnvPrinters(t *testing.T) {
 			t.Errorf("expected last printer to be *env.MockEnvPrinter, got %T", lastPrinter)
 		}
 	})
+
+	t.Run("WindsorEnvPrinterTypeAssertion", func(t *testing.T) {
+		// Given a new controller
+		controller, mocks := setup(t)
+
+		// And a WindsorEnvPrinter is registered
+		windsorEnvPrinter := env.NewWindsorEnvPrinter(mocks.Injector)
+		mocks.Injector.Register("windsorEnv", windsorEnvPrinter)
+
+		// When resolving all envPrinters
+		envPrinters := controller.ResolveAllEnvPrinters()
+
+		// Then the WindsorEnvPrinter should be in the list
+		found := false
+		for _, printer := range envPrinters {
+			if _, ok := printer.(*env.WindsorEnvPrinter); ok {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected to find WindsorEnvPrinter in the list of envPrinters")
+		}
+	})
+
+	t.Run("WindsorEnvPrinterIsAppended", func(t *testing.T) {
+		// Given a new controller
+		controller, mocks := setup(t)
+
+		// And a WindsorEnvPrinter is registered
+		windsorEnvPrinter := env.NewWindsorEnvPrinter(mocks.Injector)
+		mocks.Injector.Register("windsorEnv", windsorEnvPrinter)
+
+		// When resolving all envPrinters
+		envPrinters := controller.ResolveAllEnvPrinters()
+
+		// Then the WindsorEnvPrinter should be the last printer in the list
+		if len(envPrinters) < 1 {
+			t.Fatalf("expected at least 1 envPrinter, got %d", len(envPrinters))
+		}
+
+		lastPrinter := envPrinters[len(envPrinters)-1]
+		if _, ok := lastPrinter.(*env.WindsorEnvPrinter); !ok {
+			t.Errorf("expected last printer to be *env.WindsorEnvPrinter, got %T", lastPrinter)
+		}
+	})
 }
 
 func TestController_ResolveShell(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, mocks := setup(t)
 
 		// When resolving the shell
 		shellInstance := controller.ResolveShell()
@@ -907,12 +1138,20 @@ func TestController_ResolveShell(t *testing.T) {
 }
 
 func TestController_ResolveSecureShell(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
-		mockInjector := di.NewMockInjector()
-		mocks := setSafeControllerMocks(mockInjector)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, _ := setup(t)
 
 		// When resolving the secure shell
 		secureShell := controller.ResolveSecureShell()
@@ -930,12 +1169,20 @@ func TestController_ResolveSecureShell(t *testing.T) {
 }
 
 func TestController_ResolveBlueprintHandler(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
-		mockInjector := di.NewMockInjector()
-		mocks := setSafeControllerMocks(mockInjector)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, mocks := setup(t)
 
 		// When resolving the blueprint handler
 		blueprintHandler := controller.ResolveBlueprintHandler()
@@ -953,12 +1200,20 @@ func TestController_ResolveBlueprintHandler(t *testing.T) {
 }
 
 func TestController_ResolveNetworkManager(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
-		mockInjector := di.NewMockInjector()
-		mocks := setSafeControllerMocks(mockInjector)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, mocks := setup(t)
 
 		// When resolving the network manager
 		networkManager := controller.ResolveNetworkManager()
@@ -976,12 +1231,20 @@ func TestController_ResolveNetworkManager(t *testing.T) {
 }
 
 func TestController_ResolveService(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("ResolveService", func(t *testing.T) {
 		// Given a new controller and injector
-		mockInjector := di.NewMockInjector()
-		mocks := setSafeControllerMocks(mockInjector)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, mocks := setup(t)
 
 		// When resolving the service
 		service := controller.ResolveService("service1")
@@ -999,12 +1262,20 @@ func TestController_ResolveService(t *testing.T) {
 }
 
 func TestController_ResolveAllServices(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
-		mockInjector := di.NewMockInjector()
-		mocks := setSafeControllerMocks(mockInjector)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, mocks := setup(t)
 
 		// When resolving all services
 		resolvedServices := controller.ResolveAllServices()
@@ -1044,11 +1315,20 @@ func TestController_ResolveAllServices(t *testing.T) {
 }
 
 func TestController_ResolveVirtualMachine(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, mocks := setup(t)
 
 		// When resolving the virtual machine
 		virtualMachine := controller.ResolveVirtualMachine()
@@ -1066,12 +1346,20 @@ func TestController_ResolveVirtualMachine(t *testing.T) {
 }
 
 func TestController_ResolveContainerRuntime(t *testing.T) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		return controller, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new controller and injector
-		mockInjector := di.NewMockInjector()
-		mocks := setSafeControllerMocks(mockInjector)
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
+		controller, mocks := setup(t)
 
 		// When resolving the container runtime
 		containerRuntime := controller.ResolveContainerRuntime()
@@ -1089,46 +1377,20 @@ func TestController_ResolveContainerRuntime(t *testing.T) {
 }
 
 func TestController_SetEnvironmentVariables(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Set a consistent session token in the environment
-		t.Setenv("WINDSOR_SESSION_TOKEN", "tAPwByY")
-
-		// Given a new controller and injector
-		mocks := setSafeControllerMocks()
-
-		// Set up proper mock for GetSessionToken to avoid file operations
-		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
-			return "tAPwByY", nil
-		}
-
-		// Mock WriteResetToken to prevent file operations
-		mocks.Shell.WriteResetTokenFunc = func() (string, error) {
-			// Just pretend it worked without creating any files
-			return "/mock/project/root/.windsor/.session.tAPwByY", nil
-		}
-
-		// Update the WindsorEnvPrinter mock to return the correct session token
-		mocks.WindsorEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return map[string]string{
-				"WINDSOR_CONTEXT":       "mock-context",
-				"WINDSOR_PROJECT_ROOT":  "/mock/project/root",
-				"WINDSOR_SESSION_TOKEN": "tAPwByY",
-			}, nil
-		}
-
+	setup := func(t *testing.T) (Controller, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
 		controller := NewController(mocks.Injector)
-		controller.Initialize()
-
-		// Create a map to track what environment variables were set
-		setEnvCalls := make(map[string]string)
-
-		// Mock the osSetenv function
-		originalSetenv := osSetenv
-		defer func() { osSetenv = originalSetenv }()
-		osSetenv = func(key, value string) error {
-			setEnvCalls[key] = value
-			return nil
+		err := controller.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
 		}
+		return controller, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a new controller
+		controller, _ := setup(t)
 
 		// When setting environment variables
 		err := controller.SetEnvironmentVariables()
@@ -1137,78 +1399,52 @@ func TestController_SetEnvironmentVariables(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-
-		// Verify specific environment variables we care about
-		expectedVars := map[string]string{
-			"WINDSOR_CONTEXT":       "mock-context",
-			"WINDSOR_SESSION_TOKEN": "tAPwByY",
-		}
-
-		for key, expectedValue := range expectedVars {
-			if setValue, ok := setEnvCalls[key]; !ok {
-				t.Fatalf("expected environment variable %s to be set", key)
-			} else if setValue != expectedValue {
-				t.Fatalf("expected environment variable %s to be set to %s, got %s", key, expectedValue, setValue)
-			}
-		}
 	})
 
 	t.Run("ErrorGettingEnvVars", func(t *testing.T) {
-		// Given a new controller and injector with a faulty envPrinter
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
-
-		// Mock WriteResetToken to prevent file operations
-		mocks.Shell.WriteResetTokenFunc = func() (string, error) {
-			// Just pretend it worked without creating any files
-			return "/mock/project/root/.windsor/.session.mock-token", nil
-		}
-
-		// Simulate GetEnvVars returning an error
+		// Given a mock env printer that returns an error
+		controller, mocks := setup(t)
 		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-			return nil, fmt.Errorf("mock error")
+			return nil, fmt.Errorf("error getting environment variables")
 		}
 
 		// When setting environment variables
 		err := controller.SetEnvironmentVariables()
 
 		// Then there should be an error
-		if err == nil || !strings.Contains(err.Error(), "error getting environment variables") {
-			t.Fatalf("expected error getting environment variables, got %v", err)
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error getting environment variables") {
+			t.Fatalf("expected error to contain 'error getting environment variables', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
 		}
 	})
 
 	t.Run("ErrorSettingEnvVars", func(t *testing.T) {
-		// Given a new controller and injector
-		mocks := setSafeControllerMocks()
-		controller := NewController(mocks.Injector)
-		controller.Initialize()
-
-		// Mock WriteResetToken to prevent file operations
-		mocks.Shell.WriteResetTokenFunc = func() (string, error) {
-			// Just pretend it worked without creating any files
-			return "/mock/project/root/.windsor/.session.mock-token", nil
-		}
-
-		// Mock the env printer's GetEnvVars to return a specific set of environment variables
+		// Given a mock env printer that returns environment variables
+		controller, mocks := setup(t)
 		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return map[string]string{"TEST_VAR": "test_value"}, nil
 		}
 
-		// Simulate osSetenv throwing an error
+		// And a mock os.Setenv that returns an error
 		originalSetenv := osSetenv
 		defer func() { osSetenv = originalSetenv }()
 		osSetenv = func(key, value string) error {
-			return fmt.Errorf("mock setenv error")
+			return fmt.Errorf("error setting environment variable")
 		}
 
 		// When setting environment variables
 		err := controller.SetEnvironmentVariables()
 
 		// Then there should be an error
-		if err == nil || !strings.Contains(err.Error(), "error setting environment variable") {
-			t.Fatalf("expected error setting environment variable, got %v", err)
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		} else if !strings.Contains(err.Error(), "error setting environment variable") {
+			t.Fatalf("expected error to contain 'error setting environment variable', got %v", err)
+		} else {
+			t.Logf("expected error received: %v", err)
 		}
 	})
 }

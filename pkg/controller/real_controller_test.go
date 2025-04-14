@@ -19,7 +19,7 @@ import (
 func TestNewRealController(t *testing.T) {
 	t.Run("NewRealController", func(t *testing.T) {
 		// Given a new test setup
-		mocks := setSafeControllerMocks()
+		mocks := setupMocks(t)
 
 		// When creating a new real controller
 		controller := NewRealController(mocks.Injector)
@@ -38,9 +38,9 @@ func TestNewRealController(t *testing.T) {
 // =============================================================================
 
 func TestRealController_CreateCommonComponents(t *testing.T) {
-	setup := func(t *testing.T) (Controller, *MockObjects) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
 		t.Helper()
-		mocks := setSafeControllerMocks()
+		mocks := setupMocks(t)
 		controller := NewRealController(mocks.Injector)
 		err := controller.Initialize()
 		if err != nil {
@@ -72,9 +72,9 @@ func TestRealController_CreateCommonComponents(t *testing.T) {
 }
 
 func TestRealController_CreateSecretsProviders(t *testing.T) {
-	setup := func(t *testing.T) (Controller, *MockObjects) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
 		t.Helper()
-		mocks := setSafeControllerMocks()
+		mocks := setupMocks(t)
 		controller := NewRealController(mocks.Injector)
 		err := controller.Initialize()
 		if err != nil {
@@ -204,12 +204,55 @@ func TestRealController_CreateSecretsProviders(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("OnePasswordSDKProviderUsedWhenTokenSet", func(t *testing.T) {
+		// Given a new controller
+		controller, mocks := setup(t)
+
+		// And a mock config handler that returns 1Password vaults
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetFunc = func(key string) interface{} {
+			if key == "contexts.mock-context.secrets.onepassword.vaults" {
+				return map[string]secretsConfigType.OnePasswordVault{
+					"vault1": {ID: "vault1", Name: "test-vault"},
+				}
+			}
+			return nil
+		}
+		mocks.Injector.Register("configHandler", mockConfigHandler)
+		controller.(*RealController).configHandler = mockConfigHandler
+
+		// And OP_SERVICE_ACCOUNT_TOKEN is set
+		originalToken := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN")
+		defer os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", originalToken)
+		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
+
+		// When creating the secrets provider
+		err := controller.CreateSecretsProviders()
+
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the SDK provider should be registered
+		providerName := "opVault1SecretsProvider"
+		provider := mocks.Injector.Resolve(providerName)
+		if provider == nil {
+			t.Fatalf("expected %s to be registered, got error", providerName)
+		}
+
+		// And it should be an SDK provider
+		if _, ok := provider.(*secrets.OnePasswordSDKSecretsProvider); !ok {
+			t.Fatalf("expected provider to be *secrets.OnePasswordSDKSecretsProvider, got %T", provider)
+		}
+	})
 }
 
 func TestRealController_CreateProjectComponents(t *testing.T) {
-	setup := func(t *testing.T) (Controller, *MockObjects) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
 		t.Helper()
-		mocks := setSafeControllerMocks()
+		mocks := setupMocks(t)
 		controller := NewRealController(mocks.Injector)
 		err := controller.Initialize()
 		if err != nil {
@@ -301,9 +344,9 @@ func TestRealController_CreateProjectComponents(t *testing.T) {
 }
 
 func TestRealController_CreateEnvComponents(t *testing.T) {
-	setup := func(t *testing.T) (Controller, *MockObjects) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
 		t.Helper()
-		mocks := setSafeControllerMocks()
+		mocks := setupMocks(t)
 		controller := NewRealController(mocks.Injector)
 		err := controller.Initialize()
 		if err != nil {
@@ -335,9 +378,9 @@ func TestRealController_CreateEnvComponents(t *testing.T) {
 }
 
 func TestRealController_CreateServiceComponents(t *testing.T) {
-	setup := func(t *testing.T) (Controller, *MockObjects) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
 		t.Helper()
-		mocks := setSafeControllerMocks()
+		mocks := setupMocks(t)
 		controller := NewRealController(mocks.Injector)
 		err := controller.Initialize()
 		if err != nil {
@@ -438,9 +481,9 @@ func TestRealController_CreateServiceComponents(t *testing.T) {
 }
 
 func TestRealController_CreateVirtualizationComponents(t *testing.T) {
-	setup := func(t *testing.T) (Controller, *MockObjects) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
 		t.Helper()
-		mocks := setSafeControllerMocks()
+		mocks := setupMocks(t)
 		controller := NewRealController(mocks.Injector)
 		err := controller.Initialize()
 		if err != nil {
@@ -546,9 +589,9 @@ func TestRealController_CreateVirtualizationComponents(t *testing.T) {
 }
 
 func TestRealController_CreateStackComponents(t *testing.T) {
-	setup := func(t *testing.T) (Controller, *MockObjects) {
+	setup := func(t *testing.T) (Controller, *Mocks) {
 		t.Helper()
-		mocks := setSafeControllerMocks()
+		mocks := setupMocks(t)
 		controller := NewRealController(mocks.Injector)
 		err := controller.Initialize()
 		if err != nil {
