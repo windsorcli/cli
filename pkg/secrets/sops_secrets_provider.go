@@ -62,20 +62,20 @@ func (s *SopsSecretsProvider) LoadSecrets() error {
 		return fmt.Errorf("failed to decrypt file: %w", err)
 	}
 
-	var sopsSecrets map[string]interface{}
+	var sopsSecrets map[string]any
 	if err := yamlUnmarshal(plaintextBytes, &sopsSecrets); err != nil {
 		return fmt.Errorf("error converting YAML to secrets map: %w", err)
 	}
 
-	var flatten func(map[string]interface{}, string, map[string]string)
-	flatten = func(data map[string]interface{}, prefix string, result map[string]string) {
+	var flatten func(map[string]any, string, map[string]string)
+	flatten = func(data map[string]any, prefix string, result map[string]string) {
 		for key, value := range data {
 			fullKey := key
 			if prefix != "" {
 				fullKey = prefix + "." + key
 			}
 			switch v := value.(type) {
-			case map[string]interface{}:
+			case map[string]any:
 				flatten(v, fullKey, result)
 			default:
 				result[fullKey] = fmt.Sprintf("%v", v)

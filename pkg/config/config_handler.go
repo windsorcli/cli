@@ -121,6 +121,10 @@ func (c *BaseConfigHandler) SetContext(context string) error {
 		return fmt.Errorf("error writing context to file: %w", err)
 	}
 
+	if err := osSetenv("WINDSOR_CONTEXT", context); err != nil {
+		return fmt.Errorf("error setting WINDSOR_CONTEXT environment variable: %w", err)
+	}
+
 	c.context = context
 	return nil
 }

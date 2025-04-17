@@ -122,7 +122,7 @@ func (y *YamlConfigHandler) SetDefault(context v1alpha1.Context) error {
 }
 
 // Get retrieves the value at the specified path in the configuration. It checks both the current and default context configurations.
-func (y *YamlConfigHandler) Get(path string) interface{} {
+func (y *YamlConfigHandler) Get(path string) any {
 	if path == "" {
 		return nil
 	}
@@ -271,7 +271,7 @@ var _ ConfigHandler = (*YamlConfigHandler)(nil)
 // =============================================================================
 
 // getValueByPath retrieves a value by navigating through a struct or map using YAML tags.
-func getValueByPath(current interface{}, pathKeys []string) interface{} {
+func getValueByPath(current any, pathKeys []string) any {
 	if len(pathKeys) == 0 {
 		return nil
 	}

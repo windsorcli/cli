@@ -263,7 +263,7 @@ var processBackendConfig = func(backendConfig any, addArg func(key, value string
 }
 
 // processMap processes a map and adds the key-value pairs to the backend config args.
-func processMap(prefix string, configMap map[string]interface{}, addArg func(key, value string)) {
+func processMap(prefix string, configMap map[string]any, addArg func(key, value string)) {
 	keys := make([]string, 0, len(configMap))
 	for key := range configMap {
 		keys = append(keys, key)
@@ -283,13 +283,13 @@ func processMap(prefix string, configMap map[string]interface{}, addArg func(key
 			addArg(fullKey, fmt.Sprintf("%t", v))
 		case int, uint64:
 			addArg(fullKey, fmt.Sprintf("%d", v))
-		case []interface{}:
+		case []any:
 			for _, item := range v {
 				if strItem, ok := item.(string); ok {
 					addArg(fullKey, strItem)
 				}
 			}
-		case map[string]interface{}:
+		case map[string]any:
 			processMap(fullKey, v, addArg)
 		}
 	}

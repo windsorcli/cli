@@ -8,7 +8,7 @@ import (
 // MockInjector extends the RealInjector with additional testing functionality
 type MockInjector struct {
 	*BaseInjector
-	resolveAllErrors map[interface{}]error
+	resolveAllErrors map[any]error
 	mu               sync.RWMutex
 }
 
@@ -20,7 +20,7 @@ type MockInjector struct {
 func NewMockInjector() *MockInjector {
 	return &MockInjector{
 		BaseInjector:     NewInjector(),
-		resolveAllErrors: make(map[interface{}]error),
+		resolveAllErrors: make(map[any]error),
 	}
 }
 
@@ -29,14 +29,14 @@ func NewMockInjector() *MockInjector {
 // =============================================================================
 
 // SetResolveAllError sets a specific error to be returned when resolving all instances of a specific type
-func (m *MockInjector) SetResolveAllError(targetType interface{}, err error) {
+func (m *MockInjector) SetResolveAllError(targetType any, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.resolveAllErrors[targetType] = err
 }
 
 // Resolve overrides the RealInjector's Resolve method to add error simulation
-func (m *MockInjector) Resolve(name string) interface{} {
+func (m *MockInjector) Resolve(name string) any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -44,7 +44,7 @@ func (m *MockInjector) Resolve(name string) interface{} {
 }
 
 // ResolveAll overrides the RealInjector's ResolveAll method to add error simulation
-func (m *MockInjector) ResolveAll(targetType interface{}) ([]interface{}, error) {
+func (m *MockInjector) ResolveAll(targetType any) ([]any, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

@@ -308,7 +308,7 @@ func TestRegistryService_SetAddress(t *testing.T) {
 
 		// Mock the SetContextValue function to track if it's called
 		setContextValueCalled := false
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			setContextValueCalled = true
 			return nil
 		}
@@ -349,7 +349,7 @@ func TestRegistryService_SetAddress(t *testing.T) {
 	t.Run("SetHostnameError", func(t *testing.T) {
 		// Given a mock config handler that will fail to set context value
 		mocks := setupSafeRegistryServiceMocks()
-		mocks.MockConfigHandler.SetContextValueFunc = func(path string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(path string, value any) error {
 			return fmt.Errorf("failed to set context value")
 		}
 		registryService := NewRegistryService(mocks.Injector)
@@ -476,8 +476,8 @@ func TestRegistryService_SetAddress(t *testing.T) {
 			return ""
 		}
 
-		var setContextValueCalls = make(map[string]interface{})
-		mockConfig.SetContextValueFunc = func(key string, value interface{}) error {
+		var setContextValueCalls = make(map[string]any)
+		mockConfig.SetContextValueFunc = func(key string, value any) error {
 			setContextValueCalls[key] = value
 			return nil
 		}
@@ -551,7 +551,7 @@ func TestRegistryService_SetAddress(t *testing.T) {
 			return ""
 		}
 
-		mockConfig.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfig.SetContextValueFunc = func(key string, value any) error {
 			if key == "docker.registry_url" {
 				return fmt.Errorf("failed to set registry URL")
 			}
@@ -607,8 +607,8 @@ func TestRegistryService_SetAddress(t *testing.T) {
 			return ""
 		}
 
-		var setContextValueCalls = make(map[string]interface{})
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		var setContextValueCalls = make(map[string]any)
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			setContextValueCalls[key] = value
 			return nil
 		}
@@ -682,7 +682,7 @@ func TestRegistryService_SetAddress(t *testing.T) {
 			return ""
 		}
 
-		mockConfig.SetContextValueFunc = func(key string, value interface{}) error {
+		mockConfig.SetContextValueFunc = func(key string, value any) error {
 			if key == "docker.registries[test-registry].hostport" {
 				return fmt.Errorf("failed to set host port")
 			}

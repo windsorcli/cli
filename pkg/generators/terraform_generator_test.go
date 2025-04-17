@@ -312,7 +312,7 @@ func TestTerraformGenerator_writeTfvarsFile(t *testing.T) {
 				"var1": {Type: "string", Default: "default1", Description: "desc1", Sensitive: false},
 				"var2": {Type: "bool", Default: true, Description: "desc2", Sensitive: true},
 			},
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"var1": "newval1",
 				"var2": false,
 			},
@@ -361,11 +361,11 @@ var1 = "oldval1"
 			Source: "some-module-source", // to test source comment insertion
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "default1", Description: "desc1", Sensitive: false},
-				"var2": {Type: "list", Default: []interface{}{"item1"}, Description: "desc2", Sensitive: true},
+				"var2": {Type: "list", Default: []any{"item1"}, Description: "desc2", Sensitive: true},
 			},
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"var1": "value1",
-				"var2": []interface{}{"item2", "item3"},
+				"var2": []any{"item2", "item3"},
 			},
 		})
 
@@ -399,7 +399,7 @@ var1 = "oldval1"
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "defval", Description: "desc", Sensitive: false},
 			},
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"var1": "someval",
 			},
 		})
@@ -440,7 +440,7 @@ var1 = "oldval1"
 
 		// And we call writeTfvarsFile
 		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"var1": "value1",
 			},
 		})
@@ -482,7 +482,7 @@ var1 = "oldval1"
 
 		// And we call writeTfvarsFile
 		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"var1": "val1",
 			},
 		})
@@ -514,7 +514,7 @@ var1 = "oldval1"
 
 		// And we call writeTfvarsFile
 		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"var1": "val1",
 			},
 		})
@@ -549,7 +549,7 @@ var1 = "oldval1"
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "default1", Description: "description1", Sensitive: false},
 			},
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"var1": "value1",
 			},
 		})
@@ -567,16 +567,16 @@ func TestConvertToCtyValue(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Test cases for different data types
 		tests := []struct {
-			input    interface{}
+			input    any
 			expected cty.Value
 		}{
 			{input: "string", expected: cty.StringVal("string")},
 			{input: 42, expected: cty.NumberIntVal(42)},
 			{input: 3.14, expected: cty.NumberFloatVal(3.14)},
 			{input: true, expected: cty.BoolVal(true)},
-			{input: []interface{}{"item1", "item2"}, expected: cty.ListVal([]cty.Value{cty.StringVal("item1"), cty.StringVal("item2")})},
-			{input: map[string]interface{}{"key1": "value1"}, expected: cty.ObjectVal(map[string]cty.Value{"key1": cty.StringVal("value1")})},
-			{input: []interface{}{}, expected: cty.ListValEmpty(cty.DynamicPseudoType)}, // Test for empty list
+			{input: []any{"item1", "item2"}, expected: cty.ListVal([]cty.Value{cty.StringVal("item1"), cty.StringVal("item2")})},
+			{input: map[string]any{"key1": "value1"}, expected: cty.ObjectVal(map[string]cty.Value{"key1": cty.StringVal("value1")})},
+			{input: []any{}, expected: cty.ListValEmpty(cty.DynamicPseudoType)}, // Test for empty list
 			{input: nil, expected: cty.NilVal}, // Test for nil value
 		}
 

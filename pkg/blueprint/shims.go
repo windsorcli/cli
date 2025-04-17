@@ -15,7 +15,7 @@ import (
 
 // YAML and JSON shims
 // yamlMarshalNonNull marshals the given struct into YAML data, omitting null values
-var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
+var yamlMarshalNonNull = func(v any) ([]byte, error) {
 	return yaml.Marshal(v)
 }
 

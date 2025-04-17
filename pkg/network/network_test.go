@@ -259,7 +259,7 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		}
 
 		// Mock SetContextValue to return an error when setting network.cidr_block
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "network.cidr_block" {
 				return fmt.Errorf("mock error setting network CIDR")
 			}

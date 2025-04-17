@@ -115,7 +115,7 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 		// And a mocked yamlUnmarshal function that returns an error
 		originalYamlUnmarshal := yamlUnmarshal
 		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
-		yamlUnmarshal = func(data []byte, v interface{}) error {
+		yamlUnmarshal = func(data []byte, v any) error {
 			return fmt.Errorf("mocked error unmarshalling yaml")
 		}
 
@@ -140,7 +140,7 @@ func TestYamlConfigHandler_LoadConfig(t *testing.T) {
 		// And a mocked yamlUnmarshal function that sets an unsupported version
 		originalYamlUnmarshal := yamlUnmarshal
 		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
-		yamlUnmarshal = func(data []byte, v interface{}) error {
+		yamlUnmarshal = func(data []byte, v any) error {
 			if config, ok := v.(*v1alpha1.Config); ok {
 				config.Version = "unsupported_version"
 			}
@@ -296,7 +296,7 @@ func TestYamlConfigHandler_SaveConfig(t *testing.T) {
 		// Mock yamlMarshal to simulate a marshalling error
 		originalYamlMarshal := yamlMarshal
 		defer func() { yamlMarshal = originalYamlMarshal }()
-		yamlMarshal = func(v interface{}) ([]byte, error) {
+		yamlMarshal = func(v any) ([]byte, error) {
 			return nil, fmt.Errorf("mock marshalling error")
 		}
 
@@ -1181,8 +1181,8 @@ func Test_setValueByPath(t *testing.T) {
 	})
 
 	t.Run("MapSuccess", func(t *testing.T) {
-		// Given a map with string keys and interface{} values
-		testMap := make(map[string]interface{})
+		// Given a map with string keys and any values
+		testMap := make(map[string]any)
 		currValue := reflect.ValueOf(testMap)
 		pathKeys := []string{"key"}
 		value := "testValue"
@@ -1202,7 +1202,7 @@ func Test_setValueByPath(t *testing.T) {
 
 	t.Run("MapInitializeNilMap", func(t *testing.T) {
 		// Given a nil map
-		var testMap map[string]interface{}
+		var testMap map[string]any
 		currValue := reflect.ValueOf(&testMap).Elem()
 		pathKeys := []string{"key"}
 		value := "testValue"
@@ -1275,10 +1275,10 @@ func Test_setValueByPath(t *testing.T) {
 
 	t.Run("RecursiveMap", func(t *testing.T) {
 		// Given a map with nested maps
-		level3Map := map[string]interface{}{}
-		level2Map := map[string]interface{}{"level3": level3Map}
-		level1Map := map[string]interface{}{"level2": level2Map}
-		testMap := map[string]interface{}{"docker": level1Map} // Valid first key
+		level3Map := map[string]any{}
+		level2Map := map[string]any{"level3": level3Map}
+		level1Map := map[string]any{"level2": level2Map}
+		testMap := map[string]any{"docker": level1Map} // Valid first key
 		currValue := reflect.ValueOf(testMap)
 		pathKeys := []string{"docker", "level2", "nonexistentfield"}
 		value := "newValue"
@@ -1318,7 +1318,7 @@ func Test_setValueByPath(t *testing.T) {
 func Test_getValueByPath(t *testing.T) {
 	t.Run("EmptyPathKeys", func(t *testing.T) {
 		// Given an empty pathKeys slice for value lookup
-		var current interface{}
+		var current any
 		pathKeys := []string{}
 
 		// When calling getValueByPath with empty pathKeys
@@ -1332,7 +1332,7 @@ func Test_getValueByPath(t *testing.T) {
 
 	t.Run("InvalidCurrentValue", func(t *testing.T) {
 		// Given a nil current value and a valid path key
-		var current interface{} = nil
+		var current any = nil
 		pathKeys := []string{"key"}
 
 		// When calling getValueByPath with nil current value
@@ -1399,10 +1399,10 @@ func Test_getValueByPath(t *testing.T) {
 
 	t.Run("RecursiveFailure", func(t *testing.T) {
 		// Given a nested map structure without the target field
-		level3Map := map[string]interface{}{}
-		level2Map := map[string]interface{}{"level3": level3Map}
-		level1Map := map[string]interface{}{"level2": level2Map}
-		testMap := map[string]interface{}{"level1": level1Map}
+		level3Map := map[string]any{}
+		level2Map := map[string]any{"level3": level3Map}
+		level1Map := map[string]any{"level2": level2Map}
+		testMap := map[string]any{"level1": level1Map}
 		currValue := reflect.ValueOf(testMap)
 		pathKeys := []string{"level1", "level2", "nonexistentfield"}
 		value := "newValue"

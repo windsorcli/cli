@@ -145,63 +145,32 @@ func (c *BaseConfigHandler) Initialize() error {
 ## Testing Patterns
 
 ### Test Structure
-1. Setup function that returns mocks and object under test
-2. BDD style comments
-3. Clear test case organization
-4. Minimal test setup in each test function
 
-Example from config_handler_test.go:
+Tests should follow a BDD (Behavior-Driven Development) style with Given/When/Then comments:
+
 ```go
-func TestBaseConfigHandler_Initialize(t *testing.T) {
-    setup := func(t *testing.T) (*Mocks, *BaseConfigHandler) {
-        t.Helper()
-        mocks := setupMocks(t)
-        configHandler := NewBaseConfigHandler(mocks.Injector)
-        return mocks, configHandler
+t.Run("Scenario", func(t *testing.T) {
+    // Given [context]
+    mocks, obj := setup(t)
+    
+    // When [action]
+    err := obj.DoSomething()
+    
+    // Then [result]
+    if err != nil {
+        t.Errorf("Expected success, got error: %v", err)
     }
-
-    t.Run("Success", func(t *testing.T) {
-        // Given a config handler with mock dependencies
-        mocks, configHandler := setup(t)
-        
-        // When initializing the config handler
-        err := configHandler.Initialize()
-        
-        // Then no error should be returned
-        if err != nil {
-            t.Errorf("Expected Initialize to succeed, but got error: %v", err)
-        }
-    })
-}
+})
 ```
 
 ### Mock Setup
-1. Mocks struct for dependencies
-2. SetupOptions for configuration
-3. Global setupMocks function
-4. Local setup functions when needed
-5. Temporary directory setup and cleanup
 
-Example from config_handler_test.go:
+The base setupMocks function provides common mock behaviors. To extend it for specific test needs:
+
 ```go
-// =============================================================================
-// Test Setup
-// =============================================================================
-
-type Mocks struct {
-    Injector      di.Injector
-    ConfigHandler config.ConfigHandler
-    Shell         *shell.MockShell
-}
-
-type SetupOptions struct {
-    Injector      di.Injector
-    ConfigHandler config.ConfigHandler
-    ConfigStr     string
-}
-
-// Global test setup helper that creates a temporary directory and mocks
-func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+// setupDockerMocks extends the base setupMocks function with Docker-specific mock behaviors.
+// It sets up mock configurations for Docker commands, container inspection, and service configuration.
+func setupDockerMocks(t *testing.T, opts ...*SetupOptions) (*Mocks, string) {
     t.Helper()
 
     // Store original directory and create temp dir
@@ -218,50 +187,16 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
     // Set project root environment variable
     os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
 
-    // Process options with defaults
-    options := &SetupOptions{}
-    if len(opts) > 0 && opts[0] != nil {
-        options = opts[0]
-    }
+    // Get base mocks
+    mocks := setupMocks(t, opts...)
 
-    // Create injector
-    var injector di.Injector
-    if options.Injector == nil {
-        injector = di.NewMockInjector()
-    } else {
-        injector = options.Injector
-    }
-
-    // Create config handler
-    var configHandler config.ConfigHandler
-    if options.ConfigHandler == nil {
-        configHandler = config.NewYamlConfigHandler(injector)
-    } else {
-        configHandler = options.ConfigHandler
-    }
-
-    // Initialize config handler
-    configHandler.Initialize()
-    configHandler.SetContext("mock-context")
-
-    // Load default config string
-    defaultConfigStr := `
-contexts:
-  mock-context:
-    dns:
-      domain: mock.domain.com`
-
-    if err := configHandler.LoadConfigString(defaultConfigStr); err != nil {
-        t.Fatalf("Failed to load default config string: %v", err)
-    }
-    if options.ConfigStr != "" {
-        if err := configHandler.LoadConfigString(options.ConfigStr); err != nil {
-            t.Fatalf("Failed to load config string: %v", err)
+    // Add Docker-specific mock behaviors
+    mocks.MockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+        if key == "docker.enabled" {
+            return true
         }
+        return false
     }
-
-    // Register dependencies
-    injector.Register("configHandler", configHandler)
 
     // Register cleanup to restore original state
     t.Cleanup(func() {
@@ -271,21 +206,58 @@ contexts:
         }
     })
 
-    return &Mocks{
-        Injector:      injector,
-        ConfigHandler: configHandler,
-    }
+    return mocks, tmpDir
 }
+```
+
+Key points for extending setupMocks:
+1. Call the base setupMocks function first
+2. Add domain-specific mock behaviors
+3. Handle cleanup of any additional resources
+4. Return both mocks and any additional context needed
+
+### Baseline Configuration
+1. Use ConfigStr in SetupOptions to set baseline configuration
+2. Default config should be minimal but functional
+3. Test-specific config should extend default config
+4. Config should be in YAML format
+5. Config should be loaded after handler initialization
+
+Example:
+```go
+// Default config in setupMocks
+defaultConfigStr := `
+contexts:
+  mock-context:
+    dns:
+      domain: mock.domain.com
+    network:
+      cidr_block: 10.0.0.0/24`
+
+// Test-specific config
+testConfig := `
+contexts:
+  mock-context:
+    dns:
+      enabled: true
+      address: 10.0.0.53
+    docker:
+      enabled: true
+      compose_file: docker-compose.yml`
+
+mocks := setupMocks(t, &SetupOptions{
+    ConfigStr: testConfig,
+})
 ```
 
 ### BDD Style
 ```go
 t.Run("Scenario", func(t *testing.T) {
     // Given [context]
-    setup := setup(t)
+    mocks, obj := setup(t)
     
     // When [action]
-    err := setup.obj.DoSomething()
+    err := obj.DoSomething()
     
     // Then [result]
     if err != nil {

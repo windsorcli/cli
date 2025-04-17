@@ -293,7 +293,7 @@ func TestMockConfigHandler_Set(t *testing.T) {
 	t.Run("WithKeyAndValue", func(t *testing.T) {
 		// Given a mock config handler with SetFunc set to do nothing
 		handler := NewMockConfigHandler()
-		handler.SetFunc = func(key string, value interface{}) error { return nil }
+		handler.SetFunc = func(key string, value any) error { return nil }
 
 		// When Set is called with a key and a value
 		handler.Set("someKey", "someValue")
@@ -316,7 +316,7 @@ func TestMockConfigHandler_SetContextValue(t *testing.T) {
 	t.Run("WithKeyAndValue", func(t *testing.T) {
 		// Given a mock config handler with SetContextValueFunc set to do nothing
 		handler := NewMockConfigHandler()
-		handler.SetContextValueFunc = func(key string, value interface{}) error { return nil }
+		handler.SetContextValueFunc = func(key string, value any) error { return nil }
 
 		// When SetContextValue is called with a key and a value
 		err := handler.SetContextValue("someKey", "someValue")
@@ -376,7 +376,7 @@ func TestMockConfigHandler_Get(t *testing.T) {
 	t.Run("WithKey", func(t *testing.T) {
 		// Given a mock config handler with GetFunc set to return 'mock-value'
 		handler := NewMockConfigHandler()
-		handler.GetFunc = func(key string) interface{} { return "mock-value" }
+		handler.GetFunc = func(key string) any { return "mock-value" }
 
 		// When Get is called with a key
 		value := handler.Get("someKey")

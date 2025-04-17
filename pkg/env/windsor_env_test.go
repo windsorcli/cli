@@ -73,10 +73,10 @@ type customMockInjector struct {
 }
 
 // ResolveAll overrides the ResolveAll method to return non-castable objects
-func (c *customMockInjector) ResolveAll(targetType interface{}) ([]interface{}, error) {
+func (c *customMockInjector) ResolveAll(targetType any) ([]any, error) {
 	if _, ok := targetType.(*secrets.SecretsProvider); ok {
 		// Return a non-castable int
-		return []interface{}{123}, nil
+		return []any{123}, nil
 	}
 	return c.MockInjector.ResolveAll(targetType)
 }

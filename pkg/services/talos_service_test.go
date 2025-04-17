@@ -165,7 +165,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the address should be set correctly in the configHandler
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "cluster.workers.nodes."+service.name+".node" && value == "192.168.1.1" {
 				return nil
 			}
@@ -197,7 +197,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the address should be set correctly in the configHandler
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "cluster.workers.nodes."+service.name+".node" && value == "192.168.1.1" {
 				return nil
 			}
@@ -230,7 +230,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the address should be set correctly in the configHandler
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "cluster.controlplanes.nodes."+service.name+".node" && value == "192.168.1.1" {
 				return nil
 			}
@@ -262,7 +262,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the endpoint should be set with a unique port
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "cluster.workers.nodes."+service.name+".endpoint" && strings.HasPrefix(value.(string), "127.0.0.1:50001") {
 				return nil
 			}
@@ -285,7 +285,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Simulate an error when setting the hostname
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "cluster.workers.nodes."+service.name+".hostname" {
 				return fmt.Errorf("mock error setting hostname")
 			}
@@ -312,7 +312,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Simulate an error when setting the node address
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "cluster.workers.nodes."+service.name+".hostname" {
 				return nil // Mock success for setting hostname
 			}
@@ -341,7 +341,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Simulate an error when setting the endpoint
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "cluster.workers.nodes."+service.name+".endpoint" {
 				return fmt.Errorf("mock error setting endpoint")
 			}
@@ -367,7 +367,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Simulate an error when setting host ports with non-integer values
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "cluster.workers.nodes."+service.name+".hostports" {
 				return fmt.Errorf("mock error setting host ports")
 			}
@@ -497,7 +497,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the endpoint should be set with a unique port
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "cluster.workers.nodes."+service.name+".endpoint" && strings.HasPrefix(value.(string), "127.0.0.1:50003") {
 				return nil
 			}
@@ -557,8 +557,8 @@ func TestTalosService_SetAddress(t *testing.T) {
 		expectedPort2 := constants.DEFAULT_TALOS_API_PORT + 2
 
 		// Check if the ports were set correctly in the config handler
-		var setContextValueCalls = make(map[string]interface{})
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		var setContextValueCalls = make(map[string]any)
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			setContextValueCalls[key] = value
 			return nil
 		}
@@ -1029,7 +1029,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 		// Track SetContextValue calls
 		setContextValueCalls := make(map[string]string)
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if strValue, ok := value.(string); ok {
 				setContextValueCalls[key] = strValue
 			}

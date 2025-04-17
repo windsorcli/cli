@@ -327,12 +327,6 @@ contexts:
 	}
 }
 
-type MockSafeComponents struct {
-	Injector          di.Injector
-	MockShell         *shell.MockShell
-	MockConfigHandler *config.MockConfigHandler
-}
-
 // =============================================================================
 // Test Public Methods
 // =============================================================================
@@ -845,8 +839,6 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		mocks.ConfigHandler.SetContext("local")
 
 		// And a mock yaml marshaller that returns an error
-		originalYamlMarshal := yamlMarshal
-		defer func() { yamlMarshal = originalYamlMarshal }()
 		yamlMarshal = func(v any) ([]byte, error) {
 			return nil, fmt.Errorf("simulated yaml marshalling error")
 		}
@@ -3187,13 +3179,11 @@ kustomizations:
 		blueprint := &blueprintv1alpha1.Blueprint{}
 
 		// And a mock YAML marshaller that returns an error
-		originalYamlMarshal := yamlMarshal
-		defer func() { yamlMarshal = originalYamlMarshal }()
 		yamlMarshal = func(v any) ([]byte, error) {
 			if _, ok := v.(map[string]any); ok {
 				return nil, fmt.Errorf("mock kustomization map marshal error")
 			}
-			return originalYamlMarshal(v)
+			return nil, nil
 		}
 
 		// And valid blueprint data
@@ -3918,8 +3908,6 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 
 	t.Run("YamlMarshalError", func(t *testing.T) {
 		// Given a mock YAML marshaller that returns an error
-		originalYamlMarshal := yamlMarshal
-		defer func() { yamlMarshal = originalYamlMarshal }()
 		yamlMarshal = func(v any) ([]byte, error) {
 			return nil, fmt.Errorf("mock yaml marshal error")
 		}

@@ -1305,7 +1305,7 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 		// Mock processBackendConfig to return an error
 		originalProcessBackendConfig := processBackendConfig
 		defer func() { processBackendConfig = originalProcessBackendConfig }()
-		processBackendConfig = func(backendConfig interface{}, addArg func(key, value string)) error {
+		processBackendConfig = func(backendConfig any, addArg func(key, value string)) error {
 			return fmt.Errorf("mock processing error")
 		}
 
@@ -1365,12 +1365,12 @@ func TestTerraformEnv_generateBackendConfigArgs(t *testing.T) {
 
 func TestTerraformEnv_processBackendConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		backendConfig := map[string]interface{}{
+		backendConfig := map[string]any{
 			"key1": "value1",
 			"key2": true,
 			"key3": 123,
-			"key4": []interface{}{"item1", "item2"},
-			"key5": map[string]interface{}{
+			"key4": []any{"item1", "item2"},
+			"key5": map[string]any{
 				"nestedKey1": "nestedValue1",
 				"nestedKey2": "nestedValue2",
 			},
@@ -1408,11 +1408,11 @@ func TestTerraformEnv_processBackendConfig(t *testing.T) {
 		originalYamlUnmarshal := yamlUnmarshal
 		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
 
-		yamlUnmarshal = func(data []byte, v interface{}) error {
+		yamlUnmarshal = func(data []byte, v any) error {
 			return fmt.Errorf("mocked error")
 		}
 
-		backendConfig := map[string]interface{}{
+		backendConfig := map[string]any{
 			"key1": "value1",
 		}
 

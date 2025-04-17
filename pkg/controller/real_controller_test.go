@@ -171,7 +171,7 @@ func TestRealController_CreateSecretsProviders(t *testing.T) {
 
 		// And a mock config handler that returns 1Password vaults
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetFunc = func(key string) interface{} {
+		mockConfigHandler.GetFunc = func(key string) any {
 			if key == "contexts.mock-context.secrets.onepassword.vaults" {
 				return map[string]secretsConfigType.OnePasswordVault{
 					"vault1": {ID: "vault1"},
@@ -211,7 +211,7 @@ func TestRealController_CreateSecretsProviders(t *testing.T) {
 
 		// And a mock config handler that returns 1Password vaults
 		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetFunc = func(key string) interface{} {
+		mockConfigHandler.GetFunc = func(key string) any {
 			if key == "contexts.mock-context.secrets.onepassword.vaults" {
 				return map[string]secretsConfigType.OnePasswordVault{
 					"vault1": {ID: "vault1", Name: "test-vault"},

@@ -131,7 +131,7 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
 
 		// Mock the yamlUnmarshal function to return an error
-		yamlUnmarshal = func(_ []byte, _ interface{}) error {
+		yamlUnmarshal = func(_ []byte, _ any) error {
 			return fmt.Errorf("yaml: unmarshal errors: [1:1] string was used where mapping is expected")
 		}
 

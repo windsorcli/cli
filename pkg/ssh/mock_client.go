@@ -110,7 +110,7 @@ func (m *MockSession) Close() error {
 
 // MockAuthMethod is the mock implementation of the AuthMethod interface
 type MockAuthMethod struct {
-	MethodFunc func() interface{}
+	MethodFunc func() any
 }
 
 func (m *MockAuthMethod) Method() gossh.AuthMethod {
@@ -122,7 +122,7 @@ func (m *MockAuthMethod) Method() gossh.AuthMethod {
 
 // MockHostKeyCallback is the mock implementation of the HostKeyCallback interface
 type MockHostKeyCallback struct {
-	CallbackFunc func() interface{}
+	CallbackFunc func() any
 }
 
 func (m *MockHostKeyCallback) Callback() gossh.HostKeyCallback {

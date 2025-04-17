@@ -302,8 +302,8 @@ func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint
 // Ensure TerraformGenerator implements Generator
 var _ Generator = (*TerraformGenerator)(nil)
 
-// convertToCtyValue converts an interface{} to a cty.Value, handling various data types.
-func convertToCtyValue(value interface{}) cty.Value {
+// convertToCtyValue converts an any to a cty.Value, handling various data types.
+func convertToCtyValue(value any) cty.Value {
 	switch v := value.(type) {
 	case string:
 		return cty.StringVal(v)
@@ -313,7 +313,7 @@ func convertToCtyValue(value interface{}) cty.Value {
 		return cty.NumberFloatVal(v)
 	case bool:
 		return cty.BoolVal(v)
-	case []interface{}:
+	case []any:
 		if len(v) == 0 {
 			return cty.ListValEmpty(cty.DynamicPseudoType)
 		}
@@ -322,7 +322,7 @@ func convertToCtyValue(value interface{}) cty.Value {
 			ctyList = append(ctyList, convertToCtyValue(item))
 		}
 		return cty.ListVal(ctyList)
-	case map[string]interface{}:
+	case map[string]any:
 		ctyMap := make(map[string]cty.Value)
 		for key, val := range v {
 			ctyMap[key] = convertToCtyValue(val)

@@ -18,6 +18,9 @@ var osRemoveAll = os.RemoveAll
 // osGetenv is a variable to allow mocking os.Getenv in tests
 var osGetenv = os.Getenv
 
+// osSetenv is a variable to allow mocking os.Setenv in tests
+var osSetenv = os.Setenv
+
 // Override variable for yamlMarshal
 var yamlMarshal = yaml.Marshal
 

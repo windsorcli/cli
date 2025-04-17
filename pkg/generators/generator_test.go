@@ -57,7 +57,7 @@ func setupSafeMocks(injector ...di.Injector) MockComponents {
 		remoteComponent := blueprintv1alpha1.TerraformComponent{
 			Source: "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
 			Path:   "/mock/project/root/.windsor/.tf_modules/remote/path",
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"remote_variable1": "default_value",
 			},
 		}
@@ -65,7 +65,7 @@ func setupSafeMocks(injector ...di.Injector) MockComponents {
 		localComponent := blueprintv1alpha1.TerraformComponent{
 			Source: "local/path",
 			Path:   "/mock/project/root/terraform/local/path",
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"local_variable1": "default_value",
 			},
 		}

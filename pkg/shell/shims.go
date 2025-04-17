@@ -88,7 +88,7 @@ var hookTemplateParse = func(tmpl *template.Template, text string) (*template.Te
 }
 
 // hookTemplateExecute is a variable that points to template.Template.Execute, allowing it to be overridden in tests
-var hookTemplateExecute = func(tmpl *template.Template, wr io.Writer, data interface{}) error {
+var hookTemplateExecute = func(tmpl *template.Template, wr io.Writer, data any) error {
 	return tmpl.Execute(wr, data)
 }
 

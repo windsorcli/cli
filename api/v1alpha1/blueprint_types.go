@@ -32,13 +32,13 @@ type Blueprint struct {
 }
 
 type PartialBlueprint struct {
-	Kind                string                   `yaml:"kind"`
-	ApiVersion          string                   `yaml:"apiVersion"`
-	Metadata            Metadata                 `yaml:"metadata"`
-	Sources             []Source                 `yaml:"sources"`
-	Repository          Repository               `yaml:"repository"`
-	TerraformComponents []TerraformComponent     `yaml:"terraform"`
-	Kustomizations      []map[string]interface{} `yaml:"kustomize"`
+	Kind                string               `yaml:"kind"`
+	ApiVersion          string               `yaml:"apiVersion"`
+	Metadata            Metadata             `yaml:"metadata"`
+	Sources             []Source             `yaml:"sources"`
+	Repository          Repository           `yaml:"repository"`
+	TerraformComponents []TerraformComponent `yaml:"terraform"`
+	Kustomizations      []map[string]any     `yaml:"kustomize"`
 }
 
 // Metadata describes a blueprint, including name and authors.
@@ -113,7 +113,7 @@ type TerraformComponent struct {
 	FullPath string `yaml:"-"`
 
 	// Values are configuration values for the module.
-	Values map[string]interface{} `yaml:"values,omitempty"`
+	Values map[string]any `yaml:"values,omitempty"`
 
 	// Variables are input variables for the module.
 	Variables map[string]TerraformVariable `yaml:"variables,omitempty"`
@@ -125,7 +125,7 @@ type TerraformVariable struct {
 	Type string `yaml:"type,omitempty"`
 
 	// Default value for the variable.
-	Default interface{} `yaml:"default,omitempty"`
+	Default any `yaml:"default,omitempty"`
 
 	// Description of the variable's purpose.
 	Description string `yaml:"description,omitempty"`
@@ -247,7 +247,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 			}
 		}
 
-		valuesCopy := make(map[string]interface{}, len(component.Values))
+		valuesCopy := make(map[string]any, len(component.Values))
 		for key, value := range component.Values {
 			valuesCopy[key] = value
 		}
@@ -379,7 +379,7 @@ func (b *Blueprint) Merge(overlay *Blueprint) {
 					mergedComponent := existingComponent
 
 					if mergedComponent.Values == nil {
-						mergedComponent.Values = make(map[string]interface{})
+						mergedComponent.Values = make(map[string]any)
 					}
 					for k, v := range overlayComponent.Values {
 						mergedComponent.Values[k] = v
