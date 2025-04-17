@@ -12,7 +12,7 @@ require (
 	github.com/fluxcd/pkg/apis/kustomize v1.9.0
 	github.com/fluxcd/pkg/apis/meta v1.10.0
 	github.com/fluxcd/source-controller/api v1.5.0
-	github.com/getsops/sops/v3 v3.9.0
+	github.com/getsops/sops/v3 v3.10.2
 	github.com/goccy/go-yaml v1.17.1
 	github.com/google/go-jsonnet v0.20.0
 	github.com/hashicorp/hcl/v2 v2.23.0
@@ -39,6 +39,7 @@ require (
 	cloud.google.com/go/monitoring v1.24.2 // indirect
 	cloud.google.com/go/storage v1.51.0 // indirect
 	filippo.io/age v1.2.1 // indirect
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.18.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.9.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.1 // indirect
