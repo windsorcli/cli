@@ -50,6 +50,9 @@ func NewColimaVirt(injector di.Injector) *ColimaVirt {
 // =============================================================================
 
 // Up starts the Colima VM and configures its network settings
+// Initializes the VM with the appropriate configuration and waits for it to be ready
+// Sets the VM address in the configuration handler for later use
+// Returns an error if the VM fails to start or if the address cannot be set
 func (v *ColimaVirt) Up() error {
 	info, err := v.startColima()
 	if err != nil {
@@ -64,6 +67,8 @@ func (v *ColimaVirt) Up() error {
 }
 
 // Down stops and deletes the Colima VM
+// First stops the VM and then deletes it to ensure a clean shutdown
+// Returns an error if either the stop or delete operation fails
 func (v *ColimaVirt) Down() error {
 	if err := v.executeColimaCommand("stop"); err != nil {
 		return err
@@ -73,6 +78,9 @@ func (v *ColimaVirt) Down() error {
 }
 
 // GetVMInfo returns the information about the Colima VM
+// Retrieves the VM details from the Colima CLI and parses the JSON output
+// Converts memory and disk values from bytes to gigabytes for easier consumption
+// Returns a VMInfo struct with the parsed information or an error if retrieval fails
 func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
 	contextName := v.configHandler.GetContext()
 
@@ -113,6 +121,9 @@ func (v *ColimaVirt) GetVMInfo() (VMInfo, error) {
 }
 
 // WriteConfig writes the Colima configuration file with VM settings
+// Generates a configuration based on the current context and system properties
+// Creates a temporary file and then renames it to the final configuration file
+// Returns an error if any step of the configuration process fails
 func (v *ColimaVirt) WriteConfig() error {
 	context := v.configHandler.GetContext()
 
@@ -205,6 +216,9 @@ func (v *ColimaVirt) WriteConfig() error {
 }
 
 // PrintInfo prints the information about the Colima VM
+// Retrieves the VM information and formats it in a tabular display
+// Shows the VM name, architecture, CPU count, memory, disk size, and IP address
+// Returns an error if the VM information cannot be retrieved
 func (v *ColimaVirt) PrintInfo() error {
 	info, err := v.GetVMInfo()
 	if err != nil {
@@ -217,15 +231,14 @@ func (v *ColimaVirt) PrintInfo() error {
 	return nil
 }
 
-// Ensure ColimaVirt implements Virt and VirtualMachine
-var _ Virt = (*ColimaVirt)(nil)
-var _ VirtualMachine = (*ColimaVirt)(nil)
-
 // =============================================================================
 // Private Methods
 // =============================================================================
 
 // getArch retrieves the architecture of the system
+// Maps the Go architecture to the Colima architecture format
+// Handles special cases for amd64 and arm64 architectures
+// Returns the architecture string in the format expected by Colima
 func (v *ColimaVirt) getArch() string {
 	arch := v.BaseVirt.shims.GOARCH()
 	if arch == "amd64" {
@@ -237,22 +250,22 @@ func (v *ColimaVirt) getArch() string {
 }
 
 // getDefaultValues retrieves the default values for the VM properties
+// Calculates CPU count as half of the system's CPU cores
+// Sets a default disk size of 60GB
+// Calculates memory as half of the system's total memory, with a fallback to 2GB
+// Generates a hostname based on the context name
+// Returns the calculated values for CPU, disk, memory, hostname, and architecture
 func (v *ColimaVirt) getDefaultValues(context string) (int, int, int, string, string) {
 	cpu := v.BaseVirt.shims.NumCPU() / 2
 	disk := 60 // Disk size in GB
-
-	// Use the mockable function to get the total system memory
 	vmStat, err := v.BaseVirt.shims.VirtualMemory()
 	var memory int
 	if err != nil {
-		// Fallback to a default value if memory retrieval fails
 		memory = 2 // Default to 2GB
 	} else {
-		// Convert total system memory from bytes to gigabytes
 		totalMemoryGB := vmStat.Total / (1024 * 1024 * 1024)
 		halfMemoryGB := totalMemoryGB / 2
 
-		// Use the test hook to force the overflow condition
 		if testForceMemoryOverflow || halfMemoryGB > uint64(math.MaxInt) {
 			memory = math.MaxInt
 		} else {
@@ -266,6 +279,9 @@ func (v *ColimaVirt) getDefaultValues(context string) (int, int, int, string, st
 }
 
 // executeColimaCommand executes a Colima command with the given action
+// Formats the command with the appropriate context name
+// Executes the command with progress output
+// Returns an error if the command execution fails
 func (v *ColimaVirt) executeColimaCommand(action string) error {
 	contextName := v.configHandler.GetContext()
 
@@ -281,6 +297,9 @@ func (v *ColimaVirt) executeColimaCommand(action string) error {
 }
 
 // startColima starts the Colima VM and waits for it to have an assigned IP address
+// Executes the start command and waits for the VM to be ready
+// Retries a configurable number of times to get the VM information
+// Returns the VM information or an error if the VM fails to start or get an IP
 func (v *ColimaVirt) startColima() (VMInfo, error) {
 	contextName := v.configHandler.GetContext()
 
@@ -311,3 +330,11 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 	}
 	return VMInfo{}, fmt.Errorf("Timed out waiting for Colima VM to get an IP address")
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure ColimaVirt implements Virt and VirtualMachine
+var _ Virt = (*ColimaVirt)(nil)
+var _ VirtualMachine = (*ColimaVirt)(nil)
