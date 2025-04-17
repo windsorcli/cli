@@ -16,21 +16,23 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// The Shell package provides a unified interface for shell operations across different platforms.
+// It provides a consistent API for executing commands, managing environment variables, and handling shell-specific functionality.
+// It serves as the core component for command execution and environment management in the Windsor CLI.
+// Key features include cross-platform command execution, environment variable management, and session token handling.
+
 // maxFolderSearchDepth is the maximum depth to search for the project root
 const maxFolderSearchDepth = 10
 
-// Constants
-const (
-	SessionTokenPrefix = ".session."
-)
+// SessionTokenPrefix is the prefix used for session token files
+const SessionTokenPrefix = ".session."
+
+// =============================================================================
+// Types
+// =============================================================================
 
 // Static private variable to store the session token
 var sessionToken string
-
-// Reset the session token - used primarily for testing
-func ResetSessionToken() {
-	sessionToken = ""
-}
 
 // HookContext are the variables available during hook template evaluation
 type HookContext struct {
@@ -86,12 +88,20 @@ type DefaultShell struct {
 	verbose     bool
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewDefaultShell creates a new instance of DefaultShell
 func NewDefaultShell(injector di.Injector) *DefaultShell {
 	return &DefaultShell{
 		injector: injector,
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize initializes the shell
 func (s *DefaultShell) Initialize() error {
@@ -355,7 +365,7 @@ func (s *DefaultShell) InstallHook(shellName string) error {
 	return err
 }
 
-// Adds the current directory to a trusted list stored in a file.
+// AddCurrentDirToTrustedFile adds the current directory to a trusted list stored in a file.
 // Creates necessary directories if they don't exist.
 // Checks if the directory is already trusted before adding.
 func (s *DefaultShell) AddCurrentDirToTrustedFile() error {
@@ -397,7 +407,7 @@ func (s *DefaultShell) AddCurrentDirToTrustedFile() error {
 	return nil
 }
 
-// Check if the current directory is in the trusted file list.
+// CheckTrustedDirectory verifies if the current directory is in the trusted file list.
 func (s *DefaultShell) CheckTrustedDirectory() error {
 	projectRoot, err := s.GetProjectRoot()
 	if err != nil {
@@ -524,6 +534,10 @@ func (s *DefaultShell) Reset() {
 	}
 }
 
+// =============================================================================
+// Private Methods
+// =============================================================================
+
 // generateRandomString creates a secure random string of the given length using a predefined charset.
 func (s *DefaultShell) generateRandomString(length int) (string, error) {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -578,6 +592,15 @@ func (s *DefaultShell) CheckResetFlags() (bool, error) {
 	}
 
 	return tokenFileExists, nil
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// ResetSessionToken resets the session token - used primarily for testing
+func ResetSessionToken() {
+	sessionToken = ""
 }
 
 // Ensure DefaultShell implements the Shell interface

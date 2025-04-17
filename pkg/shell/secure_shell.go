@@ -9,11 +9,23 @@ import (
 	"github.com/windsorcli/cli/pkg/ssh"
 )
 
-// SecureShell implements the Shell interface using SSH.
+// The SecureShell is a secure implementation of the Shell interface using SSH.
+// It provides remote command execution capabilities through an SSH connection.
+// It enables secure operations on remote systems by establishing an encrypted connection.
+// Key features include remote command execution with proper error handling and resource cleanup.
+
+// =============================================================================
+// Types
+// =============================================================================
+
 type SecureShell struct {
 	DefaultShell
 	sshClient ssh.Client
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewSecureShell creates a new instance of SecureShell.
 func NewSecureShell(injector di.Injector) *SecureShell {
@@ -23,6 +35,10 @@ func NewSecureShell(injector di.Injector) *SecureShell {
 		},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize initializes the SecureShell instance.
 func (s *SecureShell) Initialize() error {
