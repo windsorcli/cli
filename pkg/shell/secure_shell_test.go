@@ -10,6 +10,16 @@ import (
 	"github.com/windsorcli/cli/pkg/ssh"
 )
 
+// The SecureShellTest is a test suite for the SecureShell implementation.
+// It provides comprehensive test coverage for SSH-based command execution,
+// connection management, and session handling.
+// The SecureShellTest ensures reliable remote command execution through SSH,
+// proper error handling, and session lifecycle management.
+
+// =============================================================================
+// Test Setup
+// =============================================================================
+
 // MockSpinner is used to override the spinner in tests
 type MockSpinner struct{}
 
@@ -75,6 +85,11 @@ func setSafeSecureShellMocks(injector ...di.Injector) struct {
 	}
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestSecureShell_Initialize tests the Initialize method of SecureShell
 func TestSecureShell_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Call the setup function
@@ -103,6 +118,7 @@ func TestSecureShell_Initialize(t *testing.T) {
 	})
 }
 
+// TestSecureShell_Exec tests the Exec method of SecureShell
 func TestSecureShell_Exec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		expectedOutput := "command output"
@@ -238,6 +254,7 @@ func TestSecureShell_Exec(t *testing.T) {
 	})
 }
 
+// TestSecureShell_ExecProgress tests the ExecProgress method of SecureShell
 func TestSecureShell_ExecProgress(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		expectedOutput := "command output"
@@ -293,6 +310,7 @@ func TestSecureShell_ExecProgress(t *testing.T) {
 	})
 }
 
+// TestSecureShell_ExecSilent tests the ExecSilent method of SecureShell
 func TestSecureShell_ExecSilent(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		expectedOutput := "command output"

@@ -13,6 +13,16 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// The UnixShellTest is a test suite for Unix-specific shell operations.
+// It provides comprehensive test coverage for environment variable management,
+// project root detection, and alias handling on Unix-like systems.
+// The UnixShellTest ensures reliable shell operations on macOS and Linux platforms.
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestDefaultShell_PrintEnvVars tests the PrintEnvVars method on Unix systems
 func TestDefaultShell_PrintEnvVars(t *testing.T) {
 	injector := di.NewInjector()
 
@@ -36,6 +46,7 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 	}
 }
 
+// TestDefaultShell_GetProjectRoot tests the GetProjectRoot method on Unix systems
 func TestDefaultShell_GetProjectRoot(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -89,6 +100,7 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 	}
 }
 
+// TestDefaultShell_PrintAlias tests the PrintAlias method on Unix systems
 func TestDefaultShell_PrintAlias(t *testing.T) {
 	aliasVars := map[string]string{
 		"ALIAS1": "command1",
@@ -143,6 +155,7 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 	})
 }
 
+// TestDefaultShell_UnsetEnvs tests the UnsetEnvs method on Unix systems
 func TestDefaultShell_UnsetEnvs(t *testing.T) {
 	injector := di.NewInjector()
 
@@ -172,6 +185,7 @@ func TestDefaultShell_UnsetEnvs(t *testing.T) {
 	}
 }
 
+// TestDefaultShell_UnsetAlias tests the UnsetAlias method on Unix systems
 func TestDefaultShell_UnsetAlias(t *testing.T) {
 	injector := di.NewInjector()
 

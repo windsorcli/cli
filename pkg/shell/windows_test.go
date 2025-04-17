@@ -15,6 +15,15 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// The WindowsShellTest is a test suite for Windows-specific shell operations.
+// It provides comprehensive test coverage for PowerShell environment management,
+// project root detection, and alias handling on Windows systems.
+// The WindowsShellTest ensures reliable shell operations on Windows platforms.
+
+// =============================================================================
+// Test Setup
+// =============================================================================
+
 // Helper function to get the long path name on Windows
 // This function converts a short path to its long form
 func getLongPathName(shortPath string) (string, error) {
@@ -40,6 +49,11 @@ func normalizeWindowsPath(path string) string {
 	return normalizePath(longPath)
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestDefaultShell_PrintEnvVars tests the PrintEnvVars method on Windows systems
 func TestDefaultShell_PrintEnvVars(t *testing.T) {
 	injector := di.NewInjector()
 
@@ -75,6 +89,7 @@ func TestDefaultShell_PrintEnvVars(t *testing.T) {
 	}
 }
 
+// TestDefaultShell_GetProjectRoot tests the GetProjectRoot method on Windows systems
 func TestDefaultShell_GetProjectRoot(t *testing.T) {
 	injector := di.NewInjector()
 
@@ -127,6 +142,7 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 	}
 }
 
+// TestDefaultShell_PrintAlias tests the PrintAlias method on Windows systems
 func TestDefaultShell_PrintAlias(t *testing.T) {
 	aliasVars := map[string]string{
 		"ALIAS1": "command1",
@@ -179,6 +195,7 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 	})
 }
 
+// TestDefaultShell_UnsetEnvs tests the UnsetEnvs method on Windows systems
 func TestDefaultShell_UnsetEnvs(t *testing.T) {
 	injector := di.NewInjector()
 
@@ -208,6 +225,7 @@ func TestDefaultShell_UnsetEnvs(t *testing.T) {
 	}
 }
 
+// TestDefaultShell_UnsetAlias tests the UnsetAlias method on Windows systems
 func TestDefaultShell_UnsetAlias(t *testing.T) {
 	injector := di.NewInjector()
 

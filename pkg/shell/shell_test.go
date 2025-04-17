@@ -18,7 +18,15 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// Test utilities for shell tests
+// The ShellTest is a test suite for the Shell interface and its implementations.
+// It provides comprehensive test coverage for shell operations, command execution,
+// project root detection, and environment management.
+// The ShellTest acts as a validation framework for shell functionality,
+// ensuring reliable command execution, proper error handling, and environment isolation.
+
+// =============================================================================
+// Test Setup
+// =============================================================================
 
 // setupShellTest creates a new DefaultShell for testing
 func setupShellTest(t *testing.T) *DefaultShell {
@@ -33,6 +41,10 @@ func setupShellTest(t *testing.T) *DefaultShell {
 	}
 	return shell
 }
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
 
 // Helper function to test random string generation
 func testRandomStringGeneration(t *testing.T, shell *DefaultShell, length int) {
@@ -59,6 +71,10 @@ func testRandomStringGeneration(t *testing.T, shell *DefaultShell, length int) {
 		}
 	}
 }
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
 func TestShell_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
@@ -94,6 +110,10 @@ func TestShell_SetVerbosity(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Test Private Methods
+// =============================================================================
 
 func TestShell_GetProjectRoot(t *testing.T) {
 	t.Run("Cached", func(t *testing.T) {

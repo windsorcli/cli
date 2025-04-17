@@ -7,6 +7,16 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// The MockShellTest is a test suite for the MockShell implementation.
+// It provides comprehensive test coverage for mock shell operations,
+// function overrides, and default behaviors.
+// The MockShellTest ensures reliable mocking capabilities for testing
+// shell-dependent functionality in isolation.
+
+// =============================================================================
+// Test Setup
+// =============================================================================
+
 // Helper function for error assertion
 func assertError(t *testing.T, err error, shouldError bool) {
 	if shouldError && err == nil {
@@ -16,6 +26,11 @@ func assertError(t *testing.T, err error, shouldError bool) {
 	}
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestMockShell_NewMockShell tests the constructor for MockShell
 func TestMockShell_NewMockShell(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock injector
@@ -32,6 +47,7 @@ func TestMockShell_NewMockShell(t *testing.T) {
 	})
 }
 
+// TestMockShell_Initialize tests the Initialize method
 func TestMockShell_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom Initialize function
@@ -59,6 +75,7 @@ func TestMockShell_Initialize(t *testing.T) {
 	})
 }
 
+// TestMockShell_GetProjectRoot tests the GetProjectRoot method
 func TestMockShell_GetProjectRoot(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell that successfully retrieves the project root
@@ -110,6 +127,7 @@ func TestMockShell_GetProjectRoot(t *testing.T) {
 	})
 }
 
+// TestMockShell_Exec tests the Exec method
 func TestMockShell_Exec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom ExecFn implementation
@@ -166,6 +184,7 @@ func TestMockShell_Exec(t *testing.T) {
 	})
 }
 
+// TestMockShell_ExecSilent tests the ExecSilent method
 func TestMockShell_ExecSilent(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom ExecSilentFn implementation
@@ -202,6 +221,7 @@ func TestMockShell_ExecSilent(t *testing.T) {
 	})
 }
 
+// TestMockShell_ExecProgress tests the ExecProgress method
 func TestMockShell_ExecProgress(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom ExecProgressFn implementation
@@ -238,6 +258,7 @@ func TestMockShell_ExecProgress(t *testing.T) {
 	})
 }
 
+// TestMockShell_ExecSudo tests the ExecSudo method
 func TestMockShell_ExecSudo(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom ExecSudoFn implementation
@@ -274,6 +295,7 @@ func TestMockShell_ExecSudo(t *testing.T) {
 	})
 }
 
+// TestMockShell_InstallHook tests the InstallHook method
 func TestMockShell_InstallHook(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom InstallHookFunc implementation
@@ -300,6 +322,7 @@ func TestMockShell_InstallHook(t *testing.T) {
 	})
 }
 
+// TestMockShell_SetVerbosity tests the SetVerbosity method
 func TestMockShell_SetVerbosity(t *testing.T) {
 	t.Run("SetVerbosityTrue", func(t *testing.T) {
 		// Given a mock shell with a custom SetVerbosityFunc implementation
@@ -343,6 +366,7 @@ func TestMockShell_SetVerbosity(t *testing.T) {
 	})
 }
 
+// TestMockShell_AddCurrentDirToTrustedFile tests the AddCurrentDirToTrustedFile method
 func TestMockShell_AddCurrentDirToTrustedFile(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom AddCurrentDirToTrustedFileFunc implementation
@@ -368,6 +392,7 @@ func TestMockShell_AddCurrentDirToTrustedFile(t *testing.T) {
 	})
 }
 
+// TestMockShell_CheckTrustedDirectory tests the CheckTrustedDirectory method
 func TestMockShell_CheckTrustedDirectory(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom CheckTrustedDirectoryFunc implementation
@@ -397,6 +422,7 @@ func TestMockShell_CheckTrustedDirectory(t *testing.T) {
 	})
 }
 
+// TestMockShell_UnsetEnvs tests the UnsetEnvs method
 func TestMockShell_UnsetEnvs(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom UnsetEnvsFunc implementation
@@ -456,6 +482,7 @@ func TestMockShell_UnsetEnvs(t *testing.T) {
 	})
 }
 
+// TestMockShell_UnsetAlias tests the UnsetAlias method
 func TestMockShell_UnsetAlias(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom UnsetAliasFunc implementation
@@ -515,6 +542,7 @@ func TestMockShell_UnsetAlias(t *testing.T) {
 	})
 }
 
+// TestMockShell_PrintEnvVars tests the PrintEnvVars method
 func TestMockShell_PrintEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom PrintEnvVarsFunc implementation
@@ -585,6 +613,7 @@ func TestMockShell_PrintEnvVars(t *testing.T) {
 	})
 }
 
+// TestMockShell_PrintAlias tests the PrintAlias method
 func TestMockShell_PrintAlias(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom PrintAliasFunc implementation
@@ -655,6 +684,7 @@ func TestMockShell_PrintAlias(t *testing.T) {
 	})
 }
 
+// TestMockShell_WriteResetToken tests the WriteResetToken method
 func TestMockShell_WriteResetToken(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock shell with a custom WriteResetTokenFunc implementation
@@ -718,7 +748,7 @@ func TestMockShell_WriteResetToken(t *testing.T) {
 	})
 }
 
-// TestMockShell_Reset tests the Reset method of the MockShell struct
+// TestMockShell_Reset tests the Reset method
 func TestMockShell_Reset(t *testing.T) {
 	t.Run("DefaultReset", func(t *testing.T) {
 		// Given a mock shell with default Reset implementation
