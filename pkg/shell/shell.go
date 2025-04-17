@@ -16,10 +16,14 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// The Shell package provides a unified interface for shell operations across different platforms.
-// It provides a consistent API for executing commands, managing environment variables, and handling shell-specific functionality.
-// It serves as the core component for command execution and environment management in the Windsor CLI.
-// Key features include cross-platform command execution, environment variable management, and session token handling.
+// The Shell package is a unified interface for shell operations across different platforms.
+// It provides cross-platform command execution, environment variable management, and session token handling.
+// This package serves as the core interface for all shell operations in the Windsor CLI.
+// Key features include command execution, environment variable management, and session token handling.
+
+// =============================================================================
+// Constants
+// =============================================================================
 
 // maxFolderSearchDepth is the maximum depth to search for the project root
 const maxFolderSearchDepth = 10
@@ -40,43 +44,25 @@ type HookContext struct {
 	SelfPath string
 }
 
-// Shell interface defines methods for shell operations
+// Shell is the interface that defines shell operations.
 type Shell interface {
-	// Initialize initializes the shell environment
 	Initialize() error
-	// SetVerbosity sets the verbosity flag
 	SetVerbosity(verbose bool)
-	// PrintEnvVars prints the provided environment variables
 	PrintEnvVars(envVars map[string]string)
-	// PrintAlias retrieves the shell alias
 	PrintAlias(envVars map[string]string)
-	// GetProjectRoot retrieves the project root directory
 	GetProjectRoot() (string, error)
-	// Exec executes a command with optional privilege elevation
 	Exec(command string, args ...string) (string, error)
-	// ExecSilent executes a command and returns its output as a string without printing to stdout or stderr
 	ExecSilent(command string, args ...string) (string, error)
-	// ExecSudo executes a command with sudo if not already present and returns its output as a string while suppressing it from being printed
 	ExecSudo(message string, command string, args ...string) (string, error)
-	// ExecProgress executes a command and returns its output as a string while displaying progress status
 	ExecProgress(message string, command string, args ...string) (string, error)
-	// InstallHook installs a shell hook for the specified shell name
 	InstallHook(shellName string) error
-	// AddCurrentDirToTrustedFile adds the current directory to a trusted list stored in a file.
 	AddCurrentDirToTrustedFile() error
-	// CheckTrustedDirectory verifies if the current directory is in the trusted file list.
 	CheckTrustedDirectory() error
-	// UnsetEnvs generates a command to unset multiple environment variables
 	UnsetEnvs(envVars []string)
-	// UnsetAlias generates commands to unset multiple aliases
 	UnsetAlias(aliases []string)
-	// WriteResetToken writes a reset token file based on the session token
 	WriteResetToken() (string, error)
-	// GetSessionToken retrieves or generates a session token
 	GetSessionToken() (string, error)
-	// CheckResetFlags checks if a reset signal file exists for the current session
 	CheckResetFlags() (bool, error)
-	// Reset removes all managed environment variables and aliases
 	Reset()
 }
 
