@@ -370,19 +370,78 @@ var _ ConfigHandler = (*MockConfigHandler)(nil)
 ```
 
 ### Shims
+1. Create a `shims.go` file in each package that needs system call abstraction
+2. Define a `Shims` struct with function fields for each system call
+3. Implement a `NewShims()` constructor that provides default implementations
+4. Use the Shims struct in your implementation for dependency injection
+5. Override specific functions in tests as needed
+
 Example from shims.go:
 ```go
-// osReadFile is a variable to allow mocking os.ReadFile in tests
-var osReadFile = os.ReadFile
+// The shims package is a system call abstraction layer
+// It provides mockable wrappers around system and runtime functions
+// It serves as a testing aid by allowing system calls to be intercepted
+// It enables dependency injection and test isolation for system-level operations
 
-// osWriteFile is a variable to allow mocking os.WriteFile in tests
-var osWriteFile = os.WriteFile
+package virt
 
-// osRemoveAll is a variable to allow mocking os.RemoveAll in tests
-var osRemoveAll = os.RemoveAll
+import (
+    "encoding/json"
+    "io"
+    "os"
+    "runtime"
 
-// osGetenv is a variable to allow mocking os.Getenv in tests
-var osGetenv = os.Getenv
+    "github.com/goccy/go-yaml"
+    "github.com/shirou/gopsutil/mem"
+)
+
+// =============================================================================
+// Types
+// =============================================================================
+
+// YAMLEncoder is an interface for encoding YAML data.
+type YAMLEncoder interface {
+    Encode(v any) error
+    Close() error
+}
+
+// Shims provides mockable wrappers around system and runtime functions
+type Shims struct {
+    Setenv         func(key, value string) error
+    UnmarshalJSON  func(data []byte, v any) error
+    UserHomeDir    func() (string, error)
+    MkdirAll       func(path string, perm os.FileMode) error
+    WriteFile      func(name string, data []byte, perm os.FileMode) error
+    Rename         func(oldpath, newpath string) error
+    GOARCH         func() string
+    NumCPU         func() int
+    VirtualMemory  func() (*mem.VirtualMemoryStat, error)
+    MarshalYAML    func(v any) ([]byte, error)
+    NewYAMLEncoder func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// NewShims creates a new Shims instance with default implementations
+func NewShims() *Shims {
+    return &Shims{
+        Setenv:        os.Setenv,
+        UnmarshalJSON: json.Unmarshal,
+        UserHomeDir:   os.UserHomeDir,
+        MkdirAll:      os.MkdirAll,
+        WriteFile:     os.WriteFile,
+        Rename:        os.Rename,
+        GOARCH:        func() string { return runtime.GOARCH },
+        NumCPU:        func() int { return runtime.NumCPU() },
+        VirtualMemory: mem.VirtualMemory,
+        MarshalYAML:   yaml.Marshal,
+        NewYAMLEncoder: func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
+            return yaml.NewEncoder(w, opts...)
+        },
+    }
+}
 ```
 
 ## Best Practices

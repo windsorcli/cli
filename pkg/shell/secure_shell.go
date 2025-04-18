@@ -29,10 +29,9 @@ type SecureShell struct {
 
 // NewSecureShell creates a new instance of SecureShell.
 func NewSecureShell(injector di.Injector) *SecureShell {
+	defaultShell := NewDefaultShell(injector)
 	return &SecureShell{
-		DefaultShell: DefaultShell{
-			injector: injector,
-		},
+		DefaultShell: *defaultShell,
 	}
 }
 
@@ -42,12 +41,7 @@ func NewSecureShell(injector di.Injector) *SecureShell {
 
 // Initialize initializes the SecureShell instance.
 func (s *SecureShell) Initialize() error {
-	// Call the base Initialize method
-	if err := s.DefaultShell.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize default shell: %w", err)
-	}
-
-	// Get the SSH client
+	// Get the SSH client first
 	sshClient, ok := s.injector.Resolve("sshClient").(ssh.Client)
 	if !ok {
 		return fmt.Errorf("failed to resolve SSH client")

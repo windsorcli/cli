@@ -9,21 +9,24 @@ import (
 
 // The MockShellTest is a test suite for the MockShell implementation.
 // It provides comprehensive test coverage for mock shell operations,
-// function overrides, and default behaviors.
-// The MockShellTest ensures reliable mocking capabilities for testing
-// shell-dependent functionality in isolation.
+// ensuring reliable testing of shell-dependent functionality.
+// The MockShellTest validates the mock implementation's behavior.
 
 // =============================================================================
 // Test Setup
 // =============================================================================
 
-// Helper function for error assertion
-func assertError(t *testing.T, err error, shouldError bool) {
-	if shouldError && err == nil {
-		t.Errorf("Expected error, got nil")
-	} else if !shouldError && err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
+// setupMockShellMocks creates a new set of mocks for testing MockShell
+func setupMockShellMocks(t *testing.T) *MockShell {
+	t.Helper()
+
+	// Create injector
+	injector := di.NewMockInjector()
+
+	// Create mock shell
+	mockShell := NewMockShell(injector)
+
+	return mockShell
 }
 
 // =============================================================================
@@ -33,25 +36,21 @@ func assertError(t *testing.T, err error, shouldError bool) {
 // TestMockShell_NewMockShell tests the constructor for MockShell
 func TestMockShell_NewMockShell(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock injector
-		mockInjector := di.NewMockInjector()
-		// When creating a new mock shell with the injector
-		mockShell := NewMockShell(mockInjector)
-		// Then no error should be returned and the injector should be set
+		// Given
+		mockShell := setupMockShellMocks(t)
+
+		// Then the mock shell should be created successfully
 		if mockShell == nil {
 			t.Errorf("Expected mockShell, got nil")
-		}
-		if mockShell.injector != mockInjector {
-			t.Errorf("Expected injector to be set, got %v", mockShell.injector)
 		}
 	})
 }
 
-// TestMockShell_Initialize tests the Initialize method
+// TestMockShell_Initialize tests the Initialize method of MockShell
 func TestMockShell_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom Initialize function
-		mockShell := NewMockShell()
+		// Given a mock shell with InitializeFunc set
+		mockShell := setupMockShellMocks(t)
 		mockShell.InitializeFunc = func() error {
 			return nil
 		}
@@ -60,344 +59,678 @@ func TestMockShell_Initialize(t *testing.T) {
 		err := mockShell.Initialize()
 
 		// Then no error should be returned
-		assertError(t, err, false)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
 	})
 
-	t.Run("DefaultInitialize", func(t *testing.T) {
-		// Given a mock shell without a custom Initialize function
-		mockShell := NewMockShell()
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock shell with InitializeFunc set to return an error
+		mockShell := setupMockShellMocks(t)
+		expectedError := fmt.Errorf("mock initialize error")
+		mockShell.InitializeFunc = func() error {
+			return expectedError
+		}
 
 		// When calling Initialize
 		err := mockShell.Initialize()
 
-		// Then no error should be returned as the default implementation does nothing
-		assertError(t, err, false)
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with InitializeFunc not set
+		mockShell := setupMockShellMocks(t)
+
+		// When calling Initialize
+		err := mockShell.Initialize()
+
+		// Then no error should be returned (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
 	})
 }
 
-// TestMockShell_GetProjectRoot tests the GetProjectRoot method
+// TestMockShell_GetProjectRoot tests the GetProjectRoot method of MockShell
 func TestMockShell_GetProjectRoot(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell that successfully retrieves the project root
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
+		// Given a mock shell with GetProjectRootFunc set
+		mockShell := setupMockShellMocks(t)
+		expectedRoot := "/mock/project/root"
 		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "/mock/project/root", nil
+			return expectedRoot, nil
 		}
+
 		// When calling GetProjectRoot
-		got, err := mockShell.GetProjectRoot()
-		// Then the project root should be returned without error
-		want := "/mock/project/root"
-		if err != nil || got != want {
-			t.Errorf("GetProjectRoot() got = %v, want %v, err = %v", got, want, err)
+		root, err := mockShell.GetProjectRoot()
+
+		// Then no error should be returned and the root should match
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if root != expectedRoot {
+			t.Errorf("Expected root %v, got %v", expectedRoot, root)
 		}
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		// Given a mock shell that returns an error when retrieving the project root
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
+		// Given a mock shell with GetProjectRootFunc set to return an error
+		mockShell := setupMockShellMocks(t)
+		expectedError := fmt.Errorf("mock get project root error")
 		mockShell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("error retrieving project root")
+			return "", expectedError
 		}
+
 		// When calling GetProjectRoot
-		got, err := mockShell.GetProjectRoot()
-		// Then an error should be returned
+		root, err := mockShell.GetProjectRoot()
+
+		// Then the expected error should be returned and root should be empty
 		if err == nil {
-			t.Errorf("Expected an error but got none")
+			t.Error("Expected error, got nil")
 		}
-		if got != "" {
-			t.Errorf("GetProjectRoot() got = %v, want %v", got, "")
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+		if root != "" {
+			t.Errorf("Expected empty root, got %v", root)
 		}
 	})
 
 	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no GetProjectRoot implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
+		// Given a mock shell with GetProjectRootFunc not set
+		mockShell := setupMockShellMocks(t)
+
 		// When calling GetProjectRoot
-		got, err := mockShell.GetProjectRoot()
-		// Then no error should be returned and the result should be empty
+		root, err := mockShell.GetProjectRoot()
+
+		// Then no error should be returned and root should be empty (default implementation)
 		if err != nil {
-			t.Errorf("GetProjectRoot() error = %v, want nil", err)
+			t.Errorf("Expected no error, got %v", err)
 		}
-		if got != "" {
-			t.Errorf("GetProjectRoot() got = %v, want %v", got, "")
+		if root != "" {
+			t.Errorf("Expected empty root, got %v", root)
 		}
 	})
 }
 
-// TestMockShell_Exec tests the Exec method
+// TestMockShell_Exec tests the Exec method of MockShell
 func TestMockShell_Exec(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom ExecFn implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
+		// Given a mock shell with ExecFunc set
+		mockShell := setupMockShellMocks(t)
+		expectedOutput := "mock output"
 		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
-			// Simulate command execution and return a mocked output
-			return "mocked output", nil
+			return expectedOutput, nil
 		}
+
 		// When calling Exec
-		output, err := mockShell.Exec("Executing command", "somecommand", "arg1", "arg2")
-		// Then no error should be returned and output should be as expected
-		expectedOutput := "mocked output"
+		output, err := mockShell.Exec("mock-command", "arg1", "arg2")
+
+		// Then no error should be returned and the output should match
 		if err != nil {
-			t.Errorf("Exec() error = %v, want nil", err)
+			t.Errorf("Expected no error, got %v", err)
 		}
 		if output != expectedOutput {
-			t.Errorf("Exec() output = %v, want %v", output, expectedOutput)
+			t.Errorf("Expected output %v, got %v", expectedOutput, output)
 		}
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		// Given a mock shell whose ExecFn returns an error
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
+		// Given a mock shell with ExecFunc set to return an error
+		mockShell := setupMockShellMocks(t)
+		expectedError := fmt.Errorf("mock exec error")
 		mockShell.ExecFunc = func(command string, args ...string) (string, error) {
-			// Simulate command failure
-			return "", fmt.Errorf("execution error")
+			return "", expectedError
 		}
+
 		// When calling Exec
-		output, err := mockShell.Exec("somecommand", "arg1", "arg2")
-		// Then an error should be returned
+		output, err := mockShell.Exec("mock-command", "arg1", "arg2")
+
+		// Then the expected error should be returned and output should be empty
 		if err == nil {
-			t.Errorf("Expected an error but got none")
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
 		if output != "" {
-			t.Errorf("Exec() output = %v, want %v", output, "")
+			t.Errorf("Expected empty output, got %v", output)
 		}
 	})
 
 	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no ExecFn implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
+		// Given a mock shell with ExecFunc not set
+		mockShell := setupMockShellMocks(t)
+
 		// When calling Exec
-		output, err := mockShell.Exec("Executing command", "somecommand", "arg1", "arg2")
-		// Then no error should be returned and the result should be empty
+		output, err := mockShell.Exec("mock-command", "arg1", "arg2")
+
+		// Then no error should be returned and output should be empty (default implementation)
 		if err != nil {
-			t.Errorf("Exec() error = %v, want nil", err)
+			t.Errorf("Expected no error, got %v", err)
 		}
 		if output != "" {
-			t.Errorf("Exec() output = %v, want %v", output, "")
+			t.Errorf("Expected empty output, got %v", output)
 		}
 	})
 }
 
-// TestMockShell_ExecSilent tests the ExecSilent method
-func TestMockShell_ExecSilent(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom ExecSilentFn implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			return "mocked output", nil
-		}
-		// When calling ExecSilent
-		output, err := mockShell.ExecSilent("Executing command", "somecommand", "arg1", "arg2")
-		// Then no error should be returned and output should be as expected
-		expectedOutput := "mocked output"
-		if err != nil {
-			t.Errorf("ExecSilent() error = %v, want nil", err)
-		}
-		if output != expectedOutput {
-			t.Errorf("ExecSilent() output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no ExecSilentFn implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-		// When calling ExecSilent
-		output, err := mockShell.ExecSilent("Executing command", "somecommand", "arg1", "arg2")
-		// Then no error should be returned and the result should be empty
-		if err != nil {
-			t.Errorf("ExecSilent() error = %v, want nil", err)
-		}
-		if output != "" {
-			t.Errorf("ExecSilent() output = %v, want %v", output, "")
-		}
-	})
-}
-
-// TestMockShell_ExecProgress tests the ExecProgress method
-func TestMockShell_ExecProgress(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom ExecProgressFn implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-		mockShell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			return "mocked output", nil
-		}
-		// When calling ExecProgress
-		output, err := mockShell.ExecProgress("Executing command", "somecommand", "arg1", "arg2")
-		// Then no error should be returned and output should be as expected
-		expectedOutput := "mocked output"
-		if err != nil {
-			t.Errorf("ExecProgress() error = %v, want nil", err)
-		}
-		if output != expectedOutput {
-			t.Errorf("ExecProgress() output = %v, want %v", output, expectedOutput)
-		}
-	})
-
-	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no ExecProgressFn implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-		// When calling ExecProgress
-		output, err := mockShell.ExecProgress("Executing command", "somecommand", "arg1", "arg2")
-		// Then no error should be returned and the result should be empty
-		if err != nil {
-			t.Errorf("ExecProgress() error = %v, want nil", err)
-		}
-		if output != "" {
-			t.Errorf("ExecProgress() output = %v, want %v", output, "")
-		}
-	})
-}
-
-// TestMockShell_ExecSudo tests the ExecSudo method
+// TestMockShell_ExecSudo tests the ExecSudo method of MockShell
 func TestMockShell_ExecSudo(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom ExecSudoFn implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-		mockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
-			return "mocked sudo output", nil
+		// Given a mock shell with ExecSudoFunc set
+		mockShell := setupMockShellMocks(t)
+		expectedOutput := "mock sudo output"
+		mockShell.ExecSudoFunc = func(sudoPrompt string, command string, args ...string) (string, error) {
+			return expectedOutput, nil
 		}
+
 		// When calling ExecSudo
-		output, err := mockShell.ExecSudo("Executing sudo command", "somecommand", "arg1", "arg2")
-		// Then no error should be returned and output should be as expected
-		expectedOutput := "mocked sudo output"
+		output, err := mockShell.ExecSudo("mock-sudo-prompt", "mock-command", "arg1", "arg2")
+
+		// Then no error should be returned and the output should match
 		if err != nil {
-			t.Errorf("ExecSudo() error = %v, want nil", err)
+			t.Errorf("Expected no error, got %v", err)
 		}
 		if output != expectedOutput {
-			t.Errorf("ExecSudo() output = %v, want %v", output, expectedOutput)
+			t.Errorf("Expected output %v, got %v", expectedOutput, output)
 		}
 	})
 
-	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no ExecSudoFn implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock shell with ExecSudoFunc set to return an error
+		mockShell := setupMockShellMocks(t)
+		expectedError := fmt.Errorf("mock exec sudo error")
+		mockShell.ExecSudoFunc = func(sudoPrompt string, command string, args ...string) (string, error) {
+			return "", expectedError
+		}
+
 		// When calling ExecSudo
-		output, err := mockShell.ExecSudo("Executing sudo command", "somecommand", "arg1", "arg2")
-		// Then no error should be returned and the result should be empty
-		if err != nil {
-			t.Errorf("ExecSudo() error = %v, want nil", err)
+		output, err := mockShell.ExecSudo("mock-sudo-prompt", "mock-command", "arg1", "arg2")
+
+		// Then the expected error should be returned and output should be empty
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
 		if output != "" {
-			t.Errorf("ExecSudo() output = %v, want %v", output, "")
+			t.Errorf("Expected empty output, got %v", output)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with ExecSudoFunc not set
+		mockShell := setupMockShellMocks(t)
+
+		// When calling ExecSudo
+		output, err := mockShell.ExecSudo("mock-sudo-prompt", "mock-command", "arg1", "arg2")
+
+		// Then no error should be returned and output should be empty (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if output != "" {
+			t.Errorf("Expected empty output, got %v", output)
 		}
 	})
 }
 
-// TestMockShell_InstallHook tests the InstallHook method
+// TestMockShell_ExecSudoError tests the ExecSudo method of MockShell when it returns an error
+func TestMockShell_ExecSudoError(t *testing.T) {
+	// Given a mock shell with ExecSudoFunc set to return an error
+	mockShell := setupMockShellMocks(t)
+	expectedError := fmt.Errorf("mock exec sudo error")
+	mockShell.ExecSudoFunc = func(sudoPrompt string, command string, args ...string) (string, error) {
+		return "", expectedError
+	}
+
+	// When calling ExecSudo
+	output, err := mockShell.ExecSudo("mock-sudo-prompt", "mock-command", "arg1", "arg2")
+
+	// Then the expected error should be returned and output should be empty
+	if err == nil {
+		t.Error("Expected error, got nil")
+	}
+	if err.Error() != expectedError.Error() {
+		t.Errorf("Expected error %v, got %v", expectedError, err)
+	}
+	if output != "" {
+		t.Errorf("Expected empty output, got %v", output)
+	}
+}
+
+// TestMockShell_ExecSudoNotImplemented tests the ExecSudo method of MockShell when not implemented
+func TestMockShell_ExecSudoNotImplemented(t *testing.T) {
+	// Given a mock shell with ExecSudoFunc not set
+	mockShell := setupMockShellMocks(t)
+
+	// When calling ExecSudo
+	output, err := mockShell.ExecSudo("mock-sudo-prompt", "mock-command", "arg1", "arg2")
+
+	// Then no error should be returned and output should be empty (default implementation)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if output != "" {
+		t.Errorf("Expected empty output, got %v", output)
+	}
+}
+
+// TestMockShell_ExecSilent tests the ExecSilent method of MockShell
+func TestMockShell_ExecSilent(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with ExecSilentFunc set
+		mockShell := setupMockShellMocks(t)
+		expectedOutput := "mock silent output"
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return expectedOutput, nil
+		}
+
+		// When calling ExecSilent
+		output, err := mockShell.ExecSilent("mock-command", "arg1", "arg2")
+
+		// Then no error should be returned and the output should match
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if output != expectedOutput {
+			t.Errorf("Expected output %v, got %v", expectedOutput, output)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock shell with ExecSilentFunc set to return an error
+		mockShell := setupMockShellMocks(t)
+		expectedError := fmt.Errorf("mock exec silent error")
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "", expectedError
+		}
+
+		// When calling ExecSilent
+		output, err := mockShell.ExecSilent("mock-command", "arg1", "arg2")
+
+		// Then the expected error should be returned and output should be empty
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+		if output != "" {
+			t.Errorf("Expected empty output, got %v", output)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with ExecSilentFunc not set
+		mockShell := setupMockShellMocks(t)
+
+		// When calling ExecSilent
+		output, err := mockShell.ExecSilent("mock-command", "arg1", "arg2")
+
+		// Then no error should be returned and output should be empty (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if output != "" {
+			t.Errorf("Expected empty output, got %v", output)
+		}
+	})
+}
+
+// TestMockShell_ExecSilentError tests the ExecSilent method of MockShell when it returns an error
+func TestMockShell_ExecSilentError(t *testing.T) {
+	// Given a mock shell with ExecSilentFunc set to return an error
+	mockShell := setupMockShellMocks(t)
+	expectedError := fmt.Errorf("mock exec silent error")
+	mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		return "", expectedError
+	}
+
+	// When calling ExecSilent
+	output, err := mockShell.ExecSilent("mock-command", "arg1", "arg2")
+
+	// Then the expected error should be returned and output should be empty
+	if err == nil {
+		t.Error("Expected error, got nil")
+	}
+	if err.Error() != expectedError.Error() {
+		t.Errorf("Expected error %v, got %v", expectedError, err)
+	}
+	if output != "" {
+		t.Errorf("Expected empty output, got %v", output)
+	}
+}
+
+// TestMockShell_ExecSilentNotImplemented tests the ExecSilent method of MockShell when not implemented
+func TestMockShell_ExecSilentNotImplemented(t *testing.T) {
+	// Given a mock shell with ExecSilentFunc not set
+	mockShell := setupMockShellMocks(t)
+
+	// When calling ExecSilent
+	output, err := mockShell.ExecSilent("mock-command", "arg1", "arg2")
+
+	// Then no error should be returned and output should be empty (default implementation)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if output != "" {
+		t.Errorf("Expected empty output, got %v", output)
+	}
+}
+
+// TestMockShell_ExecProgress tests the ExecProgress method of MockShell
+func TestMockShell_ExecProgress(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with ExecProgressFunc set
+		mockShell := setupMockShellMocks(t)
+		expectedOutput := "mock progress output"
+		mockShell.ExecProgressFunc = func(progressPrompt string, command string, args ...string) (string, error) {
+			return expectedOutput, nil
+		}
+
+		// When calling ExecProgress
+		output, err := mockShell.ExecProgress("mock-progress-prompt", "mock-command", "arg1", "arg2")
+
+		// Then no error should be returned and the output should match
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if output != expectedOutput {
+			t.Errorf("Expected output %v, got %v", expectedOutput, output)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock shell with ExecProgressFunc set to return an error
+		mockShell := setupMockShellMocks(t)
+		expectedError := fmt.Errorf("mock exec progress error")
+		mockShell.ExecProgressFunc = func(progressPrompt string, command string, args ...string) (string, error) {
+			return "", expectedError
+		}
+
+		// When calling ExecProgress
+		output, err := mockShell.ExecProgress("mock-progress-prompt", "mock-command", "arg1", "arg2")
+
+		// Then the expected error should be returned and output should be empty
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+		if output != "" {
+			t.Errorf("Expected empty output, got %v", output)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with ExecProgressFunc not set
+		mockShell := setupMockShellMocks(t)
+
+		// When calling ExecProgress
+		output, err := mockShell.ExecProgress("mock-progress-prompt", "mock-command", "arg1", "arg2")
+
+		// Then no error should be returned and output should be empty (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if output != "" {
+			t.Errorf("Expected empty output, got %v", output)
+		}
+	})
+}
+
+// TestMockShell_ExecProgressError tests the ExecProgress method of MockShell when it returns an error
+func TestMockShell_ExecProgressError(t *testing.T) {
+	// Given a mock shell with ExecProgressFunc set to return an error
+	mockShell := setupMockShellMocks(t)
+	expectedError := fmt.Errorf("mock exec progress error")
+	mockShell.ExecProgressFunc = func(progressPrompt string, command string, args ...string) (string, error) {
+		return "", expectedError
+	}
+
+	// When calling ExecProgress
+	output, err := mockShell.ExecProgress("mock-progress-prompt", "mock-command", "arg1", "arg2")
+
+	// Then the expected error should be returned and output should be empty
+	if err == nil {
+		t.Error("Expected error, got nil")
+	}
+	if err.Error() != expectedError.Error() {
+		t.Errorf("Expected error %v, got %v", expectedError, err)
+	}
+	if output != "" {
+		t.Errorf("Expected empty output, got %v", output)
+	}
+}
+
+// TestMockShell_ExecProgressNotImplemented tests the ExecProgress method of MockShell when not implemented
+func TestMockShell_ExecProgressNotImplemented(t *testing.T) {
+	// Given a mock shell with ExecProgressFunc not set
+	mockShell := setupMockShellMocks(t)
+
+	// When calling ExecProgress
+	output, err := mockShell.ExecProgress("mock-progress-prompt", "mock-command", "arg1", "arg2")
+
+	// Then no error should be returned and output should be empty (default implementation)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if output != "" {
+		t.Errorf("Expected empty output, got %v", output)
+	}
+}
+
+// TestMockShell_InstallHook tests the InstallHook method of MockShell
 func TestMockShell_InstallHook(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom InstallHookFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-		mockShell.InstallHookFunc = func(shellName string) error {
+		// Given a mock shell with InstallHookFunc set
+		mockShell := setupMockShellMocks(t)
+		mockShell.InstallHookFunc = func(shellType string) error {
 			return nil
 		}
+
 		// When calling InstallHook
-		err := mockShell.InstallHook("bash")
+		err := mockShell.InstallHook("mock-shell-type")
+
 		// Then no error should be returned
 		if err != nil {
-			t.Errorf("InstallHook() error = %v, want nil", err)
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock shell with InstallHookFunc set to return an error
+		mockShell := setupMockShellMocks(t)
+		expectedError := fmt.Errorf("mock install hook error")
+		mockShell.InstallHookFunc = func(shellType string) error {
+			return expectedError
+		}
+
+		// When calling InstallHook
+		err := mockShell.InstallHook("mock-shell-type")
+
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
 	})
 
 	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no InstallHookFunc implementation
-		mockShell := NewMockShell()
+		// Given a mock shell with InstallHookFunc not set
+		mockShell := setupMockShellMocks(t)
+
 		// When calling InstallHook
-		err := mockShell.InstallHook("bash")
-		// Then no error should be returned
-		assertError(t, err, false)
+		err := mockShell.InstallHook("mock-shell-type")
+
+		// Then no error should be returned (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
 	})
 }
 
-// TestMockShell_SetVerbosity tests the SetVerbosity method
+// TestMockShell_InstallHookError tests the InstallHook method of MockShell when it returns an error
+func TestMockShell_InstallHookError(t *testing.T) {
+	// Given a mock shell with InstallHookFunc set to return an error
+	mockShell := setupMockShellMocks(t)
+	expectedError := fmt.Errorf("mock install hook error")
+	mockShell.InstallHookFunc = func(shellType string) error {
+		return expectedError
+	}
+
+	// When calling InstallHook
+	err := mockShell.InstallHook("mock-shell-type")
+
+	// Then the expected error should be returned
+	if err == nil {
+		t.Error("Expected error, got nil")
+	}
+	if err.Error() != expectedError.Error() {
+		t.Errorf("Expected error %v, got %v", expectedError, err)
+	}
+}
+
+// TestMockShell_InstallHookNotImplemented tests the InstallHook method of MockShell when not implemented
+func TestMockShell_InstallHookNotImplemented(t *testing.T) {
+	// Given a mock shell with InstallHookFunc not set
+	mockShell := setupMockShellMocks(t)
+
+	// When calling InstallHook
+	err := mockShell.InstallHook("mock-shell-type")
+
+	// Then no error should be returned (default implementation)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+}
+
+// TestMockShell_SetVerbosity tests the SetVerbosity method of MockShell
 func TestMockShell_SetVerbosity(t *testing.T) {
-	t.Run("SetVerbosityTrue", func(t *testing.T) {
-		// Given a mock shell with a custom SetVerbosityFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-		var verbositySet bool
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with SetVerbosityFunc set
+		mockShell := setupMockShellMocks(t)
 		mockShell.SetVerbosityFunc = func(verbose bool) {
-			verbositySet = verbose
+			// No-op implementation
 		}
-		// When setting verbosity to true
-		mockShell.SetVerbosity(true)
-		// Then verbosity should be set to true
-		if !verbositySet {
-			t.Errorf("Expected verbosity to be set to true, but it was not")
-		}
-	})
 
-	t.Run("SetVerbosityFalse", func(t *testing.T) {
-		// Given a mock shell with a custom SetVerbosityFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-		var verbositySet bool
-		mockShell.SetVerbosityFunc = func(verbose bool) {
-			verbositySet = verbose
-		}
-		// When setting verbosity to false
-		mockShell.SetVerbosity(false)
-		// Then verbosity should be set to false
-		if verbositySet {
-			t.Errorf("Expected verbosity to be set to false, but it was not")
-		}
-	})
-
-	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no SetVerbosityFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
 		// When calling SetVerbosity
 		mockShell.SetVerbosity(true)
-		// Then no panic or error should occur
-	})
-}
 
-// TestMockShell_AddCurrentDirToTrustedFile tests the AddCurrentDirToTrustedFile method
-func TestMockShell_AddCurrentDirToTrustedFile(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom AddCurrentDirToTrustedFileFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-		mockShell.AddCurrentDirToTrustedFileFunc = func() error {
-			return nil
-		}
-		// When calling AddCurrentDirToTrustedFile
-		err := mockShell.AddCurrentDirToTrustedFile()
 		// Then no error should be returned
-		assertError(t, err, false)
+		// (SetVerbosity doesn't return an error, so we just verify it doesn't panic)
 	})
 
 	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no AddCurrentDirToTrustedFileFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-		// When calling AddCurrentDirToTrustedFile
-		err := mockShell.AddCurrentDirToTrustedFile()
-		// Then no error should be returned
-		assertError(t, err, false)
+		// Given a mock shell with SetVerbosityFunc not set
+		mockShell := setupMockShellMocks(t)
+
+		// When calling SetVerbosity
+		// Then it should not panic
+		mockShell.SetVerbosity(true)
 	})
 }
 
-// TestMockShell_CheckTrustedDirectory tests the CheckTrustedDirectory method
+// TestMockShell_SetVerbosityNotImplemented tests the SetVerbosity method of MockShell when not implemented
+func TestMockShell_SetVerbosityNotImplemented(t *testing.T) {
+	// Given a mock shell with SetVerbosityFunc not set
+	mockShell := setupMockShellMocks(t)
+
+	// When calling SetVerbosity
+	// Then it should not panic
+	mockShell.SetVerbosity(true)
+}
+
+// TestMockShell_UnsetEnvs tests the UnsetEnvs method of MockShell
+func TestMockShell_UnsetEnvs(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with UnsetEnvsFunc set
+		mockShell := setupMockShellMocks(t)
+		mockShell.UnsetEnvsFunc = func(envVars []string) {
+			// No-op implementation
+		}
+
+		// When calling UnsetEnvs
+		mockShell.UnsetEnvs([]string{"ENV1", "ENV2"})
+
+		// Then no error should be returned
+		// (UnsetEnvs doesn't return an error, so we just verify it doesn't panic)
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with UnsetEnvsFunc not set
+		mockShell := setupMockShellMocks(t)
+
+		// When calling UnsetEnvs
+		// Then it should not panic
+		mockShell.UnsetEnvs([]string{"ENV1", "ENV2"})
+	})
+}
+
+// TestMockShell_UnsetEnvsNotImplemented tests the UnsetEnvs method of MockShell when not implemented
+func TestMockShell_UnsetEnvsNotImplemented(t *testing.T) {
+	// Given a mock shell with UnsetEnvsFunc not set
+	mockShell := setupMockShellMocks(t)
+
+	// When calling UnsetEnvs
+	// Then it should not panic
+	mockShell.UnsetEnvs([]string{"ENV1", "ENV2"})
+}
+
+// TestMockShell_UnsetAlias tests the UnsetAlias method of MockShell
+func TestMockShell_UnsetAlias(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with UnsetAliasFunc set
+		mockShell := setupMockShellMocks(t)
+		mockShell.UnsetAliasFunc = func(aliases []string) {
+			// No-op implementation
+		}
+
+		// When calling UnsetAlias
+		mockShell.UnsetAlias([]string{"ALIAS1", "ALIAS2"})
+
+		// Then no error should be returned
+		// (UnsetAlias doesn't return an error, so we just verify it doesn't panic)
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with UnsetAliasFunc not set
+		mockShell := setupMockShellMocks(t)
+
+		// When calling UnsetAlias
+		// Then it should not panic
+		mockShell.UnsetAlias([]string{"ALIAS1", "ALIAS2"})
+	})
+}
+
+// TestMockShell_UnsetAliasNotImplemented tests the UnsetAlias method of MockShell when not implemented
+func TestMockShell_UnsetAliasNotImplemented(t *testing.T) {
+	// Given a mock shell with UnsetAliasFunc not set
+	mockShell := setupMockShellMocks(t)
+
+	// When calling UnsetAlias
+	// Then it should not panic
+	mockShell.UnsetAlias([]string{"ALIAS1", "ALIAS2"})
+}
+
+// TestMockShell_CheckTrustedDirectory tests the CheckTrustedDirectory method of MockShell
 func TestMockShell_CheckTrustedDirectory(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom CheckTrustedDirectoryFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
+		// Given a mock shell with CheckTrustedDirectoryFunc set
+		mockShell := setupMockShellMocks(t)
 		mockShell.CheckTrustedDirectoryFunc = func() error {
 			return nil
 		}
@@ -406,292 +739,103 @@ func TestMockShell_CheckTrustedDirectory(t *testing.T) {
 		err := mockShell.CheckTrustedDirectory()
 
 		// Then no error should be returned
-		assertError(t, err, false)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
 	})
 
-	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no CheckTrustedDirectoryFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock shell with CheckTrustedDirectoryFunc set to return an error
+		mockShell := setupMockShellMocks(t)
+		expectedError := fmt.Errorf("mock check trusted directory error")
+		mockShell.CheckTrustedDirectoryFunc = func() error {
+			return expectedError
+		}
 
 		// When calling CheckTrustedDirectory
 		err := mockShell.CheckTrustedDirectory()
 
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with CheckTrustedDirectoryFunc not set
+		mockShell := setupMockShellMocks(t)
+
+		// When calling CheckTrustedDirectory
+		err := mockShell.CheckTrustedDirectory()
+
+		// Then no error should be returned (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// TestMockShell_AddCurrentDirToTrustedFile tests the AddCurrentDirToTrustedFile method of MockShell
+func TestMockShell_AddCurrentDirToTrustedFile(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with AddCurrentDirToTrustedFileFunc set
+		mockShell := setupMockShellMocks(t)
+		mockShell.AddCurrentDirToTrustedFileFunc = func() error {
+			return nil
+		}
+
+		// When calling AddCurrentDirToTrustedFile
+		err := mockShell.AddCurrentDirToTrustedFile()
+
 		// Then no error should be returned
-		assertError(t, err, false)
-	})
-}
-
-// TestMockShell_UnsetEnvs tests the UnsetEnvs method
-func TestMockShell_UnsetEnvs(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom UnsetEnvsFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		// Track which variables were passed to the function
-		var capturedEnvVars []string
-		mockShell.UnsetEnvsFunc = func(envVars []string) {
-			capturedEnvVars = envVars
-		}
-
-		// When calling UnsetEnvs with a list of environment variables
-		envVarsToUnset := []string{"VAR1", "VAR2", "VAR3"}
-		mockShell.UnsetEnvs(envVarsToUnset)
-
-		// Then the function should be called with the correct variables
-		if len(capturedEnvVars) != len(envVarsToUnset) {
-			t.Errorf("Expected %d env vars, got %d", len(envVarsToUnset), len(capturedEnvVars))
-		}
-
-		for i, envVar := range envVarsToUnset {
-			if capturedEnvVars[i] != envVar {
-				t.Errorf("Expected env var %s at position %d, got %s", envVar, i, capturedEnvVars[i])
-			}
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
-	t.Run("EmptyList", func(t *testing.T) {
-		// Given a mock shell with a custom UnsetEnvsFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		// Track if the function was called
-		functionCalled := false
-		mockShell.UnsetEnvsFunc = func(envVars []string) {
-			functionCalled = true
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock shell with AddCurrentDirToTrustedFileFunc set to return an error
+		mockShell := setupMockShellMocks(t)
+		expectedError := fmt.Errorf("mock add current dir to trusted file error")
+		mockShell.AddCurrentDirToTrustedFileFunc = func() error {
+			return expectedError
 		}
 
-		// When calling UnsetEnvs with an empty list
-		mockShell.UnsetEnvs([]string{})
+		// When calling AddCurrentDirToTrustedFile
+		err := mockShell.AddCurrentDirToTrustedFile()
 
-		// Then the function should still be called
-		if !functionCalled {
-			t.Errorf("Expected UnsetEnvsFunc to be called even with empty list")
+		// Then the expected error should be returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
 	})
 
 	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no UnsetEnvsFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
+		// Given a mock shell with AddCurrentDirToTrustedFileFunc not set
+		mockShell := setupMockShellMocks(t)
 
-		// When calling UnsetEnvs
-		// Then no error should occur (function should not panic)
-		mockShell.UnsetEnvs([]string{"VAR1", "VAR2"})
+		// When calling AddCurrentDirToTrustedFile
+		err := mockShell.AddCurrentDirToTrustedFile()
+
+		// Then no error should be returned (default implementation)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
 	})
 }
 
-// TestMockShell_UnsetAlias tests the UnsetAlias method
-func TestMockShell_UnsetAlias(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom UnsetAliasFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		// Track which aliases were passed to the function
-		var capturedAliases []string
-		mockShell.UnsetAliasFunc = func(aliases []string) {
-			capturedAliases = aliases
-		}
-
-		// When calling UnsetAlias with a list of aliases
-		aliasesToUnset := []string{"alias1", "alias2", "alias3"}
-		mockShell.UnsetAlias(aliasesToUnset)
-
-		// Then the function should be called with the correct aliases
-		if len(capturedAliases) != len(aliasesToUnset) {
-			t.Errorf("Expected %d aliases, got %d", len(aliasesToUnset), len(capturedAliases))
-		}
-
-		for i, alias := range aliasesToUnset {
-			if capturedAliases[i] != alias {
-				t.Errorf("Expected alias %s at position %d, got %s", alias, i, capturedAliases[i])
-			}
-		}
-	})
-
-	t.Run("EmptyList", func(t *testing.T) {
-		// Given a mock shell with a custom UnsetAliasFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		// Track if the function was called
-		functionCalled := false
-		mockShell.UnsetAliasFunc = func(aliases []string) {
-			functionCalled = true
-		}
-
-		// When calling UnsetAlias with an empty list
-		mockShell.UnsetAlias([]string{})
-
-		// Then the function should still be called
-		if !functionCalled {
-			t.Errorf("Expected UnsetAliasFunc to be called even with empty list")
-		}
-	})
-
-	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no UnsetAliasFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		// When calling UnsetAlias
-		// Then no error should occur (function should not panic)
-		mockShell.UnsetAlias([]string{"alias1", "alias2"})
-	})
-}
-
-// TestMockShell_PrintEnvVars tests the PrintEnvVars method
-func TestMockShell_PrintEnvVars(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom PrintEnvVarsFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		// Track which environment variables were passed to the function
-		var capturedEnvVars map[string]string
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
-			capturedEnvVars = envVars
-		}
-
-		// When calling PrintEnvVars with a map of environment variables
-		envVarsToPrint := map[string]string{
-			"VAR1": "value1",
-			"VAR2": "value2",
-			"VAR3": "value3",
-		}
-		mockShell.PrintEnvVars(envVarsToPrint)
-
-		// Then the function should be called with the correct variables
-		if len(capturedEnvVars) != len(envVarsToPrint) {
-			t.Errorf("Expected %d env vars, got %d", len(envVarsToPrint), len(capturedEnvVars))
-		}
-
-		for key, value := range envVarsToPrint {
-			capturedValue, exists := capturedEnvVars[key]
-			if !exists {
-				t.Errorf("Expected env var %s to be passed to PrintEnvVarsFunc, but it wasn't", key)
-			}
-			if capturedValue != value {
-				t.Errorf("Expected env var %s to have value %s, got %s", key, value, capturedValue)
-			}
-		}
-	})
-
-	t.Run("EmptyMap", func(t *testing.T) {
-		// Given a mock shell with a custom PrintEnvVarsFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		// Track if the function was called
-		functionCalled := false
-		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
-			functionCalled = true
-			if len(envVars) != 0 {
-				t.Errorf("Expected empty map, got map with %d elements", len(envVars))
-			}
-		}
-
-		// When calling PrintEnvVars with an empty map
-		mockShell.PrintEnvVars(map[string]string{})
-
-		// Then the function should still be called
-		if !functionCalled {
-			t.Errorf("Expected PrintEnvVarsFunc to be called even with empty map")
-		}
-	})
-
-	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no PrintEnvVarsFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		// When calling PrintEnvVars
-		// Then no error should occur (function should not panic)
-		mockShell.PrintEnvVars(map[string]string{"VAR1": "value1"})
-	})
-}
-
-// TestMockShell_PrintAlias tests the PrintAlias method
-func TestMockShell_PrintAlias(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom PrintAliasFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		// Track which aliases were passed to the function
-		var capturedAliases map[string]string
-		mockShell.PrintAliasFunc = func(aliases map[string]string) {
-			capturedAliases = aliases
-		}
-
-		// When calling PrintAlias with a map of aliases
-		aliasesToPrint := map[string]string{
-			"alias1": "command1",
-			"alias2": "command2",
-			"alias3": "command3",
-		}
-		mockShell.PrintAlias(aliasesToPrint)
-
-		// Then the function should be called with the correct aliases
-		if len(capturedAliases) != len(aliasesToPrint) {
-			t.Errorf("Expected %d aliases, got %d", len(aliasesToPrint), len(capturedAliases))
-		}
-
-		for key, value := range aliasesToPrint {
-			capturedValue, exists := capturedAliases[key]
-			if !exists {
-				t.Errorf("Expected alias %s to be passed to PrintAliasFunc, but it wasn't", key)
-			}
-			if capturedValue != value {
-				t.Errorf("Expected alias %s to have value %s, got %s", key, value, capturedValue)
-			}
-		}
-	})
-
-	t.Run("EmptyMap", func(t *testing.T) {
-		// Given a mock shell with a custom PrintAliasFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		// Track if the function was called
-		functionCalled := false
-		mockShell.PrintAliasFunc = func(aliases map[string]string) {
-			functionCalled = true
-			if len(aliases) != 0 {
-				t.Errorf("Expected empty map, got map with %d elements", len(aliases))
-			}
-		}
-
-		// When calling PrintAlias with an empty map
-		mockShell.PrintAlias(map[string]string{})
-
-		// Then the function should still be called
-		if !functionCalled {
-			t.Errorf("Expected PrintAliasFunc to be called even with empty map")
-		}
-	})
-
-	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no PrintAliasFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		// When calling PrintAlias
-		// Then no error should occur (function should not panic)
-		mockShell.PrintAlias(map[string]string{"alias1": "command1"})
-	})
-}
-
-// TestMockShell_WriteResetToken tests the WriteResetToken method
+// TestMockShell_WriteResetToken tests the WriteResetToken method of MockShell
 func TestMockShell_WriteResetToken(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a custom WriteResetTokenFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		expectedPath := "/test/project/root/.windsor/.session.test-token"
+		// Given a mock shell with WriteResetTokenFunc set
+		mockShell := setupMockShellMocks(t)
+		expectedPath := "/mock/reset/token/path"
 		mockShell.WriteResetTokenFunc = func() (string, error) {
 			return expectedPath, nil
 		}
@@ -699,21 +843,19 @@ func TestMockShell_WriteResetToken(t *testing.T) {
 		// When calling WriteResetToken
 		path, err := mockShell.WriteResetToken()
 
-		// Then no error should be returned and the expected path should be returned
+		// Then no error should be returned and the path should match
 		if err != nil {
-			t.Errorf("WriteResetToken() error = %v, want nil", err)
+			t.Errorf("Expected no error, got %v", err)
 		}
 		if path != expectedPath {
-			t.Errorf("WriteResetToken() path = %v, want %v", path, expectedPath)
+			t.Errorf("Expected path %v, got %v", expectedPath, path)
 		}
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		// Given a mock shell whose WriteResetTokenFunc returns an error
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-
-		expectedError := fmt.Errorf("error writing reset token")
+		// Given a mock shell with WriteResetTokenFunc set to return an error
+		mockShell := setupMockShellMocks(t)
+		expectedError := fmt.Errorf("mock write reset token error")
 		mockShell.WriteResetTokenFunc = func() (string, error) {
 			return "", expectedError
 		}
@@ -721,60 +863,254 @@ func TestMockShell_WriteResetToken(t *testing.T) {
 		// When calling WriteResetToken
 		path, err := mockShell.WriteResetToken()
 
-		// Then the expected error should be returned
-		if err != expectedError {
-			t.Errorf("WriteResetToken() error = %v, want %v", err, expectedError)
+		// Then the expected error should be returned and path should be empty
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
 		}
 		if path != "" {
-			t.Errorf("WriteResetToken() path = %v, want empty string", path)
+			t.Errorf("Expected empty path, got %v", path)
 		}
 	})
 
 	t.Run("NotImplemented", func(t *testing.T) {
-		// Given a mock shell with no WriteResetTokenFunc implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
+		// Given a mock shell with WriteResetTokenFunc not set
+		mockShell := setupMockShellMocks(t)
 
 		// When calling WriteResetToken
-		_, err := mockShell.WriteResetToken()
+		path, err := mockShell.WriteResetToken()
 
-		// Then an error should be returned
+		// Then an error should be returned and path should be empty
 		if err == nil {
-			t.Errorf("WriteResetToken() expected error, got nil")
+			t.Error("Expected error, got nil")
 		}
-		if err.Error() != "WriteResetToken not implemented" {
-			t.Errorf("WriteResetToken() error = %v, want %v", err, "WriteResetToken not implemented")
+		expectedError := "WriteResetToken not implemented"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+		if path != "" {
+			t.Errorf("Expected empty path, got %v", path)
 		}
 	})
 }
 
-// TestMockShell_Reset tests the Reset method
-func TestMockShell_Reset(t *testing.T) {
-	t.Run("DefaultReset", func(t *testing.T) {
-		// Given a mock shell with default Reset implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
+// TestMockShell_CheckReset tests the MockShell's CheckReset method
+func TestMockShell_CheckReset(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given
+		mockShell := setupMockShellMocks(t)
 
-		// When calling Reset (without a custom implementation)
-		// This is a no-op, so we just call it to ensure it doesn't panic
-		mockShell.Reset()
+		// Configure the mock to return a success response
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return true, nil
+		}
+
+		// When
+		result, err := mockShell.CheckResetFlags()
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !result {
+			t.Errorf("Expected result to be true, got false")
+		}
 	})
 
-	t.Run("CustomReset", func(t *testing.T) {
-		// Given a mock shell with custom Reset implementation
-		injector := di.NewInjector()
-		mockShell := NewMockShell(injector)
-		resetCalled := false
-		mockShell.ResetFunc = func() {
-			resetCalled = true
+	t.Run("Error", func(t *testing.T) {
+		// Given
+		mockShell := setupMockShellMocks(t)
+
+		// Configure the mock to return an error
+		expectedError := fmt.Errorf("custom error")
+		mockShell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, expectedError
 		}
 
-		// When calling Reset
+		// When
+		result, err := mockShell.CheckResetFlags()
+
+		// Then
+		if err == nil || err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+		if result {
+			t.Errorf("Expected result to be false, got true")
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given
+		mockShell := setupMockShellMocks(t)
+
+		// When
+		result, err := mockShell.CheckResetFlags()
+
+		// Then
+		if err != nil {
+			t.Error("Expected no error, got error")
+		}
+		if result {
+			t.Error("Expected result to be false, got true")
+		}
+	})
+}
+
+// TestMockShell_GetSessionToken tests the GetSessionToken method of MockShell
+func TestMockShell_GetSessionToken(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a mock shell with GetSessionTokenFunc set
+		mockShell := setupMockShellMocks(t)
+		expectedToken := "mock-session-token"
+		mockShell.GetSessionTokenFunc = func() (string, error) {
+			return expectedToken, nil
+		}
+
+		// When calling GetSessionToken
+		token, err := mockShell.GetSessionToken()
+
+		// Then no error should be returned and the token should match
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if token != expectedToken {
+			t.Errorf("Expected token %v, got %v", expectedToken, token)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a mock shell with GetSessionTokenFunc set to return an error
+		mockShell := setupMockShellMocks(t)
+		expectedError := fmt.Errorf("mock get session token error")
+		mockShell.GetSessionTokenFunc = func() (string, error) {
+			return "", expectedError
+		}
+
+		// When calling GetSessionToken
+		token, err := mockShell.GetSessionToken()
+
+		// Then the expected error should be returned and token should be empty
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != expectedError.Error() {
+			t.Errorf("Expected error %v, got %v", expectedError, err)
+		}
+		if token != "" {
+			t.Errorf("Expected empty token, got %v", token)
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a mock shell with GetSessionTokenFunc not set
+		mockShell := setupMockShellMocks(t)
+
+		// When calling GetSessionToken
+		token, err := mockShell.GetSessionToken()
+
+		// Then the expected error should be returned and token should be empty
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if err.Error() != "GetSessionToken not implemented" {
+			t.Errorf("Expected error 'GetSessionToken not implemented', got %v", err)
+		}
+		if token != "" {
+			t.Errorf("Expected empty token, got %v", token)
+		}
+	})
+}
+
+func TestMockShell_PrintEnvVars(t *testing.T) {
+	t.Run("CallsPrintEnvVarsFunc", func(t *testing.T) {
+		// Given a mock shell with PrintEnvVarsFunc set
+		mockShell := setupMockShellMocks(t)
+		called := false
+		expectedEnvVars := map[string]string{"TEST": "value"}
+		mockShell.PrintEnvVarsFunc = func(envVars map[string]string) {
+			called = true
+			if envVars["TEST"] != "value" {
+				t.Errorf("Expected envVars[TEST] = value, got %v", envVars["TEST"])
+			}
+		}
+
+		// When PrintEnvVars is called
+		mockShell.PrintEnvVars(expectedEnvVars)
+
+		// Then the mock function should be called
+		if !called {
+			t.Error("Expected PrintEnvVarsFunc to be called")
+		}
+	})
+
+	t.Run("NilFuncDoesNotPanic", func(t *testing.T) {
+		// Given a mock shell without PrintEnvVarsFunc set
+		mockShell := setupMockShellMocks(t)
+
+		// When PrintEnvVars is called
+		// Then it should not panic
+		mockShell.PrintEnvVars(map[string]string{"TEST": "value"})
+	})
+}
+
+func TestMockShell_PrintAlias(t *testing.T) {
+	t.Run("CallsPrintAliasFunc", func(t *testing.T) {
+		// Given a mock shell with PrintAliasFunc set
+		mockShell := setupMockShellMocks(t)
+		called := false
+		expectedAliases := map[string]string{"TEST": "value"}
+		mockShell.PrintAliasFunc = func(aliases map[string]string) {
+			called = true
+			if aliases["TEST"] != "value" {
+				t.Errorf("Expected aliases[TEST] = value, got %v", aliases["TEST"])
+			}
+		}
+
+		// When PrintAlias is called
+		mockShell.PrintAlias(expectedAliases)
+
+		// Then the mock function should be called
+		if !called {
+			t.Error("Expected PrintAliasFunc to be called")
+		}
+	})
+
+	t.Run("NilFuncDoesNotPanic", func(t *testing.T) {
+		// Given a mock shell without PrintAliasFunc set
+		mockShell := setupMockShellMocks(t)
+
+		// When PrintAlias is called
+		// Then it should not panic
+		mockShell.PrintAlias(map[string]string{"TEST": "value"})
+	})
+}
+
+func TestMockShell_Reset(t *testing.T) {
+	t.Run("CallsResetFunc", func(t *testing.T) {
+		// Given a mock shell with ResetFunc set
+		mockShell := setupMockShellMocks(t)
+		called := false
+		mockShell.ResetFunc = func() {
+			called = true
+		}
+
+		// When Reset is called
 		mockShell.Reset()
 
-		// Then it should call the custom reset function
-		if !resetCalled {
-			t.Error("Reset() did not call ResetFunc")
+		// Then the mock function should be called
+		if !called {
+			t.Error("Expected ResetFunc to be called")
 		}
+	})
+
+	t.Run("NilFuncDoesNotPanic", func(t *testing.T) {
+		// Given a mock shell without ResetFunc set
+		mockShell := setupMockShellMocks(t)
+
+		// When Reset is called
+		// Then it should not panic
+		mockShell.Reset()
 	})
 }

@@ -4,14 +4,12 @@
 package shell
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/di"
 	"golang.org/x/sys/windows"
 )
 
@@ -55,43 +53,45 @@ func normalizeWindowsPath(path string) string {
 
 // TestDefaultShell_PrintEnvVars tests the PrintEnvVars method on Windows systems
 func TestDefaultShell_PrintEnvVars(t *testing.T) {
-	injector := di.NewInjector()
-
-	// Given a default shell and a set of environment variables
-	shell := NewDefaultShell(injector)
-	envVars := map[string]string{
-		"VAR2": "value2",
-		"VAR1": "value1",
-		"VAR3": "",
+	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		shell := NewDefaultShell(mocks.Injector)
+		shell.shims = mocks.Shims
+		return shell, mocks
 	}
 
-	// Expected output for PowerShell
-	expectedOutputPowerShell := "$env:VAR1='value1'\n$env:VAR2='value2'\nRemove-Item Env:VAR3\n"
+	t.Run("PrintEnvVars", func(t *testing.T) {
+		// Given a shell with environment variables
+		shell, _ := setup(t)
+		envVars := map[string]string{
+			"VAR2": "value2",
+			"VAR1": "value1",
+			"VAR3": "",
+		}
+		expectedOutput := "$env:VAR1='value1'\n$env:VAR2='value2'\nRemove-Item Env:VAR3\n"
 
-	// Capture the output
-	var output bytes.Buffer
-	originalStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
+		// When capturing the output of PrintEnvVars
+		output := captureStdout(t, func() {
+			shell.PrintEnvVars(envVars)
+		})
 
-	// Run PrintEnvVars in a goroutine and capture its output
-	go func() {
-		shell.PrintEnvVars(envVars)
-		w.Close()
-	}()
-
-	output.ReadFrom(r)
-	os.Stdout = originalStdout
-
-	// Then the output should match the expected PowerShell format
-	if output.String() != expectedOutputPowerShell {
-		t.Errorf("PrintEnvVars() output = %v, want %v", output.String(), expectedOutputPowerShell)
-	}
+		// Then the output should match the expected output
+		if output != expectedOutput {
+			t.Errorf("PrintEnvVars() output = %v, want %v", output, expectedOutput)
+		}
+	})
 }
 
 // TestDefaultShell_GetProjectRoot tests the GetProjectRoot method on Windows systems
 func TestDefaultShell_GetProjectRoot(t *testing.T) {
-	injector := di.NewInjector()
+	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		shell := NewDefaultShell(mocks.Injector)
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
 
 	testCases := []struct {
 		name     string
@@ -103,40 +103,33 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Given a temporary directory structure with the specified file
-			rootDir := createTempDir(t, "project-root")
+			// Given a shell with mocked file system
+			shell, mocks := setup(t)
+			rootDir := "C:\\test\\project"
 			subDir := filepath.Join(rootDir, "subdir")
-			if err := os.Mkdir(subDir, 0755); err != nil {
-				t.Fatalf("Failed to create subdir: %v", err)
+
+			// Mock Getwd to return the subdirectory
+			mocks.Shims.Getwd = func() (string, error) {
+				return subDir, nil
 			}
 
-			// When creating the specified file in the root directory
-			createFile(t, rootDir, tc.fileName, "")
+			// Mock Stat to return nil for the windsor file
+			mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+				if name == filepath.Join(rootDir, tc.fileName) {
+					return nil, nil
+				}
+				return nil, os.ErrNotExist
+			}
 
-			// And changing the working directory to subDir
-			changeDir(t, subDir)
-
-			shell := NewDefaultShell(injector)
-
-			// When finding the project root using the specified file
+			// When finding the project root
 			projectRoot, err := shell.GetProjectRoot()
 			if err != nil {
 				t.Fatalf("GetProjectRoot returned an error: %v", err)
 			}
 
-			// Resolve symlinks to handle macOS /private prefix
-			expectedRootDir, err := filepath.EvalSymlinks(rootDir)
-			if err != nil {
-				t.Fatalf("Failed to evaluate symlinks for rootDir: %v", err)
-			}
-
-			// Normalize paths for comparison
-			expectedRootDir = normalizeWindowsPath(expectedRootDir)
-			projectRoot = normalizeWindowsPath(projectRoot)
-
 			// Then the project root should match the expected root directory
-			if projectRoot != expectedRootDir {
-				t.Errorf("Expected project root to be %s, got %s", expectedRootDir, projectRoot)
+			if projectRoot != rootDir {
+				t.Errorf("Expected project root to be %s, got %s", rootDir, projectRoot)
 			}
 		})
 	}
@@ -144,6 +137,14 @@ func TestDefaultShell_GetProjectRoot(t *testing.T) {
 
 // TestDefaultShell_PrintAlias tests the PrintAlias method on Windows systems
 func TestDefaultShell_PrintAlias(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		shell := NewDefaultShell(mocks.Injector)
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
+
 	aliasVars := map[string]string{
 		"ALIAS1": "command1",
 		"ALIAS2": "command2",
@@ -151,10 +152,9 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 
 	t.Run("PrintAlias", func(t *testing.T) {
 		// Given a default shell
-		injector := di.NewInjector()
-		shell := NewDefaultShell(injector)
+		shell, _ := setup(t)
 
-		// Capture the output of PrintAlias
+		// When capturing the output of PrintAlias
 		output := captureStdout(t, func() {
 			shell.PrintAlias(aliasVars)
 		})
@@ -170,14 +170,13 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 
 	t.Run("PrintAliasWithEmptyValue", func(t *testing.T) {
 		// Given a default shell with an alias having an empty value
-		injector := di.NewInjector()
-		shell := NewDefaultShell(injector)
+		shell, _ := setup(t)
 		aliasVarsWithEmpty := map[string]string{
 			"ALIAS1": "command1",
 			"ALIAS2": "",
 		}
 
-		// Capture the output of PrintAlias
+		// When capturing the output of PrintAlias
 		output := captureStdout(t, func() {
 			shell.PrintAlias(aliasVarsWithEmpty)
 		})
@@ -197,60 +196,86 @@ func TestDefaultShell_PrintAlias(t *testing.T) {
 
 // TestDefaultShell_UnsetEnvs tests the UnsetEnvs method on Windows systems
 func TestDefaultShell_UnsetEnvs(t *testing.T) {
-	injector := di.NewInjector()
-
-	// Given a set of environment variables to unset
-	shell := NewDefaultShell(injector)
-	envVars := []string{"VAR1", "VAR2", "VAR3"}
-	expectedOutput := "Remove-Item Env:VAR1\nRemove-Item Env:VAR2\nRemove-Item Env:VAR3\n"
-
-	// When capturing the output of UnsetEnvs
-	output := captureStdout(t, func() {
-		shell.UnsetEnvs(envVars)
-	})
-
-	// Then the output should match the expected output
-	if output != expectedOutput {
-		t.Errorf("UnsetEnvs() output = %v, want %v", output, expectedOutput)
+	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		shell := NewDefaultShell(mocks.Injector)
+		shell.shims = mocks.Shims
+		return shell, mocks
 	}
 
-	// Test with empty list
-	emptyOutput := captureStdout(t, func() {
-		shell.UnsetEnvs([]string{})
+	t.Run("UnsetEnvs", func(t *testing.T) {
+		// Given a set of environment variables to unset
+		shell, _ := setup(t)
+		envVars := []string{"VAR1", "VAR2", "VAR3"}
+		expectedOutput := "Remove-Item Env:VAR1\nRemove-Item Env:VAR2\nRemove-Item Env:VAR3\n"
+
+		// When capturing the output of UnsetEnvs
+		output := captureStdout(t, func() {
+			shell.UnsetEnvs(envVars)
+		})
+
+		// Then the output should match the expected output
+		if output != expectedOutput {
+			t.Errorf("UnsetEnvs() output = %v, want %v", output, expectedOutput)
+		}
 	})
 
-	// Then the output should be empty
-	if emptyOutput != "" {
-		t.Errorf("UnsetEnvs() with empty list should produce no output, got %v", emptyOutput)
-	}
+	t.Run("UnsetEnvsWithEmptyList", func(t *testing.T) {
+		// Given an empty list of environment variables
+		shell, _ := setup(t)
+
+		// When capturing the output of UnsetEnvs
+		output := captureStdout(t, func() {
+			shell.UnsetEnvs([]string{})
+		})
+
+		// Then the output should be empty
+		if output != "" {
+			t.Errorf("UnsetEnvs() with empty list should produce no output, got %v", output)
+		}
+	})
 }
 
 // TestDefaultShell_UnsetAlias tests the UnsetAlias method on Windows systems
 func TestDefaultShell_UnsetAlias(t *testing.T) {
-	injector := di.NewInjector()
-
-	// Given a set of aliases to unset
-	shell := NewDefaultShell(injector)
-	aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
-	expectedOutput := "Remove-Item Alias:ALIAS1\nRemove-Item Alias:ALIAS2\nRemove-Item Alias:ALIAS3\n"
-
-	// When capturing the output of UnsetAlias
-	output := captureStdout(t, func() {
-		shell.UnsetAlias(aliases)
-	})
-
-	// Then the output should match the expected output
-	if output != expectedOutput {
-		t.Errorf("UnsetAlias() output = %v, want %v", output, expectedOutput)
+	setup := func(t *testing.T) (*DefaultShell, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		shell := NewDefaultShell(mocks.Injector)
+		shell.shims = mocks.Shims
+		return shell, mocks
 	}
 
-	// Test with empty list
-	emptyOutput := captureStdout(t, func() {
-		shell.UnsetAlias([]string{})
+	t.Run("UnsetAlias", func(t *testing.T) {
+		// Given a set of aliases to unset
+		shell, _ := setup(t)
+		aliases := []string{"ALIAS1", "ALIAS2", "ALIAS3"}
+		expectedOutput := "Remove-Item Alias:ALIAS1\nRemove-Item Alias:ALIAS2\nRemove-Item Alias:ALIAS3\n"
+
+		// When capturing the output of UnsetAlias
+		output := captureStdout(t, func() {
+			shell.UnsetAlias(aliases)
+		})
+
+		// Then the output should match the expected output
+		if output != expectedOutput {
+			t.Errorf("UnsetAlias() output = %v, want %v", output, expectedOutput)
+		}
 	})
 
-	// Then the output should be empty
-	if emptyOutput != "" {
-		t.Errorf("UnsetAlias() with empty list should produce no output, got %v", emptyOutput)
-	}
+	t.Run("UnsetAliasWithEmptyList", func(t *testing.T) {
+		// Given an empty list of aliases
+		shell, _ := setup(t)
+
+		// When capturing the output of UnsetAlias
+		output := captureStdout(t, func() {
+			shell.UnsetAlias([]string{})
+		})
+
+		// Then the output should be empty
+		if output != "" {
+			t.Errorf("UnsetAlias() with empty list should produce no output, got %v", output)
+		}
+	})
 }

@@ -1,32 +1,79 @@
-{
-  "tasks": {
-    "add_class_header": {
-      "description": "Add a class header and section headers following strict Windsor CLI style",
-      "prompt": "Add headers following these EXACT requirements:\n\n1. Class Header (at top of file):\n```go\n// The [ClassName] is a [brief description]\n// It provides [detailed explanation]\n// [role in application]\n// [key features/capabilities]\n```\n- Each line MUST start with '// '\n- First line MUST start with 'The [ClassName] is a'\n- Second line MUST start with 'It provides'\n- No empty comment lines\n\n2. Section Headers:\n```go\n// =============================================================================\n// [SECTION NAME]\n// =============================================================================\n```\n- ONLY allowed section names (in this order):\n  1. Constants\n  2. Types\n  3. Interfaces\n  4. Constructor\n  5. Public Methods\n  6. Private Methods\n  7. Helpers\n  8. Test Setup (test files only)\n- Exactly 77 equals signs\n- One blank line before and after"
-    },
-    "scaffold_package": {
-      "description": "Scaffold a new package following the Windsor CLI style guide",
-      "prompt": "Create a new package with the following structure:\n1. {name}.go - Main implementation\n2. {name}_test.go - Tests\n3. mock_{name}.go - Mock implementation\n4. mock_{name}_test.go - Mock tests\n5. shims.go - System call shims\n\nFollow the style guide in STYLE.md for:\n- Interface definition (Code Organization > Interface Definition)\n- Base struct (Code Organization > Base Implementation)\n- Class headers (Documentation Style > Class Headers)\n- Section headers (Documentation Style > Section Headers)\n- Test structure (Testing Patterns > Test Structure)\n- Mock implementation (Code Organization > Mock Implementation)\n- BDD style tests (Testing Patterns > BDD Style)"
-    },
-    "refactor_to_style": {
-      "description": "Refactor an existing package to follow the Windsor CLI style guide",
-      "prompt": "Refactor the package in phases:\n\nPhase 1 - Structure:\n- Add/update class headers (STYLE.md > Documentation Style > Class Headers)\n- Add section headers (STYLE.md > Documentation Style > Section Headers)\n- Organize methods by visibility (STYLE.md > File Organization > Main Implementation File)\n- Add shims for system calls (STYLE.md > Code Organization > Shims)\n\nPhase 2 - Testing:\n- Add Mocks struct and SetupOptions (STYLE.md > Testing Patterns > Mock Setup)\n- Add setupMocks function (STYLE.md > Testing Patterns > Mock Setup)\n- Convert tests to BDD style (STYLE.md > Testing Patterns > BDD Style)\n- Add local setup functions (STYLE.md > Testing Patterns > Test Structure)\n\nPhase 3 - Mock Implementation:\n- Create mock implementation (STYLE.md > Code Organization > Mock Implementation)\n- Add interface compliance check (STYLE.md > Code Organization > Mock Implementation)\n- Add mock tests (STYLE.md > Testing Patterns > Test Structure)\n\nPhase 4 - Documentation:\n- Add/update interface documentation (STYLE.md > Documentation Style > Class Headers)\n- Add method documentation (STYLE.md > Documentation Style > Method Documentation)\n- Remove inline comments (STYLE.md > Documentation Style > Method Documentation)\n- Add BDD style comments in tests (STYLE.md > Testing Patterns > BDD Style)"
-    },
-    "add_bdd_test": {
-      "description": "Add a BDD style test function",
-      "prompt": "Add a test function using BDD style as described in STYLE.md > Testing Patterns > BDD Style:\n```go\ntype Mocks struct {\n    Injector      di.Injector\n    ConfigHandler config.ConfigHandler\n    // Add other dependencies as needed\n}\n\ntype SetupOptions struct {\n    Injector      di.Injector\n    ConfigHandler config.ConfigHandler\n    ConfigStr     string\n}\n\nfunc Test[Name](t *testing.T) {\n    setup := func(t *testing.T) (*Mocks, *[Type]) {\n        t.Helper()\n        mocks := setupMocks(t)\n        obj := New[Type](mocks.Injector)\n        return mocks, obj\n    }\n\n    t.Run(\"Scenario\", func(t *testing.T) {\n        // Given [context]\n        mocks, obj := setup(t)\n        \n        // When [action]\n        err := obj.DoSomething()\n        \n        // Then [result]\n        if err != nil {\n            t.Errorf(\"Expected success, got error: %v\", err)\n        }\n    })\n}\n\nfunc setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {\n    t.Helper()\n\n    // Store original directory and create temp dir\n    origDir, err := os.Getwd()\n    if err != nil {\n        t.Fatalf(\"Failed to get working directory: %v\", err)\n    }\n\n    tmpDir := t.TempDir()\n    if err := os.Chdir(tmpDir); err != nil {\n        t.Fatalf(\"Failed to change to temp directory: %v\", err)\n    }\n\n    // Set project root environment variable\n    os.Setenv(\"WINDSOR_PROJECT_ROOT\", tmpDir)\n\n    // Process options with defaults\n    options := &SetupOptions{}\n    if len(opts) > 0 && opts[0] != nil {\n        options = opts[0]\n    }\n\n    // Create injector\n    var injector di.Injector\n    if options.Injector == nil {\n        injector = di.NewMockInjector()\n    } else {\n        injector = options.Injector\n    }\n\n    // Create config handler\n    var configHandler config.ConfigHandler\n    if options.ConfigHandler == nil {\n        configHandler = config.NewYamlConfigHandler(injector)\n    } else {\n        configHandler = options.ConfigHandler\n    }\n\n    // Initialize config handler\n    configHandler.Initialize()\n    configHandler.SetContext(\"mock-context\")\n\n    // Load default config string\n    defaultConfigStr := `\ncontexts:\n  mock-context:\n    dns:\n      domain: mock.domain.com`\n\n    if err := configHandler.LoadConfigString(defaultConfigStr); err != nil {\n        t.Fatalf(\"Failed to load default config string: %v\", err)\n    }\n    if options.ConfigStr != \"\" {\n        if err := configHandler.LoadConfigString(options.ConfigStr); err != nil {\n            t.Fatalf(\"Failed to load config string: %v\", err)\n        }\n    }\n\n    // Register dependencies\n    injector.Register(\"configHandler\", configHandler)\n\n    // Register cleanup to restore original state\n    t.Cleanup(func() {\n        os.Unsetenv(\"WINDSOR_PROJECT_ROOT\")\n        if err := os.Chdir(origDir); err != nil {\n            t.Logf(\"Warning: Failed to change back to original directory: %v\", err)\n        }\n    })\n\n    return &Mocks{\n        Injector:      injector,\n        ConfigHandler: configHandler,\n    }\n}\n```"
-    },
-    "add_mock_implementation": {
-      "description": "Add a mock implementation for an interface",
-      "prompt": "Create a mock implementation following the pattern in STYLE.md > Code Organization > Mock Implementation:\n```go\n// Mock[Type] is a mock implementation of the [Interface] interface for testing purposes.\ntype Mock[Type] struct {\n    [Method]Func func([params]) [returns]\n}\n\n// =============================================================================\n// Constructor\n// =============================================================================\n\n// NewMock[Type] creates a new instance of Mock[Type].\nfunc NewMock[Type]() *Mock[Type] {\n    return &Mock[Type]{}\n}\n\n// =============================================================================\n// Public Methods\n// =============================================================================\n\n// [Method] calls the mock [Method]Func if set, otherwise returns nil.\nfunc (m *Mock[Type]) [Method]([params]) [returns] {\n    if m.[Method]Func != nil {\n        return m.[Method]Func([params])\n    }\n    return [default return]\n}\n\n// Ensure Mock[Type] implements [Interface].\nvar _ [Interface] = (*Mock[Type])(nil)\n```"
-    },
-    "add_shims": {
-      "description": "Add shims for system calls",
-      "prompt": "Add shims for system calls following the pattern in STYLE.md > Code Organization > Shims:\n```go\npackage [name]\n\nimport (\n    \"os\"\n    \"os/exec\"\n)\n\n// [name] is a variable that can be overridden for testing purposes, acting as a shim for [package].[Function].\nvar [name] = [package].[Function]\n```"
-    },
-    "enhance_coverage": {
-      "description": "Enhance test coverage for a target package",
-      "prompt": "Enhance test coverage for a package by:\n\n1. Run coverage analysis:\n```bash\ngo test -coverprofile=coverage.out ./pkg/[package]\ngo tool cover -func=coverage.out\n```\n\n2. Identify uncovered lines:\n```bash\ngo tool cover -func=coverage.out | grep total:\n```\n\n3. For each uncovered section:\n   - Analyze the code path\n   - Write a focused test case\n   - Run test in isolation\n   - Verify coverage improvement\n\n4. Follow BDD style for new tests:\n```go\nt.Run(\"Scenario\", func(t *testing.T) {\n    // Given [context]\n    mocks, obj := setup(t)\n    \n    // When [action]\n    err := obj.DoSomething()\n    \n    // Then [result]\n    if err != nil {\n        t.Errorf(\"Expected success, got error: %v\", err)\n    }\n})\n```\n\n5. Iterate until target coverage is reached or diminishing returns"
-    }
-  }
-} 
+# CRITICAL TEST SUITE RULES
+
+## MANDATORY TEST SUITE STRUCTURE
+1. TEMPLATE FIRST
+   - Must show complete test suite structure with all t.Run() stubs
+   - Must get explicit user confirmation
+   - Must not proceed without confirmation
+
+2. IMPLEMENTATION SEQUENCE
+   - Must implement one t.Run() at a time
+   - Must verify each implementation
+   - Must get user confirmation before next t.Run()
+   - Must never implement multiple tests at once
+   - Must show proposed test case before implementation
+   - Must get approval for each test case before coding
+   - Must run and verify each test before proceeding
+
+3. SOURCE CODE RULES
+   - Must not modify source code during test routines
+   - Must alert user of source code bugs
+   - Must follow Windsor CLI style guidelines
+   - Must use standard Go testing package (no testify)
+
+4. VERIFICATION CHECKLIST
+   - Must run test after each t.Run() implementation
+   - Must report test results
+   - Must get user confirmation before proceeding
+
+## VALIDATION REQUIREMENTS
+Before Implementation:
+- Confirm test suite structure is complete
+- Get user approval of structure
+- Verify no source code modifications planned
+- Get approval for first test case to implement
+
+During Implementation:
+- Show proposed test case
+- Get approval for test case
+- Implement one test at a time
+- Verify each test
+- Get user confirmation
+- Report results
+- Get approval for next test case
+
+## TEST ENGINEER CAPABILITIES
+1. Coverage Analysis
+   - Run: `go test -coverprofile=coverage.out ./pkg/[package]`
+   - Analyze: `go tool cover -func=coverage.out`
+   - Run suites: `go test ./pkg/[package]/... -v`
+   - Run individual: `go test ./pkg/[package]/... -run TestName`
+
+2. Test Management
+   - Troubleshoot failing tests
+   - Improve test coverage
+   - Ensure style compliance
+
+## AUDIO NOTIFICATIONS
+Must use `say` command with Samantha voice for:
+- Test Completion: "All tests are now passing"
+- Test Failure: "Test failure detected in [test name]"
+- Coverage Improvement: "Coverage improved to [percentage]"
+- Source Code Bug: "Source code bug detected in [function]. Please review."
+- User Input Needed: "User input required for [specific issue]"
+- Work Complete: "Test engineering work complete"
+
+## CODE STYLE GUIDELINES
+Must follow Windsor CLI style guidelines in STYLE.md:
+1. Package Structure
+2. Documentation Style
+3. Testing Patterns
+4. Code Organization
+
+## TASK TEMPLATES
+When creating new code or modifying existing code, refer to:
+1. BDD style tests: STYLE.md > Testing Patterns > BDD Style
+2. Class headers: STYLE.md > Documentation Style > Class Headers
+3. Section headers: STYLE.md > Documentation Style > Section Headers
+4. Mock implementations: STYLE.md > Code Organization > Mock Implementation
+5. Shims: STYLE.md > Code Organization > Shims
