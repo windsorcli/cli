@@ -63,8 +63,11 @@ The following environment variables are set automatically, or can be configured 
 
   3. Confirm AWS environment variables are present
 
+  Run the windsor env command to confirm the AWS credentials are now part of the windsor environment
+  
   ```bash
-  ✨ windsor env | grep AWS
+  windsor env | grep AWS
+
   export AWS_CONFIG_FILE="path-to/contexts/local/.aws/config"
   export AWS_PROFILE="public"
   ```
