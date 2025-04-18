@@ -35,6 +35,7 @@ type BaseStack struct {
 	blueprintHandler blueprint.BlueprintHandler
 	shell            shell.Shell
 	envPrinters      []env.EnvPrinter
+	shims            *Shims
 }
 
 // =============================================================================
@@ -43,7 +44,10 @@ type BaseStack struct {
 
 // NewBaseStack creates a new base stack of components.
 func NewBaseStack(injector di.Injector) *BaseStack {
-	return &BaseStack{injector: injector}
+	return &BaseStack{
+		injector: injector,
+		shims:    NewShims(),
+	}
 }
 
 // =============================================================================

@@ -32,6 +32,7 @@ func NewWindsorStack(injector di.Injector) *WindsorStack {
 	return &WindsorStack{
 		BaseStack: BaseStack{
 			injector: injector,
+			shims:    NewShims(),
 		},
 	}
 }
@@ -43,14 +44,14 @@ func NewWindsorStack(injector di.Injector) *WindsorStack {
 // Up creates a new stack of components.
 func (s *WindsorStack) Up() error {
 	// Store the current directory
-	currentDir, err := osGetwd()
+	currentDir, err := s.shims.Getwd()
 	if err != nil {
 		return fmt.Errorf("error getting current directory: %v", err)
 	}
 
 	// Ensure we change back to the original directory once the function completes
 	defer func() {
-		_ = osChdir(currentDir)
+		_ = s.shims.Chdir(currentDir)
 	}()
 
 	// Get the Terraform components from the blueprint
@@ -59,12 +60,12 @@ func (s *WindsorStack) Up() error {
 	// Iterate over the components
 	for _, component := range components {
 		// Ensure the directory exists
-		if _, err := osStat(component.FullPath); os.IsNotExist(err) {
+		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
 			return fmt.Errorf("directory %s does not exist", component.FullPath)
 		}
 
 		// Change to the component directory
-		if err := osChdir(component.FullPath); err != nil {
+		if err := s.shims.Chdir(component.FullPath); err != nil {
 			return fmt.Errorf("error changing to directory %s: %v", component.FullPath, err)
 		}
 
@@ -75,7 +76,7 @@ func (s *WindsorStack) Up() error {
 				return fmt.Errorf("error getting environment variables: %v", err)
 			}
 			for key, value := range envVars {
-				if err := osSetenv(key, value); err != nil {
+				if err := s.shims.Setenv(key, value); err != nil {
 					return fmt.Errorf("error setting environment variable %s: %v", key, err)
 				}
 			}
@@ -105,8 +106,8 @@ func (s *WindsorStack) Up() error {
 
 		// Attempt to clean up 'backend_override.tf' if it exists
 		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-		if _, err := osStat(backendOverridePath); err == nil {
-			if err := osRemove(backendOverridePath); err != nil {
+		if _, err := s.shims.Stat(backendOverridePath); err == nil {
+			if err := s.shims.Remove(backendOverridePath); err != nil {
 				return fmt.Errorf("error removing backend_override.tf in %s: %v", component.FullPath, err)
 			}
 		}

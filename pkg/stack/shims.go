@@ -1,23 +1,40 @@
+// The shims package is a system call abstraction layer
+// It provides mockable wrappers around system and runtime functions
+// It serves as a testing aid by allowing system calls to be intercepted
+// It enables dependency injection and test isolation for system-level operations
+
 package stack
 
-// The Shims provides system call shims for the stack package.
-// It provides variables that can be overridden for testing purposes,
-// The Shims act as replaceable system call interfaces,
-// enabling test control over file system and environment operations.
+import (
+	"os"
+)
 
-import "os"
+// =============================================================================
+// Types
+// =============================================================================
 
-// osStat is a variable that can be overridden for testing purposes, acting as a shim for os.Stat.
-var osStat = os.Stat
+// Shims provides mockable wrappers around system and runtime functions
+type Shims struct {
+	Stat     func(string) (os.FileInfo, error)
+	Chdir    func(string) error
+	Getwd    func() (string, error)
+	Setenv   func(string, string) error
+	Unsetenv func(string) error
+	Remove   func(string) error
+}
 
-// osChdir is a variable that can be overridden for testing purposes, acting as a shim for os.Chdir.
-var osChdir = os.Chdir
+// =============================================================================
+// Helpers
+// =============================================================================
 
-// osGetwd is a variable that can be overridden for testing purposes, acting as a shim for os.Getwd.
-var osGetwd = os.Getwd
-
-// osSetenv is a variable that can be overridden for testing purposes, acting as a shim for os.Setenv.
-var osSetenv = os.Setenv
-
-// osRemove is a variable that can be overridden for testing purposes, acting as a shim for os.Remove.
-var osRemove = os.Remove
+// NewShims creates a new Shims instance with default implementations
+func NewShims() *Shims {
+	return &Shims{
+		Stat:     os.Stat,
+		Chdir:    os.Chdir,
+		Getwd:    os.Getwd,
+		Setenv:   os.Setenv,
+		Unsetenv: os.Unsetenv,
+		Remove:   os.Remove,
+	}
+}

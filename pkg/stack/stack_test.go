@@ -8,6 +8,7 @@ package stack
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -29,6 +30,7 @@ type Mocks struct {
 	Shell         *shell.MockShell
 	EnvPrinter    *env.MockEnvPrinter
 	Blueprint     *blueprint.MockBlueprintHandler
+	Shims         *Shims
 }
 
 type SetupOptions struct {
@@ -87,7 +89,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 			{
 				Source:   "git::https://github.com/terraform-aws-modules/terraform-aws-vpc.git//terraform/remote/path@v1.0.0",
 				Path:     "remote/path",
-				FullPath: "/mock/project/root/.windsor/.tf_modules/remote/path",
+				FullPath: filepath.Join(tmpDir, ".windsor", ".tf_modules", "remote", "path"),
 				Values: map[string]any{
 					"remote_variable1": "default_value",
 				},
@@ -95,7 +97,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 			{
 				Source:   "",
 				Path:     "local/path",
-				FullPath: "/mock/project/root/terraform/local/path",
+				FullPath: filepath.Join(tmpDir, "terraform", "local", "path"),
 				Values: map[string]any{
 					"local_variable1": "default_value",
 				},
@@ -144,13 +146,24 @@ contexts:
 	injector.Register("configHandler", configHandler)
 
 	// Mock system calls
-	osStat = func(_ string) (os.FileInfo, error) {
+	shims := &Shims{}
+
+	shims.Stat = func(path string) (os.FileInfo, error) {
 		return nil, nil
 	}
-	osChdir = func(_ string) error {
+	shims.Chdir = func(_ string) error {
 		return nil
 	}
-	osRemove = func(_ string) error {
+	shims.Getwd = func() (string, error) {
+		return tmpDir, nil
+	}
+	shims.Setenv = func(key, value string) error {
+		return os.Setenv(key, value)
+	}
+	shims.Unsetenv = func(key string) error {
+		return os.Unsetenv(key)
+	}
+	shims.Remove = func(_ string) error {
 		return nil
 	}
 
@@ -168,6 +181,7 @@ contexts:
 		Shell:         mockShell,
 		EnvPrinter:    mockEnvPrinter,
 		Blueprint:     mockBlueprint,
+		Shims:         shims,
 	}
 }
 
@@ -176,12 +190,16 @@ contexts:
 // =============================================================================
 
 func TestStack_NewStack(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a new injector
-		injector := di.NewInjector()
+	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		stack := NewBaseStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
 
-		// When a new BaseStack is created
-		stack := NewBaseStack(injector)
+	t.Run("Success", func(t *testing.T) {
+		stack, _ := setup(t)
 
 		// Then the stack should be non-nil
 		if stack == nil {
@@ -191,12 +209,18 @@ func TestStack_NewStack(t *testing.T) {
 }
 
 func TestStack_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given safe mock components
+	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+		t.Helper()
 		mocks := setupMocks(t)
+		stack := NewBaseStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		stack, _ := setup(t)
 
 		// When a new BaseStack is initialized
-		stack := NewBaseStack(mocks.Injector)
 		if err := stack.Initialize(); err != nil {
 			// Then no error should occur
 			t.Errorf("Expected Initialize to return nil, got %v", err)
@@ -267,12 +291,19 @@ func TestStack_Initialize(t *testing.T) {
 }
 
 func TestStack_Up(t *testing.T) {
+	setup := func(t *testing.T) (*BaseStack, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		stack := NewBaseStack(mocks.Injector)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given safe mock components
-		mocks := setupMocks(t)
+		stack, _ := setup(t)
 
 		// When a new BaseStack is created and initialized
-		stack := NewBaseStack(mocks.Injector)
 		if err := stack.Initialize(); err != nil {
 			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
@@ -286,8 +317,7 @@ func TestStack_Up(t *testing.T) {
 
 	t.Run("UninitializedStack", func(t *testing.T) {
 		// Given a new BaseStack without initialization
-		mocks := setupMocks(t)
-		stack := NewBaseStack(mocks.Injector)
+		stack, _ := setup(t)
 
 		// When Up is called without initializing
 		if err := stack.Up(); err != nil {

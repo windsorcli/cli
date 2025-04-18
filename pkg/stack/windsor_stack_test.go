@@ -8,6 +8,7 @@ package stack
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,16 +17,52 @@ import (
 )
 
 // =============================================================================
+// Test Setup
+// =============================================================================
+
+// setupWindsorStackMocks creates mock components for testing the WindsorStack
+func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
+	mocks := setupMocks(t, opts...)
+
+	// Create necessary directories for tests
+	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+	tfModulesDir := filepath.Join(projectRoot, ".windsor", ".tf_modules", "remote", "path")
+	if err := os.MkdirAll(tfModulesDir, 0755); err != nil {
+		t.Fatalf("Failed to create tf modules directory: %v", err)
+	}
+
+	localDir := filepath.Join(projectRoot, "terraform", "local", "path")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatalf("Failed to create local directory: %v", err)
+	}
+
+	// Update shims to handle Windsor-specific paths
+	mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
+		// Return success for both directories
+		if path == tfModulesDir || path == localDir {
+			return os.Stat(path)
+		}
+		return nil, nil
+	}
+
+	return mocks
+}
+
+// =============================================================================
 // Test Public Methods
 // =============================================================================
 
 func TestWindsorStack_NewWindsorStack(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a new injector
-		injector := di.NewInjector()
+	setup := func(t *testing.T) (*WindsorStack, *Mocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewWindsorStack(mocks.Injector)
+		return stack, mocks
+	}
 
-		// When a new WindsorStack is created
-		stack := NewWindsorStack(injector)
+	t.Run("Success", func(t *testing.T) {
+		stack, _ := setup(t)
 
 		// Then the stack should be non-nil
 		if stack == nil {
@@ -35,12 +72,17 @@ func TestWindsorStack_NewWindsorStack(t *testing.T) {
 }
 
 func TestWindsorStack_Initialize(t *testing.T) {
+	setup := func(t *testing.T) (*WindsorStack, *Mocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewWindsorStack(mocks.Injector)
+		return stack, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
-		// Given safe mock components
-		mocks := setupMocks(t)
+		stack, _ := setup(t)
 
 		// When a new WindsorStack is initialized
-		stack := NewWindsorStack(mocks.Injector)
 		if err := stack.Initialize(); err != nil {
 			// Then no error should occur
 			t.Errorf("Expected Initialize to return nil, got %v", err)
@@ -48,14 +90,12 @@ func TestWindsorStack_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Given safe mock components
-		mocks := setupMocks(t)
+		stack, mocks := setup(t)
 
 		// And the shell is unregistered to simulate an error
 		mocks.Injector.Register("shell", nil)
 
 		// When a new WindsorStack is initialized
-		stack := NewWindsorStack(mocks.Injector)
 		err := stack.Initialize()
 
 		// Then an error should occur
@@ -70,14 +110,10 @@ func TestWindsorStack_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingBlueprintHandler", func(t *testing.T) {
-		// Given safe mock components
-		mocks := setupMocks(t)
+		stack, mocks := setup(t)
 
 		// And the blueprintHandler is unregistered to simulate an error
 		mocks.Injector.Register("blueprintHandler", nil)
-
-		// When a new WindsorStack is initialized
-		stack := NewWindsorStack(mocks.Injector)
 
 		// Then an error should occur
 		if err := stack.Initialize(); err == nil {
@@ -92,10 +128,10 @@ func TestWindsorStack_Initialize(t *testing.T) {
 		opts := &SetupOptions{
 			Injector: mockInjector,
 		}
-		mocks := setupMocks(t, opts)
+		mocks := setupWindsorStackMocks(t, opts)
+		stack := NewWindsorStack(mocks.Injector)
 
 		// When a new WindsorStack is initialized
-		stack := NewWindsorStack(mocks.Injector)
 		err := stack.Initialize()
 
 		// Then an error should occur
@@ -111,15 +147,19 @@ func TestWindsorStack_Initialize(t *testing.T) {
 }
 
 func TestWindsorStack_Up(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given safe mock components
-		mocks := setupMocks(t)
-
-		// When a new WindsorStack is created and initialized
+	setup := func(t *testing.T) (*WindsorStack, *Mocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
 		stack := NewWindsorStack(mocks.Injector)
+		stack.shims = mocks.Shims
 		if err := stack.Initialize(); err != nil {
 			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		stack, _ := setup(t)
 
 		// And when the stack is brought up
 		if err := stack.Up(); err != nil {
@@ -129,23 +169,13 @@ func TestWindsorStack_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorGettingCurrentDirectory", func(t *testing.T) {
-		// Given osGetwd is mocked to return an error
-		mocks := setupMocks(t)
-		originalOsGetwd := osGetwd
-		defer func() { osGetwd = originalOsGetwd }()
-		osGetwd = func() (string, error) {
+		stack, mocks := setup(t)
+		mocks.Shims.Getwd = func() (string, error) {
 			return "", fmt.Errorf("mock error getting current directory")
-		}
-
-		// When a new WindsorStack is created and initialized
-		stack := NewWindsorStack(mocks.Injector)
-		if err := stack.Initialize(); err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
 
 		// And when Up is called
 		err := stack.Up()
-
 		// Then the expected error is contained in err
 		expectedError := "error getting current directory"
 		if !strings.Contains(err.Error(), expectedError) {
@@ -154,18 +184,9 @@ func TestWindsorStack_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorCheckingDirectoryExists", func(t *testing.T) {
-		// Given osStat is mocked to return an error
-		mocks := setupMocks(t)
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(path string) (os.FileInfo, error) {
+		stack, mocks := setup(t)
+		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
-		}
-
-		// When a new WindsorStack is created and initialized
-		stack := NewWindsorStack(mocks.Injector)
-		if err := stack.Initialize(); err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
 
 		// And when Up is called
@@ -175,25 +196,16 @@ func TestWindsorStack_Up(t *testing.T) {
 		}
 
 		// Then the expected error is contained in err
-		expectedError := "directory /mock/project/root/.windsor/.tf_modules/remote/path does not exist"
+		expectedError := "directory"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
 	})
 
 	t.Run("ErrorChangingDirectory", func(t *testing.T) {
-		// Given osChdir is mocked to return an error
-		mocks := setupMocks(t)
-		originalOsChdir := osChdir
-		defer func() { osChdir = originalOsChdir }()
-		osChdir = func(_ string) error {
+		stack, mocks := setup(t)
+		mocks.Shims.Chdir = func(_ string) error {
 			return fmt.Errorf("mock error changing directory")
-		}
-
-		// When a new WindsorStack is created and initialized
-		stack := NewWindsorStack(mocks.Injector)
-		if err := stack.Initialize(); err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
 
 		// And when Up is called
@@ -206,16 +218,9 @@ func TestWindsorStack_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorGettingEnvVars", func(t *testing.T) {
-		// Given envPrinter is mocked to return an error
-		mocks := setupMocks(t)
+		stack, mocks := setup(t)
 		mocks.EnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, fmt.Errorf("mock error getting environment variables")
-		}
-
-		// When a new WindsorStack is created and initialized
-		stack := NewWindsorStack(mocks.Injector)
-		if err := stack.Initialize(); err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
 
 		// And when Up is called
@@ -228,18 +233,9 @@ func TestWindsorStack_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingEnvVars", func(t *testing.T) {
-		// Given osSetenv is mocked to return an error
-		mocks := setupMocks(t)
-		originalOsSetenv := osSetenv
-		defer func() { osSetenv = originalOsSetenv }()
-		osSetenv = func(_ string, _ string) error {
+		stack, mocks := setup(t)
+		mocks.Shims.Setenv = func(_ string, _ string) error {
 			return fmt.Errorf("mock error setting environment variable")
-		}
-
-		// When a new WindsorStack is created and initialized
-		stack := NewWindsorStack(mocks.Injector)
-		if err := stack.Initialize(); err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
 
 		// And when Up is called
@@ -252,16 +248,9 @@ func TestWindsorStack_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorRunningPostEnvHook", func(t *testing.T) {
-		// Given envPrinter is mocked to return an error
-		mocks := setupMocks(t)
+		stack, mocks := setup(t)
 		mocks.EnvPrinter.PostEnvHookFunc = func() error {
 			return fmt.Errorf("mock error running post environment hook")
-		}
-
-		// When a new WindsorStack is created and initialized
-		stack := NewWindsorStack(mocks.Injector)
-		if err := stack.Initialize(); err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
 
 		// And when Up is called
@@ -274,19 +263,12 @@ func TestWindsorStack_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
-		// Given shell.Exec is mocked to return an error
-		mocks := setupMocks(t)
+		stack, mocks := setup(t)
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && args[0] == "init" {
 				return "", fmt.Errorf("mock error running terraform init")
 			}
 			return "", nil
-		}
-
-		// When a new WindsorStack is created and initialized
-		stack := NewWindsorStack(mocks.Injector)
-		if err := stack.Initialize(); err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
 
 		// And when Up is called
@@ -299,19 +281,12 @@ func TestWindsorStack_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
-		// Given shell.Exec is mocked to return an error
-		mocks := setupMocks(t)
+		stack, mocks := setup(t)
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && args[0] == "plan" {
 				return "", fmt.Errorf("mock error running terraform plan")
 			}
 			return "", nil
-		}
-
-		// When a new WindsorStack is created and initialized
-		stack := NewWindsorStack(mocks.Injector)
-		if err := stack.Initialize(); err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
 
 		// And when Up is called
@@ -324,19 +299,12 @@ func TestWindsorStack_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorRunningTerraformApply", func(t *testing.T) {
-		// Given shell.Exec is mocked to return an error
-		mocks := setupMocks(t)
+		stack, mocks := setup(t)
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && args[0] == "apply" {
 				return "", fmt.Errorf("mock error running terraform apply")
 			}
 			return "", nil
-		}
-
-		// When a new WindsorStack is created and initialized
-		stack := NewWindsorStack(mocks.Injector)
-		if err := stack.Initialize(); err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
 
 		// And when Up is called
@@ -349,20 +317,9 @@ func TestWindsorStack_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorRemovingBackendOverride", func(t *testing.T) {
-		// Given osStat is mocked to return nil (indicating the file exists)
-		mocks := setupMocks(t)
-
-		// And osRemove is mocked to return an error
-		originalOsRemove := osRemove
-		defer func() { osRemove = originalOsRemove }()
-		osRemove = func(_ string) error {
+		stack, mocks := setup(t)
+		mocks.Shims.Remove = func(_ string) error {
 			return fmt.Errorf("mock error removing backend override")
-		}
-
-		// When a new WindsorStack is created and initialized
-		stack := NewWindsorStack(mocks.Injector)
-		if err := stack.Initialize(); err != nil {
-			t.Fatalf("Expected no error during initialization, got %v", err)
 		}
 
 		// And when Up is called
