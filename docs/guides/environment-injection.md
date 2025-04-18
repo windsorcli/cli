@@ -25,7 +25,8 @@ The following environment variables are set automatically, or can be configured 
 | MWAA_ENDPOINT    | system default                         | `contexts.<context-name>.aws.mwaa_endpoint`        |
 
 
-#### AWS Credentials Setup
+#### How to setup AWS credentials
+
   1. Place the aws config file under the context folder (contexts/local/.aws/config)
 
   Example AWS config file
@@ -64,7 +65,7 @@ The following environment variables are set automatically, or can be configured 
   3. Confirm AWS environment variables are present
 
   Run the windsor env command to confirm the AWS credentials are now part of the windsor environment
-  
+
   ```bash
   windsor env | grep AWS
 
