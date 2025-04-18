@@ -24,6 +24,51 @@ The following environment variables are set automatically, or can be configured 
 | S3_HOSTNAME      | system default                         | `contexts.<context-name>.aws.s3_hostname`          |
 | MWAA_ENDPOINT    | system default                         | `contexts.<context-name>.aws.mwaa_endpoint`        |
 
+
+#### AWS Credentials Setup
+  1. Place the aws config file under the context folder (contexts/local/.aws/config)
+
+  Example AWS config file
+
+  ```yaml
+  [default]
+  region=us-east-2
+  cli_pager=
+
+  [profile staging]
+  aws_access_key_id = <AWS_ACCESS_KEY_ID>
+  aws_secret_access_key = <AWS_SECRET_ACCES_KEY>
+  region = us-east-1
+
+  [profile public]
+  sso_start_url = https://<ORGANIZATION_NAME>.awsapps.com/start
+  sso_region = us-east-2
+  sso_account_id = <SSO_ACCOUNT_ID>
+  sso_role_name = AWSAdministratorAccess
+  region = us-east-2
+  cli_pager=
+  ```
+  2. Update windsor.yaml
+
+  In this example AWS is enabled for the local context and the 'public' profile will be used
+
+  ```yaml
+  version: v1alpha1
+  contexts:
+    local:
+      aws:
+        enabled: true
+        aws_profile: public
+  ```
+
+  3. Confirm AWS environment variables are present
+
+  ```bash
+  ✨ windsor env | grep AWS
+  export AWS_CONFIG_FILE="path-to/contexts/local/.aws/config"
+  export AWS_PROFILE="public"
+  ```
+
 ### Docker
 The Windsor CLI provides several functionalities to manage Docker environments effectively. It automatically sets the `DOCKER_HOST` environment variable based on the `vm.driver` configuration, ensuring compatibility with both Colima and Docker Desktop setups. The CLI also ensures the Docker configuration directory exists and writes necessary configuration files. Additionally, it adds the `DOCKER_CONFIG` environment variable pointing to the Docker configuration directory and manages aliases for Docker commands, such as `docker-compose`, if specific plugins are detected.
 
