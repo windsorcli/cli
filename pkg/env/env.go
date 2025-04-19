@@ -1,3 +1,8 @@
+// The EnvPrinter is a core component that manages environment variable state and context.
+// It provides a unified interface for loading, printing, and managing environment variables,
+// The EnvPrinter acts as the central environment orchestrator for the application,
+// coordinating environment variable management, shell integration, and configuration persistence.
+
 package env
 
 import (
@@ -11,6 +16,10 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Constants
+// =============================================================================
+
 // These are the environment variables that are managed by Windsor.
 // They are scoped to the current shell session.
 var (
@@ -18,6 +27,10 @@ var (
 	windsorManagedAlias = []string{}
 	windsorManagedMu    sync.Mutex
 )
+
+// =============================================================================
+// Types
+// =============================================================================
 
 // EnvPrinter defines the method for printing environment variables.
 type EnvPrinter interface {
@@ -33,7 +46,7 @@ type EnvPrinter interface {
 	Reset()
 }
 
-// Env is a struct that implements the EnvPrinter interface.
+// BaseEnvPrinter is a base implementation of the EnvPrinter interface
 type BaseEnvPrinter struct {
 	EnvPrinter
 	injector      di.Injector
@@ -41,10 +54,18 @@ type BaseEnvPrinter struct {
 	configHandler config.ConfigHandler
 }
 
-// NewBaseEnvPrinter creates a new BaseEnvPrinter instance.
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewBaseEnvPrinter creates a new BaseEnvPrinter instance
 func NewBaseEnvPrinter(injector di.Injector) *BaseEnvPrinter {
 	return &BaseEnvPrinter{injector: injector}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize resolves and assigns the shell and configHandler from the injector.
 func (e *BaseEnvPrinter) Initialize() error {

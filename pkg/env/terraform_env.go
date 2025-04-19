@@ -1,3 +1,8 @@
+// The TerraformEnvPrinter is a specialized component that manages Terraform environment configuration.
+// It provides Terraform-specific environment variable management and configuration,
+// The TerraformEnvPrinter handles backend configuration, variable files, and state management,
+// ensuring proper Terraform CLI integration and environment setup for infrastructure operations.
+
 package env
 
 import (
@@ -11,12 +16,20 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// TerraformEnvPrinter simulates a Terraform environment for testing purposes.
+// =============================================================================
+// Types
+// =============================================================================
+
+// TerraformEnvPrinter is a struct that implements Terraform environment configuration
 type TerraformEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewTerraformEnvPrinter initializes a new TerraformEnvPrinter instance.
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewTerraformEnvPrinter creates a new TerraformEnvPrinter instance
 func NewTerraformEnvPrinter(injector di.Injector) *TerraformEnvPrinter {
 	return &TerraformEnvPrinter{
 		BaseEnvPrinter: BaseEnvPrinter{
@@ -24,6 +37,10 @@ func NewTerraformEnvPrinter(injector di.Injector) *TerraformEnvPrinter {
 		},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // GetEnvVars retrieves environment variables for Terraform.
 // It determines the config root and project path, checks for tfvars files,
@@ -125,6 +142,10 @@ func (e *TerraformEnvPrinter) Print() error {
 	}
 	return e.BaseEnvPrinter.Print(envVars)
 }
+
+// =============================================================================
+// Private Methods
+// =============================================================================
 
 // generateBackendOverrideTf creates the backend_override.tf file for the project by determining
 // the backend type and writing the appropriate configuration to the file.
@@ -231,9 +252,6 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 	return backendConfigArgs, nil
 }
 
-// Ensure TerraformEnvPrinter implements the EnvPrinter interface.
-var _ EnvPrinter = (*TerraformEnvPrinter)(nil)
-
 // processBackendConfig processes the backend config and adds the key-value pairs to the backend config args.
 var processBackendConfig = func(backendConfig any, addArg func(key, value string)) error {
 	yamlData, err := yamlMarshal(backendConfig)
@@ -294,6 +312,9 @@ func processMap(prefix string, configMap map[string]any, addArg func(key, value 
 		}
 	}
 }
+
+// Ensure TerraformEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*TerraformEnvPrinter)(nil)
 
 // sanitizeForK8s ensures a string is compatible with Kubernetes naming conventions by converting
 // to lowercase, replacing invalid characters, and trimming to a maximum length of 63 characters.

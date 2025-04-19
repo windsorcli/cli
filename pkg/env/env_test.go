@@ -11,6 +11,10 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
 // Mocks holds all the mock objects used in the tests.
 type Mocks struct {
 	Injector      *di.MockInjector
@@ -39,32 +43,36 @@ func setupEnvMockTests(injector *di.MockInjector) *Mocks {
 	}
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 // TestEnv_Initialize tests the Initialize method of the Env struct
 func TestEnv_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
 		mocks := setupEnvMockTests(nil)
-
-		// Use a BaseEnvPrinter for real initialization
 		envPrinter := NewBaseEnvPrinter(mocks.Injector)
 
-		// Call Initialize and check for errors
+		// When calling Initialize
 		err := envPrinter.Initialize()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
+		// Given a new BaseEnvPrinter with an invalid shell
 		mocks := setupEnvMockTests(nil)
-
-		// Register an invalid shell that cannot be cast to shell.Shell
 		mocks.Injector.Register("shell", "invalid")
-
-		// Use a BaseEnvPrinter for real initialization
 		envPrinter := NewBaseEnvPrinter(mocks.Injector)
 
-		// Call Initialize and expect an error
+		// When calling Initialize
 		err := envPrinter.Initialize()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if err.Error() != "error resolving or casting shell to shell.Shell" {
@@ -73,16 +81,15 @@ func TestEnv_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorCastingCliConfigHandler", func(t *testing.T) {
+		// Given a new BaseEnvPrinter with an invalid configHandler
 		mocks := setupEnvMockTests(nil)
-
-		// Register an invalid configHandler that cannot be cast to config.ConfigHandler
 		mocks.Injector.Register("configHandler", "invalid")
-
-		// Use a BaseEnvPrinter for real initialization
 		envPrinter := NewBaseEnvPrinter(mocks.Injector)
 
-		// Call Initialize and expect an error
+		// When calling Initialize
 		err := envPrinter.Initialize()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if err.Error() != "error resolving or casting configHandler to config.ConfigHandler" {
@@ -94,22 +101,21 @@ func TestEnv_Initialize(t *testing.T) {
 // TestBaseEnvPrinter_GetEnvVars tests the GetEnvVars method of the BaseEnvPrinter struct
 func TestBaseEnvPrinter_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
 		mocks := setupEnvMockTests(nil)
-
-		// Create a new BaseEnvPrinter and initialize it
 		envPrinter := NewBaseEnvPrinter(mocks.Injector)
 		err := envPrinter.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Call GetEnvVars and check for errors
+		// When calling GetEnvVars
 		envVars, err := envPrinter.GetEnvVars()
+
+		// Then no error should be returned and envVars should be empty
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
-
-		// Verify that the returned envVars is an empty map
 		expectedEnvVars := map[string]string{}
 		if !reflect.DeepEqual(envVars, expectedEnvVars) {
 			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
@@ -120,31 +126,30 @@ func TestBaseEnvPrinter_GetEnvVars(t *testing.T) {
 // TestEnv_Print tests the Print method of the Env struct
 func TestEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Given a new BaseEnvPrinter with test environment variables
 		mocks := setupEnvMockTests(nil)
-
-		// Create a new BaseEnvPrinter and initialize it
 		envPrinter := NewBaseEnvPrinter(mocks.Injector)
 		err := envPrinter.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Mock the PrintEnvVarsFunc to verify it is called
+		// And a mock PrintEnvVarsFunc
 		var capturedEnvVars map[string]string
 		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
 		}
 
-		// Set up test environment variables
+		// And test environment variables
 		testEnvVars := map[string]string{"TEST_VAR": "test_value"}
 
-		// Call Print with test environment variables
+		// When calling Print with test environment variables
 		err = envPrinter.Print(testEnvVars)
+
+		// Then no error should be returned and PrintEnvVarsFunc should be called with correct envVars
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
-
-		// Verify that PrintEnvVarsFunc was called with the correct envVars
 		expectedEnvVars := map[string]string{"TEST_VAR": "test_value"}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
@@ -152,28 +157,27 @@ func TestEnv_Print(t *testing.T) {
 	})
 
 	t.Run("NoCustomVars", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
 		mocks := setupEnvMockTests(nil)
-
-		// Create a new BaseEnvPrinter and initialize it
 		envPrinter := NewBaseEnvPrinter(mocks.Injector)
 		err := envPrinter.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Mock the PrintEnvVarsFunc to verify it is called
+		// And a mock PrintEnvVarsFunc
 		var capturedEnvVars map[string]string
 		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
 		}
 
-		// Call Print without custom vars and check for errors
+		// When calling Print without custom vars
 		err = envPrinter.Print()
+
+		// Then no error should be returned and PrintEnvVarsFunc should be called with empty map
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
-
-		// Verify that PrintEnvVarsFunc was called with an empty map
 		expectedEnvVars := map[string]string{}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
@@ -184,31 +188,30 @@ func TestEnv_Print(t *testing.T) {
 // TestEnv_PrintAlias tests the PrintAlias method of the Env struct
 func TestEnv_PrintAlias(t *testing.T) {
 	t.Run("SuccessWithCustomAlias", func(t *testing.T) {
+		// Given a new BaseEnvPrinter with test alias
 		mocks := setupEnvMockTests(nil)
-
-		// Create a new BaseEnvPrinter and initialize it
 		envPrinter := NewBaseEnvPrinter(mocks.Injector)
 		err := envPrinter.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Mock the PrintAliasFunc to verify it is called
+		// And a mock PrintAliasFunc
 		var capturedAlias map[string]string
 		mocks.Shell.PrintAliasFunc = func(alias map[string]string) {
 			capturedAlias = alias
 		}
 
-		// Set up test alias
+		// And test alias
 		testAlias := map[string]string{"alias1": "command1"}
 
-		// Call PrintAlias with test alias
+		// When calling PrintAlias with test alias
 		err = envPrinter.PrintAlias(testAlias)
+
+		// Then no error should be returned and PrintAliasFunc should be called with correct alias
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
-
-		// Verify that PrintAliasFunc was called with the correct alias
 		expectedAlias := map[string]string{"alias1": "command1"}
 		if !reflect.DeepEqual(capturedAlias, expectedAlias) {
 			t.Errorf("capturedAlias = %v, want %v", capturedAlias, expectedAlias)
@@ -216,28 +219,27 @@ func TestEnv_PrintAlias(t *testing.T) {
 	})
 
 	t.Run("SuccessWithoutCustomAlias", func(t *testing.T) {
+		// Given a new BaseEnvPrinter
 		mocks := setupEnvMockTests(nil)
-
-		// Create a new BaseEnvPrinter and initialize it
 		envPrinter := NewBaseEnvPrinter(mocks.Injector)
 		err := envPrinter.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Mock the PrintAliasFunc to verify it is called
+		// And a mock PrintAliasFunc
 		var capturedAlias map[string]string
 		mocks.Shell.PrintAliasFunc = func(alias map[string]string) {
 			capturedAlias = alias
 		}
 
-		// Call PrintAlias without custom alias
+		// When calling PrintAlias without custom alias
 		err = envPrinter.PrintAlias()
+
+		// Then no error should be returned and PrintAliasFunc should be called with empty map
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
-
-		// Verify that PrintAliasFunc was called with an empty map
 		expectedAlias := map[string]string{}
 		if !reflect.DeepEqual(capturedAlias, expectedAlias) {
 			t.Errorf("capturedAlias = %v, want %v", capturedAlias, expectedAlias)
@@ -256,7 +258,7 @@ func TestBaseEnvPrinter_GetManagedEnv(t *testing.T) {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Save original value to restore it after the test
+		// And test environment variables
 		originalManagedEnv := make([]string, len(windsorManagedEnv))
 		copy(originalManagedEnv, windsorManagedEnv)
 		defer func() {
@@ -265,7 +267,6 @@ func TestBaseEnvPrinter_GetManagedEnv(t *testing.T) {
 			windsorManagedMu.Unlock()
 		}()
 
-		// Set test variables
 		windsorManagedMu.Lock()
 		windsorManagedEnv = []string{"TEST_VAR1", "TEST_VAR2"}
 		windsorManagedMu.Unlock()
@@ -277,8 +278,6 @@ func TestBaseEnvPrinter_GetManagedEnv(t *testing.T) {
 		if len(managedEnv) != 2 {
 			t.Errorf("expected 2 variables, got %d", len(managedEnv))
 		}
-
-		// Verify expected variables are present
 		if managedEnv[0] != "TEST_VAR1" || managedEnv[1] != "TEST_VAR2" {
 			t.Errorf("expected [TEST_VAR1, TEST_VAR2], got %v", managedEnv)
 		}
@@ -296,7 +295,7 @@ func TestBaseEnvPrinter_GetManagedAlias(t *testing.T) {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Save original value to restore it after the test
+		// And test aliases
 		originalManagedAlias := make([]string, len(windsorManagedAlias))
 		copy(originalManagedAlias, windsorManagedAlias)
 		defer func() {
@@ -305,7 +304,6 @@ func TestBaseEnvPrinter_GetManagedAlias(t *testing.T) {
 			windsorManagedMu.Unlock()
 		}()
 
-		// Set test aliases
 		windsorManagedMu.Lock()
 		windsorManagedAlias = []string{"alias1", "alias2"}
 		windsorManagedMu.Unlock()
@@ -317,8 +315,6 @@ func TestBaseEnvPrinter_GetManagedAlias(t *testing.T) {
 		if len(managedAlias) != 2 {
 			t.Errorf("expected 2 aliases, got %d", len(managedAlias))
 		}
-
-		// Verify expected aliases are present
 		if managedAlias[0] != "alias1" || managedAlias[1] != "alias2" {
 			t.Errorf("expected [alias1, alias2], got %v", managedAlias)
 		}
@@ -336,7 +332,7 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Save original value to restore it after the test
+		// And empty managed environment variables
 		originalManagedEnv := make([]string, len(windsorManagedEnv))
 		copy(originalManagedEnv, windsorManagedEnv)
 		defer func() {
@@ -345,23 +341,18 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 			windsorManagedMu.Unlock()
 		}()
 
-		// Reset managed environment variables for this test
 		windsorManagedMu.Lock()
 		windsorManagedEnv = []string{}
 		windsorManagedMu.Unlock()
 
-		// Set test variables (one string at a time)
+		// When setting a managed environment variable
 		envPrinter.SetManagedEnv("SET_TEST_VAR1")
 
-		// When calling GetManagedEnv to verify
+		// Then GetManagedEnv should return the variable
 		managedEnv := envPrinter.GetManagedEnv()
-
-		// Then the returned list should contain our variables
 		if len(managedEnv) != 1 {
 			t.Errorf("expected 1 variable, got %d", len(managedEnv))
 		}
-
-		// Verify expected variables are present
 		if managedEnv[0] != "SET_TEST_VAR1" {
 			t.Errorf("expected [SET_TEST_VAR1], got %v", managedEnv)
 		}
@@ -376,7 +367,7 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Save original value to restore it after the test
+		// And empty managed environment variables
 		originalManagedEnv := make([]string, len(windsorManagedEnv))
 		copy(originalManagedEnv, windsorManagedEnv)
 		defer func() {
@@ -385,24 +376,19 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 			windsorManagedMu.Unlock()
 		}()
 
-		// Reset managed environment variables for this test
 		windsorManagedMu.Lock()
 		windsorManagedEnv = []string{}
 		windsorManagedMu.Unlock()
 
-		// Set duplicate test variables
+		// When setting duplicate managed environment variables
 		envPrinter.SetManagedEnv("SET_TEST_VAR1")
-		envPrinter.SetManagedEnv("SET_TEST_VAR1") // Attempt to add duplicate
+		envPrinter.SetManagedEnv("SET_TEST_VAR1")
 
-		// When calling GetManagedEnv to verify
+		// Then GetManagedEnv should return only one instance
 		managedEnv := envPrinter.GetManagedEnv()
-
-		// Then the returned list should contain only one instance of the variable
 		if len(managedEnv) != 1 {
 			t.Errorf("expected 1 variable, got %d", len(managedEnv))
 		}
-
-		// Verify expected variables are present
 		if managedEnv[0] != "SET_TEST_VAR1" {
 			t.Errorf("expected [SET_TEST_VAR1], got %v", managedEnv)
 		}
@@ -420,7 +406,7 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Save original value to restore it after the test
+		// And empty managed aliases
 		originalManagedAlias := make([]string, len(windsorManagedAlias))
 		copy(originalManagedAlias, windsorManagedAlias)
 		defer func() {
@@ -429,23 +415,18 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 			windsorManagedMu.Unlock()
 		}()
 
-		// Reset managed aliases for this test
 		windsorManagedMu.Lock()
 		windsorManagedAlias = []string{}
 		windsorManagedMu.Unlock()
 
-		// Set test aliases (one string at a time)
+		// When setting a managed alias
 		envPrinter.SetManagedAlias("set_alias1")
 
-		// When calling GetManagedAlias to verify
+		// Then GetManagedAlias should return the alias
 		managedAlias := envPrinter.GetManagedAlias()
-
-		// Then the returned list should contain our aliases
 		if len(managedAlias) != 1 {
 			t.Errorf("expected 1 alias, got %d", len(managedAlias))
 		}
-
-		// Verify expected aliases are present
 		if managedAlias[0] != "set_alias1" {
 			t.Errorf("expected [set_alias1], got %v", managedAlias)
 		}
@@ -460,7 +441,7 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Save original value to restore it after the test
+		// And empty managed aliases
 		originalManagedAlias := make([]string, len(windsorManagedAlias))
 		copy(originalManagedAlias, windsorManagedAlias)
 		defer func() {
@@ -469,24 +450,19 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 			windsorManagedMu.Unlock()
 		}()
 
-		// Reset managed aliases for this test
 		windsorManagedMu.Lock()
 		windsorManagedAlias = []string{}
 		windsorManagedMu.Unlock()
 
-		// Set duplicate test aliases
+		// When setting duplicate managed aliases
 		envPrinter.SetManagedAlias("set_alias1")
-		envPrinter.SetManagedAlias("set_alias1") // Attempt to add duplicate
+		envPrinter.SetManagedAlias("set_alias1")
 
-		// When calling GetManagedAlias to verify
+		// Then GetManagedAlias should return only one instance
 		managedAlias := envPrinter.GetManagedAlias()
-
-		// Then the returned list should contain only one instance of the alias
 		if len(managedAlias) != 1 {
 			t.Errorf("expected 1 alias, got %d", len(managedAlias))
 		}
-
-		// Verify expected aliases are present
 		if managedAlias[0] != "set_alias1" {
 			t.Errorf("expected [set_alias1], got %v", managedAlias)
 		}
@@ -504,7 +480,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Track calls to Reset
+		// And a mock Reset function
 		resetCalled := false
 		mocks.Shell.ResetFunc = func() {
 			resetCalled = true
@@ -520,7 +496,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 	})
 
 	t.Run("ResetWithEnvironmentVariables", func(t *testing.T) {
-		// Given a new BaseEnvPrinter
+		// Given a new BaseEnvPrinter with environment variables
 		mocks := setupEnvMockTests(nil)
 		envPrinter := NewBaseEnvPrinter(mocks.Injector)
 		err := envPrinter.Initialize()
@@ -528,7 +504,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Set environment variables
+		// And environment variables set
 		os.Setenv("WINDSOR_MANAGED_ENV", "ENV1,ENV2, ENV3")
 		os.Setenv("WINDSOR_MANAGED_ALIAS", "alias1,alias2, alias3")
 		defer func() {
@@ -536,7 +512,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 			os.Unsetenv("WINDSOR_MANAGED_ALIAS")
 		}()
 
-		// Track calls to Reset
+		// And a mock Reset function
 		resetCalled := false
 		mocks.Shell.ResetFunc = func() {
 			resetCalled = true
@@ -560,13 +536,13 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
 
-		// Set up some managed environment variables and aliases
+		// And managed environment variables and aliases set
 		envPrinter.SetManagedEnv("TEST_ENV1")
 		envPrinter.SetManagedEnv("TEST_ENV2")
 		envPrinter.SetManagedAlias("test_alias1")
 		envPrinter.SetManagedAlias("test_alias2")
 
-		// Track calls to Reset
+		// And a mock Reset function
 		resetCalled := false
 		mocks.Shell.ResetFunc = func() {
 			resetCalled = true
@@ -582,8 +558,6 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 
 		// And the managed environment variables should still be available
 		managedEnv := envPrinter.GetManagedEnv()
-
-		// Verify that our test variables are in the managed env (without requiring exact count)
 		for _, env := range []string{"TEST_ENV1", "TEST_ENV2"} {
 			if !slices.Contains(managedEnv, env) {
 				t.Errorf("expected GetManagedEnv to contain %s", env)
@@ -592,8 +566,6 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 
 		// And the managed aliases should still be available
 		managedAlias := envPrinter.GetManagedAlias()
-
-		// Verify that our test aliases are in the managed aliases (without requiring exact count)
 		for _, alias := range []string{"test_alias1", "test_alias2"} {
 			if !slices.Contains(managedAlias, alias) {
 				t.Errorf("expected GetManagedAlias to contain %s", alias)

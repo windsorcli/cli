@@ -13,12 +13,19 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+// OmniEnvPrinterMocks holds all mock objects used in Omni environment tests
 type OmniEnvPrinterMocks struct {
 	Injector      di.Injector
 	Shell         *shell.MockShell
 	ConfigHandler *config.MockConfigHandler
 }
 
+// setupSafeOmniEnvPrinterMocks creates and configures mock objects for Omni environment tests.
+// It accepts an optional injector parameter and returns initialized OmniEnvPrinterMocks.
 func setupSafeOmniEnvPrinterMocks(injector ...di.Injector) *OmniEnvPrinterMocks {
 	var mockInjector di.Injector
 	if len(injector) > 0 {
@@ -44,8 +51,14 @@ func setupSafeOmniEnvPrinterMocks(injector ...di.Injector) *OmniEnvPrinterMocks 
 	}
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestOmniEnvPrinter_GetEnvVars tests the GetEnvVars method of the OmniEnvPrinter
 func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Given a new OmniEnvPrinter with existing Omni config
 		mocks := setupSafeOmniEnvPrinterMocks()
 
 		originalStat := stat
@@ -60,17 +73,22 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 		omniEnvPrinter := NewOmniEnvPrinter(mocks.Injector)
 		omniEnvPrinter.Initialize()
 
+		// When getting environment variables
 		envVars, err := omniEnvPrinter.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
+		// And OMNICONFIG should be set correctly
 		if envVars["OMNICONFIG"] != filepath.FromSlash("/mock/config/root/.omni/config") {
 			t.Errorf("OMNICONFIG = %v, want %v", envVars["OMNICONFIG"], filepath.FromSlash("/mock/config/root/.omni/config"))
 		}
 	})
 
 	t.Run("NoOmniConfig", func(t *testing.T) {
+		// Given a new OmniEnvPrinter without existing Omni config
 		mocks := setupSafeOmniEnvPrinterMocks()
 
 		originalStat := stat
@@ -82,11 +100,15 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 		omniEnvPrinter := NewOmniEnvPrinter(mocks.Injector)
 		omniEnvPrinter.Initialize()
 
+		// When getting environment variables
 		envVars, err := omniEnvPrinter.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
+		// And OMNICONFIG should still be set to default path
 		expectedPath := filepath.FromSlash("/mock/config/root/.omni/config")
 		if envVars["OMNICONFIG"] != expectedPath {
 			t.Errorf("OMNICONFIG = %v, want %v", envVars["OMNICONFIG"], expectedPath)
@@ -94,6 +116,7 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("GetConfigRootError", func(t *testing.T) {
+		// Given a new OmniEnvPrinter with failing config root lookup
 		mocks := setupSafeOmniEnvPrinterMocks()
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock context error")
@@ -102,7 +125,10 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 		omniEnvPrinter := NewOmniEnvPrinter(mocks.Injector)
 		omniEnvPrinter.Initialize()
 
+		// When getting environment variables
 		_, err := omniEnvPrinter.GetEnvVars()
+
+		// Then appropriate error should be returned
 		expectedError := "error retrieving configuration root directory: mock context error"
 		if err == nil || err.Error() != expectedError {
 			t.Errorf("error = %v, want %v", err, expectedError)
@@ -110,35 +136,37 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 }
 
+// TestOmniEnvPrinter_Print tests the Print method of the OmniEnvPrinter
 func TestOmniEnvPrinter_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Use setupSafeOmniEnvPrinterMocks to create mocks
+		// Given a new OmniEnvPrinter with existing Omni config
 		mocks := setupSafeOmniEnvPrinterMocks()
-		mockInjector := mocks.Injector
-		omniEnvPrinter := NewOmniEnvPrinter(mockInjector)
+		omniEnvPrinter := NewOmniEnvPrinter(mocks.Injector)
 		omniEnvPrinter.Initialize()
 
-		// Mock the stat function to simulate the existence of the omniconfig file
+		// And Omni config file exists
 		stat = func(name string) (os.FileInfo, error) {
 			if name == filepath.FromSlash("/mock/config/root/.omni/config") {
-				return nil, nil // Simulate that the file exists
+				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
+		// And PrintEnvVarsFunc is mocked
 		var capturedEnvVars map[string]string
 		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
 		}
 
-		// Call Print and check for errors
+		// When calling Print
 		err := omniEnvPrinter.Print()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 
-		// Verify that PrintEnvVarsFunc was called with the correct envVars
+		// And environment variables should be set correctly
 		expectedEnvVars := map[string]string{
 			"OMNICONFIG": filepath.FromSlash("/mock/config/root/.omni/config"),
 		}
@@ -148,21 +176,19 @@ func TestOmniEnvPrinter_Print(t *testing.T) {
 	})
 
 	t.Run("GetConfigError", func(t *testing.T) {
-		// Use setupSafeOmniEnvPrinterMocks to create mocks
+		// Given a new OmniEnvPrinter with failing config lookup
 		mocks := setupSafeOmniEnvPrinterMocks()
-
-		// Override the GetConfigFunc to simulate an error
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock config error")
 		}
 
-		mockInjector := mocks.Injector
-
-		omniEnvPrinter := NewOmniEnvPrinter(mockInjector)
+		omniEnvPrinter := NewOmniEnvPrinter(mocks.Injector)
 		omniEnvPrinter.Initialize()
 
-		// Call Print and check for errors
+		// When calling Print
 		err := omniEnvPrinter.Print()
+
+		// Then appropriate error should be returned
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if !strings.Contains(err.Error(), "mock config error") {

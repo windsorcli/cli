@@ -8,6 +8,12 @@ import (
 	"testing"
 )
 
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+// captureStdout captures stdout output during the execution of a function.
+// It returns the captured output as a string.
 func captureStdout(t *testing.T, f func()) string {
 	// Save the current stdout
 	old := os.Stdout
@@ -35,6 +41,11 @@ func captureStdout(t *testing.T, f func()) string {
 	return buf.String()
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestMockEnvPrinter_Initialize tests the Initialize method of the MockEnvPrinter
 func TestMockEnvPrinter_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock environment with a custom InitializeFunc
@@ -67,6 +78,7 @@ func TestMockEnvPrinter_Initialize(t *testing.T) {
 	})
 }
 
+// TestMockEnvPrinter_NewMockEnvPrinter tests the NewMockEnvPrinter constructor
 func TestMockEnvPrinter_NewMockEnvPrinter(t *testing.T) {
 	t.Run("CreateMockEnvPrinterWithoutContainer", func(t *testing.T) {
 		// When creating a new mock environment without an injector
@@ -78,6 +90,7 @@ func TestMockEnvPrinter_NewMockEnvPrinter(t *testing.T) {
 	})
 }
 
+// TestMockEnvPrinter_GetEnvVars tests the GetEnvVars method of the MockEnvPrinter
 func TestMockEnvPrinter_GetEnvVars(t *testing.T) {
 	t.Run("DefaultGetEnvVars", func(t *testing.T) {
 		// Given a mock environment with default GetEnvVars implementation
@@ -120,6 +133,7 @@ func TestMockEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 }
 
+// TestMockEnvPrinter_Print tests the Print method of the MockEnvPrinter
 func TestMockEnvPrinter_Print(t *testing.T) {
 	t.Run("DefaultPrint", func(t *testing.T) {
 		// Given a mock environment with default Print implementation
@@ -148,6 +162,7 @@ func TestMockEnvPrinter_Print(t *testing.T) {
 	})
 }
 
+// TestMockPrinter_GetAlias tests the GetAlias method of the MockEnvPrinter
 func TestMockPrinter_GetAlias(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock environment with custom GetAlias implementation
@@ -183,6 +198,7 @@ func TestMockPrinter_GetAlias(t *testing.T) {
 	})
 }
 
+// TestMockEnvPrinter_PrintAlias tests the PrintAlias method of the MockEnvPrinter
 func TestMockEnvPrinter_PrintAlias(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock environment with custom PrintAlias implementation
@@ -210,6 +226,7 @@ func TestMockEnvPrinter_PrintAlias(t *testing.T) {
 	})
 }
 
+// TestMockEnvPrinter_PostEnvHook tests the PostEnvHook method of the MockEnvPrinter
 func TestMockEnvPrinter_PostEnvHook(t *testing.T) {
 	t.Run("DefaultPostEnvHook", func(t *testing.T) {
 		// Given a mock environment with default PostEnvHook implementation
@@ -238,6 +255,7 @@ func TestMockEnvPrinter_PostEnvHook(t *testing.T) {
 	})
 }
 
+// TestMockEnvPrinter_Reset tests the Reset method of the MockEnvPrinter
 func TestMockEnvPrinter_Reset(t *testing.T) {
 	t.Run("DefaultReset", func(t *testing.T) {
 		// Given a mock environment with default Reset implementation

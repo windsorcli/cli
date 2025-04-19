@@ -1,3 +1,8 @@
+// The WindsorEnvPrinter is a specialized component that manages Windsor environment configuration.
+// It provides Windsor-specific environment variable management and configuration,
+// The WindsorEnvPrinter handles context, project root, and secrets management,
+// ensuring proper Windsor CLI integration and environment setup for application operations.
+
 package env
 
 import (
@@ -10,6 +15,11 @@ import (
 	"github.com/windsorcli/cli/pkg/secrets"
 )
 
+// =============================================================================
+// Constants
+// =============================================================================
+
+// WindsorPrefixedVars are the environment variables that are managed by Windsor.
 var WindsorPrefixedVars = []string{
 	"WINDSOR_CONTEXT",
 	"WINDSOR_PROJECT_ROOT",
@@ -18,13 +28,21 @@ var WindsorPrefixedVars = []string{
 	"WINDSOR_MANAGED_ALIAS",
 }
 
-// WindsorEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
+// =============================================================================
+// Types
+// =============================================================================
+
+// WindsorEnvPrinter is a struct that implements Windsor environment configuration
 type WindsorEnvPrinter struct {
 	BaseEnvPrinter
 	secretsProviders []secrets.SecretsProvider
 }
 
-// NewWindsorEnvPrinter initializes a new WindsorEnvPrinter instance using the provided dependency injector.
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewWindsorEnvPrinter creates a new WindsorEnvPrinter instance
 func NewWindsorEnvPrinter(injector di.Injector) *WindsorEnvPrinter {
 	return &WindsorEnvPrinter{
 		BaseEnvPrinter: BaseEnvPrinter{
@@ -32,6 +50,10 @@ func NewWindsorEnvPrinter(injector di.Injector) *WindsorEnvPrinter {
 		},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize sets up the WindsorEnvPrinter, including resolving secrets providers.
 func (e *WindsorEnvPrinter) Initialize() error {
@@ -121,6 +143,19 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
+// Print prints the environment variables for the Windsor environment.
+func (e *WindsorEnvPrinter) Print() error {
+	envVars, err := e.GetEnvVars()
+	if err != nil {
+		return fmt.Errorf("error getting environment variables: %w", err)
+	}
+	return e.BaseEnvPrinter.Print(envVars)
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
 // parseAndCheckSecrets parses and replaces secret placeholders in the string value using the secrets provider.
 // It checks for unparsed secrets and returns an error string if any are found.
 func (e *WindsorEnvPrinter) parseAndCheckSecrets(strValue string) string {
@@ -151,20 +186,11 @@ func (e *WindsorEnvPrinter) parseAndCheckSecrets(strValue string) string {
 	return strValue
 }
 
-// Print prints the environment variables for the Windsor environment.
-func (e *WindsorEnvPrinter) Print() error {
-	envVars, err := e.GetEnvVars()
-	if err != nil {
-		return fmt.Errorf("error getting environment variables: %w", err)
-	}
-	return e.BaseEnvPrinter.Print(envVars)
-}
-
-// Ensure WindsorEnvPrinter implements the EnvPrinter interface
-var _ EnvPrinter = (*WindsorEnvPrinter)(nil)
-
 // shouldUseCache determines if the cache should be used based on the current and Windsor context.
 func shouldUseCache() bool {
 	noCache := os.Getenv("NO_CACHE")
 	return noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
 }
+
+// Ensure WindsorEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*WindsorEnvPrinter)(nil)

@@ -1,3 +1,8 @@
+// The DockerEnvPrinter is a specialized component that manages Docker environment configuration.
+// It provides Docker-specific environment variable management and configuration,
+// The DockerEnvPrinter handles Docker host, context, and registry configuration settings,
+// ensuring proper Docker CLI integration and environment setup for container operations.
+
 package env
 
 import (
@@ -9,12 +14,20 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// DockerEnvPrinter is a struct that simulates a Docker environment for testing purposes.
+// =============================================================================
+// Types
+// =============================================================================
+
+// DockerEnvPrinter is a struct that implements Docker environment configuration
 type DockerEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewDockerEnvPrinter initializes a new dockerEnv instance using the provided dependency injector.
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewDockerEnvPrinter creates a new DockerEnvPrinter instance
 func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
 	return &DockerEnvPrinter{
 		BaseEnvPrinter: BaseEnvPrinter{
@@ -22,6 +35,10 @@ func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
 		},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // GetEnvVars sets Docker-specific env vars, using DOCKER_HOST from vm.driver config or existing env.
 // Defaults to WINDSORCONFIG or home dir for Docker paths, ensuring config directory exists.
@@ -122,6 +139,10 @@ func (e *DockerEnvPrinter) Print() error {
 	return e.BaseEnvPrinter.Print(envVars)
 }
 
+// =============================================================================
+// Private Methods
+// =============================================================================
+
 // getRegistryURL retrieves a registry URL, appending a port if not present.
 // It retrieves the URL from the configuration and checks if it already includes a port.
 // If not, it looks for a matching registry configuration to append the host port.
@@ -145,5 +166,5 @@ func (e *DockerEnvPrinter) getRegistryURL() (string, error) {
 	return registryURL, nil
 }
 
-// Ensure dockerEnv implements the EnvPrinter interface
+// Ensure DockerEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*DockerEnvPrinter)(nil)

@@ -16,12 +16,19 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+// TerraformEnvMocks holds all mock objects used in Terraform environment tests
 type TerraformEnvMocks struct {
 	Injector      di.Injector
 	Shell         *shell.MockShell
 	ConfigHandler *config.MockConfigHandler
 }
 
+// setupSafeTerraformEnvMocks creates and configures mock objects for Terraform environment tests.
+// It accepts an optional injector parameter and returns initialized TerraformEnvMocks.
 func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
 	var mockInjector di.Injector
 	if len(injector) > 0 {
@@ -63,10 +70,15 @@ func setupSafeTerraformEnvMocks(injector ...di.Injector) *TerraformEnvMocks {
 	}
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestTerraformEnv_GetEnvVars tests the GetEnvVars method of the TerraformEnvPrinter
 func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Given a new TerraformEnvPrinter with mock configuration
 		mocks := setupSafeTerraformEnvMocks()
-
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":         `/mock/config/root/.terraform/project/path`,
 			"TF_CLI_ARGS_init":    `-backend=true -backend-config="path=/mock/config/root/.tfstate/project/path/terraform.tfstate"`,
@@ -80,7 +92,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
 
-		// Given a mocked glob function simulating the presence of tf files
+		// And mock filesystem operations
 		originalGlob := glob
 		defer func() { glob = originalGlob }()
 		glob = func(pattern string) ([]string, error) {
@@ -90,45 +102,39 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			return nil, nil
 		}
 
-		// And a mocked getwd function returning a specific path
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
 			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
 		}
 
-		// And a mocked stat function simulating file existence with varied tfvars files
 		originalStat := stat
 		defer func() { stat = originalStat }()
 		stat = func(name string) (os.FileInfo, error) {
-			// Debugging: Print the path being checked
 			t.Logf("Checking file: %s", name)
 			switch name {
 			case filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars"):
-				return nil, nil // Simulate file exists
+				return nil, nil
 			case filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars.json"):
-				return nil, nil // Simulate file exists
+				return nil, nil
 			case filepath.FromSlash("/mock/config/root/terraform/project/path_generated.tfvars"):
-				return nil, os.ErrNotExist // Simulate file does not exist
+				return nil, os.ErrNotExist
 			case filepath.FromSlash("/mock/config/root/terraform/project/path_generated.tfvars.json"):
-				return nil, os.ErrNotExist // Simulate file does not exist
+				return nil, os.ErrNotExist
 			default:
-				return nil, os.ErrNotExist // Simulate file does not exist
+				return nil, os.ErrNotExist
 			}
 		}
 
-		// When the GetEnvVars function is called
+		// When getting environment variables
 		envVars, err := terraformEnvPrinter.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Debugging: Print the actual envVars on Windows
-		for key, value := range envVars {
-			t.Logf("envVar[%s] = %s", key, value)
-		}
-
-		// Then the expected environment variables should be set
+		// And environment variables should be set correctly
 		for key, expectedValue := range expectedEnvVars {
 			if value, exists := envVars[key]; !exists || value != expectedValue {
 				t.Errorf("Expected %s to be %s, got %s", key, expectedValue, value)
@@ -137,7 +143,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorGettingProjectPath", func(t *testing.T) {
-		// Mock the getwd function to simulate an error
+		// Given a new TerraformEnvPrinter with failing current directory lookup
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
@@ -145,13 +151,13 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 
 		mocks := setupSafeTerraformEnvMocks()
-
-		// When the GetEnvVars function is called
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
+
+		// When getting environment variables
 		_, err := terraformEnvPrinter.GetEnvVars()
 
-		// Then the error should contain the expected message
+		// Then appropriate error should be returned
 		if err == nil {
 			t.Errorf("Expected error, got nil")
 		}
@@ -161,44 +167,44 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("NoProjectPathFound", func(t *testing.T) {
-		// Given a mocked getwd function returning a specific path
+		// Given a new TerraformEnvPrinter with no Terraform project path
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
 			return filepath.FromSlash("/mock/project/root"), nil
 		}
 		mocks := setupSafeTerraformEnvMocks()
-
-		// When the GetEnvVars function is called
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
+
+		// When getting environment variables
 		envVars, err := terraformEnvPrinter.GetEnvVars()
 
-		// Then it should return an empty map without an error
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And an empty map should be returned
 		if envVars == nil {
 			t.Errorf("Expected an empty map, got nil")
 		}
 		if len(envVars) != 0 {
 			t.Errorf("Expected empty map, got %v", envVars)
 		}
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
 	})
 
 	t.Run("ResetEnvVarsWhenNoProjectPathFound", func(t *testing.T) {
-		// Given a mocked getwd function returning a specific path
+		// Given a new TerraformEnvPrinter with existing environment variables
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
 			return filepath.FromSlash("/mock/project/root"), nil
 		}
 
-		// And some environment variables that should be reset
 		originalLookupEnv := osLookupEnv
 		defer func() { osLookupEnv = originalLookupEnv }()
 		osLookupEnv = func(key string) (string, bool) {
-			// Simulate that TF_DATA_DIR and TF_CLI_ARGS_init exist in environment
 			if key == "TF_DATA_DIR" || key == "TF_CLI_ARGS_init" {
 				return "some-value", true
 			}
@@ -206,13 +212,18 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 
 		mocks := setupSafeTerraformEnvMocks()
-
-		// When the GetEnvVars function is called
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
+
+		// When getting environment variables
 		envVars, err := terraformEnvPrinter.GetEnvVars()
 
-		// Then it should return a map with only the variables that need to be reset
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And environment variables should be reset
 		if envVars == nil {
 			t.Errorf("Expected a map with reset variables, got nil")
 		}
@@ -225,30 +236,28 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		if val, exists := envVars["TF_CLI_ARGS_init"]; !exists || val != "" {
 			t.Errorf("Expected TF_CLI_ARGS_init to be empty string, got %v", val)
 		}
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
 	})
 
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
+		// Given a new TerraformEnvPrinter with failing config root lookup
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting config root")
 		}
 
-		// Given a mocked getwd function simulating being in a terraform project root
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
 			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
 		}
 
-		// When the GetEnvVars function is called
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
+
+		// When getting environment variables
 		_, err := terraformEnvPrinter.GetEnvVars()
 
-		// Then the error should be as expected
+		// Then appropriate error should be returned
 		expectedErrorMessage := "error getting config root: mock error getting config root"
 		if err == nil || err.Error() != expectedErrorMessage {
 			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
@@ -256,6 +265,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ErrorListingTfvarsFiles", func(t *testing.T) {
+		// Given a new TerraformEnvPrinter with failing file stat
 		mocks := setupSafeTerraformEnvMocks()
 		mocks.ConfigHandler.GetContextFunc = func() string {
 			return "mockContext"
@@ -264,14 +274,12 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			return &v1alpha1.Context{}
 		}
 
-		// Given a mocked getwd function simulating being in a terraform project root
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
 			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
 		}
 
-		// And a mocked glob function succeeding for *.tf files
 		originalGlob := glob
 		defer func() { glob = originalGlob }()
 		glob = func(pattern string) ([]string, error) {
@@ -281,19 +289,19 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			return nil, nil
 		}
 
-		// And a mocked stat function returning an error other than os.IsNotExist
 		originalStat := stat
 		defer func() { stat = originalStat }()
 		stat = func(name string) (os.FileInfo, error) {
 			return nil, fmt.Errorf("mock error checking file")
 		}
 
-		// When the GetEnvVars function is called
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
+
+		// When getting environment variables
 		_, err := terraformEnvPrinter.GetEnvVars()
 
-		// Then the error should be as expected
+		// Then appropriate error should be returned
 		expectedErrorMessage := "error checking file: mock error checking file"
 		if err == nil || err.Error() != expectedErrorMessage {
 			t.Errorf("Expected error %q, got %v", expectedErrorMessage, err)
@@ -301,6 +309,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("TestWindows", func(t *testing.T) {
+		// Given a new TerraformEnvPrinter on Windows
 		originalGoos := goos
 		defer func() { goos = originalGoos }()
 		goos = func() string {
@@ -311,14 +320,13 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		terraformEnvPrinter := NewTerraformEnvPrinter(mocks.Injector)
 		terraformEnvPrinter.Initialize()
 
-		// Mock the getwd function to simulate being in a terraform project path
+		// And mock filesystem operations
 		originalGetwd := getwd
 		defer func() { getwd = originalGetwd }()
 		getwd = func() (string, error) {
 			return filepath.FromSlash("/mock/project/root/terraform/project/path"), nil
 		}
 
-		// Mock the glob function to simulate the presence of *.tf files
 		originalGlob := glob
 		defer func() { glob = originalGlob }()
 		glob = func(pattern string) ([]string, error) {
@@ -328,23 +336,24 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			return nil, nil
 		}
 
-		// Mock the stat function to simulate the existence of tfvars files
 		originalStat := stat
 		defer func() { stat = originalStat }()
 		stat = func(name string) (os.FileInfo, error) {
 			if name == filepath.FromSlash("/mock/config/root/terraform/project/path.tfvars") {
-				return nil, nil // Simulate file exists
+				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		// Mock the GetEnvVars function to verify it returns the correct envVars
+		// When getting environment variables
 		envVars, err := terraformEnvPrinter.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 
-		// Verify that GetEnvVars returns the correct envVars
+		// And OS type should be set correctly
 		expectedEnvVars := map[string]string{
 			"TF_VAR_os_type": "windows",
 		}

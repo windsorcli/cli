@@ -13,12 +13,19 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+// TalosEnvMocks holds all mock objects used in Talos environment tests
 type TalosEnvMocks struct {
 	Injector      di.Injector
 	ConfigHandler *config.MockConfigHandler
 	Shell         *shell.MockShell
 }
 
+// setupSafeTalosEnvMocks creates and configures mock objects for Talos environment tests.
+// It accepts an optional injector parameter and returns initialized TalosEnvMocks.
 func setupSafeTalosEnvMocks(injector ...di.Injector) *TalosEnvMocks {
 	var mockInjector di.Injector
 	if len(injector) > 0 {
@@ -44,8 +51,14 @@ func setupSafeTalosEnvMocks(injector ...di.Injector) *TalosEnvMocks {
 	}
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestTalosEnv_GetEnvVars tests the GetEnvVars method of the TalosEnvPrinter
 func TestTalosEnv_GetEnvVars(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Given a new TalosEnvPrinter with existing Talos config
 		mocks := setupSafeTalosEnvMocks()
 
 		originalStat := stat
@@ -60,11 +73,15 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 		talosEnvPrinter := NewTalosEnvPrinter(mocks.Injector)
 		talosEnvPrinter.Initialize()
 
+		// When getting environment variables
 		envVars, err := talosEnvPrinter.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
+		// And TALOSCONFIG should be set correctly
 		expectedPath := filepath.FromSlash("/mock/config/root/.talos/config")
 		if envVars["TALOSCONFIG"] != expectedPath {
 			t.Errorf("TALOSCONFIG = %v, want %v", envVars["TALOSCONFIG"], expectedPath)
@@ -72,6 +89,7 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("NoTalosConfig", func(t *testing.T) {
+		// Given a new TalosEnvPrinter without existing Talos config
 		mocks := setupSafeTalosEnvMocks()
 
 		originalStat := stat
@@ -83,11 +101,15 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 		talosEnvPrinter := NewTalosEnvPrinter(mocks.Injector)
 		talosEnvPrinter.Initialize()
 
+		// When getting environment variables
 		envVars, err := talosEnvPrinter.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
+		// And TALOSCONFIG should still be set to default path
 		expectedPath := filepath.FromSlash("/mock/config/root/.talos/config")
 		if envVars["TALOSCONFIG"] != expectedPath {
 			t.Errorf("TALOSCONFIG = %v, want %v", envVars["TALOSCONFIG"], expectedPath)
@@ -95,6 +117,7 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("GetConfigRootError", func(t *testing.T) {
+		// Given a new TalosEnvPrinter with failing config root lookup
 		mocks := setupSafeTalosEnvMocks()
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock config error")
@@ -103,42 +126,47 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 		talosEnvPrinter := NewTalosEnvPrinter(mocks.Injector)
 		talosEnvPrinter.Initialize()
 
+		// When getting environment variables
 		_, err := talosEnvPrinter.GetEnvVars()
+
+		// Then appropriate error should be returned
 		if err == nil || err.Error() != "error retrieving configuration root directory: mock config error" {
 			t.Errorf("expected error retrieving configuration root directory, got %v", err)
 		}
 	})
 }
 
+// TestTalosEnv_Print tests the Print method of the TalosEnvPrinter
 func TestTalosEnv_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Use setupSafeTalosEnvMocks to create mocks
+		// Given a new TalosEnvPrinter with existing Talos config
 		mocks := setupSafeTalosEnvMocks()
-		mockInjector := mocks.Injector
-		talosEnvPrinter := NewTalosEnvPrinter(mockInjector)
+		talosEnvPrinter := NewTalosEnvPrinter(mocks.Injector)
 		talosEnvPrinter.Initialize()
 
-		// Mock the stat function to simulate the existence of the talos config file
+		// And Talos config file exists
 		stat = func(name string) (os.FileInfo, error) {
 			if name == filepath.FromSlash("/mock/config/root/.talos/config") {
-				return nil, nil // Simulate that the file exists
+				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
+		// And PrintEnvVarsFunc is mocked
 		var capturedEnvVars map[string]string
 		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
 		}
 
-		// Call Print and check for errors
+		// When calling Print
 		err := talosEnvPrinter.Print()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 
-		// Verify that PrintEnvVarsFunc was called with the correct envVars
+		// And environment variables should be set correctly
 		expectedEnvVars := map[string]string{
 			"TALOSCONFIG": filepath.FromSlash("/mock/config/root/.talos/config"),
 		}
@@ -148,21 +176,19 @@ func TestTalosEnv_Print(t *testing.T) {
 	})
 
 	t.Run("GetConfigError", func(t *testing.T) {
-		// Use setupSafeTalosEnvMocks to create mocks
+		// Given a new TalosEnvPrinter with failing config lookup
 		mocks := setupSafeTalosEnvMocks()
-
-		// Override the GetConfigFunc to simulate an error
 		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock config error")
 		}
 
-		mockInjector := mocks.Injector
-
-		talosEnvPrinter := NewTalosEnvPrinter(mockInjector)
+		talosEnvPrinter := NewTalosEnvPrinter(mocks.Injector)
 		talosEnvPrinter.Initialize()
 
-		// Call Print and check for errors
+		// When calling Print
 		err := talosEnvPrinter.Print()
+
+		// Then appropriate error should be returned
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if !strings.Contains(err.Error(), "mock config error") {

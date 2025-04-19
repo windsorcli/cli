@@ -13,12 +13,19 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+// WindsorEnvMocks holds all mock objects used in Windsor environment tests
 type WindsorEnvMocks struct {
 	Injector      di.Injector
 	ConfigHandler *config.MockConfigHandler
 	Shell         *shell.MockShell
 }
 
+// setupSafeWindsorEnvMocks creates and configures mock objects for Windsor environment tests.
+// It accepts an optional injector parameter and returns initialized WindsorEnvMocks.
 func setupSafeWindsorEnvMocks(injector ...di.Injector) *WindsorEnvMocks {
 	var mockInjector di.Injector
 	if len(injector) > 0 {
@@ -81,6 +88,11 @@ func (c *customMockInjector) ResolveAll(targetType any) ([]any, error) {
 	return c.MockInjector.ResolveAll(targetType)
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestWindsorEnv_GetEnvVars tests the GetEnvVars method of the WindsorEnvPrinter
 func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	originalOsLookupEnv := osLookupEnv
 	defer func() {
@@ -94,13 +106,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	t.Setenv("NO_CACHE", "")
 
 	t.Run("Success", func(t *testing.T) {
-		// Reset session token to ensure consistent behavior
+		// Given a WindsorEnvPrinter with mock dependencies and a consistent session token
 		shell.ResetSessionToken()
-
-		// Given a WindsorEnvPrinter with mock dependencies
 		mocks := setupSafeWindsorEnvMocks()
-
-		// Make the shell return a consistent mock token
 		mocks.Shell.GetSessionTokenFunc = func() (string, error) {
 			return "mock-token", nil
 		}
@@ -111,12 +119,12 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		// When GetEnvVars is called
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 
-		// Then the result should not contain an error
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// And the environment variables should contain the expected values
+		// And environment variables should contain expected values
 		expectedContext := "mock-context"
 		if envVars["WINDSOR_CONTEXT"] != expectedContext {
 			t.Errorf("Expected WINDSOR_CONTEXT to be %q, got %q", expectedContext, envVars["WINDSOR_CONTEXT"])
@@ -134,12 +142,10 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ExistingSessionToken", func(t *testing.T) {
-		// Reset session token to ensure consistent behavior
+		// Given a WindsorEnvPrinter with mock dependencies and token regeneration
 		shell.ResetSessionToken()
-
 		mocks := setupSafeWindsorEnvMocks()
 
-		// Setup mock shell to simulate token regeneration
 		mockShell := shell.NewMockShell()
 		var callCount int
 		mockShell.GetSessionTokenFunc = func() (string, error) {
@@ -154,21 +160,25 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
 		windsorEnvPrinter.Initialize()
 
-		// First call
+		// When GetEnvVars is called twice
 		envVars, err := windsorEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
+
+		// Then the first token should be returned
 		firstToken := envVars["WINDSOR_SESSION_TOKEN"]
 		if firstToken != "first-token" {
 			t.Errorf("Expected first token to be 'first-token', got %s", firstToken)
 		}
 
-		// Second call
+		// And when called again
 		envVars, err = windsorEnvPrinter.GetEnvVars()
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
+
+		// Then a new token should be generated
 		secondToken := envVars["WINDSOR_SESSION_TOKEN"]
 		if secondToken != "regenerated-token" {
 			t.Errorf("Expected second token to be 'regenerated-token', got %s", secondToken)
@@ -176,9 +186,9 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("SessionTokenError", func(t *testing.T) {
+		// Given a WindsorEnvPrinter with failing session token generation
 		mocks := setupSafeWindsorEnvMocks()
 
-		// Setup mock shell to simulate token error
 		mockShell := shell.NewMockShell()
 		mockShell.GetSessionTokenFunc = func() (string, error) {
 			return "", fmt.Errorf("mock session token error")
@@ -188,8 +198,10 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
 		windsorEnvPrinter.Initialize()
 
-		// Call should fail with session token error
+		// When GetEnvVars is called
 		_, err := windsorEnvPrinter.GetEnvVars()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error from session token generation, got nil")
 		}
@@ -1478,52 +1490,59 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	})
 }
 
+// TestWindsorEnv_PostEnvHook tests the PostEnvHook method of the WindsorEnvPrinter
 func TestWindsorEnv_PostEnvHook(t *testing.T) {
-	t.Run("TestPostEnvHookNoError", func(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a WindsorEnvPrinter
 		windsorEnvPrinter := &WindsorEnvPrinter{}
 
+		// When PostEnvHook is called
 		err := windsorEnvPrinter.PostEnvHook()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("PostEnvHook() returned an error: %v", err)
 		}
 	})
 }
 
+// TestWindsorEnv_Print tests the Print method of the WindsorEnvPrinter
 func TestWindsorEnv_Print(t *testing.T) {
-	// Save original stat function
 	originalStat := stat
 	defer func() {
 		stat = originalStat
 	}()
 
 	t.Run("Success", func(t *testing.T) {
-		// Use setupSafeWindsorEnvMocks to create mocks
+		// Given a WindsorEnvPrinter with mock dependencies
 		mocks := setupSafeWindsorEnvMocks()
 		mockInjector := mocks.Injector
 		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
 		windsorEnvPrinter.Initialize()
 
-		// Mock the stat function to simulate the existence of the Windsor config file
+		// And a mock file system with existing Windsor config
 		stat = func(name string) (os.FileInfo, error) {
 			if filepath.Clean(name) == filepath.FromSlash("/mock/config/root/.windsor/config") {
-				return nil, nil // Simulate that the file exists
+				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
+		// And a mock PrintEnvVars function
 		var capturedEnvVars map[string]string
 		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
 		}
 
-		// Call Print and check for errors
+		// When Print is called
 		err := windsorEnvPrinter.Print()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 
-		// Verify the core Windsor environment variables
+		// And core Windsor environment variables should be set correctly
 		if capturedEnvVars["WINDSOR_CONTEXT"] != "mock-context" {
 			t.Errorf("WINDSOR_CONTEXT = %q, want %q", capturedEnvVars["WINDSOR_CONTEXT"], "mock-context")
 		}
@@ -1536,7 +1555,7 @@ func TestWindsorEnv_Print(t *testing.T) {
 			t.Errorf("WINDSOR_SESSION_TOKEN is empty")
 		}
 
-		// Verify that WINDSOR_MANAGED_ENV includes the core Windsor variables
+		// And WINDSOR_MANAGED_ENV should include core Windsor variables
 		managedEnv := capturedEnvVars["WINDSOR_MANAGED_ENV"]
 		coreVars := []string{"WINDSOR_CONTEXT", "WINDSOR_PROJECT_ROOT", "WINDSOR_SESSION_TOKEN", "WINDSOR_MANAGED_ENV", "WINDSOR_MANAGED_ALIAS"}
 		for _, v := range coreVars {
@@ -1547,21 +1566,19 @@ func TestWindsorEnv_Print(t *testing.T) {
 	})
 
 	t.Run("GetProjectRootError", func(t *testing.T) {
-		// Use setupSafeWindsorEnvMocks to create mocks
+		// Given a WindsorEnvPrinter with failing project root lookup
 		mocks := setupSafeWindsorEnvMocks()
-
-		// Override the GetProjectRootFunc to simulate an error
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock project root error")
 		}
 
-		mockInjector := mocks.Injector
-
-		windsorEnvPrinter := NewWindsorEnvPrinter(mockInjector)
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Injector)
 		windsorEnvPrinter.Initialize()
 
-		// Call Print and check for errors
+		// When Print is called
 		err := windsorEnvPrinter.Print()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Error("expected error, got nil")
 		} else if !strings.Contains(err.Error(), "mock project root error") {
@@ -1570,46 +1587,44 @@ func TestWindsorEnv_Print(t *testing.T) {
 	})
 }
 
-// TestWindsorEnv_Initialize tests the Initialize method for WindsorEnvPrinter
+// TestWindsorEnv_Initialize tests the Initialize method of the WindsorEnvPrinter
 func TestWindsorEnv_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Create a mock injector
+		// Given a WindsorEnvPrinter with mock dependencies
 		injector := di.NewMockInjector()
 		mockShell := shell.NewMockShell()
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockSecretsProvider := secrets.NewMockSecretsProvider(injector)
 
-		// Register mocks in the injector
 		injector.Register("shell", mockShell)
 		injector.Register("configHandler", mockConfigHandler)
 		injector.Register("secretsProvider", mockSecretsProvider)
 
-		// Create a new WindsorEnvPrinter
 		windsorEnv := NewWindsorEnvPrinter(injector)
 
-		// Call Initialize and check for errors
+		// When Initialize is called
 		err := windsorEnv.Initialize()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("Initialize returned error: %v", err)
 		}
 
-		// Verify that secretsProviders is populated
+		// And secretsProviders should be populated
 		if len(windsorEnv.secretsProviders) != 1 {
 			t.Errorf("Expected 1 secrets provider, got %d", len(windsorEnv.secretsProviders))
 		}
 	})
 
 	t.Run("BaseInitializationError", func(t *testing.T) {
-		// Create a mock injector
+		// Given a WindsorEnvPrinter with no registered components
 		injector := di.NewMockInjector()
 
-		// Don't register any components to cause initialization error
-
-		// Create a new WindsorEnvPrinter
+		// When Initialize is called
 		windsorEnv := NewWindsorEnvPrinter(injector)
-
-		// Call Initialize and expect an error
 		err := windsorEnv.Initialize()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -1619,23 +1634,20 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 	})
 
 	t.Run("ResolveAllError", func(t *testing.T) {
-		// Create a mock injector that returns an error for ResolveAll
+		// Given a WindsorEnvPrinter with failing ResolveAll
 		mockInjector := di.NewMockInjector()
 		mockShell := shell.NewMockShell()
 		mockConfigHandler := config.NewMockConfigHandler()
 
-		// Register mocks in the injector
 		mockInjector.Register("shell", mockShell)
 		mockInjector.Register("configHandler", mockConfigHandler)
-
-		// Make ResolveAll return an error
 		mockInjector.SetResolveAllError((*secrets.SecretsProvider)(nil), fmt.Errorf("error resolving secrets providers"))
 
-		// Create a new WindsorEnvPrinter
+		// When Initialize is called
 		windsorEnv := NewWindsorEnvPrinter(mockInjector)
-
-		// Call Initialize and expect an error
 		err := windsorEnv.Initialize()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -1645,7 +1657,7 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 	})
 
 	t.Run("CastError", func(t *testing.T) {
-		// Create a custom injector that returns something that can't be cast to SecretsProvider
+		// Given a WindsorEnvPrinter with non-castable secrets provider
 		customInjector := &customMockInjector{
 			MockInjector: di.NewMockInjector(),
 		}
@@ -1653,15 +1665,14 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 		mockShell := shell.NewMockShell()
 		mockConfigHandler := config.NewMockConfigHandler()
 
-		// Register mocks in the injector
 		customInjector.Register("shell", mockShell)
 		customInjector.Register("configHandler", mockConfigHandler)
 
-		// Create a new WindsorEnvPrinter
+		// When Initialize is called
 		windsorEnv := NewWindsorEnvPrinter(customInjector)
-
-		// Call Initialize and expect an error
 		err := windsorEnv.Initialize()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -1674,7 +1685,7 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 // TestWindsorEnv_ParseAndCheckSecrets tests the parseAndCheckSecrets method
 func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Setup
+		// Given a WindsorEnvPrinter with a mock secrets provider
 		mockInjector := di.NewMockInjector()
 		mockSecretsProvider := secrets.NewMockSecretsProvider(mockInjector)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
@@ -1687,17 +1698,17 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		windsorEnv := NewWindsorEnvPrinter(mockInjector)
 		windsorEnv.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
 
-		// Call the method
+		// When parseAndCheckSecrets is called
 		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
 
-		// Verify result
+		// Then the secret should be resolved
 		if result != "value with resolved-secret" {
 			t.Errorf("Expected 'value with resolved-secret', got %q", result)
 		}
 	})
 
 	t.Run("SecretsProviderError", func(t *testing.T) {
-		// Setup
+		// Given a WindsorEnvPrinter with a failing secrets provider
 		mockInjector := di.NewMockInjector()
 		mockSecretsProvider := secrets.NewMockSecretsProvider(mockInjector)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
@@ -1707,10 +1718,10 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		windsorEnv := NewWindsorEnvPrinter(mockInjector)
 		windsorEnv.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
 
-		// Call the method with a string containing a secret
+		// When parseAndCheckSecrets is called
 		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
 
-		// Verify result
+		// Then an error message should be returned
 		if !strings.Contains(result, "<ERROR: failed to parse") {
 			t.Errorf("Expected error message containing 'failed to parse', got %q", result)
 		}
@@ -1720,25 +1731,24 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	})
 
 	t.Run("NoSecretsProviders", func(t *testing.T) {
-		// Setup
+		// Given a WindsorEnvPrinter with no secrets providers
 		mockInjector := di.NewMockInjector()
 		windsorEnv := NewWindsorEnvPrinter(mockInjector)
-		windsorEnv.secretsProviders = []secrets.SecretsProvider{} // Empty slice
+		windsorEnv.secretsProviders = []secrets.SecretsProvider{}
 
-		// Call the method with a string containing a secret
+		// When parseAndCheckSecrets is called
 		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
 
-		// Verify result
+		// Then an error message should be returned
 		if result != "<ERROR: No secrets providers configured>" {
 			t.Errorf("Expected '<ERROR: No secrets providers configured>', got %q", result)
 		}
 	})
 
 	t.Run("UnparsedSecrets", func(t *testing.T) {
-		// Setup
+		// Given a WindsorEnvPrinter with a non-recognizing secrets provider
 		mockInjector := di.NewMockInjector()
 		mockSecretsProvider := secrets.NewMockSecretsProvider(mockInjector)
-		// This provider doesn't recognize the secret pattern
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			return input, nil
 		}
@@ -1746,10 +1756,10 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		windsorEnv := NewWindsorEnvPrinter(mockInjector)
 		windsorEnv.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
 
-		// Call the method with a string containing a secret
+		// When parseAndCheckSecrets is called
 		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
 
-		// Verify result
+		// Then an error message should be returned
 		if !strings.Contains(result, "<ERROR: failed to parse") {
 			t.Errorf("Expected error message containing 'failed to parse', got %q", result)
 		}
@@ -1759,10 +1769,9 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	})
 
 	t.Run("MultipleUnparsedSecrets", func(t *testing.T) {
-		// Setup
+		// Given a WindsorEnvPrinter with a non-recognizing secrets provider
 		mockInjector := di.NewMockInjector()
 		mockSecretsProvider := secrets.NewMockSecretsProvider(mockInjector)
-		// This provider doesn't recognize any secrets
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
 			return input, nil
 		}
@@ -1770,10 +1779,10 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		windsorEnv := NewWindsorEnvPrinter(mockInjector)
 		windsorEnv.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
 
-		// Call the method with multiple secrets
+		// When parseAndCheckSecrets is called with multiple secrets
 		result := windsorEnv.parseAndCheckSecrets("value with ${{ secrets.secretA }} and ${{ secrets.secretB }}")
 
-		// Verify result
+		// Then an error message should be returned
 		if !strings.Contains(result, "<ERROR: failed to parse") {
 			t.Errorf("Expected error message containing 'failed to parse', got %q", result)
 		}

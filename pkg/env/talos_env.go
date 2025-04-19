@@ -1,3 +1,8 @@
+// The TalosEnvPrinter is a specialized component that manages Talos environment configuration.
+// It provides Talos-specific environment variable management and configuration,
+// The TalosEnvPrinter handles Talos configuration settings and environment setup,
+// ensuring proper Talos CLI integration and environment setup for operations.
+
 package env
 
 import (
@@ -7,12 +12,20 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// TalosEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
+// =============================================================================
+// Types
+// =============================================================================
+
+// TalosEnvPrinter is a struct that implements Talos environment configuration
 type TalosEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewTalosEnvPrinter initializes a new talosEnvPrinter instance using the provided dependency injector.
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewTalosEnvPrinter creates a new TalosEnvPrinter instance
 func NewTalosEnvPrinter(injector di.Injector) *TalosEnvPrinter {
 	return &TalosEnvPrinter{
 		BaseEnvPrinter: BaseEnvPrinter{
@@ -20,6 +33,10 @@ func NewTalosEnvPrinter(injector di.Injector) *TalosEnvPrinter {
 		},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // GetEnvVars retrieves the environment variables for the Talos environment.
 func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {

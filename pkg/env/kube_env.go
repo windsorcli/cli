@@ -1,3 +1,8 @@
+// The KubeEnvPrinter is a specialized component that manages Kubernetes environment configuration.
+// It provides Kubernetes-specific environment variable management and configuration,
+// The KubeEnvPrinter handles kubeconfig, context, and persistent volume configuration settings,
+// ensuring proper kubectl integration and environment setup for Kubernetes operations.
+
 package env
 
 import (
@@ -15,12 +20,20 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// KubeEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
+// =============================================================================
+// Types
+// =============================================================================
+
+// KubeEnvPrinter is a struct that implements Kubernetes environment configuration
 type KubeEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewKubeEnv initializes a new kubeEnv instance using the provided dependency injector.
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewKubeEnvPrinter creates a new KubeEnvPrinter instance
 func NewKubeEnvPrinter(injector di.Injector) *KubeEnvPrinter {
 	return &KubeEnvPrinter{
 		BaseEnvPrinter: BaseEnvPrinter{
@@ -28,6 +41,10 @@ func NewKubeEnvPrinter(injector di.Injector) *KubeEnvPrinter {
 		},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // GetEnvVars constructs a map of Kubernetes environment variables by setting
 // KUBECONFIG and KUBE_CONFIG_PATH based on the configuration root directory.
@@ -122,8 +139,9 @@ func (e *KubeEnvPrinter) Print() error {
 	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure kubeEnv implements the EnvPrinter interface
-var _ EnvPrinter = (*KubeEnvPrinter)(nil)
+// =============================================================================
+// Private Methods
+// =============================================================================
 
 // sanitizeEnvVar converts a string to uppercase, trims whitespace, and replaces invalid characters with underscores.
 func sanitizeEnvVar(input string) string {
@@ -153,3 +171,6 @@ var queryPersistentVolumeClaims = func(kubeConfigPath string) (*corev1.Persisten
 
 	return pvcs, nil
 }
+
+// Ensure KubeEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*KubeEnvPrinter)(nil)
