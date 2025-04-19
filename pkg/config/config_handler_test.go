@@ -22,13 +22,34 @@ type Mocks struct {
 	ConfigHandler   *ConfigHandler
 	Shell           *shell.MockShell
 	SecretsProvider *secrets.MockSecretsProvider
+	Shims           *Shims
 }
 
 type SetupOptions struct {
-	Injector        di.Injector
-	ConfigHandler   ConfigHandler
-	ConfigStr       string
-	SecretsProvider *secrets.MockSecretsProvider
+	Injector      di.Injector
+	ConfigHandler ConfigHandler
+	ConfigStr     string
+}
+
+func setupShims(t *testing.T) *Shims {
+	t.Helper()
+	shims := NewShims()
+	shims.Stat = func(name string) (os.FileInfo, error) {
+		return nil, nil
+	}
+	shims.ReadFile = func(filename string) ([]byte, error) {
+		return []byte("dummy: data"), nil
+	}
+	shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+		return nil
+	}
+	shims.Getenv = func(key string) string {
+		if key == "WINDSOR_CONTEXT" {
+			return "test"
+		}
+		return ""
+	}
+	return shims
 }
 
 // Global test setup helper that creates a temporary directory and mocks
@@ -57,13 +78,13 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		injector = di.NewInjector()
 	}
 
-	mockShell := &shell.MockShell{}
+	mockShell := shell.NewMockShell(injector)
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return tmpDir, nil
 	}
 	injector.Register("shell", mockShell)
 
-	mockSecretsProvider := &secrets.MockSecretsProvider{}
+	mockSecretsProvider := secrets.NewMockSecretsProvider(injector)
 	injector.Register("secretsProvider", mockSecretsProvider)
 
 	mockConfigHandler := NewMockConfigHandler()
@@ -72,30 +93,9 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	}
 	injector.Register("configHandler", mockConfigHandler)
 
-	osStat = func(name string) (os.FileInfo, error) {
-		return nil, nil
-	}
-	osReadFile = func(filename string) ([]byte, error) {
-		return []byte("dummy: data"), nil
-	}
-	osWriteFile = func(name string, data []byte, perm os.FileMode) error {
-		return nil
-	}
-	osMkdirAll = func(path string, perm os.FileMode) error {
-		return nil
-	}
-
-	originalOsStat := osStat
-	originalOsReadFile := osReadFile
-	originalOsWriteFile := osWriteFile
-	originalOsMkdirAll := osMkdirAll
+	mockShims := setupShims(t)
 
 	t.Cleanup(func() {
-		osStat = originalOsStat
-		osReadFile = originalOsReadFile
-		osWriteFile = originalOsWriteFile
-		osMkdirAll = originalOsMkdirAll
-
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
 
 		if err := os.Chdir(origDir); err != nil {
@@ -107,6 +107,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		Shell:           mockShell,
 		SecretsProvider: mockSecretsProvider,
 		Injector:        injector,
+		Shims:           mockShims,
 	}
 }
 
@@ -114,44 +115,59 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 // Test Public Methods
 // =============================================================================
 
+// TestBaseConfigHandler_Initialize tests the initialization of the BaseConfigHandler
 func TestBaseConfigHandler_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a properly configured dependency injector with required services
+	setup := func(t *testing.T) (*BaseConfigHandler, *Mocks) {
 		mocks := setupMocks(t)
-
-		// When initializing a new BaseConfigHandler
 		handler := NewBaseConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a properly configured BaseConfigHandler
+		handler, _ := setup(t)
+
+		// When Initialize is called
 		err := handler.Initialize()
 
-		// Then initialization should complete without errors
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Given a dependency injector with a missing shell component
-		mocks := setupMocks(t)
+		// Given a BaseConfigHandler with a missing shell component
+		handler, mocks := setup(t)
 		mocks.Injector.Register("shell", nil)
 
-		// When initializing a BaseConfigHandler with the incomplete injector
-		handler := NewBaseConfigHandler(mocks.Injector)
+		// When Initialize is called
 		err := handler.Initialize()
 
-		// Then an error should be returned due to missing shell dependency
+		// Then an error should be returned
 		if err == nil {
 			t.Errorf("Expected error when resolving shell, got nil")
 		}
 	})
 }
 
+// TestConfigHandler_IsLoaded tests the IsLoaded method of the ConfigHandler
 func TestConfigHandler_IsLoaded(t *testing.T) {
-	t.Run("IsLoadedTrue", func(t *testing.T) {
-		// Given a config handler with loaded state set to true
-		configHandler := &BaseConfigHandler{loaded: true}
+	setup := func(t *testing.T) (*BaseConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewBaseConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
 
-		// When checking if the configuration is loaded
-		isLoaded := configHandler.IsLoaded()
+	t.Run("IsLoadedTrue", func(t *testing.T) {
+		// Given a ConfigHandler with loaded=true
+		handler, _ := setup(t)
+		handler.loaded = true
+
+		// When IsLoaded is called
+		isLoaded := handler.IsLoaded()
 
 		// Then it should return true
 		if !isLoaded {
@@ -160,11 +176,12 @@ func TestConfigHandler_IsLoaded(t *testing.T) {
 	})
 
 	t.Run("IsLoadedFalse", func(t *testing.T) {
-		// Given a config handler with loaded state set to false
-		configHandler := &BaseConfigHandler{loaded: false}
+		// Given a ConfigHandler with loaded=false
+		handler, _ := setup(t)
+		handler.loaded = false
 
-		// When checking if the configuration is loaded
-		isLoaded := configHandler.IsLoaded()
+		// When IsLoaded is called
+		isLoaded := handler.IsLoaded()
 
 		// Then it should return false
 		if isLoaded {
@@ -173,114 +190,100 @@ func TestConfigHandler_IsLoaded(t *testing.T) {
 	})
 }
 
+// TestBaseConfigHandler_GetContext tests the GetContext method of the BaseConfigHandler
 func TestBaseConfigHandler_GetContext(t *testing.T) {
-	// Reset all mocks before each test
-	defer func() {
-		osGetenv = os.Getenv
-	}()
+	setup := func(t *testing.T) (*BaseConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewBaseConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a valid project root and a context file
-		mocks := setupMocks(t)
+		// Given a properly configured BaseConfigHandler with a context file
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
-
-		// And a mock file system that returns a specific context value
-		osReadFile = func(filename string) ([]byte, error) {
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
 			if filename == filepath.Join("/mock/project/root", ".windsor", "context") {
 				return []byte("test-context"), nil
 			}
 			return nil, fmt.Errorf("file not found")
 		}
-
-		// And successful directory creation
-		osMkdirAll = func(path string, perm os.FileMode) error {
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
 			if path == filepath.Join("/mock/project/root", ".windsor") {
 				return nil
 			}
 			return fmt.Errorf("error creating directory")
 		}
-
-		// And no context specified in environment variables
-		osGetenv = func(key string) string {
+		mocks.Shims.Getenv = func(key string) string {
 			return ""
 		}
-
-		// When initializing the config handler and retrieving the context
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		contextValue := configHandler.GetContext()
 
-		// Then the context from the file should be returned
+		// When GetContext is called
+		contextValue := handler.GetContext()
+
+		// Then it should return the context from the file
 		if contextValue != "test-context" {
 			t.Errorf("expected context 'test-context', got %s", contextValue)
 		}
 	})
 
 	t.Run("EmptyContextFile", func(t *testing.T) {
-		// Given a mock shell with a valid project root
-		mocks := setupMocks(t)
+		// Given a BaseConfigHandler with an empty context file
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
-
-		// And a mock file system that returns an empty context file
-		osReadFile = func(filename string) ([]byte, error) {
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
 			if filename == filepath.Join("/mock/project/root", ".windsor", "context") {
 				return []byte(""), nil
 			}
 			return nil, fmt.Errorf("file not found")
 		}
-
-		// And no context specified in environment variables
-		osGetenv = func(key string) string {
+		mocks.Shims.Getenv = func(key string) string {
 			return ""
 		}
-
-		// When initializing the config handler and retrieving the context
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		contextValue := configHandler.GetContext()
 
-		// Then an empty context should be returned
+		// When GetContext is called
+		contextValue := handler.GetContext()
+
+		// Then it should return an empty string
 		if contextValue != "" {
 			t.Errorf("expected empty context for empty file, got %s", contextValue)
 		}
 	})
 
 	t.Run("GetContextDefaultsToLocal", func(t *testing.T) {
-		// Given a mock shell with a valid project root but no context file
-		mocks := setupMocks(t)
+		// Given a BaseConfigHandler with no context file
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
-
-		// And a mock file system that simulates no context file
-		osReadFile = func(_ string) ([]byte, error) {
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
 			return nil, fmt.Errorf("file not found")
 		}
-
-		// And no context specified in environment variables
-		osGetenv = func(key string) string {
+		mocks.Shims.Getenv = func(key string) string {
 			return ""
 		}
-
-		// When initializing the config handler and retrieving the context
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		actualContext := configHandler.GetContext()
 
-		// Then the context should default to "local"
+		// When GetContext is called
+		actualContext := handler.GetContext()
+
+		// Then it should default to "local"
 		expectedContext := "local"
 		if actualContext != expectedContext {
 			t.Errorf("Expected context %q, got %q", expectedContext, actualContext)
@@ -288,55 +291,49 @@ func TestBaseConfigHandler_GetContext(t *testing.T) {
 	})
 
 	t.Run("GetProjectRootError", func(t *testing.T) {
-		// Given a mock shell that fails to get project root
-		mocks := setupMocks(t)
+		// Given a BaseConfigHandler with a GetProjectRoot error
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("project root error")
 		}
-
-		// And no context specified in environment variables
-		osGetenv = func(key string) string {
+		mocks.Shims.Getenv = func(key string) string {
 			return ""
 		}
-
-		// When initializing the config handler and retrieving the context
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		contextValue := configHandler.GetContext()
 
-		// Then the default "local" context should be returned
+		// When GetContext is called
+		contextValue := handler.GetContext()
+
+		// Then it should default to "local"
 		if contextValue != "local" {
 			t.Errorf("expected context 'local' when GetProjectRoot fails, got %s", contextValue)
 		}
 	})
 
 	t.Run("ContextAlreadyDefined", func(t *testing.T) {
-		// Given a context defined in environment variables
-		osGetenv = func(key string) string {
+		// Given a BaseConfigHandler with a predefined context in environment
+		handler, mocks := setup(t)
+		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_CONTEXT" {
 				return "predefined-context"
 			}
 			return ""
 		}
-
-		// And a mock shell with a valid project root
-		mocks := setupMocks(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
-
-		// When initializing the config handler and retrieving the context
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		actualContext := configHandler.GetContext()
 
-		// Then the context from the environment variable should be returned
+		// When GetContext is called
+		actualContext := handler.GetContext()
+
+		// Then it should return the predefined context
 		expectedContext := "predefined-context"
 		if actualContext != expectedContext {
 			t.Errorf("Expected context %q, got %q", expectedContext, actualContext)
@@ -344,37 +341,40 @@ func TestBaseConfigHandler_GetContext(t *testing.T) {
 	})
 }
 
+// TestConfigHandler_SetContext tests the SetContext method of the ConfigHandler
 func TestConfigHandler_SetContext(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a valid project root
+	setup := func(t *testing.T) (*BaseConfigHandler, *Mocks) {
 		mocks := setupMocks(t)
+		handler := NewBaseConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a properly configured BaseConfigHandler
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
-
-		// And a mock file system that allows directory creation
-		osMkdirAll = func(path string, perm os.FileMode) error {
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
 			if path == filepath.Join("/mock/project/root", ".windsor") {
 				return nil
 			}
 			return fmt.Errorf("error creating directory")
 		}
-
-		// And a mock file system that allows writing to the context file
-		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
 			if filename == filepath.Join("/mock/project/root", ".windsor", "context") && string(data) == "new-context" {
 				return nil
 			}
 			return fmt.Errorf("error writing file")
 		}
-
-		// When initializing a config handler and setting a new context
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		err = configHandler.SetContext("new-context")
+
+		// When SetContext is called with a new context
+		err = handler.SetContext("new-context")
 
 		// Then no error should be returned
 		if err != nil {
@@ -383,122 +383,144 @@ func TestConfigHandler_SetContext(t *testing.T) {
 	})
 
 	t.Run("GetProjectRootError", func(t *testing.T) {
-		// Given a mock shell that fails to get project root
-		mocks := setupMocks(t)
+		// Given a BaseConfigHandler with a GetProjectRoot error
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mocked error inside GetProjectRoot")
 		}
-
-		// When initializing a config handler and attempting to set a context
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		err = configHandler.SetContext("new-context")
 
-		// Then an error about project root should be returned
+		// When SetContext is called
+		err = handler.SetContext("new-context")
+
+		// Then an error should be returned
 		if err == nil || err.Error() != "error getting project root: mocked error inside GetProjectRoot" {
 			t.Fatalf("expected error 'error getting project root: mocked error inside GetProjectRoot', got %v", err)
 		}
 	})
 
 	t.Run("MkdirAllError", func(t *testing.T) {
-		// Given a mock shell with a valid project root
-		mocks := setupMocks(t)
+		// Given a BaseConfigHandler with a MkdirAll error
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
-
-		// And a mock file system that fails to create directories
-		osMkdirAll = func(path string, perm os.FileMode) error {
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return fmt.Errorf("error creating directory")
 		}
-
-		// When initializing a config handler and attempting to set a context
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		err = configHandler.SetContext("new-context")
 
-		// Then an error about directory creation should be returned
+		// When SetContext is called
+		err = handler.SetContext("new-context")
+
+		// Then an error should be returned
 		if err == nil || err.Error() != "error ensuring context directory exists: error creating directory" {
 			t.Fatalf("expected error 'error ensuring context directory exists: error creating directory', got %v", err)
 		}
 	})
 
 	t.Run("WriteFileError", func(t *testing.T) {
-		// Given a mock shell with a valid project root
-		mocks := setupMocks(t)
+		// Given a BaseConfigHandler with a WriteFile error
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
-
-		// And a mock file system that allows directory creation
-		osMkdirAll = func(path string, perm os.FileMode) error {
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
 		}
-
-		// But a mock file system that fails to write files
-		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
 			return fmt.Errorf("error writing file")
 		}
-
-		// When initializing a config handler and attempting to set a context
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		err = configHandler.SetContext("new-context")
 
-		// Then an error about file writing should be returned
+		// When SetContext is called
+		err = handler.SetContext("new-context")
+
+		// Then an error should be returned
 		if err == nil || err.Error() != "error writing context to file: error writing file" {
 			t.Fatalf("expected error 'error writing context to file: error writing file', got %v", err)
 		}
 	})
-}
 
-func TestConfigHandler_GetConfigRoot(t *testing.T) {
-	// Reset all mocks after each test
-	defer func() {
-		osGetenv = os.Getenv
-	}()
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a valid project root
-		mocks := setupMocks(t)
+	t.Run("SetenvError", func(t *testing.T) {
+		// Given a BaseConfigHandler with a Setenv error
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+		mocks.Shims.Setenv = func(key, value string) error {
+			return fmt.Errorf("setenv error")
+		}
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
 
-		// And a mock file system that returns the test context
-		osReadFile = func(filename string) ([]byte, error) {
+		// When SetContext is called
+		err = handler.SetContext("test-context")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("expected error, got none")
+		}
+		expectedError := "error setting WINDSOR_CONTEXT environment variable: setenv error"
+		if err.Error() != expectedError {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+}
+
+// TestConfigHandler_GetConfigRoot tests the GetConfigRoot method of the ConfigHandler
+func TestConfigHandler_GetConfigRoot(t *testing.T) {
+	setup := func(t *testing.T) (*BaseConfigHandler, *Mocks) {
+		mocks := setupMocks(t)
+		handler := NewBaseConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a properly configured BaseConfigHandler with a context
+		handler, mocks := setup(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/mock/project/root", nil
+		}
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
 			if filename == filepath.Join("/mock/project/root", ".windsor", "context") {
 				return []byte("test-context"), nil
 			}
 			return nil, fmt.Errorf("error reading file")
 		}
-
-		// And a context specified in environment variables
-		osGetenv = func(key string) string {
+		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_CONTEXT" {
 				return "test-context"
 			}
 			return ""
 		}
-
-		// When initializing the config handler and getting the config root path
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		configRoot, err := configHandler.GetConfigRoot()
 
-		// Then the correct config root path should be returned without error
+		// When GetConfigRoot is called
+		configRoot, err := handler.GetConfigRoot()
+
+		// Then it should return the correct config root path
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -509,21 +531,20 @@ func TestConfigHandler_GetConfigRoot(t *testing.T) {
 	})
 
 	t.Run("GetProjectRootError", func(t *testing.T) {
-		// Given a mock shell that fails to get project root
-		mocks := setupMocks(t)
+		// Given a BaseConfigHandler with a GetProjectRoot error
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error getting project root")
 		}
-
-		// When initializing the config handler and attempting to get the config root
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		_, err = configHandler.GetConfigRoot()
 
-		// Then an error about project root should be returned
+		// When GetConfigRoot is called
+		_, err = handler.GetConfigRoot()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("expected error, got none")
 		}
@@ -534,31 +555,31 @@ func TestConfigHandler_GetConfigRoot(t *testing.T) {
 	})
 }
 
+// TestConfigHandler_Clean tests the Clean method of the ConfigHandler
 func TestConfigHandler_Clean(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a mock shell with a valid project root
+	setup := func(t *testing.T) (*BaseConfigHandler, *Mocks) {
 		mocks := setupMocks(t)
+		handler := NewBaseConfigHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		return handler, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a properly configured BaseConfigHandler
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
-
-		// And a mock file system where the directory exists
-		osStat = func(_ string) (os.FileInfo, error) {
-			return nil, nil
-		}
-
-		// And a mock file system that allows directory deletion
-		osRemoveAll = func(path string) error {
+		mocks.Shims.RemoveAll = func(path string) error {
 			return nil
 		}
-
-		// When initializing a config handler and cleaning resources
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		err = configHandler.Clean()
+
+		// When Clean is called
+		err = handler.Clean()
 
 		// Then no error should be returned
 		if err != nil {
@@ -567,21 +588,20 @@ func TestConfigHandler_Clean(t *testing.T) {
 	})
 
 	t.Run("ErrorGettingConfigRoot", func(t *testing.T) {
-		// Given a mock shell that fails to get project root
-		mocks := setupMocks(t)
+		// Given a BaseConfigHandler with a GetProjectRoot error
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error getting project root")
 		}
-
-		// When initializing a config handler and attempting to clean resources
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		err = configHandler.Clean()
 
-		// Then an error about config root should be returned
+		// When Clean is called
+		err = handler.Clean()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("expected error, got none")
 		}
@@ -592,31 +612,23 @@ func TestConfigHandler_Clean(t *testing.T) {
 	})
 
 	t.Run("ErrorDeletingDirectory", func(t *testing.T) {
-		// Given a mock shell with a valid project root
-		mocks := setupMocks(t)
+		// Given a BaseConfigHandler with a RemoveAll error
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "/mock/project/root", nil
 		}
-
-		// And a mock file system where the directory exists
-		osStat = func(_ string) (os.FileInfo, error) {
-			return nil, nil
-		}
-
-		// But a mock file system that fails to delete directories
-		osRemoveAll = func(path string) error {
+		mocks.Shims.RemoveAll = func(path string) error {
 			return fmt.Errorf("error deleting %s", path)
 		}
-
-		// When initializing a config handler and attempting to clean resources
-		configHandler := NewBaseConfigHandler(mocks.Injector)
-		err := configHandler.Initialize()
+		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		err = configHandler.Clean()
 
-		// Then an error about directory deletion should be returned
+		// When Clean is called
+		err = handler.Clean()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("expected error, got none")
 		}

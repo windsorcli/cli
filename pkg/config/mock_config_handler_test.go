@@ -463,14 +463,15 @@ func TestMockConfigHandler_GetConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("GetConfig_NoFuncSet", func(t *testing.T) {
+	t.Run("NoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without GetConfigFunc set
 		mockHandler := NewMockConfigHandler()
-
-		// Ensure GetConfigFunc is not set
 		mockHandler.GetConfigFunc = nil
 
-		// Call GetConfig and expect a reasonable default context
+		// When GetConfig is called
 		config := mockHandler.GetConfig()
+
+		// Then an empty Context should be returned
 		if !reflect.DeepEqual(config, &v1alpha1.Context{}) {
 			t.Errorf("Expected GetConfig to return empty Context, got %v", config)
 		}

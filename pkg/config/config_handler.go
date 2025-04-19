@@ -47,12 +47,14 @@ const (
 
 // BaseConfigHandler is a base implementation of the ConfigHandler interface
 type BaseConfigHandler struct {
+	ConfigHandler
 	injector         di.Injector
 	shell            shell.Shell
 	config           v1alpha1.Config
 	context          string
 	secretsProviders []secrets.SecretsProvider
 	loaded           bool
+	shims            *Shims
 }
 
 // =============================================================================
@@ -61,7 +63,10 @@ type BaseConfigHandler struct {
 
 // NewBaseConfigHandler creates a new BaseConfigHandler instance
 func NewBaseConfigHandler(injector di.Injector) *BaseConfigHandler {
-	return &BaseConfigHandler{injector: injector}
+	return &BaseConfigHandler{
+		injector: injector,
+		shims:    NewShims(),
+	}
 }
 
 // =============================================================================
@@ -82,7 +87,7 @@ func (c *BaseConfigHandler) Initialize() error {
 func (c *BaseConfigHandler) GetContext() string {
 	contextName := "local"
 
-	envContext := osGetenv("WINDSOR_CONTEXT")
+	envContext := c.shims.Getenv("WINDSOR_CONTEXT")
 	if envContext != "" {
 		c.context = envContext
 	} else {
@@ -91,7 +96,7 @@ func (c *BaseConfigHandler) GetContext() string {
 			c.context = contextName
 		} else {
 			contextFilePath := filepath.Join(projectRoot, windsorDirName, contextFileName)
-			data, err := osReadFile(contextFilePath)
+			data, err := c.shims.ReadFile(contextFilePath)
 			if err != nil {
 				c.context = contextName
 			} else {
@@ -111,17 +116,17 @@ func (c *BaseConfigHandler) SetContext(context string) error {
 	}
 
 	contextDirPath := filepath.Join(projectRoot, windsorDirName)
-	if err := osMkdirAll(contextDirPath, 0755); err != nil {
+	if err := c.shims.MkdirAll(contextDirPath, 0755); err != nil {
 		return fmt.Errorf("error ensuring context directory exists: %w", err)
 	}
 
 	contextFilePath := filepath.Join(contextDirPath, contextFileName)
-	err = osWriteFile(contextFilePath, []byte(context), 0644)
+	err = c.shims.WriteFile(contextFilePath, []byte(context), 0644)
 	if err != nil {
 		return fmt.Errorf("error writing context to file: %w", err)
 	}
 
-	if err := osSetenv("WINDSOR_CONTEXT", context); err != nil {
+	if err := c.shims.Setenv("WINDSOR_CONTEXT", context); err != nil {
 		return fmt.Errorf("error setting WINDSOR_CONTEXT environment variable: %w", err)
 	}
 
@@ -153,8 +158,8 @@ func (c *BaseConfigHandler) Clean() error {
 
 	for _, dir := range dirsToDelete {
 		path := filepath.Join(configRoot, dir)
-		if _, err := osStat(path); err == nil {
-			if err := osRemoveAll(path); err != nil {
+		if _, err := c.shims.Stat(path); err == nil {
+			if err := c.shims.RemoveAll(path); err != nil {
 				return fmt.Errorf("error deleting %s: %w", path, err)
 			}
 		}

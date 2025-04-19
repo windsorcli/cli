@@ -31,9 +31,7 @@ type YamlConfigHandler struct {
 // NewYamlConfigHandler creates a new instance of YamlConfigHandler with default context configuration.
 func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
 	return &YamlConfigHandler{
-		BaseConfigHandler: BaseConfigHandler{
-			injector: injector,
-		},
+		BaseConfigHandler: *NewBaseConfigHandler(injector),
 	}
 }
 
@@ -47,7 +45,7 @@ func (y *YamlConfigHandler) LoadConfigString(content string) error {
 		return nil
 	}
 
-	if err := yamlUnmarshal([]byte(content), &y.BaseConfigHandler.config); err != nil {
+	if err := y.shims.YamlUnmarshal([]byte(content), &y.BaseConfigHandler.config); err != nil {
 		return fmt.Errorf("error unmarshalling yaml: %w", err)
 	}
 
@@ -59,18 +57,17 @@ func (y *YamlConfigHandler) LoadConfigString(content string) error {
 	}
 
 	y.BaseConfigHandler.loaded = true
-
 	return nil
 }
 
 // LoadConfig loads the configuration from the specified path. If the file does not exist, it does nothing.
 func (y *YamlConfigHandler) LoadConfig(path string) error {
 	y.path = path
-	if _, err := osStat(path); os.IsNotExist(err) {
+	if _, err := y.shims.Stat(path); os.IsNotExist(err) {
 		return nil
 	}
 
-	data, err := osReadFile(path)
+	data, err := y.shims.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("error reading config file: %w", err)
 	}
@@ -89,19 +86,19 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 	}
 
 	dir := filepath.Dir(path)
-	if err := osMkdirAll(dir, 0755); err != nil {
+	if err := y.shims.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("error creating directories: %w", err)
 	}
 
 	// Ensure the config version is set to "v1alpha1" before saving
 	y.config.Version = "v1alpha1"
 
-	data, err := yamlMarshal(y.config)
+	data, err := y.shims.YamlMarshal(y.config)
 	if err != nil {
 		return fmt.Errorf("error marshalling yaml: %w", err)
 	}
 
-	if err := osWriteFile(path, data, 0644); err != nil {
+	if err := y.shims.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("error writing config file: %w", err)
 	}
 	return nil
