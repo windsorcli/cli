@@ -29,9 +29,7 @@ type AwsEnvPrinter struct {
 // NewAwsEnvPrinter creates a new AwsEnvPrinter instance
 func NewAwsEnvPrinter(injector di.Injector) *AwsEnvPrinter {
 	return &AwsEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
 	}
 }
 
@@ -59,13 +57,13 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	// Construct the path to the AWS configuration file and verify its existence.
 	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
-	if _, err := stat(awsConfigPath); os.IsNotExist(err) {
+	if _, err := e.shims.Stat(awsConfigPath); os.IsNotExist(err) {
 		awsConfigPath = ""
 	}
 
 	// Populate environment variables with AWS configuration data.
 	if awsConfigPath != "" {
-		envVars["AWS_CONFIG_FILE"] = awsConfigPath
+		envVars["AWS_CONFIG_FILE"] = filepath.ToSlash(awsConfigPath)
 	}
 	if contextConfigData.AWS.AWSProfile != nil {
 		envVars["AWS_PROFILE"] = *contextConfigData.AWS.AWSProfile

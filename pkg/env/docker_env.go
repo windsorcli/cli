@@ -30,9 +30,7 @@ type DockerEnvPrinter struct {
 // NewDockerEnvPrinter creates a new DockerEnvPrinter instance
 func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
 	return &DockerEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
 	}
 }
 
@@ -47,11 +45,11 @@ func NewDockerEnvPrinter(injector di.Injector) *DockerEnvPrinter {
 func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	if dockerHostValue, dockerHostExists := osLookupEnv("DOCKER_HOST"); dockerHostExists {
+	if dockerHostValue, dockerHostExists := e.shims.LookupEnv("DOCKER_HOST"); dockerHostExists {
 		envVars["DOCKER_HOST"] = dockerHostValue
 	} else {
 		vmDriver := e.configHandler.GetString("vm.driver")
-		homeDir, err := osUserHomeDir()
+		homeDir, err := e.shims.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
 		}
@@ -65,29 +63,30 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 		// Determine the Docker context name based on the VM driver
 		var contextName string
+		configContext := e.configHandler.GetContext()
 
-		switch vmDriver {
-		case "colima":
-			configContext := e.configHandler.GetContext()
-			contextName = fmt.Sprintf("colima-windsor-%s", configContext)
-			dockerHostPath := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, configContext)
-			envVars["DOCKER_HOST"] = dockerHostPath
-
-		case "docker-desktop":
+		if e.shims.Goos() == "windows" {
 			contextName = "desktop-linux"
-			if goos() == "windows" {
-				envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
-			} else {
+			envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
+		} else {
+			switch vmDriver {
+			case "colima":
+				contextName = fmt.Sprintf("colima-windsor-%s", configContext)
+				dockerHostPath := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, configContext)
+				envVars["DOCKER_HOST"] = dockerHostPath
+
+			case "docker-desktop":
+				contextName = "desktop-linux"
 				dockerHostPath := fmt.Sprintf("unix://%s/.docker/run/docker.sock", homeDir)
 				envVars["DOCKER_HOST"] = dockerHostPath
+
+			case "docker":
+				contextName = "default"
+				envVars["DOCKER_HOST"] = "unix:///var/run/docker.sock"
+
+			default:
+				contextName = "default"
 			}
-
-		case "docker":
-			contextName = "default"
-			envVars["DOCKER_HOST"] = "unix:///var/run/docker.sock"
-
-		default:
-			contextName = "default"
 		}
 
 		// Create Docker config content with the determined context name
@@ -98,17 +97,17 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 			"features": {}
 		}`, contextName)
 
-		if err := mkdirAll(dockerConfigDir, 0755); err != nil {
+		if err := e.shims.MkdirAll(dockerConfigDir, 0755); err != nil {
 			return nil, fmt.Errorf("error creating docker config directory: %w", err)
 		}
 
-		existingContent, err := readFile(dockerConfigPath)
+		existingContent, err := e.shims.ReadFile(dockerConfigPath)
 		if err != nil || string(existingContent) != dockerConfigContent {
-			if err := writeFile(dockerConfigPath, []byte(dockerConfigContent), 0644); err != nil {
+			if err := e.shims.WriteFile(dockerConfigPath, []byte(dockerConfigContent), 0644); err != nil {
 				return nil, fmt.Errorf("error writing docker config file: %w", err)
 			}
 		}
-		envVars["DOCKER_CONFIG"] = dockerConfigDir
+		envVars["DOCKER_CONFIG"] = filepath.ToSlash(dockerConfigDir)
 	}
 
 	registryURL, _ := e.getRegistryURL()
@@ -124,7 +123,7 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 // alias for docker-compose.
 func (e *DockerEnvPrinter) GetAlias() (map[string]string, error) {
 	aliasMap := make(map[string]string)
-	if _, err := execLookPath("docker-cli-plugin-docker-compose"); err == nil {
+	if _, err := e.shims.LookPath("docker-cli-plugin-docker-compose"); err == nil {
 		aliasMap["docker-compose"] = "docker-cli-plugin-docker-compose"
 	}
 	return aliasMap, nil
@@ -148,22 +147,35 @@ func (e *DockerEnvPrinter) Print() error {
 // If not, it looks for a matching registry configuration to append the host port.
 // Returns the constructed URL or an empty string if no URL is configured.
 func (e *DockerEnvPrinter) getRegistryURL() (string, error) {
-	config := e.configHandler.GetConfig()
 	registryURL := e.configHandler.GetString("docker.registry_url")
-	if registryURL == "" {
-		return "", nil
-	}
-	if _, _, err := net.SplitHostPort(registryURL); err == nil {
-		return registryURL, nil
-	}
-	if config.Docker != nil && config.Docker.Registries != nil {
-		if registryConfig, exists := config.Docker.Registries[registryURL]; exists {
-			if registryConfig.HostPort != 0 {
-				registryURL = fmt.Sprintf("%s:%d", registryURL, registryConfig.HostPort)
+	if registryURL != "" {
+		if _, _, err := net.SplitHostPort(registryURL); err == nil {
+			return registryURL, nil
+		}
+		config := e.configHandler.GetConfig()
+		if config.Docker != nil && config.Docker.Registries != nil {
+			if registryConfig, exists := config.Docker.Registries[registryURL]; exists {
+				if registryConfig.HostPort != 0 {
+					return fmt.Sprintf("%s:%d", registryURL, registryConfig.HostPort), nil
+				}
 			}
 		}
+		return registryURL, nil
 	}
-	return registryURL, nil
+
+	// If no URL, check docker.registries
+	config := e.configHandler.GetConfig()
+	if config.Docker != nil && config.Docker.Registries != nil {
+		// Get the first registry URL from the map
+		for url, registryConfig := range config.Docker.Registries {
+			if registryConfig.HostPort != 0 {
+				return fmt.Sprintf("%s:%d", url, registryConfig.HostPort), nil
+			}
+			return url, nil
+		}
+	}
+
+	return "", nil
 }
 
 // Ensure DockerEnvPrinter implements the EnvPrinter interface

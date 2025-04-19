@@ -28,9 +28,7 @@ type OmniEnvPrinter struct {
 // NewOmniEnvPrinter creates a new OmniEnvPrinter instance
 func NewOmniEnvPrinter(injector di.Injector) *OmniEnvPrinter {
 	return &OmniEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
 	}
 }
 

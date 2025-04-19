@@ -32,9 +32,7 @@ type TerraformEnvPrinter struct {
 // NewTerraformEnvPrinter creates a new TerraformEnvPrinter instance
 func NewTerraformEnvPrinter(injector di.Injector) *TerraformEnvPrinter {
 	return &TerraformEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
 	}
 }
 
@@ -55,7 +53,7 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error getting config root: %w", err)
 	}
 
-	projectPath, err := findRelativeTerraformProjectPath()
+	projectPath, err := e.findRelativeTerraformProjectPath()
 	if err != nil {
 		return nil, fmt.Errorf("error finding project path: %w", err)
 	}
@@ -73,7 +71,7 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 
 		for _, varName := range managedVars {
-			if _, exists := osLookupEnv(varName); exists {
+			if _, exists := e.shims.LookupEnv(varName); exists {
 				envVars[varName] = ""
 			}
 		}
@@ -90,12 +88,14 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	var varFileArgs []string
 	for _, pattern := range patterns {
-		if _, err := stat(pattern); err != nil {
+		if _, err := e.shims.Stat(filepath.FromSlash(pattern)); err != nil {
 			if !os.IsNotExist(err) {
 				return nil, fmt.Errorf("error checking file: %w", err)
 			}
 		} else {
-			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=\"%s\"", filepath.ToSlash(pattern)))
+			// Convert back to slash format for environment variable
+			slashPath := filepath.ToSlash(pattern)
+			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=\"%s\"", slashPath))
 		}
 	}
 
@@ -120,7 +120,8 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars["TF_CLI_ARGS_destroy"] = strings.TrimSpace(strings.Join(varFileArgs, " "))
 	envVars["TF_VAR_context_path"] = strings.TrimSpace(filepath.ToSlash(configRoot))
 
-	if goos() == "windows" {
+	// Set os_type based on the OS
+	if e.shims.Goos() == "windows" {
 		envVars["TF_VAR_os_type"] = "windows"
 	} else {
 		envVars["TF_VAR_os_type"] = "unix"
@@ -150,12 +151,12 @@ func (e *TerraformEnvPrinter) Print() error {
 // generateBackendOverrideTf creates the backend_override.tf file for the project by determining
 // the backend type and writing the appropriate configuration to the file.
 func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
-	currentPath, err := getwd()
+	currentPath, err := e.shims.Getwd()
 	if err != nil {
 		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
-	projectPath, err := findRelativeTerraformProjectPath()
+	projectPath, err := e.findRelativeTerraformProjectPath()
 	if err != nil {
 		return fmt.Errorf("error finding project path: %w", err)
 	}
@@ -186,7 +187,7 @@ func (e *TerraformEnvPrinter) generateBackendOverrideTf() error {
 		return fmt.Errorf("unsupported backend: %s", backend)
 	}
 
-	err = writeFile(backendOverridePath, []byte(backendConfig), os.ModePerm)
+	err = e.shims.WriteFile(backendOverridePath, []byte(backendConfig), os.ModePerm)
 	if err != nil {
 		return fmt.Errorf("error writing backend_override.tf: %w", err)
 	}
@@ -210,7 +211,7 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 
 	if context := e.configHandler.GetContext(); context != "" {
 		backendTfvarsPath := filepath.Join(configRoot, "terraform", "backend.tfvars")
-		if _, err := stat(backendTfvarsPath); err == nil {
+		if _, err := e.shims.Stat(backendTfvarsPath); err == nil {
 			backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=\"%s\"", filepath.ToSlash(backendTfvarsPath)))
 		}
 	}
@@ -229,7 +230,7 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
 		addBackendConfigArg("key", keyPath)
 		if backend := e.configHandler.GetConfig().Terraform.Backend.S3; backend != nil {
-			if err := processBackendConfig(backend, addBackendConfigArg); err != nil {
+			if err := e.processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, fmt.Errorf("error processing S3 backend config: %w", err)
 			}
 		}
@@ -241,7 +242,7 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 		secretSuffix = sanitizeForK8s(secretSuffix)
 		addBackendConfigArg("secret_suffix", secretSuffix)
 		if backend := e.configHandler.GetConfig().Terraform.Backend.Kubernetes; backend != nil {
-			if err := processBackendConfig(backend, addBackendConfigArg); err != nil {
+			if err := e.processBackendConfig(backend, addBackendConfigArg); err != nil {
 				return nil, fmt.Errorf("error processing Kubernetes backend config: %w", err)
 			}
 		}
@@ -253,14 +254,14 @@ func (e *TerraformEnvPrinter) generateBackendConfigArgs(projectPath, configRoot 
 }
 
 // processBackendConfig processes the backend config and adds the key-value pairs to the backend config args.
-var processBackendConfig = func(backendConfig any, addArg func(key, value string)) error {
-	yamlData, err := yamlMarshal(backendConfig)
+func (e *TerraformEnvPrinter) processBackendConfig(backendConfig any, addArg func(key, value string)) error {
+	yamlData, err := e.shims.YamlMarshal(backendConfig)
 	if err != nil {
 		return fmt.Errorf("error marshalling backend to YAML: %w", err)
 	}
 
 	var configMap map[string]any
-	if err := yamlUnmarshal(yamlData, &configMap); err != nil {
+	if err := e.shims.YamlUnmarshal(yamlData, &configMap); err != nil {
 		return fmt.Errorf("error unmarshalling backend YAML: %w", err)
 	}
 
@@ -313,9 +314,6 @@ func processMap(prefix string, configMap map[string]any, addArg func(key, value 
 	}
 }
 
-// Ensure TerraformEnvPrinter implements the EnvPrinter interface
-var _ EnvPrinter = (*TerraformEnvPrinter)(nil)
-
 // sanitizeForK8s ensures a string is compatible with Kubernetes naming conventions by converting
 // to lowercase, replacing invalid characters, and trimming to a maximum length of 63 characters.
 var sanitizeForK8s = func(input string) string {
@@ -332,8 +330,8 @@ var sanitizeForK8s = func(input string) string {
 
 // findRelativeTerraformProjectPath locates the Terraform project path by checking the current
 // directory and its ancestors for Terraform files, returning the relative path if found.
-var findRelativeTerraformProjectPath = func() (string, error) {
-	currentPath, err := getwd()
+func (e *TerraformEnvPrinter) findRelativeTerraformProjectPath() (string, error) {
+	currentPath, err := e.shims.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("error getting current directory: %w", err)
 	}
@@ -341,7 +339,7 @@ var findRelativeTerraformProjectPath = func() (string, error) {
 	currentPath = filepath.Clean(currentPath)
 
 	globPattern := filepath.Join(currentPath, "*.tf")
-	matches, err := glob(globPattern)
+	matches, err := e.shims.Glob(globPattern)
 	if err != nil {
 		return "", fmt.Errorf("error finding project path: %w", err)
 	}
@@ -353,9 +351,12 @@ var findRelativeTerraformProjectPath = func() (string, error) {
 	for i := len(pathParts) - 1; i >= 0; i-- {
 		if strings.EqualFold(pathParts[i], "terraform") || strings.EqualFold(pathParts[i], ".tf_modules") {
 			relativePath := filepath.Join(pathParts[i+1:]...)
-			return relativePath, nil
+			return filepath.ToSlash(relativePath), nil
 		}
 	}
 
 	return "", nil
 }
+
+// Ensure TerraformEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*TerraformEnvPrinter)(nil)

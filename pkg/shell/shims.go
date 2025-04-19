@@ -77,8 +77,7 @@ type Shims struct {
 	Join func(elem ...string) string
 
 	// Random operations
-	RandRead      func(b []byte) (n int, err error)
-	GenerateToken func(length int) (string, error)
+	RandRead func(b []byte) (n int, err error)
 }
 
 // =============================================================================
@@ -164,7 +163,9 @@ func NewShims() *Shims {
 		Join: filepath.Join,
 
 		// Random operations
-		RandRead: rand.Read,
+		RandRead: func(b []byte) (n int, err error) {
+			return rand.Read(b)
+		},
 	}
 	return s
 }

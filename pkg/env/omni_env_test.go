@@ -7,49 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
 )
-
-// =============================================================================
-// Test Setup
-// =============================================================================
-
-// OmniEnvPrinterMocks holds all mock objects used in Omni environment tests
-type OmniEnvPrinterMocks struct {
-	Injector      di.Injector
-	Shell         *shell.MockShell
-	ConfigHandler *config.MockConfigHandler
-}
-
-// setupSafeOmniEnvPrinterMocks creates and configures mock objects for Omni environment tests.
-// It accepts an optional injector parameter and returns initialized OmniEnvPrinterMocks.
-func setupSafeOmniEnvPrinterMocks(injector ...di.Injector) *OmniEnvPrinterMocks {
-	var mockInjector di.Injector
-	if len(injector) > 0 {
-		mockInjector = injector[0]
-	} else {
-		mockInjector = di.NewMockInjector()
-	}
-
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-		return filepath.FromSlash("/mock/config/root"), nil
-	}
-
-	mockShell := shell.NewMockShell()
-
-	mockInjector.Register("configHandler", mockConfigHandler)
-	mockInjector.Register("shell", mockShell)
-
-	return &OmniEnvPrinterMocks{
-		Injector:      mockInjector,
-		ConfigHandler: mockConfigHandler,
-		Shell:         mockShell,
-	}
-}
 
 // =============================================================================
 // Test Public Methods
@@ -57,24 +15,37 @@ func setupSafeOmniEnvPrinterMocks(injector ...di.Injector) *OmniEnvPrinterMocks 
 
 // TestOmniEnvPrinter_GetEnvVars tests the GetEnvVars method of the OmniEnvPrinter
 func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
+	setup := func(t *testing.T) (*OmniEnvPrinter, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		printer := NewOmniEnvPrinter(mocks.Injector)
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize env: %v", err)
+		}
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new OmniEnvPrinter with existing Omni config
-		mocks := setupSafeOmniEnvPrinterMocks()
+		printer, mocks := setup(t)
 
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.FromSlash("/mock/config/root/.omni/config") {
+		// Get the actual project root path
+		projectRoot, err := mocks.Shell.GetProjectRoot()
+		if err != nil {
+			t.Fatalf("Failed to get project root: %v", err)
+		}
+		expectedPath := filepath.Join(projectRoot, "contexts", "mock-context", ".omni", "config")
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == expectedPath {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		omniEnvPrinter := NewOmniEnvPrinter(mocks.Injector)
-		omniEnvPrinter.Initialize()
-
 		// When getting environment variables
-		envVars, err := omniEnvPrinter.GetEnvVars()
+		envVars, err := printer.GetEnvVars()
 
 		// Then no error should be returned
 		if err != nil {
@@ -82,26 +53,27 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 		}
 
 		// And OMNICONFIG should be set correctly
-		if envVars["OMNICONFIG"] != filepath.FromSlash("/mock/config/root/.omni/config") {
-			t.Errorf("OMNICONFIG = %v, want %v", envVars["OMNICONFIG"], filepath.FromSlash("/mock/config/root/.omni/config"))
+		if envVars["OMNICONFIG"] != expectedPath {
+			t.Errorf("OMNICONFIG = %v, want %v", envVars["OMNICONFIG"], expectedPath)
 		}
 	})
 
 	t.Run("NoOmniConfig", func(t *testing.T) {
 		// Given a new OmniEnvPrinter without existing Omni config
-		mocks := setupSafeOmniEnvPrinterMocks()
+		printer, mocks := setup(t)
 
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
+		// Get the actual project root path
+		projectRoot, err := mocks.Shell.GetProjectRoot()
+		if err != nil {
+			t.Fatalf("Failed to get project root: %v", err)
+		}
+		expectedPath := filepath.Join(projectRoot, "contexts", "mock-context", ".omni", "config")
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		omniEnvPrinter := NewOmniEnvPrinter(mocks.Injector)
-		omniEnvPrinter.Initialize()
-
 		// When getting environment variables
-		envVars, err := omniEnvPrinter.GetEnvVars()
+		envVars, err := printer.GetEnvVars()
 
 		// Then no error should be returned
 		if err != nil {
@@ -109,24 +81,20 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 		}
 
 		// And OMNICONFIG should still be set to default path
-		expectedPath := filepath.FromSlash("/mock/config/root/.omni/config")
 		if envVars["OMNICONFIG"] != expectedPath {
 			t.Errorf("OMNICONFIG = %v, want %v", envVars["OMNICONFIG"], expectedPath)
 		}
 	})
 
-	t.Run("GetConfigRootError", func(t *testing.T) {
-		// Given a new OmniEnvPrinter with failing config root lookup
-		mocks := setupSafeOmniEnvPrinterMocks()
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
+	t.Run("GetProjectRootError", func(t *testing.T) {
+		// Given a new OmniEnvPrinter with failing project root lookup
+		printer, mocks := setup(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", errors.New("mock context error")
 		}
 
-		omniEnvPrinter := NewOmniEnvPrinter(mocks.Injector)
-		omniEnvPrinter.Initialize()
-
 		// When getting environment variables
-		_, err := omniEnvPrinter.GetEnvVars()
+		_, err := printer.GetEnvVars()
 
 		// Then appropriate error should be returned
 		expectedError := "error retrieving configuration root directory: mock context error"
@@ -138,15 +106,31 @@ func TestOmniEnvPrinter_GetEnvVars(t *testing.T) {
 
 // TestOmniEnvPrinter_Print tests the Print method of the OmniEnvPrinter
 func TestOmniEnvPrinter_Print(t *testing.T) {
+	setup := func(t *testing.T) (*OmniEnvPrinter, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		printer := NewOmniEnvPrinter(mocks.Injector)
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize env: %v", err)
+		}
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new OmniEnvPrinter with existing Omni config
-		mocks := setupSafeOmniEnvPrinterMocks()
-		omniEnvPrinter := NewOmniEnvPrinter(mocks.Injector)
-		omniEnvPrinter.Initialize()
+		printer, mocks := setup(t)
+
+		// Get the actual project root path
+		projectRoot, err := mocks.Shell.GetProjectRoot()
+		if err != nil {
+			t.Fatalf("Failed to get project root: %v", err)
+		}
+		expectedPath := filepath.Join(projectRoot, "contexts", "mock-context", ".omni", "config")
 
 		// And Omni config file exists
-		stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.FromSlash("/mock/config/root/.omni/config") {
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == expectedPath {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -159,7 +143,7 @@ func TestOmniEnvPrinter_Print(t *testing.T) {
 		}
 
 		// When calling Print
-		err := omniEnvPrinter.Print()
+		err = printer.Print()
 
 		// Then no error should be returned
 		if err != nil {
@@ -168,25 +152,22 @@ func TestOmniEnvPrinter_Print(t *testing.T) {
 
 		// And environment variables should be set correctly
 		expectedEnvVars := map[string]string{
-			"OMNICONFIG": filepath.FromSlash("/mock/config/root/.omni/config"),
+			"OMNICONFIG": expectedPath,
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
 		}
 	})
 
-	t.Run("GetConfigError", func(t *testing.T) {
-		// Given a new OmniEnvPrinter with failing config lookup
-		mocks := setupSafeOmniEnvPrinterMocks()
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
+	t.Run("GetProjectRootError", func(t *testing.T) {
+		// Given a new OmniEnvPrinter with failing project root lookup
+		printer, mocks := setup(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", errors.New("mock config error")
 		}
 
-		omniEnvPrinter := NewOmniEnvPrinter(mocks.Injector)
-		omniEnvPrinter.Initialize()
-
 		// When calling Print
-		err := omniEnvPrinter.Print()
+		err := printer.Print()
 
 		// Then appropriate error should be returned
 		if err == nil {

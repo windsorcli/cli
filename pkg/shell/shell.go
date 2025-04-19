@@ -34,9 +34,6 @@ const SessionTokenPrefix = ".session."
 // Types
 // =============================================================================
 
-// Static private variable to store the session token
-var sessionToken string
-
 // HookContext are the variables available during hook template evaluation
 type HookContext struct {
 	// SelfPath is the unescaped absolute path to direnv
@@ -68,10 +65,11 @@ type Shell interface {
 // DefaultShell is the default implementation of the Shell interface
 type DefaultShell struct {
 	Shell
-	projectRoot string
-	injector    di.Injector
-	verbose     bool
-	shims       *Shims
+	projectRoot  string
+	injector     di.Injector
+	verbose      bool
+	sessionToken string
+	shims        *Shims
 }
 
 // =============================================================================
@@ -83,6 +81,7 @@ func NewDefaultShell(injector di.Injector) *DefaultShell {
 	return &DefaultShell{
 		injector: injector,
 		shims:    NewShims(),
+		verbose:  false,
 	}
 }
 
@@ -488,13 +487,13 @@ func (s *DefaultShell) WriteResetToken() (string, error) {
 // If not, it looks for a token in the environment variable. If no token is found in the environment, it generates a new token.
 func (s *DefaultShell) GetSessionToken() (string, error) {
 	// If we already have a token in memory, return it
-	if sessionToken != "" {
-		return sessionToken, nil
+	if s.sessionToken != "" {
+		return s.sessionToken, nil
 	}
 
 	envToken := s.shims.Getenv("WINDSOR_SESSION_TOKEN")
 	if envToken != "" {
-		sessionToken = envToken
+		s.sessionToken = envToken
 		return envToken, nil
 	}
 
@@ -503,7 +502,7 @@ func (s *DefaultShell) GetSessionToken() (string, error) {
 		return "", fmt.Errorf("error generating session token: %w", err)
 	}
 
-	sessionToken = token
+	s.sessionToken = token
 	return token, nil
 }
 
@@ -584,7 +583,15 @@ func (s *DefaultShell) CheckResetFlags() (bool, error) {
 
 // generateRandomString creates a secure random string of the given length using a predefined charset.
 func (s *DefaultShell) generateRandomString(length int) (string, error) {
-	return s.shims.GenerateToken(length)
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	if _, err := s.shims.RandRead(b); err != nil {
+		return "", err
+	}
+	for i := range b {
+		b[i] = charset[int(b[i])%len(charset)]
+	}
+	return string(b), nil
 }
 
 // =============================================================================
@@ -592,8 +599,8 @@ func (s *DefaultShell) generateRandomString(length int) (string, error) {
 // =============================================================================
 
 // ResetSessionToken resets the session token - used primarily for testing
-func ResetSessionToken() {
-	sessionToken = ""
+func (s *DefaultShell) ResetSessionToken() {
+	s.sessionToken = ""
 }
 
 // Ensure DefaultShell implements the Shell interface

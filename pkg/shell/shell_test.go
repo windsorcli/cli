@@ -945,25 +945,31 @@ func TestShell_GetSessionToken(t *testing.T) {
 	})
 
 	t.Run("NoToken", func(t *testing.T) {
-		// Setup
-		shims := NewShims()
-		sh := NewDefaultShell(nil)
-		sh.shims = shims
+		// Given a shell with mocked operations
+		shell, mocks := setup(t)
 
-		// Mock command execution
-		shims.ReadFile = func(filename string) ([]byte, error) {
-			return nil, os.ErrNotExist
+		// Mock environment to return no token
+		mocks.Shims.Getenv = func(key string) string {
+			return ""
 		}
 
-		// Execute
-		token, err := sh.GetSessionToken()
+		// Mock random generation
+		mocks.Shims.RandRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte('a')
+			}
+			return len(b), nil
+		}
+
+		// When getting session token
+		token, err := shell.GetSessionToken()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Assert
-		if len(token) != 10 {
-			t.Errorf("Expected token length 10, got %d", len(token))
+		// Then it should return a token of length 7
+		if len(token) != 7 {
+			t.Errorf("Expected token length 7, got %d", len(token))
 		}
 	})
 }
@@ -1112,8 +1118,11 @@ func TestShell_GenerateRandomString(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		shell, mocks := setup(t)
-		mocks.Shims.GenerateToken = func(length int) (string, error) {
-			return "test-token", nil
+		mocks.Shims.RandRead = func(b []byte) (n int, err error) {
+			for i := range b {
+				b[i] = byte(i % 62) // This will map to characters in the charset
+			}
+			return len(b), nil
 		}
 		result, err := shell.generateRandomString(10)
 		if err != nil {
@@ -1356,49 +1365,6 @@ func createFile(t *testing.T, dir, name, content string) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("Failed to create file %s: %v", path, err)
 	}
-}
-
-// Helper function to change the current directory
-func changeDir(t *testing.T, dir string) {
-	t.Helper()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Failed to change directory to %s: %v", dir, err)
-	}
-}
-
-// Helper function to normalize a path for comparison
-func normalizePath(path string) string {
-	return filepath.Clean(path)
-}
-
-// Helper function to capture stdout from a function
-func captureStdoutFromFunc(t *testing.T, fn func()) string {
-	t.Helper()
-
-	// Create a pipe to capture stdout
-	oldStdout := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("Failed to create pipe: %v", err)
-	}
-	os.Stdout = w
-
-	// Run the function
-	fn()
-
-	// Close the writer
-	w.Close()
-
-	// Restore stdout
-	os.Stdout = oldStdout
-
-	// Read the output
-	buf, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatalf("Failed to read from pipe: %v", err)
-	}
-
-	return string(buf)
 }
 
 // Helper function to capture stdout
@@ -2255,9 +2221,13 @@ func TestShell_ResetSessionToken(t *testing.T) {
 			return ""
 		}
 
-		// Mock token generation
-		mocks.Shims.GenerateToken = func(length int) (string, error) {
-			return "new-test-token", nil
+		// Mock random generation to return predictable bytes
+		mocks.Shims.RandRead = func(b []byte) (n int, err error) {
+			// Fill with bytes that will map to "new-test-token"
+			for i := range b {
+				b[i] = byte(i % 62)
+			}
+			return len(b), nil
 		}
 
 		// When getting session token
@@ -2270,7 +2240,7 @@ func TestShell_ResetSessionToken(t *testing.T) {
 		}
 
 		// When resetting session token
-		ResetSessionToken()
+		shell.ResetSessionToken()
 		mocks.Shims.Getenv = func(key string) string {
 			return "" // Simulate environment variable being unset
 		}
@@ -2280,8 +2250,8 @@ func TestShell_ResetSessionToken(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if newToken != "new-test-token" {
-			t.Errorf("Expected new token to be %q, got %q", "new-test-token", newToken)
+		if len(newToken) != 7 {
+			t.Errorf("Expected new token length to be 7, got %d", len(newToken))
 		}
 	})
 }

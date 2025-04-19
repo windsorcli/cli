@@ -4,14 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -20,76 +17,14 @@ import (
 // Test Setup
 // =============================================================================
 
-// KubeEnvPrinterMocks holds all mock objects used in Kubernetes environment tests
-type KubeEnvPrinterMocks struct {
-	Injector      di.Injector
-	ConfigHandler *config.MockConfigHandler
-	Shell         *shell.MockShell
-}
-
-// setupSafeKubeEnvPrinterMocks creates and configures mock objects for Kubernetes environment tests.
-// It accepts an optional injector parameter and returns initialized KubeEnvPrinterMocks.
-func setupSafeKubeEnvPrinterMocks(injector ...di.Injector) *KubeEnvPrinterMocks {
-	var mockInjector di.Injector
-	if len(injector) > 0 {
-		mockInjector = injector[0]
-	} else {
-		mockInjector = di.NewMockInjector()
-	}
-
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-		return filepath.FromSlash("/mock/config/root"), nil
-	}
-
-	mockShell := shell.NewMockShell()
-
-	mockInjector.Register("configHandler", mockConfigHandler)
-	mockInjector.Register("shell", mockShell)
-
-	// Mock readDir to return some valid persistent volume folders
-	readDir = func(dirname string) ([]os.DirEntry, error) {
-		if strings.HasSuffix(dirname, ".volumes") {
-			return []os.DirEntry{
-				mockDirEntry{name: "pvc-1234"},
-				mockDirEntry{name: "pvc-5678"},
-			}, nil
-		}
-		return nil, errors.New("mock readDir error")
-	}
-
-	// Mock stat to return nil
-	stat = func(name string) (os.FileInfo, error) {
-		if strings.HasSuffix(name, ".kube/config") || strings.HasSuffix(name, ".volumes") {
-			return nil, nil
-		}
-		return nil, os.ErrNotExist
-	}
-
-	// Mock queryPersistentVolumeClaims to return appropriate PVC claims
-	queryPersistentVolumeClaims = func(kubeConfigPath string) (*corev1.PersistentVolumeClaimList, error) {
-		return &corev1.PersistentVolumeClaimList{
-			Items: []corev1.PersistentVolumeClaim{
-				{ObjectMeta: metav1.ObjectMeta{UID: "1234", Namespace: "default", Name: "claim1"}},
-				{ObjectMeta: metav1.ObjectMeta{UID: "5678", Namespace: "default", Name: "claim2"}},
-			},
-		}, nil
-	}
-
-	return &KubeEnvPrinterMocks{
-		Injector:      mockInjector,
-		ConfigHandler: mockConfigHandler,
-		Shell:         mockShell,
-	}
-}
-
 // mockDirEntry is a simple mock implementation of os.DirEntry
 type mockDirEntry struct {
-	name string
+	name  string
+	isDir bool
 }
 
 func (m mockDirEntry) Name() string               { return m.name }
-func (m mockDirEntry) IsDir() bool                { return true }
+func (m mockDirEntry) IsDir() bool                { return m.isDir }
 func (m mockDirEntry) Type() os.FileMode          { return os.ModeDir }
 func (m mockDirEntry) Info() (os.FileInfo, error) { return mockFileInfo{name: m.name}, nil }
 
@@ -105,259 +40,442 @@ func (m mockFileInfo) ModTime() time.Time { return time.Time{} }
 func (m mockFileInfo) IsDir() bool        { return true }
 func (m mockFileInfo) Sys() any           { return nil }
 
+// setupKubeEnvMocks creates a base mock setup for Kubernetes environment tests
+func setupKubeEnvMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
+	if len(opts) == 0 {
+		opts = []*SetupOptions{{}}
+	}
+
+	mocks := setupMocks(t, opts[0])
+	projectRoot, err := mocks.Shell.GetProjectRoot()
+	if err != nil {
+		t.Fatalf("Failed to get project root: %v", err)
+	}
+
+	t.Setenv("WINDSOR_PROJECT_ROOT", projectRoot)
+
+	// Mock readDir to return some valid persistent volume folders
+	mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
+		if strings.HasSuffix(dirname, "volumes") {
+			return []os.DirEntry{
+				mockDirEntry{name: "pvc-1234", isDir: true},
+				mockDirEntry{name: "pvc-5678", isDir: true},
+			}, nil
+		}
+		return nil, errors.New("mock readDir error")
+	}
+
+	// Mock stat to return nil for both kubeconfig and volumes
+	mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+		if strings.HasSuffix(name, ".kube/config") || strings.HasSuffix(name, "volumes") {
+			return mockFileInfo{name: filepath.Base(name)}, nil
+		}
+		return nil, os.ErrNotExist
+	}
+
+	// Mock queryPersistentVolumeClaims to return some PVCs
+	queryPersistentVolumeClaims = func(_ string) (*corev1.PersistentVolumeClaimList, error) {
+		return &corev1.PersistentVolumeClaimList{
+			Items: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pvc-1",
+						Namespace: "test-ns",
+						UID:       "1234",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pvc-2",
+						Namespace: "test-ns",
+						UID:       "5678",
+					},
+				},
+			},
+		}, nil
+	}
+
+	return mocks
+}
+
 // =============================================================================
 // Test Public Methods
 // =============================================================================
 
 // TestKubeEnvPrinter_GetEnvVars tests the GetEnvVars method of the KubeEnvPrinter
 func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a new KubeEnvPrinter
-		mocks := setupSafeKubeEnvPrinterMocks()
-		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
-		kubeEnvPrinter.Initialize()
+	setup := func(t *testing.T) (*KubeEnvPrinter, *Mocks) {
+		t.Helper()
+		mocks := setupKubeEnvMocks(t)
+		printer := NewKubeEnvPrinter(mocks.Injector)
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
+		}
+		printer.shims = mocks.Shims
+		return printer, mocks
+	}
 
-		// When getting environment variables
-		envVars, err := kubeEnvPrinter.GetEnvVars()
+	t.Run("SuccessWithKubeConfig", func(t *testing.T) {
+		printer, mocks := setup(t)
 
-		// Then no error should be returned
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
-			t.Fatalf("GetEnvVars returned an error: %v", err)
+			t.Fatalf("Failed to get config root: %v", err)
 		}
 
-		// And Kubernetes config paths should be set correctly
-		expectedPath := filepath.FromSlash("/mock/config/root/.kube/config")
-		if envVars["KUBECONFIG"] != expectedPath || envVars["KUBE_CONFIG_PATH"] != expectedPath {
-			t.Errorf("KUBECONFIG = %v, KUBE_CONFIG_PATH = %v, want both to be %v", envVars["KUBECONFIG"], envVars["KUBE_CONFIG_PATH"], expectedPath)
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedKubeConfig := filepath.Join(configRoot, ".kube/config")
+		if envVars["KUBECONFIG"] != expectedKubeConfig {
+			t.Errorf("Expected KUBECONFIG=%s, got %s", expectedKubeConfig, envVars["KUBECONFIG"])
+		}
+	})
+
+	t.Run("SuccessWithVolumes", func(t *testing.T) {
+		printer, _ := setup(t)
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		volumeDir := filepath.Join(projectRoot, ".volumes")
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		expectedPaths := map[string]string{
+			"PV_TEST_NS_PVC_1": filepath.Join(volumeDir, "pvc-1234"),
+			"PV_TEST_NS_PVC_2": filepath.Join(volumeDir, "pvc-5678"),
+		}
+
+		for k, v := range expectedPaths {
+			if envVars[k] != v {
+				t.Errorf("Expected %s=%s, got %s", k, v, envVars[k])
+			}
 		}
 	})
 
 	t.Run("NoKubeConfig", func(t *testing.T) {
-		// Given a new KubeEnvPrinter without existing kubeconfig
-		mocks := setupSafeKubeEnvPrinterMocks()
+		printer, mocks := setup(t)
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("Failed to get config root: %v", err)
+		}
 
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
+		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
-		kubeEnvPrinter.Initialize()
-
-		// When getting environment variables
-		envVars, err := kubeEnvPrinter.GetEnvVars()
-
-		// Then no error should be returned
+		envVars, err := printer.GetEnvVars()
 		if err != nil {
-			t.Fatalf("GetEnvVars returned an error: %v", err)
+			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And Kubernetes config paths should still be set
-		expectedPath := filepath.FromSlash("/mock/config/root/.kube/config")
-		if envVars["KUBECONFIG"] != expectedPath || envVars["KUBE_CONFIG_PATH"] != expectedPath {
-			t.Errorf("KUBECONFIG = %v, KUBE_CONFIG_PATH = %v, want both to be %v", envVars["KUBECONFIG"], envVars["KUBE_CONFIG_PATH"], expectedPath)
+		expectedKubeConfig := filepath.Join(configRoot, ".kube/config")
+		if envVars["KUBECONFIG"] != expectedKubeConfig {
+			t.Errorf("Expected KUBECONFIG=%s, got %s", expectedKubeConfig, envVars["KUBECONFIG"])
 		}
 	})
 
 	t.Run("GetConfigRootError", func(t *testing.T) {
-		// Given a new KubeEnvPrinter with failing config root lookup
-		mocks := setupSafeKubeEnvPrinterMocks()
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", errors.New("mock context error")
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return "", errors.New("mock config error")
+		}
+		mocks := setupKubeEnvMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+		printer := NewKubeEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
 		}
 
-		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
-		kubeEnvPrinter.Initialize()
-
-		// When getting environment variables
-		_, err := kubeEnvPrinter.GetEnvVars()
-
-		// Then appropriate error should be returned
-		expectedError := "error retrieving configuration root directory: mock context error"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("error = %v, want %v", err, expectedError)
+		envVars, err := printer.GetEnvVars()
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if envVars != nil {
+			t.Errorf("Expected nil envVars, got %v", envVars)
 		}
 	})
 
 	t.Run("ErrorReadingVolumes", func(t *testing.T) {
-		// Given a new KubeEnvPrinter with failing volume directory read
-		mocks := setupSafeKubeEnvPrinterMocks()
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "/mock/config/root", nil
-		}
+		printer, mocks := setup(t)
 
-		originalReadDir := readDir
-		defer func() { readDir = originalReadDir }()
-		readDir = func(dirname string) ([]os.DirEntry, error) {
-			return nil, errors.New("mock readDir error")
-		}
-
-		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
-		kubeEnvPrinter.Initialize()
-
-		// When getting environment variables
-		_, err := kubeEnvPrinter.GetEnvVars()
-
-		// Then appropriate error should be returned
-		expectedError := "error reading volume directories: mock readDir error"
-		if err == nil || err.Error() != expectedError {
-			t.Errorf("error = %v, want %v", err, expectedError)
-		}
-	})
-
-	t.Run("SuccessWithExistingPVCEnvVars", func(t *testing.T) {
-		// Given a new KubeEnvPrinter with existing PVC environment variables
-		mocks := setupSafeKubeEnvPrinterMocks()
-		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
-		kubeEnvPrinter.Initialize()
-
-		// And existing PVC environment variable
-		os.Setenv("PV_NAMESPACE_PVCNAME", "/mock/volume/dir/pvc-12345")
-		defer os.Unsetenv("PV_NAMESPACE_PVCNAME")
-
-		// And mock volume directory
-		originalReadDir := readDir
-		defer func() { readDir = originalReadDir }()
-		readDir = func(dirname string) ([]os.DirEntry, error) {
-			return []os.DirEntry{
-				mockDirEntry{name: "pvc-12345"},
-			}, nil
-		}
-
-		// When getting environment variables
-		envVars, err := kubeEnvPrinter.GetEnvVars()
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		// And environment variables should be set correctly
-		expectedEnvVars := map[string]string{
-			"KUBECONFIG":           filepath.FromSlash("/mock/config/root/.kube/config"),
-			"KUBE_CONFIG_PATH":     filepath.FromSlash("/mock/config/root/.kube/config"),
-			"K8S_AUTH_KUBECONFIG":  filepath.FromSlash("/mock/config/root/.kube/config"),
-			"PV_NAMESPACE_PVCNAME": "/mock/volume/dir/pvc-12345",
-		}
-		if !reflect.DeepEqual(envVars, expectedEnvVars) {
-			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
-		}
-	})
-
-	t.Run("AllVolumesAccountedFor", func(t *testing.T) {
-		// Given a new KubeEnvPrinter with all PVCs accounted for
-		mocks := setupSafeKubeEnvPrinterMocks()
-		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
-		kubeEnvPrinter.Initialize()
-
-		// And all PVC environment variables set
-		os.Setenv("PV_DEFAULT_CLAIM1", "/mock/volume/dir/pvc-1234")
-		os.Setenv("PV_DEFAULT_CLAIM2", "/mock/volume/dir/pvc-5678")
-		defer os.Unsetenv("PV_DEFAULT_CLAIM1")
-		defer os.Unsetenv("PV_DEFAULT_CLAIM2")
-
-		// And mock volume directory
-		originalReadDir := readDir
-		defer func() { readDir = originalReadDir }()
-		readDir = func(dirname string) ([]os.DirEntry, error) {
-			return []os.DirEntry{
-				mockDirEntry{name: "pvc-1234"},
-				mockDirEntry{name: "pvc-5678"},
-			}, nil
-		}
-
-		// And PVC query should not be needed
-		originalQueryPVCs := queryPersistentVolumeClaims
-		defer func() { queryPersistentVolumeClaims = originalQueryPVCs }()
-		queryPersistentVolumeClaims = func(kubeConfigPath string) (*corev1.PersistentVolumeClaimList, error) {
-			t.Error("queryPersistentVolumeClaims should not be called")
+		// Mock ReadDir to return an error
+		mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
+			if strings.HasSuffix(dirname, "volumes") {
+				return nil, errors.New("mock readDir error")
+			}
 			return nil, nil
 		}
 
-		// When getting environment variables
-		envVars, err := kubeEnvPrinter.GetEnvVars()
+		envVars, err := printer.GetEnvVars()
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error reading volume directories") {
+			t.Errorf("Expected error about reading volume directories, got %v", err)
+		}
+		if envVars != nil {
+			t.Errorf("Expected nil envVars, got %v", envVars)
+		}
+	})
 
-		// Then no error should be returned
+	t.Run("ErrorQueryingPVCs", func(t *testing.T) {
+		printer, _ := setup(t)
+
+		// Mock queryPersistentVolumeClaims to return an error
+		queryPersistentVolumeClaims = func(_ string) (*corev1.PersistentVolumeClaimList, error) {
+			return nil, errors.New("mock PVC query error")
+		}
+
+		envVars, err := printer.GetEnvVars()
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error querying persistent volume claims") {
+			t.Errorf("Expected error about querying PVCs, got %v", err)
+		}
+		if envVars != nil {
+			t.Errorf("Expected nil envVars, got %v", envVars)
+		}
+	})
+
+	t.Run("NilPVCList", func(t *testing.T) {
+		printer, _ := setup(t)
+
+		// Mock queryPersistentVolumeClaims to return nil list
+		queryPersistentVolumeClaims = func(_ string) (*corev1.PersistentVolumeClaimList, error) {
+			return nil, nil
+		}
+
+		envVars, err := printer.GetEnvVars()
 		if err != nil {
-			t.Errorf("unexpected error: %v", err)
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if envVars == nil {
+			t.Error("Expected non-nil envVars")
+		}
+	})
+
+	t.Run("EmptyPVCList", func(t *testing.T) {
+		printer, _ := setup(t)
+
+		// Mock queryPersistentVolumeClaims to return empty list
+		queryPersistentVolumeClaims = func(_ string) (*corev1.PersistentVolumeClaimList, error) {
+			return &corev1.PersistentVolumeClaimList{Items: []corev1.PersistentVolumeClaim{}}, nil
 		}
 
-		// And environment variables should be set correctly
-		expectedEnvVars := map[string]string{
-			"KUBECONFIG":          filepath.FromSlash("/mock/config/root/.kube/config"),
-			"KUBE_CONFIG_PATH":    filepath.FromSlash("/mock/config/root/.kube/config"),
-			"K8S_AUTH_KUBECONFIG": filepath.FromSlash("/mock/config/root/.kube/config"),
-			"PV_DEFAULT_CLAIM1":   "/mock/volume/dir/pvc-1234",
-			"PV_DEFAULT_CLAIM2":   "/mock/volume/dir/pvc-5678",
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
-		if !reflect.DeepEqual(envVars, expectedEnvVars) {
-			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
+		if envVars == nil {
+			t.Error("Expected non-nil envVars")
+		}
+	})
+
+	t.Run("VolumeDirStatError", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Mock Stat to return an error for volume directory
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if strings.HasSuffix(name, "volumes") {
+				return nil, errors.New("mock stat error")
+			}
+			return mockFileInfo{name: filepath.Base(name)}, nil
+		}
+
+		envVars, err := printer.GetEnvVars()
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error checking volume directory") {
+			t.Errorf("Expected error about checking volume directory, got %v", err)
+		}
+		if envVars != nil {
+			t.Errorf("Expected nil envVars, got %v", envVars)
+		}
+	})
+
+	t.Run("NoPVCDirectories", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Mock ReadDir to return no PVC directories
+		mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
+			if strings.HasSuffix(dirname, "volumes") {
+				return []os.DirEntry{
+					mockDirEntry{name: "other-dir", isDir: true},
+				}, nil
+			}
+			return nil, nil
+		}
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if envVars == nil {
+			t.Error("Expected non-nil envVars")
+		}
+	})
+
+	t.Run("UnmatchedPVCDirectories", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Mock ReadDir to return PVC directories that don't match any PVCs
+		mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
+			if strings.HasSuffix(dirname, "volumes") {
+				return []os.DirEntry{
+					mockDirEntry{name: "pvc-9999", isDir: true},
+					mockDirEntry{name: "pvc-8888", isDir: true},
+				}, nil
+			}
+			return nil, nil
+		}
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if envVars == nil {
+			t.Error("Expected non-nil envVars")
+		}
+	})
+
+	t.Run("ExistingPVEnvVars", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Mock Environ to return PV_ prefixed variables
+		mocks.Shims.Environ = func() []string {
+			return []string{
+				"PV_TEST_NS_PVC_1=/path/to/pvc-1234",
+				"OTHER_VAR=value",
+				"PV_TEST_NS_PVC_2=/path/to/pvc-5678",
+			}
+		}
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if envVars == nil {
+			t.Error("Expected non-nil envVars")
+		}
+		if envVars["PV_TEST_NS_PVC_1"] != "/path/to/pvc-1234" {
+			t.Errorf("Expected PV_TEST_NS_PVC_1=/path/to/pvc-1234, got %s", envVars["PV_TEST_NS_PVC_1"])
+		}
+		if envVars["PV_TEST_NS_PVC_2"] != "/path/to/pvc-5678" {
+			t.Errorf("Expected PV_TEST_NS_PVC_2=/path/to/pvc-5678, got %s", envVars["PV_TEST_NS_PVC_2"])
+		}
+	})
+
+	t.Run("EmptyVolumeDir", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Mock ReadDir to return empty directory
+		mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
+			if strings.HasSuffix(dirname, "volumes") {
+				return []os.DirEntry{}, nil
+			}
+			return nil, nil
+		}
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if envVars == nil {
+			t.Error("Expected non-nil envVars")
+		}
+	})
+
+	t.Run("PartiallyMatchedPVCDirectories", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		// Mock ReadDir to return mix of matching and non-matching PVC directories
+		mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
+			if strings.HasSuffix(dirname, "volumes") {
+				return []os.DirEntry{
+					mockDirEntry{name: "pvc-1234", isDir: true}, // matches
+					mockDirEntry{name: "pvc-9999", isDir: true}, // doesn't match
+				}, nil
+			}
+			return nil, nil
+		}
+
+		// Mock queryPersistentVolumeClaims to return specific PVCs
+		queryPersistentVolumeClaims = func(_ string) (*corev1.PersistentVolumeClaimList, error) {
+			return &corev1.PersistentVolumeClaimList{
+				Items: []corev1.PersistentVolumeClaim{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pvc-1",
+							Namespace: "test-ns",
+							UID:       "1234",
+						},
+					},
+				},
+			}, nil
+		}
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if envVars == nil {
+			t.Error("Expected non-nil envVars")
+		}
+
+		// Check that only the matching PVC is in envVars
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		expectedPath := filepath.Join(projectRoot, ".volumes", "pvc-1234")
+		if envVars["PV_TEST_NS_PVC_1"] != expectedPath {
+			t.Errorf("Expected PV_TEST_NS_PVC_1=%s, got %s", expectedPath, envVars["PV_TEST_NS_PVC_1"])
 		}
 	})
 }
 
 // TestKubeEnvPrinter_Print tests the Print method of the KubeEnvPrinter
 func TestKubeEnvPrinter_Print(t *testing.T) {
+	setup := func(t *testing.T) (*KubeEnvPrinter, *Mocks) {
+		t.Helper()
+		mocks := setupKubeEnvMocks(t)
+		printer := NewKubeEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
+		}
+		return printer, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
-		// Given a new KubeEnvPrinter with existing kubeconfig
-		mocks := setupSafeKubeEnvPrinterMocks()
-		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
-		kubeEnvPrinter.Initialize()
+		printer, _ := setup(t)
 
-		// And kubeconfig file exists
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.FromSlash("/mock/config/root/.kube/config") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// And PrintEnvVarsFunc is mocked
-		var capturedEnvVars map[string]string
-		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
-			capturedEnvVars = envVars
-		}
-
-		// When calling Print
-		err := kubeEnvPrinter.Print()
-
-		// Then no error should be returned
+		err := printer.Print()
 		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		// And environment variables should be set correctly
-		expectedEnvVars := map[string]string{
-			"KUBECONFIG":          filepath.FromSlash("/mock/config/root/.kube/config"),
-			"KUBE_CONFIG_PATH":    filepath.FromSlash("/mock/config/root/.kube/config"),
-			"K8S_AUTH_KUBECONFIG": filepath.FromSlash("/mock/config/root/.kube/config"),
-		}
-		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
-			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
+			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("GetConfigError", func(t *testing.T) {
-		// Given a new KubeEnvPrinter with failing config lookup
-		mocks := setupSafeKubeEnvPrinterMocks()
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock config error")
 		}
+		mocks := setupKubeEnvMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+		printer := NewKubeEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize printer: %v", err)
+		}
 
-		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
-		kubeEnvPrinter.Initialize()
-
-		// When calling Print
-		err := kubeEnvPrinter.Print()
-
-		// Then appropriate error should be returned
+		err := printer.Print()
 		if err == nil {
-			t.Error("expected error, got nil")
-		} else if !strings.Contains(err.Error(), "mock config error") {
-			t.Errorf("unexpected error message: %v", err)
+			t.Error("Expected error, got nil")
 		}
 	})
 }

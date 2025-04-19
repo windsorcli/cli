@@ -7,7 +7,6 @@ package env
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
@@ -45,9 +44,7 @@ type WindsorEnvPrinter struct {
 // NewWindsorEnvPrinter creates a new WindsorEnvPrinter instance
 func NewWindsorEnvPrinter(injector di.Injector) *WindsorEnvPrinter {
 	return &WindsorEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
 	}
 }
 
@@ -69,11 +66,7 @@ func (e *WindsorEnvPrinter) Initialize() error {
 	secretsProviders := make([]secrets.SecretsProvider, 0, len(instances))
 
 	for _, instance := range instances {
-		secretsProvider, ok := instance.(secrets.SecretsProvider)
-		if !ok {
-			return fmt.Errorf("failed to cast instance to SecretsProvider")
-		}
-		secretsProviders = append(secretsProviders, secretsProvider)
+		secretsProviders = append(secretsProviders, instance.(secrets.SecretsProvider))
 	}
 
 	e.secretsProviders = secretsProviders
@@ -81,7 +74,7 @@ func (e *WindsorEnvPrinter) Initialize() error {
 	return nil
 }
 
-// GetEnvVars constructs a map of Windsor-specific environment variables including
+// GetEnvVars constructs a map of Windsor-specific environment variables by retrieving
 // the current context, project root, and session token. It resolves secrets in custom
 // environment variables using configured providers, handles caching of values, and
 // manages environment variables and aliases. For secrets, it leverages the secrets cache
@@ -110,7 +103,7 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	re := regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
 
-	_, managedEnvExists := osLookupEnv("WINDSOR_MANAGED_ENV")
+	_, managedEnvExists := e.shims.LookupEnv("WINDSOR_MANAGED_ENV")
 
 	for k, v := range originalEnvVars {
 		if !managedEnvExists {
@@ -118,11 +111,11 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 
 		if re.MatchString(v) {
-			if existingValue, exists := osLookupEnv(k); exists {
+			if existingValue, exists := e.shims.LookupEnv(k); exists {
 				if managedEnvExists {
 					e.SetManagedEnv(k)
 				}
-				if shouldUseCache() && !strings.Contains(existingValue, "<ERROR") {
+				if e.shouldUseCache() && !strings.Contains(existingValue, "<ERROR") {
 					continue
 				}
 			}
@@ -133,12 +126,33 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	envVars["WINDSOR_MANAGED_ALIAS"] = strings.Join(e.GetManagedAlias(), ",")
+	// Collect managed envs and aliases from all env printers
+	instances, err := e.injector.ResolveAll((*EnvPrinter)(nil))
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve env printers: %w", err)
+	}
 
-	managedEnv := e.GetManagedEnv()
+	var allManagedEnv []string
+	var allManagedAlias []string
 
-	combinedManagedEnv := append(managedEnv, WindsorPrefixedVars...)
-	envVars["WINDSOR_MANAGED_ENV"] = strings.Join(combinedManagedEnv, ",")
+	// Add our own managed envs and aliases
+	allManagedEnv = append(allManagedEnv, e.GetManagedEnv()...)
+	allManagedAlias = append(allManagedAlias, e.GetManagedAlias()...)
+
+	// Collect from other env printers
+	for _, instance := range instances {
+		if printer, ok := instance.(EnvPrinter); ok && printer != e {
+			allManagedEnv = append(allManagedEnv, printer.GetManagedEnv()...)
+			allManagedAlias = append(allManagedAlias, printer.GetManagedAlias()...)
+		}
+	}
+
+	// Add Windsor prefixed vars to managed env
+	allManagedEnv = append(allManagedEnv, WindsorPrefixedVars...)
+
+	// Set the combined managed env and alias
+	envVars["WINDSOR_MANAGED_ENV"] = strings.Join(allManagedEnv, ",")
+	envVars["WINDSOR_MANAGED_ALIAS"] = strings.Join(allManagedAlias, ",")
 
 	return envVars, nil
 }
@@ -187,8 +201,8 @@ func (e *WindsorEnvPrinter) parseAndCheckSecrets(strValue string) string {
 }
 
 // shouldUseCache determines if the cache should be used based on the current and Windsor context.
-func shouldUseCache() bool {
-	noCache := os.Getenv("NO_CACHE")
+func (e *WindsorEnvPrinter) shouldUseCache() bool {
+	noCache, _ := e.shims.LookupEnv("NO_CACHE")
 	return noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
 }
 

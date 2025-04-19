@@ -5,6 +5,7 @@ package shell
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -278,4 +279,51 @@ func TestDefaultShell_UnsetAlias(t *testing.T) {
 			t.Errorf("UnsetAlias() with empty list should produce no output, got %v", output)
 		}
 	})
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+// Helper function to change the current directory
+func changeDir(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Failed to change directory to %s: %v", dir, err)
+	}
+}
+
+// Helper function to normalize a path for comparison
+func normalizePath(path string) string {
+	return filepath.Clean(path)
+}
+
+// Helper function to capture stdout from a function
+func captureStdoutFromFunc(t *testing.T, fn func()) string {
+	t.Helper()
+
+	// Create a pipe to capture stdout
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Failed to create pipe: %v", err)
+	}
+	os.Stdout = w
+
+	// Run the function
+	fn()
+
+	// Close the writer
+	w.Close()
+
+	// Restore stdout
+	os.Stdout = oldStdout
+
+	// Read the output
+	buf, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("Failed to read from pipe: %v", err)
+	}
+
+	return string(buf)
 }

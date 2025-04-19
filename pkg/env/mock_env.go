@@ -12,13 +12,15 @@ package env
 // MockEnvPrinter is a struct that implements mock environment configuration
 type MockEnvPrinter struct {
 	BaseEnvPrinter
-	InitializeFunc  func() error
-	PrintFunc       func() error
-	PrintAliasFunc  func() error
-	PostEnvHookFunc func() error
-	GetEnvVarsFunc  func() (map[string]string, error)
-	GetAliasFunc    func() (map[string]string, error)
-	ResetFunc       func()
+	InitializeFunc      func() error
+	PrintFunc           func() error
+	PrintAliasFunc      func() error
+	PostEnvHookFunc     func() error
+	GetEnvVarsFunc      func() (map[string]string, error)
+	GetAliasFunc        func() (map[string]string, error)
+	GetManagedEnvFunc   func() []string
+	GetManagedAliasFunc func() []string
+	ResetFunc           func()
 }
 
 // =============================================================================
@@ -97,6 +99,24 @@ func (m *MockEnvPrinter) Reset() {
 		m.ResetFunc()
 		return
 	}
+}
+
+// GetManagedEnv returns the managed environment variables.
+// If a custom GetManagedEnvFunc is provided, it will use that function instead.
+func (m *MockEnvPrinter) GetManagedEnv() []string {
+	if m.GetManagedEnvFunc != nil {
+		return m.GetManagedEnvFunc()
+	}
+	return m.BaseEnvPrinter.GetManagedEnv()
+}
+
+// GetManagedAlias returns the managed aliases.
+// If a custom GetManagedAliasFunc is provided, it will use that function instead.
+func (m *MockEnvPrinter) GetManagedAlias() []string {
+	if m.GetManagedAliasFunc != nil {
+		return m.GetManagedAliasFunc()
+	}
+	return m.BaseEnvPrinter.GetManagedAlias()
 }
 
 // Ensure MockEnvPrinter implements the EnvPrinter interface

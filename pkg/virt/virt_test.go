@@ -40,6 +40,7 @@ type SetupOptions struct {
 
 // setupShims creates a new Shims instance with default implementations
 func setupShims(t *testing.T) *Shims {
+	t.Helper()
 	shims := &Shims{
 		Setenv: func(key, value string) error {
 			return os.Setenv(key, value)

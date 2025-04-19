@@ -28,9 +28,7 @@ type TalosEnvPrinter struct {
 // NewTalosEnvPrinter creates a new TalosEnvPrinter instance
 func NewTalosEnvPrinter(injector di.Injector) *TalosEnvPrinter {
 	return &TalosEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
 	}
 }
 

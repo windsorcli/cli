@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,9 +37,7 @@ type KubeEnvPrinter struct {
 // NewKubeEnvPrinter creates a new KubeEnvPrinter instance
 func NewKubeEnvPrinter(injector di.Injector) *KubeEnvPrinter {
 	return &KubeEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
 	}
 }
 
@@ -65,22 +64,26 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 	volumeDir := filepath.Join(projectRoot, ".volumes")
 
-	if _, err := stat(volumeDir); os.IsNotExist(err) {
-		return envVars, nil
+	_, err = e.shims.Stat(volumeDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return envVars, nil
+		}
+		return nil, fmt.Errorf("error checking volume directory: %w", err)
 	}
 
-	volumeDirs, err := readDir(volumeDir)
+	volumeDirs, err := e.shims.ReadDir(volumeDir)
 	if err != nil {
 		return nil, fmt.Errorf("error reading volume directories: %w", err)
 	}
 
 	existingEnvVars := make(map[string]string)
-	for _, env := range os.Environ() {
+	for _, env := range e.shims.Environ() {
 		if strings.HasPrefix(env, "PV_") {
 			parts := strings.SplitN(env, "=", 2)
 			if len(parts) == 2 {
 				existingEnvVars[parts[0]] = parts[1]
-				envVars[parts[0]] = parts[1] // Include existing PV environment variables
+				envVars[parts[0]] = parts[1]
 			}
 		}
 	}
@@ -106,7 +109,10 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return envVars, nil
 	}
 
-	pvcs, _ := queryPersistentVolumeClaims(kubeConfigPath) // ignores error
+	pvcs, err := queryPersistentVolumeClaims(kubeConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("error querying persistent volume claims: %w", err)
+	}
 
 	if pvcs != nil && pvcs.Items != nil {
 		for _, dir := range volumeDirs {
@@ -164,8 +170,14 @@ var queryPersistentVolumeClaims = func(kubeConfigPath string) (*corev1.Persisten
 		return nil, err
 	}
 
-	pvcs, err := clientset.CoreV1().PersistentVolumeClaims("").List(context.TODO(), metav1.ListOptions{})
+	ctx, cancel := context.WithTimeout(context.Background(), constants.KUBERNETES_SHORT_TIMEOUT)
+	defer cancel()
+
+	pvcs, err := clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("timeout querying PVCs: %w", err)
+		}
 		return nil, err
 	}
 
