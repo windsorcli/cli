@@ -89,7 +89,10 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return envVars, nil
 	}
 
-	pvcs, _ := queryPersistentVolumeClaims(kubeConfigPath) // ignores error
+	pvcs, err := queryPersistentVolumeClaims(kubeConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query persistent volume claims: %w", err)
+	}
 
 	if pvcs != nil && pvcs.Items != nil {
 		for _, dir := range volumeDirs {

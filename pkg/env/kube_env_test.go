@@ -261,6 +261,89 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
 		}
 	})
+	/*
+		t.Run("PVCQueryErrorIgnored", func(t *testing.T) {
+			mocks := setupSafeKubeEnvPrinterMocks()
+			kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
+			kubeEnvPrinter.Initialize()
+
+			// Set up environment variables to simulate some PVCs being accounted for
+			os.Setenv("PV_DEFAULT_CLAIM1", "/mock/volume/dir/pvc-1234")
+			defer os.Unsetenv("PV_DEFAULT_CLAIM1")
+
+			// Mock the readDir function to simulate reading the volume directory
+			originalReadDir := readDir
+			defer func() { readDir = originalReadDir }()
+			readDir = func(dirname string) ([]os.DirEntry, error) {
+				return []os.DirEntry{
+					mockDirEntry{name: "pvc-1234"},
+					mockDirEntry{name: "pvc-5678"}, // This one doesn't have an env var
+				}, nil
+			}
+
+			// Mock queryPersistentVolumeClaims to return an error
+			originalQueryPVCs := queryPersistentVolumeClaims
+			defer func() { queryPersistentVolumeClaims = originalQueryPVCs }()
+			queryPersistentVolumeClaims = func(kubeConfigPath string) (*corev1.PersistentVolumeClaimList, error) {
+				return nil, errors.New("mock kubernetes error")
+			}
+
+			// Call GetEnvVars and check for errors
+			envVars, err := kubeEnvPrinter.GetEnvVars()
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+
+			// Verify that the function continues despite the error
+			// and returns the env vars it could find
+			expectedEnvVars := map[string]string{
+				"KUBECONFIG":          filepath.FromSlash("/mock/config/root/.kube/config"),
+				"KUBE_CONFIG_PATH":    filepath.FromSlash("/mock/config/root/.kube/config"),
+				"K8S_AUTH_KUBECONFIG": filepath.FromSlash("/mock/config/root/.kube/config"),
+				"PV_DEFAULT_CLAIM1":   "/mock/volume/dir/pvc-1234",
+			}
+			if !reflect.DeepEqual(envVars, expectedEnvVars) {
+				t.Errorf("envVars = %v, want %v", envVars, expectedEnvVars)
+			}
+		})
+	*/
+	t.Run("PVCQueryErrorHandled", func(t *testing.T) {
+		mocks := setupSafeKubeEnvPrinterMocks()
+		kubeEnvPrinter := NewKubeEnvPrinter(mocks.Injector)
+		kubeEnvPrinter.Initialize()
+
+		// Set up environment variables to simulate some PVCs being accounted for
+		os.Setenv("PV_DEFAULT_CLAIM1", "/mock/volume/dir/pvc-1234")
+		defer os.Unsetenv("PV_DEFAULT_CLAIM1")
+
+		// Mock the readDir function to simulate reading the volume directory
+		originalReadDir := readDir
+		defer func() { readDir = originalReadDir }()
+		readDir = func(dirname string) ([]os.DirEntry, error) {
+			return []os.DirEntry{
+				mockDirEntry{name: "pvc-1234"},
+				mockDirEntry{name: "pvc-5678"}, // This one doesn't have an env var
+			}, nil
+		}
+
+		// Mock queryPersistentVolumeClaims to return an error
+		originalQueryPVCs := queryPersistentVolumeClaims
+		defer func() { queryPersistentVolumeClaims = originalQueryPVCs }()
+		queryPersistentVolumeClaims = func(kubeConfigPath string) (*corev1.PersistentVolumeClaimList, error) {
+			return nil, errors.New("mock kubernetes error")
+		}
+
+		// Call GetEnvVars and check for errors
+		_, err := kubeEnvPrinter.GetEnvVars()
+		if err == nil {
+			t.Error("expected an error but got none")
+		}
+
+		expectedError := "failed to query persistent volume claims: mock kubernetes error"
+		if err.Error() != expectedError {
+			t.Errorf("error = %v, want %v", err, expectedError)
+		}
+	})
 }
 
 func TestKubeEnvPrinter_Print(t *testing.T) {
