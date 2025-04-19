@@ -127,16 +127,16 @@ func TestEnv_Initialize(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		return envPrinter, mocks
+		printer := NewBaseEnvPrinter(mocks.Injector)
+		return printer, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a new BaseEnvPrinter
-		envPrinter, _ := setup(t)
+		printer, _ := setup(t)
 
 		// When calling Initialize
-		err := envPrinter.Initialize()
+		err := printer.Initialize()
 
 		// Then no error should be returned
 		if err != nil {
@@ -148,10 +148,10 @@ func TestEnv_Initialize(t *testing.T) {
 		// Given a new BaseEnvPrinter with an invalid shell
 		injector := di.NewMockInjector()
 		injector.Register("shell", "invalid")
-		envPrinter := NewBaseEnvPrinter(injector)
+		printer := NewBaseEnvPrinter(injector)
 
 		// When calling Initialize
-		err := envPrinter.Initialize()
+		err := printer.Initialize()
 
 		// Then an error should be returned
 		if err == nil {
@@ -166,10 +166,10 @@ func TestEnv_Initialize(t *testing.T) {
 		injector := di.NewMockInjector()
 		injector.Register("shell", shell.NewMockShell())
 		injector.Register("configHandler", struct{}{})
-		envPrinter := NewBaseEnvPrinter(injector)
+		printer := NewBaseEnvPrinter(injector)
 
 		// When calling Initialize
-		err := envPrinter.Initialize()
+		err := printer.Initialize()
 
 		// Then an error should be returned
 		if err == nil {
@@ -185,20 +185,20 @@ func TestBaseEnvPrinter_GetEnvVars(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		err := envPrinter.Initialize()
+		printer := NewBaseEnvPrinter(mocks.Injector)
+		err := printer.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
-		return envPrinter, mocks
+		return printer, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a new BaseEnvPrinter
-		envPrinter, _ := setup(t)
+		printer, _ := setup(t)
 
 		// When calling GetEnvVars
-		envVars, err := envPrinter.GetEnvVars()
+		envVars, err := printer.GetEnvVars()
 
 		// Then no error should be returned and envVars should be empty
 		if err != nil {
@@ -216,17 +216,17 @@ func TestEnv_Print(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		err := envPrinter.Initialize()
+		printer := NewBaseEnvPrinter(mocks.Injector)
+		err := printer.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
-		return envPrinter, mocks
+		return printer, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a new BaseEnvPrinter with test environment variables
-		envPrinter, mocks := setup(t)
+		printer, mocks := setup(t)
 
 		// And a mock PrintEnvVarsFunc
 		var capturedEnvVars map[string]string
@@ -238,7 +238,7 @@ func TestEnv_Print(t *testing.T) {
 		testEnvVars := map[string]string{"TEST_VAR": "test_value"}
 
 		// When calling Print with test environment variables
-		err := envPrinter.Print(testEnvVars)
+		err := printer.Print(testEnvVars)
 
 		// Then no error should be returned and PrintEnvVarsFunc should be called with correct envVars
 		if err != nil {
@@ -252,7 +252,7 @@ func TestEnv_Print(t *testing.T) {
 
 	t.Run("NoCustomVars", func(t *testing.T) {
 		// Given a new BaseEnvPrinter
-		envPrinter, mocks := setup(t)
+		printer, mocks := setup(t)
 
 		// And a mock PrintEnvVarsFunc
 		var capturedEnvVars map[string]string
@@ -261,7 +261,7 @@ func TestEnv_Print(t *testing.T) {
 		}
 
 		// When calling Print without custom vars
-		err := envPrinter.Print()
+		err := printer.Print()
 
 		// Then no error should be returned and PrintEnvVarsFunc should be called with empty map
 		if err != nil {
@@ -279,18 +279,18 @@ func TestEnv_PrintAlias(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		if err := envPrinter.Initialize(); err != nil {
+		printer := NewBaseEnvPrinter(mocks.Injector)
+		if err := printer.Initialize(); err != nil {
 			t.Fatalf("Failed to initialize printer: %v", err)
 		}
-		envPrinter.shims = mocks.Shims
-		envPrinter.shell = mocks.Shell
-		return envPrinter, mocks
+		printer.shims = mocks.Shims
+		printer.shell = mocks.Shell
+		return printer, mocks
 	}
 
 	t.Run("SuccessWithCustomAlias", func(t *testing.T) {
 		// Given a new BaseEnvPrinter with test alias
-		envPrinter, mocks := setup(t)
+		printer, mocks := setup(t)
 
 		// And a mock PrintAliasFunc
 		var capturedAlias map[string]string
@@ -302,7 +302,7 @@ func TestEnv_PrintAlias(t *testing.T) {
 		testAlias := map[string]string{"alias1": "command1"}
 
 		// When calling PrintAlias with test alias
-		err := envPrinter.PrintAlias(testAlias)
+		err := printer.PrintAlias(testAlias)
 
 		// Then no error should be returned and PrintAliasFunc should be called with correct alias
 		if err != nil {
@@ -316,7 +316,7 @@ func TestEnv_PrintAlias(t *testing.T) {
 
 	t.Run("SuccessWithoutCustomAlias", func(t *testing.T) {
 		// Given a new BaseEnvPrinter
-		envPrinter, mocks := setup(t)
+		printer, mocks := setup(t)
 
 		// And a mock PrintAliasFunc
 		var capturedAlias map[string]string
@@ -325,7 +325,7 @@ func TestEnv_PrintAlias(t *testing.T) {
 		}
 
 		// When calling PrintAlias without custom alias
-		err := envPrinter.PrintAlias()
+		err := printer.PrintAlias()
 
 		// Then no error should be returned and PrintAliasFunc should be called with empty map
 		if err != nil {
@@ -343,31 +343,31 @@ func TestBaseEnvPrinter_GetManagedEnv(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		err := envPrinter.Initialize()
+		printer := NewBaseEnvPrinter(mocks.Injector)
+		err := printer.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
-		return envPrinter, mocks
+		return printer, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a new BaseEnvPrinter
-		envPrinter, _ := setup(t)
+		printer, _ := setup(t)
 
 		// And test environment variables
 		// Store original managed environment variables
-		originalManagedEnv := make([]string, len(envPrinter.managedEnv))
-		copy(originalManagedEnv, envPrinter.managedEnv)
+		originalManagedEnv := make([]string, len(printer.managedEnv))
+		copy(originalManagedEnv, printer.managedEnv)
 		defer func() {
-			envPrinter.managedEnv = originalManagedEnv
+			printer.managedEnv = originalManagedEnv
 		}()
 
 		// Set test environment variables
-		envPrinter.managedEnv = []string{"TEST_VAR1", "TEST_VAR2"}
+		printer.managedEnv = []string{"TEST_VAR1", "TEST_VAR2"}
 
 		// When calling GetManagedEnv
-		managedEnv := envPrinter.GetManagedEnv()
+		managedEnv := printer.GetManagedEnv()
 
 		// Then the returned list should contain our tracked variables
 		if len(managedEnv) != 2 {
@@ -384,31 +384,31 @@ func TestBaseEnvPrinter_GetManagedAlias(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		err := envPrinter.Initialize()
+		printer := NewBaseEnvPrinter(mocks.Injector)
+		err := printer.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
-		return envPrinter, mocks
+		return printer, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a new BaseEnvPrinter
-		envPrinter, _ := setup(t)
+		printer, _ := setup(t)
 
 		// And test aliases
 		// Store original managed aliases
-		originalManagedAlias := make([]string, len(envPrinter.managedAlias))
-		copy(originalManagedAlias, envPrinter.managedAlias)
+		originalManagedAlias := make([]string, len(printer.managedAlias))
+		copy(originalManagedAlias, printer.managedAlias)
 		defer func() {
-			envPrinter.managedAlias = originalManagedAlias
+			printer.managedAlias = originalManagedAlias
 		}()
 
 		// Set test aliases
-		envPrinter.managedAlias = []string{"alias1", "alias2"}
+		printer.managedAlias = []string{"alias1", "alias2"}
 
 		// When calling GetManagedAlias
-		managedAlias := envPrinter.GetManagedAlias()
+		managedAlias := printer.GetManagedAlias()
 
 		// Then the returned list should contain our tracked aliases
 		if len(managedAlias) != 2 {
@@ -425,34 +425,34 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		err := envPrinter.Initialize()
+		printer := NewBaseEnvPrinter(mocks.Injector)
+		err := printer.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
-		return envPrinter, mocks
+		return printer, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a new BaseEnvPrinter
-		envPrinter, _ := setup(t)
+		printer, _ := setup(t)
 
 		// And empty managed environment variables
 		// Store original managed environment variables
-		originalManagedEnv := make([]string, len(envPrinter.managedEnv))
-		copy(originalManagedEnv, envPrinter.managedEnv)
+		originalManagedEnv := make([]string, len(printer.managedEnv))
+		copy(originalManagedEnv, printer.managedEnv)
 		defer func() {
-			envPrinter.managedEnv = originalManagedEnv
+			printer.managedEnv = originalManagedEnv
 		}()
 
 		// Set empty managed environment variables
-		envPrinter.managedEnv = []string{}
+		printer.managedEnv = []string{}
 
 		// When setting a managed environment variable
-		envPrinter.SetManagedEnv("SET_TEST_VAR1")
+		printer.SetManagedEnv("SET_TEST_VAR1")
 
 		// Then GetManagedEnv should return the variable
-		managedEnv := envPrinter.GetManagedEnv()
+		managedEnv := printer.GetManagedEnv()
 		if len(managedEnv) != 1 {
 			t.Errorf("expected 1 variable, got %d", len(managedEnv))
 		}
@@ -463,25 +463,25 @@ func TestBaseEnvPrinter_SetManagedEnv(t *testing.T) {
 
 	t.Run("Dedupe", func(t *testing.T) {
 		// Given a new BaseEnvPrinter
-		envPrinter, _ := setup(t)
+		printer, _ := setup(t)
 
 		// And empty managed environment variables
 		// Store original managed environment variables
-		originalManagedEnv := make([]string, len(envPrinter.managedEnv))
-		copy(originalManagedEnv, envPrinter.managedEnv)
+		originalManagedEnv := make([]string, len(printer.managedEnv))
+		copy(originalManagedEnv, printer.managedEnv)
 		defer func() {
-			envPrinter.managedEnv = originalManagedEnv
+			printer.managedEnv = originalManagedEnv
 		}()
 
 		// Set empty managed environment variables
-		envPrinter.managedEnv = []string{}
+		printer.managedEnv = []string{}
 
 		// When setting duplicate managed environment variables
-		envPrinter.SetManagedEnv("SET_TEST_VAR1")
-		envPrinter.SetManagedEnv("SET_TEST_VAR1")
+		printer.SetManagedEnv("SET_TEST_VAR1")
+		printer.SetManagedEnv("SET_TEST_VAR1")
 
 		// Then GetManagedEnv should return only one instance
-		managedEnv := envPrinter.GetManagedEnv()
+		managedEnv := printer.GetManagedEnv()
 		if len(managedEnv) != 1 {
 			t.Errorf("expected 1 variable, got %d", len(managedEnv))
 		}
@@ -496,34 +496,34 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		err := envPrinter.Initialize()
+		printer := NewBaseEnvPrinter(mocks.Injector)
+		err := printer.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
-		return envPrinter, mocks
+		return printer, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a new BaseEnvPrinter
-		envPrinter, _ := setup(t)
+		printer, _ := setup(t)
 
 		// And empty managed aliases
 		// Store original managed aliases
-		originalManagedAlias := make([]string, len(envPrinter.managedAlias))
-		copy(originalManagedAlias, envPrinter.managedAlias)
+		originalManagedAlias := make([]string, len(printer.managedAlias))
+		copy(originalManagedAlias, printer.managedAlias)
 		defer func() {
-			envPrinter.managedAlias = originalManagedAlias
+			printer.managedAlias = originalManagedAlias
 		}()
 
 		// Set empty managed aliases
-		envPrinter.managedAlias = []string{}
+		printer.managedAlias = []string{}
 
 		// When setting a managed alias
-		envPrinter.SetManagedAlias("set_alias1")
+		printer.SetManagedAlias("set_alias1")
 
 		// Then GetManagedAlias should return the alias
-		managedAlias := envPrinter.GetManagedAlias()
+		managedAlias := printer.GetManagedAlias()
 		if len(managedAlias) != 1 {
 			t.Errorf("expected 1 alias, got %d", len(managedAlias))
 		}
@@ -534,25 +534,25 @@ func TestBaseEnvPrinter_SetManagedAlias(t *testing.T) {
 
 	t.Run("Dedupe", func(t *testing.T) {
 		// Given a new BaseEnvPrinter
-		envPrinter, _ := setup(t)
+		printer, _ := setup(t)
 
 		// And empty managed aliases
 		// Store original managed aliases
-		originalManagedAlias := make([]string, len(envPrinter.managedAlias))
-		copy(originalManagedAlias, envPrinter.managedAlias)
+		originalManagedAlias := make([]string, len(printer.managedAlias))
+		copy(originalManagedAlias, printer.managedAlias)
 		defer func() {
-			envPrinter.managedAlias = originalManagedAlias
+			printer.managedAlias = originalManagedAlias
 		}()
 
 		// Set empty managed aliases
-		envPrinter.managedAlias = []string{}
+		printer.managedAlias = []string{}
 
 		// When setting duplicate managed aliases
-		envPrinter.SetManagedAlias("set_alias1")
-		envPrinter.SetManagedAlias("set_alias1")
+		printer.SetManagedAlias("set_alias1")
+		printer.SetManagedAlias("set_alias1")
 
 		// Then GetManagedAlias should return only one instance
-		managedAlias := envPrinter.GetManagedAlias()
+		managedAlias := printer.GetManagedAlias()
 		if len(managedAlias) != 1 {
 			t.Errorf("expected 1 alias, got %d", len(managedAlias))
 		}
@@ -567,17 +567,17 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 	setup := func(t *testing.T) (*BaseEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
-		envPrinter := NewBaseEnvPrinter(mocks.Injector)
-		err := envPrinter.Initialize()
+		printer := NewBaseEnvPrinter(mocks.Injector)
+		err := printer.Initialize()
 		if err != nil {
 			t.Errorf("unexpected error during initialization: %v", err)
 		}
-		return envPrinter, mocks
+		return printer, mocks
 	}
 
 	t.Run("ResetWithNoEnvVars", func(t *testing.T) {
 		// Given a new BaseEnvPrinter
-		envPrinter, mocks := setup(t)
+		printer, mocks := setup(t)
 
 		// And a mock Reset function
 		resetCalled := false
@@ -586,7 +586,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 		}
 
 		// When calling Reset
-		envPrinter.Reset()
+		printer.Reset()
 
 		// Then shell.Reset should be called
 		if !resetCalled {
@@ -596,7 +596,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 
 	t.Run("ResetWithEnvironmentVariables", func(t *testing.T) {
 		// Given a new BaseEnvPrinter with environment variables
-		envPrinter, mocks := setup(t)
+		printer, mocks := setup(t)
 
 		// And environment variables set
 		os.Setenv("WINDSOR_MANAGED_ENV", "ENV1,ENV2, ENV3")
@@ -613,7 +613,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 		}
 
 		// When calling Reset
-		envPrinter.Reset()
+		printer.Reset()
 
 		// Then shell.Reset should be called
 		if !resetCalled {
@@ -623,13 +623,13 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 
 	t.Run("InternalStateResetsWithReset", func(t *testing.T) {
 		// Given a new BaseEnvPrinter with managed environment variables and aliases
-		envPrinter, mocks := setup(t)
+		printer, mocks := setup(t)
 
 		// And managed environment variables and aliases set
-		envPrinter.SetManagedEnv("TEST_ENV1")
-		envPrinter.SetManagedEnv("TEST_ENV2")
-		envPrinter.SetManagedAlias("test_alias1")
-		envPrinter.SetManagedAlias("test_alias2")
+		printer.SetManagedEnv("TEST_ENV1")
+		printer.SetManagedEnv("TEST_ENV2")
+		printer.SetManagedAlias("test_alias1")
+		printer.SetManagedAlias("test_alias2")
 
 		// And a mock Reset function
 		resetCalled := false
@@ -638,7 +638,7 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 		}
 
 		// When calling Reset
-		envPrinter.Reset()
+		printer.Reset()
 
 		// Then shell.Reset should be called
 		if !resetCalled {
@@ -646,13 +646,13 @@ func TestBaseEnvPrinter_Reset(t *testing.T) {
 		}
 
 		// And the managed environment variables should be empty
-		managedEnv := envPrinter.GetManagedEnv()
+		managedEnv := printer.GetManagedEnv()
 		if len(managedEnv) > 0 {
 			t.Errorf("expected GetManagedEnv to be empty, got %v", managedEnv)
 		}
 
 		// And the managed aliases should be empty
-		managedAlias := envPrinter.GetManagedAlias()
+		managedAlias := printer.GetManagedAlias()
 		if len(managedAlias) > 0 {
 			t.Errorf("expected GetManagedAlias to be empty, got %v", managedAlias)
 		}

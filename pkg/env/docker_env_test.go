@@ -84,12 +84,12 @@ contexts:
 `,
 		})
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When getting environment variables
-		envVars, err := dockerEnvPrinter.GetEnvVars()
+		envVars, err := printer.GetEnvVars()
 
 		// Then no error should be returned
 		if err != nil {
@@ -132,12 +132,12 @@ contexts:
 `,
 		})
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When getting environment variables
-		envVars, err := dockerEnvPrinter.GetEnvVars()
+		envVars, err := printer.GetEnvVars()
 
 		// Then no error should be returned
 		if err != nil {
@@ -202,12 +202,12 @@ contexts:
 			return nil
 		}
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When getting environment variables
-		envVars, err := dockerEnvPrinter.GetEnvVars()
+		envVars, err := printer.GetEnvVars()
 
 		// Then no error should be returned
 		if err != nil {
@@ -270,12 +270,12 @@ contexts:
 `,
 		})
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When getting environment variables
-		envVars, err := dockerEnvPrinter.GetEnvVars()
+		envVars, err := printer.GetEnvVars()
 
 		// Then no error should be returned
 		if err != nil {
@@ -305,12 +305,12 @@ contexts:
 			return "", errors.New("mock user home dir error")
 		}
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When getting environment variables
-		_, err := dockerEnvPrinter.GetEnvVars()
+		_, err := printer.GetEnvVars()
 
 		// Then appropriate error should be returned
 		if err == nil {
@@ -330,12 +330,12 @@ contexts:
 			return errors.New("mock mkdirAll error")
 		}
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When getting environment variables
-		_, err := dockerEnvPrinter.GetEnvVars()
+		_, err := printer.GetEnvVars()
 
 		// Then appropriate error should be returned
 		if err == nil {
@@ -355,12 +355,12 @@ contexts:
 			return errors.New("mock writeFile error")
 		}
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When getting environment variables
-		_, err := dockerEnvPrinter.GetEnvVars()
+		_, err := printer.GetEnvVars()
 
 		// Then appropriate error should be returned
 		if err == nil {
@@ -415,12 +415,12 @@ contexts:
 					return tc.os
 				}
 
-				dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-				dockerEnvPrinter.shims = mocks.Shims
-				dockerEnvPrinter.Initialize()
+				printer := NewDockerEnvPrinter(mocks.Injector)
+				printer.shims = mocks.Shims
+				printer.Initialize()
 
 				// When getting environment variables
-				envVars, err := dockerEnvPrinter.GetEnvVars()
+				envVars, err := printer.GetEnvVars()
 
 				// Then no error should be returned
 				if err != nil {
@@ -461,12 +461,12 @@ contexts:
 			return "", false
 		}
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When getting environment variables
-		envVars, err := dockerEnvPrinter.GetEnvVars()
+		envVars, err := printer.GetEnvVars()
 
 		// Then no error should be returned
 		if err != nil {
@@ -500,12 +500,12 @@ contexts:
 			return "", false
 		}
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When getting environment variables
-		envVars, err := dockerEnvPrinter.GetEnvVars()
+		envVars, err := printer.GetEnvVars()
 
 		// Then no error should be returned
 		if err != nil {
@@ -542,12 +542,12 @@ contexts:
 			return "", false
 		}
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When getting environment variables
-		envVars, err := dockerEnvPrinter.GetEnvVars()
+		envVars, err := printer.GetEnvVars()
 
 		// Then no error should be returned
 		if err != nil {
@@ -575,12 +575,12 @@ func TestDockerEnvPrinter_GetAlias(t *testing.T) {
 			return "", fmt.Errorf("not found")
 		}
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When getting aliases
-		aliasMap, err := dockerEnvPrinter.GetAlias()
+		aliasMap, err := printer.GetAlias()
 
 		// Then no error should be returned
 		if err != nil {
@@ -601,12 +601,12 @@ func TestDockerEnvPrinter_GetAlias(t *testing.T) {
 			return "", fmt.Errorf("not found")
 		}
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When getting aliases
-		aliasMap, err := dockerEnvPrinter.GetAlias()
+		aliasMap, err := printer.GetAlias()
 
 		// Then no error should be returned
 		if err != nil {
@@ -629,9 +629,9 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new DockerEnvPrinter
 		mocks := setupDockerEnvMocks(t)
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// And PrintEnvVarsFunc is mocked
 		var capturedEnvVars map[string]string
@@ -640,7 +640,7 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 		}
 
 		// When calling Print
-		err := dockerEnvPrinter.Print()
+		err := printer.Print()
 
 		// Then no error should be returned
 		if err != nil {
@@ -648,7 +648,7 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 		}
 
 		// And environment variables should be set correctly
-		expectedEnvVars, _ := dockerEnvPrinter.GetEnvVars()
+		expectedEnvVars, _ := printer.GetEnvVars()
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
 		}
@@ -664,12 +664,12 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 			return "", errors.New("mock error")
 		}
 
-		dockerEnvPrinter := NewDockerEnvPrinter(mocks.Injector)
-		dockerEnvPrinter.shims = mocks.Shims
-		dockerEnvPrinter.Initialize()
+		printer := NewDockerEnvPrinter(mocks.Injector)
+		printer.shims = mocks.Shims
+		printer.Initialize()
 
 		// When calling Print
-		err := dockerEnvPrinter.Print()
+		err := printer.Print()
 
 		// Then appropriate error should be returned
 		if err == nil {
