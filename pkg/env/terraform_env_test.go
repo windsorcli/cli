@@ -1049,9 +1049,9 @@ func TestTerraformEnv_processBackendConfig(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with valid backend configuration
 		printer, _ := setup(t)
 
-		// Set up test data
 		backendConfig := map[string]any{
 			"key1": "value1",
 			"key2": true,
@@ -1068,11 +1068,15 @@ func TestTerraformEnv_processBackendConfig(t *testing.T) {
 			args = append(args, fmt.Sprintf("%s=%s", key, value))
 		}
 
+		// When processing the backend configuration
 		err := printer.processBackendConfig(backendConfig, addArg)
+
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 
+		// And all configuration values should be properly formatted
 		expectedArgs := []string{
 			"key1=value1",
 			"key2=true",
@@ -1092,9 +1096,9 @@ func TestTerraformEnv_processBackendConfig(t *testing.T) {
 	})
 
 	t.Run("ErrorUnmarshallingBackendConfig", func(t *testing.T) {
+		// Given a TerraformEnvPrinter with failing YAML unmarshalling
 		printer, mocks := setup(t)
 
-		// Mock YamlMarshal to return valid data but YamlUnmarshal to fail
 		mocks.Shims.YamlMarshal = func(v any) ([]byte, error) {
 			return []byte("valid yaml"), nil
 		}
@@ -1107,11 +1111,15 @@ func TestTerraformEnv_processBackendConfig(t *testing.T) {
 			args = append(args, fmt.Sprintf("%s=%s", key, value))
 		}
 
+		// When processing the backend configuration
 		err := printer.processBackendConfig(map[string]any{"key1": "value1"}, addArg)
+
+		// Then an error should be returned
 		if err == nil {
 			t.Errorf("expected error, got nil")
 		}
 
+		// And the error should contain the expected message
 		expectedError := "error unmarshalling backend YAML: mock unmarshal error"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %q, got %q", expectedError, err.Error())

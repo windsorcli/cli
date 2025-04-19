@@ -1014,6 +1014,7 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 	}
 
 	t.Run("EmptyNoCache", func(t *testing.T) {
+		// Given NO_CACHE environment variable is not set
 		printer, mocks := setup(t)
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "NO_CACHE" {
@@ -1022,13 +1023,17 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 			return "", false
 		}
 
+		// When shouldUseCache is called
 		shouldCache := printer.shouldUseCache()
+
+		// Then it should return true
 		if !shouldCache {
 			t.Error("Expected shouldUseCache to return true for empty NO_CACHE")
 		}
 	})
 
 	t.Run("NoCacheZero", func(t *testing.T) {
+		// Given NO_CACHE environment variable is set to "0"
 		printer, mocks := setup(t)
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "NO_CACHE" {
@@ -1037,13 +1042,17 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 			return "", false
 		}
 
+		// When shouldUseCache is called
 		shouldCache := printer.shouldUseCache()
+
+		// Then it should return true
 		if !shouldCache {
 			t.Error("Expected shouldUseCache to return true for NO_CACHE=0")
 		}
 	})
 
 	t.Run("NoCacheFalse", func(t *testing.T) {
+		// Given NO_CACHE environment variable is set to "false"
 		printer, mocks := setup(t)
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "NO_CACHE" {
@@ -1052,13 +1061,17 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 			return "", false
 		}
 
+		// When shouldUseCache is called
 		shouldCache := printer.shouldUseCache()
+
+		// Then it should return true
 		if !shouldCache {
 			t.Error("Expected shouldUseCache to return true for NO_CACHE=false")
 		}
 	})
 
 	t.Run("NoCacheFalsePascal", func(t *testing.T) {
+		// Given NO_CACHE environment variable is set to "False"
 		printer, mocks := setup(t)
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "NO_CACHE" {
@@ -1067,13 +1080,17 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 			return "", false
 		}
 
+		// When shouldUseCache is called
 		shouldCache := printer.shouldUseCache()
+
+		// Then it should return true
 		if !shouldCache {
 			t.Error("Expected shouldUseCache to return true for NO_CACHE=False")
 		}
 	})
 
 	t.Run("NoCacheOne", func(t *testing.T) {
+		// Given NO_CACHE environment variable is set to "1"
 		printer, mocks := setup(t)
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "NO_CACHE" {
@@ -1082,19 +1099,12 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 			return "", false
 		}
 
+		// When shouldUseCache is called
 		shouldCache := printer.shouldUseCache()
+
+		// Then it should return false
 		if shouldCache {
 			t.Error("Expected shouldUseCache to return false for NO_CACHE=1")
 		}
 	})
-}
-
-// Helper function to check if a slice contains a string
-func contains(slice []string, str string) bool {
-	for _, s := range slice {
-		if s == str {
-			return true
-		}
-	}
-	return false
 }

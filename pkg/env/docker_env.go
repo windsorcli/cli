@@ -142,10 +142,10 @@ func (e *DockerEnvPrinter) Print() error {
 // Private Methods
 // =============================================================================
 
-// getRegistryURL retrieves a registry URL, appending a port if not present.
-// It retrieves the URL from the configuration and checks if it already includes a port.
-// If not, it looks for a matching registry configuration to append the host port.
-// Returns the constructed URL or an empty string if no URL is configured.
+// getRegistryURL retrieves a registry URL from configuration and handles port assignment.
+// First checks docker.registry_url setting, then falls back to first configured registry.
+// For each URL, checks if port exists and appends host port from registry config if needed.
+// Returns empty string if no registry URL is configured.
 func (e *DockerEnvPrinter) getRegistryURL() (string, error) {
 	registryURL := e.configHandler.GetString("docker.registry_url")
 	if registryURL != "" {
@@ -163,10 +163,8 @@ func (e *DockerEnvPrinter) getRegistryURL() (string, error) {
 		return registryURL, nil
 	}
 
-	// If no URL, check docker.registries
 	config := e.configHandler.GetConfig()
 	if config.Docker != nil && config.Docker.Registries != nil {
-		// Get the first registry URL from the map
 		for url, registryConfig := range config.Docker.Registries {
 			if registryConfig.HostPort != 0 {
 				return fmt.Sprintf("%s:%d", url, registryConfig.HostPort), nil

@@ -117,18 +117,24 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 	}
 
 	t.Run("SuccessWithKubeConfig", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, mocks := setup(t)
 
+		// And a valid config root
 		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
 			t.Fatalf("Failed to get config root: %v", err)
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// And KUBECONFIG should be set correctly
 		expectedKubeConfig := filepath.Join(configRoot, ".kube/config")
 		if envVars["KUBECONFIG"] != expectedKubeConfig {
 			t.Errorf("Expected KUBECONFIG=%s, got %s", expectedKubeConfig, envVars["KUBECONFIG"])
@@ -136,16 +142,22 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("SuccessWithVolumes", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, _ := setup(t)
 
+		// And a valid project root
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 		volumeDir := filepath.Join(projectRoot, ".volumes")
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// And volume paths should be set correctly
 		expectedPaths := map[string]string{
 			"PV_TEST_NS_PVC_1": filepath.Join(volumeDir, "pvc-1234"),
 			"PV_TEST_NS_PVC_2": filepath.Join(volumeDir, "pvc-5678"),
@@ -159,21 +171,29 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("NoKubeConfig", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, mocks := setup(t)
+
+		// And a valid config root
 		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
 			t.Fatalf("Failed to get config root: %v", err)
 		}
 
+		// And a mock Stat function that returns ErrNotExist
 		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// And KUBECONFIG should still be set correctly
 		expectedKubeConfig := filepath.Join(configRoot, ".kube/config")
 		if envVars["KUBECONFIG"] != expectedKubeConfig {
 			t.Errorf("Expected KUBECONFIG=%s, got %s", expectedKubeConfig, envVars["KUBECONFIG"])
@@ -181,10 +201,13 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("GetConfigRootError", func(t *testing.T) {
+		// Given a mock ConfigHandler that returns an error
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock config error")
 		}
+
+		// And a KubeEnvPrinter with the mock ConfigHandler
 		mocks := setupKubeEnvMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 		printer := NewKubeEnvPrinter(mocks.Injector)
 		printer.shims = mocks.Shims
@@ -192,19 +215,25 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			t.Fatalf("Failed to initialize printer: %v", err)
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
+
+		// And envVars should be nil
 		if envVars != nil {
 			t.Errorf("Expected nil envVars, got %v", envVars)
 		}
 	})
 
 	t.Run("ErrorReadingVolumes", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, mocks := setup(t)
 
-		// Mock ReadDir to return an error
+		// And a mock ReadDir function that returns an error
 		mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
 			if strings.HasSuffix(dirname, "volumes") {
 				return nil, errors.New("mock readDir error")
@@ -212,76 +241,104 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			return nil, nil
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
+
+		// And the error should mention reading volume directories
 		if !strings.Contains(err.Error(), "error reading volume directories") {
 			t.Errorf("Expected error about reading volume directories, got %v", err)
 		}
+
+		// And envVars should be nil
 		if envVars != nil {
 			t.Errorf("Expected nil envVars, got %v", envVars)
 		}
 	})
 
 	t.Run("ErrorQueryingPVCs", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, _ := setup(t)
 
-		// Mock queryPersistentVolumeClaims to return an error
+		// And a mock queryPersistentVolumeClaims function that returns an error
 		queryPersistentVolumeClaims = func(_ string) (*corev1.PersistentVolumeClaimList, error) {
 			return nil, errors.New("mock PVC query error")
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
+
+		// And the error should mention querying PVCs
 		if !strings.Contains(err.Error(), "error querying persistent volume claims") {
 			t.Errorf("Expected error about querying PVCs, got %v", err)
 		}
+
+		// And envVars should be nil
 		if envVars != nil {
 			t.Errorf("Expected nil envVars, got %v", envVars)
 		}
 	})
 
 	t.Run("NilPVCList", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, _ := setup(t)
 
-		// Mock queryPersistentVolumeClaims to return nil list
+		// And a mock queryPersistentVolumeClaims function that returns nil list
 		queryPersistentVolumeClaims = func(_ string) (*corev1.PersistentVolumeClaimList, error) {
 			return nil, nil
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+
+		// And envVars should not be nil
 		if envVars == nil {
 			t.Error("Expected non-nil envVars")
 		}
 	})
 
 	t.Run("EmptyPVCList", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, _ := setup(t)
 
-		// Mock queryPersistentVolumeClaims to return empty list
+		// And a mock queryPersistentVolumeClaims function that returns empty list
 		queryPersistentVolumeClaims = func(_ string) (*corev1.PersistentVolumeClaimList, error) {
 			return &corev1.PersistentVolumeClaimList{Items: []corev1.PersistentVolumeClaim{}}, nil
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+
+		// And envVars should not be nil
 		if envVars == nil {
 			t.Error("Expected non-nil envVars")
 		}
 	})
 
 	t.Run("VolumeDirStatError", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, mocks := setup(t)
 
-		// Mock Stat to return an error for volume directory
+		// And a mock Stat function that returns an error for volume directory
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			if strings.HasSuffix(name, "volumes") {
 				return nil, errors.New("mock stat error")
@@ -289,22 +346,30 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			return mockFileInfo{name: filepath.Base(name)}, nil
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
+
+		// And the error should mention checking volume directory
 		if !strings.Contains(err.Error(), "error checking volume directory") {
 			t.Errorf("Expected error about checking volume directory, got %v", err)
 		}
+
+		// And envVars should be nil
 		if envVars != nil {
 			t.Errorf("Expected nil envVars, got %v", envVars)
 		}
 	})
 
 	t.Run("NoPVCDirectories", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, mocks := setup(t)
 
-		// Mock ReadDir to return no PVC directories
+		// And a mock ReadDir function that returns no PVC directories
 		mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
 			if strings.HasSuffix(dirname, "volumes") {
 				return []os.DirEntry{
@@ -314,19 +379,25 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			return nil, nil
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+
+		// And envVars should not be nil
 		if envVars == nil {
 			t.Error("Expected non-nil envVars")
 		}
 	})
 
 	t.Run("UnmatchedPVCDirectories", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, mocks := setup(t)
 
-		// Mock ReadDir to return PVC directories that don't match any PVCs
+		// And a mock ReadDir function that returns PVC directories that don't match any PVCs
 		mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
 			if strings.HasSuffix(dirname, "volumes") {
 				return []os.DirEntry{
@@ -337,19 +408,25 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			return nil, nil
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+
+		// And envVars should not be nil
 		if envVars == nil {
 			t.Error("Expected non-nil envVars")
 		}
 	})
 
 	t.Run("ExistingPVEnvVars", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, mocks := setup(t)
 
-		// Mock Environ to return PV_ prefixed variables
+		// And a mock Environ function that returns PV_ prefixed variables
 		mocks.Shims.Environ = func() []string {
 			return []string{
 				"PV_TEST_NS_PVC_1=/path/to/pvc-1234",
@@ -358,13 +435,20 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			}
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+
+		// And envVars should not be nil
 		if envVars == nil {
 			t.Error("Expected non-nil envVars")
 		}
+
+		// And PV environment variables should be set correctly
 		if envVars["PV_TEST_NS_PVC_1"] != "/path/to/pvc-1234" {
 			t.Errorf("Expected PV_TEST_NS_PVC_1=/path/to/pvc-1234, got %s", envVars["PV_TEST_NS_PVC_1"])
 		}
@@ -374,9 +458,10 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("EmptyVolumeDir", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, mocks := setup(t)
 
-		// Mock ReadDir to return empty directory
+		// And a mock ReadDir function that returns empty directory
 		mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
 			if strings.HasSuffix(dirname, "volumes") {
 				return []os.DirEntry{}, nil
@@ -384,19 +469,25 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			return nil, nil
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+
+		// And envVars should not be nil
 		if envVars == nil {
 			t.Error("Expected non-nil envVars")
 		}
 	})
 
 	t.Run("PartiallyMatchedPVCDirectories", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, mocks := setup(t)
 
-		// Mock ReadDir to return mix of matching and non-matching PVC directories
+		// And a mock ReadDir function that returns mix of matching and non-matching PVC directories
 		mocks.Shims.ReadDir = func(dirname string) ([]os.DirEntry, error) {
 			if strings.HasSuffix(dirname, "volumes") {
 				return []os.DirEntry{
@@ -407,7 +498,7 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			return nil, nil
 		}
 
-		// Mock queryPersistentVolumeClaims to return specific PVCs
+		// And a mock queryPersistentVolumeClaims function that returns specific PVCs
 		queryPersistentVolumeClaims = func(_ string) (*corev1.PersistentVolumeClaimList, error) {
 			return &corev1.PersistentVolumeClaimList{
 				Items: []corev1.PersistentVolumeClaim{
@@ -422,15 +513,20 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 			}, nil
 		}
 
+		// When getting environment variables
 		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+
+		// And envVars should not be nil
 		if envVars == nil {
 			t.Error("Expected non-nil envVars")
 		}
 
-		// Check that only the matching PVC is in envVars
+		// And only the matching PVC should be in envVars
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 		expectedPath := filepath.Join(projectRoot, ".volumes", "pvc-1234")
 		if envVars["PV_TEST_NS_PVC_1"] != expectedPath {
@@ -453,19 +549,26 @@ func TestKubeEnvPrinter_Print(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
+		// Given a KubeEnvPrinter with valid configuration
 		printer, _ := setup(t)
 
+		// When printing environment variables
 		err := printer.Print()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("GetConfigError", func(t *testing.T) {
+		// Given a mock ConfigHandler that returns an error
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", errors.New("mock config error")
 		}
+
+		// And a KubeEnvPrinter with the mock ConfigHandler
 		mocks := setupKubeEnvMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 		printer := NewKubeEnvPrinter(mocks.Injector)
 		printer.shims = mocks.Shims
@@ -473,7 +576,10 @@ func TestKubeEnvPrinter_Print(t *testing.T) {
 			t.Fatalf("Failed to initialize printer: %v", err)
 		}
 
+		// When printing environment variables
 		err := printer.Print()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}

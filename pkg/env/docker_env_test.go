@@ -25,6 +25,7 @@ type DockerEnvPrinterMocks struct {
 	ConfigHandler *config.MockConfigHandler
 }
 
+// setupDockerEnvMocks creates a new set of mocks for Docker environment tests
 func setupDockerEnvMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	t.Helper()
 	if len(opts) == 0 || opts[0].ConfigStr == "" {
@@ -52,18 +53,6 @@ contexts:
 	// Set up shims for Docker operations
 	mocks.Shims.UserHomeDir = func() (string, error) {
 		return "/mock/home", nil
-	}
-	mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-		return nil
-	}
-	mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
-		return nil
-	}
-	mocks.Shims.ReadFile = func(name string) ([]byte, error) {
-		return []byte(`{}`), nil
-	}
-	mocks.Shims.LookupEnv = func(key string) (string, bool) {
-		return "", false
 	}
 
 	return mocks
@@ -689,7 +678,9 @@ func TestDockerEnvPrinter_Print(t *testing.T) {
 	})
 }
 
+// TestDockerEnvPrinter_getRegistryURL tests the getRegistryURL method of the DockerEnvPrinter
 func TestDockerEnvPrinter_getRegistryURL(t *testing.T) {
+	// setup creates a new DockerEnvPrinter with the given configuration
 	setup := func(t *testing.T, opts ...*SetupOptions) (*DockerEnvPrinter, *Mocks) {
 		t.Helper()
 		mocks := setupDockerEnvMocks(t, opts...)
@@ -702,6 +693,7 @@ func TestDockerEnvPrinter_getRegistryURL(t *testing.T) {
 	}
 
 	t.Run("ValidRegistryURL", func(t *testing.T) {
+		// Given a DockerEnvPrinter with a valid registry URL in config
 		printer, _ := setup(t, &SetupOptions{
 			ConfigStr: `
 version: v1alpha1
@@ -714,19 +706,24 @@ contexts:
 `,
 		})
 
-		// Set the registry URL in the config
+		// And the registry URL is set in the context
 		printer.configHandler.SetContextValue("docker.registry_url", "registry.example.com:5000")
 
+		// When getting the registry URL
 		url, err := printer.getRegistryURL()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+		// And the URL should match the config value
 		if url != "registry.example.com:5000" {
 			t.Errorf("Expected URL 'registry.example.com:5000', got %q", url)
 		}
 	})
 
 	t.Run("RegistryURLWithConfig", func(t *testing.T) {
+		// Given a DockerEnvPrinter with a registry URL and matching config
 		printer, _ := setup(t, &SetupOptions{
 			ConfigStr: `
 version: v1alpha1
@@ -742,19 +739,24 @@ contexts:
 `,
 		})
 
-		// Set the registry URL in the config
+		// And the registry URL is set in the context
 		printer.configHandler.SetContextValue("docker.registry_url", "registry.example.com")
 
+		// When getting the registry URL
 		url, err := printer.getRegistryURL()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+		// And the URL should include the hostport from config
 		if url != "registry.example.com:5000" {
 			t.Errorf("Expected URL 'registry.example.com:5000', got %q", url)
 		}
 	})
 
 	t.Run("EmptyRegistryURL", func(t *testing.T) {
+		// Given a DockerEnvPrinter with no registry URL but with registries config
 		printer, _ := setup(t, &SetupOptions{
 			ConfigStr: `
 version: v1alpha1
@@ -769,16 +771,21 @@ contexts:
 `,
 		})
 
+		// When getting the registry URL
 		url, err := printer.getRegistryURL()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+		// And the URL should be taken from the first registry in config
 		if url != "mock-registry-url:5000" {
 			t.Errorf("Expected URL 'mock-registry-url:5000', got %q", url)
 		}
 	})
 
 	t.Run("EmptyConfig", func(t *testing.T) {
+		// Given a DockerEnvPrinter with empty registries config
 		printer, _ := setup(t, &SetupOptions{
 			ConfigStr: `
 version: v1alpha1
@@ -791,16 +798,21 @@ contexts:
 `,
 		})
 
+		// When getting the registry URL
 		url, err := printer.getRegistryURL()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+		// And the URL should be empty
 		if url != "" {
 			t.Errorf("Expected empty URL, got %q", url)
 		}
 	})
 
 	t.Run("RegistryURLWithoutPortNoConfig", func(t *testing.T) {
+		// Given a DockerEnvPrinter with a registry URL without port and no matching config
 		printer, _ := setup(t, &SetupOptions{
 			ConfigStr: `
 version: v1alpha1
@@ -816,16 +828,21 @@ contexts:
 `,
 		})
 
+		// When getting the registry URL
 		url, err := printer.getRegistryURL()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+		// And the URL should be the same as the config value
 		if url != "registry.example.com" {
 			t.Errorf("Expected URL 'registry.example.com', got %q", url)
 		}
 	})
 
 	t.Run("RegistryURLInvalidPort", func(t *testing.T) {
+		// Given a DockerEnvPrinter with a registry URL with invalid port
 		printer, _ := setup(t, &SetupOptions{
 			ConfigStr: `
 version: v1alpha1
@@ -838,16 +855,21 @@ contexts:
 `,
 		})
 
+		// When getting the registry URL
 		url, err := printer.getRegistryURL()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+		// And the URL should be the same as the config value
 		if url != "registry.example.com:invalid" {
 			t.Errorf("Expected URL 'registry.example.com:invalid', got %q", url)
 		}
 	})
 
 	t.Run("RegistryURLNoPortNoHostPort", func(t *testing.T) {
+		// Given a DockerEnvPrinter with a registry URL without port and no hostport in config
 		printer, _ := setup(t, &SetupOptions{
 			ConfigStr: `
 version: v1alpha1
@@ -862,16 +884,21 @@ contexts:
 `,
 		})
 
+		// When getting the registry URL
 		url, err := printer.getRegistryURL()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+		// And the URL should be the same as the config value
 		if url != "registry.example.com" {
 			t.Errorf("Expected URL 'registry.example.com', got %q", url)
 		}
 	})
 
 	t.Run("RegistryURLEmptyRegistries", func(t *testing.T) {
+		// Given a DockerEnvPrinter with a registry URL and empty registries config
 		printer, _ := setup(t, &SetupOptions{
 			ConfigStr: `
 version: v1alpha1
@@ -885,16 +912,21 @@ contexts:
 `,
 		})
 
+		// When getting the registry URL
 		url, err := printer.getRegistryURL()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+		// And the URL should be the same as the config value
 		if url != "registry.example.com" {
 			t.Errorf("Expected URL 'registry.example.com', got %q", url)
 		}
 	})
 
 	t.Run("NilDockerConfig", func(t *testing.T) {
+		// Given a DockerEnvPrinter with no Docker config
 		printer, _ := setup(t, &SetupOptions{
 			ConfigStr: `
 version: v1alpha1
@@ -905,16 +937,21 @@ contexts:
 `,
 		})
 
+		// When getting the registry URL
 		url, err := printer.getRegistryURL()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+		// And the URL should be empty
 		if url != "" {
 			t.Errorf("Expected empty URL, got %q", url)
 		}
 	})
 
 	t.Run("NilRegistriesWithURL", func(t *testing.T) {
+		// Given a DockerEnvPrinter with a registry URL but no registries config
 		printer, _ := setup(t, &SetupOptions{
 			ConfigStr: `
 version: v1alpha1
@@ -927,16 +964,21 @@ contexts:
 `,
 		})
 
+		// When getting the registry URL
 		url, err := printer.getRegistryURL()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+		// And the URL should be the same as the config value
 		if url != "registry.example.com" {
 			t.Errorf("Expected URL 'registry.example.com', got %q", url)
 		}
 	})
 
 	t.Run("RegistryWithoutHostPort", func(t *testing.T) {
+		// Given a DockerEnvPrinter with a registry without hostport in config
 		printer, _ := setup(t, &SetupOptions{
 			ConfigStr: `
 version: v1alpha1
@@ -950,10 +992,14 @@ contexts:
 `,
 		})
 
+		// When getting the registry URL
 		url, err := printer.getRegistryURL()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
+		// And the URL should be the registry name without port
 		if url != "registry.example.com" {
 			t.Errorf("Expected URL 'registry.example.com', got %q", url)
 		}
