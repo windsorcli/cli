@@ -13,60 +13,73 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// YAML and JSON shims
-// yamlMarshalNonNull marshals the given struct into YAML data, omitting null values
-var yamlMarshalNonNull = func(v any) ([]byte, error) {
-	return yaml.Marshal(v)
+// =============================================================================
+// Shims
+// =============================================================================
+
+// Shims provides mockable wrappers around system and runtime functions
+type Shims struct {
+	// YAML and JSON shims
+	YamlMarshalNonNull func(v any) ([]byte, error)
+	YamlMarshal        func(any) ([]byte, error)
+	YamlUnmarshal      func([]byte, any) error
+	JsonMarshal        func(any) ([]byte, error)
+	JsonUnmarshal      func([]byte, any) error
+	K8sYamlUnmarshal   func([]byte, any) error
+
+	// File system shims
+	WriteFile func(string, []byte, os.FileMode) error
+	MkdirAll  func(string, os.FileMode) error
+	Stat      func(string) (os.FileInfo, error)
+	ReadFile  func(string) ([]byte, error)
+
+	// Utility shims
+	RegexpMatchString func(pattern string, s string) (bool, error)
+
+	// Kubernetes shims
+	ClientcmdBuildConfigFromFlags func(masterUrl, kubeconfigPath string) (*rest.Config, error)
+	RestInClusterConfig           func() (*rest.Config, error)
+	KubernetesNewForConfig        func(*rest.Config) (*kubernetes.Clientset, error)
+
+	// Jsonnet shims
+	NewJsonnetVM func() JsonnetVM
 }
 
-// yamlMarshal is a wrapper around yaml.Marshal
-var yamlMarshal = yaml.Marshal
+// NewShims creates a new Shims instance with default implementations
+func NewShims() *Shims {
+	return &Shims{
+		// YAML and JSON shims
+		YamlMarshalNonNull: func(v any) ([]byte, error) {
+			return yaml.Marshal(v)
+		},
+		YamlMarshal:      yaml.Marshal,
+		YamlUnmarshal:    yaml.Unmarshal,
+		JsonMarshal:      json.Marshal,
+		JsonUnmarshal:    json.Unmarshal,
+		K8sYamlUnmarshal: yaml.Unmarshal,
 
-// yamlUnmarshal is a wrapper around yaml.Unmarshal
-var yamlUnmarshal = yaml.Unmarshal
+		// File system shims
+		WriteFile: os.WriteFile,
+		MkdirAll:  os.MkdirAll,
+		Stat:      os.Stat,
+		ReadFile:  os.ReadFile,
 
-// jsonMarshal is a wrapper around json.Marshal
-var jsonMarshal = json.Marshal
+		// Utility shims
+		RegexpMatchString: regexp.MatchString,
 
-// jsonUnmarshal is a wrapper around json.Unmarshal
-var jsonUnmarshal = json.Unmarshal
+		// Kubernetes shims
+		ClientcmdBuildConfigFromFlags: clientcmd.BuildConfigFromFlags,
+		RestInClusterConfig:           rest.InClusterConfig,
+		KubernetesNewForConfig:        kubernetes.NewForConfig,
 
-// k8sYamlUnmarshal is a wrapper around yaml.Unmarshal for Kubernetes YAML
-var k8sYamlUnmarshal = yaml.Unmarshal
+		// Jsonnet shims
+		NewJsonnetVM: NewJsonnetVM,
+	}
+}
 
-// File system shims
-// osWriteFile is a wrapper around os.WriteFile
-var osWriteFile = os.WriteFile
-
-// osMkdirAll is a wrapper around os.MkdirAll
-var osMkdirAll = os.MkdirAll
-
-// osStat is a wrapper around os.Stat
-var osStat = os.Stat
-
-// osReadFile is a wrapper around os.ReadFile
-var osReadFile = os.ReadFile
-
-// Other utility shims
-// regexpMatchString is a wrapper around regexp.MatchString
-var regexpMatchString = regexp.MatchString
-
-// Kubernetes client-go shims
-// clientcmdBuildConfigFromFlags is a shim for clientcmd.BuildConfigFromFlags
-var clientcmdBuildConfigFromFlags = clientcmd.BuildConfigFromFlags
-
-// restInClusterConfig is a shim for rest.InClusterConfig
-var restInClusterConfig = rest.InClusterConfig
-
-// kubernetesNewForConfig is a shim for kubernetes.NewForConfig
-var kubernetesNewForConfig = kubernetes.NewForConfig
-
-// metav1Duration is a shim for metav1.Duration
-type metav1Duration = metav1.Duration
-
-// ----------------------------------------------------------------------------
+// =============================================================================
 // Jsonnet VM Implementation
-// ----------------------------------------------------------------------------
+// =============================================================================
 
 // JsonnetVM defines the interface for Jsonnet virtual machines
 type JsonnetVM interface {
@@ -84,7 +97,7 @@ type realJsonnetVM struct {
 }
 
 // NewJsonnetVM creates a new JsonnetVM using the real jsonnet implementation
-var NewJsonnetVM = func() JsonnetVM {
+func NewJsonnetVM() JsonnetVM {
 	return &realJsonnetVM{vm: jsonnet.MakeVM()}
 }
 
@@ -100,8 +113,14 @@ func (j *realJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (stri
 	return j.vm.EvaluateAnonymousSnippet(filename, snippet)
 }
 
-// jsonnetMakeVM is the main shim used by the application to create JsonnetVMs
-// By default it uses the real implementation but can be replaced in tests
-var jsonnetMakeVM = NewJsonnetVM
+// =============================================================================
+// Helper Functions
+// =============================================================================
 
-func ptrString(s string) *string { return &s }
+// Helper functions to create pointers for basic types
+func ptrString(s string) *string {
+	return &s
+}
+
+// metav1Duration is a shim for metav1.Duration
+type metav1Duration = metav1.Duration

@@ -1,7 +1,6 @@
 package blueprint
 
 import (
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -163,12 +162,53 @@ type Mocks struct {
 	Injector      di.Injector
 	Shell         *shell.MockShell
 	ConfigHandler config.ConfigHandler
+	Shims         *Shims
 }
 
 type SetupOptions struct {
 	Injector      di.Injector
 	ConfigHandler config.ConfigHandler
 	ConfigStr     string
+}
+
+func setupShims(t *testing.T) *Shims {
+	t.Helper()
+	shims := NewShims()
+
+	// Override only the functions needed for testing
+	shims.ReadFile = func(name string) ([]byte, error) {
+		switch {
+		case strings.HasSuffix(name, "blueprint.jsonnet"):
+			return []byte(safeBlueprintJsonnet), nil
+		case strings.HasSuffix(name, "blueprint.yaml"):
+			return []byte(safeBlueprintYAML), nil
+		default:
+			return nil, fmt.Errorf("file not found")
+		}
+	}
+
+	shims.WriteFile = func(name string, data []byte, perm fs.FileMode) error {
+		return nil
+	}
+
+	shims.Stat = func(name string) (os.FileInfo, error) {
+		if strings.Contains(name, "blueprint.yaml") || strings.Contains(name, "blueprint.jsonnet") {
+			return nil, nil
+		}
+		return nil, os.ErrNotExist
+	}
+
+	shims.MkdirAll = func(name string, perm fs.FileMode) error {
+		return nil
+	}
+
+	shims.NewJsonnetVM = func() JsonnetVM {
+		return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
+			return "", nil
+		})
+	}
+
+	return shims
 }
 
 func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
@@ -243,75 +283,9 @@ contexts:
 		return tmpDir, nil
 	}
 
-	originalOsReadFile := osReadFile
-	originalOsWriteFile := osWriteFile
-	originalOsStat := osStat
-	originalOsMkdirAll := osMkdirAll
-	originalYamlMarshal := yamlMarshal
-	originalYamlUnmarshal := yamlUnmarshal
-	originalJsonMarshal := jsonMarshal
-	originalJsonUnmarshal := jsonUnmarshal
-	originalYamlMarshalNonNull := yamlMarshalNonNull
-	originalKubeClientResourceOperation := kubeClientResourceOperation
-
-	osReadFile = func(name string) ([]byte, error) {
-		switch {
-		case strings.HasSuffix(name, "blueprint.jsonnet"):
-			return []byte(safeBlueprintJsonnet), nil
-		case strings.HasSuffix(name, "blueprint.yaml"):
-			return []byte(safeBlueprintYAML), nil
-		default:
-			return nil, fmt.Errorf("file not found")
-		}
-	}
-
-	osWriteFile = func(name string, data []byte, perm fs.FileMode) error {
-		return nil
-	}
-
-	osStat = func(name string) (os.FileInfo, error) {
-		if strings.Contains(name, "blueprint.yaml") || strings.Contains(name, "blueprint.jsonnet") {
-			return nil, nil
-		}
-		return nil, os.ErrNotExist
-	}
-
-	osMkdirAll = func(name string, perm fs.FileMode) error {
-		return nil
-	}
-
-	yamlMarshal = func(v any) ([]byte, error) {
-		return yaml.Marshal(v)
-	}
-
-	yamlUnmarshal = func(data []byte, v any) error {
-		return yaml.Unmarshal(data, v)
-	}
-
-	jsonMarshal = func(v any) ([]byte, error) {
-		return json.Marshal(v)
-	}
-
-	jsonUnmarshal = func(data []byte, v any) error {
-		return json.Unmarshal(data, v)
-	}
-
-	yamlMarshalNonNull = func(v any) ([]byte, error) {
-		return yaml.Marshal(v)
-	}
+	shims := setupShims(t)
 
 	t.Cleanup(func() {
-		osReadFile = originalOsReadFile
-		osWriteFile = originalOsWriteFile
-		osStat = originalOsStat
-		osMkdirAll = originalOsMkdirAll
-		yamlMarshal = originalYamlMarshal
-		yamlUnmarshal = originalYamlUnmarshal
-		jsonMarshal = originalJsonMarshal
-		jsonUnmarshal = originalJsonUnmarshal
-		yamlMarshalNonNull = originalYamlMarshalNonNull
-		kubeClientResourceOperation = originalKubeClientResourceOperation
-
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
 		os.Unsetenv("WINDSOR_CONTEXT")
 
@@ -324,6 +298,7 @@ contexts:
 		Injector:      injector,
 		Shell:         mockShell,
 		ConfigHandler: configHandler,
+		Shims:         shims,
 	}
 }
 
@@ -336,6 +311,7 @@ func TestBlueprintHandler_NewBlueprintHandler(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		return handler, mocks
 	}
 
@@ -375,10 +351,12 @@ func TestBlueprintHandler_NewBlueprintHandler(t *testing.T) {
 }
 
 func TestBlueprintHandler_Initialize(t *testing.T) {
-	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		return handler, mocks
 	}
 
@@ -395,14 +373,9 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 		}
 
 		// And the handler should have the correct project root
-		baseHandler, ok := handler.(*BaseBlueprintHandler)
-		if !ok {
-			t.Fatal("handler is not BaseBlueprintHandler")
-		}
-
-		expectedRoot, _ := baseHandler.shell.GetProjectRoot()
-		if baseHandler.projectRoot != expectedRoot {
-			t.Errorf("projectRoot = %q, want %q", baseHandler.projectRoot, expectedRoot)
+		expectedRoot, _ := handler.shell.GetProjectRoot()
+		if handler.projectRoot != expectedRoot {
+			t.Errorf("projectRoot = %q, want %q", handler.projectRoot, expectedRoot)
 		}
 	})
 
@@ -437,9 +410,9 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 			t.Fatalf("Initialize() failed: %v", err)
 		}
 
-		// Then the project name should be set in context
+		// Then the project name should be set in the context
 		if !projectNameSet {
-			t.Error("projectName not set in context")
+			t.Error("Expected project name to be set in context")
 		}
 	})
 
@@ -458,8 +431,7 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 
 		// And a new blueprint handler
 		handler := NewBlueprintHandler(mocks.Injector)
-
-		// When initializing the handler
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 
 		// Then the appropriate error should be returned
@@ -478,8 +450,7 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 
 		// And a new blueprint handler
 		handler := NewBlueprintHandler(mocks.Injector)
-
-		// When initializing the handler
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 
 		// Then the appropriate error should be returned
@@ -498,6 +469,7 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 
 		// And a new blueprint handler
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 
 		// When initializing the handler
 		err := handler.Initialize()
@@ -513,13 +485,10 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 
 	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
 		// Given a mock shell that returns an error getting project root
-		mocks := setupMocks(t)
+		handler, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error getting project root")
 		}
-
-		// And a new blueprint handler
-		handler := NewBlueprintHandler(mocks.Injector)
 
 		// When initializing the handler
 		err := handler.Initialize()
@@ -535,11 +504,14 @@ func TestBlueprintHandler_Initialize(t *testing.T) {
 }
 
 func TestBlueprintHandler_LoadConfig(t *testing.T) {
-	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
+		t.Helper()
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
-		if err := handler.Initialize(); err != nil {
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
 		return handler, mocks
@@ -570,9 +542,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 
 		// And a mock file system that tracks checked paths
 		var checkedPaths []string
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
 			checkedPaths = append(checkedPaths, name)
 			if strings.HasSuffix(name, ".jsonnet") {
 				return []byte(safeBlueprintJsonnet), nil
@@ -612,23 +582,16 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		// Given a blueprint handler
 		handler, _ := setup(t)
 
-		// And a mock file system with no existing files
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
+		// And a mock file system that returns no existing files
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
 			return nil, os.ErrNotExist
 		}
 
-		// And a mock jsonnet VM that returns empty output
-		originalJsonnetMakeVM := jsonnetMakeVM
-		defer func() { jsonnetMakeVM = originalJsonnetMakeVM }()
-		jsonnetMakeVM = func() JsonnetVM {
+		handler.shims.NewJsonnetVM = func() JsonnetVM {
 			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
 				return "", nil
 			})
@@ -663,9 +626,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		mocks.ConfigHandler.SetContext("local")
 
 		// And a mock yaml unmarshaller that returns an error
-		originalYamlUnmarshal := yamlUnmarshal
-		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
-		yamlUnmarshal = func(data []byte, obj any) error {
+		handler.shims.YamlUnmarshal = func(data []byte, obj any) error {
 			return fmt.Errorf("simulated unmarshalling error")
 		}
 
@@ -691,6 +652,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 
 		// And a blueprint handler using that config handler
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		if err := handler.Initialize(); err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -709,9 +671,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		handler, _ := setup(t)
 
 		// And a mock file system that returns an error for jsonnet files
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
 			if strings.HasSuffix(name, ".jsonnet") {
 				return nil, fmt.Errorf("error reading jsonnet file")
 			}
@@ -732,9 +692,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		handler, _ := setup(t)
 
 		// And a mock file system that returns an error for yaml files
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
 			if strings.HasSuffix(name, ".yaml") {
 				return nil, fmt.Errorf("error reading yaml file")
 			}
@@ -755,18 +713,14 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		handler, _ := setup(t)
 
 		// And a mock file system with a yaml file
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
 			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
 			if filepath.Clean(name) == filepath.Clean("/mock/config/root/blueprint.yaml") {
 				return []byte("valid: yaml"), nil
 			}
@@ -774,9 +728,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		}
 
 		// And a mock yaml unmarshaller that returns an error
-		originalYamlUnmarshal := yamlUnmarshal
-		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
-		yamlUnmarshal = func(data []byte, obj any) error {
+		handler.shims.YamlUnmarshal = func(data []byte, obj any) error {
 			return fmt.Errorf("simulated unmarshalling error")
 		}
 
@@ -795,9 +747,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		mocks.ConfigHandler.SetContext("local")
 
 		// And a mock json marshaller that returns an error
-		originalJsonMarshal := jsonMarshal
-		defer func() { jsonMarshal = originalJsonMarshal }()
-		jsonMarshal = func(v any) ([]byte, error) {
+		handler.shims.JsonMarshal = func(v any) ([]byte, error) {
 			return nil, fmt.Errorf("simulated marshalling error")
 		}
 
@@ -816,9 +766,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		mocks.ConfigHandler.SetContext("local")
 
 		// And a mock jsonnet VM that returns an error
-		originalJsonnetMakeVM := jsonnetMakeVM
-		defer func() { jsonnetMakeVM = originalJsonnetMakeVM }()
-		jsonnetMakeVM = func() JsonnetVM {
+		handler.shims.NewJsonnetVM = func() JsonnetVM {
 			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
 				return "", fmt.Errorf("simulated jsonnet evaluation error")
 			})
@@ -839,7 +787,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		mocks.ConfigHandler.SetContext("local")
 
 		// And a mock yaml marshaller that returns an error
-		yamlMarshal = func(v any) ([]byte, error) {
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return nil, fmt.Errorf("simulated yaml marshalling error")
 		}
 
@@ -858,9 +806,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		mocks.ConfigHandler.SetContext("local")
 
 		// And a mock json marshaller that returns an error
-		originalJsonMarshal := jsonMarshal
-		defer func() { jsonMarshal = originalJsonMarshal }()
-		jsonMarshal = func(v any) ([]byte, error) {
+		handler.shims.JsonMarshal = func(v any) ([]byte, error) {
 			return nil, fmt.Errorf("simulated json marshalling error")
 		}
 
@@ -874,40 +820,16 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 	})
 
 	t.Run("ErrorGeneratingBlueprintFromLocalJsonnet", func(t *testing.T) {
-		// Given a mock config handler with local context
-		mockConfigHandler := config.NewMockConfigHandler()
-		opts := &SetupOptions{
-			ConfigHandler: mockConfigHandler,
-		}
-		mocks := setupMocks(t, opts)
-
-		mockConfigHandler.GetContextFunc = func() string {
-			return "local"
-		}
+		// Given a blueprint handler with local context
+		handler, mocks := setup(t)
+		mocks.ConfigHandler.SetContext("local")
 
 		// And a mock file system that returns an error for jsonnet files
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
-			if strings.HasSuffix(name, ".jsonnet") {
-				return nil, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
 			if strings.HasSuffix(name, ".jsonnet") {
 				return nil, fmt.Errorf("error reading jsonnet file")
 			}
 			return nil, fmt.Errorf("file not found")
-		}
-
-		// And a blueprint handler using that config
-		handler := NewBlueprintHandler(mocks.Injector)
-		if err := handler.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
 		}
 
 		// When loading the config
@@ -925,9 +847,7 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		mocks.ConfigHandler.SetContext("local")
 
 		// And a mock yaml unmarshaller that returns an error
-		originalYamlUnmarshal := yamlUnmarshal
-		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
-		yamlUnmarshal = func(data []byte, obj any) error {
+		handler.shims.YamlUnmarshal = func(data []byte, obj any) error {
 			return fmt.Errorf("simulated unmarshalling error")
 		}
 
@@ -945,18 +865,14 @@ func TestBlueprintHandler_LoadConfig(t *testing.T) {
 		handler, _ := setup(t)
 
 		// And a mock file system with a yaml file
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
 			if strings.HasSuffix(name, ".yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
 			if strings.HasSuffix(name, ".yaml") {
 				return []byte(`
 kind: Blueprint
@@ -972,9 +888,7 @@ metadata:
 		}
 
 		// And a mock jsonnet VM that returns empty output
-		originalJsonnetMakeVM := jsonnetMakeVM
-		defer func() { jsonnetMakeVM = originalJsonnetMakeVM }()
-		jsonnetMakeVM = func() JsonnetVM {
+		handler.shims.NewJsonnetVM = func() JsonnetVM {
 			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
 				return "", nil
 			})
@@ -1007,52 +921,38 @@ metadata:
 	})
 
 	t.Run("EmptyEvaluatedJsonnet", func(t *testing.T) {
-		// Given a mock config handler with local context
-		mockConfigHandler := config.NewMockConfigHandler()
-		mocks := setupMocks(t, &SetupOptions{
-			ConfigHandler: mockConfigHandler,
-		})
+		// Given a blueprint handler
+		handler, mocks := setup(t)
 
-		mockConfigHandler.GetContextFunc = func() string {
-			return "local"
+		// And a mock config handler that returns local context
+		mocks.ConfigHandler.SetContext("local")
+
+		// And a mock file system with no files
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
+			return nil, fmt.Errorf("file not found")
 		}
 
 		// And a mock jsonnet VM that returns empty output
-		originalJsonnetMakeVM := jsonnetMakeVM
-		defer func() { jsonnetMakeVM = originalJsonnetMakeVM }()
-		jsonnetMakeVM = func() JsonnetVM {
+		handler.shims.NewJsonnetVM = func() JsonnetVM {
 			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
 				return "", nil
 			})
 		}
 
-		// And a mock file system with no files
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
-			return nil, fmt.Errorf("file not found")
-		}
-
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		// When initializing and loading config
-		b := NewBlueprintHandler(mocks.Injector)
-		if err := b.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		err := b.LoadConfig()
+		// When loading the config
+		err := handler.LoadConfig()
 
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error for empty evaluated jsonnet, got: %v", err)
 		}
 
-		// And the default metadata should be set
-		metadata := b.GetMetadata()
+		// And the metadata should be correctly loaded
+		metadata := handler.GetMetadata()
 		if metadata.Name != "local" {
 			t.Errorf("Expected blueprint name to be 'local', got: %s", metadata.Name)
 		}
@@ -1067,22 +967,16 @@ metadata:
 		handler, _ := setup(t)
 
 		// And a mock file system with no files
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
 			return nil, os.ErrNotExist
 		}
 
 		// And a mock jsonnet VM that returns an error for default template
-		originalJsonnetMakeVM := jsonnetMakeVM
-		defer func() { jsonnetMakeVM = originalJsonnetMakeVM }()
-		jsonnetMakeVM = func() JsonnetVM {
+		handler.shims.NewJsonnetVM = func() JsonnetVM {
 			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
 				if filename == "default.jsonnet" {
 					return "", fmt.Errorf("error evaluating default jsonnet template")
@@ -1106,32 +1000,11 @@ metadata:
 	})
 
 	t.Run("ErrorUnmarshallingContextYAML", func(t *testing.T) {
-		// Given a mock config handler with test data
-		mockConfigHandler := config.NewMockConfigHandler()
-		opts := &SetupOptions{
-			ConfigHandler: mockConfigHandler,
-		}
-		mocks := setupMocks(t, opts)
-
-		mockConfigHandler.GetConfigFunc = func() *blueprintv1alpha1.Context {
-			return &blueprintv1alpha1.Context{
-				ProjectName: ptrString("test"),
-			}
-		}
-		mockConfigHandler.GetContextFunc = func() string {
-			return "local"
-		}
-
-		// And a blueprint handler using that config
-		handler := NewBlueprintHandler(mocks.Injector)
-		if err := handler.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
+		// Given a blueprint handler
+		handler, _ := setup(t)
 
 		// And a mock yaml unmarshaller that returns an error for context YAML
-		originalYamlUnmarshal := yamlUnmarshal
-		defer func() { yamlUnmarshal = originalYamlUnmarshal }()
-		yamlUnmarshal = func(data []byte, obj any) error {
+		handler.shims.YamlUnmarshal = func(data []byte, obj any) error {
 			if _, ok := obj.(map[string]any); ok {
 				return fmt.Errorf("error unmarshalling context YAML")
 			}
@@ -1139,22 +1012,16 @@ metadata:
 		}
 
 		// And a mock file system that returns a blueprint file
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
 			return nil, os.ErrNotExist
 		}
 
 		// And a mock jsonnet VM that returns an error
-		originalJsonnetMakeVM := jsonnetMakeVM
-		defer func() { jsonnetMakeVM = originalJsonnetMakeVM }()
-		jsonnetMakeVM = func() JsonnetVM {
+		handler.shims.NewJsonnetVM = func() JsonnetVM {
 			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
 				return "", fmt.Errorf("error evaluating jsonnet")
 			})
@@ -1170,45 +1037,36 @@ metadata:
 	})
 
 	t.Run("EmptyEvaluatedJsonnet", func(t *testing.T) {
-		mockConfigHandler := config.NewMockConfigHandler()
-		mocks := setupMocks(t, &SetupOptions{
-			ConfigHandler: mockConfigHandler,
-		})
+		// Given a blueprint handler with local context
+		handler, mocks := setup(t)
+		mocks.ConfigHandler.SetContext("local")
 
-		mockConfigHandler.GetContextFunc = func() string {
-			return "local"
-		}
-
-		originalJsonnetMakeVM := jsonnetMakeVM
-		defer func() { jsonnetMakeVM = originalJsonnetMakeVM }()
-		jsonnetMakeVM = func() JsonnetVM {
+		// And a mock jsonnet VM that returns empty result
+		handler.shims.NewJsonnetVM = func() JsonnetVM {
 			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
 				return "", nil
 			})
 		}
 
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
+		// And a mock file system that returns no files
+		handler.shims.ReadFile = func(name string) ([]byte, error) {
 			return nil, fmt.Errorf("file not found")
 		}
 
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
+		handler.shims.Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		b := NewBlueprintHandler(mocks.Injector)
-		if err := b.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize handler: %v", err)
-		}
-		err := b.LoadConfig()
+		// When loading the config
+		err := handler.LoadConfig()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error for empty evaluated jsonnet, got: %v", err)
 		}
 
-		metadata := b.GetMetadata()
+		// And the default metadata should be set correctly
+		metadata := handler.GetMetadata()
 		if metadata.Name != "local" {
 			t.Errorf("Expected blueprint name to be 'local', got: %s", metadata.Name)
 		}
@@ -1218,242 +1076,34 @@ metadata:
 		}
 	})
 
-	t.Run("InvalidKustomizationInterval", func(t *testing.T) {
-		// Given blueprint data with zero interval
-		data := []byte(`
-apiVersion: blueprint.windsor.io/v1alpha1
-kind: Blueprint
-metadata:
-  name: test-blueprint
-  description: Test blueprint
-  authors:
-    - Test Author
-kustomize:
-  - name: test-kustomization
-    spec:
-      interval: 0s
-    path: ./test
-`)
-		blueprint := &blueprintv1alpha1.Blueprint{}
-		handler := &BaseBlueprintHandler{}
+	t.Run("ErrorMarshallingYamlNonNull", func(t *testing.T) {
+		// Given a blueprint handler
+		handler, mocks := setup(t)
 
-		// When processing the blueprint data
-		err := handler.processBlueprintData(data, blueprint)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error for kustomization with zero interval, got: %v", err)
+		// And a mock yaml marshaller that returns an error
+		mocks.Shims.YamlMarshalNonNull = func(v any) ([]byte, error) {
+			return nil, fmt.Errorf("mock error marshalling yaml non null")
 		}
-	})
 
-	t.Run("InvalidKustomizationIntervalZero", func(t *testing.T) {
-		// Given a blueprint handler and data with zero interval
-		handler := NewBlueprintHandler(nil)
-		blueprint := &blueprintv1alpha1.Blueprint{}
-		data := []byte(`
-kind: Blueprint
-apiVersion: v1alpha1
-metadata:
-  name: test-blueprint
-  description: Test description
-  authors:
-    - Test Author
-kustomizations:
-  - apiVersion: kustomize.toolkit.fluxcd.io/v1
-    kind: Kustomization
-    metadata:
-      name: test-kustomization
-    spec:
-      interval: 0s
-      path: ./test
-`)
-		// When processing the blueprint data
-		err := handler.processBlueprintData(data, blueprint)
+		// When loading the config
+		err := handler.LoadConfig()
 
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error for kustomization with zero interval, got: %v", err)
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error when marshalling yaml non null, got nil")
 		}
-	})
-
-	t.Run("InvalidKustomizationIntervalInSpec", func(t *testing.T) {
-		// Given a blueprint handler and data with invalid interval
-		baseHandler := &BaseBlueprintHandler{}
-		blueprint := &blueprintv1alpha1.Blueprint{}
-		data := []byte(`
-kind: Blueprint
-apiVersion: v1alpha1
-metadata:
-  name: test-blueprint
-  description: Test description
-  authors:
-    - Test Author
-kustomizations:
-  - apiVersion: kustomize.toolkit.fluxcd.io/v1
-    kind: Kustomization
-    metadata:
-      name: test-kustomization
-    spec:
-      interval: invalid
-      path: ./test
-`)
-		// When processing the blueprint data
-		err := baseHandler.processBlueprintData(data, blueprint)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error for kustomization with invalid interval, got: %v", err)
-		}
-	})
-
-	t.Run("KustomizationWithZeroDuration", func(t *testing.T) {
-		// Given a blueprint handler and data with zero duration
-		baseHandler := &BaseBlueprintHandler{}
-		blueprint := &blueprintv1alpha1.Blueprint{}
-		data := []byte(`
-kind: Blueprint
-apiVersion: v1alpha1
-metadata:
-  name: test-blueprint
-  description: Test description
-  authors:
-    - Test Author
-kustomizations:
-  - apiVersion: kustomize.toolkit.fluxcd.io/v1
-    kind: Kustomization
-    metadata:
-      name: test-kustomization
-    spec:
-      interval:
-        duration: 0
-      path: ./test
-`)
-		// When processing the blueprint data
-		err := baseHandler.processBlueprintData(data, blueprint)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error for kustomization with zero duration, got: %v", err)
-		}
-	})
-
-	t.Run("KustomizationWithNegativeDuration", func(t *testing.T) {
-		// Given a blueprint handler and data with negative duration
-		baseHandler := &BaseBlueprintHandler{}
-		blueprint := &blueprintv1alpha1.Blueprint{}
-		data := []byte(`
-kind: Blueprint
-apiVersion: v1alpha1
-metadata:
-  name: test-blueprint
-  description: Test description
-  authors:
-    - Test Author
-kustomizations:
-  - apiVersion: kustomize.toolkit.fluxcd.io/v1
-    kind: Kustomization
-    metadata:
-      name: test-kustomization
-    spec:
-      interval:
-        duration: -1
-      path: ./test
-`)
-		// When processing the blueprint data
-		err := baseHandler.processBlueprintData(data, blueprint)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error for kustomization with negative duration, got: %v", err)
-		}
-	})
-
-	t.Run("InvalidKustomizationIntervalValue", func(t *testing.T) {
-		// Given a blueprint handler and data with invalid interval value
-		handler, _ := setup(t)
-		baseHandler := handler.(*BaseBlueprintHandler)
-		blueprint := &blueprintv1alpha1.Blueprint{}
-
-		data := []byte(`
-kind: Blueprint
-apiVersion: v1alpha1
-metadata:
-  name: test-blueprint
-  description: Test description
-  authors:
-    - Test Author
-kustomizations:
-  - apiVersion: kustomize.toolkit.fluxcd.io/v1
-    kind: Kustomization
-    metadata:
-      name: test-kustomization
-    spec:
-      interval: "invalid"
-      path: ./test
-`)
-		// When processing the blueprint data
-		err := baseHandler.processBlueprintData(data, blueprint)
-
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected no error for invalid kustomization interval value, got: %v", err)
-		}
-	})
-
-	t.Run("MissingDescription", func(t *testing.T) {
-		// Given a blueprint handler and data with missing description
-		handler, _ := setup(t)
-		blueprint := &blueprintv1alpha1.Blueprint{}
-
-		data := []byte(`
-kind: Blueprint
-apiVersion: v1alpha1
-metadata:
-  name: test-blueprint
-  authors:
-    - John Doe
-`)
-
-		// When processing the blueprint data
-		baseHandler := handler.(*BaseBlueprintHandler)
-		err := baseHandler.processBlueprintData(data, blueprint)
-
-		// Then no error should be returned since validation is removed
-		if err != nil {
-			t.Errorf("Expected no error for missing description, got: %v", err)
-		}
-	})
-
-	t.Run("MissingAuthors", func(t *testing.T) {
-		// Given a blueprint handler and data with empty authors list
-		handler, _ := setup(t)
-		blueprint := &blueprintv1alpha1.Blueprint{}
-
-		data := []byte(`
-kind: Blueprint
-apiVersion: v1alpha1
-metadata:
-  name: test-blueprint
-  description: A test blueprint
-  authors: []
-`)
-
-		// When processing the blueprint data
-		baseHandler := handler.(*BaseBlueprintHandler)
-		err := baseHandler.processBlueprintData(data, blueprint)
-
-		// Then no error should be returned since validation is removed
-		if err != nil {
-			t.Errorf("Expected no error for empty authors list, got: %v", err)
+		if !strings.Contains(err.Error(), "mock error marshalling yaml non null") {
+			t.Errorf("Expected error containing 'mock error marshalling yaml non null', got: %v", err)
 		}
 	})
 }
 
 func TestBlueprintHandler_WriteConfig(t *testing.T) {
-	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
+	setup := func(t *testing.T) (*BaseBlueprintHandler, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
@@ -1463,17 +1113,18 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a blueprint handler with metadata
-		handler, _ := setup(t)
+		handler, mocks := setup(t)
 		expectedMetadata := blueprintv1alpha1.Metadata{
 			Name:        "test-blueprint",
 			Description: "A test blueprint",
 			Authors:     []string{"John Doe"},
 		}
+
 		handler.SetMetadata(expectedMetadata)
 
 		// And a mock file system that captures written data
 		var capturedData []byte
-		osWriteFile = func(name string, data []byte, perm fs.FileMode) error {
+		mocks.Shims.WriteFile = func(name string, data []byte, perm fs.FileMode) error {
 			capturedData = data
 			return nil
 		}
@@ -1511,7 +1162,7 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 
 	t.Run("WriteNoPath", func(t *testing.T) {
 		// Given a blueprint handler with metadata
-		handler, _ := setup(t)
+		handler, mocks := setup(t)
 		expectedMetadata := blueprintv1alpha1.Metadata{
 			Name:        "test-blueprint",
 			Description: "A test blueprint",
@@ -1521,7 +1172,7 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 
 		// And a mock file system that captures written data
 		var capturedData []byte
-		osWriteFile = func(name string, data []byte, perm fs.FileMode) error {
+		mocks.Shims.WriteFile = func(name string, data []byte, perm fs.FileMode) error {
 			capturedData = data
 			return nil
 		}
@@ -1586,12 +1237,10 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 
 	t.Run("ErrorCreatingDirectory", func(t *testing.T) {
 		// Given a blueprint handler
-		handler, _ := setup(t)
+		handler, mocks := setup(t)
 
 		// And a mock file system that fails to create directories
-		originalOsMkdirAll := osMkdirAll
-		defer func() { osMkdirAll = originalOsMkdirAll }()
-		osMkdirAll = func(path string, perm os.FileMode) error {
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return fmt.Errorf("mock error creating directory")
 		}
 
@@ -1609,12 +1258,10 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 
 	t.Run("ErrorMarshallingYaml", func(t *testing.T) {
 		// Given a blueprint handler
-		handler, _ := setup(t)
+		handler, mocks := setup(t)
 
 		// And a mock yaml marshaller that returns an error
-		originalYamlMarshalNonNull := yamlMarshalNonNull
-		defer func() { yamlMarshalNonNull = originalYamlMarshalNonNull }()
-		yamlMarshalNonNull = func(_ any) ([]byte, error) {
+		mocks.Shims.YamlMarshalNonNull = func(in any) ([]byte, error) {
 			return nil, fmt.Errorf("mock error marshalling yaml")
 		}
 
@@ -1632,12 +1279,10 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 
 	t.Run("ErrorWritingFile", func(t *testing.T) {
 		// Given a blueprint handler
-		handler, _ := setup(t)
+		handler, mocks := setup(t)
 
 		// And a mock file system that fails to write files
-		originalOsWriteFile := osWriteFile
-		defer func() { osWriteFile = originalOsWriteFile }()
-		osWriteFile = func(name string, data []byte, perm os.FileMode) error {
+		mocks.Shims.WriteFile = func(name string, data []byte, perm fs.FileMode) error {
 			return fmt.Errorf("mock error writing file")
 		}
 
@@ -1655,7 +1300,7 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 
 	t.Run("CleanupEmptyPostBuild", func(t *testing.T) {
 		// Given a blueprint handler with kustomizations containing empty PostBuild
-		handler, _ := setup(t)
+		handler, mocks := setup(t)
 		emptyPostBuildKustomizations := []blueprintv1alpha1.Kustomization{
 			{
 				Name: "kustomization-empty-postbuild",
@@ -1681,14 +1326,12 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 		handler.SetKustomizations(emptyPostBuildKustomizations)
 
 		// And a mock yaml marshaller that captures the blueprint
-		originalYamlMarshalNonNull := yamlMarshalNonNull
-		defer func() { yamlMarshalNonNull = originalYamlMarshalNonNull }()
 		var capturedBlueprint *blueprintv1alpha1.Blueprint
-		yamlMarshalNonNull = func(v any) ([]byte, error) {
+		mocks.Shims.YamlMarshalNonNull = func(v any) ([]byte, error) {
 			if bp, ok := v.(*blueprintv1alpha1.Blueprint); ok {
 				capturedBlueprint = bp
 			}
-			return originalYamlMarshalNonNull(v)
+			return []byte{}, nil
 		}
 
 		// When writing the config
@@ -1700,6 +1343,10 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 		}
 
 		// And the kustomizations should be properly cleaned up
+		if capturedBlueprint == nil {
+			t.Fatal("Expected blueprint to be captured, but it was nil")
+		}
+
 		if len(capturedBlueprint.Kustomizations) != 2 {
 			t.Fatalf("Expected 2 kustomizations, got %d", len(capturedBlueprint.Kustomizations))
 		}
@@ -1721,7 +1368,7 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 
 	t.Run("ClearTerraformComponentsVariablesAndValues", func(t *testing.T) {
 		// Given a blueprint handler with terraform components containing variables and values
-		handler, _ := setup(t)
+		handler, mocks := setup(t)
 		terraformComponents := []blueprintv1alpha1.TerraformComponent{
 			{
 				Source: "source1",
@@ -1739,14 +1386,12 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 		handler.SetTerraformComponents(terraformComponents)
 
 		// And a mock yaml marshaller that captures the blueprint
-		originalYamlMarshalNonNull := yamlMarshalNonNull
-		defer func() { yamlMarshalNonNull = originalYamlMarshalNonNull }()
 		var capturedBlueprint *blueprintv1alpha1.Blueprint
-		yamlMarshalNonNull = func(v any) ([]byte, error) {
+		mocks.Shims.YamlMarshalNonNull = func(v any) ([]byte, error) {
 			if bp, ok := v.(*blueprintv1alpha1.Blueprint); ok {
 				capturedBlueprint = bp
 			}
-			return originalYamlMarshalNonNull(v)
+			return []byte{}, nil
 		}
 
 		// When writing the config
@@ -1755,6 +1400,11 @@ func TestBlueprintHandler_WriteConfig(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("Failed to write blueprint configuration: %v", err)
+		}
+
+		// And the blueprint should be captured
+		if capturedBlueprint == nil {
+			t.Fatal("Expected blueprint to be captured, but it was nil")
 		}
 
 		// And the terraform components should be properly cleaned up
@@ -1957,6 +1607,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 
 		// And a blueprint handler with sources
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
@@ -2003,6 +1654,7 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		// And a blueprint handler with sources
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		if err := handler.Initialize(); err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
 		}
@@ -2345,12 +1997,10 @@ func TestBlueprintHandler_Install(t *testing.T) {
 		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
 			if config.ResourceName == "configmaps" {
 				configMapApplied = true
-
 				configMap, ok := config.ResourceObject.(*corev1.ConfigMap)
 				if !ok {
 					return fmt.Errorf("unexpected resource object type")
 				}
-
 				if configMap.Data["LOCAL_VOLUME_PATH"] != "" {
 					return fmt.Errorf("expected empty LOCAL_VOLUME_PATH value, but got: %s", configMap.Data["LOCAL_VOLUME_PATH"])
 				}
@@ -2358,46 +2008,18 @@ func TestBlueprintHandler_Install(t *testing.T) {
 			return nil
 		}
 
-		// And a mock config handler that returns empty volume paths
-		mockConfigHandler := config.NewMockConfigHandler()
-		opts := &SetupOptions{
-			ConfigHandler: mockConfigHandler,
-		}
-		mocks := setupMocks(t, opts)
-
-		mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
-			if key == "cluster.workers.volumes" {
-				return []string{}
-			}
-			return []string{"default value"}
-		}
-
-		// And a blueprint handler with repository and sources
-		handler := NewBlueprintHandler(mocks.Injector)
-		err := handler.Initialize()
-		if err != nil {
-			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
-		}
-
-		err = handler.SetRepository(blueprintv1alpha1.Repository{
-			Url: "git::https://example.com/repo.git",
-			Ref: blueprintv1alpha1.Reference{Branch: "main"},
-		})
-		if err != nil {
-			t.Fatalf("Failed to set repository: %v", err)
-		}
-
-		expectedSources := []blueprintv1alpha1.Source{
-			{
-				Name: "source1",
-				Url:  "git::https://example.com/source1.git",
-				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
-			},
-		}
-		handler.SetSources(expectedSources)
+		// And a blueprint handler with empty volume paths
+		handler, mocks := setup(t)
+		mocks.ConfigHandler.LoadConfigString(`
+contexts:
+  mock-context:
+    cluster:
+      workers:
+        volumes: []
+`)
 
 		// When installing the blueprint
-		err = handler.Install()
+		err := handler.Install()
 
 		// Then no error should be returned
 		if err != nil {
@@ -2447,6 +2069,7 @@ func TestBlueprintHandler_GetMetadata(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
@@ -2481,6 +2104,8 @@ func TestBlueprintHandler_GetSources(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
@@ -2516,6 +2141,7 @@ func TestBlueprintHandler_GetTerraformComponents(t *testing.T) {
 	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
@@ -2565,6 +2191,7 @@ func TestBlueprintHandler_GetKustomizations(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
@@ -2652,6 +2279,7 @@ func TestBlueprintHandler_GetRepository(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
@@ -2677,21 +2305,17 @@ func TestBlueprintHandler_GetRepository(t *testing.T) {
 
 	t.Run("CustomRepository", func(t *testing.T) {
 		// Given a blueprint handler
-		handler, _ := setup(t)
+		handler, mocks := setup(t)
 
 		// And a mock file system with a custom repository configuration
-		originalOsStat := osStat
-		defer func() { osStat = originalOsStat }()
-		osStat = func(name string) (os.FileInfo, error) {
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			if strings.HasSuffix(name, ".yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(name string) ([]byte, error) {
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
 			if strings.HasSuffix(name, ".yaml") {
 				return []byte(`
 kind: Blueprint
@@ -2710,9 +2334,7 @@ repository:
 			return nil, os.ErrNotExist
 		}
 
-		originalJsonnetMakeVM := jsonnetMakeVM
-		defer func() { jsonnetMakeVM = originalJsonnetMakeVM }()
-		jsonnetMakeVM = func() JsonnetVM {
+		mocks.Shims.NewJsonnetVM = func() JsonnetVM {
 			return NewMockJsonnetVM(func(filename, snippet string) (string, error) {
 				return "", nil
 			})
@@ -2746,6 +2368,7 @@ func TestBlueprintHandler_SetRepository(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
@@ -2792,6 +2415,7 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
@@ -2805,7 +2429,7 @@ func TestBlueprintHandler_resolveComponentSources(t *testing.T) {
 
 		// And a mock resource operation that tracks applied sources
 		var appliedSources []string
-		kubeClientResourceOperation = func(kubeconfigPath string, config ResourceOperationConfig) error {
+		kubeClientResourceOperation = func(_ string, config ResourceOperationConfig) error {
 			if repo, ok := config.ResourceObject.(*sourcev1.GitRepository); ok {
 				appliedSources = append(appliedSources, repo.Spec.URL)
 			}
@@ -2888,6 +2512,7 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
@@ -2923,6 +2548,8 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 	})
 
 	t.Run("isValidTerraformRemoteSource", func(t *testing.T) {
+		handler, _ := setup(t)
+
 		// Given a set of test cases for terraform source validation
 		tests := []struct {
 			name   string
@@ -2951,7 +2578,7 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				// Then the validation result should match the expected outcome
-				if got := isValidTerraformRemoteSource(tt.source); got != tt.want {
+				if got := handler.(*BaseBlueprintHandler).isValidTerraformRemoteSource(tt.source); got != tt.want {
 					t.Errorf("isValidTerraformRemoteSource(%s) = %v, want %v", tt.source, got, tt.want)
 				}
 			})
@@ -2995,15 +2622,19 @@ func TestBlueprintHandler_resolveComponentPaths(t *testing.T) {
 	})
 
 	t.Run("RegexpMatchStringError", func(t *testing.T) {
-		// Given a mock regexp matcher that returns an error
-		originalRegexpMatchString := regexpMatchString
-		defer func() { regexpMatchString = originalRegexpMatchString }()
-		regexpMatchString = func(pattern, s string) (bool, error) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+
+		// And a mock regexp matcher that returns an error
+		originalRegexpMatchString := baseHandler.shims.RegexpMatchString
+		defer func() { baseHandler.shims.RegexpMatchString = originalRegexpMatchString }()
+		baseHandler.shims.RegexpMatchString = func(pattern, s string) (bool, error) {
 			return false, fmt.Errorf("mocked error in regexpMatchString")
 		}
 
 		// When validating an invalid regex pattern
-		if got := isValidTerraformRemoteSource("[invalid-regex"); got != false {
+		if got := baseHandler.isValidTerraformRemoteSource("[invalid-regex"); got != false {
 			t.Errorf("isValidTerraformRemoteSource([invalid-regex) = %v, want %v", got, false)
 		}
 	})
@@ -3014,6 +2645,7 @@ func TestBlueprintHandler_processBlueprintData(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
 		err := handler.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize handler: %v", err)
@@ -3024,7 +2656,11 @@ func TestBlueprintHandler_processBlueprintData(t *testing.T) {
 	t.Run("ValidBlueprintData", func(t *testing.T) {
 		// Given a blueprint handler and an empty blueprint
 		handler, _ := setup(t)
-		blueprint := &blueprintv1alpha1.Blueprint{}
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Sources:             []blueprintv1alpha1.Source{},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{},
+			Kustomizations:      []blueprintv1alpha1.Kustomization{},
+		}
 
 		// And valid blueprint data
 		data := []byte(`
@@ -3038,10 +2674,10 @@ metadata:
 sources:
   - name: test-source
     url: git::https://example.com/test-repo.git
-terraformComponents:
+terraform:
   - source: test-source
     path: path/to/code
-kustomizations:
+kustomize:
   - name: test-kustomization
     path: ./kustomize
 repository:
@@ -3153,7 +2789,7 @@ metadata:
   description: A test blueprint
   authors:
     - John Doe
-kustomizations:
+kustomize:
   - name: test-kustomization
     interval: invalid-interval
     path: ./kustomize
@@ -3179,11 +2815,11 @@ kustomizations:
 		blueprint := &blueprintv1alpha1.Blueprint{}
 
 		// And a mock YAML marshaller that returns an error
-		yamlMarshal = func(v any) ([]byte, error) {
+		baseHandler.shims.YamlMarshalNonNull = func(v any) ([]byte, error) {
 			if _, ok := v.(map[string]any); ok {
 				return nil, fmt.Errorf("mock kustomization map marshal error")
 			}
-			return nil, nil
+			return []byte{}, nil
 		}
 
 		// And valid blueprint data
@@ -3195,7 +2831,7 @@ metadata:
   description: Test description
   authors:
     - Test Author
-kustomizations:
+kustomize:
   - name: test-kustomization
     path: ./test
 `)
@@ -3227,7 +2863,7 @@ metadata:
   description: Test description
   authors:
     - Test Author
-kustomizations:
+kustomize:
   - apiVersion: kustomize.toolkit.fluxcd.io/v1
     kind: Kustomization
     metadata:
@@ -3261,7 +2897,7 @@ metadata:
   description: Test description
   authors:
     - Test Author
-kustomizations:
+kustomize:
   - apiVersion: kustomize.toolkit.fluxcd.io/v1
     kind: Kustomization
     metadata:
@@ -3333,6 +2969,18 @@ metadata:
 // =============================================================================
 
 func TestYamlMarshalWithDefinedPaths(t *testing.T) {
+	setup := func(t *testing.T) (BlueprintHandler, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		handler := NewBlueprintHandler(mocks.Injector)
+		handler.shims = mocks.Shims
+		err := handler.Initialize()
+		if err != nil {
+			t.Fatalf("Failed to initialize BlueprintHandler: %v", err)
+		}
+		return handler, mocks
+	}
+
 	t.Run("IgnoreYamlMinusTag", func(t *testing.T) {
 		// Given a struct with a YAML minus tag
 		type testStruct struct {
@@ -3342,7 +2990,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := testStruct{Public: "value", private: "ignored"}
 
 		// When marshalling the struct
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3362,7 +3012,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 
 	t.Run("NilInput", func(t *testing.T) {
 		// When marshalling nil input
-		_, err := yamlMarshalWithDefinedPaths(nil)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		_, err := baseHandler.yamlMarshalWithDefinedPaths(nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -3380,7 +3032,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := []string{}
 
 		// When marshalling the slice
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3401,7 +3055,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := testStruct{Field: "value"}
 
 		// When marshalling the struct
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3422,7 +3078,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := testStruct{Field: "value"}
 
 		// When marshalling the struct
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3445,7 +3103,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		}
 
 		// When marshalling the map
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3472,7 +3132,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		}
 
 		// When marshalling the struct
-		result, err := yamlMarshalWithDefinedPaths(data)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(data)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3487,7 +3149,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 
 	t.Run("NilInput", func(t *testing.T) {
 		// When marshalling nil input
-		_, err := yamlMarshalWithDefinedPaths(nil)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		_, err := baseHandler.yamlMarshalWithDefinedPaths(nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -3502,7 +3166,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 
 	t.Run("FuncType", func(t *testing.T) {
 		// When marshalling a function type
-		_, err := yamlMarshalWithDefinedPaths(func() {})
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		_, err := baseHandler.yamlMarshalWithDefinedPaths(func() {})
 
 		// Then an error should be returned
 		if err == nil {
@@ -3517,7 +3183,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 
 	t.Run("UnsupportedType", func(t *testing.T) {
 		// When marshalling an unsupported type
-		_, err := yamlMarshalWithDefinedPaths(make(chan int))
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		_, err := baseHandler.yamlMarshalWithDefinedPaths(make(chan int))
 
 		// Then an error should be returned
 		if err == nil {
@@ -3538,7 +3206,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		}
 
 		// When marshalling the map
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3561,7 +3231,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := []any{nil, "value", nil}
 
 		// When marshalling the slice
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3588,7 +3260,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := testStruct{Public: "value", private: "ignored"}
 
 		// When marshalling the struct
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3614,7 +3288,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := testStruct{Field: "value"}
 
 		// When marshalling the struct
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3638,7 +3314,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := parent{Nested: nested{Value: "test"}}
 
 		// When marshalling the nested structs
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3679,7 +3357,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		}
 
 		// When marshalling the struct
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3707,7 +3387,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := boolStruct{True: true, False: false}
 
 		// When marshalling the struct
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3735,7 +3417,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := testStruct{}
 
 		// When marshalling the struct
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3771,7 +3455,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := []*elem{nil, {Field: "value"}, nil}
 
 		// When marshalling the slice
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3793,7 +3479,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		}
 
 		// When marshalling the map to YAML
-		result, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		result, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then no error should be returned
 		if err != nil {
@@ -3816,7 +3504,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := make(chan int)
 
 		// When attempting to marshal the channel
-		_, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		_, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then an error should be returned
 		if err == nil {
@@ -3834,7 +3524,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := func() {}
 
 		// When attempting to marshal the function
-		_, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		_, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then an error should be returned
 		if err == nil {
@@ -3852,7 +3544,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := []any{make(chan int)}
 
 		// When attempting to marshal the slice
-		_, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		_, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then an error should be returned
 		if err == nil {
@@ -3872,7 +3566,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		}
 
 		// When attempting to marshal the map
-		_, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		_, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then an error should be returned
 		if err == nil {
@@ -3893,7 +3589,9 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := testStruct{Channel: make(chan int)}
 
 		// When attempting to marshal the struct
-		_, err := yamlMarshalWithDefinedPaths(input)
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+		_, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then an error should be returned
 		if err == nil {
@@ -3907,8 +3605,12 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 	})
 
 	t.Run("YamlMarshalError", func(t *testing.T) {
-		// Given a mock YAML marshaller that returns an error
-		yamlMarshal = func(v any) ([]byte, error) {
+		// Given a blueprint handler
+		handler, _ := setup(t)
+		baseHandler := handler.(*BaseBlueprintHandler)
+
+		// And a mock YAML marshaller that returns an error
+		baseHandler.shims.YamlMarshal = func(v any) ([]byte, error) {
 			return nil, fmt.Errorf("mock yaml marshal error")
 		}
 
@@ -3916,7 +3618,7 @@ func TestYamlMarshalWithDefinedPaths(t *testing.T) {
 		input := struct{ Field string }{"value"}
 
 		// When marshalling the struct
-		_, err := yamlMarshalWithDefinedPaths(input)
+		_, err := baseHandler.yamlMarshalWithDefinedPaths(input)
 
 		// Then an error should be returned
 		if err == nil {

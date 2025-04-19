@@ -60,18 +60,23 @@ type BlueprintHandler interface {
 var defaultJsonnetTemplate string
 
 type BaseBlueprintHandler struct {
+	BlueprintHandler
 	injector       di.Injector
 	configHandler  config.ConfigHandler
 	shell          shell.Shell
 	localBlueprint blueprintv1alpha1.Blueprint
 	blueprint      blueprintv1alpha1.Blueprint
 	projectRoot    string
+	shims          *Shims
 }
 
 // NewBlueprintHandler creates a new instance of BaseBlueprintHandler.
 // It initializes the handler with the provided dependency injector.
 func NewBlueprintHandler(injector di.Injector) *BaseBlueprintHandler {
-	return &BaseBlueprintHandler{injector: injector}
+	return &BaseBlueprintHandler{
+		injector: injector,
+		shims:    NewShims(),
+	}
 }
 
 // =============================================================================
@@ -122,8 +127,8 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 		basePath = path[0]
 	}
 
-	jsonnetData, jsonnetErr := loadFileData(basePath + ".jsonnet")
-	yamlData, yamlErr := loadFileData(basePath + ".yaml")
+	jsonnetData, jsonnetErr := b.loadFileData(basePath + ".jsonnet")
+	yamlData, yamlErr := b.loadFileData(basePath + ".yaml")
 	if jsonnetErr != nil {
 		return jsonnetErr
 	}
@@ -132,13 +137,13 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	}
 
 	config := b.configHandler.GetConfig()
-	contextYAML, err := yamlMarshalWithDefinedPaths(config)
+	contextYAML, err := b.yamlMarshalWithDefinedPaths(config)
 	if err != nil {
 		return fmt.Errorf("error marshalling context to YAML: %w", err)
 	}
 
 	var contextMap map[string]any = make(map[string]any)
-	if err := yamlUnmarshal(contextYAML, &contextMap); err != nil {
+	if err := b.shims.YamlUnmarshal(contextYAML, &contextMap); err != nil {
 		return fmt.Errorf("error unmarshalling context YAML: %w", err)
 	}
 
@@ -146,14 +151,14 @@ func (b *BaseBlueprintHandler) LoadConfig(path ...string) error {
 	context := b.configHandler.GetContext()
 	contextMap["name"] = context
 
-	contextJSON, err := jsonMarshal(contextMap)
+	contextJSON, err := b.shims.JsonMarshal(contextMap)
 	if err != nil {
 		return fmt.Errorf("error marshalling context map to JSON: %w", err)
 	}
 
 	var evaluatedJsonnet string
 
-	vm := jsonnetMakeVM()
+	vm := b.shims.NewJsonnetVM()
 	vm.ExtCode("context", string(contextJSON))
 
 	if len(jsonnetData) > 0 {
@@ -205,7 +210,7 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 	}
 
 	dir := filepath.Dir(finalPath)
-	if err := osMkdirAll(dir, os.ModePerm); err != nil {
+	if err := b.shims.MkdirAll(dir, os.ModePerm); err != nil {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
@@ -225,12 +230,12 @@ func (b *BaseBlueprintHandler) WriteConfig(path ...string) error {
 
 	fullBlueprint.Merge(&b.localBlueprint)
 
-	data, err := yamlMarshalNonNull(fullBlueprint)
+	data, err := b.shims.YamlMarshalNonNull(fullBlueprint)
 	if err != nil {
 		return fmt.Errorf("error marshalling yaml: %w", err)
 	}
 
-	if err := osWriteFile(finalPath, data, 0644); err != nil {
+	if err := b.shims.WriteFile(finalPath, data, 0644); err != nil {
 		return fmt.Errorf("error writing blueprint file: %w", err)
 	}
 	return nil
@@ -471,7 +476,7 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 	for i, component := range resolvedComponents {
 		componentCopy := component
 
-		if isValidTerraformRemoteSource(componentCopy.Source) {
+		if b.isValidTerraformRemoteSource(componentCopy.Source) {
 			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", ".tf_modules", componentCopy.Path)
 		} else {
 			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", componentCopy.Path)
@@ -489,20 +494,20 @@ func (b *BaseBlueprintHandler) resolveComponentPaths(blueprint *blueprintv1alpha
 // fields are present and converting any raw kustomization data into strongly typed objects.
 func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blueprintv1alpha1.Blueprint) error {
 	newBlueprint := &blueprintv1alpha1.PartialBlueprint{}
-	if err := yamlUnmarshal(data, newBlueprint); err != nil {
+	if err := b.shims.YamlUnmarshal(data, newBlueprint); err != nil {
 		return fmt.Errorf("error unmarshalling blueprint data: %w", err)
 	}
 
 	var kustomizations []blueprintv1alpha1.Kustomization
 
 	for _, kMap := range newBlueprint.Kustomizations {
-		kustomizationYAML, err := yamlMarshal(kMap)
+		kustomizationYAML, err := b.shims.YamlMarshalNonNull(kMap)
 		if err != nil {
 			return fmt.Errorf("error marshalling kustomization map: %w", err)
 		}
 
 		var kustomization blueprintv1alpha1.Kustomization
-		err = k8sYamlUnmarshal(kustomizationYAML, &kustomization)
+		err = b.shims.K8sYamlUnmarshal(kustomizationYAML, &kustomization)
 		if err != nil {
 			return fmt.Errorf("error unmarshalling kustomization YAML: %w", err)
 		}
@@ -530,7 +535,7 @@ func (b *BaseBlueprintHandler) processBlueprintData(data []byte, blueprint *blue
 
 // isValidTerraformRemoteSource checks if the source is a valid Terraform module reference.
 // It uses regular expressions to match the source string against known patterns for remote Terraform modules.
-var isValidTerraformRemoteSource = func(source string) bool {
+func (b *BaseBlueprintHandler) isValidTerraformRemoteSource(source string) bool {
 	patterns := []string{
 		`^git::https://[^/]+/.*\.git(?:@.*)?$`,
 		`^git@[^:]+:.*\.git(?:@.*)?$`,
@@ -542,7 +547,7 @@ var isValidTerraformRemoteSource = func(source string) bool {
 	}
 
 	for _, pattern := range patterns {
-		matched, err := regexpMatchString(pattern, source)
+		matched, err := b.shims.RegexpMatchString(pattern, source)
 		if err != nil {
 			return false
 		}
@@ -556,9 +561,9 @@ var isValidTerraformRemoteSource = func(source string) bool {
 
 // loadFileData loads the file data from the specified path.
 // It checks if the file exists and reads its content, returning the data as a byte slice.
-var loadFileData = func(path string) ([]byte, error) {
-	if _, err := osStat(path); err == nil {
-		return osReadFile(path)
+func (b *BaseBlueprintHandler) loadFileData(path string) ([]byte, error) {
+	if _, err := b.shims.Stat(path); err == nil {
+		return b.shims.ReadFile(path)
 	}
 	return nil, nil
 }
@@ -566,7 +571,7 @@ var loadFileData = func(path string) ([]byte, error) {
 // yamlMarshalWithDefinedPaths marshals data to YAML format while ensuring all parent paths are defined.
 // It handles various Go types including structs, maps, slices, and primitive types, preserving YAML
 // tags and properly representing nil values.
-func yamlMarshalWithDefinedPaths(v any) ([]byte, error) {
+func (b *BaseBlueprintHandler) yamlMarshalWithDefinedPaths(v any) ([]byte, error) {
 	if v == nil {
 		return nil, fmt.Errorf("invalid input: nil value")
 	}
@@ -673,7 +678,7 @@ func yamlMarshalWithDefinedPaths(v any) ([]byte, error) {
 		return nil, err
 	}
 
-	yamlData, err := yamlMarshal(processed)
+	yamlData, err := b.shims.YamlMarshal(processed)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling yaml: %w", err)
 	}
