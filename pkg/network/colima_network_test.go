@@ -12,6 +12,10 @@ import (
 	"github.com/windsorcli/cli/pkg/ssh"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
 type ColimaNetworkManagerMocks struct {
 	Injector                     di.Injector
 	MockShell                    *shell.MockShell
@@ -129,15 +133,25 @@ func setupColimaNetworkManagerMocks() *ColimaNetworkManagerMocks {
 	}
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestColimaNetworkManager_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Given a properly configured network manager
 		mocks := setupColimaNetworkManagerMocks()
 		nm := NewColimaNetworkManager(mocks.Injector)
-		if err := nm.Initialize(); err != nil {
+
+		// When initializing the network manager
+		err := nm.Initialize()
+
+		// Then no error should occur
+		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Verify that all dependencies are correctly initialized
+		// And all dependencies should be correctly initialized
 		if nm.sshClient == nil {
 			t.Fatalf("expected sshClient to be initialized, got nil")
 		}
@@ -148,51 +162,52 @@ func TestColimaNetworkManager_Initialize(t *testing.T) {
 			t.Fatalf("expected networkInterfaceProvider to be initialized, got nil")
 		}
 
-		// Mock the configHandler to return a specific CIDR for testing
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "network.cidr_block" {
-				return "10.5.0.0/16"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		// Verify that network.cidr_block is set to the mocked value
-		if actualCIDR := nm.configHandler.GetString("network.cidr_block"); actualCIDR != "10.5.0.0/16" {
-			t.Fatalf("expected network.cidr_block to be 10.5.0.0/16, got %s", actualCIDR)
+		// And network.cidr_block should be set correctly
+		if actualCIDR := nm.configHandler.GetString("network.cidr_block"); actualCIDR != "192.168.5.0/24" {
+			t.Fatalf("expected network.cidr_block to be 192.168.5.0/24, got %s", actualCIDR)
 		}
 	})
 
 	t.Run("ErrorResolvingSSHClient", func(t *testing.T) {
+		// Given a network manager with missing sshClient
 		mocks := setupColimaNetworkManagerMocks()
-		// Simulate the failure by not registering the sshClient in the injector
 		mocks.Injector.Register("sshClient", nil)
 		nm := NewColimaNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error due to unresolved sshClient, got nil")
 		}
 	})
 
 	t.Run("ErrorResolvingSecureShell", func(t *testing.T) {
+		// Given a network manager with missing secureShell
 		mocks := setupColimaNetworkManagerMocks()
-		// Simulate the failure by not registering the secureShell in the injector
 		mocks.Injector.Register("secureShell", nil)
 		nm := NewColimaNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
+
+		// Then an error should occur
 		if err == nil {
 			t.Errorf("expected error due to unresolved secureShell, got nil")
 		}
 	})
 
 	t.Run("ErrorResolvingNetworkInterfaceProvider", func(t *testing.T) {
+		// Given a network manager with missing networkInterfaceProvider
 		mocks := setupColimaNetworkManagerMocks()
-		// Simulate the failure by not registering the networkInterfaceProvider in the injector
 		mocks.Injector.Register("networkInterfaceProvider", nil)
 		nm := NewColimaNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error due to unresolved networkInterfaceProvider, got nil")
 		}
@@ -201,30 +216,28 @@ func TestColimaNetworkManager_Initialize(t *testing.T) {
 
 func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Setup mocks using setupSafeAwsEnvMocks
+		// Given a properly configured network manager
 		mocks := setupColimaNetworkManagerMocks()
-
-		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the network manager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureGuest method
+		// And configuring the guest
 		err = nm.ConfigureGuest()
+
+		// Then no error should occur
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("NoNetworkCIDRConfigured", func(t *testing.T) {
-		// Setup mocks using setupColimaNetworkManagerMocks
+		// Given a network manager with no CIDR configured
 		mocks := setupColimaNetworkManagerMocks()
-
-		// Override the GetString method to return an empty string for "network.cidr_block"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "network.cidr_block" {
 				return ""
@@ -234,18 +247,18 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			}
 			return "some-value"
 		}
-
-		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the network manager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureGuest method and expect an error due to missing network CIDR
+		// And configuring the guest
 		err = nm.ConfigureGuest()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -256,10 +269,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	})
 
 	t.Run("NoGuestIPConfigured", func(t *testing.T) {
-		// Setup mocks using setupColimaNetworkManagerMocks
+		// Given a network manager with no guest IP configured
 		mocks := setupColimaNetworkManagerMocks()
-
-		// Override the GetString method to return an empty string for "vm.address"
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "network.cidr_block" {
 				return "192.168.5.0/24"
@@ -272,18 +283,18 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			}
 			return "some-value"
 		}
-
-		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the network manager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureGuest method and expect an error due to missing guest IP
+		// And configuring the guest
 		err = nm.ConfigureGuest()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -294,28 +305,26 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	})
 
 	t.Run("ErrorGettingSSHConfig", func(t *testing.T) {
-		// Setup mocks using setupColimaNetworkManagerMocks
+		// Given a network manager with SSH config error
 		mocks := setupColimaNetworkManagerMocks()
-
-		// Override the ExecSilentFunc to return an error when getting SSH config
 		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "colima" && args[0] == "ssh-config" {
 				return "", fmt.Errorf("mock error getting SSH config")
 			}
 			return "", nil
 		}
-
-		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the network manager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureGuest method and expect an error due to failed SSH config retrieval
+		// And configuring the guest
 		err = nm.ConfigureGuest()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -326,25 +335,23 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingSSHClient", func(t *testing.T) {
-		// Setup mocks using setupColimaNetworkManagerMocks
+		// Given a network manager with SSH client error
 		mocks := setupColimaNetworkManagerMocks()
-
-		// Override the SetClientConfigFileFunc to return an error
 		mocks.MockSSHClient.SetClientConfigFileFunc = func(config string, contextName string) error {
 			return fmt.Errorf("mock error setting SSH client config")
 		}
-
-		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the network manager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureGuest method and expect an error due to failed SSH client config
+		// And configuring the guest
 		err = nm.ConfigureGuest()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -355,28 +362,26 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	})
 
 	t.Run("ErrorListingInterfaces", func(t *testing.T) {
-		// Setup mocks using setupColimaNetworkManagerMocks
+		// Given a network manager with interface listing error
 		mocks := setupColimaNetworkManagerMocks()
-
-		// Override the ExecFunc to return an error when listing interfaces
 		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "ls" && args[0] == "/sys/class/net" {
 				return "", fmt.Errorf("mock error listing interfaces")
 			}
 			return "", nil
 		}
-
-		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the network manager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureGuest method and expect an error due to failed interface listing
+		// And configuring the guest
 		err = nm.ConfigureGuest()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -387,31 +392,26 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	})
 
 	t.Run("NoDockerBridgeInterfaceFound", func(t *testing.T) {
-		// Setup mocks using setupColimaNetworkManagerMocks
+		// Given a network manager with no docker bridge interface
 		mocks := setupColimaNetworkManagerMocks()
-
-		// Override the ExecFunc to return no interfaces starting with "br-"
 		mocks.MockSecureShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "ls" && args[0] == "/sys/class/net" {
 				return "eth0\nlo\nwlan0", nil // No "br-" interface
 			}
 			return "", nil
 		}
+		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Use the mock injector from setupColimaNetworkManagerMocks
-		injector := mocks.Injector
-
-		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
-		nm := NewColimaNetworkManager(injector)
-
-		// Initialize the network manager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureGuest method and expect an error due to no docker bridge interface found
+		// And configuring the guest
 		err = nm.ConfigureGuest()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -422,10 +422,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingIptablesRule", func(t *testing.T) {
-		// Setup mocks using setupColimaNetworkManagerMocks
+		// Given a network manager with iptables rule error
 		mocks := setupColimaNetworkManagerMocks()
-
-		// Override the ExecFunc to simulate finding a docker bridge interface and an error when setting iptables rule
 		mocks.MockSecureShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "ls" && args[0] == "/sys/class/net" {
 				return "br-1234\neth0\nlo\nwlan0", nil // Include a "br-" interface
@@ -438,21 +436,18 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			}
 			return "", nil
 		}
+		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Use the mock injector from setupColimaNetworkManagerMocks
-		injector := mocks.Injector
-
-		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
-		nm := NewColimaNetworkManager(injector)
-
-		// Initialize the network manager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureGuest method and expect an error due to iptables rule setting failure
+		// And configuring the guest
 		err = nm.ConfigureGuest()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -462,29 +457,24 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	})
 
 	t.Run("ErrorFindingHostIP", func(t *testing.T) {
-		// Setup mocks using setupColimaNetworkManagerMocks
+		// Given a network manager with host IP error
 		mocks := setupColimaNetworkManagerMocks()
-
-		// Override the InterfaceAddrsFunc to simulate failure in finding host IP
 		mocks.MockNetworkInterfaceProvider.InterfaceAddrsFunc = func(iface net.Interface) ([]net.Addr, error) {
 			// Return an empty list of addresses to simulate no matching subnet
 			return []net.Addr{}, nil
 		}
+		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Use the mock injector from setupColimaNetworkManagerMocks
-		injector := mocks.Injector
-
-		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
-		nm := NewColimaNetworkManager(injector)
-
-		// Initialize the network manager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureGuest method and expect an error due to failure in finding host IP
+		// And configuring the guest
 		err = nm.ConfigureGuest()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -494,9 +484,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	})
 
 	t.Run("ErrorCheckingIptablesRule", func(t *testing.T) {
-		// Setup mocks using setupColimaNetworkManagerMocks
+		// Given a network manager with iptables rule check error
 		mocks := setupColimaNetworkManagerMocks()
-		// Override the ExecFunc to simulate an unexpected error when checking iptables rule
 		originalExecSilentFunc := mocks.MockSecureShell.ExecSilentFunc
 		mocks.MockSecureShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-C" {
@@ -504,21 +493,18 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			}
 			return originalExecSilentFunc(command, args...)
 		}
+		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Use the mock injector from setupColimaNetworkManagerMocks
-		injector := mocks.Injector
-
-		// Create a colimaNetworkManager using NewColimaNetworkManager with the mock injector
-		nm := NewColimaNetworkManager(injector)
-
-		// Initialize the network manager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// Call the ConfigureGuest method and expect an error due to unexpected iptables rule check failure
+		// And configuring the guest
 		err = nm.ConfigureGuest()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -530,25 +516,25 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 
 func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Setup mocks using setupNetworkManagerMocks
+		// Given a properly configured network manager
 		mocks := setupNetworkManagerMocks()
-
-		// Create a new NetworkManager
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the NetworkManager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during Initialize, got %v", err)
 		}
 
-		// Run getHostIP on the NetworkManager
+		// And getting the host IP
 		hostIP, err := nm.getHostIP()
+
+		// Then no error should occur
 		if err != nil {
 			t.Fatalf("expected no error during getHostIP, got %v", err)
 		}
 
-		// Verify the host IP
+		// And the host IP should be correct
 		expectedHostIP := "192.168.1.1"
 		if hostIP != expectedHostIP {
 			t.Fatalf("expected host IP %v, got %v", expectedHostIP, hostIP)
@@ -556,32 +542,32 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	})
 
 	t.Run("SuccessWithIpAddr", func(t *testing.T) {
-		// Setup mocks using setupNetworkManagerMocks
+		// Given a network manager with IPAddr type
 		mocks := setupNetworkManagerMocks()
-
-		// Create a new NetworkManager
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the NetworkManager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during Initialize, got %v", err)
 		}
 
-		// Mock networkInterfaceProvider.InterfaceAddrs to return a net.IPAddr
+		// And mocking networkInterfaceProvider to return IPAddr
 		mocks.MockNetworkInterfaceProvider.InterfaceAddrsFunc = func(iface net.Interface) ([]net.Addr, error) {
 			return []net.Addr{
 				&net.IPAddr{IP: net.ParseIP("192.168.1.1")},
 			}, nil
 		}
 
-		// Run getHostIP on the NetworkManager
+		// And getting the host IP
 		hostIP, err := nm.getHostIP()
+
+		// Then no error should occur
 		if err != nil {
 			t.Fatalf("expected no error during getHostIP, got %v", err)
 		}
 
-		// Verify the host IP
+		// And the host IP should be correct
 		expectedHostIP := "192.168.1.1"
 		if hostIP != expectedHostIP {
 			t.Fatalf("expected host IP %v, got %v", expectedHostIP, hostIP)
@@ -589,19 +575,17 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	})
 
 	t.Run("NoGuestAddressSet", func(t *testing.T) {
-		// Setup mocks using setupNetworkManagerMocks
+		// Given a network manager with no guest address
 		mocks := setupNetworkManagerMocks()
-
-		// Create a new NetworkManager
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the NetworkManager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during Initialize, got %v", err)
 		}
 
-		// Mock configHandler.GetString for vm.address to return an invalid IP
+		// And mocking configHandler to return empty guest address
 		originalGetStringFunc := mocks.MockConfigHandler.GetStringFunc
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.address" {
@@ -610,38 +594,38 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 			return originalGetStringFunc(key, defaultValue...)
 		}
 
-		// Run getHostIP on the NetworkManager
+		// And getting the host IP
 		hostIP, err := nm.getHostIP()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error during getHostIP, got none")
 		}
 
-		// Check the error message
+		// And the error message should be correct
 		expectedErrorMessage := "guest IP is not configured"
 		if err.Error() != expectedErrorMessage {
 			t.Fatalf("expected error message %q, got %q", expectedErrorMessage, err.Error())
 		}
 
-		// Verify the host IP is empty
+		// And the host IP should be empty
 		if hostIP != "" {
 			t.Fatalf("expected empty host IP, got %v", hostIP)
 		}
 	})
 
 	t.Run("ErrorParsingGuestIP", func(t *testing.T) {
-		// Setup mocks using setupNetworkManagerMocks
+		// Given a network manager with invalid guest IP
 		mocks := setupNetworkManagerMocks()
-
-		// Create a new NetworkManager
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the NetworkManager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during Initialize, got %v", err)
 		}
 
-		// Mock configHandler.GetString for vm.address to return an invalid IP
+		// And mocking configHandler to return invalid guest IP
 		originalGetStringFunc := mocks.MockConfigHandler.GetStringFunc
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.address" {
@@ -650,109 +634,109 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 			return originalGetStringFunc(key, defaultValue...)
 		}
 
-		// Run getHostIP on the NetworkManager
+		// And getting the host IP
 		hostIP, err := nm.getHostIP()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error during getHostIP, got none")
 		}
 
-		// Check the error message
+		// And the error message should be correct
 		expectedErrorMessage := "invalid guest IP address"
 		if err.Error() != expectedErrorMessage {
 			t.Fatalf("expected error message %q, got %q", expectedErrorMessage, err.Error())
 		}
 
-		// Verify the host IP is empty
+		// And the host IP should be empty
 		if hostIP != "" {
 			t.Fatalf("expected empty host IP, got %v", hostIP)
 		}
 	})
 
 	t.Run("ErrorGettingNetworkInterfaces", func(t *testing.T) {
-		// Setup mocks using setupNetworkManagerMocks
+		// Given a network manager with network interfaces error
 		mocks := setupNetworkManagerMocks()
-
-		// Create a new NetworkManager
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the NetworkManager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during Initialize, got %v", err)
 		}
 
-		// Mock the network interface provider
+		// And mocking network interface provider to return error
 		mocks.MockNetworkInterfaceProvider.InterfacesFunc = func() ([]net.Interface, error) {
 			return nil, fmt.Errorf("mock error getting network interfaces")
 		}
 
-		// Run getHostIP on the NetworkManager
+		// And getting the host IP
 		hostIP, err := nm.getHostIP()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error during getHostIP, got none")
 		}
 
-		// Check the error message
+		// And the error message should be correct
 		expectedErrorMessage := "failed to get network interfaces: mock error getting network interfaces"
 		if err.Error() != expectedErrorMessage {
 			t.Fatalf("expected error message %q, got %q", expectedErrorMessage, err.Error())
 		}
 
-		// Verify the host IP is empty
+		// And the host IP should be empty
 		if hostIP != "" {
 			t.Fatalf("expected empty host IP, got %v", hostIP)
 		}
 	})
 
 	t.Run("ErrorGettingNetworkInterfaceAddresses", func(t *testing.T) {
-		// Setup mocks using setupNetworkManagerMocks
+		// Given a network manager with interface addresses error
 		mocks := setupNetworkManagerMocks()
-
-		// Create a new NetworkManager
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the NetworkManager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during Initialize, got %v", err)
 		}
 
-		// Mock the network interface provider
+		// And mocking network interface provider to return error
 		mocks.MockNetworkInterfaceProvider.InterfaceAddrsFunc = func(iface net.Interface) ([]net.Addr, error) {
 			return nil, fmt.Errorf("mock error getting network interface addresses")
 		}
 
-		// Run getHostIP on the NetworkManager
+		// And getting the host IP
 		hostIP, err := nm.getHostIP()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error during getHostIP, got none")
 		}
 
-		// Check the error message
+		// And the error message should contain the expected text
 		if !strings.Contains(err.Error(), "mock error getting network interface addresses") {
 			t.Fatalf("expected error message to contain %q, got %q", "mock error getting network interface addresses", err.Error())
 		}
 
-		// Verify the host IP is empty
+		// And the host IP should be empty
 		if hostIP != "" {
 			t.Fatalf("expected empty host IP, got %v", hostIP)
 		}
 	})
 
 	t.Run("ErrorFindingHostIPInSameSubnet", func(t *testing.T) {
-		// Setup mocks using setupNetworkManagerMocks
+		// Given a network manager with no matching subnet
 		mocks := setupNetworkManagerMocks()
-
-		// Create a new NetworkManager
 		nm := NewColimaNetworkManager(mocks.Injector)
 
-		// Initialize the NetworkManager
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during Initialize, got %v", err)
 		}
 
-		// Mock the network interface provider to return interfaces with no matching subnet
+		// And mocking network interface provider to return no matching subnet
 		mocks.MockNetworkInterfaceProvider.InterfacesFunc = func() ([]net.Interface, error) {
 			return []net.Interface{
 				{Name: "eth0"},
@@ -767,19 +751,21 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 			return nil, fmt.Errorf("no addresses found for interface %s", iface.Name)
 		}
 
-		// Run getHostIP on the NetworkManager
+		// And getting the host IP
 		hostIP, err := nm.getHostIP()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error during getHostIP, got none")
 		}
 
-		// Check the error message
+		// And the error message should be correct
 		expectedErrorMessage := "failed to find host IP in the same subnet as guest IP"
 		if err.Error() != expectedErrorMessage {
 			t.Fatalf("expected error message %q, got %q", expectedErrorMessage, err.Error())
 		}
 
-		// Verify the host IP is empty
+		// And the host IP should be empty
 		if hostIP != "" {
 			t.Fatalf("expected empty host IP, got %v", hostIP)
 		}

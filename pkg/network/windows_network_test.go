@@ -14,9 +14,9 @@ import (
 	"github.com/windsorcli/cli/pkg/ssh"
 )
 
-func stringPtr(s string) *string {
-	return &s
-}
+// =============================================================================
+// Test Setup
+// =============================================================================
 
 type WindowsNetworkManagerMocks struct {
 	Injector                     di.Injector
@@ -86,41 +86,43 @@ func setupWindowsNetworkManagerMocks() *WindowsNetworkManagerMocks {
 	}
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given setup mocks using setupWindowsNetworkManagerMocks
+		// Given a properly configured network manager
 		mocks := setupWindowsNetworkManagerMocks()
-
-		// And create a network manager using NewBaseNetworkManager with the mock injector
 		nm := NewBaseNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// When call the method under test
+		// And configuring the host route
 		err = nm.ConfigureHostRoute()
 
-		// Then expect no error
+		// Then no error should occur
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("NoNetworkCIDR", func(t *testing.T) {
-		// Given setup mocks using setupWindowsNetworkManagerMocks
+		// Given a network manager with no CIDR configured
 		mocks := setupWindowsNetworkManagerMocks()
-
-		// And create a network manager using NewBaseNetworkManager with the mock injector
 		nm := NewBaseNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		err = nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
+
+		// And mocking empty CIDR block
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "network.cidr_block" {
 				return ""
@@ -131,25 +133,31 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 			return ""
 		}
 
-		// When call the method under test
+		// And configuring the host route
 		err = nm.ConfigureHostRoute()
 
-		// Then expect error 'network CIDR is not configured'
-		if err == nil || err.Error() != "network CIDR is not configured" {
-			t.Errorf("expected error 'network CIDR is not configured', got %v", err)
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "network CIDR is not configured"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
 	t.Run("NoGuestIP", func(t *testing.T) {
-		// Given setup mocks using setupWindowsNetworkManagerMocks
+		// Given a network manager with no guest IP configured
 		mocks := setupWindowsNetworkManagerMocks()
-
-		// And create a network manager using NewBaseNetworkManager with the mock injector
 		nm := NewBaseNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
+
+		// And mocking empty guest IP
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "network.cidr_block" {
 				return "192.168.1.0/24"
@@ -163,25 +171,31 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 			return ""
 		}
 
-		// When call the method under test
+		// And configuring the host route
 		err = nm.ConfigureHostRoute()
 
-		// Then expect error 'guest IP is not configured'
-		if err == nil || err.Error() != "guest IP is not configured" {
-			t.Errorf("expected error 'guest IP is not configured', got %v", err)
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "guest IP is not configured"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
 	t.Run("ErrorCheckingRoute", func(t *testing.T) {
-		// Given setup mocks using setupWindowsNetworkManagerMocks
+		// Given a network manager with route check error
 		mocks := setupWindowsNetworkManagerMocks()
-
-		// And create a network manager using NewBaseNetworkManager with the mock injector
 		nm := NewBaseNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
+
+		// And mocking route check error
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "network.cidr_block" {
 				return "192.168.1.0/24"
@@ -203,25 +217,31 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 			return "", nil
 		}
 
-		// When call the method under test
+		// And configuring the host route
 		err = nm.ConfigureHostRoute()
 
-		// Then expect error 'failed to check if route exists: mocked shell execution error'
-		if err == nil || err.Error() != "failed to check if route exists: mocked shell execution error" {
-			t.Errorf("expected error 'failed to check if route exists: mocked shell execution error', got %v", err)
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "failed to check if route exists: mocked shell execution error"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
 	t.Run("AddRouteError", func(t *testing.T) {
-		// Given setup mocks using setupWindowsNetworkManagerMocks
+		// Given a network manager with route addition error
 		mocks := setupWindowsNetworkManagerMocks()
-
-		// And create a network manager using NewBaseNetworkManager with the mock injector
 		nm := NewBaseNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
+
+		// And mocking route addition error
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "network.cidr_block" {
 				return "192.168.1.0/24"
@@ -246,21 +266,26 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 			return "", nil
 		}
 
-		// When call the method under test
+		// And configuring the host route
 		err = nm.ConfigureHostRoute()
 
-		// Then expect error 'failed to add route: mocked shell execution error, output: '
-		if err == nil || err.Error() != "failed to add route: mocked shell execution error, output: " {
-			t.Errorf("expected error 'failed to add route: mocked shell execution error, output: ', got %v", err)
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "failed to add route: mocked shell execution error, output: "
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 }
 
 func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given setup mocks using setupWindowsNetworkManagerMocks
+		// Given a properly configured network manager
 		mocks := setupWindowsNetworkManagerMocks()
 
+		// And mocking DNS configuration
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.domain" {
 				return "example.com"
@@ -288,27 +313,29 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", fmt.Errorf("unexpected command")
 		}
 
-		// And create a network manager using NewBaseNetworkManager with the mock injector
+		// And creating the network manager
 		nm := NewBaseNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
-			t.Errorf("expected no error during initialization, got %v", err)
+			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// When call the method under test
+		// And configuring DNS
 		err = nm.ConfigureDNS()
 
-		// Then expect no error
+		// Then no error should occur
 		if err != nil {
-			t.Errorf("expected no error, got %v", err)
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("SuccessLocalhostMode", func(t *testing.T) {
-		// Given setup mocks using setupWindowsNetworkManagerMocks
+		// Given a network manager in localhost mode
 		mocks := setupWindowsNetworkManagerMocks()
 
-		// Mock the config handler to return valid DNS domain and set VM driver to docker-desktop
+		// And mocking localhost mode configuration
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
 			case "dns.domain":
@@ -325,7 +352,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 		}
 
-		// Mock the shell to capture the namespace and nameservers
+		// And capturing namespace and nameservers
 		var capturedNamespace string
 		var capturedNameServers string
 		mocks.MockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
@@ -355,22 +382,24 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", nil
 		}
 
-		// And create a network manager using NewBaseNetworkManager with the mock injector
+		// And creating the network manager
 		nm := NewBaseNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
-			t.Errorf("expected no error during initialization, got %v", err)
+			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// When call the method under test
+		// And configuring DNS
 		err = nm.ConfigureDNS()
 
-		// Then expect no error
+		// Then no error should occur
 		if err != nil {
-			t.Errorf("expected no error, got %v", err)
+			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Verify that the DNS rule is configured with 127.0.0.1
+		// And the DNS rule should be configured with localhost
 		expectedNamespace := ".example.com"
 		if capturedNamespace != expectedNamespace {
 			t.Errorf("expected namespace to be %q, got %q", expectedNamespace, capturedNamespace)
@@ -383,9 +412,10 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 	})
 
 	t.Run("NoDNSName", func(t *testing.T) {
-		// Given setup mocks using setupWindowsNetworkManagerMocks
+		// Given a network manager with no DNS domain
 		mocks := setupWindowsNetworkManagerMocks()
 
+		// And mocking missing DNS domain
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.address" {
 				return "8.8.8.8"
@@ -399,26 +429,33 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", fmt.Errorf("unexpected command")
 		}
 
-		// And create a network manager using NewBaseNetworkManager with the mock injector
+		// And creating the network manager
 		nm := NewBaseNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
-			t.Errorf("expected no error, got %v", err)
+			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// When call the method under test
+		// And configuring DNS
 		err = nm.ConfigureDNS()
 
-		// Then expect error 'DNS domain is not configured'
-		if err == nil || err.Error() != "DNS domain is not configured" {
-			t.Errorf("expected error 'DNS domain is not configured', got %v", err)
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "DNS domain is not configured"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
 	t.Run("NoDNSIP", func(t *testing.T) {
-		// Given setup mocks using setupWindowsNetworkManagerMocks
+		// Given a network manager with no DNS address
 		mocks := setupWindowsNetworkManagerMocks()
 
+		// And mocking missing DNS address
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.domain" {
 				return "example.com"
@@ -438,26 +475,33 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", fmt.Errorf("unexpected command")
 		}
 
-		// And create a network manager using NewBaseNetworkManager with the mock injector
+		// And creating the network manager
 		nm := NewBaseNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
-			t.Errorf("expected no error, got %v", err)
+			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// When call the method under test
+		// And configuring DNS
 		err = nm.ConfigureDNS()
 
-		// Then expect error since DNS IP is required when not in localhost mode
-		if err == nil || !strings.Contains(err.Error(), "DNS address is not configured") {
-			t.Errorf("expected error 'DNS address is not configured', got %v", err)
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "DNS address is not configured"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
 	t.Run("CheckDNSError", func(t *testing.T) {
-		// Given setup mocks using setupWindowsNetworkManagerMocks
+		// Given a network manager with DNS check error
 		mocks := setupWindowsNetworkManagerMocks()
 
+		// And mocking DNS check error
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
 			case "dns.domain":
@@ -483,30 +527,38 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", nil
 		}
 
-		// And create a network manager using NewBaseNetworkManager with the mock injector
+		// And creating the network manager
 		nm := NewBaseNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// When call the method under test
+		// And configuring DNS
 		err = nm.ConfigureDNS()
 
-		// Then expect error containing 'failed to add DNS rule'
-		if err == nil || !strings.Contains(err.Error(), "failed to add DNS rule") {
-			t.Fatalf("expected error containing 'failed to add DNS rule', got %v", err)
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "failed to add DNS rule"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 
-		// Capture and verify the command executed
+		// And the command should contain Get-DnsClientNrptRule
 		if !strings.Contains(capturedCommand, "Get-DnsClientNrptRule") {
 			t.Fatalf("expected command to contain 'Get-DnsClientNrptRule', got %v", capturedCommand)
 		}
 	})
 
 	t.Run("ErrorAddingOrUpdatingDNSRule", func(t *testing.T) {
-		// Given setup mocks using setupWindowsNetworkManagerMocks
+		// Given a network manager with DNS rule update error
 		mocks := setupWindowsNetworkManagerMocks()
+
+		// And mocking DNS rule update error
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
 			case "dns.domain":
@@ -537,26 +589,33 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			return "", nil
 		}
 
-		// And create a network manager using NewBaseNetworkManager with the mock injector
+		// And creating the network manager
 		nm := NewBaseNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
-			t.Errorf("expected no error, got %v", err)
+			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// When call the method under test
+		// And configuring DNS
 		err = nm.ConfigureDNS()
 
-		// Then expect error about failing to add or update DNS rule
-		if err == nil || !strings.Contains(err.Error(), "failed to add or update DNS rule") {
-			t.Errorf("expected error about failing to add or update DNS rule, got %v", err)
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "failed to add or update DNS rule"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
 	t.Run("NoDNSAddressConfigured", func(t *testing.T) {
+		// Given a network manager with no DNS address
 		mocks := setupWindowsNetworkManagerMocks()
 
-		// Mock the config handler to return empty DNS address but valid domain
+		// And mocking missing DNS address
 		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			switch key {
 			case "dns.domain":
@@ -573,13 +632,19 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 		}
 
+		// And creating the network manager
 		nm := NewBaseNetworkManager(mocks.Injector)
+
+		// When initializing the network manager
 		err := nm.Initialize()
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
+		// And configuring DNS
 		err = nm.ConfigureDNS()
+
+		// Then an error should occur
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
