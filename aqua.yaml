@@ -9,7 +9,7 @@
 #     - all
 registries:
   - type: standard
-    ref: v4.347.2 # renovate: depName=aquaproj/aqua-registry
+    ref: v4.348.0 # renovate: depName=aquaproj/aqua-registry
 packages:
 - name: hashicorp/terraform@v1.11.4
 - name: siderolabs/talos@v1.9.5
