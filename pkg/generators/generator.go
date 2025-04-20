@@ -1,8 +1,3 @@
-// The Generator is a core component that provides a unified interface for code generation.
-// It provides a standardized way to initialize and write generated code to the filesystem.
-// The Generator acts as the foundation for all code generation operations in the application,
-// coordinating dependency injection, configuration handling, and blueprint processing.
-
 package generators
 
 import (
@@ -13,6 +8,11 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
+
+// The Generator is a core component that provides a unified interface for code generation.
+// It provides a standardized way to initialize and write generated code to the filesystem.
+// The Generator acts as the foundation for all code generation operations in the application,
+// coordinating dependency injection, configuration handling, and blueprint processing.
 
 // =============================================================================
 // Interfaces

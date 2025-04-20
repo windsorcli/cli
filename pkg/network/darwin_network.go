@@ -9,6 +9,15 @@ import (
 	"strings"
 )
 
+// The DarwinNetworkManager is a platform-specific network manager for macOS.
+// It provides network configuration capabilities specific to Darwin-based systems,
+// The DarwinNetworkManager handles host route configuration and DNS setup for macOS,
+// ensuring proper network connectivity between the host and guest VM environments.
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 // ConfigureHostRoute ensures that a network route from the host to the VM guest is established.
 // It first checks if a route for the specified network CIDR already exists with the guest IP as the gateway.
 // If the route does not exist, it adds a new route using elevated permissions to facilitate communication

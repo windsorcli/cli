@@ -13,15 +13,20 @@ import (
 	"github.com/windsorcli/cli/pkg/ssh"
 )
 
+// The NetworkManager is a core component that manages local development network configuration.
+// It provides a unified interface for configuring host routes, guest VM networking, and DNS settings.
+// The NetworkManager acts as the central network orchestrator for the application,
+// coordinating IP address assignment, network interface configuration, and service networking.
+
+// =============================================================================
+// Types
+// =============================================================================
+
 // NetworkManager handles configuring the local development network
 type NetworkManager interface {
-	// Initialize the network manager
 	Initialize() error
-	// ConfigureHostRoute sets up the local development network
 	ConfigureHostRoute() error
-	// ConfigureGuest sets up the guest VM network
 	ConfigureGuest() error
-	// ConfigureDNS sets up the DNS configuration
 	ConfigureDNS() error
 }
 
@@ -36,12 +41,20 @@ type BaseNetworkManager struct {
 	services                 []services.Service
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewNetworkManager creates a new NetworkManager
 func NewBaseNetworkManager(injector di.Injector) *BaseNetworkManager {
 	return &BaseNetworkManager{
 		injector: injector,
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize resolves dependencies, sorts services, and assigns IPs based on network CIDR
 func (n *BaseNetworkManager) Initialize() error {
@@ -94,13 +107,18 @@ func (n *BaseNetworkManager) ConfigureGuest() error {
 	return nil
 }
 
-// Ensure BaseNetworkManager implements NetworkManager
-var _ NetworkManager = (*BaseNetworkManager)(nil)
+// =============================================================================
+// Private Methods
+// =============================================================================
 
 // isLocalhostMode checks if the system is in localhost mode
 func (n *BaseNetworkManager) isLocalhostMode() bool {
 	return n.configHandler.GetString("vm.driver") == "docker-desktop"
 }
+
+// =============================================================================
+// Helpers
+// =============================================================================
 
 // assignIPAddresses assigns IP addresses to services based on the network CIDR.
 var assignIPAddresses = func(services []services.Service, networkCIDR *string) error {
@@ -143,3 +161,6 @@ func incrementIP(ip net.IP) net.IP {
 	}
 	return ip
 }
+
+// Ensure BaseNetworkManager implements NetworkManager
+var _ NetworkManager = (*BaseNetworkManager)(nil)

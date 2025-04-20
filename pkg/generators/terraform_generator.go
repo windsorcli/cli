@@ -1,8 +1,3 @@
-// The TerraformGenerator is a specialized component that manages Terraform configuration files.
-// It provides functionality to create and update Terraform modules, variables, and tfvars files.
-// The TerraformGenerator ensures proper infrastructure-as-code configuration for Windsor projects,
-// maintaining consistent Terraform structure across all contexts.
-
 package generators
 
 import (
@@ -18,6 +13,11 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/zclconf/go-cty/cty"
 )
+
+// The TerraformGenerator is a specialized component that manages Terraform configuration files.
+// It provides functionality to create and update Terraform modules, variables, and tfvars files.
+// The TerraformGenerator ensures proper infrastructure-as-code configuration for Windsor projects,
+// maintaining consistent Terraform structure across all contexts.
 
 // =============================================================================
 // Types

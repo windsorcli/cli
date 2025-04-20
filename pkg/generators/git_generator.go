@@ -1,8 +1,3 @@
-// The GitGenerator is a specialized component that manages Git configuration files.
-// It provides functionality to create and update .gitignore files with Windsor-specific entries.
-// The GitGenerator ensures proper Git configuration for Windsor projects,
-// maintaining consistent version control settings across all contexts.
-
 package generators
 
 import (
@@ -13,6 +8,11 @@ import (
 
 	"github.com/windsorcli/cli/pkg/di"
 )
+
+// The GitGenerator is a specialized component that manages Git configuration files.
+// It provides functionality to create and update .gitignore files with Windsor-specific entries.
+// The GitGenerator ensures proper Git configuration for Windsor projects,
+// maintaining consistent version control settings across all contexts.
 
 // =============================================================================
 // Constants

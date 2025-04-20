@@ -1,8 +1,3 @@
-// The KustomizeGenerator is a specialized component that manages Kustomize configuration.
-// It provides functionality to create and initialize Kustomize directories and files.
-// The KustomizeGenerator ensures proper Kubernetes resource management for Windsor projects,
-// establishing the foundation for declarative configuration management.
-
 package generators
 
 import (
@@ -11,6 +6,11 @@ import (
 
 	"github.com/windsorcli/cli/pkg/di"
 )
+
+// The KustomizeGenerator is a specialized component that manages Kustomize configuration.
+// It provides functionality to create and initialize Kustomize directories and files.
+// The KustomizeGenerator ensures proper Kubernetes resource management for Windsor projects,
+// establishing the foundation for declarative configuration management.
 
 // =============================================================================
 // Types

@@ -1,9 +1,9 @@
+package generators
+
 // The MockGenerator is a testing component that provides a mock implementation of the Generator interface.
 // It provides customizable function fields for testing different Generator behaviors.
 // The MockGenerator enables isolated testing of components that depend on the Generator interface,
 // allowing for controlled simulation of Generator operations in test scenarios.
-
-package generators
 
 // =============================================================================
 // Types

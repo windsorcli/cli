@@ -11,20 +11,35 @@ import (
 	"github.com/windsorcli/cli/pkg/ssh"
 )
 
+// The ColimaNetworkManager is a specialized network manager for Colima-based environments.
+// It provides Colima-specific network configuration including SSH setup, iptables rules,
+// The ColimaNetworkManager extends the base network manager with Colima-specific functionality,
+// handling guest VM networking, host-guest communication, and Docker bridge integration.
+
+// =============================================================================
+// Types
+// =============================================================================
+
 // colimaNetworkManager is a concrete implementation of NetworkManager
 type ColimaNetworkManager struct {
 	BaseNetworkManager
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewColimaNetworkManager creates a new ColimaNetworkManager
 func NewColimaNetworkManager(injector di.Injector) *ColimaNetworkManager {
 	nm := &ColimaNetworkManager{
-		BaseNetworkManager: BaseNetworkManager{
-			injector: injector,
-		},
+		BaseNetworkManager: *NewBaseNetworkManager(injector),
 	}
 	return nm
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize sets up the ColimaNetworkManager by resolving dependencies for
 // sshClient, shell, and secureShell from the injector.
@@ -41,28 +56,6 @@ func (n *ColimaNetworkManager) Initialize() error {
 	if n.configHandler.GetString("network.cidr_block") == "" {
 		return n.configHandler.SetContextValue("network.cidr_block", constants.DEFAULT_NETWORK_CIDR)
 	}
-
-	return nil
-}
-
-func (n *ColimaNetworkManager) resolveDependencies() error {
-	sshClient, ok := n.injector.Resolve("sshClient").(ssh.Client)
-	if !ok {
-		return fmt.Errorf("resolved ssh client instance is not of type ssh.Client")
-	}
-	n.sshClient = sshClient
-
-	secureShell, ok := n.injector.Resolve("secureShell").(shell.Shell)
-	if !ok {
-		return fmt.Errorf("resolved secure shell instance is not of type shell.Shell")
-	}
-	n.secureShell = secureShell
-
-	networkInterfaceProvider, ok := n.injector.Resolve("networkInterfaceProvider").(NetworkInterfaceProvider)
-	if !ok {
-		return fmt.Errorf("failed to resolve network interface provider")
-	}
-	n.networkInterfaceProvider = networkInterfaceProvider
 
 	return nil
 }
@@ -145,8 +138,31 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 	return nil
 }
 
-// Ensure ColimaNetworkManager implements NetworkManager
-var _ NetworkManager = (*ColimaNetworkManager)(nil)
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+func (n *ColimaNetworkManager) resolveDependencies() error {
+	sshClient, ok := n.injector.Resolve("sshClient").(ssh.Client)
+	if !ok {
+		return fmt.Errorf("resolved ssh client instance is not of type ssh.Client")
+	}
+	n.sshClient = sshClient
+
+	secureShell, ok := n.injector.Resolve("secureShell").(shell.Shell)
+	if !ok {
+		return fmt.Errorf("resolved secure shell instance is not of type shell.Shell")
+	}
+	n.secureShell = secureShell
+
+	networkInterfaceProvider, ok := n.injector.Resolve("networkInterfaceProvider").(NetworkInterfaceProvider)
+	if !ok {
+		return fmt.Errorf("failed to resolve network interface provider")
+	}
+	n.networkInterfaceProvider = networkInterfaceProvider
+
+	return nil
+}
 
 // getHostIP retrieves the host IP address that shares the same subnet as the guest IP address.
 // It first obtains and validates the guest IP from the configuration. Then, it iterates over the network interfaces
@@ -190,3 +206,6 @@ func (n *ColimaNetworkManager) getHostIP() (string, error) {
 
 	return "", fmt.Errorf("failed to find host IP in the same subnet as guest IP")
 }
+
+// Ensure ColimaNetworkManager implements NetworkManager
+var _ NetworkManager = (*ColimaNetworkManager)(nil)

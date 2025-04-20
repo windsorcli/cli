@@ -8,6 +8,15 @@ import (
 	"strings"
 )
 
+// The LinuxNetworkManager is a platform-specific network manager for Linux systems.
+// It provides network configuration capabilities specific to Linux-based systems,
+// The LinuxNetworkManager handles host route configuration and DNS setup for Linux,
+// ensuring proper network connectivity between the host and guest VM environments.
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 // ConfigureHostRoute sets up the local development network for Linux
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	// Access the Docker configuration
