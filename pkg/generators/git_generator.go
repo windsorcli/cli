@@ -1,3 +1,8 @@
+// The GitGenerator is a specialized component that manages Git configuration files.
+// It provides functionality to create and update .gitignore files with Windsor-specific entries.
+// The GitGenerator ensures proper Git configuration for Windsor projects,
+// maintaining consistent version control settings across all contexts.
+
 package generators
 
 import (
@@ -8,6 +13,10 @@ import (
 
 	"github.com/windsorcli/cli/pkg/di"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
 
 // Define the item to add to the .gitignore
 var gitIgnoreLines = []string{
@@ -22,10 +31,18 @@ var gitIgnoreLines = []string{
 	"contexts/**/.aws/",
 }
 
+// =============================================================================
+// Types
+// =============================================================================
+
 // GitGenerator is a generator that writes Git configuration files
 type GitGenerator struct {
 	BaseGenerator
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewGitGenerator creates a new GitGenerator
 func NewGitGenerator(injector di.Injector) *GitGenerator {
@@ -34,41 +51,40 @@ func NewGitGenerator(injector di.Injector) *GitGenerator {
 	}
 }
 
-// Write generates the Git configuration files
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// Write generates the Git configuration files by creating or updating the .gitignore file.
+// It ensures that Windsor-specific entries are added while preserving any existing user-defined entries.
 func (g *GitGenerator) Write() error {
-	// Get the project root
 	projectRoot, err := g.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get project root: %w", err)
 	}
 
-	// Define the path to the .gitignore file
 	gitignorePath := filepath.Join(projectRoot, ".gitignore")
 
-	// Read the existing .gitignore file, or create it if it doesn't exist
 	content, err := osReadFile(gitignorePath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to read .gitignore: %w", err)
 	}
 
-	// If the file does not exist, initialize content as an empty byte slice
 	if os.IsNotExist(err) {
 		content = []byte{}
 	}
 
-	// Convert the content to a set for idempotency
 	existingLines := make(map[string]struct{})
 	var unmanagedLines []string
 	lines := strings.Split(string(content), "\n")
 	for i, line := range lines {
 		existingLines[line] = struct{}{}
 		if i == len(lines)-1 && line == "" {
-			continue // Skip appending the last line if it's empty
+			continue
 		}
 		unmanagedLines = append(unmanagedLines, line)
 	}
 
-	// Add only the lines that are not already present
 	for _, line := range gitIgnoreLines {
 		if _, exists := existingLines[line]; !exists {
 			if line == "# managed by windsor cli" {
@@ -78,21 +94,22 @@ func (g *GitGenerator) Write() error {
 		}
 	}
 
-	// Join all lines into the final content
 	finalContent := strings.Join(unmanagedLines, "\n")
 
-	// Ensure the final content ends with a single newline
 	if !strings.HasSuffix(finalContent, "\n") {
 		finalContent += "\n"
 	}
 
-	// Write the final content to the .gitignore file
 	if err := osWriteFile(gitignorePath, []byte(finalContent), 0644); err != nil {
 		return fmt.Errorf("failed to write to .gitignore: %w", err)
 	}
 
 	return nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure GitGenerator implements Generator
 var _ Generator = (*GitGenerator)(nil)

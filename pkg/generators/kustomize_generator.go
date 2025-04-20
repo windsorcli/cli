@@ -1,3 +1,8 @@
+// The KustomizeGenerator is a specialized component that manages Kustomize configuration.
+// It provides functionality to create and initialize Kustomize directories and files.
+// The KustomizeGenerator ensures proper Kubernetes resource management for Windsor projects,
+// establishing the foundation for declarative configuration management.
+
 package generators
 
 import (
@@ -7,10 +12,18 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// =============================================================================
+// Types
+// =============================================================================
+
 // KustomizeGenerator is a generator that writes Kustomize files
 type KustomizeGenerator struct {
 	BaseGenerator
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewKustomizeGenerator creates a new KustomizeGenerator
 func NewKustomizeGenerator(injector di.Injector) *KustomizeGenerator {
@@ -18,6 +31,10 @@ func NewKustomizeGenerator(injector di.Injector) *KustomizeGenerator {
 		BaseGenerator: BaseGenerator{injector: injector},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Write method creates a "kustomize" directory in the project root if it does not exist.
 // It then generates a "kustomization.yaml" file within this directory, initializing it
@@ -50,6 +67,10 @@ func (g *KustomizeGenerator) Write() error {
 
 	return nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure KustomizeGenerator implements Generator
 var _ Generator = (*KustomizeGenerator)(nil)

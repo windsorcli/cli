@@ -8,6 +8,10 @@ import (
 	"testing"
 )
 
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
 func TestNewKustomizeGenerator(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of safe mocks
@@ -23,12 +27,16 @@ func TestNewKustomizeGenerator(t *testing.T) {
 	})
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestKustomizeGenerator_Write(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
-		// Save the original osMkdirAll, osStat, and osWriteFile functions
+		// And the original osMkdirAll, osStat, and osWriteFile functions are saved
 		originalMkdirAll := osMkdirAll
 		originalStat := osStat
 		originalWriteFile := osWriteFile
@@ -38,13 +46,13 @@ func TestKustomizeGenerator_Write(t *testing.T) {
 			osWriteFile = originalWriteFile
 		}()
 
-		// Mock the shell's GetProjectRoot method to return a predefined path
+		// And the shell's GetProjectRoot method is mocked to return a predefined path
 		expectedProjectRoot := "/mock/project/root"
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
 			return expectedProjectRoot, nil
 		}
 
-		// Mock the osMkdirAll function to simulate directory creation
+		// And the osMkdirAll function is mocked to simulate directory creation
 		osMkdirAll = func(path string, perm os.FileMode) error {
 			if path != filepath.Join(expectedProjectRoot, "kustomize") {
 				t.Errorf("Unexpected path for osMkdirAll: %s", path)
@@ -52,7 +60,7 @@ func TestKustomizeGenerator_Write(t *testing.T) {
 			return nil
 		}
 
-		// Mock the osStat function to simulate the file not existing
+		// And the osStat function is mocked to simulate the file not existing
 		osStat = func(name string) (os.FileInfo, error) {
 			if name == filepath.Join(expectedProjectRoot, "kustomize", "kustomization.yaml") {
 				return nil, os.ErrNotExist
@@ -60,7 +68,7 @@ func TestKustomizeGenerator_Write(t *testing.T) {
 			return nil, nil
 		}
 
-		// Mock the osWriteFile function to simulate file writing
+		// And the osWriteFile function is mocked to simulate file writing
 		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
 			expectedFilePath := filepath.Join(expectedProjectRoot, "kustomize", "kustomization.yaml")
 			if filename != expectedFilePath {
@@ -73,11 +81,13 @@ func TestKustomizeGenerator_Write(t *testing.T) {
 			return nil
 		}
 
-		// When a new KustomizeGenerator is created and Write is called
+		// And a new KustomizeGenerator is created and initialized
 		generator := NewKustomizeGenerator(mocks.Injector)
 		if err := generator.Initialize(); err != nil {
 			t.Errorf("Expected KustomizeGenerator.Initialize to return nil, got %v", err)
 		}
+
+		// When the Write method is called
 		err := generator.Write()
 
 		// Then no error should occur
@@ -90,22 +100,24 @@ func TestKustomizeGenerator_Write(t *testing.T) {
 		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
-		// Save the original GetProjectRootFunc
+		// And the original GetProjectRootFunc is saved
 		originalGetProjectRootFunc := mocks.MockShell.GetProjectRootFunc
 		defer func() {
 			mocks.MockShell.GetProjectRootFunc = originalGetProjectRootFunc
 		}()
 
-		// Mock the shell's GetProjectRoot method to return an error
+		// And the shell's GetProjectRoot method is mocked to return an error
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mocked error in GetProjectRoot")
 		}
 
-		// When a new KustomizeGenerator is created and Write is called
+		// And a new KustomizeGenerator is created and initialized
 		generator := NewKustomizeGenerator(mocks.Injector)
 		if err := generator.Initialize(); err != nil {
 			t.Errorf("Expected KustomizeGenerator.Initialize to return nil, got %v", err)
 		}
+
+		// When the Write method is called
 		err := generator.Write()
 
 		// Then an error should occur
@@ -118,22 +130,24 @@ func TestKustomizeGenerator_Write(t *testing.T) {
 		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
-		// Save the original osMkdirAll function
+		// And the original osMkdirAll function is saved
 		originalMkdirAll := osMkdirAll
 		defer func() {
 			osMkdirAll = originalMkdirAll
 		}()
 
-		// Mock the osMkdirAll function to simulate an error when creating the directory
+		// And the osMkdirAll function is mocked to simulate an error when creating the directory
 		osMkdirAll = func(path string, perm os.FileMode) error {
 			return fmt.Errorf("mocked error in osMkdirAll")
 		}
 
-		// When a new KustomizeGenerator is created and Write is called
+		// And a new KustomizeGenerator is created and initialized
 		generator := NewKustomizeGenerator(mocks.Injector)
 		if err := generator.Initialize(); err != nil {
 			t.Errorf("Expected KustomizeGenerator.Initialize to return nil, got %v", err)
 		}
+
+		// When the Write method is called
 		err := generator.Write()
 
 		// Then an error should occur
@@ -146,21 +160,24 @@ func TestKustomizeGenerator_Write(t *testing.T) {
 		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
-		// Save the original osStat function
+		// And the original osStat function is saved
 		originalStat := osStat
 		defer func() {
 			osStat = originalStat
 		}()
 
+		// And the osStat function is mocked to simulate the file already existing
 		osStat = func(name string) (os.FileInfo, error) {
 			return nil, nil
 		}
 
-		// When a new KustomizeGenerator is created and Write is called
+		// And a new KustomizeGenerator is created and initialized
 		generator := NewKustomizeGenerator(mocks.Injector)
 		if err := generator.Initialize(); err != nil {
 			t.Errorf("Expected KustomizeGenerator.Initialize to return nil, got %v", err)
 		}
+
+		// When the Write method is called
 		err := generator.Write()
 
 		// Then no error should occur because the file already exists
@@ -173,22 +190,24 @@ func TestKustomizeGenerator_Write(t *testing.T) {
 		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
-		// Save the original osWriteFile function
+		// And the original osWriteFile function is saved
 		originalWriteFile := osWriteFile
 		defer func() {
 			osWriteFile = originalWriteFile
 		}()
 
-		// Mock the osWriteFile function to simulate an error when writing the file
+		// And the osWriteFile function is mocked to simulate an error when writing the file
 		osWriteFile = func(name string, data []byte, perm os.FileMode) error {
 			return fmt.Errorf("mocked error in osWriteFile")
 		}
 
-		// When a new KustomizeGenerator is created and Write is called
+		// And a new KustomizeGenerator is created and initialized
 		generator := NewKustomizeGenerator(mocks.Injector)
 		if err := generator.Initialize(); err != nil {
 			t.Errorf("Expected KustomizeGenerator.Initialize to return nil, got %v", err)
 		}
+
+		// When the Write method is called
 		err := generator.Write()
 
 		// Then an error should occur

@@ -11,6 +11,10 @@ import (
 	sh "github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
 type MockComponents struct {
 	Injector             di.Injector
 	MockConfigHandler    *config.MockConfigHandler
@@ -88,11 +92,16 @@ func setupSafeMocks(injector ...di.Injector) MockComponents {
 	}
 }
 
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
 func TestGenerator_NewGenerator(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
-		// Given a set of safe mocks
+		// When a new generator is created
 		generator := NewGenerator(mocks.Injector)
 
 		// Then the generator should be non-nil
@@ -102,8 +111,13 @@ func TestGenerator_NewGenerator(t *testing.T) {
 	})
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestGenerator_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
 		// When a new BaseGenerator is created
@@ -117,10 +131,12 @@ func TestGenerator_Initialize(t *testing.T) {
 			t.Errorf("Expected Initialize to succeed, but got error: %v", err)
 		}
 	})
+
 	t.Run("ErrorResolvingBlueprintHandler", func(t *testing.T) {
+		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
-		// Given a mock injector with a nil blueprint handler
+		// And a mock injector with a nil blueprint handler
 		mocks.Injector.Register("blueprintHandler", nil)
 
 		// When a new BaseGenerator is created
@@ -136,9 +152,10 @@ func TestGenerator_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
+		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
-		// Given a mock injector with a nil shell
+		// And a mock injector with a nil shell
 		mocks.Injector.Register("shell", nil)
 
 		// When a new BaseGenerator is created
@@ -156,9 +173,10 @@ func TestGenerator_Initialize(t *testing.T) {
 
 func TestGenerator_Write(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
+		// Given a set of safe mocks
 		mocks := setupSafeMocks()
 
-		// Given a new BaseGenerator is created
+		// And a new BaseGenerator is created
 		generator := NewGenerator(mocks.Injector)
 
 		// When the Write method is called
