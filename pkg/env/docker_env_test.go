@@ -848,6 +848,9 @@ contexts:
 `,
 		})
 
+		// And the registry URL is set in the context
+		printer.configHandler.SetContextValue("docker.registry_url", "registry.example.com")
+
 		// When getting the registry URL
 		url, err := printer.getRegistryURL()
 
@@ -855,7 +858,7 @@ contexts:
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		// And the URL should be the same as the config value
+		// And the URL should be returned as-is without a port
 		if url != "registry.example.com" {
 			t.Errorf("Expected URL 'registry.example.com', got %q", url)
 		}
@@ -1008,7 +1011,8 @@ contexts:
       driver: colima
     docker:
       registries:
-        registry.example.com: {}
+        registry.example.com:
+          remote: ""
 `,
 		})
 
@@ -1019,9 +1023,9 @@ contexts:
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		// And the URL should be the registry name without port
-		if url != "registry.example.com" {
-			t.Errorf("Expected URL 'registry.example.com', got %q", url)
+		// And the URL should be the registry name with default port 5000
+		if url != "registry.example.com:5000" {
+			t.Errorf("Expected URL 'registry.example.com:5000', got %q", url)
 		}
 	})
 }
