@@ -3,6 +3,7 @@ package network
 import (
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"testing"
 
@@ -17,23 +18,98 @@ import (
 // Test Setup
 // =============================================================================
 
-// NetworkManagerMocks holds all the mock dependencies for NetworkManager
-type NetworkManagerMocks struct {
-	Injector                     di.Injector
-	MockShell                    *shell.MockShell
-	MockSecureShell              *shell.MockShell
-	MockConfigHandler            *config.MockConfigHandler
-	MockSSHClient                *ssh.MockClient
-	MockNetworkInterfaceProvider *MockNetworkInterfaceProvider
+type Mocks struct {
+	Injector                 di.Injector
+	ConfigHandler            config.ConfigHandler
+	Shell                    *shell.MockShell
+	SecureShell              *shell.MockShell
+	SSHClient                *ssh.MockClient
+	NetworkInterfaceProvider *MockNetworkInterfaceProvider
+	Services                 []*services.MockService
+	Shims                    *Shims
 }
 
-func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMocks {
-	// Use the provided injector or create a new one if not provided
+type SetupOptions struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	ConfigStr     string
+}
+
+func setupShims(t *testing.T) *Shims {
+	t.Helper()
+
+	return &Shims{
+		Stat:      func(path string) (os.FileInfo, error) { return nil, nil },
+		WriteFile: func(path string, data []byte, perm os.FileMode) error { return nil },
+		ReadFile:  func(path string) ([]byte, error) { return nil, nil },
+		ReadLink:  func(path string) (string, error) { return "", nil },
+		MkdirAll:  func(path string, perm os.FileMode) error { return nil },
+	}
+}
+
+func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
+
+	// Store original directory and create temp dir
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	// Set project root environment variable
+	t.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
+
+	// Register cleanup to restore original state
+	t.Cleanup(func() {
+		os.Unsetenv("WINDSOR_PROJECT_ROOT")
+		if err := os.Chdir(origDir); err != nil {
+			t.Logf("Warning: Failed to change back to original directory: %v", err)
+		}
+	})
+
+	// Create injector if not provided
 	var injector di.Injector
-	if len(optionalInjector) > 0 {
-		injector = optionalInjector[0]
+	if len(opts) > 0 && opts[0].Injector != nil {
+		injector = opts[0].Injector
 	} else {
 		injector = di.NewInjector()
+	}
+
+	// Create config handler if not provided
+	var configHandler config.ConfigHandler
+	if len(opts) > 0 && opts[0].ConfigHandler != nil {
+		configHandler = opts[0].ConfigHandler
+	} else {
+		configHandler = config.NewYamlConfigHandler(injector)
+	}
+	injector.Register("configHandler", configHandler)
+
+	configYAML := `
+version: v1alpha1
+contexts:
+  mock-context:
+    network:
+      cidr_block: "192.168.1.0/24"
+    vm:
+      address: "192.168.1.10"
+    dns:
+      domain: "example.com"
+      address: "1.2.3.4"
+`
+	if err := configHandler.LoadConfigString(configYAML); err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Load optional config if provided
+	if len(opts) > 0 && opts[0].ConfigStr != "" {
+		if err := configHandler.LoadConfigString(opts[0].ConfigStr); err != nil {
+			t.Fatalf("Failed to load config string: %v", err)
+		}
 	}
 
 	// Create a mock shell
@@ -41,33 +117,35 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 	mockShell.ExecFunc = func(command string, args ...string) (string, error) {
 		return "", nil
 	}
-
-	// Use the same mock shell for both shell and secure shell
-	mockSecureShell := mockShell
-
-	// Create a mock config handler
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-		switch key {
-		case "network.cidr_block":
-			return "192.168.1.0/24"
-		case "vm.address":
-			return "192.168.1.10"
-		default:
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
+	mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		if command == "ls" && args[0] == "/sys/class/net" {
+			return "br-bridge0\neth0\nlo", nil
 		}
+		if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-C" {
+			return "", fmt.Errorf("Bad rule")
+		}
+		return "", nil
 	}
+	injector.Register("shell", mockShell)
+
+	// Create a mock secure shell
+	mockSecureShell := shell.NewMockShell(injector)
+	mockSecureShell.ExecFunc = func(command string, args ...string) (string, error) {
+		return "", nil
+	}
+	mockSecureShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		if command == "ls" && args[0] == "/sys/class/net" {
+			return "br-bridge0\neth0\nlo", nil
+		}
+		if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-C" {
+			return "", fmt.Errorf("Bad rule")
+		}
+		return "", nil
+	}
+	injector.Register("secureShell", mockSecureShell)
 
 	// Create a mock SSH client
-	mockSSHClient := &ssh.MockClient{}
-
-	// Register mocks in the injector
-	injector.Register("shell", mockShell)
-	injector.Register("secureShell", mockSecureShell)
-	injector.Register("configHandler", mockConfigHandler)
+	mockSSHClient := ssh.NewMockSSHClient()
 	injector.Register("sshClient", mockSSHClient)
 
 	// Create a mock network interface provider with mock functions
@@ -115,15 +193,51 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 	injector.Register("service1", mockService1)
 	injector.Register("service2", mockService2)
 
-	// Return a struct containing all mocks
-	return &NetworkManagerMocks{
-		Injector:                     injector,
-		MockShell:                    mockShell,
-		MockSecureShell:              mockSecureShell,
-		MockConfigHandler:            mockConfigHandler,
-		MockSSHClient:                mockSSHClient,
-		MockNetworkInterfaceProvider: mockNetworkInterfaceProvider,
+	// Create mocks struct with references to the same instances
+	mocks := &Mocks{
+		Injector:                 injector,
+		ConfigHandler:            configHandler,
+		Shell:                    mockShell,
+		SecureShell:              mockSecureShell,
+		SSHClient:                mockSSHClient,
+		NetworkInterfaceProvider: mockNetworkInterfaceProvider,
+		Services:                 []*services.MockService{mockService1, mockService2},
+		Shims:                    setupShims(t),
 	}
+
+	configHandler.Initialize()
+	configHandler.SetContext("mock-context")
+
+	return mocks
+}
+
+// NetworkManagerMocks holds all the mock dependencies for NetworkManager
+type NetworkManagerMocks struct {
+	Injector                     di.Injector
+	MockShell                    *shell.MockShell
+	MockSecureShell              *shell.MockShell
+	MockConfigHandler            *config.MockConfigHandler
+	MockSSHClient                *ssh.MockClient
+	MockNetworkInterfaceProvider *MockNetworkInterfaceProvider
+}
+
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
+func TestNetworkManager_NewNetworkManager(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a DI container
+		injector := di.NewInjector()
+
+		// When creating a new BaseNetworkManager
+		nm := NewBaseNetworkManager(injector)
+
+		// Then the NetworkManager should not be nil
+		if nm == nil {
+			t.Fatalf("expected NetworkManager to be created, got nil")
+		}
+	})
 }
 
 // =============================================================================
@@ -131,28 +245,33 @@ func setupNetworkManagerMocks(optionalInjector ...di.Injector) *NetworkManagerMo
 // =============================================================================
 
 func TestNetworkManager_Initialize(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		manager := NewBaseNetworkManager(mocks.Injector)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a properly configured network manager
-		mocks := setupNetworkManagerMocks()
+		manager, mocks := setup(t)
 
 		// And tracking IP address assignments
 		var setAddressCalls []string
-		mockService1 := services.NewMockService()
+		mockService1 := mocks.Services[0]
+		mockService2 := mocks.Services[1]
 		mockService1.SetAddressFunc = func(address string) error {
 			setAddressCalls = append(setAddressCalls, address)
 			return nil
 		}
-		mockService2 := services.NewMockService()
 		mockService2.SetAddressFunc = func(address string) error {
 			setAddressCalls = append(setAddressCalls, address)
 			return nil
 		}
-		mocks.Injector.Register("service1", mockService1)
-		mocks.Injector.Register("service2", mockService2)
 
 		// When creating and initializing the network manager
-		nm := NewBaseNetworkManager(mocks.Injector)
-		err := nm.Initialize()
+		err := manager.Initialize()
 
 		// Then no error should occur
 		if err != nil {
@@ -174,20 +293,72 @@ func TestNetworkManager_Initialize(t *testing.T) {
 		}
 	})
 
-	t.Run("SetAddressFailure", func(t *testing.T) {
-		// Given a network manager with service address failure
-		mocks := setupNetworkManagerMocks()
-		nm := NewBaseNetworkManager(mocks.Injector)
-
-		// And a service that fails to set address
-		mockService := services.NewMockService()
-		mockService.SetAddressFunc = func(address string) error {
-			return fmt.Errorf("mock error setting address for service")
-		}
-		mocks.Injector.Register("service", mockService)
+	t.Run("ErrorResolvingSecureShell", func(t *testing.T) {
+		// Given a network manager with invalid secure shell
+		manager, mocks := setup(t)
+		mocks.Injector.Register("secureShell", "invalid")
 
 		// When initializing the network manager
-		err := nm.Initialize()
+		err := manager.Initialize()
+
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected an error during Initialize, got nil")
+		}
+
+		// And the error should be about secure shell type
+		if err.Error() != "resolved secure shell instance is not of type shell.Shell" {
+			t.Fatalf("unexpected error message: got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingSSHClient", func(t *testing.T) {
+		// Given a network manager with invalid SSH client
+		manager, mocks := setup(t)
+		mocks.Injector.Register("sshClient", "invalid")
+
+		// When initializing the network manager
+		err := manager.Initialize()
+
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected an error during Initialize, got nil")
+		}
+
+		// And the error should be about SSH client type
+		if err.Error() != "resolved ssh client instance is not of type ssh.Client" {
+			t.Fatalf("unexpected error message: got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingNetworkInterfaceProvider", func(t *testing.T) {
+		// Given a network manager with invalid network interface provider
+		manager, mocks := setup(t)
+		mocks.Injector.Register("networkInterfaceProvider", "invalid")
+
+		// When initializing the network manager
+		err := manager.Initialize()
+
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected an error during Initialize, got nil")
+		}
+
+		// And the error should be about network interface provider type
+		if err.Error() != "failed to resolve network interface provider" {
+			t.Fatalf("unexpected error message: got %v", err)
+		}
+	})
+
+	t.Run("SetAddressFailure", func(t *testing.T) {
+		// Given a network manager with service address failure
+		manager, mocks := setup(t)
+		mocks.Services[0].SetAddressFunc = func(address string) error {
+			return fmt.Errorf("mock error setting address for service")
+		}
+
+		// When initializing the network manager
+		err := manager.Initialize()
 
 		// Then an error should occur
 		if err == nil {
@@ -203,12 +374,11 @@ func TestNetworkManager_Initialize(t *testing.T) {
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
 		// Given a network manager with invalid shell
-		mocks := setupNetworkManagerMocks()
+		manager, mocks := setup(t)
 		mocks.Injector.Register("shell", "invalid")
 
-		// When creating and initializing the network manager
-		nm := NewBaseNetworkManager(mocks.Injector)
-		err := nm.Initialize()
+		// When initializing the network manager
+		err := manager.Initialize()
 
 		// Then an error should occur
 		if err == nil {
@@ -223,12 +393,11 @@ func TestNetworkManager_Initialize(t *testing.T) {
 
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
 		// Given a network manager with invalid config handler
-		mocks := setupNetworkManagerMocks()
+		manager, mocks := setup(t)
 		mocks.Injector.Register("configHandler", "invalid")
 
-		// When creating and initializing the network manager
-		nm := NewBaseNetworkManager(mocks.Injector)
-		err := nm.Initialize()
+		// When initializing the network manager
+		err := manager.Initialize()
 
 		// Then an error should occur
 		if err == nil {
@@ -243,15 +412,15 @@ func TestNetworkManager_Initialize(t *testing.T) {
 
 	t.Run("ErrorResolvingServices", func(t *testing.T) {
 		// Given a network manager with service resolution error
-		injector := di.NewMockInjector()
-		mocks := setupNetworkManagerMocks(injector)
-		nm := NewBaseNetworkManager(mocks.Injector)
-
-		// And mocking service resolution to fail
-		injector.SetResolveAllError(new(services.Service), fmt.Errorf("mock error resolving services"))
+		mockInjector := di.NewMockInjector()
+		setupMocks(t, &SetupOptions{
+			Injector: mockInjector,
+		})
+		manager := NewBaseNetworkManager(mockInjector)
+		mockInjector.SetResolveAllError(new(services.Service), fmt.Errorf("mock error resolving services"))
 
 		// When initializing the network manager
-		err := nm.Initialize()
+		err := manager.Initialize()
 
 		// Then an error should occur
 		if err == nil {
@@ -267,27 +436,13 @@ func TestNetworkManager_Initialize(t *testing.T) {
 
 	t.Run("ErrorSettingNetworkCidr", func(t *testing.T) {
 		// Given a network manager with CIDR setting error
-		mocks := setupNetworkManagerMocks()
-		nm := NewBaseNetworkManager(mocks.Injector)
-
-		// And mocking empty CIDR block
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "network.cidr_block" {
-				return ""
-			}
-			return ""
-		}
-
-		// And mocking CIDR setting failure
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "network.cidr_block" {
-				return fmt.Errorf("mock error setting network CIDR")
-			}
-			return nil
+		manager, mocks := setup(t)
+		mocks.Services[0].SetAddressFunc = func(address string) error {
+			return fmt.Errorf("error setting default network CIDR")
 		}
 
 		// When initializing the network manager
-		err := nm.Initialize()
+		err := manager.Initialize()
 
 		// Then an error should occur
 		if err == nil {
@@ -303,19 +458,13 @@ func TestNetworkManager_Initialize(t *testing.T) {
 
 	t.Run("ErrorAssigningIPAddresses", func(t *testing.T) {
 		// Given a network manager with IP assignment error
-		injector := di.NewMockInjector()
-		mocks := setupNetworkManagerMocks(injector)
-		nm := NewBaseNetworkManager(mocks.Injector)
-
-		// And mocking IP assignment to fail
-		originalAssignIPAddresses := assignIPAddresses
-		defer func() { assignIPAddresses = originalAssignIPAddresses }()
-		assignIPAddresses = func(services []services.Service, networkCIDR *string) error {
+		manager, mocks := setup(t)
+		mocks.Services[0].SetAddressFunc = func(address string) error {
 			return fmt.Errorf("mock assign IP addresses error")
 		}
 
 		// When initializing the network manager
-		err := nm.Initialize()
+		err := manager.Initialize()
 
 		// Then an error should occur
 		if err == nil {
@@ -328,31 +477,43 @@ func TestNetworkManager_Initialize(t *testing.T) {
 			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
 	})
-}
 
-func TestNetworkManager_NewNetworkManager(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a DI container
-		injector := di.NewInjector()
+	t.Run("ResolveShellFailure", func(t *testing.T) {
+		// Given a network manager with shell resolution failure
+		manager, mocks := setup(t)
+		mocks.Injector.Register("shell", "invalid")
 
-		// When creating a new BaseNetworkManager
-		nm := NewBaseNetworkManager(injector)
+		// When initializing the network manager
+		err := manager.Initialize()
 
-		// Then the NetworkManager should not be nil
-		if nm == nil {
-			t.Fatalf("expected NetworkManager to be created, got nil")
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected error during Initialize, got nil")
+		}
+
+		// And the error should contain the expected message
+		expectedErrorSubstring := "resolved shell instance is not of type shell.Shell"
+		if !strings.Contains(err.Error(), expectedErrorSubstring) {
+			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
 		}
 	})
 }
 
 func TestNetworkManager_ConfigureGuest(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a DI container
-		injector := di.NewInjector()
+	setup := func(t *testing.T) (*BaseNetworkManager, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		manager := NewBaseNetworkManager(mocks.Injector)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
 
-		// When creating a NetworkManager and configuring the guest
-		nm := NewBaseNetworkManager(injector)
-		err := nm.ConfigureGuest()
+	t.Run("Success", func(t *testing.T) {
+		// Given a properly configured network manager
+		manager, _ := setup(t)
+
+		// When configuring the guest
+		err := manager.ConfigureGuest()
 
 		// Then no error should be returned
 		if err != nil {
@@ -362,27 +523,39 @@ func TestNetworkManager_ConfigureGuest(t *testing.T) {
 }
 
 func TestNetworkManager_assignIPAddresses(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		manager := NewBaseNetworkManager(mocks.Injector)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	// Helper to convert mock services to service interface slice
+	toServices := func(mockServices []*services.MockService) []services.Service {
+		services := make([]services.Service, len(mockServices))
+		for i, s := range mockServices {
+			services[i] = s
+		}
+		return services
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a list of services and a network CIDR
+		_, mocks := setup(t)
 		var setAddressCalls []string
-		services := []services.Service{
-			&services.MockService{
-				SetAddressFunc: func(address string) error {
-					setAddressCalls = append(setAddressCalls, address)
-					return nil
-				},
-			},
-			&services.MockService{
-				SetAddressFunc: func(address string) error {
-					setAddressCalls = append(setAddressCalls, address)
-					return nil
-				},
-			},
+		mocks.Services[0].SetAddressFunc = func(address string) error {
+			setAddressCalls = append(setAddressCalls, address)
+			return nil
+		}
+		mocks.Services[1].SetAddressFunc = func(address string) error {
+			setAddressCalls = append(setAddressCalls, address)
+			return nil
 		}
 		networkCIDR := "10.5.0.0/16"
 
 		// When assigning IP addresses
-		err := assignIPAddresses(services, &networkCIDR)
+		err := assignIPAddresses(toServices(mocks.Services), &networkCIDR)
 
 		// Then no error should occur
 		if err != nil {
@@ -400,14 +573,11 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 
 	t.Run("InvalidNetworkCIDR", func(t *testing.T) {
 		// Given services and an invalid network CIDR
-		services := []services.Service{
-			&services.MockService{},
-			&services.MockService{},
-		}
+		_, mocks := setup(t)
 		networkCIDR := "invalid-cidr"
 
 		// When assigning IP addresses
-		err := assignIPAddresses(services, &networkCIDR)
+		err := assignIPAddresses(toServices(mocks.Services), &networkCIDR)
 
 		// Then an error should occur
 		if err == nil {
@@ -422,17 +592,14 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 
 	t.Run("ErrorSettingAddress", func(t *testing.T) {
 		// Given a service that fails to set address
-		services := []services.Service{
-			&services.MockService{
-				SetAddressFunc: func(address string) error {
-					return fmt.Errorf("error setting address")
-				},
-			},
+		_, mocks := setup(t)
+		mocks.Services[0].SetAddressFunc = func(address string) error {
+			return fmt.Errorf("error setting address")
 		}
 		networkCIDR := "10.5.0.0/16"
 
 		// When assigning IP addresses
-		err := assignIPAddresses(services, &networkCIDR)
+		err := assignIPAddresses(toServices(mocks.Services[:1]), &networkCIDR)
 
 		// Then an error should occur
 		if err == nil {
@@ -447,15 +614,11 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 
 	t.Run("NotEnoughIPAddresses", func(t *testing.T) {
 		// Given more services than available IPs
-		services := []services.Service{
-			&services.MockService{},
-			&services.MockService{},
-			&services.MockService{},
-		}
+		_, mocks := setup(t)
 		networkCIDR := "10.5.0.0/30"
 
 		// When assigning IP addresses
-		err := assignIPAddresses(services, &networkCIDR)
+		err := assignIPAddresses(toServices(mocks.Services), &networkCIDR)
 
 		// Then an error should occur
 		if err == nil {
@@ -470,13 +633,11 @@ func TestNetworkManager_assignIPAddresses(t *testing.T) {
 
 	t.Run("NetworkCIDRNotDefined", func(t *testing.T) {
 		// Given services but no network CIDR
-		services := []services.Service{
-			&services.MockService{},
-		}
+		_, mocks := setup(t)
 		var networkCIDR *string
 
 		// When assigning IP addresses
-		err := assignIPAddresses(services, networkCIDR)
+		err := assignIPAddresses(toServices(mocks.Services[:1]), networkCIDR)
 
 		// Then an error should occur
 		if err == nil {

@@ -94,13 +94,13 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	resolverFile := fmt.Sprintf("%s/%s", resolverDir, tld)
 	content := fmt.Sprintf("nameserver %s\n", dnsIP)
 
-	existingContent, err := readFile(resolverFile)
+	existingContent, err := n.shims.ReadFile(resolverFile)
 	if err == nil && string(existingContent) == content {
 		return nil
 	}
 
 	// Ensure the resolver directory exists
-	if _, err := stat(resolverDir); os.IsNotExist(err) {
+	if _, err := n.shims.Stat(resolverDir); os.IsNotExist(err) {
 		if _, err := n.shell.ExecSilent(
 			"sudo",
 			"mkdir",
@@ -112,7 +112,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	tempResolverFile := fmt.Sprintf("/tmp/%s", tld)
-	if err := writeFile(tempResolverFile, []byte(content), 0644); err != nil {
+	if err := n.shims.WriteFile(tempResolverFile, []byte(content), 0644); err != nil {
 		return fmt.Errorf("Error writing to temporary resolver file: %w", err)
 	}
 

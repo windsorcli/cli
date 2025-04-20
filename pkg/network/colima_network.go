@@ -5,10 +5,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/ssh"
 )
 
 // The ColimaNetworkManager is a specialized network manager for Colima-based environments.
@@ -23,6 +20,7 @@ import (
 // colimaNetworkManager is a concrete implementation of NetworkManager
 type ColimaNetworkManager struct {
 	BaseNetworkManager
+	networkInterfaceProvider NetworkInterfaceProvider
 }
 
 // =============================================================================
@@ -31,34 +29,18 @@ type ColimaNetworkManager struct {
 
 // NewColimaNetworkManager creates a new ColimaNetworkManager
 func NewColimaNetworkManager(injector di.Injector) *ColimaNetworkManager {
-	nm := &ColimaNetworkManager{
+	manager := &ColimaNetworkManager{
 		BaseNetworkManager: *NewBaseNetworkManager(injector),
 	}
-	return nm
+	if provider, ok := injector.Resolve("networkInterfaceProvider").(NetworkInterfaceProvider); ok {
+		manager.networkInterfaceProvider = provider
+	}
+	return manager
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// Initialize sets up the ColimaNetworkManager by resolving dependencies for
-// sshClient, shell, and secureShell from the injector.
-func (n *ColimaNetworkManager) Initialize() error {
-	if err := n.BaseNetworkManager.Initialize(); err != nil {
-		return err
-	}
-
-	if err := n.resolveDependencies(); err != nil {
-		return err
-	}
-
-	// Set docker.NetworkCIDR to the default value if it's not set
-	if n.configHandler.GetString("network.cidr_block") == "" {
-		return n.configHandler.SetContextValue("network.cidr_block", constants.DEFAULT_NETWORK_CIDR)
-	}
-
-	return nil
-}
 
 // ConfigureGuest sets up forwarding of guest traffic to the container network.
 // It retrieves network CIDR and guest IP from the config, and configures SSH.
@@ -141,28 +123,6 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-func (n *ColimaNetworkManager) resolveDependencies() error {
-	sshClient, ok := n.injector.Resolve("sshClient").(ssh.Client)
-	if !ok {
-		return fmt.Errorf("resolved ssh client instance is not of type ssh.Client")
-	}
-	n.sshClient = sshClient
-
-	secureShell, ok := n.injector.Resolve("secureShell").(shell.Shell)
-	if !ok {
-		return fmt.Errorf("resolved secure shell instance is not of type shell.Shell")
-	}
-	n.secureShell = secureShell
-
-	networkInterfaceProvider, ok := n.injector.Resolve("networkInterfaceProvider").(NetworkInterfaceProvider)
-	if !ok {
-		return fmt.Errorf("failed to resolve network interface provider")
-	}
-	n.networkInterfaceProvider = networkInterfaceProvider
-
-	return nil
-}
 
 // getHostIP retrieves the host IP address that shares the same subnet as the guest IP address.
 // It first obtains and validates the guest IP from the configuration. Then, it iterates over the network interfaces

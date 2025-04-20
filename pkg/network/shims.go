@@ -41,12 +41,12 @@ type RealNetworkInterfaceProvider struct{}
 // NewShims creates a new Shims instance with default implementations
 func NewShims() *Shims {
 	return &Shims{
-		Goos:      goos,
-		Stat:      stat,
-		WriteFile: writeFile,
-		ReadFile:  readFile,
-		ReadLink:  readLink,
-		MkdirAll:  mkdirAll,
+		Goos:      func() string { return runtime.GOOS },
+		Stat:      os.Stat,
+		WriteFile: os.WriteFile,
+		ReadFile:  os.ReadFile,
+		ReadLink:  os.Readlink,
+		MkdirAll:  os.MkdirAll,
 	}
 }
 
@@ -59,27 +59,3 @@ func (p *RealNetworkInterfaceProvider) Interfaces() ([]net.Interface, error) {
 func (p *RealNetworkInterfaceProvider) InterfaceAddrs(iface net.Interface) ([]net.Addr, error) {
 	return iface.Addrs()
 }
-
-// =============================================================================
-// Global Shims
-// =============================================================================
-
-// goos is a function that returns the current operating system, allowing for override
-var goos = func() string {
-	return runtime.GOOS
-}
-
-// stat is a wrapper around os.Stat
-var stat = os.Stat
-
-// writeFile is a wrapper around os.WriteFile
-var writeFile = os.WriteFile
-
-// readFile is a wrapper around os.ReadFile
-var readFile = os.ReadFile
-
-// readLink is a wrapper around os.Readlink
-var readLink = os.Readlink
-
-// mkdirAll is a wrapper around os.MkdirAll
-var mkdirAll = os.MkdirAll

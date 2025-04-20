@@ -95,7 +95,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	// If DNS address is configured, use systemd-resolved
-	resolvConf, err := readLink("/etc/resolv.conf")
+	resolvConf, err := n.shims.ReadLink("/etc/resolv.conf")
 	if err != nil || resolvConf != "../run/systemd/resolve/stub-resolv.conf" {
 		return fmt.Errorf("systemd-resolved is not in use. Please configure DNS manually or use a compatible system")
 	}
@@ -103,7 +103,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	dropInDir := "/etc/systemd/resolved.conf.d"
 	dropInFile := fmt.Sprintf("%s/dns-override-%s.conf", dropInDir, tld)
 
-	existingContent, err := readFile(dropInFile)
+	existingContent, err := n.shims.ReadFile(dropInFile)
 	expectedContent := fmt.Sprintf("[Resolve]\nDNS=%s\n", dnsIP)
 	if err == nil && string(existingContent) == expectedContent {
 		return nil

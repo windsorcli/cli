@@ -37,8 +37,9 @@ type BaseNetworkManager struct {
 	shell                    shell.Shell
 	secureShell              shell.Shell
 	configHandler            config.ConfigHandler
-	networkInterfaceProvider NetworkInterfaceProvider
 	services                 []services.Service
+	shims                    *Shims
+	networkInterfaceProvider NetworkInterfaceProvider
 }
 
 // =============================================================================
@@ -49,6 +50,7 @@ type BaseNetworkManager struct {
 func NewBaseNetworkManager(injector di.Injector) *BaseNetworkManager {
 	return &BaseNetworkManager{
 		injector: injector,
+		shims:    NewShims(),
 	}
 }
 
@@ -63,6 +65,24 @@ func (n *BaseNetworkManager) Initialize() error {
 		return fmt.Errorf("resolved shell instance is not of type shell.Shell")
 	}
 	n.shell = shellInterface
+
+	secureShellInterface, ok := n.injector.Resolve("secureShell").(shell.Shell)
+	if !ok {
+		return fmt.Errorf("resolved secure shell instance is not of type shell.Shell")
+	}
+	n.secureShell = secureShellInterface
+
+	sshClientInterface, ok := n.injector.Resolve("sshClient").(ssh.Client)
+	if !ok {
+		return fmt.Errorf("resolved ssh client instance is not of type ssh.Client")
+	}
+	n.sshClient = sshClientInterface
+
+	networkInterfaceProviderInterface, ok := n.injector.Resolve("networkInterfaceProvider").(NetworkInterfaceProvider)
+	if !ok {
+		return fmt.Errorf("failed to resolve network interface provider")
+	}
+	n.networkInterfaceProvider = networkInterfaceProviderInterface
 
 	configHandler, ok := n.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
