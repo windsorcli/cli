@@ -96,8 +96,13 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should be set based on vm driver
-		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-test-context/docker.sock", filepath.ToSlash("/mock/home"))
+		// And DOCKER_HOST should be set based on vm driver and OS
+		var expectedDockerHost string
+		if mocks.Shims.Goos() == "windows" {
+			expectedDockerHost = "npipe:////./pipe/docker_engine"
+		} else {
+			expectedDockerHost = fmt.Sprintf("unix://%s/.colima/windsor-test-context/docker.sock", filepath.ToSlash("/mock/home"))
+		}
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
@@ -144,8 +149,13 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should be set correctly for Colima
-		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-test-context/docker.sock", filepath.ToSlash("/mock/home"))
+		// And DOCKER_HOST should be set correctly for Colima and OS
+		var expectedDockerHost string
+		if mocks.Shims.Goos() == "windows" {
+			expectedDockerHost = "npipe:////./pipe/docker_engine"
+		} else {
+			expectedDockerHost = fmt.Sprintf("unix://%s/.colima/windsor-test-context/docker.sock", filepath.ToSlash("/mock/home"))
+		}
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
@@ -282,8 +292,13 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should be set correctly for Docker driver
-		expectedDockerHost := "unix:///var/run/docker.sock"
+		// And DOCKER_HOST should be set correctly for Docker driver and OS
+		var expectedDockerHost string
+		if mocks.Shims.Goos() == "windows" {
+			expectedDockerHost = "npipe:////./pipe/docker_engine"
+		} else {
+			expectedDockerHost = "unix:///var/run/docker.sock"
+		}
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
@@ -512,8 +527,13 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should be set based on vm driver
-		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-test-context/docker.sock", filepath.ToSlash("/mock/home"))
+		// And DOCKER_HOST should be set based on vm driver and OS
+		var expectedDockerHost string
+		if mocks.Shims.Goos() == "windows" {
+			expectedDockerHost = "npipe:////./pipe/docker_engine"
+		} else {
+			expectedDockerHost = fmt.Sprintf("unix://%s/.colima/windsor-test-context/docker.sock", filepath.ToSlash("/mock/home"))
+		}
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}

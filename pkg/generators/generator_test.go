@@ -2,58 +2,87 @@ package generators
 
 import (
 	"io/fs"
+	"os"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
-	sh "github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 // =============================================================================
 // Test Setup
 // =============================================================================
 
-type MockComponents struct {
-	Injector             di.Injector
-	MockConfigHandler    *config.MockConfigHandler
-	MockBlueprintHandler *blueprint.MockBlueprintHandler
-	MockShell            *sh.MockShell
+// Mocks holds all mock dependencies for testing
+type Mocks struct {
+	Injector         di.Injector
+	ConfigHandler    config.ConfigHandler
+	BlueprintHandler blueprint.MockBlueprintHandler
+	Shell            *shell.MockShell
+	Shims            *Shims
 }
 
-// setupSafeMocks function creates safe mocks for the generator
-func setupSafeMocks(injector ...di.Injector) MockComponents {
-	// Mock the dependencies for the generator
-	var mockInjector di.Injector
-	if len(injector) > 0 {
-		mockInjector = injector[0]
+// SetupOptions configures test setup behavior
+type SetupOptions struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	ConfigStr     string
+}
+
+// =============================================================================
+// Test Setup Functions
+// =============================================================================
+
+// setupMocks creates mock dependencies for testing
+func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
+
+	// Store original directory and create temp dir
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	options := &SetupOptions{}
+	if len(opts) > 0 && opts[0] != nil {
+		options = opts[0]
+	}
+
+	// Create a new injector
+	var injector di.Injector
+	if options.Injector == nil {
+		injector = di.NewMockInjector()
 	} else {
-		mockInjector = di.NewInjector()
+		injector = options.Injector
 	}
 
-	// Mock the osWriteFile function
-	osWriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
-		return nil
+	// Create a new config handler
+	var configHandler config.ConfigHandler
+	if options.ConfigHandler == nil {
+		configHandler = config.NewYamlConfigHandler(injector)
+	} else {
+		configHandler = options.ConfigHandler
 	}
+	injector.Register("configHandler", configHandler)
 
-	// Mock the osMkdirAll function
-	osMkdirAll = func(_ string, _ fs.FileMode) error {
-		return nil
+	// Create a new mock shell
+	mockShell := shell.NewMockShell()
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return "/mock/project/root", nil
 	}
-
-	// Create a new mock context handler
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockInjector.Register("configHandler", mockConfigHandler)
-
-	// Mock the context handler methods
-	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-		return "/mock/config/root", nil
-	}
+	injector.Register("shell", mockShell)
 
 	// Create a new mock blueprint handler
-	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mockInjector)
-	mockInjector.Register("blueprintHandler", mockBlueprintHandler)
+	mockBlueprintHandler := blueprint.NewMockBlueprintHandler(injector)
+	injector.Register("blueprintHandler", mockBlueprintHandler)
 
 	// Mock the GetTerraformComponents method
 	mockBlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
@@ -77,19 +106,38 @@ func setupSafeMocks(injector ...di.Injector) MockComponents {
 		return []blueprintv1alpha1.TerraformComponent{remoteComponent, localComponent}
 	}
 
-	// Create a new mock shell
-	mockShell := sh.NewMockShell()
-	mockShell.GetProjectRootFunc = func() (string, error) {
-		return "/mock/project/root", nil
-	}
-	mockInjector.Register("shell", mockShell)
+	// Set project root environment variable
+	os.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
 
-	return MockComponents{
-		Injector:             mockInjector,
-		MockConfigHandler:    mockConfigHandler,
-		MockBlueprintHandler: mockBlueprintHandler,
-		MockShell:            mockShell,
+	// Register cleanup to restore original state
+	t.Cleanup(func() {
+		os.Unsetenv("WINDSOR_PROJECT_ROOT")
+		if err := os.Chdir(origDir); err != nil {
+			t.Logf("Warning: Failed to change back to original directory: %v", err)
+		}
+	})
+
+	// Create shims with mock implementations
+	shims := NewShims()
+	shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+		return nil
 	}
+	shims.MkdirAll = func(_ string, _ fs.FileMode) error {
+		return nil
+	}
+
+	configHandler.Initialize()
+
+	// Create base mocks
+	mocks := &Mocks{
+		Injector:         injector,
+		ConfigHandler:    configHandler,
+		BlueprintHandler: *mockBlueprintHandler,
+		Shell:            mockShell,
+		Shims:            shims,
+	}
+
+	return mocks
 }
 
 // =============================================================================
@@ -97,18 +145,12 @@ func setupSafeMocks(injector ...di.Injector) MockComponents {
 // =============================================================================
 
 func TestGenerator_NewGenerator(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+	mocks := setupMocks(t)
+	generator := NewGenerator(mocks.Injector)
 
-		// When a new generator is created
-		generator := NewGenerator(mocks.Injector)
-
-		// Then the generator should be non-nil
-		if generator == nil {
-			t.Errorf("Expected generator to be non-nil")
-		}
-	})
+	if generator == nil {
+		t.Errorf("Expected generator to be non-nil")
+	}
 }
 
 // =============================================================================
@@ -116,12 +158,17 @@ func TestGenerator_NewGenerator(t *testing.T) {
 // =============================================================================
 
 func TestGenerator_Initialize(t *testing.T) {
+	setup := func(t *testing.T) (*BaseGenerator, *Mocks) {
+		mocks := setupMocks(t)
+		generator := NewGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+
+		return generator, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of safe mocks
-		mocks := setupSafeMocks()
-
-		// When a new BaseGenerator is created
-		generator := NewGenerator(mocks.Injector)
+		generator, _ := setup(t)
 
 		// And the BaseGenerator is initialized
 		err := generator.Initialize()
@@ -134,13 +181,10 @@ func TestGenerator_Initialize(t *testing.T) {
 
 	t.Run("ErrorResolvingBlueprintHandler", func(t *testing.T) {
 		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		generator, mocks := setup(t)
 
 		// And a mock injector with a nil blueprint handler
 		mocks.Injector.Register("blueprintHandler", nil)
-
-		// When a new BaseGenerator is created
-		generator := NewGenerator(mocks.Injector)
 
 		// And the BaseGenerator is initialized
 		err := generator.Initialize()
@@ -153,15 +197,12 @@ func TestGenerator_Initialize(t *testing.T) {
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
 		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		generator, mocks := setup(t)
 
 		// And a mock injector with a nil shell
 		mocks.Injector.Register("shell", nil)
 
-		// When a new BaseGenerator is created
-		generator := NewGenerator(mocks.Injector)
-
-		// And the BaseGenerator is initialized
+		// When the BaseGenerator is initialized
 		err := generator.Initialize()
 
 		// Then the initialization should fail
@@ -169,15 +210,43 @@ func TestGenerator_Initialize(t *testing.T) {
 			t.Errorf("Expected Initialize to fail, but it succeeded")
 		}
 	})
+
+	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		// Given a set of mocks
+		generator, mocks := setup(t)
+
+		// And a mock injector with a nil config handler
+		mocks.Injector.Register("configHandler", nil)
+
+		// When the BaseGenerator is initialized
+		err := generator.Initialize()
+
+		// Then the initialization should fail
+		if err == nil {
+			t.Errorf("Expected Initialize to fail, but it succeeded")
+		}
+
+		// And the error should match the expected error
+		expectedError := "failed to resolve config handler"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
+		}
+	})
 }
 
 func TestGenerator_Write(t *testing.T) {
+	setup := func(t *testing.T) (*BaseGenerator, *Mocks) {
+		mocks := setupMocks(t)
+		generator := NewGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		generator.Initialize()
+
+		return generator, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of safe mocks
-		mocks := setupSafeMocks()
-
-		// And a new BaseGenerator is created
-		generator := NewGenerator(mocks.Injector)
+		generator, _ := setup(t)
 
 		// When the Write method is called
 		err := generator.Write()

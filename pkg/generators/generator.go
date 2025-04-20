@@ -34,6 +34,7 @@ type BaseGenerator struct {
 	configHandler    config.ConfigHandler
 	blueprintHandler blueprint.BlueprintHandler
 	shell            shell.Shell
+	shims            *Shims
 }
 
 // =============================================================================
@@ -44,6 +45,7 @@ type BaseGenerator struct {
 func NewGenerator(injector di.Injector) *BaseGenerator {
 	return &BaseGenerator{
 		injector: injector,
+		shims:    NewShims(),
 	}
 }
 

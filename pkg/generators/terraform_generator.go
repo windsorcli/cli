@@ -8,7 +8,6 @@ package generators
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 
@@ -51,36 +50,36 @@ func (g *TerraformGenerator) Write() error {
 
 	projectRoot, err := g.shell.GetProjectRoot()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get project root: %w", err)
 	}
 
 	contextPath, err := g.configHandler.GetConfigRoot()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get config root: %w", err)
 	}
 
 	terraformFolderPath := filepath.Join(projectRoot, "terraform")
-	if err := osMkdirAll(terraformFolderPath, os.ModePerm); err != nil {
-		return err
+	if err := g.shims.MkdirAll(terraformFolderPath, 0755); err != nil {
+		return fmt.Errorf("failed to create terraform directory: %w", err)
 	}
 
 	for _, component := range components {
 		if component.Source != "" {
-			if err := osMkdirAll(component.FullPath, os.ModePerm); err != nil {
-				return err
+			if err := g.shims.MkdirAll(component.FullPath, 0755); err != nil {
+				return fmt.Errorf("failed to create component directory: %w", err)
 			}
 
 			if err := g.writeModuleFile(component.FullPath, component); err != nil {
-				return err
+				return fmt.Errorf("failed to write module file: %w", err)
 			}
 
 			if err := g.writeVariableFile(component.FullPath, component); err != nil {
-				return err
+				return fmt.Errorf("failed to write variable file: %w", err)
 			}
 		}
 
 		if err := g.writeTfvarsFile(contextPath, component); err != nil {
-			return err
+			return fmt.Errorf("failed to write tfvars file: %w", err)
 		}
 	}
 
@@ -116,7 +115,7 @@ func (g *TerraformGenerator) writeModuleFile(dirPath string, component blueprint
 
 	filePath := filepath.Join(dirPath, "main.tf")
 
-	if err := osWriteFile(filePath, moduleContent.Bytes(), 0644); err != nil {
+	if err := g.shims.WriteFile(filePath, moduleContent.Bytes(), 0644); err != nil {
 		return err
 	}
 
@@ -160,7 +159,7 @@ func (g *TerraformGenerator) writeVariableFile(dirPath string, component bluepri
 
 	varFilePath := filepath.Join(dirPath, "variables.tf")
 
-	if err := osWriteFile(varFilePath, variablesContent.Bytes(), 0644); err != nil {
+	if err := g.shims.WriteFile(varFilePath, variablesContent.Bytes(), 0644); err != nil {
 		return err
 	}
 
@@ -174,18 +173,18 @@ func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint
 	tfvarsFilePath := componentPath + ".tfvars"
 
 	parentDir := filepath.Dir(tfvarsFilePath)
-	if err := osMkdirAll(parentDir, os.ModePerm); err != nil {
-		return fmt.Errorf("error creating directories for path %s: %w", parentDir, err)
+	if err := g.shims.MkdirAll(parentDir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	windsorHeaderToken := "Managed by Windsor CLI:"
 	headerComment := fmt.Sprintf("// %s This file is partially managed by the windsor CLI. Your changes will not be overwritten.", windsorHeaderToken)
 
 	var existingContent []byte
-	if _, err := osStat(tfvarsFilePath); err == nil {
-		existingContent, err = osReadFile(tfvarsFilePath)
+	if _, err := g.shims.Stat(tfvarsFilePath); err == nil {
+		existingContent, err = g.shims.ReadFile(tfvarsFilePath)
 		if err != nil {
-			return fmt.Errorf("error reading existing tfvars file: %w", err)
+			return fmt.Errorf("failed to read existing tfvars file: %w", err)
 		}
 	}
 
@@ -197,7 +196,7 @@ func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint
 	if len(remainder) > 0 {
 		parsedFile, parseErr := hclwrite.ParseConfig(remainder, tfvarsFilePath, hcl.Pos{Line: 1, Column: 1})
 		if parseErr != nil {
-			return fmt.Errorf("unable to parse existing tfvars content: %w", parseErr)
+			return fmt.Errorf("failed to parse existing tfvars content: %w", parseErr)
 		}
 		mergedFile = parsedFile
 		body = mergedFile.Body()
@@ -265,7 +264,7 @@ func (g *TerraformGenerator) writeTfvarsFile(dirPath string, component blueprint
 	finalOutput = bytes.TrimRight(finalOutput, "\n")
 	finalOutput = append(finalOutput, '\n')
 
-	if err := osWriteFile(tfvarsFilePath, finalOutput, 0644); err != nil {
+	if err := g.shims.WriteFile(tfvarsFilePath, finalOutput, 0644); err != nil {
 		return fmt.Errorf("error writing tfvars file: %w", err)
 	}
 

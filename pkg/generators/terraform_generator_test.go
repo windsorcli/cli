@@ -3,13 +3,13 @@ package generators
 import (
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/zclconf/go-cty/cty"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/config"
 )
 
 // =============================================================================
@@ -18,15 +18,24 @@ import (
 
 func TestNewTerraformGenerator(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a set of mocks
+		mocks := setupMocks(t)
 
 		// When a new TerraformGenerator is created
 		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
+		}
 
-		// Then the generator should be non-nil
+		// Then the TerraformGenerator should be created correctly
 		if generator == nil {
-			t.Errorf("Expected NewTerraformGenerator to return a non-nil value")
+			t.Fatalf("expected TerraformGenerator to be created, got nil")
+		}
+
+		// And the TerraformGenerator should have the correct injector
+		if generator.injector != mocks.Injector {
+			t.Errorf("expected TerraformGenerator to have the correct injector")
 		}
 	})
 }
@@ -36,214 +45,217 @@ func TestNewTerraformGenerator(t *testing.T) {
 // =============================================================================
 
 func TestTerraformGenerator_Write(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
-
-		// And a new TerraformGenerator is created and initialized
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupMocks(t)
 		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
 		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
 		}
+		return generator, mocks
+	}
 
-		// When the Write method is called
+	t.Run("Success", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, _ := setup(t)
+
+		// When Write is called
 		err := generator.Write()
 
-		// Then no error should occur during Write
+		// Then no error should occur
 		if err != nil {
-			t.Errorf("Expected no error during Write, got %v", err)
+			t.Errorf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And the shell's GetProjectRoot method is mocked to return an error
-		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mocked error in GetProjectRoot")
+		// And GetProjectRoot is mocked to return an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("error getting project root")
 		}
 
-		// And a new TerraformGenerator is created and initialized
-		generator := NewTerraformGenerator(mocks.Injector)
-		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
-		}
-
-		// When the Write method is called
+		// When Write is called
 		err := generator.Write()
 
-		// Then it should return an error
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Expected TerraformGenerator.Write to return an error")
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "failed to get project root: error getting project root"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
 		}
 	})
 
 	t.Run("ErrorMkdirAll", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And osMkdirAll is mocked to return an error
-		osMkdirAll = func(_ string, _ os.FileMode) error {
-			return fmt.Errorf("mock error")
+		// And MkdirAll is mocked to return an error
+		mocks.Shims.MkdirAll = func(_ string, _ fs.FileMode) error {
+			return fmt.Errorf("mock error creating directory")
 		}
 
-		// And a new TerraformGenerator is created and initialized
-		generator := NewTerraformGenerator(mocks.Injector)
-		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
-		}
-
-		// When the Write method is called
+		// When Write is called
 		err := generator.Write()
 
-		// Then it should return an error
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Expected TerraformGenerator.Write to return an error")
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "failed to create terraform directory: mock error creating directory"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
 		}
 	})
 
 	t.Run("ErrorGetConfigRoot", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
-
-		// And GetConfigRoot is mocked to return an error
-		mocks.MockConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mock error")
+		configHandler := config.NewMockConfigHandler()
+		configHandler.GetConfigRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error getting config root")
 		}
-
-		// And a new TerraformGenerator is created and initialized
+		mocks := setupMocks(t, &SetupOptions{
+			ConfigHandler: configHandler,
+		})
 		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
 		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
 		}
 
-		// When the Write method is called
+		// When Write is called
 		err := generator.Write()
 
-		// Then it should return an error
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Expected TerraformGenerator.Write to return an error")
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "failed to get config root: mock error getting config root"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
 		}
 	})
 
 	t.Run("ErrorMkdirAllComponentFolder", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And a counter to track the number of times osMkdirAll is called
+		// And a counter to track the number of times MkdirAll is called
 		callCount := 0
 
-		// And osMkdirAll is mocked to return an error on the second call
-		osMkdirAll = func(_ string, _ os.FileMode) error {
+		// And MkdirAll is mocked to return an error on the second call
+		mocks.Shims.MkdirAll = func(_ string, _ fs.FileMode) error {
 			callCount++
 			if callCount == 2 {
-				return fmt.Errorf("mock error")
+				return fmt.Errorf("mock error creating component directory")
 			}
 			return nil
 		}
 
-		// And a new TerraformGenerator is created and initialized
-		generator := NewTerraformGenerator(mocks.Injector)
-		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
-		}
-
-		// When the Write method is called
+		// When Write is called
 		err := generator.Write()
 
-		// Then it should return an error
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Expected TerraformGenerator.Write to return an error")
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "failed to create component directory: mock error creating component directory"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
 		}
 	})
 
 	t.Run("ErrorWriteModuleFile", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And osWriteFile is mocked to return an error
-		osWriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
-			return fmt.Errorf("mock error")
+		// And WriteFile is mocked to return an error
+		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+			return fmt.Errorf("mock error writing module file")
 		}
 
-		// And a new TerraformGenerator is created and initialized
-		generator := NewTerraformGenerator(mocks.Injector)
-		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
-		}
-
-		// When the Write method is called
+		// When Write is called
 		err := generator.Write()
 
-		// Then it should return an error
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Expected TerraformGenerator.Write to return an error")
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "failed to write module file: mock error writing module file"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
 		}
 	})
 
 	t.Run("ErrorWriteVariableFile", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And a counter to track the number of times osWriteFile is called
+		// And a counter to track the number of times WriteFile is called
 		callCount := 0
 
-		// And osWriteFile is mocked to return an error on the second call
-		osWriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+		// And WriteFile is mocked to return an error on the second call
+		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
 			callCount++
 			if callCount == 2 {
-				return fmt.Errorf("mock error")
+				return fmt.Errorf("mock error writing variable file")
 			}
 			return nil
 		}
 
-		// And a new TerraformGenerator is created and initialized
-		generator := NewTerraformGenerator(mocks.Injector)
-		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
-		}
-
-		// When the Write method is called
+		// When Write is called
 		err := generator.Write()
 
-		// Then it should return an error
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Expected TerraformGenerator.Write to return an error")
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "failed to write variable file: mock error writing variable file"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
 		}
 	})
 
 	t.Run("ErrorWriteTfvarsFile", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And the original osWriteFile function is saved
-		originalOsWriteFile := osWriteFile
-
-		// And osWriteFile is mocked to return an error when writing the tfvars file
-		osWriteFile = func(filePath string, _ []byte, _ fs.FileMode) error {
+		// And WriteFile is mocked to return an error when writing tfvars file
+		mocks.Shims.WriteFile = func(filePath string, _ []byte, _ fs.FileMode) error {
 			if filepath.Ext(filePath) == ".tfvars" {
-				return fmt.Errorf("mock error")
+				return fmt.Errorf("mock error writing tfvars file")
 			}
 			return nil
 		}
 
-		// And a new TerraformGenerator is created and initialized
-		generator := NewTerraformGenerator(mocks.Injector)
-		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
-		}
-
-		// When the Write method is called
+		// When Write is called
 		err := generator.Write()
 
-		// Then it should return an error
+		// Then an error should be returned
 		if err == nil {
-			t.Errorf("Expected TerraformGenerator.Write to return an error")
+			t.Fatalf("expected an error, got nil")
 		}
 
-		// And the original osWriteFile function is restored
-		osWriteFile = originalOsWriteFile
+		// And the error should match the expected error
+		expectedError := "failed to write tfvars file: error writing tfvars file: mock error writing tfvars file"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
+		}
 	})
 }
 
@@ -252,71 +264,94 @@ func TestTerraformGenerator_Write(t *testing.T) {
 // =============================================================================
 
 func TestTerraformGenerator_writeModuleFile(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
-
-		// And a new TerraformGenerator is created and initialized
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupMocks(t)
 		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
 		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
 		}
+		return generator, mocks
+	}
 
-		// When the writeModuleFile method is called
-		err := generator.writeModuleFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
+	t.Run("Success", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, _ := setup(t)
+
+		// And a component with variables
+		component := blueprintv1alpha1.TerraformComponent{
 			Source: "fake-source",
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "default1", Description: "description1", Sensitive: false},
 				"var2": {Type: "number", Default: 2, Description: "description2", Sensitive: true},
 			},
-		})
+		}
 
-		// Then it should not return an error
+		// When writeModuleFile is called
+		err := generator.writeModuleFile("/fake/dir", component)
+
+		// Then no error should occur
 		if err != nil {
-			t.Errorf("Expected TerraformGenerator.writeModuleFile to return a nil value, got %v", err)
+			t.Errorf("expected no error, got %v", err)
 		}
 	})
 }
 
 func TestTerraformGenerator_writeVariableFile(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
-
-		// And a new TerraformGenerator is created and initialized
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupMocks(t)
 		generator := NewTerraformGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
 		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return a nil value")
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
 		}
+		return generator, mocks
+	}
 
-		// When the writeVariableFile method is called
-		err := generator.writeVariableFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
+	t.Run("Success", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, _ := setup(t)
+
+		// And a component with variables
+		component := blueprintv1alpha1.TerraformComponent{
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "default1", Description: "description1", Sensitive: false},
 				"var2": {Type: "number", Default: 2, Description: "description2", Sensitive: true},
 			},
-		})
+		}
 
-		// Then it should not return an error
+		// When writeVariableFile is called
+		err := generator.writeVariableFile("/fake/dir", component)
+
+		// Then no error should occur
 		if err != nil {
-			t.Errorf("Expected TerraformGenerator.writeVariableFile to return a nil value, got %v", err)
+			t.Errorf("expected no error, got %v", err)
 		}
 	})
 }
 
 func TestTerraformGenerator_writeTfvarsFile(t *testing.T) {
-	t.Run("SuccessNoExistingFile", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
-
-		// And a new TerraformGenerator is created and initialized
+	setup := func(t *testing.T) (*TerraformGenerator, *Mocks) {
+		mocks := setupMocks(t)
 		generator := NewTerraformGenerator(mocks.Injector)
-		if initErr := generator.Initialize(); initErr != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return nil, got %v", initErr)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize TerraformGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
+	t.Run("SuccessNoExistingFile", func(t *testing.T) {
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to return an error (file doesn't exist)
+		mocks.Shims.Stat = func(_ string) (fs.FileInfo, error) {
+			return nil, fmt.Errorf("file not found")
 		}
 
-		// When the writeTfvarsFile method is called with no existing tfvars file
-		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
+		// And a component with variables and values
+		component := blueprintv1alpha1.TerraformComponent{
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "default1", Description: "desc1", Sensitive: false},
 				"var2": {Type: "bool", Default: true, Description: "desc2", Sensitive: true},
@@ -325,44 +360,37 @@ func TestTerraformGenerator_writeTfvarsFile(t *testing.T) {
 				"var1": "newval1",
 				"var2": false,
 			},
-		})
+		}
 
-		// Then it should not return an error
+		// When writeTfvarsFile is called
+		err := generator.writeTfvarsFile("/fake/dir", component)
+
+		// Then no error should occur
 		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+			t.Errorf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("SuccessExistingFile", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And the original osStat and osReadFile are saved
-		originalStat := osStat
-		originalReadFile := osReadFile
-
-		// And osStat is mocked to indicate a file exists
-		osStat = func(name string) (os.FileInfo, error) {
+		// And Stat is mocked to return success (file exists)
+		mocks.Shims.Stat = func(_ string) (fs.FileInfo, error) {
 			return nil, nil
 		}
 
-		// And osReadFile is mocked to return some existing content
+		// And ReadFile is mocked to return existing content
 		existingTfvars := `// Managed by Windsor CLI:
 var1 = "oldval1"
 // var2 is intentionally missing
 `
-		osReadFile = func(filename string) ([]byte, error) {
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
 			return []byte(existingTfvars), nil
 		}
 
-		// And a new TerraformGenerator is created and initialized
-		generator := NewTerraformGenerator(mocks.Injector)
-		if initErr := generator.Initialize(); initErr != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return nil, got %v", initErr)
-		}
-
-		// When the writeTfvarsFile method is called
-		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
+		// And a component with variables and values
+		component := blueprintv1alpha1.TerraformComponent{
 			Source: "some-module-source", // to test source comment insertion
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "default1", Description: "desc1", Sensitive: false},
@@ -372,242 +400,257 @@ var1 = "oldval1"
 				"var1": "value1",
 				"var2": []any{"item2", "item3"},
 			},
-		})
-
-		// Then we should not have an error merging content
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// And the original functions are restored
-		osStat = originalStat
-		osReadFile = originalReadFile
+		// When writeTfvarsFile is called
+		err := generator.writeTfvarsFile("/fake/dir", component)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
 	})
 
 	t.Run("ErrorMkdirAll", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And the original osMkdirAll function is saved
-		originalMkdirAll := osMkdirAll
-
-		// And osMkdirAll is mocked to return an error
-		osMkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("mock error")
+		// And MkdirAll is mocked to return an error
+		mocks.Shims.MkdirAll = func(_ string, _ fs.FileMode) error {
+			return fmt.Errorf("mock error creating directory")
 		}
 
-		// And a new TerraformGenerator is created and initialized
-		generator := NewTerraformGenerator(mocks.Injector)
-		if initErr := generator.Initialize(); initErr != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return nil, got %v", initErr)
-		}
-
-		// When the writeTfvarsFile method is called
-		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
+		// And a component with variables and values
+		component := blueprintv1alpha1.TerraformComponent{
 			Variables: map[string]blueprintv1alpha1.TerraformVariable{
 				"var1": {Type: "string", Default: "defval", Description: "desc", Sensitive: false},
 			},
 			Values: map[string]any{
 				"var1": "someval",
 			},
-		})
-
-		// Then we expect an error
-		if err == nil {
-			t.Errorf("Expected an error, got nil")
 		}
 
-		// And the original function is restored
-		osMkdirAll = originalMkdirAll
+		// When writeTfvarsFile is called
+		err := generator.writeTfvarsFile("/fake/dir", component)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "failed to create directory: mock error creating directory"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
+		}
 	})
 
 	t.Run("ErrorReadingExistingFile", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And the original osStat and osReadFile are saved
-		originalStat := osStat
-		originalReadFile := osReadFile
-
-		// And osStat is mocked to indicate a file exists
-		osStat = func(name string) (os.FileInfo, error) {
+		// And Stat is mocked to return success (file exists)
+		mocks.Shims.Stat = func(_ string) (fs.FileInfo, error) {
 			return nil, nil
 		}
 
-		// And osReadFile is mocked to produce an error
-		osReadFile = func(filename string) ([]byte, error) {
-			return nil, fmt.Errorf("mock read error")
+		// And ReadFile is mocked to return an error
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
+			return nil, fmt.Errorf("mock error reading file")
 		}
 
-		// And a new TerraformGenerator is created and initialized
-		generator := NewTerraformGenerator(mocks.Injector)
-		if initErr := generator.Initialize(); initErr != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return nil, got %v", initErr)
-		}
-
-		// When we call writeTfvarsFile
-		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
+		// And a component with values
+		component := blueprintv1alpha1.TerraformComponent{
 			Values: map[string]any{
 				"var1": "value1",
 			},
-		})
-
-		// Then it should return an error due to read failure
-		if err == nil {
-			t.Errorf("Expected an error, got nil")
 		}
 
-		// And the original functions are restored
-		osStat = originalStat
-		osReadFile = originalReadFile
+		// When writeTfvarsFile is called
+		err := generator.writeTfvarsFile("/fake/dir", component)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "failed to read existing tfvars file: mock error reading file"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
+		}
 	})
 
 	t.Run("ErrorParsingExistingFile", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And the original osStat and osReadFile are saved
-		originalStat := osStat
-		originalReadFile := osReadFile
-
-		// And osStat is mocked to indicate a file exists
-		osStat = func(name string) (os.FileInfo, error) {
+		// And Stat is mocked to return success (file exists)
+		mocks.Shims.Stat = func(_ string) (fs.FileInfo, error) {
 			return nil, nil
 		}
 
-		// And osReadFile is mocked to return invalid HCL
-		osReadFile = func(filename string) ([]byte, error) {
+		// And ReadFile is mocked to return invalid HCL
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
 			invalidHCL := `this is definitely not valid HCL`
 			return []byte(invalidHCL), nil
 		}
 
-		// And a new TerraformGenerator is created and initialized
-		generator := NewTerraformGenerator(mocks.Injector)
-		if initErr := generator.Initialize(); initErr != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return nil, got %v", initErr)
-		}
-
-		// When we call writeTfvarsFile
-		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
+		// And a component with values
+		component := blueprintv1alpha1.TerraformComponent{
 			Values: map[string]any{
 				"var1": "val1",
 			},
-		})
-
-		// Then we expect a parsing error
-		if err == nil {
-			t.Errorf("Expected an error, got nil")
 		}
 
-		// And the original functions are restored
-		osStat = originalStat
-		osReadFile = originalReadFile
+		// When writeTfvarsFile is called
+		err := generator.writeTfvarsFile("/fake/dir", component)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
 	})
 
 	t.Run("ErrorWriteFile", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And the original osWriteFile is saved
-		originalWriteFile := osWriteFile
-
-		// And osWriteFile is mocked to return an error
-		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("mock write error")
+		// And WriteFile is mocked to return an error
+		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+			return fmt.Errorf("mock error writing file")
 		}
 
-		// And a new TerraformGenerator is created and initialized
-		generator := NewTerraformGenerator(mocks.Injector)
-		if initErr := generator.Initialize(); initErr != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return nil, got %v", initErr)
-		}
-
-		// When we call writeTfvarsFile
-		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
+		// And a component with values
+		component := blueprintv1alpha1.TerraformComponent{
 			Values: map[string]any{
 				"var1": "val1",
 			},
-		})
-
-		// Then it should return an error
-		if err == nil {
-			t.Errorf("Expected an error, got nil")
 		}
 
-		// And the original function is restored
-		osWriteFile = originalWriteFile
+		// When writeTfvarsFile is called
+		err := generator.writeTfvarsFile("/fake/dir", component)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "error writing tfvars file: mock error writing file"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
+		}
 	})
 
 	t.Run("FileExists", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a TerraformGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And the original osStat is saved
-		originalStat := osStat
-
-		// And osStat is mocked to always succeed
-		osStat = func(name string) (os.FileInfo, error) {
+		// And Stat is mocked to return success (file exists)
+		mocks.Shims.Stat = func(_ string) (fs.FileInfo, error) {
 			return nil, nil
 		}
 
-		// And a new TerraformGenerator is created and initialized
-		generator := NewTerraformGenerator(mocks.Injector)
-		if initErr := generator.Initialize(); initErr != nil {
-			t.Errorf("Expected TerraformGenerator.Initialize to return nil, got %v", initErr)
+		// And ReadFile is mocked to return an error
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
+			return nil, fmt.Errorf("mock error reading file")
 		}
 
-		// When the writeTfvarsFile method is called
-		err := generator.writeTfvarsFile("/fake/dir", blueprintv1alpha1.TerraformComponent{
-			Variables: map[string]blueprintv1alpha1.TerraformVariable{
-				"var1": {Type: "string", Default: "default1", Description: "description1", Sensitive: false},
-			},
+		// And a component with values
+		component := blueprintv1alpha1.TerraformComponent{
 			Values: map[string]any{
-				"var1": "value1",
+				"var1": "val1",
 			},
-		})
-
-		// Then it should return an error because this test simulates a scenario
-		// in which simply detecting the file's presence triggers a failure
-		// (matching the original test's expectation).
-		if err == nil {
-			t.Errorf("Expected an error, got nil")
 		}
 
-		// And the original function is restored
-		osStat = originalStat
+		// When writeTfvarsFile is called
+		err := generator.writeTfvarsFile("/fake/dir", component)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "failed to read existing tfvars file: mock error reading file"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
+		}
 	})
 }
 
 // =============================================================================
-// Test Helpers
+// Helper Tests
 // =============================================================================
 
 func TestConvertToCtyValue(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given test cases for different data types
-		tests := []struct {
-			input    any
-			expected cty.Value
-		}{
-			{input: "string", expected: cty.StringVal("string")},
-			{input: 42, expected: cty.NumberIntVal(42)},
-			{input: 3.14, expected: cty.NumberFloatVal(3.14)},
-			{input: true, expected: cty.BoolVal(true)},
-			{input: []any{"item1", "item2"}, expected: cty.ListVal([]cty.Value{cty.StringVal("item1"), cty.StringVal("item2")})},
-			{input: map[string]any{"key1": "value1"}, expected: cty.ObjectVal(map[string]cty.Value{"key1": cty.StringVal("value1")})},
-			{input: []any{}, expected: cty.ListValEmpty(cty.DynamicPseudoType)}, // Test for empty list
-			{input: nil, expected: cty.NilVal}, // Test for nil value
+	t.Run("StringValue", func(t *testing.T) {
+		result := convertToCtyValue("string")
+		expected := cty.StringVal("string")
+		if !result.RawEquals(expected) {
+			t.Errorf("expected %v, got %v", expected, result)
 		}
+	})
 
-		// When each test case is processed
-		for _, test := range tests {
-			// And convertToCtyValue is called with the input
-			result := convertToCtyValue(test.input)
+	t.Run("IntegerValue", func(t *testing.T) {
+		result := convertToCtyValue(42)
+		expected := cty.NumberIntVal(42)
+		if !result.RawEquals(expected) {
+			t.Errorf("expected %v, got %v", expected, result)
+		}
+	})
 
-			// Then the result should match the expected value
-			if !result.RawEquals(test.expected) {
-				t.Errorf("Expected %v, got %v", test.expected, result)
-			}
+	t.Run("FloatValue", func(t *testing.T) {
+		result := convertToCtyValue(3.14)
+		expected := cty.NumberFloatVal(3.14)
+		if !result.RawEquals(expected) {
+			t.Errorf("expected %v, got %v", expected, result)
+		}
+	})
+
+	t.Run("BooleanValue", func(t *testing.T) {
+		result := convertToCtyValue(true)
+		expected := cty.BoolVal(true)
+		if !result.RawEquals(expected) {
+			t.Errorf("expected %v, got %v", expected, result)
+		}
+	})
+
+	t.Run("ListValue", func(t *testing.T) {
+		result := convertToCtyValue([]any{"item1", "item2"})
+		expected := cty.ListVal([]cty.Value{
+			cty.StringVal("item1"),
+			cty.StringVal("item2"),
+		})
+		if !result.RawEquals(expected) {
+			t.Errorf("expected %v, got %v", expected, result)
+		}
+	})
+
+	t.Run("MapValue", func(t *testing.T) {
+		result := convertToCtyValue(map[string]any{"key1": "value1"})
+		expected := cty.ObjectVal(map[string]cty.Value{
+			"key1": cty.StringVal("value1"),
+		})
+		if !result.RawEquals(expected) {
+			t.Errorf("expected %v, got %v", expected, result)
+		}
+	})
+
+	t.Run("EmptyList", func(t *testing.T) {
+		result := convertToCtyValue([]any{})
+		expected := cty.ListValEmpty(cty.DynamicPseudoType)
+		if !result.RawEquals(expected) {
+			t.Errorf("expected %v, got %v", expected, result)
+		}
+	})
+
+	t.Run("NilValue", func(t *testing.T) {
+		result := convertToCtyValue(nil)
+		expected := cty.NilVal
+		if !result.RawEquals(expected) {
+			t.Errorf("expected %v, got %v", expected, result)
 		}
 	})
 }

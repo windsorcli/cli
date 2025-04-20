@@ -46,14 +46,14 @@ func (g *KustomizeGenerator) Write() error {
 	}
 
 	kustomizeFolderPath := filepath.Join(projectRoot, "kustomize")
-	if err := osMkdirAll(kustomizeFolderPath, os.ModePerm); err != nil {
+	if err := g.shims.MkdirAll(kustomizeFolderPath, os.ModePerm); err != nil {
 		return err
 	}
 
 	kustomizationFilePath := filepath.Join(kustomizeFolderPath, "kustomization.yaml")
 
 	// Check if the file already exists
-	if _, err := osStat(kustomizationFilePath); err == nil {
+	if _, err := g.shims.Stat(kustomizationFilePath); err == nil {
 		// File exists, do not overwrite
 		return nil
 	}
@@ -61,7 +61,7 @@ func (g *KustomizeGenerator) Write() error {
 	// Write the file with resources: [] by default
 	kustomizationContent := []byte("resources: []\n")
 
-	if err := osWriteFile(kustomizationFilePath, kustomizationContent, 0644); err != nil {
+	if err := g.shims.WriteFile(kustomizationFilePath, kustomizationContent, 0644); err != nil {
 		return err
 	}
 

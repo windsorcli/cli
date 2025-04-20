@@ -28,6 +28,7 @@ var gitIgnoreLines = []string{
 	"contexts/**/.tfstate/",
 	"contexts/**/.kube/",
 	"contexts/**/.talos/",
+	"contexts/**/.omni/",
 	"contexts/**/.aws/",
 }
 
@@ -65,7 +66,7 @@ func (g *GitGenerator) Write() error {
 
 	gitignorePath := filepath.Join(projectRoot, ".gitignore")
 
-	content, err := osReadFile(gitignorePath)
+	content, err := g.shims.ReadFile(gitignorePath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to read .gitignore: %w", err)
 	}
@@ -100,7 +101,7 @@ func (g *GitGenerator) Write() error {
 		finalContent += "\n"
 	}
 
-	if err := osWriteFile(gitignorePath, []byte(finalContent), 0644); err != nil {
+	if err := g.shims.WriteFile(gitignorePath, []byte(finalContent), 0644); err != nil {
 		return fmt.Errorf("failed to write to .gitignore: %w", err)
 	}
 

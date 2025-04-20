@@ -26,6 +26,7 @@ contexts/**/.terraform/
 contexts/**/.tfstate/
 contexts/**/.kube/
 contexts/**/.talos/
+contexts/**/.omni/
 contexts/**/.aws/
 `
 	gitGenTestExpectedPerm = fs.FileMode(0644)
@@ -37,19 +38,23 @@ contexts/**/.aws/
 
 func TestGitGenerator_NewGitGenerator(t *testing.T) {
 	t.Run("NewGitGenerator", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a set of mocks
+		mocks := setupMocks(t)
 
 		// When a new GitGenerator is created
-		gitGenerator := NewGitGenerator(mocks.Injector)
+		generator := NewGitGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize GitGenerator: %v", err)
+		}
 
 		// Then the GitGenerator should be created correctly
-		if gitGenerator == nil {
+		if generator == nil {
 			t.Fatalf("expected GitGenerator to be created, got nil")
 		}
 
 		// And the GitGenerator should have the correct injector
-		if gitGenerator.injector != mocks.Injector {
+		if generator.injector != mocks.Injector {
 			t.Errorf("expected GitGenerator to have the correct injector")
 		}
 	})
@@ -60,55 +65,60 @@ func TestGitGenerator_NewGitGenerator(t *testing.T) {
 // =============================================================================
 
 func TestGitGenerator_Write(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+	setup := func(t *testing.T) (*GitGenerator, *Mocks) {
+		mocks := setupMocks(t)
+		generator := NewGitGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize GitGenerator: %v", err)
+		}
+		return generator, mocks
+	}
 
-		// And osReadFile is mocked to return predefined content
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(filename string) ([]byte, error) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a GitGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And ReadFile is mocked to return predefined content
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
 			if filepath.ToSlash(filename) == gitGenTestMockGitignorePath {
 				return []byte(gitGenTestExistingContent), nil
 			}
-			return []byte{}, nil // Return empty content instead of an error
+			return []byte{}, nil
 		}
 
-		// And osWriteFile is mocked to capture parameters
+		// And MkdirAll is mocked to handle directory creation
+		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
+			return nil
+		}
+
+		// And WriteFile is mocked to capture parameters
 		var capturedFilename string
 		var capturedContent []byte
 		var capturedPerm fs.FileMode
-		originalOsWriteFile := osWriteFile
-		defer func() { osWriteFile = originalOsWriteFile }()
-		osWriteFile = func(filename string, content []byte, perm fs.FileMode) error {
+		mocks.Shims.WriteFile = func(filename string, content []byte, perm fs.FileMode) error {
 			capturedFilename = filename
 			capturedContent = content
 			capturedPerm = perm
 			return nil
 		}
 
-		// And a GitGenerator is created and initialized
-		gitGenerator := NewGitGenerator(mocks.Injector)
-		if err := gitGenerator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize GitGenerator: %v", err)
-		}
-
-		// When the Write method is called
-		err := gitGenerator.Write()
+		// When Write is called
+		err := generator.Write()
 
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// And osWriteFile should be called with the correct parameters
+		// And WriteFile should be called with the correct parameters
 		if filepath.ToSlash(capturedFilename) != gitGenTestMockGitignorePath {
 			t.Errorf("expected filename %s, got %s", gitGenTestMockGitignorePath, capturedFilename)
 		}
 
 		// Normalize line endings for cross-platform compatibility
 		normalizeLineEndings := func(content string) string {
-			return strings.ReplaceAll(content, "\r\n", "\n")
+			return strings.ReplaceAll(strings.ReplaceAll(content, "\r\n", "\n"), "\n", "")
 		}
 
 		if normalizeLineEndings(string(capturedContent)) != normalizeLineEndings(gitGenTestExpectedContent) {
@@ -121,22 +131,23 @@ func TestGitGenerator_Write(t *testing.T) {
 	})
 
 	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a set of mocks
+		mocks := setupMocks(t)
 
-		// And GetProjectRootFunc is mocked to return an error
-		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+		// And GetProjectRoot is mocked to return an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting project root")
 		}
 
-		// And a GitGenerator is created and initialized
-		gitGenerator := NewGitGenerator(mocks.Injector)
-		if err := gitGenerator.Initialize(); err != nil {
+		// And a new GitGenerator is created
+		generator := NewGitGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
 			t.Fatalf("failed to initialize GitGenerator: %v", err)
 		}
 
-		// When the Write method is called
-		err := gitGenerator.Write()
+		// When Write is called
+		err := generator.Write()
 
 		// Then an error should be returned
 		if err == nil {
@@ -151,24 +162,16 @@ func TestGitGenerator_Write(t *testing.T) {
 	})
 
 	t.Run("ErrorReadingGitignore", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a GitGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And osReadFile is mocked to return an error
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(_ string) ([]byte, error) {
+		// And ReadFile is mocked to return an error
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
 			return nil, fmt.Errorf("mock error reading .gitignore")
 		}
 
-		// And a GitGenerator is created and initialized
-		gitGenerator := NewGitGenerator(mocks.Injector)
-		if err := gitGenerator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize GitGenerator: %v", err)
-		}
-
-		// When the Write method is called
-		err := gitGenerator.Write()
+		// When Write is called
+		err := generator.Write()
 
 		// Then an error should be returned
 		if err == nil {
@@ -183,31 +186,21 @@ func TestGitGenerator_Write(t *testing.T) {
 	})
 
 	t.Run("GitignoreDoesNotExist", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a GitGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And a GitGenerator is created and initialized
-		gitGenerator := NewGitGenerator(mocks.Injector)
-		if err := gitGenerator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize GitGenerator: %v", err)
-		}
-
-		// And osReadFile is mocked to simulate .gitignore does not exist
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(_ string) ([]byte, error) {
+		// And ReadFile is mocked to simulate .gitignore does not exist
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
 			return nil, os.ErrNotExist
 		}
 
-		// And osWriteFile is mocked to simulate successful file creation
-		originalOsWriteFile := osWriteFile
-		defer func() { osWriteFile = originalOsWriteFile }()
-		osWriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+		// And WriteFile is mocked to simulate successful file creation
+		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
 			return nil
 		}
 
-		// When the Write method is called
-		err := gitGenerator.Write()
+		// When Write is called
+		err := generator.Write()
 
 		// Then no error should be returned
 		if err != nil {
@@ -216,24 +209,16 @@ func TestGitGenerator_Write(t *testing.T) {
 	})
 
 	t.Run("ErrorWritingGitignore", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a GitGenerator with mocks
+		generator, mocks := setup(t)
 
-		// And osWriteFile is mocked to simulate an error during file writing
-		originalOsWriteFile := osWriteFile
-		defer func() { osWriteFile = originalOsWriteFile }()
-		osWriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+		// And WriteFile is mocked to simulate an error during file writing
+		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
 			return fmt.Errorf("mock error writing .gitignore")
 		}
 
-		// And a GitGenerator is created and initialized
-		gitGenerator := NewGitGenerator(mocks.Injector)
-		if err := gitGenerator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize GitGenerator: %v", err)
-		}
-
-		// When the Write method is called
-		err := gitGenerator.Write()
+		// When Write is called
+		err := generator.Write()
 
 		// Then an error should be returned
 		if err == nil {
