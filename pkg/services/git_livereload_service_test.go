@@ -97,6 +97,9 @@ func TestGitLivereloadService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
+		// Set the service name
+		gitLivereloadService.SetName("git")
+
 		// When GetComposeConfig is called
 		composeConfig, err := gitLivereloadService.GetComposeConfig()
 		if err != nil {

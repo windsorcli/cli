@@ -40,9 +40,7 @@ type RegistryService struct {
 // NewRegistryService is a constructor for RegistryService
 func NewRegistryService(injector di.Injector) *RegistryService {
 	return &RegistryService{
-		BaseService: BaseService{
-			injector: injector,
-		},
+		BaseService: *NewBaseService(injector),
 	}
 }
 

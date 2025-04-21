@@ -30,10 +30,7 @@ type GitLivereloadService struct {
 // NewGitLivereloadService is a constructor for GitLivereloadService
 func NewGitLivereloadService(injector di.Injector) *GitLivereloadService {
 	return &GitLivereloadService{
-		BaseService: BaseService{
-			injector: injector,
-			name:     "git",
-		},
+		BaseService: *NewBaseService(injector),
 	}
 }
 

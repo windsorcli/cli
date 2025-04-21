@@ -30,10 +30,7 @@ type LocalstackService struct {
 // NewLocalstackService is a constructor for LocalstackService
 func NewLocalstackService(injector di.Injector) *LocalstackService {
 	return &LocalstackService{
-		BaseService: BaseService{
-			injector: injector,
-			name:     "aws",
-		},
+		BaseService: *NewBaseService(injector),
 	}
 }
 

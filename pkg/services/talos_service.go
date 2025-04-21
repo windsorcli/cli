@@ -46,10 +46,8 @@ type TalosService struct {
 // NewTalosService is a constructor for TalosService
 func NewTalosService(injector di.Injector, mode string) *TalosService {
 	service := &TalosService{
-		BaseService: BaseService{
-			injector: injector,
-		},
-		mode: mode,
+		BaseService: *NewBaseService(injector),
+		mode:        mode,
 	}
 
 	// Elect a "leader" for the first controlplane

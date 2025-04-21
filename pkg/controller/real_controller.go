@@ -157,18 +157,21 @@ func (c *RealController) CreateServiceComponents() error {
 	dnsEnabled := configHandler.GetBool("dns.enabled")
 	if dnsEnabled {
 		dnsService := services.NewDNSService(c.injector)
+		dnsService.SetName("dns")
 		c.injector.Register("dnsService", dnsService)
 	}
 
 	gitLivereloadEnabled := configHandler.GetBool("git.livereload.enabled")
 	if gitLivereloadEnabled {
 		gitLivereloadService := services.NewGitLivereloadService(c.injector)
+		gitLivereloadService.SetName("git")
 		c.injector.Register("gitLivereloadService", gitLivereloadService)
 	}
 
 	localstackEnabled := configHandler.GetBool("aws.localstack.enabled")
 	if localstackEnabled {
 		localstackService := services.NewLocalstackService(c.injector)
+		localstackService.SetName("aws")
 		c.injector.Register("localstackService", localstackService)
 	}
 

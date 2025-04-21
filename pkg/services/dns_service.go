@@ -32,10 +32,7 @@ type DNSService struct {
 // NewDNSService creates a new DNSService
 func NewDNSService(injector di.Injector) *DNSService {
 	return &DNSService{
-		BaseService: BaseService{
-			injector: injector,
-			name:     "dns",
-		},
+		BaseService: *NewBaseService(injector),
 	}
 }
 

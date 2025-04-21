@@ -97,6 +97,9 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
+		// Set the service name
+		localstackService.SetName("aws")
+
 		// When: GetComposeConfig is called
 		composeConfig, err := localstackService.GetComposeConfig()
 		if err != nil {
@@ -144,6 +147,9 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 		if err := localstackService.Initialize(); err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
+
+		// Set the service name
+		localstackService.SetName("aws")
 
 		// When: GetComposeConfig is called
 		composeConfig, err := localstackService.GetComposeConfig()

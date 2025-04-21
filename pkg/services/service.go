@@ -23,31 +23,14 @@ import (
 // Service is an interface that defines methods for retrieving environment variables
 // and can be implemented for individual providers.
 type Service interface {
-	// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 	GetComposeConfig() (*types.Config, error)
-
-	// WriteConfig writes any necessary configuration files needed by the service
 	WriteConfig() error
-
-	// SetAddress sets the address if it is a valid IPv4 address
 	SetAddress(address string) error
-
-	// GetAddress returns the current address of the service
 	GetAddress() string
-
-	// SetName sets the name of the service
 	SetName(name string)
-
-	// GetName returns the current name of the service
 	GetName() string
-
-	// Initialize performs any necessary initialization for the service.
 	Initialize() error
-
-	// SupportsWildcard returns whether the service supports wildcard DNS entries
 	SupportsWildcard() bool
-
-	// GetHostname returns the hostname for the service, which may include domain processing
 	GetHostname() string
 }
 
@@ -62,13 +45,25 @@ type BaseService struct {
 	shell         shell.Shell
 	address       string
 	name          string
+	shims         *Shims
+}
+
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewBaseService is a constructor for BaseService
+func NewBaseService(injector di.Injector) *BaseService {
+	return &BaseService{
+		injector: injector,
+		shims:    NewShims(),
+	}
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// Initialize resolves and assigns configHandler and shell dependencies using the injector.
 func (s *BaseService) Initialize() error {
 	configHandler, ok := s.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {

@@ -271,6 +271,9 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
+		// Set the service name
+		service.SetName("dns")
+
 		// When GetComposeConfig is called
 		cfg, err := service.GetComposeConfig()
 
