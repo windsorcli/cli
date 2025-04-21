@@ -12,6 +12,15 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// The RegistryService is a service component that manages Docker registry integration
+// It provides local and remote registry capabilities with configurable endpoints
+// The RegistryService enables container image management and distribution
+// supporting both local caching and remote registry proxying
+
+// =============================================================================
+// Types
+// =============================================================================
+
 var (
 	registryNextPort = constants.REGISTRY_DEFAULT_HOST_PORT + 1
 	registryMu       sync.Mutex
@@ -24,6 +33,10 @@ type RegistryService struct {
 	hostPort int
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewRegistryService is a constructor for RegistryService
 func NewRegistryService(injector di.Injector) *RegistryService {
 	return &RegistryService{
@@ -32,6 +45,10 @@ func NewRegistryService(injector di.Injector) *RegistryService {
 		},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // GetComposeConfig returns a Docker Compose configuration for the registry matching s.name.
 // It retrieves the context configuration, finds the registry, and generates a service config.
@@ -104,6 +121,10 @@ func (s *RegistryService) GetHostname() string {
 	return getBasename(s.GetName()) + "." + tld
 }
 
+// =============================================================================
+// Private Methods
+// =============================================================================
+
 // This function generates a ServiceConfig for a Registry service. It sets up the service's name, image,
 // restart policy, and labels. It configures environment variables based on registry URLs, creates a
 // cache directory, and sets volume mounts. Ports are assigned only for non-proxy registries when the
@@ -169,8 +190,9 @@ func (s *RegistryService) generateRegistryService(registry docker.RegistryConfig
 	return service, nil
 }
 
-// Ensure RegistryService implements Service interface
-var _ Service = (*RegistryService)(nil)
+// =============================================================================
+// Helpers
+// =============================================================================
 
 // getBasename removes the last part of a domain name if it exists
 func getBasename(name string) string {
@@ -179,3 +201,6 @@ func getBasename(name string) string {
 	}
 	return name
 }
+
+// Ensure RegistryService implements Service interface
+var _ Service = (*RegistryService)(nil)

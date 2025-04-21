@@ -10,11 +10,24 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// The DNSService is a core component that manages DNS configuration and resolution
+// It provides DNS management capabilities for Windsor services and applications
+// The DNSService handles CoreDNS configuration, service discovery, and DNS forwarding
+// enabling seamless DNS resolution across different environments and contexts
+
+// =============================================================================
+// Types
+// =============================================================================
+
 // DNSService handles DNS configuration
 type DNSService struct {
 	BaseService
 	services []Service
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewDNSService creates a new DNSService
 func NewDNSService(injector di.Injector) *DNSService {
@@ -25,6 +38,10 @@ func NewDNSService(injector di.Injector) *DNSService {
 		},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize sets up DNSService by resolving dependencies via DI.
 func (s *DNSService) Initialize() error {

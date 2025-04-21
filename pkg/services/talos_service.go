@@ -14,6 +14,15 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// The TalosService is a service component that manages Talos Linux node configuration
+// It provides containerized Talos Linux nodes for Kubernetes cluster management
+// The TalosService enables both control plane and worker node deployment
+// with configurable resources, networking, and storage options
+
+// =============================================================================
+// Types
+// =============================================================================
+
 // Initialize the global port settings
 var (
 	nextAPIPort        = constants.DEFAULT_TALOS_API_PORT + 1
@@ -29,6 +38,10 @@ type TalosService struct {
 	mode     string
 	isLeader bool
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewTalosService is a constructor for TalosService
 func NewTalosService(injector di.Injector, mode string) *TalosService {
@@ -51,6 +64,10 @@ func NewTalosService(injector di.Injector, mode string) *TalosService {
 
 	return service
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // SetAddress configures the Talos service's hostname and endpoint using the
 // provided address. It assigns the default API port to the leader controlplane
@@ -335,3 +352,6 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		Volumes:  volumesMap,
 	}, nil
 }
+
+// Ensure TalosService implements Service interface
+var _ Service = (*TalosService)(nil)

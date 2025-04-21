@@ -16,6 +16,11 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+// setupTalosServiceMocks creates and returns mock components for TalosService tests
 func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 	var injector di.Injector
 	if len(optionalInjector) > 0 {
@@ -113,6 +118,11 @@ func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 	}
 }
 
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
+// TestTalosService_NewTalosService tests the constructor for TalosService
 func TestTalosService_NewTalosService(t *testing.T) {
 	t.Run("SuccessWorker", func(t *testing.T) {
 		// Given: a set of mock components
@@ -141,6 +151,11 @@ func TestTalosService_NewTalosService(t *testing.T) {
 	})
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestTalosService_SetAddress tests the SetAddress method of TalosService
 func TestTalosService_SetAddress(t *testing.T) {
 	t.Run("SuccessWorker", func(t *testing.T) {
 		// Reset package-level variables
@@ -586,6 +601,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 	})
 }
 
+// TestTalosService_GetComposeConfig tests the GetComposeConfig method of TalosService
 func TestTalosService_GetComposeConfig(t *testing.T) {
 	// Mock the os functions to avoid actual file system operations
 	originalStat := stat

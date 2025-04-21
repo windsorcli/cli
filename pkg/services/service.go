@@ -11,6 +11,15 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// The Service is a core interface that defines the contract for service implementations
+// It provides methods for managing service configuration, addressing, and DNS capabilities
+// The Service interface serves as the foundation for all Windsor service implementations
+// enabling consistent service management across different providers and environments
+
+// =============================================================================
+// Interfaces
+// =============================================================================
+
 // Service is an interface that defines methods for retrieving environment variables
 // and can be implemented for individual providers.
 type Service interface {
@@ -42,6 +51,10 @@ type Service interface {
 	GetHostname() string
 }
 
+// =============================================================================
+// Types
+// =============================================================================
+
 // BaseService is a base implementation of the Service interface
 type BaseService struct {
 	injector      di.Injector
@@ -50,6 +63,10 @@ type BaseService struct {
 	address       string
 	name          string
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize resolves and assigns configHandler and shell dependencies using the injector.
 func (s *BaseService) Initialize() error {
@@ -104,7 +121,11 @@ func (s *BaseService) GetContainerName() string {
 	return fmt.Sprintf("windsor-%s-%s", contextName, s.name)
 }
 
-// IsLocalhostMode checks if we are in localhost mode (vm.driver == "docker-desktop")
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// isLocalhostMode checks if we are in localhost mode (vm.driver == "docker-desktop")
 func (s *BaseService) isLocalhostMode() bool {
 	vmDriver := s.configHandler.GetString("vm.driver")
 	return vmDriver == "docker-desktop"

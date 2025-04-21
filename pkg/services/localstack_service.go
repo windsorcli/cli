@@ -9,10 +9,23 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// The LocalstackService is a service component that manages AWS Localstack integration
+// It provides local AWS service emulation with configurable service endpoints
+// The LocalstackService enables local development with AWS services
+// supporting both free and pro versions with authentication and persistence
+
+// =============================================================================
+// Types
+// =============================================================================
+
 // LocalstackService is a service struct that provides Localstack-specific utility functions
 type LocalstackService struct {
 	BaseService
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewLocalstackService is a constructor for LocalstackService
 func NewLocalstackService(injector di.Injector) *LocalstackService {
@@ -23,6 +36,10 @@ func NewLocalstackService(injector di.Injector) *LocalstackService {
 		},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
@@ -82,10 +99,10 @@ func (s *LocalstackService) GetComposeConfig() (*types.Config, error) {
 	return &types.Config{Services: services}, nil
 }
 
-// Ensure LocalstackService implements Service interface
-var _ Service = (*LocalstackService)(nil)
-
 // SupportsWildcard returns whether the service supports wildcard DNS entries
 func (s *LocalstackService) SupportsWildcard() bool {
 	return true
 }
+
+// Ensure LocalstackService implements Service interface
+var _ Service = (*LocalstackService)(nil)

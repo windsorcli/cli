@@ -15,9 +15,14 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
 // Mock function for yamlMarshal to simulate an error
 var originalYamlMarshal = yamlMarshal
 
+// setupSafeRegistryServiceMocks creates and returns mock components for RegistryService tests
 func setupSafeRegistryServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 	var injector di.Injector
 	if len(optionalInjector) > 0 {
@@ -81,6 +86,10 @@ func setupSafeRegistryServiceMocks(optionalInjector ...di.Injector) *MockCompone
 	}
 }
 
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
 func TestRegistryService_NewRegistryService(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of mock components
@@ -100,6 +109,10 @@ func TestRegistryService_NewRegistryService(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
 func TestRegistryService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
@@ -729,24 +742,4 @@ func TestRegistryService_GetHostname(t *testing.T) {
 			t.Errorf("Expected hostname %q, got %q", expectedHostname, hostname)
 		}
 	})
-}
-
-func createRegistryServiceMocks() *MockComponents {
-	mockShell := shell.NewMockShell(di.NewInjector())
-	mockConfig := config.NewMockConfigHandler()
-	mockService := NewMockService()
-	injector := di.NewInjector()
-	injector.Register("shell", mockShell)
-	injector.Register("configHandler", mockConfig)
-	injector.Register("registryService", mockService)
-	return &MockComponents{
-		Injector:          injector,
-		MockShell:         mockShell,
-		MockConfigHandler: mockConfig,
-		MockService:       mockService,
-	}
-}
-
-func ptrInt(i int) *int {
-	return &i
 }

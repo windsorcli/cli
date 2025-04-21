@@ -211,16 +211,6 @@ contexts:
 	return mocks
 }
 
-// NetworkManagerMocks holds all the mock dependencies for NetworkManager
-type NetworkManagerMocks struct {
-	Injector                     di.Injector
-	MockShell                    *shell.MockShell
-	MockSecureShell              *shell.MockShell
-	MockConfigHandler            *config.MockConfigHandler
-	MockSSHClient                *ssh.MockClient
-	MockNetworkInterfaceProvider *MockNetworkInterfaceProvider
-}
-
 // =============================================================================
 // Test Constructor
 // =============================================================================

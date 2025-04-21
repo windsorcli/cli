@@ -16,6 +16,11 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+// createDNSServiceMocks creates and returns mock components for DNS service tests
 func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 	var injector di.Injector
 	if len(mockInjector) > 0 {
@@ -91,6 +96,10 @@ func createDNSServiceMocks(mockInjector ...di.Injector) *MockComponents {
 	}
 }
 
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
 func TestNewDNSService(t *testing.T) {
 	// Create a mock injector
 	mockInjector := di.NewMockInjector()
@@ -109,18 +118,22 @@ func TestNewDNSService(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestDNSService_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create a mock injector with necessary mocks
 		mocks := createDNSServiceMocks()
 
-		// Given: a DNSService with the mock injector
+		// Given a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
 
-		// When: Initialize is called
+		// When Initialize is called
 		err := service.Initialize()
 
-		// Then: no error should be returned
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("Initialize() error = %v", err)
 		}
@@ -133,13 +146,13 @@ func TestDNSService_Initialize(t *testing.T) {
 		// Mock the Resolve method for configHandler to return an error
 		mocks.Injector.Register("configHandler", "invalid")
 
-		// Given: a DNSService with the mock injector
+		// Given a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
 
-		// When: Initialize is called
+		// When Initialize is called
 		err := service.Initialize()
 
-		// Then: an error should be returned
+		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("Expected error resolving configHandler, got nil")
 		}
@@ -156,13 +169,13 @@ func TestDNSService_Initialize(t *testing.T) {
 		// Set the resolve error for services using the correct type
 		mockInjector.SetResolveAllError(new(Service), fmt.Errorf("error resolving services"))
 
-		// Given: a DNSService with the mock injector
+		// Given a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
 
-		// When: Initialize is called
+		// When Initialize is called
 		err := service.Initialize()
 
-		// Then: an error should be returned
+		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("Expected error resolving services, got nil")
 		}
@@ -187,7 +200,7 @@ func TestDNSService_SetAddress(t *testing.T) {
 			return nil
 		}
 
-		// Given: a DNSService with the mock injector
+		// Given a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
 
 		// Initialize the service
@@ -195,11 +208,11 @@ func TestDNSService_SetAddress(t *testing.T) {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
-		// When: SetAddress is called
+		// When SetAddress is called
 		address := "127.0.0.1"
 		err := service.SetAddress(address)
 
-		// Then: no error should be returned
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("SetAddress() error = %v", err)
 		}
@@ -222,7 +235,7 @@ func TestDNSService_SetAddress(t *testing.T) {
 			return nil
 		}
 
-		// Given: a DNSService with the mock injector
+		// Given a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
 
 		// Initialize the service
@@ -230,11 +243,11 @@ func TestDNSService_SetAddress(t *testing.T) {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
-		// When: SetAddress is called
+		// When SetAddress is called
 		address := "127.0.0.1"
 		err := service.SetAddress(address)
 
-		// Then: an error should be returned
+		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		}
@@ -250,7 +263,7 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 		// Create a mock injector with necessary mocks
 		mocks := createDNSServiceMocks()
 
-		// Given: a DNSService with the mock injector
+		// Given a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
 
 		// Initialize the service
@@ -258,10 +271,10 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 			t.Fatalf("Initialize() error = %v", err)
 		}
 
-		// When: GetComposeConfig is called
+		// When GetComposeConfig is called
 		cfg, err := service.GetComposeConfig()
 
-		// Then: no error should be returned, and cfg should be correctly populated
+		// Then no error should be returned, and cfg should be correctly populated
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
@@ -296,10 +309,10 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 			return ""
 		}
 
-		// When: GetComposeConfig is called
+		// When GetComposeConfig is called
 		cfg, err := service.GetComposeConfig()
 
-		// Then: no error should be returned, and cfg should be correctly populated
+		// Then no error should be returned, and cfg should be correctly populated
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
@@ -326,7 +339,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		// Create mocks and set up the mock context
 		mocks := createDNSServiceMocks()
 
-		// Given: a DNSService with the mock config handler, context, and real DockerService
+		// Given a DNSService with the mock config handler, context, and real DockerService
 		service := NewDNSService(mocks.Injector)
 
 		// Initialize the service
@@ -343,10 +356,10 @@ func TestDNSService_WriteConfig(t *testing.T) {
 			return nil
 		}
 
-		// When: WriteConfig is called
+		// When WriteConfig is called
 		err := service.WriteConfig()
 
-		// Then: no error should be returned
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("WriteConfig() error = %v", err)
 		}
@@ -378,7 +391,7 @@ func TestDNSService_WriteConfig(t *testing.T) {
 		// Create mocks and set up the mock context
 		mocks := createDNSServiceMocks()
 
-		// Given: a DNSService with the mock config handler, context, and real DockerService
+		// Given a DNSService with the mock config handler, context, and real DockerService
 		service := NewDNSService(mocks.Injector)
 
 		// Initialize the service
@@ -398,10 +411,10 @@ func TestDNSService_WriteConfig(t *testing.T) {
 			return nil
 		}
 
-		// When: WriteConfig is called
+		// When WriteConfig is called
 		err := service.WriteConfig()
 
-		// Then: no error should be returned
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("WriteConfig() error = %v", err)
 		}

@@ -12,12 +12,18 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+// LocalstackServiceMocks contains mock components for LocalstackService tests
 type LocalstackServiceMocks struct {
 	Injector      di.Injector
 	ConfigHandler *config.MockConfigHandler
 	Shell         *shell.MockShell
 }
 
+// createLocalstackServiceMocks creates and returns mock components for LocalstackService tests
 func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServiceMocks {
 	var injector di.Injector
 	if len(mockInjector) > 0 {
@@ -61,6 +67,11 @@ func createLocalstackServiceMocks(mockInjector ...di.Injector) *LocalstackServic
 	}
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+// TestLocalstackService_GetComposeConfig tests the GetComposeConfig method
 func TestLocalstackService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Create mock injector with necessary mocks
@@ -152,6 +163,7 @@ func TestLocalstackService_GetComposeConfig(t *testing.T) {
 	})
 }
 
+// TestLocalstackService_SupportsWildcard tests the SupportsWildcard method
 func TestLocalstackService_SupportsWildcard(t *testing.T) {
 	// Create a mock injector
 	mockInjector := di.NewMockInjector()
