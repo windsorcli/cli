@@ -378,11 +378,6 @@ var _ ConfigHandler = (*MockConfigHandler)(nil)
 
 Example from shims.go:
 ```go
-// The shims package is a system call abstraction layer
-// It provides mockable wrappers around system and runtime functions
-// It serves as a testing aid by allowing system calls to be intercepted
-// It enables dependency injection and test isolation for system-level operations
-
 package virt
 
 import (
@@ -394,6 +389,11 @@ import (
     "github.com/goccy/go-yaml"
     "github.com/shirou/gopsutil/mem"
 )
+
+// The shims package is a system call abstraction layer
+// It provides mockable wrappers around system and runtime functions
+// It serves as a testing aid by allowing system calls to be intercepted
+// It enables dependency injection and test isolation for system-level operations
 
 // =============================================================================
 // Types

@@ -5,26 +5,27 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
-func setupSafeSopsSecretsProviderMocks(injector ...di.Injector) *MockSafeComponents {
-	var mockInjector di.Injector
-	if len(injector) > 0 {
-		mockInjector = injector[0]
-	} else {
-		mockInjector = di.NewMockInjector()
-	}
+// The SopsSecretsProviderTest is a test suite for the SopsSecretsProvider implementation
+// It provides comprehensive testing of the SOPS-based secrets provider
+// It serves as a validation mechanism for the provider's behavior
+// It ensures the provider correctly implements the SecretsProvider interface
+
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+func setupSopsSecretsMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	mocks := setupMocks(t, opts...)
 
 	// Mock the stat function to simulate the file exists
-	stat = func(name string) (os.FileInfo, error) {
+	mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 		return nil, nil
 	}
 
 	// Mock the decryptFileFunc to return valid decrypted content with nested keys
-	decryptFileFunc = func(filePath string, format string) ([]byte, error) {
+	mocks.Shims.DecryptFile = func(filePath string, format string) ([]byte, error) {
 		return []byte(`
 nested:
   key: value
@@ -33,30 +34,48 @@ nested:
 `), nil
 	}
 
-	return &MockSafeComponents{
-		Injector: mockInjector,
-		Shell:    shell.NewMockShell(),
-	}
+	return mocks
 }
 
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
 func TestNewSopsSecretsProvider(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupSafeSopsSecretsProviderMocks()
+	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
+		mocks := setupSopsSecretsMocks(t)
 		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider.shims = mocks.Shims
+		return provider, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		provider, _ := setup(t)
 
 		// When NewSopsSecretsProvider is called
-		expectedPath := filepath.Join("/valid/config/path", "secrets.enc.yaml")
-		if provider.secretsFilePath != expectedPath {
-			t.Fatalf("expected config path to be %v, got %v", expectedPath, provider.secretsFilePath)
+		expectedPath := "/valid/config/path"
+		if provider.configPath != expectedPath {
+			t.Fatalf("expected config path to be %v, got %v", expectedPath, provider.configPath)
 		}
 	})
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
+	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
+		mocks := setupSopsSecretsMocks(t)
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider.shims = mocks.Shims
+		provider.Initialize()
+		return provider, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a new SopsSecretsProvider with a valid config path
-		mocks := setupSafeSopsSecretsProviderMocks()
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider, _ := setup(t)
 
 		// When LoadSecrets is called
 		err := provider.LoadSecrets()
@@ -77,11 +96,10 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 
 	t.Run("FileDoesNotExist", func(t *testing.T) {
 		// Given a new SopsSecretsProvider with an invalid config path
-		mocks := setupSafeSopsSecretsProviderMocks()
-		provider := NewSopsSecretsProvider("/invalid/config/path", mocks.Injector)
+		provider, mocks := setup(t)
 
 		// Mock the stat function to return an error indicating the file does not exist
-		stat = func(_ string) (os.FileInfo, error) {
+		mocks.Shims.Stat = func(_ string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
@@ -94,7 +112,7 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 		}
 
 		// And the error message should indicate the file does not exist
-		expectedErrorMessage := fmt.Sprintf("file does not exist: %s", provider.secretsFilePath)
+		expectedErrorMessage := fmt.Sprintf("file does not exist: %s", filepath.Join(provider.configPath, "secrets.enc.yml"))
 		if err.Error() != expectedErrorMessage {
 			t.Fatalf("expected error message to be %v, got %v", expectedErrorMessage, err.Error())
 		}
@@ -102,11 +120,10 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 
 	t.Run("DecryptionFailure", func(t *testing.T) {
 		// Given a new SopsSecretsProvider with a valid config path
-		mocks := setupSafeSopsSecretsProviderMocks()
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider, mocks := setup(t)
 
 		// Mock the decryptFileFunc to return an error
-		decryptFileFunc = func(_ string, _ string) ([]byte, error) {
+		mocks.Shims.DecryptFile = func(_ string, _ string) ([]byte, error) {
 			return nil, fmt.Errorf("decryption error")
 		}
 
@@ -127,11 +144,10 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 
 	t.Run("YAMLUnmarshalError", func(t *testing.T) {
 		// Given a new SopsSecretsProvider with a valid config path
-		mocks := setupSafeSopsSecretsProviderMocks()
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider, mocks := setup(t)
 
 		// Mock the yamlUnmarshal function to return an error
-		yamlUnmarshal = func(_ []byte, _ any) error {
+		mocks.Shims.YAMLUnmarshal = func(_ []byte, _ any) error {
 			return fmt.Errorf("yaml: unmarshal errors: [1:1] string was used where mapping is expected")
 		}
 
@@ -152,9 +168,16 @@ func TestSopsSecretsProvider_LoadSecrets(t *testing.T) {
 }
 
 func TestSopsSecretsProvider_GetSecret(t *testing.T) {
-	t.Run("ReturnsMaskedValueWhenLocked", func(t *testing.T) {
-		mocks := setupSafeSopsSecretsProviderMocks()
+	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
+		mocks := setupSopsSecretsMocks(t)
 		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider.shims = mocks.Shims
+		provider.Initialize()
+		return provider, mocks
+	}
+
+	t.Run("ReturnsMaskedValueWhenLocked", func(t *testing.T) {
+		provider, _ := setup(t)
 		provider.secrets["test_key"] = "test_value"
 		provider.unlocked = false // Simulate that secrets are locked
 
@@ -170,8 +193,7 @@ func TestSopsSecretsProvider_GetSecret(t *testing.T) {
 	})
 
 	t.Run("ReturnsActualValueWhenUnlocked", func(t *testing.T) {
-		mocks := setupSafeSopsSecretsProviderMocks()
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider, _ := setup(t)
 		provider.secrets["test_key"] = "test_value"
 		provider.unlocked = true // Simulate that secrets have been unlocked
 
@@ -185,12 +207,39 @@ func TestSopsSecretsProvider_GetSecret(t *testing.T) {
 			t.Errorf("Expected GetSecret to return 'test_value', but got: %s", value)
 		}
 	})
+
+	t.Run("ReturnsErrorWhenSecretNotFound", func(t *testing.T) {
+		provider, _ := setup(t)
+		provider.unlocked = true // Simulate that secrets have been unlocked
+
+		value, err := provider.GetSecret("non_existent_key")
+
+		if err == nil {
+			t.Errorf("Expected GetSecret to fail, but got no error")
+		}
+
+		if value != "" {
+			t.Errorf("Expected GetSecret to return empty string, but got: %s", value)
+		}
+
+		expectedError := "secret not found: non_existent_key"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error message to be '%s', but got: %s", expectedError, err.Error())
+		}
+	})
 }
 
 func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
-	t.Run("ReplacesSecretSuccessfully", func(t *testing.T) {
-		mocks := setupSafeSopsSecretsProviderMocks()
+	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
+		mocks := setupSopsSecretsMocks(t)
 		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider.shims = mocks.Shims
+		provider.Initialize()
+		return provider, mocks
+	}
+
+	t.Run("ReplacesSecretSuccessfully", func(t *testing.T) {
+		provider, _ := setup(t)
 		provider.secrets["test_key"] = "test_value"
 		provider.unlocked = true // Simulate that secrets have been unlocked
 
@@ -223,97 +272,147 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenSecretNotFound", func(t *testing.T) {
-		mocks := setupSafeSopsSecretsProviderMocks()
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
-		provider.unlocked = true // Simulate that secrets have been unlocked
+	t.Run("HandlesEmptyInput", func(t *testing.T) {
+		provider, _ := setup(t)
+		provider.unlocked = true
 
-		// Test with standard notation
-		input1 := "This is a secret: ${{ sops.non_existent_key }}"
-		expectedOutput1 := "This is a secret: <ERROR: secret not found: non_existent_key>"
-
-		output1, err := provider.ParseSecrets(input1)
-
+		output, err := provider.ParseSecrets("")
 		if err != nil {
 			t.Fatalf("ParseSecrets failed with error: %v", err)
 		}
 
-		if output1 != expectedOutput1 {
-			t.Errorf("ParseSecrets returned '%s', expected '%s'", output1, expectedOutput1)
-		}
-
-		// Test with spaces in the notation
-		input2 := "This is a secret: ${{  sops.non_existent_key  }}"
-		expectedOutput2 := "This is a secret: <ERROR: secret not found: non_existent_key>"
-
-		output2, err := provider.ParseSecrets(input2)
-
-		if err != nil {
-			t.Fatalf("ParseSecrets failed with error: %v", err)
-		}
-
-		if output2 != expectedOutput2 {
-			t.Errorf("ParseSecrets returned '%s', expected '%s'", output2, expectedOutput2)
+		if output != "" {
+			t.Errorf("Expected empty output for empty input, got '%s'", output)
 		}
 	})
 
-	t.Run("ReturnsErrorForInvalidSecretFormat", func(t *testing.T) {
-		mocks := setupSafeSopsSecretsProviderMocks()
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
-		provider.unlocked = true // Simulate that secrets have been unlocked
+	t.Run("HandlesInputWithNoSecrets", func(t *testing.T) {
+		provider, _ := setup(t)
+		provider.unlocked = true
 
-		// Test with invalid secret format
-		input := "This is a secret: ${{ sops. }}"
-		expectedOutput := "This is a secret: <ERROR: invalid secret format>"
+		input := "This is a string with no secrets"
+		output, err := provider.ParseSecrets(input)
+		if err != nil {
+			t.Fatalf("ParseSecrets failed with error: %v", err)
+		}
+
+		if output != input {
+			t.Errorf("Expected unchanged input, got '%s'", output)
+		}
+	})
+
+	t.Run("HandlesMultipleSecrets", func(t *testing.T) {
+		provider, _ := setup(t)
+		provider.secrets["key1"] = "value1"
+		provider.secrets["key2"] = "value2"
+		provider.unlocked = true
+
+		input := "First: ${{ sops.key1 }}, Second: ${{ sops.key2 }}"
+		expectedOutput := "First: value1, Second: value2"
 
 		output, err := provider.ParseSecrets(input)
-
 		if err != nil {
 			t.Fatalf("ParseSecrets failed with error: %v", err)
 		}
 
 		if output != expectedOutput {
-			t.Errorf("ParseSecrets returned '%s', expected '%s'", output, expectedOutput)
+			t.Errorf("Expected '%s', got '%s'", expectedOutput, output)
 		}
 	})
 
-	t.Run("ReturnsErrorForNonExistentKey", func(t *testing.T) {
-		mocks := setupSafeSopsSecretsProviderMocks()
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
-		provider.unlocked = true // Simulate that secrets have been unlocked
+	t.Run("HandlesInvalidSecretFormat", func(t *testing.T) {
+		provider, _ := setup(t)
+		provider.unlocked = true
 
-		// Test with non-existent key
-		input := "This is a secret: ${{ sops.non_existent_key }}"
-		expectedOutput := "This is a secret: <ERROR: secret not found: non_existent_key>"
+		input := "This is invalid: ${{ sops. }}"
+		expectedOutput := "This is invalid: <ERROR: invalid secret format>"
 
 		output, err := provider.ParseSecrets(input)
-
 		if err != nil {
 			t.Fatalf("ParseSecrets failed with error: %v", err)
 		}
 
 		if output != expectedOutput {
-			t.Errorf("ParseSecrets returned '%s', expected '%s'", output, expectedOutput)
+			t.Errorf("Expected '%s', got '%s'", expectedOutput, output)
 		}
 	})
 
-	t.Run("ReturnsErrorForInvalidKeyPath", func(t *testing.T) {
-		mocks := setupSafeSopsSecretsProviderMocks()
-		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
-		provider.unlocked = true // Simulate that secrets have been unlocked
+	t.Run("HandlesConsecutiveDots", func(t *testing.T) {
+		provider, _ := setup(t)
+		provider.unlocked = true
 
-		// Test with invalid key path
-		input := "This is a secret: ${{ sops.invalid..key }}"
-		expectedOutput := "This is a secret: <ERROR: invalid key path: invalid..key>"
+		input := "This is invalid: ${{ sops.key..path }}"
+		expectedOutput := "This is invalid: <ERROR: invalid key path: key..path>"
 
 		output, err := provider.ParseSecrets(input)
-
 		if err != nil {
 			t.Fatalf("ParseSecrets failed with error: %v", err)
 		}
 
 		if output != expectedOutput {
-			t.Errorf("ParseSecrets returned '%s', expected '%s'", output, expectedOutput)
+			t.Errorf("Expected '%s', got '%s'", expectedOutput, output)
+		}
+	})
+
+	t.Run("HandlesSecretNotFound", func(t *testing.T) {
+		provider, _ := setup(t)
+		provider.unlocked = true
+
+		input := "Missing secret: ${{ sops.missing_key }}"
+		expectedOutput := "Missing secret: <ERROR: secret not found: missing_key>"
+
+		output, err := provider.ParseSecrets(input)
+		if err != nil {
+			t.Fatalf("ParseSecrets failed with error: %v", err)
+		}
+
+		if output != expectedOutput {
+			t.Errorf("Expected '%s', got '%s'", expectedOutput, output)
+		}
+	})
+}
+
+func TestSopsSecretsProvider_findSecretsFilePath(t *testing.T) {
+	setup := func(t *testing.T) (*SopsSecretsProvider, *Mocks) {
+		mocks := setupSopsSecretsMocks(t)
+		provider := NewSopsSecretsProvider("/valid/config/path", mocks.Injector)
+		provider.shims = mocks.Shims
+		return provider, mocks
+	}
+
+	t.Run("ReturnsYamlPathWhenYamlExists", func(t *testing.T) {
+		provider, mocks := setup(t)
+
+		// Mock Stat to return success for yaml file
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == filepath.Join("/valid/config/path", "secrets.enc.yaml") {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		path := provider.findSecretsFilePath()
+		expectedPath := filepath.Join("/valid/config/path", "secrets.enc.yaml")
+		if path != expectedPath {
+			t.Errorf("Expected path to be %s, got %s", expectedPath, path)
+		}
+	})
+
+	t.Run("ReturnsYmlPathWhenYamlDoesNotExist", func(t *testing.T) {
+		provider, mocks := setup(t)
+
+		// Mock Stat to return error for yaml file but success for yml file
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == filepath.Join("/valid/config/path", "secrets.enc.yaml") {
+				return nil, os.ErrNotExist
+			}
+			return nil, nil
+		}
+
+		path := provider.findSecretsFilePath()
+		expectedPath := filepath.Join("/valid/config/path", "secrets.enc.yml")
+		if path != expectedPath {
+			t.Errorf("Expected path to be %s, got %s", expectedPath, path)
 		}
 	})
 }
