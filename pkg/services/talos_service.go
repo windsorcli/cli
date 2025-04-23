@@ -251,7 +251,7 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		expandedSourcePath := os.ExpandEnv(parts[0])
 
 		// Create the directory if it doesn't exist
-		if err := mkdirAll(expandedSourcePath, os.ModePerm); err != nil {
+		if err := s.shims.MkdirAll(expandedSourcePath, os.ModePerm); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %v", expandedSourcePath, err)
 		}
 

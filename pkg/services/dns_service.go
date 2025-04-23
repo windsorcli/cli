@@ -214,11 +214,11 @@ func (s *DNSService) WriteConfig() error {
 `
 
 	corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
-	if err := mkdirAll(filepath.Dir(corefilePath), 0755); err != nil {
+	if err := s.shims.MkdirAll(filepath.Dir(corefilePath), 0755); err != nil {
 		return fmt.Errorf("error creating parent folders: %w", err)
 	}
 
-	if err := writeFile(corefilePath, []byte(corefileContent), 0644); err != nil {
+	if err := s.shims.WriteFile(corefilePath, []byte(corefileContent), 0644); err != nil {
 		return fmt.Errorf("error writing Corefile: %w", err)
 	}
 

@@ -4,16 +4,19 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/api/v1alpha1/cluster"
-	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
+)
+
+// Package-level variables for mocking os functions
+var (
+	stat     = os.Stat
+	mkdir    = os.Mkdir
+	mkdirAll = os.MkdirAll
 )
 
 // =============================================================================
@@ -21,48 +24,74 @@ import (
 // =============================================================================
 
 // setupTalosServiceMocks creates and returns mock components for TalosService tests
-func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
-	var injector di.Injector
-	if len(optionalInjector) > 0 {
-		injector = optionalInjector[0]
-	} else {
-		injector = di.NewMockInjector()
+func setupTalosServiceMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
+
+	// Create base mocks using setupMocks
+	mocks := setupMocks(t, opts...)
+
+	// Load config
+	configYAML := fmt.Sprintf(`
+apiVersion: v1alpha1
+contexts:
+  mock-context:
+    dns:
+      domain: test
+    cluster:
+      workers:
+        nodes:
+          worker1:
+            endpoint: "192.168.1.1:%d"
+            hostports:
+              - "30000:30000"
+              - "30001:30001/udp"
+            volumes:
+              - "/data/worker1:/mnt/data"
+              - "/logs/worker1:/mnt/logs"
+          worker2:
+            endpoint: "192.168.1.2:50001"
+            hostports:
+              - "30002:30002/tcp"
+              - "30003:30003"
+            volumes:
+              - "/data/worker2:/mnt/data"
+              - "/logs/worker2:/mnt/logs"
+        hostports:
+          - "30000:30000/tcp"
+          - "30001:30001/udp"
+          - "30002:30002/tcp"
+          - "30003:30003/udp"
+        volumes:
+          - "/data/common:/mnt/data"
+          - "/logs/common:/mnt/logs"
+        local_volume_path: "/var/local"
+        cpu: %d
+        memory: %d
+`, constants.DEFAULT_TALOS_API_PORT,
+		constants.DEFAULT_TALOS_WORKER_CPU,
+		constants.DEFAULT_TALOS_WORKER_RAM)
+
+	if err := mocks.ConfigHandler.LoadConfigString(configYAML); err != nil {
+		t.Fatalf("Failed to load config: %v", err)
 	}
 
-	mockShell := shell.NewMockShell(injector)
-	mockConfigHandler := config.NewMockConfigHandler()
-
-	injector.Register("shell", mockShell)
-	injector.Register("configHandler", mockConfigHandler)
-
-	mockConfigHandler.GetContextFunc = func() string {
-		return "mock-context"
-	}
-
-	mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
-		switch key {
-		case "cluster.workers.cpu":
-			return constants.DEFAULT_TALOS_WORKER_CPU
-		case "cluster.workers.memory":
-			return constants.DEFAULT_TALOS_WORKER_RAM
-		default:
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return 0
+	// Load optional config if provided
+	if len(opts) > 0 && opts[0].ConfigStr != "" {
+		if err := mocks.ConfigHandler.LoadConfigString(opts[0].ConfigStr); err != nil {
+			t.Fatalf("Failed to load config string: %v", err)
 		}
 	}
 
-	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+	mocks.Shell.GetProjectRootFunc = func() (string, error) {
+		return "/mock/project/root", nil
+	}
+
+	mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 		switch key {
-		case "cluster.workers.nodes.worker1.endpoint":
-			return "192.168.1.1:" + strconv.Itoa(constants.DEFAULT_TALOS_API_PORT)
-		case "cluster.workers.nodes.worker2.endpoint":
-			return "192.168.1.2:50001"
-		case "dns.domain":
-			return "test"
-		case "cluster.workers.local_volume_path":
-			return "/var/local"
+		case "talos.endpoint":
+			return "localhost:50000"
+		case "talos.context":
+			return "admin@localhost:50000"
 		default:
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -71,51 +100,7 @@ func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 		}
 	}
 
-	mockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
-		switch key {
-		case "cluster.workers.nodes.worker1.hostports":
-			return []string{"30000:30000", "30001:30001/udp"}
-		case "cluster.workers.nodes.worker2.hostports":
-			return []string{"30002:30002/tcp", "30003:30003"}
-		case "cluster.workers.hostports":
-			return []string{"30000:30000", "30001:30001/udp", "30002:30002/tcp", "30003:30003"}
-		case "cluster.workers.nodes.worker1.volumes":
-			return []string{"/data/worker1:/mnt/data", "/logs/worker1:/mnt/logs"}
-		case "cluster.workers.nodes.worker2.volumes":
-			return []string{"/data/worker2:/mnt/data", "/logs/worker2:/mnt/logs"}
-		case "cluster.workers.volumes":
-			return []string{"/data/common:/mnt/data", "/logs/common:/mnt/logs"}
-		default:
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return nil
-		}
-	}
-
-	mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-		return &v1alpha1.Context{
-			Cluster: &cluster.ClusterConfig{
-				Workers: cluster.NodeGroupConfig{
-					Nodes: map[string]cluster.NodeConfig{
-						"worker1": {},
-						"worker2": {},
-					},
-					HostPorts: []string{"30000:30000/tcp", "30001:30001/udp", "30002:30002/tcp", "30003:30003/udp"},
-				},
-			},
-		}
-	}
-
-	mockShell.GetProjectRootFunc = func() (string, error) {
-		return "/mock/project/root", nil
-	}
-
-	return &MockComponents{
-		Injector:          injector,
-		MockShell:         mockShell,
-		MockConfigHandler: mockConfigHandler,
-	}
+	return mocks
 }
 
 // =============================================================================
@@ -126,7 +111,7 @@ func setupTalosServiceMocks(optionalInjector ...di.Injector) *MockComponents {
 func TestTalosService_NewTalosService(t *testing.T) {
 	t.Run("SuccessWorker", func(t *testing.T) {
 		// Given: a set of mock components
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 
 		// When a new TalosService is created
 		service := NewTalosService(mocks.Injector, "worker")
@@ -139,7 +124,7 @@ func TestTalosService_NewTalosService(t *testing.T) {
 
 	t.Run("SuccessControlPlane", func(t *testing.T) {
 		// Given: a set of mock components
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 
 		// When a new TalosService is created
 		service := NewTalosService(mocks.Injector, "controlplane")
@@ -162,7 +147,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
 
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Initialize the service
@@ -179,22 +164,17 @@ func TestTalosService_SetAddress(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// And the address should be set correctly in the configHandler
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.workers.nodes."+service.name+".node" && value == "192.168.1.1" {
-				return nil
-			}
-			return fmt.Errorf("unexpected key or value")
-		}
+		// And the address should be set correctly in the ConfigHandler
+		mocks.ConfigHandler.SetContextValue("cluster.workers.nodes."+service.name+".node", "192.168.1.1")
 
-		if err := mocks.MockConfigHandler.SetContextValueFunc("cluster.workers.nodes."+service.name+".node", "192.168.1.1"); err != nil {
+		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.nodes."+service.name+".node", "192.168.1.1"); err != nil {
 			t.Fatalf("expected address to be set without error, got %v", err)
 		}
 	})
 
 	t.Run("SuccessControlPlane", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "controlplane")
 
 		// Initialize the service
@@ -211,22 +191,17 @@ func TestTalosService_SetAddress(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// And the address should be set correctly in the configHandler
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.workers.nodes."+service.name+".node" && value == "192.168.1.1" {
-				return nil
-			}
-			return fmt.Errorf("unexpected key or value")
-		}
+		// And the address should be set correctly in the ConfigHandler
+		mocks.ConfigHandler.SetContextValue("cluster.workers.nodes."+service.name+".node", "192.168.1.1")
 
-		if err := mocks.MockConfigHandler.SetContextValueFunc("cluster.workers.nodes."+service.name+".node", "192.168.1.1"); err != nil {
+		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.nodes."+service.name+".node", "192.168.1.1"); err != nil {
 			t.Fatalf("expected address to be set without error, got %v", err)
 		}
 	})
 
 	t.Run("SuccessControlPlaneLeader", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "controlplane")
 		service.isLeader = true
 
@@ -244,22 +219,17 @@ func TestTalosService_SetAddress(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// And the address should be set correctly in the configHandler
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.controlplanes.nodes."+service.name+".node" && value == "192.168.1.1" {
-				return nil
-			}
-			return fmt.Errorf("unexpected key or value")
-		}
+		// And the address should be set correctly in the ConfigHandler
+		mocks.ConfigHandler.SetContextValue("cluster.controlplanes.nodes."+service.name+".node", "192.168.1.1")
 
-		if err := mocks.MockConfigHandler.SetContextValueFunc("cluster.controlplanes.nodes."+service.name+".node", "192.168.1.1"); err != nil {
+		if err := mocks.ConfigHandler.SetContextValue("cluster.controlplanes.nodes."+service.name+".node", "192.168.1.1"); err != nil {
 			t.Fatalf("expected address to be set without error, got %v", err)
 		}
 	})
 
 	t.Run("Localhost", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Initialize the service
@@ -277,21 +247,16 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the endpoint should be set with a unique port
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.workers.nodes."+service.name+".endpoint" && strings.HasPrefix(value.(string), "127.0.0.1:50001") {
-				return nil
-			}
-			return fmt.Errorf("unexpected key or value")
-		}
+		mocks.ConfigHandler.SetContextValue("cluster.workers.nodes."+service.name+".endpoint", "127.0.0.1:50001")
 
-		if err := mocks.MockConfigHandler.SetContextValueFunc("cluster.workers.nodes."+service.name+".endpoint", "127.0.0.1:50001"); err != nil {
+		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.nodes."+service.name+".endpoint", "127.0.0.1:50001"); err != nil {
 			t.Fatalf("expected endpoint to be set without error, got %v", err)
 		}
 	})
 
 	t.Run("ErrorSettingHostname", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Initialize the service
@@ -300,12 +265,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Simulate an error when setting the hostname
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.workers.nodes."+service.name+".hostname" {
-				return fmt.Errorf("mock error setting hostname")
-			}
-			return nil
-		}
+		mocks.ConfigHandler.SetContextValue("cluster.workers.nodes."+service.name+".hostname", "mock error setting hostname")
 
 		// Attempt to set the address, expecting an error
 		if err := service.SetAddress("192.168.1.1"); err == nil {
@@ -317,7 +277,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 
 	t.Run("ErrorSettingNodeAddress", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Initialize the service
@@ -327,15 +287,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Simulate an error when setting the node address
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.workers.nodes."+service.name+".hostname" {
-				return nil // Mock success for setting hostname
-			}
-			if key == "cluster.workers.nodes."+service.name+".node" {
-				return fmt.Errorf("mock error setting node address") // Mock failure for setting node
-			}
-			return nil
-		}
+		mocks.ConfigHandler.SetContextValue("cluster.workers.nodes."+service.name+".hostname", "mock error setting hostname")
 
 		// Attempt to set the address, expecting an error
 		if err := service.SetAddress("192.168.1.1"); err == nil {
@@ -347,7 +299,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 
 	t.Run("ErrorSettingEndpoint", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Initialize the service
@@ -356,12 +308,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Simulate an error when setting the endpoint
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.workers.nodes."+service.name+".endpoint" {
-				return fmt.Errorf("mock error setting endpoint")
-			}
-			return nil
-		}
+		mocks.ConfigHandler.SetContextValue("cluster.workers.nodes."+service.name+".endpoint", "mock error setting endpoint")
 
 		// Attempt to set the address, expecting an error
 		if err := service.SetAddress("192.168.1.1"); err == nil {
@@ -373,7 +320,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 
 	t.Run("ErrorSettingHostPorts", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Initialize the service
@@ -382,12 +329,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// Simulate an error when setting host ports with non-integer values
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.workers.nodes."+service.name+".hostports" {
-				return fmt.Errorf("mock error setting host ports")
-			}
-			return nil
-		}
+		mocks.ConfigHandler.SetContextValue("cluster.workers.nodes."+service.name+".hostports", "mock error setting host ports")
 
 		// Attempt to set the address, expecting an error
 		if err := service.SetAddress("localhost"); err == nil {
@@ -451,7 +393,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				// Setup mocks for this test
-				mocks := setupTalosServiceMocks()
+				mocks := setupTalosServiceMocks(t)
 				service := NewTalosService(mocks.Injector, "worker")
 
 				// Initialize the service
@@ -460,15 +402,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 				}
 
 				// Simulate host port configuration
-				mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
-					if key == "cluster.workers.hostports" {
-						return tt.hostPorts
-					}
-					if len(defaultValue) > 0 {
-						return defaultValue[0]
-					}
-					return nil
-				}
+				mocks.ConfigHandler.GetStringSlice("cluster.workers.hostports", tt.hostPorts)
 
 				// Attempt to set the address
 				err := service.SetAddress("localhost")
@@ -489,7 +423,7 @@ func TestTalosService_SetAddress(t *testing.T) {
 
 	t.Run("UniquePortAssignment", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Initialize the service
@@ -512,14 +446,9 @@ func TestTalosService_SetAddress(t *testing.T) {
 		}
 
 		// And the endpoint should be set with a unique port
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			if key == "cluster.workers.nodes."+service.name+".endpoint" && strings.HasPrefix(value.(string), "127.0.0.1:50003") {
-				return nil
-			}
-			return fmt.Errorf("unexpected key or value")
-		}
+		mocks.ConfigHandler.SetContextValue("cluster.workers.nodes."+service.name+".endpoint", "127.0.0.1:50003")
 
-		if err := mocks.MockConfigHandler.SetContextValueFunc("cluster.workers.nodes."+service.name+".endpoint", "127.0.0.1:50003"); err != nil {
+		if err := mocks.ConfigHandler.SetContextValue("cluster.workers.nodes."+service.name+".endpoint", "127.0.0.1:50003"); err != nil {
 			t.Fatalf("expected endpoint to be set without error, got %v", err)
 		}
 	})
@@ -529,15 +458,10 @@ func TestTalosService_SetAddress(t *testing.T) {
 		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
 
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 
 		// Mock vm.driver to enable localhost mode
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "docker-desktop"
-			}
-			return ""
-		}
+		mocks.ConfigHandler.GetString("vm.driver", "docker-desktop")
 
 		// Create and initialize first service (non-leader)
 		service1 := NewTalosService(mocks.Injector, "worker1")
@@ -573,17 +497,14 @@ func TestTalosService_SetAddress(t *testing.T) {
 
 		// Check if the ports were set correctly in the config handler
 		var setContextValueCalls = make(map[string]any)
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
-			setContextValueCalls[key] = value
-			return nil
-		}
+		mocks.ConfigHandler.SetContextValue("cluster.workers.nodes.worker1.endpoint", fmt.Sprintf("127.0.0.1:%d", expectedPort1))
 
 		// Set endpoints for both services
-		err = mocks.MockConfigHandler.SetContextValue("cluster.workers.nodes.worker1.endpoint", fmt.Sprintf("127.0.0.1:%d", expectedPort1))
+		err = mocks.ConfigHandler.SetContextValue("cluster.workers.nodes.worker1.endpoint", fmt.Sprintf("127.0.0.1:%d", expectedPort1))
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		err = mocks.MockConfigHandler.SetContextValue("cluster.workers.nodes.worker2.endpoint", fmt.Sprintf("127.0.0.1:%d", expectedPort2))
+		err = mocks.ConfigHandler.SetContextValue("cluster.workers.nodes.worker2.endpoint", fmt.Sprintf("127.0.0.1:%d", expectedPort2))
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -625,11 +546,11 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("NoClusterConfigWorker", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Override the GetConfig method to return nil for Cluster
-		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
 				Cluster: nil,
 			}
@@ -660,21 +581,19 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 	})
 
 	t.Run("NoClusterConfigControlPlane", func(t *testing.T) {
-		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
-		service := NewTalosService(mocks.Injector, "controlplane")
+		// Given: a set of mock components
+		service, mocks := setup(t)
 
 		// Override the GetConfig method to return nil for Cluster
-		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
 				Cluster: nil,
 			}
 		}
 
-		// Initialize the service
-		err := service.Initialize()
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
+		// And the cluster config is nil
+		if err := mocks.ConfigHandler.SetContextValue("cluster", nil); err != nil {
+			t.Fatalf("failed to set cluster config: %v", err)
 		}
 
 		// When the GetComposeConfig method is called
@@ -697,11 +616,11 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("ControlPlaneMode", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "controlplane")
 
 		// Mock the GetConfig method to return a valid Cluster
-		mocks.MockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
 				Cluster: &cluster.ClusterConfig{},
 			}
@@ -737,11 +656,11 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("InvalidVolumeFormat", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Mock the GetStringSlice method to return an invalid volume format
-		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
 			if key == "cluster.workers.volumes" {
 				return []string{"invalidVolumeFormat"}
 			}
@@ -768,7 +687,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("InvalidDefaultAPIPort", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Set the defaultAPIPort to an invalid value exceeding MaxUint32
@@ -796,7 +715,7 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("ErrorMkdirAll", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Mock the mkdirAll function to return an error
@@ -826,11 +745,11 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("InvalidHostPortFormat", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Mock the GetStringSlice method to return an invalid host port format
-		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
 			if key == "cluster.workers.nodes.worker.hostports" {
 				return []string{"invalidPort:30000/tcp"}
 			}
@@ -857,11 +776,11 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("InvalidHostPortValue", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Mock the GetStringSlice method to return an invalid host port value
-		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
 			if key == "cluster.workers.nodes.worker.hostports" {
 				return []string{"30000:invalidHostPort/tcp"}
 			}
@@ -888,11 +807,11 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("LocalhostAddress", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "worker")
 
 		// Mock the GetStringSlice method to return a valid host port configuration
-		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
 			if key == "cluster.workers.nodes.worker.hostports" {
 				return []string{"30000:30000/tcp"}
 			}
@@ -931,11 +850,11 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("LocalhostModeControlPlaneLeader", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "controlplane")
 
 		// Mock vm.driver to enable localhost mode
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
 				return "docker-desktop"
 			}
@@ -991,11 +910,11 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("LocalhostModeControlPlaneNonLeader", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 		service := NewTalosService(mocks.Injector, "controlplane")
 
 		// Mock vm.driver to enable localhost mode
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
 				return "docker-desktop"
 			}
@@ -1041,11 +960,11 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		nextAPIPort = constants.DEFAULT_TALOS_API_PORT + 1
 
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 
 		// Track SetContextValue calls
 		setContextValueCalls := make(map[string]string)
-		mocks.MockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if strValue, ok := value.(string); ok {
 				setContextValueCalls[key] = strValue
 			}
@@ -1053,12 +972,12 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 		}
 
 		// Mock GetStringSlice to return empty hostports
-		mocks.MockConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
 			return []string{}
 		}
 
 		// Mock GetString to return the stored endpoint values
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
 				return "docker-desktop"
 			}
@@ -1141,10 +1060,10 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("DNSConfiguration", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 
 		// Mock GetString to return DNS address
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.address" {
 				return "10.0.0.53"
 			}
@@ -1183,10 +1102,10 @@ func TestTalosService_GetComposeConfig(t *testing.T) {
 
 	t.Run("DNSConfigurationDuplicate", func(t *testing.T) {
 		// Setup mocks for this test
-		mocks := setupTalosServiceMocks()
+		mocks := setupTalosServiceMocks(t)
 
 		// Mock GetString to return DNS address
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "dns.address" {
 				return "10.0.0.53"
 			}

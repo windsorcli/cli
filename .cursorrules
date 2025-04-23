@@ -1,5 +1,12 @@
 # CRITICAL TEST SUITE RULES
 
+## CODE STYLE GUIDELINES
+Must follow Windsor CLI style guidelines in STYLE.md:
+1. Package Structure
+2. Documentation Style
+3. Testing Patterns
+4. Code Organization
+
 ## MANDATORY TEST SUITE STRUCTURE
 1. TEMPLATE FIRST
    - Must show complete test suite structure with all t.Run() stubs
@@ -62,13 +69,6 @@ Must use `say` command with Samantha voice for:
 - Source Code Bug: "Source code bug detected in [function]. Please review."
 - User Input Needed: "User input required for [specific issue]"
 - Work Complete: "Test engineering work complete"
-
-## CODE STYLE GUIDELINES
-Must follow Windsor CLI style guidelines in STYLE.md:
-1. Package Structure
-2. Documentation Style
-3. Testing Patterns
-4. Code Organization
 
 ## TASK TEMPLATES
 When creating new code or modifying existing code, refer to:

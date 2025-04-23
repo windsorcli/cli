@@ -167,7 +167,7 @@ func (s *RegistryService) generateRegistryService(registry docker.RegistryConfig
 		return types.ServiceConfig{}, fmt.Errorf("error retrieving project root: %w", err)
 	}
 	cacheDir := projectRoot + "/.windsor/.docker-cache"
-	if err := mkdirAll(cacheDir, os.ModePerm); err != nil {
+	if err := s.shims.MkdirAll(cacheDir, os.ModePerm); err != nil {
 		return service, fmt.Errorf("error creating .docker-cache directory: %w", err)
 	}
 
