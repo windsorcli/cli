@@ -48,7 +48,7 @@ type GitGenerator struct {
 // NewGitGenerator creates a new GitGenerator
 func NewGitGenerator(injector di.Injector) *GitGenerator {
 	return &GitGenerator{
-		BaseGenerator: BaseGenerator{injector: injector},
+		BaseGenerator: *NewGenerator(injector),
 	}
 }
 

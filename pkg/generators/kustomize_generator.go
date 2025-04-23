@@ -28,7 +28,7 @@ type KustomizeGenerator struct {
 // NewKustomizeGenerator creates a new KustomizeGenerator
 func NewKustomizeGenerator(injector di.Injector) *KustomizeGenerator {
 	return &KustomizeGenerator{
-		BaseGenerator: BaseGenerator{injector: injector},
+		BaseGenerator: *NewGenerator(injector),
 	}
 }
 

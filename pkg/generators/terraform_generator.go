@@ -35,7 +35,7 @@ type TerraformGenerator struct {
 // NewTerraformGenerator creates a new TerraformGenerator
 func NewTerraformGenerator(injector di.Injector) *TerraformGenerator {
 	return &TerraformGenerator{
-		BaseGenerator: BaseGenerator{injector: injector},
+		BaseGenerator: *NewGenerator(injector),
 	}
 }
 
