@@ -11,6 +11,73 @@ import (
 // Test Public Methods
 // =============================================================================
 
+func TestColimaNetworkManager_Initialize(t *testing.T) {
+	setup := func(t *testing.T) (*ColimaNetworkManager, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		manager := NewColimaNetworkManager(mocks.Injector)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("ErrorResolvingSecureShell", func(t *testing.T) {
+		// Given a network manager with invalid secure shell
+		manager, mocks := setup(t)
+		mocks.Injector.Register("secureShell", "invalid")
+
+		// When initializing the network manager
+		err := manager.Initialize()
+
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected an error during Initialize, got nil")
+		}
+
+		// And the error should be about secure shell type
+		if err.Error() != "resolved secure shell instance is not of type shell.Shell" {
+			t.Fatalf("unexpected error message: got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingSSHClient", func(t *testing.T) {
+		// Given a network manager with invalid SSH client
+		manager, mocks := setup(t)
+		mocks.Injector.Register("sshClient", "invalid")
+
+		// When initializing the network manager
+		err := manager.Initialize()
+
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected an error during Initialize, got nil")
+		}
+
+		// And the error should be about SSH client type
+		if err.Error() != "resolved ssh client instance is not of type ssh.Client" {
+			t.Fatalf("unexpected error message: got %v", err)
+		}
+	})
+
+	t.Run("ErrorResolvingNetworkInterfaceProvider", func(t *testing.T) {
+		// Given a network manager with invalid network interface provider
+		manager, mocks := setup(t)
+		mocks.Injector.Register("networkInterfaceProvider", "invalid")
+
+		// When initializing the network manager
+		err := manager.Initialize()
+
+		// Then an error should occur
+		if err == nil {
+			t.Fatalf("expected an error during Initialize, got nil")
+		}
+
+		// And the error should be about network interface provider type
+		if err.Error() != "failed to resolve network interface provider" {
+			t.Fatalf("unexpected error message: got %v", err)
+		}
+	})
+}
+
 func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaNetworkManager, *Mocks) {
 		t.Helper()
