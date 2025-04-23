@@ -280,11 +280,10 @@ func TestEnv_PrintAlias(t *testing.T) {
 		t.Helper()
 		mocks := setupMocks(t)
 		printer := NewBaseEnvPrinter(mocks.Injector)
-		if err := printer.Initialize(); err != nil {
-			t.Fatalf("Failed to initialize printer: %v", err)
+		err := printer.Initialize()
+		if err != nil {
+			t.Errorf("unexpected error during initialization: %v", err)
 		}
-		printer.shims = mocks.Shims
-		printer.shell = mocks.Shell
 		return printer, mocks
 	}
 

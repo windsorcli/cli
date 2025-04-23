@@ -273,3 +273,71 @@ func TestMockEnvPrinter_Reset(t *testing.T) {
 		}
 	})
 }
+
+// TestMockEnvPrinter_GetManagedEnv tests the GetManagedEnv method of the MockEnvPrinter
+func TestMockEnvPrinter_GetManagedEnv(t *testing.T) {
+	t.Run("CustomGetManagedEnv", func(t *testing.T) {
+		// Given a mock environment printer with custom implementation
+		printer := NewMockEnvPrinter()
+		expectedEnv := []string{"VAR1", "VAR2"}
+		printer.GetManagedEnvFunc = func() []string {
+			return expectedEnv
+		}
+
+		// When getting managed environment variables
+		managedEnv := printer.GetManagedEnv()
+
+		// Then the expected environment variables should be returned
+		if !reflect.DeepEqual(managedEnv, expectedEnv) {
+			t.Errorf("GetManagedEnv() = %v, want %v", managedEnv, expectedEnv)
+		}
+	})
+
+	t.Run("DefaultGetManagedEnv", func(t *testing.T) {
+		// Given a mock environment printer with default implementation
+		printer := NewMockEnvPrinter()
+
+		// When getting managed environment variables
+		managedEnv := printer.GetManagedEnv()
+
+		// Then the base implementation should be used
+		baseEnv := printer.BaseEnvPrinter.GetManagedEnv()
+		if !reflect.DeepEqual(managedEnv, baseEnv) {
+			t.Errorf("GetManagedEnv() = %v, want %v", managedEnv, baseEnv)
+		}
+	})
+}
+
+// TestMockEnvPrinter_GetManagedAlias tests the GetManagedAlias method of the MockEnvPrinter
+func TestMockEnvPrinter_GetManagedAlias(t *testing.T) {
+	t.Run("CustomGetManagedAlias", func(t *testing.T) {
+		// Given a mock environment printer with custom implementation
+		printer := NewMockEnvPrinter()
+		expectedAlias := []string{"alias1", "alias2"}
+		printer.GetManagedAliasFunc = func() []string {
+			return expectedAlias
+		}
+
+		// When getting managed aliases
+		managedAlias := printer.GetManagedAlias()
+
+		// Then the expected aliases should be returned
+		if !reflect.DeepEqual(managedAlias, expectedAlias) {
+			t.Errorf("GetManagedAlias() = %v, want %v", managedAlias, expectedAlias)
+		}
+	})
+
+	t.Run("DefaultGetManagedAlias", func(t *testing.T) {
+		// Given a mock environment printer with default implementation
+		printer := NewMockEnvPrinter()
+
+		// When getting managed aliases
+		managedAlias := printer.GetManagedAlias()
+
+		// Then the base implementation should be used
+		baseAlias := printer.BaseEnvPrinter.GetManagedAlias()
+		if !reflect.DeepEqual(managedAlias, baseAlias) {
+			t.Errorf("GetManagedAlias() = %v, want %v", managedAlias, baseAlias)
+		}
+	})
+}
