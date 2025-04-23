@@ -2,29 +2,31 @@ package config
 
 import (
 	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/secrets"
 )
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
-	InitializeFunc       func() error
-	LoadConfigFunc       func(path string) error
-	LoadConfigStringFunc func(content string) error
-	IsLoadedFunc         func() bool
-	GetStringFunc        func(key string, defaultValue ...string) string
-	GetIntFunc           func(key string, defaultValue ...int) int
-	GetBoolFunc          func(key string, defaultValue ...bool) bool
-	GetStringSliceFunc   func(key string, defaultValue ...[]string) []string
-	GetStringMapFunc     func(key string, defaultValue ...map[string]string) map[string]string
-	SetFunc              func(key string, value any) error
-	SetContextValueFunc  func(key string, value any) error
-	SaveConfigFunc       func(path string) error
-	GetFunc              func(key string) any
-	SetDefaultFunc       func(context v1alpha1.Context) error
-	GetConfigFunc        func() *v1alpha1.Context
-	GetContextFunc       func() string
-	SetContextFunc       func(context string) error
-	GetConfigRootFunc    func() (string, error)
-	CleanFunc            func() error
+	InitializeFunc         func() error
+	LoadConfigFunc         func(path string) error
+	LoadConfigStringFunc   func(content string) error
+	IsLoadedFunc           func() bool
+	GetStringFunc          func(key string, defaultValue ...string) string
+	GetIntFunc             func(key string, defaultValue ...int) int
+	GetBoolFunc            func(key string, defaultValue ...bool) bool
+	GetStringSliceFunc     func(key string, defaultValue ...[]string) []string
+	GetStringMapFunc       func(key string, defaultValue ...map[string]string) map[string]string
+	SetFunc                func(key string, value any) error
+	SetContextValueFunc    func(key string, value any) error
+	SaveConfigFunc         func(path string) error
+	GetFunc                func(key string) any
+	SetDefaultFunc         func(context v1alpha1.Context) error
+	GetConfigFunc          func() *v1alpha1.Context
+	GetContextFunc         func() string
+	SetContextFunc         func(context string) error
+	GetConfigRootFunc      func() (string, error)
+	CleanFunc              func() error
+	SetSecretsProviderFunc func(provider secrets.SecretsProvider)
 }
 
 // =============================================================================
@@ -205,6 +207,13 @@ func (m *MockConfigHandler) Clean() error {
 		return m.CleanFunc()
 	}
 	return nil
+}
+
+// SetSecretsProvider calls the mock SetSecretsProviderFunc if set, otherwise does nothing
+func (m *MockConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {
+	if m.SetSecretsProviderFunc != nil {
+		m.SetSecretsProviderFunc(provider)
+	}
 }
 
 // Ensure MockConfigHandler implements ConfigHandler

@@ -637,3 +637,50 @@ func TestConfigHandler_Clean(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseConfigHandler_SetSecretsProvider(t *testing.T) {
+	t.Run("AddsProvider", func(t *testing.T) {
+		// Given a new config handler
+		mocks := setupMocks(t)
+		handler := NewBaseConfigHandler(mocks.Injector)
+
+		// And a mock secrets provider
+		mockProvider := secrets.NewMockSecretsProvider(mocks.Injector)
+
+		// When setting the secrets provider
+		handler.SetSecretsProvider(mockProvider)
+
+		// Then the provider should be added to the list
+		if len(handler.secretsProviders) != 1 {
+			t.Errorf("Expected 1 secrets provider, got %d", len(handler.secretsProviders))
+		}
+		if handler.secretsProviders[0] != mockProvider {
+			t.Errorf("Expected provider to be added, got %v", handler.secretsProviders[0])
+		}
+	})
+
+	t.Run("AddsMultipleProviders", func(t *testing.T) {
+		// Given a new config handler
+		mocks := setupMocks(t)
+		handler := NewBaseConfigHandler(mocks.Injector)
+
+		// And multiple mock secrets providers
+		mockProvider1 := secrets.NewMockSecretsProvider(mocks.Injector)
+		mockProvider2 := secrets.NewMockSecretsProvider(mocks.Injector)
+
+		// When setting multiple secrets providers
+		handler.SetSecretsProvider(mockProvider1)
+		handler.SetSecretsProvider(mockProvider2)
+
+		// Then all providers should be added to the list
+		if len(handler.secretsProviders) != 2 {
+			t.Errorf("Expected 2 secrets providers, got %d", len(handler.secretsProviders))
+		}
+		if handler.secretsProviders[0] != mockProvider1 {
+			t.Errorf("Expected first provider to be added, got %v", handler.secretsProviders[0])
+		}
+		if handler.secretsProviders[1] != mockProvider2 {
+			t.Errorf("Expected second provider to be added, got %v", handler.secretsProviders[1])
+		}
+	})
+}

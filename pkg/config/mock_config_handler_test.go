@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/secrets"
 )
 
 func TestMockConfigHandler_Initialize(t *testing.T) {
@@ -668,5 +669,39 @@ func TestMockConfigHandler_LoadConfigString(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
+	})
+}
+
+func TestMockConfigHandler_SetSecretsProvider(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock config handler with SetSecretsProviderFunc set
+		handler := NewMockConfigHandler()
+		var calledProvider secrets.SecretsProvider
+		handler.SetSecretsProviderFunc = func(provider secrets.SecretsProvider) {
+			calledProvider = provider
+		}
+
+		// And a mock secrets provider
+		mockProvider := secrets.NewMockSecretsProvider(nil)
+
+		// When setting the secrets provider
+		handler.SetSecretsProvider(mockProvider)
+
+		// Then the function should be called with the provider
+		if calledProvider != mockProvider {
+			t.Errorf("Expected SetSecretsProviderFunc to be called with %v, got %v", mockProvider, calledProvider)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without SetSecretsProviderFunc set
+		handler := NewMockConfigHandler()
+
+		// And a mock secrets provider
+		mockProvider := secrets.NewMockSecretsProvider(nil)
+
+		// When setting the secrets provider
+		// Then it should not panic
+		handler.SetSecretsProvider(mockProvider)
 	})
 }

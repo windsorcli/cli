@@ -37,6 +37,7 @@ type ConfigHandler interface {
 	GetConfigRoot() (string, error)
 	Clean() error
 	IsLoaded() bool
+	SetSecretsProvider(provider secrets.SecretsProvider)
 }
 
 const (
@@ -171,4 +172,9 @@ func (c *BaseConfigHandler) Clean() error {
 // IsLoaded checks if the configuration has been loaded
 func (c *BaseConfigHandler) IsLoaded() bool {
 	return c.loaded
+}
+
+// SetSecretsProvider sets the secrets provider for the config handler
+func (c *BaseConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {
+	c.secretsProviders = append(c.secretsProviders, provider)
 }
