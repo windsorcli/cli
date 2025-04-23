@@ -1155,38 +1155,9 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 		// Given a docker virt instance with valid mocks
 		dockerVirt, mocks := setup(t)
 
-		// And docker compose v2 is available
+		// And docker-compose is available
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "compose" {
-				return "Docker Compose version 2.0.0", nil
-			}
-			return "", fmt.Errorf("unexpected command: %s %v", command, args)
-		}
-
-		// When initializing
-		err := dockerVirt.Initialize()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-
-		// And the compose command should be set to docker compose
-		if dockerVirt.composeCommand != "docker compose" {
-			t.Errorf("expected compose command to be 'docker compose', got %q", dockerVirt.composeCommand)
-		}
-	})
-
-	t.Run("DockerComposeV1", func(t *testing.T) {
-		// Given a docker virt instance with valid mocks
-		dockerVirt, mocks := setup(t)
-
-		// And docker compose v1 is available
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "compose" {
-				return "", fmt.Errorf("docker compose not found")
-			}
-			if command == "docker-compose" {
+			if command == "docker-compose" && len(args) > 0 && args[0] == "--version" {
 				return "docker-compose version 1.29.2", nil
 			}
 			return "", fmt.Errorf("unexpected command: %s %v", command, args)
@@ -1206,15 +1177,12 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("DockerCliPlugin", func(t *testing.T) {
+	t.Run("DockerComposeV1", func(t *testing.T) {
 		// Given a docker virt instance with valid mocks
 		dockerVirt, mocks := setup(t)
 
-		// And docker-cli-plugin-docker-compose is available
+		// And docker-compose is not available but docker-cli-plugin is
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) > 0 && args[0] == "compose" {
-				return "", fmt.Errorf("docker compose not found")
-			}
 			if command == "docker-compose" {
 				return "", fmt.Errorf("docker-compose not found")
 			}
@@ -1235,6 +1203,38 @@ func TestDockerVirt_DetermineComposeCommand(t *testing.T) {
 		// And the compose command should be set to docker-cli-plugin-docker-compose
 		if dockerVirt.composeCommand != "docker-cli-plugin-docker-compose" {
 			t.Errorf("expected compose command to be 'docker-cli-plugin-docker-compose', got %q", dockerVirt.composeCommand)
+		}
+	})
+
+	t.Run("DockerCliPlugin", func(t *testing.T) {
+		// Given a docker virt instance with valid mocks
+		dockerVirt, mocks := setup(t)
+
+		// And only docker compose v2 is available
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker-compose" {
+				return "", fmt.Errorf("docker-compose not found")
+			}
+			if command == "docker-cli-plugin-docker-compose" {
+				return "", fmt.Errorf("docker-cli-plugin-docker-compose not found")
+			}
+			if command == "docker compose" {
+				return "Docker Compose version 2.0.0", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When initializing
+		err := dockerVirt.Initialize()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And the compose command should be set to docker compose
+		if dockerVirt.composeCommand != "docker compose" {
+			t.Errorf("expected compose command to be 'docker compose', got %q", dockerVirt.composeCommand)
 		}
 	})
 
