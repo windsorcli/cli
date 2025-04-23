@@ -302,25 +302,13 @@ var _ ContainerRuntime = (*DockerVirt)(nil)
 // preference: docker-compose, docker-cli-plugin-docker-compose, and docker compose.
 // It sets the first available command for later use in Docker operations.
 func (v *DockerVirt) determineComposeCommand() error {
-	// Check for docker compose v2 first
-	if _, err := v.shell.ExecSilent("docker", "compose", "--version"); err == nil {
-		v.composeCommand = "docker compose"
-		return nil
+	commands := []string{"docker-compose", "docker-cli-plugin-docker-compose", "docker compose"}
+	for _, cmd := range commands {
+		if _, err := v.shell.ExecSilent(cmd, "--version"); err == nil {
+			v.composeCommand = cmd
+			return nil
+		}
 	}
-
-	// Then check for docker-compose v1
-	if _, err := v.shell.ExecSilent("docker-compose", "--version"); err == nil {
-		v.composeCommand = "docker-compose"
-		return nil
-	}
-
-	// Finally check for docker-cli-plugin-docker-compose
-	if _, err := v.shell.ExecSilent("docker-cli-plugin-docker-compose", "--version"); err == nil {
-		v.composeCommand = "docker-cli-plugin-docker-compose"
-		return nil
-	}
-
-	v.composeCommand = ""
 	return nil
 }
 
