@@ -7,92 +7,39 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/stretchr/testify/require"
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
+	"github.com/windsorcli/cli/pkg/config"
+	"github.com/windsorcli/cli/pkg/constants"
 )
-
-// =============================================================================
-// Test Setup
-// =============================================================================
-
-// setupRegistryServiceMocks creates and returns mock components for RegistryService tests
-func setupRegistryServiceMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
-	t.Helper()
-
-	// Create base mocks using setupMocks
-	mocks := setupMocks(t, opts...)
-
-	// Set registry-specific configuration
-	mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-		return &v1alpha1.Context{
-			Docker: &docker.DockerConfig{
-				Registries: map[string]docker.RegistryConfig{
-					"registry": {
-						Remote: "registry.remote",
-						Local:  "registry.local",
-					},
-				},
-			},
-		}
-	}
-	mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-		if key == "vm.driver" {
-			return "docker-desktop"
-		}
-		if key == "dns.domain" {
-			return "test"
-		}
-		if len(defaultValue) > 0 {
-			return defaultValue[0]
-		}
-		return ""
-	}
-
-	// Create a generic mock service
-	mockService := NewMockService()
-	mockService.Initialize()
-	mocks.Injector.Register("registryService", mockService)
-
-	// Set up shell project root
-	mocks.Shell.GetProjectRootFunc = func() (string, error) {
-		return "/mock/project/root", nil
-	}
-
-	return mocks
-}
-
-// setupRegistryService creates a RegistryService with the given mocks
-func setupRegistryService(t *testing.T, mocks *Mocks) *RegistryService {
-	t.Helper()
-
-	service := NewRegistryService(mocks.Injector)
-	err := service.Initialize()
-	require.NoError(t, err)
-
-	return service
-}
 
 // =============================================================================
 // Test Constructor
 // =============================================================================
 
 func TestRegistryService_NewRegistryService(t *testing.T) {
+	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		service := NewRegistryService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+
+		return service, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a set of mock components
-		mocks := setupRegistryServiceMocks(t)
-
-		// When a new RegistryService is created
-		registryService := NewRegistryService(mocks.Injector)
+		service, mocks := setup(t)
 
 		// Then the RegistryService should not be nil
-		if registryService == nil {
+		if service == nil {
 			t.Fatalf("expected RegistryService, got nil")
 		}
 
 		// And: the RegistryService should have the correct injector
-		if registryService.injector != mocks.Injector {
-			t.Errorf("expected injector %v, got %v", mocks.Injector, registryService.injector)
+		if service.injector != mocks.Injector {
+			t.Errorf("expected injector %v, got %v", mocks.Injector, service.injector)
 		}
 	})
 }
@@ -102,14 +49,23 @@ func TestRegistryService_NewRegistryService(t *testing.T) {
 // =============================================================================
 
 func TestRegistryService_GetComposeConfig(t *testing.T) {
+	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		service := NewRegistryService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		service.SetName("registry")
+
+		return service, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock config handler, shell, context, and service
-		mocks := setupRegistryServiceMocks(t)
-		registryService := setupRegistryService(t, mocks)
-		registryService.SetName("registry")
+		service, _ := setup(t)
 
 		// When GetComposeConfig is called
-		composeConfig, err := registryService.GetComposeConfig()
+		composeConfig, err := service.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
@@ -120,8 +76,8 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		}
 
 		expectedName := "registry"
-		expectedRemoteURL := "registry.remote"
-		expectedLocalURL := "registry.local"
+		expectedRemoteURL := "registry.test"
+		expectedLocalURL := "registry.test"
 		found := false
 
 		for _, config := range composeConfig.Services {
@@ -143,12 +99,11 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 
 	t.Run("NoRegistryFound", func(t *testing.T) {
 		// Given a mock config handler, shell, context, and service
-		mocks := setupRegistryServiceMocks(t)
-		registryService := setupRegistryService(t, mocks)
-		registryService.SetName("nonexistent-registry")
+		service, _ := setup(t)
+		service.SetName("nonexistent-registry")
 
 		// When GetComposeConfig is called
-		_, err := registryService.GetComposeConfig()
+		_, err := service.GetComposeConfig()
 
 		// Then an error should be returned indicating no registry was found
 		if err == nil || !strings.Contains(err.Error(), "no registry found with name") {
@@ -158,9 +113,7 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 
 	t.Run("MkdirAllFailure", func(t *testing.T) {
 		// Given a mock config handler, shell, context, and service
-		mocks := setupRegistryServiceMocks(t)
-		registryService := setupRegistryService(t, mocks)
-		registryService.SetName("registry")
+		service, mocks := setup(t)
 
 		// Mock mkdirAll to simulate a failure
 		originalMkdirAll := mocks.Shims.MkdirAll
@@ -170,7 +123,7 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		}
 
 		// When GetComposeConfig is called
-		_, err := registryService.GetComposeConfig()
+		_, err := service.GetComposeConfig()
 
 		// Then an error should be returned indicating directory creation failure
 		if err == nil || !strings.Contains(err.Error(), "mock error creating directory") {
@@ -180,17 +133,16 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 
 	t.Run("ProjectRootRetrievalFailure", func(t *testing.T) {
 		// Given a mock config handler, shell, context, and service
-		mocks := setupRegistryServiceMocks(t)
+		service, mocks := setup(t)
 		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting project root")
 		}
 
 		// When a new RegistryService is created and initialized
-		registryService := setupRegistryService(t, mocks)
-		registryService.SetName("registry")
+		service.SetName("registry")
 
 		// When GetComposeConfig is called
-		_, err := registryService.GetComposeConfig()
+		_, err := service.GetComposeConfig()
 
 		// Then an error should be returned indicating project root retrieval failure
 		if err == nil || !strings.Contains(err.Error(), "mock error getting project root") {
@@ -200,50 +152,18 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 
 	t.Run("LocalRegistry", func(t *testing.T) {
 		// Given a mock config handler, shell, context, and service
-		mocks := setupRegistryServiceMocks(t)
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Docker: &docker.DockerConfig{
-					Registries: map[string]docker.RegistryConfig{
-						"local-registry": {HostPort: 5000},
-					},
-				},
-			}
-		}
-		// Set vm.driver to docker-desktop for localhost tests
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "docker-desktop"
-			}
-			if key == "dns.domain" {
-				return "test"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		registryService := setupRegistryService(t, mocks)
-		registryService.SetName("local-registry")
+		service, mocks := setup(t)
 
-		// Mock the registry configuration to ensure it exists without a remote value
-		mocks.ConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
-			return &v1alpha1.Context{
-				Docker: &docker.DockerConfig{
-					Registries: map[string]docker.RegistryConfig{
-						"local-registry": {
-							HostPort: 5000, // Ensure HostPort is set
-						},
-					},
-				},
-			}
-		}
+		// Set up the registry configuration
+		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.SetContextValue("docker.registries.local-registry.hostport", 5000)
 
-		// Set the address to localhost directly
-		registryService.address = "localhost"
+		// Configure service for local registry testing
+		service.address = "localhost"
+		service.name = "local-registry"
 
 		// When GetComposeConfig is called
-		composeConfig, err := registryService.GetComposeConfig()
+		composeConfig, err := service.GetComposeConfig()
 		if err != nil {
 			t.Fatalf("GetComposeConfig() error = %v", err)
 		}
@@ -251,7 +171,7 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		// Then check that the service has the expected port configuration
 		expectedPortConfig := types.ServicePortConfig{
 			Target:    5000,
-			Published: fmt.Sprintf("%d", registryService.hostPort),
+			Published: fmt.Sprintf("%d", service.hostPort),
 			Protocol:  "tcp",
 		}
 		found := false
@@ -276,87 +196,431 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 }
 
 func TestRegistryService_SetAddress(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupRegistryServiceMocks(t)
-		registryService := setupRegistryService(t, mocks)
+	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
 
-		address := "test-registry:5000"
-		err := registryService.SetAddress(address)
-		require.NoError(t, err)
+		// Load initial config
+		configYAML := `
+apiVersion: v1alpha1
+contexts:
+  mock-context:
+    dns:
+      domain: test
+    docker:
+      registries:
+        registry: {}
+        registry1: {}
+        registry2: {}
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configYAML); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
 
-		got := registryService.GetAddress()
-		require.Equal(t, address, got)
+		service := NewRegistryService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		service.SetName("registry")
+
+		// Reset package-level variables
+		registryNextPort = constants.REGISTRY_DEFAULT_HOST_PORT + 1
+		localRegistry = nil
+
+		return service, mocks
+	}
+
+	t.Run("SuccessLocalRegistry", func(t *testing.T) {
+		// Given a registry service with mock components
+		service, mocks := setup(t)
+
+		// And localhost mode
+		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
+
+		// When SetAddress is called with localhost
+		err := service.SetAddress("localhost")
+
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the hostname should be set correctly
+		expectedHostname := "registry.test"
+		actualHostname := mocks.ConfigHandler.GetString("docker.registries.registry.hostname", "")
+		if actualHostname != expectedHostname {
+			t.Errorf("expected hostname %s, got %s", expectedHostname, actualHostname)
+		}
+
+		// And the host port should be set to default
+		expectedHostPort := constants.REGISTRY_DEFAULT_HOST_PORT
+		actualHostPort := mocks.ConfigHandler.GetInt("docker.registries.registry.hostport", 0)
+		if actualHostPort != expectedHostPort {
+			t.Errorf("expected host port %d, got %d", expectedHostPort, actualHostPort)
+		}
+
+		// And the registry URL should be set
+		expectedRegistryURL := "registry.test"
+		actualRegistryURL := mocks.ConfigHandler.GetString("docker.registry_url", "")
+		if actualRegistryURL != expectedRegistryURL {
+			t.Errorf("expected registry URL %s, got %s", expectedRegistryURL, actualRegistryURL)
+		}
 	})
 
-	t.Run("LocalRegistry", func(t *testing.T) {
-		mocks := setupRegistryServiceMocks(t)
-		registryService := setupRegistryService(t, mocks)
+	t.Run("SuccessRemoteRegistry", func(t *testing.T) {
+		// Given a registry service with mock components
+		service, mocks := setup(t)
 
-		address := "local-registry:5000"
-		err := registryService.SetAddress(address)
-		require.NoError(t, err)
+		// And remote registry configuration
+		if err := mocks.ConfigHandler.SetContextValue("docker.registries.registry.remote", "remote.registry:5000"); err != nil {
+			t.Fatalf("Failed to set remote registry: %v", err)
+		}
 
-		got := registryService.GetAddress()
-		require.Equal(t, address, got)
+		// And localhost mode
+		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
+
+		// When SetAddress is called
+		err := service.SetAddress("192.168.1.1")
+
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the hostname should be set correctly
+		expectedHostname := "registry.test"
+		actualHostname := mocks.ConfigHandler.GetString("docker.registries.registry.hostname", "")
+		if actualHostname != expectedHostname {
+			t.Errorf("expected hostname %s, got %s", expectedHostname, actualHostname)
+		}
+
+		// And no host port should be set
+		actualHostPort := mocks.ConfigHandler.GetInt("docker.registries.registry.hostport", 0)
+		if actualHostPort != 0 {
+			t.Errorf("expected no host port, got %d", actualHostPort)
+		}
 	})
 
-	t.Run("RemoteRegistry", func(t *testing.T) {
-		mocks := setupRegistryServiceMocks(t)
-		registryService := setupRegistryService(t, mocks)
+	t.Run("SuccessWithCustomHostPort", func(t *testing.T) {
+		// Given a registry service with mock components
+		service, mocks := setup(t)
 
-		address := "remote-registry:5000"
-		err := registryService.SetAddress(address)
-		require.NoError(t, err)
+		// And localhost mode
+		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
 
-		got := registryService.GetAddress()
-		require.Equal(t, address, got)
+		// And custom host port
+		customHostPort := 5001
+		if err := mocks.ConfigHandler.SetContextValue("docker.registries.registry.hostport", customHostPort); err != nil {
+			t.Fatalf("Failed to set custom host port: %v", err)
+		}
+
+		// When SetAddress is called
+		err := service.SetAddress("192.168.1.1")
+
+		// Then there should be no error
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And the custom host port should be preserved
+		actualHostPort := mocks.ConfigHandler.GetInt("docker.registries.registry.hostport", 0)
+		if actualHostPort != customHostPort {
+			t.Errorf("expected host port %d, got %d", customHostPort, actualHostPort)
+		}
+	})
+
+	t.Run("SuccessMultipleLocalRegistries", func(t *testing.T) {
+		// Given a registry service with mock components
+		service1, mocks := setup(t)
+
+		// And localhost mode
+		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
+
+		service1.SetName("registry1")
+
+		// When SetAddress is called for first registry
+		err := service1.SetAddress("localhost")
+		if err != nil {
+			t.Fatalf("Failed to set address for first registry: %v", err)
+		}
+
+		// Create second registry
+		service2 := NewRegistryService(mocks.Injector)
+		service2.shims = mocks.Shims
+		service2.Initialize()
+		service2.SetName("registry2")
+
+		// When SetAddress is called for second registry
+		err = service2.SetAddress("localhost")
+		if err != nil {
+			t.Fatalf("Failed to set address for second registry: %v", err)
+		}
+
+		// Then the first registry should have default port
+		expectedHostPort1 := constants.REGISTRY_DEFAULT_HOST_PORT
+		actualHostPort1 := mocks.ConfigHandler.GetInt("docker.registries.registry1.hostport", 0)
+		if actualHostPort1 != expectedHostPort1 {
+			t.Errorf("expected host port %d for first registry, got %d", expectedHostPort1, actualHostPort1)
+		}
+
+		// And the second registry should have incremented port
+		expectedHostPort2 := constants.REGISTRY_DEFAULT_HOST_PORT + 1
+		actualHostPort2 := mocks.ConfigHandler.GetInt("docker.registries.registry2.hostport", 0)
+		if actualHostPort2 != expectedHostPort2 {
+			t.Errorf("expected host port %d for second registry, got %d", expectedHostPort2, actualHostPort2)
+		}
+	})
+
+	t.Run("BaseServiceError", func(t *testing.T) {
+		// Given a registry service with mock components
+		mockConfigHandler := config.NewMockConfigHandler()
+		mocks := setupMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
+
+		service := NewRegistryService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		service.SetName("registry")
+
+		// When SetAddress is called with invalid address
+		err := service.SetAddress("invalid-address")
+
+		// Then there should be an error
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid IPv4 address") {
+			t.Errorf("expected error containing %q, got %v", "invalid IPv4 address", err)
+		}
+	})
+
+	t.Run("ErrorSettingHostname", func(t *testing.T) {
+		// Given a registry service with mock components
+		mockConfigHandler := config.NewMockConfigHandler()
+		mocks := setupMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
+
+		service := NewRegistryService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		service.SetName("registry")
+
+		// And mock error when setting hostname
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+			return fmt.Errorf("mock error setting hostname")
+		}
+
+		// When SetAddress is called
+		err := service.SetAddress("localhost")
+
+		// Then there should be an error
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "mock error setting hostname") {
+			t.Errorf("expected error containing %q, got %v", "mock error setting hostname", err)
+		}
+	})
+
+	t.Run("ErrorSettingHostPort", func(t *testing.T) {
+		// Given a registry service with mock components
+		mockConfigHandler := config.NewMockConfigHandler()
+		mocks := setupMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
+
+		service := NewRegistryService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		service.SetName("registry")
+
+		// And mock configuration
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+			if strings.Contains(key, "hostport") {
+				return fmt.Errorf("mock error setting host port")
+			}
+			return nil
+		}
+
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				Docker: &docker.DockerConfig{
+					Registries: map[string]docker.RegistryConfig{
+						"registry": {},
+					},
+				},
+			}
+		}
+
+		// When SetAddress is called
+		err := service.SetAddress("localhost")
+
+		// Then there should be an error
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "mock error setting host port") {
+			t.Errorf("expected error containing %q, got %v", "mock error setting host port", err)
+		}
+	})
+
+	t.Run("ErrorSettingRegistryURL", func(t *testing.T) {
+		// Given a registry service with mock components
+		mockConfigHandler := config.NewMockConfigHandler()
+		mocks := setupMocks(t, &SetupOptions{
+			ConfigHandler: mockConfigHandler,
+		})
+
+		service := NewRegistryService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		service.SetName("registry")
+
+		// Reset package-level variables
+		registryNextPort = constants.REGISTRY_DEFAULT_HOST_PORT + 1
+		localRegistry = nil
+
+		// And mock configuration
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "docker-desktop"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mockConfigHandler.SetContextValueFunc = func(key string, value any) error {
+			if key == "docker.registry_url" {
+				return fmt.Errorf("mock error setting registry URL")
+			}
+			return nil
+		}
+
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				Docker: &docker.DockerConfig{
+					Registries: map[string]docker.RegistryConfig{
+						"registry": {},
+					},
+				},
+			}
+		}
+
+		// When SetAddress is called
+		err := service.SetAddress("localhost")
+
+		// Then there should be an error
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "mock error setting registry URL") {
+			t.Errorf("expected error containing %q, got %v", "mock error setting registry URL", err)
+		}
 	})
 }
 
 func TestRegistryService_GetHostname(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupRegistryServiceMocks(t)
-		registryService := setupRegistryService(t, mocks)
-		registryService.SetName("test-registry")
+	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		service := NewRegistryService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
 
-		hostname := registryService.GetHostname()
-		require.Equal(t, "test-registry.test", hostname)
+		return service, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		service, _ := setup(t)
+		service.SetName("test-registry")
+
+		hostname := service.GetHostname()
+		if hostname != "test-registry.test" {
+			t.Errorf("GetHostname() = %v, want %v", hostname, "test-registry.test")
+		}
 	})
 
 	t.Run("LocalRegistry", func(t *testing.T) {
-		mocks := setupRegistryServiceMocks(t)
-		registryService := setupRegistryService(t, mocks)
-		registryService.SetName("local-registry")
+		service, _ := setup(t)
+		service.SetName("local-registry")
 
-		hostname := registryService.GetHostname()
-		require.Equal(t, "local-registry.test", hostname)
+		hostname := service.GetHostname()
+		if hostname != "local-registry.test" {
+			t.Errorf("GetHostname() = %v, want %v", hostname, "local-registry.test")
+		}
 	})
 
 	t.Run("RemoteRegistry", func(t *testing.T) {
-		mocks := setupRegistryServiceMocks(t)
-		registryService := setupRegistryService(t, mocks)
-		registryService.SetName("remote-registry")
+		service, _ := setup(t)
+		service.SetName("remote-registry")
 
-		hostname := registryService.GetHostname()
-		require.Equal(t, "remote-registry.test", hostname)
+		hostname := service.GetHostname()
+		if hostname != "remote-registry.test" {
+			t.Errorf("GetHostname() = %v, want %v", hostname, "remote-registry.test")
+		}
 	})
 }
 
 func TestRegistryService_GetName(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupRegistryServiceMocks(t)
-		registryService := setupRegistryService(t, mocks)
-		registryService.SetName("registry")
+	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		service := NewRegistryService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		service.SetName("registry")
 
-		serviceName := registryService.GetName()
-		require.Equal(t, "registry", serviceName)
+		return service, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		service, _ := setup(t)
+
+		serviceName := service.GetName()
+		if serviceName != "registry" {
+			t.Errorf("GetName() = %v, want %v", serviceName, "registry")
+		}
 	})
 }
 
 func TestRegistryService_SupportsWildcard(t *testing.T) {
-	mocks := setupRegistryServiceMocks(t)
-	registryService := setupRegistryService(t, mocks)
+	setup := func(t *testing.T) (*RegistryService, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		service := NewRegistryService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		service.SetName("registry")
 
-	supports := registryService.SupportsWildcard()
-	require.False(t, supports)
+		return service, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		service, _ := setup(t)
+		supports := service.SupportsWildcard()
+		if supports {
+			t.Errorf("SupportsWildcard() = %v, want %v", supports, false)
+		}
+	})
 }

@@ -112,38 +112,9 @@ func (s *TalosService) SetAddress(address string) error {
 	copy(hostPortsCopy, hostPorts)
 
 	for i, hostPortStr := range hostPortsCopy {
-		parts := strings.Split(hostPortStr, ":")
-		var hostPort, nodePort int
-		protocol := "tcp"
-
-		switch len(parts) {
-		case 1: // hostPort only
-			var err error
-			nodePort, err = strconv.Atoi(parts[0])
-			if err != nil {
-				return fmt.Errorf("invalid hostPort value: %s", parts[0])
-			}
-			hostPort = nodePort
-		case 2: // hostPort and nodePort/protocol
-			var err error
-			hostPort, err = strconv.Atoi(parts[0])
-			if err != nil {
-				return fmt.Errorf("invalid hostPort value: %s", parts[0])
-			}
-			nodePortProtocol := strings.Split(parts[1], "/")
-			nodePort, err = strconv.Atoi(nodePortProtocol[0])
-			if err != nil {
-				return fmt.Errorf("invalid hostPort value: %s", nodePortProtocol[0])
-			}
-			if len(nodePortProtocol) == 2 {
-				if nodePortProtocol[1] == "tcp" || nodePortProtocol[1] == "udp" {
-					protocol = nodePortProtocol[1]
-				} else {
-					return fmt.Errorf("invalid protocol value: %s", nodePortProtocol[1])
-				}
-			}
-		default:
-			return fmt.Errorf("invalid hostPort format: %s", hostPortStr)
+		hostPort, nodePort, protocol, err := validateHostPort(hostPortStr)
+		if err != nil {
+			return err
 		}
 
 		// Check for conflicts in hostPort
@@ -199,6 +170,9 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	publishedPort := fmt.Sprintf("%d", defaultAPIPort)
 	if parts := strings.Split(endpoint, ":"); len(parts) == 2 {
 		publishedPort = parts[1]
+		if _, err := strconv.ParseUint(publishedPort, 10, 32); err != nil {
+			return nil, fmt.Errorf("invalid port value: %s", publishedPort)
+		}
 	}
 
 	var image string
@@ -300,20 +274,11 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	hostPortsKey := fmt.Sprintf("cluster.%s.nodes.%s.hostports", nodeType, nodeName)
 	hostPorts := s.configHandler.GetStringSlice(hostPortsKey)
 	for _, hostPortStr := range hostPorts {
-		parts := strings.Split(hostPortStr, ":")
-		hostPort, err := strconv.ParseUint(parts[0], 10, 32)
-		if err != nil || hostPort > math.MaxUint32 {
-			return nil, fmt.Errorf("invalid hostPort value: %s", parts[0])
+		hostPort, nodePort, protocol, err := validateHostPort(hostPortStr)
+		if err != nil {
+			return nil, err
 		}
-		nodePortProtocol := strings.Split(parts[1], "/")
-		nodePort, err := strconv.ParseUint(nodePortProtocol[0], 10, 32)
-		if err != nil || nodePort > math.MaxUint32 {
-			return nil, fmt.Errorf("invalid hostPort value: %s", nodePortProtocol[0])
-		}
-		protocol := "tcp"
-		if len(nodePortProtocol) == 2 {
-			protocol = nodePortProtocol[1]
-		}
+
 		ports = append(ports, types.ServicePortConfig{
 			Target:    uint32(nodePort),
 			Published: fmt.Sprintf("%d", hostPort),
@@ -349,6 +314,59 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		Services: []types.ServiceConfig{serviceConfig},
 		Volumes:  volumesMap,
 	}, nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// validateHostPort parses and validates a host port string in the format "hostPort:nodePort/protocol"
+// Returns the parsed hostPort, nodePort, and protocol, or an error if validation fails
+func validateHostPort(hostPortStr string) (int, int, string, error) {
+	parts := strings.Split(hostPortStr, ":")
+	var hostPort, nodePort int
+	protocol := "tcp"
+
+	switch len(parts) {
+	case 1: // hostPort only
+		var err error
+		nodePort, err = strconv.Atoi(parts[0])
+		if err != nil {
+			return 0, 0, "", fmt.Errorf("invalid hostPort value: %s", parts[0])
+		}
+		if nodePort < 0 || nodePort > math.MaxUint32 {
+			return 0, 0, "", fmt.Errorf("host port exceeds uint32 max: %d", nodePort)
+		}
+		hostPort = nodePort
+	case 2: // hostPort and nodePort/protocol
+		var err error
+		hostPort, err = strconv.Atoi(parts[0])
+		if err != nil {
+			return 0, 0, "", fmt.Errorf("invalid hostPort value: %s", parts[0])
+		}
+		if hostPort < 0 || hostPort > math.MaxUint32 {
+			return 0, 0, "", fmt.Errorf("host port exceeds uint32 max: %d", hostPort)
+		}
+		nodePortProtocol := strings.Split(parts[1], "/")
+		nodePort, err = strconv.Atoi(nodePortProtocol[0])
+		if err != nil {
+			return 0, 0, "", fmt.Errorf("invalid hostPort value: %s", nodePortProtocol[0])
+		}
+		if nodePort < 0 || nodePort > math.MaxUint32 {
+			return 0, 0, "", fmt.Errorf("node port exceeds uint32 max: %d", nodePort)
+		}
+		if len(nodePortProtocol) == 2 {
+			if nodePortProtocol[1] == "tcp" || nodePortProtocol[1] == "udp" {
+				protocol = nodePortProtocol[1]
+			} else {
+				return 0, 0, "", fmt.Errorf("invalid protocol value: %s", nodePortProtocol[1])
+			}
+		}
+	default:
+		return 0, 0, "", fmt.Errorf("invalid hostPort format: %s", hostPortStr)
+	}
+
+	return hostPort, nodePort, protocol, nil
 }
 
 // Ensure TalosService implements Service interface

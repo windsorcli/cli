@@ -133,6 +133,9 @@ func (s *BaseService) SupportsWildcard() bool {
 
 // GetHostname returns the hostname for the service with the configured TLD
 func (s *BaseService) GetHostname() string {
+	if s.name == "" {
+		return ""
+	}
 	tld := s.configHandler.GetString("dns.domain", "test")
 	return s.name + "." + tld
 }

@@ -88,12 +88,12 @@ func (m *MockService) SetName(name string) {
 	m.name = name
 }
 
-// GetName calls the mock GetNameFunc if it is set, otherwise returns an empty string
+// GetName calls the mock GetNameFunc if it is set, otherwise returns the stored name
 func (m *MockService) GetName() string {
 	if m.GetNameFunc != nil {
 		return m.GetNameFunc()
 	}
-	return ""
+	return m.name
 }
 
 // GetHostname calls the mock GetHostnameFunc if it is set, otherwise returns an empty string

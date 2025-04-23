@@ -85,11 +85,11 @@ func (s *RegistryService) SetAddress(address string) error {
 
 	if registryConfig.HostPort != 0 {
 		hostPort = registryConfig.HostPort
-	} else if s.isLocalhostMode() {
+	} else if s.isLocalhostMode() && registryConfig.Remote == "" {
 		registryMu.Lock()
 		defer registryMu.Unlock()
 
-		if registryConfig.Remote == "" && localRegistry == nil {
+		if localRegistry == nil {
 			localRegistry = s
 			hostPort = constants.REGISTRY_DEFAULT_HOST_PORT
 			err = s.configHandler.SetContextValue("docker.registry_url", hostName)

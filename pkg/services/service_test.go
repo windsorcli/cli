@@ -105,6 +105,13 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		injector = di.NewInjector()
 	}
 
+	// Create and register mock shell first
+	mockShell := shell.NewMockShell(injector)
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return tmpDir, nil
+	}
+	injector.Register("shell", mockShell)
+
 	// Create config handler if not provided
 	var configHandler config.ConfigHandler
 	if len(opts) > 0 && opts[0].ConfigHandler != nil {
@@ -127,13 +134,17 @@ apiVersion: v1alpha1
 contexts:
   mock-context:
     dns:
-      domain: example.com
+      domain: test
       enabled: true
       records:
         - 127.0.0.1 test
         - 192.168.1.1 test
     docker:
       enabled: true
+      registries:
+        registry:
+          remote: registry.test
+          local: registry.test
 `
 	if err := configHandler.LoadConfigString(configYAML); err != nil {
 		t.Fatalf("Failed to load config: %v", err)
@@ -145,10 +156,6 @@ contexts:
 			t.Fatalf("Failed to load config string: %v", err)
 		}
 	}
-
-	// Create a mock shell
-	mockShell := shell.NewMockShell(injector)
-	injector.Register("shell", mockShell)
 
 	return &Mocks{
 		Injector:      injector,
@@ -340,12 +347,13 @@ func TestBaseService_GetHostname(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new BaseService
 		service, _ := setup(t)
+		service.SetName("test-service")
 
 		// When GetHostname is called
 		hostname := service.GetHostname()
 
 		// Then the hostname should be correctly formatted
-		expectedHostname := "test-service.example.com"
+		expectedHostname := "test-service.test"
 		if hostname != expectedHostname {
 			t.Errorf("Expected hostname %q, got %q", expectedHostname, hostname)
 		}

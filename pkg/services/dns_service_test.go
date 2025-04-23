@@ -88,19 +88,16 @@ func TestDNSService_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		// Create a mock injector with necessary mocks
-		mocks := setupDnsMocks(t)
+		// Given a DNSService with mock components
+		service, mocks := setup(t)
 
-		// Mock the Resolve method for configHandler to return an error
+		// And the configHandler is registered as invalid
 		mocks.Injector.Register("configHandler", "invalid")
-
-		// Given a DNSService with the mock injector
-		service := NewDNSService(mocks.Injector)
 
 		// When Initialize is called
 		err := service.Initialize()
 
-		// Then an error should be returned
+		// Then an error should be returned with the expected message
 		if err == nil {
 			t.Fatalf("Expected error resolving configHandler, got nil")
 		}
@@ -111,27 +108,23 @@ func TestDNSService_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingServices", func(t *testing.T) {
-		// Create a mock injector
+		// Given a mock injector
 		mockInjector := di.NewMockInjector()
 
-		// Create setup options with the mock injector
-		opts := &SetupOptions{
-			Injector: mockInjector,
-		}
-
-		// Create mocks with the setup options
-		mocks := setupDnsMocks(t, opts)
-
-		// Set the resolve error for services using the correct type
+		// And the injector is configured to return an error for services
 		mockInjector.SetResolveAllError(new(Service), fmt.Errorf("error resolving services"))
 
-		// Given a DNSService with the mock injector
+		// And a DNSService with the mock injector
+		mocks := setupDnsMocks(t, &SetupOptions{
+			Injector: mockInjector,
+		})
 		service := NewDNSService(mocks.Injector)
+		service.shims = mocks.Shims
 
 		// When Initialize is called
 		err := service.Initialize()
 
-		// Then an error should be returned
+		// Then an error should be returned with the expected message
 		if err == nil {
 			t.Fatalf("Expected error resolving services, got nil")
 		}
@@ -202,19 +195,12 @@ func TestDNSService_SetAddress(t *testing.T) {
 
 func TestDNSService_GetComposeConfig(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
-		// Given mock components
+		t.Helper()
 		mocks := setupDnsMocks(t)
-
-		// Given a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
-
-		// Initialize the service
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// Set the service name
 		service.SetName("dns")
+		service.shims = mocks.Shims
+		service.Initialize()
 
 		return service, mocks
 	}
@@ -277,16 +263,11 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 
 func TestDNSService_WriteConfig(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
-		// Given mock components
+		t.Helper()
 		mocks := setupDnsMocks(t)
-
-		// Given a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
-
-		// Initialize the service
-		if err := service.Initialize(); err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
+		service.shims = mocks.Shims
+		service.Initialize()
 
 		return service, mocks
 	}
@@ -336,6 +317,9 @@ func TestDNSService_WriteConfig(t *testing.T) {
 
 		// Set the address to localhost to mock IsLocalhost behavior
 		service.SetAddress("127.0.0.1")
+
+		// Set the DNS domain
+		mocks.ConfigHandler.SetContextValue("dns.domain", "test")
 
 		// Mock the writeFile function to capture the content written
 		var writtenContent []byte
@@ -744,15 +728,38 @@ func TestDNSService_WriteConfig(t *testing.T) {
 			t.Errorf("Expected Corefile to contain internal view, got:\n%s", content)
 		}
 	})
+
+	t.Run("ErrorRetrievingProjectRoot", func(t *testing.T) {
+		// Given a DNSService with mock components
+		service, mocks := setup(t)
+
+		// Set up mock to fail when getting project root
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("error getting project root")
+		}
+
+		// When WriteConfig is called
+		err := service.WriteConfig()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("WriteConfig() expected error, got nil")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "error retrieving project root") {
+			t.Errorf("Expected error to contain 'error retrieving project root', got: %v", err)
+		}
+	})
 }
 
 func TestDNSService_SetName(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
-		// Given mock components
+		t.Helper()
 		mocks := setupDnsMocks(t)
-
-		// Given a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
 
 		return service, mocks
 	}
@@ -773,19 +780,31 @@ func TestDNSService_SetName(t *testing.T) {
 }
 
 func TestDNSService_GetName(t *testing.T) {
-	setup := func(t *testing.T) (*DNSService, *Mocks) {
-		// Given mock components
+	setupSuccess := func(t *testing.T) (*DNSService, *Mocks) {
+		t.Helper()
 		mocks := setupDnsMocks(t)
-
-		// Given a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		service.SetName("dns") // Set the name to "dns"
+
+		return service, mocks
+	}
+
+	setupError := func(t *testing.T) (*DNSService, *Mocks) {
+		t.Helper()
+		mocks := setupDnsMocks(t)
+		service := NewDNSService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		// Don't set the name
 
 		return service, mocks
 	}
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a DNSService with mock components
-		service, _ := setup(t)
+		service, _ := setupSuccess(t)
 
 		// When GetName is called
 		name := service.GetName()
@@ -796,19 +815,19 @@ func TestDNSService_GetName(t *testing.T) {
 		}
 
 		// And the service name should be correctly returned
-		if service.GetName() != name {
-			t.Errorf("Expected service name to be '%s', got '%s'", name, service.GetName())
+		if name != "dns" {
+			t.Errorf("Expected service name to be 'dns', got '%s'", name)
 		}
 	})
 
 	t.Run("ErrorGettingName", func(t *testing.T) {
 		// Given a DNSService with no name set
-		service, _ := setup(t)
+		service, _ := setupError(t)
 
 		// When GetName is called
 		name := service.GetName()
 
-		// Then an error should be returned
+		// Then an empty string should be returned
 		if name != "" {
 			t.Fatalf("Expected empty string, got '%s'", name)
 		}
@@ -817,11 +836,15 @@ func TestDNSService_GetName(t *testing.T) {
 
 func TestDNSService_GetHostname(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
-		// Given mock components
+		t.Helper()
 		mocks := setupDnsMocks(t)
-
-		// Given a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		service.SetName("test")
+
+		// Set the dns.domain configuration value
+		mocks.ConfigHandler.SetContextValue("dns.domain", "test")
 
 		return service, mocks
 	}
@@ -833,25 +856,23 @@ func TestDNSService_GetHostname(t *testing.T) {
 		// When GetHostname is called
 		hostname := service.GetHostname()
 
-		// Then no error should be returned
-		if hostname == "" {
-			t.Fatalf("GetHostname() returned empty string")
-		}
-
-		// And the service hostname should be correctly returned
-		if service.GetHostname() != hostname {
-			t.Errorf("Expected service hostname to be '%s', got '%s'", hostname, service.GetHostname())
+		// Then the hostname should be correctly formatted
+		expectedHostname := "test.test"
+		if hostname != expectedHostname {
+			t.Errorf("Expected hostname to be '%s', got '%s'", expectedHostname, hostname)
 		}
 	})
 
 	t.Run("ErrorGettingHostname", func(t *testing.T) {
-		// Given a DNSService with no hostname set
-		service, _ := setup(t)
+		// Given a DNSService with no name set
+		service, mocks := setup(t)
+		service.SetName("")                                   // Clear the name
+		mocks.ConfigHandler.SetContextValue("dns.domain", "") // Clear the domain
 
 		// When GetHostname is called
 		hostname := service.GetHostname()
 
-		// Then an error should be returned
+		// Then an empty string should be returned
 		if hostname != "" {
 			t.Fatalf("Expected empty string, got '%s'", hostname)
 		}
@@ -860,11 +881,12 @@ func TestDNSService_GetHostname(t *testing.T) {
 
 func TestDNSService_SupportsWildcard(t *testing.T) {
 	setup := func(t *testing.T) (*DNSService, *Mocks) {
-		// Given mock components
+		t.Helper()
 		mocks := setupDnsMocks(t)
-
-		// Given a DNSService with the mock injector
 		service := NewDNSService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		service.SetName("test")
 
 		return service, mocks
 	}
@@ -876,14 +898,9 @@ func TestDNSService_SupportsWildcard(t *testing.T) {
 		// When SupportsWildcard is called
 		supportsWildcard := service.SupportsWildcard()
 
-		// Then no error should be returned
-		if !supportsWildcard {
-			t.Fatalf("SupportsWildcard() returned false")
-		}
-
-		// And the service should support wildcard
-		if !service.SupportsWildcard() {
-			t.Errorf("Expected service to support wildcard")
+		// Then false should be returned (default from BaseService)
+		if supportsWildcard {
+			t.Fatalf("Expected false (default from BaseService), got true")
 		}
 	})
 
@@ -894,7 +911,7 @@ func TestDNSService_SupportsWildcard(t *testing.T) {
 		// When SupportsWildcard is called
 		supportsWildcard := service.SupportsWildcard()
 
-		// Then an error should be returned
+		// Then false should be returned
 		if supportsWildcard {
 			t.Fatalf("Expected false, got true")
 		}
