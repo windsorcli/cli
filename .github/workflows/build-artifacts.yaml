@@ -38,7 +38,7 @@ jobs:
         id: get_latest_release_branch
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.WINDSORCLI_RELEASE_TOKEN }}
           script: |
             const releaseInput = '${{ inputs.release }}';
             const validFormat = /^(release-latest|release-[0-9]+\.[0-9]+\.[0-9]+|v?[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+)$/;
