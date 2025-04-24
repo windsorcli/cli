@@ -8,12 +8,25 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// The OnePasswordCLISecretsProvider is an implementation of the SecretsProvider interface
+// It provides integration with the 1Password CLI for secret management
+// It serves as a bridge between the application and 1Password's secure storage
+// It enables retrieval and parsing of secrets from 1Password vaults
+
+// =============================================================================
+// Types
+// =============================================================================
+
 // OnePasswordCLISecretsProvider is an implementation of the SecretsProvider interface
 // that uses the 1Password CLI to manage secrets.
 type OnePasswordCLISecretsProvider struct {
 	BaseSecretsProvider
 	vault secretsConfigType.OnePasswordVault
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewOnePasswordCLISecretsProvider creates a new OnePasswordCLISecretsProvider instance
 func NewOnePasswordCLISecretsProvider(vault secretsConfigType.OnePasswordVault, injector di.Injector) *OnePasswordCLISecretsProvider {
@@ -24,9 +37,13 @@ func NewOnePasswordCLISecretsProvider(vault secretsConfigType.OnePasswordVault, 
 	}
 }
 
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 // GetSecret retrieves a secret value for the specified key
 func (s *OnePasswordCLISecretsProvider) GetSecret(key string) (string, error) {
-	if !s.isUnlocked() {
+	if !s.unlocked {
 		return "********", nil
 	}
 

@@ -1,9 +1,18 @@
 package stack
 
+// The MockStackTest provides test coverage for the MockStack implementation.
+// It provides validation of the mock's function field behaviors,
+// The MockStackTest ensures proper operation of the test double,
+// verifying nil handling and custom function field behaviors.
+
 import (
 	"fmt"
 	"testing"
 )
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
 func TestMockStack_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {

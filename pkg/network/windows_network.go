@@ -12,6 +12,15 @@ import (
 	"github.com/briandowns/spinner"
 )
 
+// The WindowsNetworkManager is a platform-specific network manager for Windows systems.
+// It provides network configuration capabilities specific to Windows-based systems,
+// The WindowsNetworkManager handles host route configuration and DNS setup for Windows,
+// ensuring proper network connectivity between the host and guest VM environments.
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 // ConfigureHostRoute sets up the local development network. It checks if the route
 // already exists using a PowerShell command. If not, it adds a new route on the host
 // to the VM guest using another PowerShell command.

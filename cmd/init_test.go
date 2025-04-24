@@ -27,7 +27,7 @@ func setupSafeInitCmdMocks(existingInjectors ...di.Injector) *initMockObjects {
 	mockController.InitializeComponentsFunc = func() error { return nil }
 
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.SetFunc = func(key string, value interface{}) error { return nil }
+	mockConfigHandler.SetFunc = func(key string, value any) error { return nil }
 	mockConfigHandler.GetContextFunc = func() string { return "test-context" }
 	mockConfigHandler.SetContextFunc = func(contextName string) error { return nil }
 	mockConfigHandler.InitializeFunc = func() error { return nil }
@@ -200,7 +200,7 @@ func TestInitCmd(t *testing.T) {
 			}
 			return nil
 		}
-		mocks.ConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "vm.driver" {
 				if goos() == "darwin" || goos() == "windows" {
 					if value == "docker-desktop" {
@@ -356,7 +356,7 @@ func TestInitCmd(t *testing.T) {
 		mocks := setupSafeInitCmdMocks()
 
 		// Mock SetContextValue to return an error
-		mocks.ConfigHandler.SetContextValueFunc = func(key string, value interface{}) error {
+		mocks.ConfigHandler.SetContextValueFunc = func(key string, value any) error {
 			if key == "vm.driver" {
 				return fmt.Errorf("mocked error setting vm driver")
 			}
@@ -434,7 +434,7 @@ func TestInitCmd(t *testing.T) {
 		mocks := setupSafeInitCmdMocks()
 
 		// Mock SetContextValue to return an error for a specific flag
-		mocks.ConfigHandler.SetContextValueFunc = func(configPath string, value interface{}) error {
+		mocks.ConfigHandler.SetContextValueFunc = func(configPath string, value any) error {
 			if configPath == "aws.aws_endpoint_url" {
 				return fmt.Errorf("mocked error setting aws-endpoint-url configuration")
 			}

@@ -13,74 +13,114 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// yamlMarshalNonNull marshals the given struct into YAML data, omitting null values
-var yamlMarshalNonNull = func(v interface{}) ([]byte, error) {
-	return yaml.Marshal(v)
+// =============================================================================
+// Shims
+// =============================================================================
+
+// Shims provides mockable wrappers around system and runtime functions
+type Shims struct {
+	// YAML and JSON shims
+	YamlMarshalNonNull func(v any) ([]byte, error)
+	YamlMarshal        func(any) ([]byte, error)
+	YamlUnmarshal      func([]byte, any) error
+	JsonMarshal        func(any) ([]byte, error)
+	JsonUnmarshal      func([]byte, any) error
+	K8sYamlUnmarshal   func([]byte, any) error
+
+	// File system shims
+	WriteFile func(string, []byte, os.FileMode) error
+	MkdirAll  func(string, os.FileMode) error
+	Stat      func(string) (os.FileInfo, error)
+	ReadFile  func(string) ([]byte, error)
+
+	// Utility shims
+	RegexpMatchString func(pattern string, s string) (bool, error)
+
+	// Kubernetes shims
+	ClientcmdBuildConfigFromFlags func(masterUrl, kubeconfigPath string) (*rest.Config, error)
+	RestInClusterConfig           func() (*rest.Config, error)
+	KubernetesNewForConfig        func(*rest.Config) (*kubernetes.Clientset, error)
+
+	// Jsonnet shims
+	NewJsonnetVM func() JsonnetVM
 }
 
-// yamlMarshal is a wrapper around yaml.Marshal
-var yamlMarshal = yaml.Marshal
+// NewShims creates a new Shims instance with default implementations
+func NewShims() *Shims {
+	return &Shims{
+		// YAML and JSON shims
+		YamlMarshalNonNull: func(v any) ([]byte, error) {
+			return yaml.Marshal(v)
+		},
+		YamlMarshal:      yaml.Marshal,
+		YamlUnmarshal:    yaml.Unmarshal,
+		JsonMarshal:      json.Marshal,
+		JsonUnmarshal:    json.Unmarshal,
+		K8sYamlUnmarshal: yaml.Unmarshal,
 
-// yamlUnmarshal is a wrapper around yaml.Unmarshal
-var yamlUnmarshal = yaml.Unmarshal
+		// File system shims
+		WriteFile: os.WriteFile,
+		MkdirAll:  os.MkdirAll,
+		Stat:      os.Stat,
+		ReadFile:  os.ReadFile,
 
-// osWriteFile is a wrapper around os.WriteFile
-var osWriteFile = os.WriteFile
+		// Utility shims
+		RegexpMatchString: regexp.MatchString,
 
-// osMkdirAll is a wrapper around os.MkdirAll
-var osMkdirAll = os.MkdirAll
+		// Kubernetes shims
+		ClientcmdBuildConfigFromFlags: clientcmd.BuildConfigFromFlags,
+		RestInClusterConfig:           rest.InClusterConfig,
+		KubernetesNewForConfig:        kubernetes.NewForConfig,
 
-// jsonMarshal is a wrapper around json.Marshal
-var jsonMarshal = json.Marshal
+		// Jsonnet shims
+		NewJsonnetVM: NewJsonnetVM,
+	}
+}
 
-// jsonnetMakeVMFunc is a function type for creating a new jsonnet VM
-type jsonnetMakeVMFunc func() jsonnetVMInterface
+// =============================================================================
+// Jsonnet VM Implementation
+// =============================================================================
 
-// jsonnetVMInterface defines the interface for a jsonnet VM
-type jsonnetVMInterface interface {
+// JsonnetVM defines the interface for Jsonnet virtual machines
+type JsonnetVM interface {
+	// TLACode sets a top-level argument using code
 	TLACode(key, val string)
-	EvaluateAnonymousSnippet(filename, snippet string) (string, error)
+	// ExtCode sets an external variable using code
 	ExtCode(key, val string)
+	// EvaluateAnonymousSnippet evaluates a jsonnet snippet
+	EvaluateAnonymousSnippet(filename, snippet string) (string, error)
 }
 
-// jsonnetMakeVM is a variable holding the function to create a new jsonnet VM
-var jsonnetMakeVM jsonnetMakeVMFunc = func() jsonnetVMInterface {
-	return &jsonnetVM{VM: jsonnet.MakeVM()}
+// realJsonnetVM implements JsonnetVM using the actual jsonnet implementation
+type realJsonnetVM struct {
+	vm *jsonnet.VM
 }
 
-// jsonnetVM is a wrapper around jsonnet.VM that implements jsonnetVMInterface
-type jsonnetVM struct {
-	*jsonnet.VM
+// NewJsonnetVM creates a new JsonnetVM using the real jsonnet implementation
+func NewJsonnetVM() JsonnetVM {
+	return &realJsonnetVM{vm: jsonnet.MakeVM()}
 }
 
-// EvaluateAnonymousSnippet is a wrapper around jsonnet.VM.EvaluateAnonymousSnippet
-func (vm *jsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
-	return vm.VM.EvaluateAnonymousSnippet(filename, snippet)
+func (j *realJsonnetVM) TLACode(key, val string) {
+	j.vm.TLACode(key, val)
 }
 
-// ExtCode is a wrapper around jsonnet.VM.ExtCode
-func (vm *jsonnetVM) ExtCode(key, val string) {
-	vm.VM.ExtCode(key, val)
+func (j *realJsonnetVM) ExtCode(key, val string) {
+	j.vm.ExtCode(key, val)
 }
 
-// Shim for Kubernetes client-go functions
+func (j *realJsonnetVM) EvaluateAnonymousSnippet(filename, snippet string) (string, error) {
+	return j.vm.EvaluateAnonymousSnippet(filename, snippet)
+}
 
-// clientcmdBuildConfigFromFlags is a shim for clientcmd.BuildConfigFromFlags
-var clientcmdBuildConfigFromFlags = clientcmd.BuildConfigFromFlags
+// =============================================================================
+// Helper Functions
+// =============================================================================
 
-// restInClusterConfig is a shim for rest.InClusterConfig
-var restInClusterConfig = rest.InClusterConfig
-
-// kubernetesNewForConfigFunc is a function type for creating a new Kubernetes client
-type kubernetesNewForConfigFunc func(config *rest.Config) (kubernetes.Interface, error)
+// Helper functions to create pointers for basic types
+func ptrString(s string) *string {
+	return &s
+}
 
 // metav1Duration is a shim for metav1.Duration
 type metav1Duration = metav1.Duration
-
-// Add back the missing functions from file_context_0
-var (
-	regexpMatchString = regexp.MatchString
-	osStat            = os.Stat
-	osReadFile        = os.ReadFile
-	k8sYamlUnmarshal  = yaml.Unmarshal
-)

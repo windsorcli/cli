@@ -34,7 +34,7 @@ func setupSafeContextCmdMocks(optionalInjector ...di.Injector) MockSafeContextCm
 
 	// Setup mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+	mockConfigHandler.SetFunc = func(key string, value any) error {
 		return nil
 	}
 	mockConfigHandler.GetContextFunc = func() string {

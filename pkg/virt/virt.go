@@ -1,3 +1,8 @@
+// The virt package is a virtualization management system
+// It provides interfaces and base implementations for managing virtual machines and containers
+// It serves as the core abstraction layer for virtualization operations in the Windsor CLI
+// It supports both VM-based (Colima) and container-based (Docker) virtualization
+
 package virt
 
 import (
@@ -10,11 +15,19 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// =============================================================================
+// Constants
+// =============================================================================
+
 // RETRY_WAIT is the number of seconds to wait between retries when starting or stopping a VM
 // If running in CI, no wait is performed
 var RETRY_WAIT = func() int {
 	return map[bool]int{true: 0, false: 2}[os.Getenv("CI") == "true"]
 }()
+
+// =============================================================================
+// Types
+// =============================================================================
 
 // VMInfo is a struct that holds the information about the VM
 type VMInfo struct {
@@ -32,6 +45,17 @@ type ContainerInfo struct {
 	Labels  map[string]string
 }
 
+type BaseVirt struct {
+	injector      di.Injector
+	shell         shell.Shell
+	configHandler config.ConfigHandler
+	shims         *Shims
+}
+
+// =============================================================================
+// Interfaces
+// =============================================================================
+
 // Virt defines methods for the virt operations
 type Virt interface {
 	Initialize() error
@@ -39,12 +63,6 @@ type Virt interface {
 	Down() error
 	PrintInfo() error
 	WriteConfig() error
-}
-
-type BaseVirt struct {
-	injector      di.Injector
-	shell         shell.Shell
-	configHandler config.ConfigHandler
 }
 
 // VirtualMachine defines methods for VirtualMachine operations
@@ -59,10 +77,21 @@ type ContainerRuntime interface {
 	GetContainerInfo(name ...string) ([]ContainerInfo, error)
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewBaseVirt creates a new BaseVirt instance
 func NewBaseVirt(injector di.Injector) *BaseVirt {
-	return &BaseVirt{injector: injector}
+	return &BaseVirt{
+		injector: injector,
+		shims:    NewShims(),
+	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize is a method that initializes the virt environment
 func (v *BaseVirt) Initialize() error {
@@ -79,4 +108,9 @@ func (v *BaseVirt) Initialize() error {
 	v.configHandler = configHandler
 
 	return nil
+}
+
+// setShims sets the shims for testing purposes
+func (v *BaseVirt) setShims(shims *Shims) {
+	v.shims = shims
 }

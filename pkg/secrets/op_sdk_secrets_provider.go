@@ -1,3 +1,8 @@
+// The OnePasswordSDKSecretsProvider is an implementation of the SecretsProvider interface
+// It provides integration with the 1Password SDK for secret management
+// It serves as a bridge between the application and 1Password's secure storage
+// It enables retrieval and parsing of secrets from 1Password vaults using the official SDK
+
 package secrets
 
 import (
@@ -12,11 +17,19 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// =============================================================================
+// Constants
+// =============================================================================
+
 var (
 	globalClient *onepassword.Client
 	globalCtx    context.Context
 	clientLock   sync.Mutex
 )
+
+// =============================================================================
+// Types
+// =============================================================================
 
 // OnePasswordSDKSecretsProvider is an implementation of the SecretsProvider interface
 // that uses the 1Password SDK to manage secrets.
@@ -25,14 +38,21 @@ type OnePasswordSDKSecretsProvider struct {
 	vault secretsConfigType.OnePasswordVault
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewOnePasswordSDKSecretsProvider creates a new OnePasswordSDKSecretsProvider instance
 func NewOnePasswordSDKSecretsProvider(vault secretsConfigType.OnePasswordVault, injector di.Injector) *OnePasswordSDKSecretsProvider {
-	baseProvider := NewBaseSecretsProvider(injector)
 	return &OnePasswordSDKSecretsProvider{
-		BaseSecretsProvider: baseProvider,
+		BaseSecretsProvider: NewBaseSecretsProvider(injector),
 		vault:               vault,
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize initializes the secrets provider
 func (s *OnePasswordSDKSecretsProvider) Initialize() error {
@@ -55,7 +75,7 @@ func (s *OnePasswordSDKSecretsProvider) Initialize() error {
 // item name is sanitized. A secret reference URI is constructed and used to resolve the secret value
 // from 1Password. If successful, the secret value is returned; otherwise, an error is reported.
 func (s *OnePasswordSDKSecretsProvider) GetSecret(key string) (string, error) {
-	if !s.isUnlocked() {
+	if !s.unlocked {
 		return "********", nil
 	}
 
@@ -69,7 +89,7 @@ func (s *OnePasswordSDKSecretsProvider) GetSecret(key string) (string, error) {
 
 	if globalClient == nil {
 		globalCtx = context.Background()
-		client, err := newOnePasswordClient(
+		client, err := s.shims.NewOnePasswordClient(
 			globalCtx,
 			onepassword.WithServiceAccountToken(token),
 			onepassword.WithIntegrationInfo("windsor-cli", version),
@@ -95,7 +115,7 @@ func (s *OnePasswordSDKSecretsProvider) GetSecret(key string) (string, error) {
 	secretRef := fmt.Sprintf("op://%s/%s/%s", s.vault.Name, itemName, fieldName)
 
 	// Resolve the secret using the SDK
-	value, err := resolveSecret(globalClient, globalCtx, secretRef)
+	value, err := s.shims.ResolveSecret(globalClient, globalCtx, secretRef)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve secret: %w", err)
 	}
