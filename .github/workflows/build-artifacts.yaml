@@ -2,17 +2,21 @@ name: 'RP: Build Artifacts'
 on:
   # repository_dispatch:
   #   types: [build-artifacts]
-  workflow_dispatch:
+  # workflow_dispatch:
+  workflow_call:
     inputs:
       repo_owner:
+        type: string
         description: 'Repository Owner'
         required: false
         default: 'windsorcli'
       repo_name:
+        type: string
         description: 'Repository Name'
         required: false
         default: 'cli'
       release:
+        type: string
         description: 'Release Branch'
         required: false
         default: 'release-latest'
