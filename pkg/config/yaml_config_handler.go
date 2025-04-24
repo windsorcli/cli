@@ -11,21 +11,33 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// YamlConfigHandler implements the ConfigHandler interface using goccy/go-yaml
+// YamlConfigHandler extends BaseConfigHandler to implement YAML-based configuration
+// management. It handles serialization/deserialization of v1alpha1.Context objects
+// to/from YAML files, with version validation and context-specific overrides. The
+// handler maintains configuration state through file-based persistence, implementing
+// atomic writes and proper error handling. Configuration values can be accessed through
+// strongly-typed getters with support for default values.
+
 type YamlConfigHandler struct {
 	BaseConfigHandler
 	path                 string
 	defaultContextConfig v1alpha1.Context
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewYamlConfigHandler creates a new instance of YamlConfigHandler with default context configuration.
 func NewYamlConfigHandler(injector di.Injector) *YamlConfigHandler {
 	return &YamlConfigHandler{
-		BaseConfigHandler: BaseConfigHandler{
-			injector: injector,
-		},
+		BaseConfigHandler: *NewBaseConfigHandler(injector),
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // LoadConfigString loads the configuration from the provided string content.
 func (y *YamlConfigHandler) LoadConfigString(content string) error {
@@ -33,7 +45,7 @@ func (y *YamlConfigHandler) LoadConfigString(content string) error {
 		return nil
 	}
 
-	if err := yamlUnmarshal([]byte(content), &y.BaseConfigHandler.config); err != nil {
+	if err := y.shims.YamlUnmarshal([]byte(content), &y.BaseConfigHandler.config); err != nil {
 		return fmt.Errorf("error unmarshalling yaml: %w", err)
 	}
 
@@ -45,18 +57,17 @@ func (y *YamlConfigHandler) LoadConfigString(content string) error {
 	}
 
 	y.BaseConfigHandler.loaded = true
-
 	return nil
 }
 
 // LoadConfig loads the configuration from the specified path. If the file does not exist, it does nothing.
 func (y *YamlConfigHandler) LoadConfig(path string) error {
 	y.path = path
-	if _, err := osStat(path); os.IsNotExist(err) {
+	if _, err := y.shims.Stat(path); os.IsNotExist(err) {
 		return nil
 	}
 
-	data, err := osReadFile(path)
+	data, err := y.shims.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("error reading config file: %w", err)
 	}
@@ -75,19 +86,19 @@ func (y *YamlConfigHandler) SaveConfig(path string) error {
 	}
 
 	dir := filepath.Dir(path)
-	if err := osMkdirAll(dir, 0755); err != nil {
+	if err := y.shims.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("error creating directories: %w", err)
 	}
 
 	// Ensure the config version is set to "v1alpha1" before saving
 	y.config.Version = "v1alpha1"
 
-	data, err := yamlMarshal(y.config)
+	data, err := y.shims.YamlMarshal(y.config)
 	if err != nil {
 		return fmt.Errorf("error marshalling yaml: %w", err)
 	}
 
-	if err := osWriteFile(path, data, 0644); err != nil {
+	if err := y.shims.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("error writing config file: %w", err)
 	}
 	return nil
@@ -108,7 +119,7 @@ func (y *YamlConfigHandler) SetDefault(context v1alpha1.Context) error {
 }
 
 // Get retrieves the value at the specified path in the configuration. It checks both the current and default context configurations.
-func (y *YamlConfigHandler) Get(path string) interface{} {
+func (y *YamlConfigHandler) Get(path string) any {
 	if path == "" {
 		return nil
 	}
@@ -252,8 +263,12 @@ func (y *YamlConfigHandler) GetConfig() *v1alpha1.Context {
 // Ensure YamlConfigHandler implements ConfigHandler
 var _ ConfigHandler = (*YamlConfigHandler)(nil)
 
+// =============================================================================
+// Private Methods
+// =============================================================================
+
 // getValueByPath retrieves a value by navigating through a struct or map using YAML tags.
-func getValueByPath(current interface{}, pathKeys []string) interface{} {
+func getValueByPath(current any, pathKeys []string) any {
 	if len(pathKeys) == 0 {
 		return nil
 	}
