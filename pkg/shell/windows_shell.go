@@ -8,6 +8,15 @@ import (
 	"sort"
 )
 
+// The WindowsShell is a platform-specific implementation of shell operations for Windows systems.
+// It provides Windows PowerShell-specific implementations of environment variable and alias management.
+// It handles the differences between Windows PowerShell and Unix shells.
+// Key features include PowerShell-specific command generation for environment variables and aliases.
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 // PrintEnvVars sorts and prints environment variables. Empty values trigger a removal command.
 func (s *DefaultShell) PrintEnvVars(envVars map[string]string) {
 	keys := make([]string, 0, len(envVars))

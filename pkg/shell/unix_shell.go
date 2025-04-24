@@ -9,6 +9,15 @@ import (
 	"strings"
 )
 
+// The UnixShell is a platform-specific implementation of shell operations for Unix-like systems.
+// It provides Unix-specific implementations of environment variable and alias management.
+// It handles the differences between Unix shells and Windows PowerShell.
+// Key features include Unix-specific command generation for environment variables and aliases.
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 // PrintEnvVars prints the provided environment variables in a sorted order.
 // If the value of an environment variable is an empty string, it will print an unset command.
 func (s *DefaultShell) PrintEnvVars(envVars map[string]string) {
