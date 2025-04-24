@@ -20,8 +20,7 @@ on:
       token:
         type: string
         description: 'GitHub Token'
-        required: false
-        default: ${{ secrets.GITHUB_TOKEN }}
+        required: true
 
 permissions:
   contents: write  # Allows creating releases
