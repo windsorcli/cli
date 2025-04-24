@@ -125,12 +125,6 @@ func TestEnvCmd(t *testing.T) {
 		}
 	})
 
-	// Also reset the session token in the shell package
-	shell.ResetSessionToken()
-	t.Cleanup(func() {
-		shell.ResetSessionToken()
-	})
-
 	t.Run("Success", func(t *testing.T) {
 		defer resetRootCmd()
 

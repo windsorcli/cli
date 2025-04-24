@@ -17,9 +17,15 @@ import (
 	sh "github.com/windsorcli/cli/pkg/shell"
 )
 
-// ToolsManager is responsible for managing the cli toolchain required
-// by the project. It leverages existing package ecosystems and modifies
-// tools manifests to ensure the appropriate tools are installed and configured.
+// The ToolsManager is a core component that manages development tools and dependencies
+// required for infrastructure and application development. It handles the lifecycle of
+// development tools through a manifest-based approach, ensuring consistent tooling
+// across development environments. The manager facilitates tool version management,
+// installation verification, and dependency resolution. It integrates with the project's
+// configuration system to determine required tools and their versions, enabling
+// reproducible development environments. The manager supports both local and remote
+// tool installations, with built-in version checking and compatibility validation.
+
 type ToolsManager interface {
 	Initialize() error
 	WriteManifest() error
@@ -34,12 +40,20 @@ type BaseToolsManager struct {
 	shell         shell.Shell
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // Creates a new ToolsManager instance with the given injector.
 func NewToolsManager(injector di.Injector) *BaseToolsManager {
 	return &BaseToolsManager{
 		injector: injector,
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize the tools manager by resolving the config handler and shell.
 func (t *BaseToolsManager) Initialize() error {
@@ -113,7 +127,8 @@ func (t *BaseToolsManager) Check() error {
 			return fmt.Errorf("colima check failed: %v", err)
 		}
 	}
-	if len(t.configHandler.GetStringMap("1password.vaults")) > 0 {
+
+	if vaults := t.configHandler.Get(fmt.Sprintf("contexts.%s.secrets.onepassword.vaults", t.configHandler.GetContext())); vaults != nil {
 		if err := t.checkOnePassword(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
@@ -149,6 +164,10 @@ func CheckExistingToolsManager(projectRoot string) (string, error) {
 	return "", nil
 }
 
+// =============================================================================
+// Private Methods
+// =============================================================================
+
 // checkDocker ensures Docker and Docker Compose are available in the system's PATH using execLookPath and shell.ExecSilent.
 // It checks for 'docker', 'docker-compose', 'docker-cli-plugin-docker-compose', or 'docker compose'.
 // Returns nil if any are found, else an error indicating Docker Compose is not available in the PATH.
@@ -159,10 +178,7 @@ func (t *BaseToolsManager) checkDocker() error {
 
 	output, _ := t.shell.ExecSilent("docker", "version", "--format", "{{.Client.Version}}")
 	dockerVersion := extractVersion(output)
-	if dockerVersion == "" {
-		return fmt.Errorf("failed to extract Docker version")
-	}
-	if compareVersion(dockerVersion, constants.MINIMUM_VERSION_DOCKER) < 0 {
+	if dockerVersion != "" && compareVersion(dockerVersion, constants.MINIMUM_VERSION_DOCKER) < 0 {
 		return fmt.Errorf("docker version %s is below the minimum required version %s", dockerVersion, constants.MINIMUM_VERSION_DOCKER)
 	}
 
@@ -289,13 +305,19 @@ func (t *BaseToolsManager) checkOnePassword() error {
 	if _, err := execLookPath("op"); err != nil {
 		return fmt.Errorf("1Password CLI is not available in the PATH")
 	}
-	output, _ := t.shell.ExecSilent("op", "--version")
-	opVersion := extractVersion(output)
-	if opVersion == "" {
+
+	out, err := t.shell.ExecSilent("op", "--version")
+	if err != nil {
+		return fmt.Errorf("1Password CLI is not available in the PATH")
+	}
+
+	version := extractVersion(out)
+	if version == "" {
 		return fmt.Errorf("failed to extract 1Password CLI version")
 	}
-	if compareVersion(opVersion, constants.MINIMUM_VERSION_1PASSWORD) < 0 {
-		return fmt.Errorf("1Password CLI version %s is below the minimum required version %s", opVersion, constants.MINIMUM_VERSION_1PASSWORD)
+
+	if compareVersion(version, constants.MINIMUM_VERSION_1PASSWORD) < 0 {
+		return fmt.Errorf("1Password CLI version %s is below the minimum required version %s", version, constants.MINIMUM_VERSION_1PASSWORD)
 	}
 
 	return nil
@@ -320,11 +342,9 @@ func compareVersion(version1, version2 string) int {
 	v1 := strings.Split(main1, ".")
 	v2 := strings.Split(main2, ".")
 	length := len(v1)
-	if len(v2) > length {
-		length = len(v2)
-	}
+	length = max(length, len(v2))
 
-	for i := 0; i < length; i++ {
+	for i := range make([]int, length) {
 		var comp1, comp2 int
 
 		if i < len(v1) {

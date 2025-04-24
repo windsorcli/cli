@@ -11,36 +11,32 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// The Service is a core interface that defines the contract for service implementations
+// It provides methods for managing service configuration, addressing, and DNS capabilities
+// The Service interface serves as the foundation for all Windsor service implementations
+// enabling consistent service management across different providers and environments
+
+// =============================================================================
+// Interfaces
+// =============================================================================
+
 // Service is an interface that defines methods for retrieving environment variables
 // and can be implemented for individual providers.
 type Service interface {
-	// GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 	GetComposeConfig() (*types.Config, error)
-
-	// WriteConfig writes any necessary configuration files needed by the service
 	WriteConfig() error
-
-	// SetAddress sets the address if it is a valid IPv4 address
 	SetAddress(address string) error
-
-	// GetAddress returns the current address of the service
 	GetAddress() string
-
-	// SetName sets the name of the service
 	SetName(name string)
-
-	// GetName returns the current name of the service
 	GetName() string
-
-	// Initialize performs any necessary initialization for the service.
 	Initialize() error
-
-	// SupportsWildcard returns whether the service supports wildcard DNS entries
 	SupportsWildcard() bool
-
-	// GetHostname returns the hostname for the service, which may include domain processing
 	GetHostname() string
 }
+
+// =============================================================================
+// Types
+// =============================================================================
 
 // BaseService is a base implementation of the Service interface
 type BaseService struct {
@@ -49,9 +45,25 @@ type BaseService struct {
 	shell         shell.Shell
 	address       string
 	name          string
+	shims         *Shims
 }
 
-// Initialize resolves and assigns configHandler and shell dependencies using the injector.
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewBaseService is a constructor for BaseService
+func NewBaseService(injector di.Injector) *BaseService {
+	return &BaseService{
+		injector: injector,
+		shims:    NewShims(),
+	}
+}
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 func (s *BaseService) Initialize() error {
 	configHandler, ok := s.injector.Resolve("configHandler").(config.ConfigHandler)
 	if !ok {
@@ -104,7 +116,11 @@ func (s *BaseService) GetContainerName() string {
 	return fmt.Sprintf("windsor-%s-%s", contextName, s.name)
 }
 
-// IsLocalhostMode checks if we are in localhost mode (vm.driver == "docker-desktop")
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// isLocalhostMode checks if we are in localhost mode (vm.driver == "docker-desktop")
 func (s *BaseService) isLocalhostMode() bool {
 	vmDriver := s.configHandler.GetString("vm.driver")
 	return vmDriver == "docker-desktop"
@@ -117,6 +133,9 @@ func (s *BaseService) SupportsWildcard() bool {
 
 // GetHostname returns the hostname for the service with the configured TLD
 func (s *BaseService) GetHostname() string {
+	if s.name == "" {
+		return ""
+	}
 	tld := s.configHandler.GetString("dns.domain", "test")
 	return s.name + "." + tld
 }

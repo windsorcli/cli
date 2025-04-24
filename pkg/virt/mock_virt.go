@@ -1,4 +1,13 @@
+// The MockVirt is a test implementation of the Virt interface
+// It provides mockable function fields for all Virt interface methods
+// It serves as a testing aid by allowing test cases to control behavior
+// It enables isolated testing of components that depend on virtualization
+
 package virt
+
+// =============================================================================
+// Types
+// =============================================================================
 
 // MockVirt is a struct that simulates a virt environment for testing purposes.
 type MockVirt struct {
@@ -11,10 +20,18 @@ type MockVirt struct {
 	GetContainerInfoFunc func(name ...string) ([]ContainerInfo, error)
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewMockVirt creates a new instance of MockVirt.
 func NewMockVirt() *MockVirt {
 	return &MockVirt{}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize initializes the mock virt.
 // If a custom InitializeFunc is provided, it will use that function instead.
@@ -78,6 +95,10 @@ func (m *MockVirt) GetContainerInfo(name ...string) ([]ContainerInfo, error) {
 	}
 	return []ContainerInfo{}, nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure MockVirt implements the Virt, VirtualMachine, and ContainerRuntime interfaces
 var _ Virt = (*MockVirt)(nil)

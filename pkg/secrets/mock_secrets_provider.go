@@ -6,6 +6,15 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// The MockSecretsProvider is a mock implementation of the SecretsProvider interface
+// It provides a testable alternative to real secrets providers
+// It serves as a testing aid by allowing secrets operations to be intercepted
+// It enables dependency injection and test isolation for secrets operations
+
+// =============================================================================
+// Types
+// =============================================================================
+
 // MockSecretsProvider is a mock implementation of the SecretsProvider interface for testing purposes
 type MockSecretsProvider struct {
 	BaseSecretsProvider
@@ -16,12 +25,20 @@ type MockSecretsProvider struct {
 	UnlockFunc       func() error
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewMockSecretsProvider creates a new instance of MockSecretsProvider
 func NewMockSecretsProvider(injector di.Injector) *MockSecretsProvider {
 	return &MockSecretsProvider{
 		BaseSecretsProvider: *NewBaseSecretsProvider(injector),
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize calls the mock InitializeFunc if set, otherwise returns nil
 func (m *MockSecretsProvider) Initialize() error {

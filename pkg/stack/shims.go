@@ -1,18 +1,40 @@
+// The shims package is a system call abstraction layer
+// It provides mockable wrappers around system and runtime functions
+// It serves as a testing aid by allowing system calls to be intercepted
+// It enables dependency injection and test isolation for system-level operations
+
 package stack
 
-import "os"
+import (
+	"os"
+)
 
-// osStat is a shim for os.Stat that allows us to mock the function in tests
-var osStat = os.Stat
+// =============================================================================
+// Types
+// =============================================================================
 
-// osChdir is a shim for os.Chdir that allows us to mock the function in tests
-var osChdir = os.Chdir
+// Shims provides mockable wrappers around system and runtime functions
+type Shims struct {
+	Stat     func(string) (os.FileInfo, error)
+	Chdir    func(string) error
+	Getwd    func() (string, error)
+	Setenv   func(string, string) error
+	Unsetenv func(string) error
+	Remove   func(string) error
+}
 
-// osGetwd is a shim for os.Getwd that allows us to mock the function in tests
-var osGetwd = os.Getwd
+// =============================================================================
+// Helpers
+// =============================================================================
 
-// osSetenv is a shim for os.Setenv that allows us to mock the function in tests
-var osSetenv = os.Setenv
-
-// osRemove is a shim for os.Remove that allows us to mock the function in tests
-var osRemove = os.Remove
+// NewShims creates a new Shims instance with default implementations
+func NewShims() *Shims {
+	return &Shims{
+		Stat:     os.Stat,
+		Chdir:    os.Chdir,
+		Getwd:    os.Getwd,
+		Setenv:   os.Setenv,
+		Unsetenv: os.Unsetenv,
+		Remove:   os.Remove,
+	}
+}

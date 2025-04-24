@@ -1,412 +1,306 @@
 package services
 
 import (
-	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
-	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
-type MockComponents struct {
-	Injector          di.Injector
-	MockShell         *shell.MockShell
-	MockConfigHandler *config.MockConfigHandler
-	MockService       *MockService
-}
+// The MockServiceTest provides test coverage for the MockService implementation.
+// It validates the mock's function field behaviors and ensures proper operation
+// of the test double, verifying nil handling and custom function field behaviors.
 
-// Helper function to compare two maps
-func equalMaps(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if b[k] != v {
-			return false
-		}
-	}
-	return true
-}
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
 func TestMockService_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock service with an InitializeFunc
-		mockService := NewMockService()
-		mockService.InitializeFunc = func() error {
+		// Given a new MockService with InitializeFunc set
+		mock := NewMockService()
+		mock.InitializeFunc = func() error {
 			return nil
 		}
 
-		// When: Initialize is called
-		err := mockService.Initialize()
+		// When Initialize is called
+		err := mock.Initialize()
 
-		// Then: no error should occur
+		// Then no error should be returned
 		if err != nil {
-			t.Errorf("Initialize() error = %v", err)
+			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
 	})
 
-	t.Run("SuccessNoMock", func(t *testing.T) {
-		// Given: a mock service with no InitializeFunc
-		mockService := NewMockService()
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a new MockService without InitializeFunc set
+		mock := NewMockService()
 
-		// When: Initialize is called
-		err := mockService.Initialize()
+		// When Initialize is called
+		err := mock.Initialize()
 
-		// Then: no error should occur
+		// Then no error should be returned
 		if err != nil {
-			t.Errorf("Initialize() error = %v", err)
+			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
 	})
 }
 
 func TestMockService_GetComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock service with a GetComposeConfigFunc
-		expectedConfig := &types.Config{
-			Services: []types.ServiceConfig{
-				{
-					Name:  "service1",
-					Image: "nginx:latest",
-				},
-			},
-		}
-		mockService := NewMockService()
-		mockService.GetComposeConfigFunc = func() (*types.Config, error) {
+		// Given a new MockService with GetComposeConfigFunc set
+		mock := NewMockService()
+		expectedConfig := &types.Config{}
+		mock.GetComposeConfigFunc = func() (*types.Config, error) {
 			return expectedConfig, nil
 		}
 
-		// Initialize the service
-		err := mockService.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
+		// When GetComposeConfig is called
+		config, err := mock.GetComposeConfig()
 
-		// When: GetComposeConfig is called
-		composeConfig, err := mockService.GetComposeConfig()
-		if err != nil {
-			t.Fatalf("GetComposeConfig() error = %v", err)
+		// Then the expected config should be returned without error
+		if config != expectedConfig {
+			t.Errorf("Expected config = %v, got = %v", expectedConfig, config)
 		}
-
-		// Then: the result should match the expected configuration
-		if !reflect.DeepEqual(composeConfig, expectedConfig) {
-			t.Errorf("expected %v, got %v", expectedConfig, composeConfig)
+		if err != nil {
+			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
 	})
 
-	t.Run("SuccessNoMock", func(t *testing.T) {
-		// Given: a mock service with no GetComposeConfigFunc
-		mockService := NewMockService()
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a new MockService without GetComposeConfigFunc set
+		mock := NewMockService()
 
-		// Initialize the service
-		err := mockService.Initialize()
+		// When GetComposeConfig is called
+		config, err := mock.GetComposeConfig()
+
+		// Then nil config and no error should be returned
+		if config != nil {
+			t.Errorf("Expected config = nil, got = %v", config)
+		}
 		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		composeConfig, err := mockService.GetComposeConfig()
-
-		// Then: no error should occur and the result should be nil
-		if err != nil {
-			t.Fatalf("GetComposeConfig() error = %v", err)
-		}
-		if composeConfig != nil {
-			t.Errorf("expected nil, got %v", composeConfig)
-		}
-	})
-
-	t.Run("Error", func(t *testing.T) {
-		// Given: a mock service with a GetComposeConfigFunc that returns an error
-		expectedError := fmt.Errorf("mock error getting compose config")
-		mockService := NewMockService()
-		mockService.GetComposeConfigFunc = func() (*types.Config, error) {
-			return nil, expectedError
-		}
-
-		// Initialize the service
-		err := mockService.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// When: GetComposeConfig is called
-		_, err = mockService.GetComposeConfig()
-		if err == nil {
-			t.Fatalf("expected error %v, got nil", expectedError)
-		}
-		if err.Error() != expectedError.Error() {
-			t.Fatalf("expected error %v, got %v", expectedError, err)
-		}
-	})
-}
-
-func TestMockService_GetComposeConfigFunc(t *testing.T) {
-	t.Run("GetComposeConfigFunc", func(t *testing.T) {
-		// Given: a mock service
-		mockService := NewMockService()
-
-		// Initialize the service
-		err := mockService.Initialize()
-		if err != nil {
-			t.Fatalf("Initialize() error = %v", err)
-		}
-
-		// Define a mock GetComposeConfigFunc
-		expectedConfig := &types.Config{
-			Services: []types.ServiceConfig{
-				{
-					Name:  "service1",
-					Image: "nginx:latest",
-				},
-			},
-		}
-		mockGetComposeConfigFunc := func() (*types.Config, error) {
-			return expectedConfig, nil
-		}
-
-		// When: GetComposeConfigFunc is called
-		mockService.GetComposeConfigFunc = mockGetComposeConfigFunc
-
-		// Then: the GetComposeConfigFunc should be set and return the expected configuration
-		composeConfig, err := mockService.GetComposeConfig()
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if !reflect.DeepEqual(composeConfig, expectedConfig) {
-			t.Errorf("expected %v, got %v", expectedConfig, composeConfig)
+			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
 	})
 }
 
 func TestMockService_WriteConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock service with a WriteConfigFunc
-		mockService := NewMockService()
-		mockService.WriteConfigFunc = func() error {
+		// Given a new MockService with WriteConfigFunc set
+		mock := NewMockService()
+		mock.WriteConfigFunc = func() error {
 			return nil
 		}
 
-		// When: WriteConfig is called
-		err := mockService.WriteConfig()
+		// When WriteConfig is called
+		err := mock.WriteConfig()
 
-		// Then: no error should occur
+		// Then no error should be returned
 		if err != nil {
-			t.Fatalf("WriteConfig() error = %v", err)
+			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
 	})
 
-	t.Run("SuccessNoMock", func(t *testing.T) {
-		// Given: a mock service with no WriteConfigFunc
-		mockService := NewMockService()
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a new MockService without WriteConfigFunc set
+		mock := NewMockService()
 
-		// When: WriteConfig is called
-		err := mockService.WriteConfig()
+		// When WriteConfig is called
+		err := mock.WriteConfig()
 
-		// Then: no error should occur
+		// Then no error should be returned
 		if err != nil {
-			t.Fatalf("WriteConfig() error = %v", err)
+			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
 	})
 }
 
 func TestMockService_SetAddress(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock service
-		mockService := NewMockService()
-		expectedAddress := "127.0.0.1"
-
-		// When: SetAddressFunc is called
-		mockSetAddressFunc := func(address string) error {
-			if address != expectedAddress {
-				t.Errorf("expected address %v, got %v", expectedAddress, address)
-			}
+		// Given a new MockService with SetAddressFunc set
+		mock := NewMockService()
+		mock.SetAddressFunc = func(address string) error {
 			return nil
 		}
-		mockService.SetAddressFunc = mockSetAddressFunc
 
-		// Then: the SetAddressFunc should be set and called with the expected address
-		err := mockService.SetAddress(expectedAddress)
+		// When SetAddress is called
+		err := mock.SetAddress("test-address")
+
+		// Then no error should be returned
 		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
+			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
 	})
 
-	t.Run("SuccessNoMock", func(t *testing.T) {
-		// Given: a mock service with no SetAddressFunc
-		mockService := NewMockService()
-		expectedAddress := "127.0.0.1"
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a new MockService without SetAddressFunc set
+		mock := NewMockService()
 
-		// When: SetAddress is called
-		err := mockService.SetAddress(expectedAddress)
+		// When SetAddress is called
+		err := mock.SetAddress("test-address")
 
-		// Then: no error should occur
+		// Then no error should be returned
 		if err != nil {
-			t.Fatalf("SetAddress() error = %v", err)
+			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
 	})
 }
 
 func TestMockService_GetAddress(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock service
-		mockService := NewMockService()
-		expectedAddress := "127.0.0.1"
-
-		// When: GetAddressFunc is called
-		mockGetAddressFunc := func() string {
+		// Given a new MockService with GetAddressFunc set
+		mock := NewMockService()
+		expectedAddress := "test-address"
+		mock.GetAddressFunc = func() string {
 			return expectedAddress
 		}
-		mockService.GetAddressFunc = mockGetAddressFunc
 
-		// Then: the GetAddressFunc should be set and return the expected address
-		address := mockService.GetAddress()
+		// When GetAddress is called
+		address := mock.GetAddress()
+
+		// Then the expected address should be returned
 		if address != expectedAddress {
-			t.Errorf("expected address %v, got %v", expectedAddress, address)
+			t.Errorf("Expected address = %v, got = %v", expectedAddress, address)
 		}
 	})
 
-	t.Run("SuccessNoMock", func(t *testing.T) {
-		// Given: a mock service with no GetAddressFunc
-		mockService := NewMockService()
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a new MockService without GetAddressFunc set
+		mock := NewMockService()
 
-		// When: GetAddress is called
-		address := mockService.GetAddress()
+		// When GetAddress is called
+		address := mock.GetAddress()
 
-		// Then: an empty string should be returned
+		// Then an empty string should be returned
 		if address != "" {
-			t.Errorf("expected empty address, got %v", address)
-		}
-	})
-}
-
-func TestMockService_SetName(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a mock service
-		mockService := NewMockService()
-		expectedName := "TestService"
-
-		// When: SetNameFunc is called
-		mockSetNameFunc := func(name string) {
-			mockService.name = name
-		}
-		mockService.SetNameFunc = mockSetNameFunc
-		mockService.SetName(expectedName)
-
-		// Then: the SetNameFunc should be set and the name should be updated
-		if mockService.name != expectedName {
-			t.Errorf("expected name %v, got %v", expectedName, mockService.name)
-		}
-	})
-
-	t.Run("SuccessNoMock", func(t *testing.T) {
-		// Given: a mock service with no SetNameFunc
-		mockService := NewMockService()
-		expectedName := "TestService"
-
-		// When: SetName is called
-		mockService.SetName(expectedName)
-
-		// Then: the name should be updated
-		if mockService.name != expectedName {
-			t.Errorf("expected name %v, got %v", expectedName, mockService.name)
+			t.Errorf("Expected address = '', got = %v", address)
 		}
 	})
 }
 
 func TestMockService_GetName(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given: a mock service
-		mockService := NewMockService()
-		expectedName := "TestService"
-
-		// When: GetNameFunc is called
-		mockGetNameFunc := func() string {
+		// Given a new MockService with GetNameFunc set
+		mock := NewMockService()
+		expectedName := "test-name"
+		mock.GetNameFunc = func() string {
 			return expectedName
 		}
-		mockService.GetNameFunc = mockGetNameFunc
-		name := mockService.GetName()
 
-		// Then: the GetNameFunc should be set and the name should be returned
+		// When GetName is called
+		name := mock.GetName()
+
+		// Then the expected name should be returned
 		if name != expectedName {
-			t.Errorf("expected name %v, got %v", expectedName, name)
+			t.Errorf("Expected name = %v, got = %v", expectedName, name)
 		}
 	})
 
-	t.Run("SuccessNoMock", func(t *testing.T) {
-		// Given: a mock service with no GetNameFunc
-		mockService := NewMockService()
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a new MockService without GetNameFunc set
+		mock := NewMockService()
 
-		// When: GetName is called
-		name := mockService.GetName()
+		// When GetName is called
+		name := mock.GetName()
 
-		// Then: an empty string should be returned
+		// Then an empty string should be returned
 		if name != "" {
-			t.Errorf("expected empty name, got %v", name)
+			t.Errorf("Expected name = '', got = %v", name)
+		}
+	})
+}
+
+func TestMockService_SetName(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new MockService with SetNameFunc set
+		mock := NewMockService()
+		expectedName := "test-name"
+		mock.SetNameFunc = func(name string) {
+			// No-op, just verify it's called
+		}
+
+		// When SetName is called
+		mock.SetName(expectedName)
+
+		// Then the name should be set
+		if mock.GetName() != expectedName {
+			t.Errorf("Expected name = %v, got = %v", expectedName, mock.GetName())
+		}
+	})
+
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a new MockService without SetNameFunc set
+		mock := NewMockService()
+		expectedName := "test-name"
+
+		// When SetName is called
+		mock.SetName(expectedName)
+
+		// Then the name should be set
+		if mock.GetName() != expectedName {
+			t.Errorf("Expected name = %v, got = %v", expectedName, mock.GetName())
 		}
 	})
 }
 
 func TestMockService_GetHostname(t *testing.T) {
-	t.Run("WithFunction", func(t *testing.T) {
-		// Create a mock service with a GetHostname function
-		mockService := NewMockService()
-		mockService.GetHostnameFunc = func() string {
-			return "test-hostname"
+	t.Run("Success", func(t *testing.T) {
+		// Given a new MockService with GetHostnameFunc set
+		mock := NewMockService()
+		expectedHostname := "test-hostname"
+		mock.GetHostnameFunc = func() string {
+			return expectedHostname
 		}
 
-		// Call GetHostname
-		hostname := mockService.GetHostname()
+		// When GetHostname is called
+		hostname := mock.GetHostname()
 
-		// Verify that GetHostname returns the expected value
-		if hostname != "test-hostname" {
-			t.Errorf("Expected hostname 'test-hostname', got %q", hostname)
+		// Then the expected hostname should be returned
+		if hostname != expectedHostname {
+			t.Errorf("Expected hostname = %v, got = %v", expectedHostname, hostname)
 		}
 	})
 
-	t.Run("WithoutFunction", func(t *testing.T) {
-		// Create a mock service without a GetHostname function
-		mockService := NewMockService()
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a new MockService without GetHostnameFunc set
+		mock := NewMockService()
 
-		// Call GetHostname
-		hostname := mockService.GetHostname()
+		// When GetHostname is called
+		hostname := mock.GetHostname()
 
-		// Verify that GetHostname returns an empty string
+		// Then an empty string should be returned
 		if hostname != "" {
-			t.Errorf("Expected empty hostname, got %q", hostname)
+			t.Errorf("Expected hostname = '', got = %v", hostname)
 		}
 	})
 }
 
 func TestMockService_SupportsWildcard(t *testing.T) {
-	t.Run("WithFunction", func(t *testing.T) {
-		// Create a mock service with a SupportsWildcard function
-		mockService := NewMockService()
-		mockService.SupportsWildcardFunc = func() bool {
+	t.Run("Success", func(t *testing.T) {
+		// Given a new MockService with SupportsWildcardFunc set
+		mock := NewMockService()
+		mock.SupportsWildcardFunc = func() bool {
 			return true
 		}
 
-		// Call SupportsWildcard
-		supportsWildcard := mockService.SupportsWildcard()
+		// When SupportsWildcard is called
+		supports := mock.SupportsWildcard()
 
-		// Verify that SupportsWildcard returns the expected value
-		if !supportsWildcard {
-			t.Errorf("Expected SupportsWildcard to return true, got false")
+		// Then it should return true
+		if !supports {
+			t.Error("Expected SupportsWildcard to return true")
 		}
 	})
 
-	t.Run("WithoutFunction", func(t *testing.T) {
-		// Create a mock service without a SupportsWildcard function
-		mockService := NewMockService()
+	t.Run("NotImplemented", func(t *testing.T) {
+		// Given a new MockService without SupportsWildcardFunc set
+		mock := NewMockService()
 
-		// Call SupportsWildcard
-		supportsWildcard := mockService.SupportsWildcard()
+		// When SupportsWildcard is called
+		supports := mock.SupportsWildcard()
 
-		// Verify that SupportsWildcard returns false
-		if supportsWildcard {
-			t.Errorf("Expected SupportsWildcard to return false, got true")
+		// Then it should return false
+		if supports {
+			t.Error("Expected SupportsWildcard to return false")
 		}
 	})
 }

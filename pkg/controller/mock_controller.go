@@ -50,6 +50,10 @@ type MockController struct {
 	SetEnvironmentVariablesFunc        func() error
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 func NewMockController(injector di.Injector) *MockController {
 	return &MockController{
 		BaseController: BaseController{
@@ -57,6 +61,10 @@ func NewMockController(injector di.Injector) *MockController {
 		},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize calls the mock InitializeFunc if set, otherwise calls the parent function
 func (m *MockController) Initialize() error {
