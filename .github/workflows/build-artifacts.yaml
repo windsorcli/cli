@@ -1,8 +1,5 @@
 name: 'RP: Build Artifacts'
 on:
-  # repository_dispatch:
-  #   types: [build-artifacts]
-  # workflow_dispatch:
   workflow_call:
     inputs:
       repo_owner:
@@ -20,6 +17,11 @@ on:
         description: 'Release Branch'
         required: false
         default: 'release-latest'
+      token:
+        type: string
+        description: 'GitHub Token'
+        required: false
+        default: ${{ secrets.GITHUB_TOKEN }}
 
 permissions:
   contents: write  # Allows creating releases
@@ -41,7 +43,7 @@ jobs:
         id: get_latest_release_branch
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
         with:
-          github-token: ${{ secrets.WINDSORCLI_RELEASE_TOKEN }}
+          github-token: ${{ inputs.token }}
           script: |
             const releaseInput = '${{ inputs.release }}';
             const validFormat = /^(release-latest|release-[0-9]+\.[0-9]+\.[0-9]+|v?[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+)$/;
