@@ -28,6 +28,10 @@ type RealController struct {
 	BaseController
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewRealController creates a new controller.
 func NewRealController(injector di.Injector) *RealController {
 	return &RealController{
@@ -37,8 +41,9 @@ func NewRealController(injector di.Injector) *RealController {
 	}
 }
 
-// Ensure RealController implements the Controller interface
-var _ Controller = (*RealController)(nil)
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // CreateCommonComponents sets up config and shell for command execution.
 // It registers and initializes these components.
@@ -110,12 +115,9 @@ func (c *RealController) CreateProjectComponents() error {
 	return nil
 }
 
-// CreateEnvComponents creates components required for env and exec commands
-// Registers environment printers for AWS, Docker, Kube, Omni, Talos, Terraform, and Windsor.
-// Windsor environment printer also handles custom environment variables and secrets.
-// AWS and Docker printers are conditional on their respective configurations being enabled.
-// Each printer is created and registered with the dependency injector.
-// Returns nil on successful registration of all environment components.
+// CreateEnvComponents registers environment printers for various services (AWS, Docker, Kube, etc).
+// AWS and Docker printers are only registered if their respective services are enabled.
+// Windsor printer handles custom environment variables and secrets.
 func (c *RealController) CreateEnvComponents() error {
 	envPrinters := map[string]func(di.Injector) env.EnvPrinter{
 		"awsEnv":       func(injector di.Injector) env.EnvPrinter { return env.NewAwsEnvPrinter(injector) },
@@ -155,18 +157,21 @@ func (c *RealController) CreateServiceComponents() error {
 	dnsEnabled := configHandler.GetBool("dns.enabled")
 	if dnsEnabled {
 		dnsService := services.NewDNSService(c.injector)
+		dnsService.SetName("dns")
 		c.injector.Register("dnsService", dnsService)
 	}
 
 	gitLivereloadEnabled := configHandler.GetBool("git.livereload.enabled")
 	if gitLivereloadEnabled {
 		gitLivereloadService := services.NewGitLivereloadService(c.injector)
+		gitLivereloadService.SetName("git")
 		c.injector.Register("gitLivereloadService", gitLivereloadService)
 	}
 
 	localstackEnabled := configHandler.GetBool("aws.localstack.enabled")
 	if localstackEnabled {
 		localstackService := services.NewLocalstackService(c.injector)
+		localstackService.SetName("aws")
 		c.injector.Register("localstackService", localstackService)
 	}
 
