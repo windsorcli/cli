@@ -1,7 +1,7 @@
 name: 'RP: Build Artifacts'
 on:
-  repository_dispatch:
-    types: [build-artifacts]
+  # repository_dispatch:
+  #   types: [build-artifacts]
   workflow_dispatch:
     inputs:
       repo_owner:
