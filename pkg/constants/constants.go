@@ -64,6 +64,11 @@ const (
 	DEFAULT_NETWORK_CIDR = "10.5.0.0/16"
 )
 
+// Kubernetes settings
+const (
+	KUBERNETES_SHORT_TIMEOUT = 200 * time.Millisecond
+)
+
 // Minimum versions for tools
 const (
 	MINIMUM_VERSION_COLIMA         = "0.7.0"
