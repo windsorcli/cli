@@ -7,165 +7,175 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
-type TalosEnvMocks struct {
-	Injector      di.Injector
-	ConfigHandler *config.MockConfigHandler
-	Shell         *shell.MockShell
-}
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
-func setupSafeTalosEnvMocks(injector ...di.Injector) *TalosEnvMocks {
-	var mockInjector di.Injector
-	if len(injector) > 0 {
-		mockInjector = injector[0]
-	} else {
-		mockInjector = di.NewMockInjector()
-	}
-
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.GetConfigRootFunc = func() (string, error) {
-		return filepath.FromSlash("/mock/config/root"), nil
-	}
-
-	mockShell := shell.NewMockShell()
-
-	mockInjector.Register("configHandler", mockConfigHandler)
-	mockInjector.Register("shell", mockShell)
-
-	return &TalosEnvMocks{
-		Injector:      mockInjector,
-		ConfigHandler: mockConfigHandler,
-		Shell:         mockShell,
-	}
-}
-
+// TestTalosEnv_GetEnvVars tests the GetEnvVars method of the TalosEnvPrinter
 func TestTalosEnv_GetEnvVars(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupSafeTalosEnvMocks()
+	setup := func(t *testing.T) (*TalosEnvPrinter, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		printer := NewTalosEnvPrinter(mocks.Injector)
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize env: %v", err)
+		}
+		printer.shims = mocks.Shims
 
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.FromSlash("/mock/config/root/.talos/config") {
+		return printer, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a new TalosEnvPrinter with existing Talos config
+		printer, mocks := setup(t)
+
+		// Get the project root path
+		projectRoot, err := mocks.Shell.GetProjectRoot()
+		if err != nil {
+			t.Fatalf("Failed to get project root: %v", err)
+		}
+		expectedPath := filepath.Join(projectRoot, "contexts", "mock-context", ".talos", "config")
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == expectedPath {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		talosEnvPrinter := NewTalosEnvPrinter(mocks.Injector)
-		talosEnvPrinter.Initialize()
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
 
-		envVars, err := talosEnvPrinter.GetEnvVars()
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		expectedPath := filepath.FromSlash("/mock/config/root/.talos/config")
+		// And TALOSCONFIG should be set correctly
 		if envVars["TALOSCONFIG"] != expectedPath {
 			t.Errorf("TALOSCONFIG = %v, want %v", envVars["TALOSCONFIG"], expectedPath)
 		}
 	})
 
 	t.Run("NoTalosConfig", func(t *testing.T) {
-		mocks := setupSafeTalosEnvMocks()
+		// Given a new TalosEnvPrinter without existing Talos config
+		printer, mocks := setup(t)
 
-		originalStat := stat
-		defer func() { stat = originalStat }()
-		stat = func(name string) (os.FileInfo, error) {
+		// Get the project root path
+		projectRoot, err := mocks.Shell.GetProjectRoot()
+		if err != nil {
+			t.Fatalf("Failed to get project root: %v", err)
+		}
+		expectedPath := filepath.Join(projectRoot, "contexts", "mock-context", ".talos", "config")
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		talosEnvPrinter := NewTalosEnvPrinter(mocks.Injector)
-		talosEnvPrinter.Initialize()
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
 
-		envVars, err := talosEnvPrinter.GetEnvVars()
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		expectedPath := filepath.FromSlash("/mock/config/root/.talos/config")
+		// And TALOSCONFIG should still be set to default path
 		if envVars["TALOSCONFIG"] != expectedPath {
 			t.Errorf("TALOSCONFIG = %v, want %v", envVars["TALOSCONFIG"], expectedPath)
 		}
 	})
 
-	t.Run("GetConfigRootError", func(t *testing.T) {
-		mocks := setupSafeTalosEnvMocks()
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", errors.New("mock config error")
+	t.Run("GetProjectRootError", func(t *testing.T) {
+		// Given a new TalosEnvPrinter with failing project root lookup
+		printer, mocks := setup(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", errors.New("mock project root error")
 		}
 
-		talosEnvPrinter := NewTalosEnvPrinter(mocks.Injector)
-		talosEnvPrinter.Initialize()
+		// When getting environment variables
+		_, err := printer.GetEnvVars()
 
-		_, err := talosEnvPrinter.GetEnvVars()
-		if err == nil || err.Error() != "error retrieving configuration root directory: mock config error" {
-			t.Errorf("expected error retrieving configuration root directory, got %v", err)
+		// Then appropriate error should be returned
+		expectedError := "error retrieving configuration root directory: mock project root error"
+		if err == nil || err.Error() != expectedError {
+			t.Errorf("error = %v, want %v", err, expectedError)
 		}
 	})
 }
 
+// TestTalosEnv_Print tests the Print method of the TalosEnvPrinter
 func TestTalosEnv_Print(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Use setupSafeTalosEnvMocks to create mocks
-		mocks := setupSafeTalosEnvMocks()
-		mockInjector := mocks.Injector
-		talosEnvPrinter := NewTalosEnvPrinter(mockInjector)
-		talosEnvPrinter.Initialize()
+	setup := func(t *testing.T) (*TalosEnvPrinter, *Mocks) {
+		t.Helper()
+		mocks := setupMocks(t)
+		printer := NewTalosEnvPrinter(mocks.Injector)
+		if err := printer.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize env: %v", err)
+		}
+		printer.shims = mocks.Shims
 
-		// Mock the stat function to simulate the existence of the talos config file
-		stat = func(name string) (os.FileInfo, error) {
-			if name == filepath.FromSlash("/mock/config/root/.talos/config") {
-				return nil, nil // Simulate that the file exists
+		return printer, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a new TalosEnvPrinter with existing Talos config
+		printer, mocks := setup(t)
+
+		// Get the project root path
+		projectRoot, err := mocks.Shell.GetProjectRoot()
+		if err != nil {
+			t.Fatalf("Failed to get project root: %v", err)
+		}
+		expectedPath := filepath.Join(projectRoot, "contexts", "mock-context", ".talos", "config")
+
+		// And Talos config file exists
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == expectedPath {
+				return nil, nil
 			}
 			return nil, os.ErrNotExist
 		}
 
-		// Mock the PrintEnvVarsFunc to verify it is called with the correct envVars
+		// And PrintEnvVarsFunc is mocked
 		var capturedEnvVars map[string]string
 		mocks.Shell.PrintEnvVarsFunc = func(envVars map[string]string) {
 			capturedEnvVars = envVars
 		}
 
-		// Call Print and check for errors
-		err := talosEnvPrinter.Print()
+		// When calling Print
+		err = printer.Print()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 
-		// Verify that PrintEnvVarsFunc was called with the correct envVars
+		// And environment variables should be set correctly
 		expectedEnvVars := map[string]string{
-			"TALOSCONFIG": filepath.FromSlash("/mock/config/root/.talos/config"),
+			"TALOSCONFIG": expectedPath,
 		}
 		if !reflect.DeepEqual(capturedEnvVars, expectedEnvVars) {
 			t.Errorf("capturedEnvVars = %v, want %v", capturedEnvVars, expectedEnvVars)
 		}
 	})
 
-	t.Run("GetConfigError", func(t *testing.T) {
-		// Use setupSafeTalosEnvMocks to create mocks
-		mocks := setupSafeTalosEnvMocks()
-
-		// Override the GetConfigFunc to simulate an error
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", errors.New("mock config error")
+	t.Run("GetProjectRootError", func(t *testing.T) {
+		// Given a new TalosEnvPrinter with failing project root lookup
+		printer, mocks := setup(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", errors.New("mock project root error")
 		}
 
-		mockInjector := mocks.Injector
+		// When calling Print
+		err := printer.Print()
 
-		talosEnvPrinter := NewTalosEnvPrinter(mockInjector)
-		talosEnvPrinter.Initialize()
-
-		// Call Print and check for errors
-		err := talosEnvPrinter.Print()
+		// Then appropriate error should be returned
 		if err == nil {
 			t.Error("expected error, got nil")
-		} else if !strings.Contains(err.Error(), "mock config error") {
+		} else if !strings.Contains(err.Error(), "mock project root error") {
 			t.Errorf("unexpected error message: %v", err)
 		}
 	})
