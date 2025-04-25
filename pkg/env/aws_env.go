@@ -1,3 +1,8 @@
+// The AwsEnvPrinter is a specialized component that manages AWS environment configuration.
+// It provides AWS-specific environment variable management and configuration,
+// The AwsEnvPrinter handles AWS profile, endpoint, and S3 configuration settings,
+// ensuring proper AWS CLI integration and environment setup for AWS operations.
+
 package env
 
 import (
@@ -8,19 +13,29 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// AwsEnvPrinter is a struct that simulates an AWS environment for testing purposes.
+// =============================================================================
+// Types
+// =============================================================================
+
+// AwsEnvPrinter is a struct that implements AWS environment configuration
 type AwsEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewAwsEnvPrinter initializes a new awsEnv instance using the provided dependency injector.
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewAwsEnvPrinter creates a new AwsEnvPrinter instance
 func NewAwsEnvPrinter(injector di.Injector) *AwsEnvPrinter {
 	return &AwsEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // GetEnvVars retrieves the environment variables for the AWS environment.
 func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
@@ -42,13 +57,13 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	// Construct the path to the AWS configuration file and verify its existence.
 	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
-	if _, err := stat(awsConfigPath); os.IsNotExist(err) {
+	if _, err := e.shims.Stat(awsConfigPath); os.IsNotExist(err) {
 		awsConfigPath = ""
 	}
 
 	// Populate environment variables with AWS configuration data.
 	if awsConfigPath != "" {
-		envVars["AWS_CONFIG_FILE"] = awsConfigPath
+		envVars["AWS_CONFIG_FILE"] = filepath.ToSlash(awsConfigPath)
 	}
 	if contextConfigData.AWS.AWSProfile != nil {
 		envVars["AWS_PROFILE"] = *contextConfigData.AWS.AWSProfile
@@ -77,5 +92,5 @@ func (e *AwsEnvPrinter) Print() error {
 	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure awsEnv implements the EnvPrinter interface
+// Ensure AwsEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*AwsEnvPrinter)(nil)

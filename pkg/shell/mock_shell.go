@@ -6,7 +6,15 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// MockShell is a struct that simulates a shell environment for testing purposes.
+// The MockShell is a mock implementation of the Shell interface for testing purposes.
+// It provides a way to simulate shell operations without executing actual system commands.
+// It allows for controlled testing of shell-dependent functionality by providing mock implementations of all Shell interface methods.
+// Key features include customizable function implementations for each Shell interface method.
+
+// =============================================================================
+// Types
+// =============================================================================
+
 type MockShell struct {
 	DefaultShell
 	InitializeFunc                 func() error
@@ -29,6 +37,10 @@ type MockShell struct {
 	ResetFunc                      func()
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewMockShell creates a new instance of MockShell. If injector is provided, it sets the injector on MockShell.
 func NewMockShell(injectors ...di.Injector) *MockShell {
 	var injector di.Injector
@@ -44,6 +56,10 @@ func NewMockShell(injectors ...di.Injector) *MockShell {
 
 	return mockShell
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize calls the custom InitializeFunc if provided.
 func (s *MockShell) Initialize() error {

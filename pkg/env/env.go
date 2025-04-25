@@ -1,23 +1,22 @@
+// The EnvPrinter is a core component that manages environment variable state and context.
+// It provides a unified interface for loading, printing, and managing environment variables,
+// The EnvPrinter acts as the central environment orchestrator for the application,
+// coordinating environment variable management, shell integration, and configuration persistence.
+
 package env
 
 import (
 	"fmt"
 	"slices"
 
-	"sync"
-
 	"github.com/windsorcli/cli/pkg/config"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-// These are the environment variables that are managed by Windsor.
-// They are scoped to the current shell session.
-var (
-	windsorManagedEnv   = []string{}
-	windsorManagedAlias = []string{}
-	windsorManagedMu    sync.Mutex
-)
+// =============================================================================
+// Types
+// =============================================================================
 
 // EnvPrinter defines the method for printing environment variables.
 type EnvPrinter interface {
@@ -33,18 +32,32 @@ type EnvPrinter interface {
 	Reset()
 }
 
-// Env is a struct that implements the EnvPrinter interface.
+// BaseEnvPrinter is a base implementation of the EnvPrinter interface
 type BaseEnvPrinter struct {
 	EnvPrinter
 	injector      di.Injector
 	shell         shell.Shell
 	configHandler config.ConfigHandler
+	shims         *Shims
+	managedEnv    []string
+	managedAlias  []string
 }
 
-// NewBaseEnvPrinter creates a new BaseEnvPrinter instance.
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewBaseEnvPrinter creates a new BaseEnvPrinter instance
 func NewBaseEnvPrinter(injector di.Injector) *BaseEnvPrinter {
-	return &BaseEnvPrinter{injector: injector}
+	return &BaseEnvPrinter{
+		injector: injector,
+		shims:    NewShims(),
+	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize resolves and assigns the shell and configHandler from the injector.
 func (e *BaseEnvPrinter) Initialize() error {
@@ -126,40 +139,34 @@ func (e *BaseEnvPrinter) PostEnvHook() error {
 
 // GetManagedEnv returns the environment variables that are managed by Windsor.
 func (e *BaseEnvPrinter) GetManagedEnv() []string {
-	windsorManagedMu.Lock()
-	defer windsorManagedMu.Unlock()
-	return windsorManagedEnv
+	return e.managedEnv
 }
 
 // GetManagedAlias returns the shell aliases that are managed by Windsor.
 func (e *BaseEnvPrinter) GetManagedAlias() []string {
-	windsorManagedMu.Lock()
-	defer windsorManagedMu.Unlock()
-	return windsorManagedAlias
+	return e.managedAlias
 }
 
 // SetManagedEnv sets the environment variables that are managed by Windsor.
 func (e *BaseEnvPrinter) SetManagedEnv(env string) {
-	windsorManagedMu.Lock()
-	defer windsorManagedMu.Unlock()
-	if slices.Contains(windsorManagedEnv, env) {
+	if slices.Contains(e.managedEnv, env) {
 		return
 	}
-	windsorManagedEnv = append(windsorManagedEnv, env)
+	e.managedEnv = append(e.managedEnv, env)
 }
 
 // SetManagedAlias sets the shell aliases that are managed by Windsor.
 func (e *BaseEnvPrinter) SetManagedAlias(alias string) {
-	windsorManagedMu.Lock()
-	defer windsorManagedMu.Unlock()
-	if slices.Contains(windsorManagedAlias, alias) {
+	if slices.Contains(e.managedAlias, alias) {
 		return
 	}
-	windsorManagedAlias = append(windsorManagedAlias, alias)
+	e.managedAlias = append(e.managedAlias, alias)
 }
 
 // Reset removes all managed environment variables and aliases.
 // It delegates to the shell's Reset method to handle the reset logic.
 func (e *BaseEnvPrinter) Reset() {
+	e.managedEnv = make([]string, 0)
+	e.managedAlias = make([]string, 0)
 	e.shell.Reset()
 }
