@@ -41,7 +41,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Variables: map[string]TerraformVariable{
 						"var1": {Default: "default1"},
 					},
-					Values:   map[string]interface{}{"key1": "value1"},
+					Values:   map[string]any{"key1": "value1"},
 					FullPath: "original/full/path",
 				},
 			},
@@ -89,7 +89,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Variables: map[string]TerraformVariable{
 						"var2": {Default: "default2"},
 					},
-					Values:   map[string]interface{}{"key2": "value2"},
+					Values:   map[string]any{"key2": "value2"},
 					FullPath: "updated/full/path",
 				},
 				{
@@ -98,7 +98,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Variables: map[string]TerraformVariable{
 						"var3": {Default: "default3"},
 					},
-					Values:   map[string]interface{}{"key3": "value3"},
+					Values:   map[string]any{"key3": "value3"},
 					FullPath: "new/full/path",
 				},
 			},
@@ -240,7 +240,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Variables: map[string]TerraformVariable{
 						"var1": {Default: "default1"},
 					},
-					Values: map[string]interface{}{
+					Values: map[string]any{
 						"key1": "value1",
 					},
 					FullPath: "overlay/full/path",
@@ -340,7 +340,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Variables: map[string]TerraformVariable{
 						"var1": {Default: "default1"},
 					},
-					Values: map[string]interface{}{
+					Values: map[string]any{
 						"key1": "value1",
 					},
 					FullPath: "original/full/path",
@@ -356,7 +356,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Variables: map[string]TerraformVariable{
 						"var2": {Default: "default2"},
 					},
-					Values: map[string]interface{}{
+					Values: map[string]any{
 						"key2": "value2",
 					},
 					FullPath: "updated/full/path",
@@ -396,7 +396,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Variables: map[string]TerraformVariable{
 						"var1": {Default: "default1"},
 					},
-					Values: map[string]interface{}{
+					Values: map[string]any{
 						"key1": "value1",
 					},
 					FullPath: "original/full/path",
@@ -444,7 +444,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Variables: map[string]TerraformVariable{
 						"var1": {Default: "default1"},
 					},
-					Values: map[string]interface{}{
+					Values: map[string]any{
 						"key1": "value1",
 					},
 					FullPath: "overlay/full/path",
@@ -565,7 +565,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Variables: map[string]TerraformVariable{
 						"var1": {Default: "default1"},
 					},
-					Values: map[string]interface{}{
+					Values: map[string]any{
 						"key1": "value1",
 					},
 					FullPath: "original/full/path",
@@ -581,7 +581,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Variables: map[string]TerraformVariable{
 						"var2": {Default: "default2"},
 					},
-					Values: map[string]interface{}{
+					Values: map[string]any{
 						"key2": "value2",
 					},
 					FullPath: "updated/full/path",
@@ -592,7 +592,7 @@ func TestBlueprint_Merge(t *testing.T) {
 					Variables: map[string]TerraformVariable{
 						"var3": {Default: "default3"},
 					},
-					Values: map[string]interface{}{
+					Values: map[string]any{
 						"key3": "value3",
 					},
 					FullPath: "new/full/path",
@@ -925,7 +925,7 @@ func TestBlueprint_DeepCopy(t *testing.T) {
 							Description: "A test variable",
 						},
 					},
-					Values: map[string]interface{}{
+					Values: map[string]any{
 						"key1": "value1",
 					},
 				},

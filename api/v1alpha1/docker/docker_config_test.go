@@ -7,7 +7,8 @@ import (
 func TestDockerConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNonNilValues", func(t *testing.T) {
 		base := &DockerConfig{
-			Enabled: ptrBool(true),
+			Enabled:     ptrBool(true),
+			RegistryURL: "base-registry-url",
 			Registries: map[string]RegistryConfig{
 				"base-registry1": {Remote: "base-remote1", Local: "base-local1", HostName: "base-hostname1"},
 				"base-registry2": {Remote: "base-remote2", Local: "base-local2", HostName: "base-hostname2"},
@@ -15,7 +16,8 @@ func TestDockerConfig_Merge(t *testing.T) {
 		}
 
 		overlay := &DockerConfig{
-			Enabled: ptrBool(false),
+			Enabled:     ptrBool(false),
+			RegistryURL: "overlay-registry-url",
 			Registries: map[string]RegistryConfig{
 				"base-registry1": {Remote: "overlay-remote1", Local: "overlay-local1", HostName: "overlay-hostname1"},
 				"new-registry":   {Remote: "overlay-remote2", Local: "overlay-local2", HostName: "overlay-hostname2"},
@@ -26,6 +28,9 @@ func TestDockerConfig_Merge(t *testing.T) {
 
 		if base.Enabled == nil || *base.Enabled != false {
 			t.Errorf("Enabled mismatch: expected %v, got %v", false, *base.Enabled)
+		}
+		if base.RegistryURL != "overlay-registry-url" {
+			t.Errorf("RegistryURL mismatch: expected %v, got %v", "overlay-registry-url", base.RegistryURL)
 		}
 		if len(base.Registries) != 2 {
 			t.Errorf("Registries length mismatch: expected %v, got %v", 2, len(base.Registries))
@@ -51,21 +56,26 @@ func TestDockerConfig_Merge(t *testing.T) {
 
 	t.Run("MergeWithNilValues", func(t *testing.T) {
 		base := &DockerConfig{
-			Enabled: ptrBool(true),
+			Enabled:     ptrBool(true),
+			RegistryURL: "base-registry-url",
 			Registries: map[string]RegistryConfig{
 				"base-registry1": {Remote: "base-remote1", Local: "base-local1", HostName: "base-hostname1"},
 			},
 		}
 
 		overlay := &DockerConfig{
-			Enabled:    nil,
-			Registries: nil,
+			Enabled:     nil,
+			RegistryURL: "",
+			Registries:  nil,
 		}
 
 		base.Merge(overlay)
 
 		if base.Enabled == nil || *base.Enabled != true {
 			t.Errorf("Enabled mismatch: expected %v, got %v", true, *base.Enabled)
+		}
+		if base.RegistryURL != "base-registry-url" {
+			t.Errorf("RegistryURL mismatch: expected %v, got %v", "base-registry-url", base.RegistryURL)
 		}
 		if len(base.Registries) != 1 || base.Registries["base-registry1"].Remote != "base-remote1" || base.Registries["base-registry1"].Local != "base-local1" || base.Registries["base-registry1"].HostName != "base-hostname1" {
 			t.Errorf("Registries mismatch: expected %v, got %v", "base-registry1", base.Registries["base-registry1"])

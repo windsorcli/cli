@@ -8,10 +8,18 @@ type MockToolsManager struct {
 	CheckFunc         func() error
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewMockToolsManager creates a new instance of MockToolsManager.
 func NewMockToolsManager() *MockToolsManager {
 	return &MockToolsManager{}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize calls the mock InitializeFunc if set, otherwise returns nil.
 func (m *MockToolsManager) Initialize() error {

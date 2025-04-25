@@ -17,7 +17,25 @@ import (
 	"github.com/windsorcli/cli/pkg/virt"
 )
 
-// Controller interface defines the methods for the controller.
+// The Controller is a central orchestrator that manages the lifecycle and interactions of various
+// infrastructure and application components. It serves as the primary coordinator for resolving
+// dependencies, managing configurations, and orchestrating the creation and deployment of resources
+// across different environments. The controller handles:
+//
+// - Component initialization and lifecycle management
+// - Configuration resolution and environment variable management
+// - Secrets and credentials management
+// - Service deployment and orchestration
+// - Virtualization and container runtime management
+// - Network configuration and management
+// - Stack deployment and management
+// - Code generation and templating
+//
+// It integrates with multiple subsystems including blueprint management, environment configuration,
+// secrets management, service orchestration, and infrastructure provisioning. The controller
+// provides a unified interface for resolving and managing these components while ensuring
+// proper dependency injection and configuration management across the system.
+
 type Controller interface {
 	Initialize() error
 	InitializeComponents() error
@@ -54,10 +72,18 @@ type BaseController struct {
 	configHandler config.ConfigHandler
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewController creates a new controller.
 func NewController(injector di.Injector) *BaseController {
 	return &BaseController{injector: injector}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize the controller. Initializes the config handler
 // as well.

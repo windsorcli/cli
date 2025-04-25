@@ -8,6 +8,15 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
+// The BaseClient is a base implementation of the Client interface
+// It provides common functionality for SSH client implementations
+// It serves as the foundation for both real and mock SSH clients
+// It handles client configuration management and SSH config parsing
+
+// =============================================================================
+// Types
+// =============================================================================
+
 // ClientConfig abstracts the SSH client configuration
 type ClientConfig struct {
 	User            string
@@ -55,6 +64,10 @@ type BaseClient struct {
 	clientConfig *ClientConfig
 }
 
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 // SetClientConfig sets the client configuration for the SSH client
 func (c *BaseClient) SetClientConfig(config *ClientConfig) {
 	c.clientConfig = config
@@ -82,6 +95,10 @@ func (c *BaseClient) SetClientConfigFile(configStr, hostname string) error {
 	c.clientConfig = clientConfig
 	return nil
 }
+
+// =============================================================================
+// Private Methods
+// =============================================================================
 
 // parseSSHConfig parses the SSH config content and extracts the ClientConfig for the given hostname
 func parseSSHConfig(configContent, hostname string) (*ClientConfig, error) {

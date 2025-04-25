@@ -7,17 +7,34 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// The KustomizeGenerator is a specialized component that manages Kustomize configuration.
+// It provides functionality to create and initialize Kustomize directories and files.
+// The KustomizeGenerator ensures proper Kubernetes resource management for Windsor projects,
+// establishing the foundation for declarative configuration management.
+
+// =============================================================================
+// Types
+// =============================================================================
+
 // KustomizeGenerator is a generator that writes Kustomize files
 type KustomizeGenerator struct {
 	BaseGenerator
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewKustomizeGenerator creates a new KustomizeGenerator
 func NewKustomizeGenerator(injector di.Injector) *KustomizeGenerator {
 	return &KustomizeGenerator{
-		BaseGenerator: BaseGenerator{injector: injector},
+		BaseGenerator: *NewGenerator(injector),
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Write method creates a "kustomize" directory in the project root if it does not exist.
 // It then generates a "kustomization.yaml" file within this directory, initializing it
@@ -29,14 +46,14 @@ func (g *KustomizeGenerator) Write() error {
 	}
 
 	kustomizeFolderPath := filepath.Join(projectRoot, "kustomize")
-	if err := osMkdirAll(kustomizeFolderPath, os.ModePerm); err != nil {
+	if err := g.shims.MkdirAll(kustomizeFolderPath, os.ModePerm); err != nil {
 		return err
 	}
 
 	kustomizationFilePath := filepath.Join(kustomizeFolderPath, "kustomization.yaml")
 
 	// Check if the file already exists
-	if _, err := osStat(kustomizationFilePath); err == nil {
+	if _, err := g.shims.Stat(kustomizationFilePath); err == nil {
 		// File exists, do not overwrite
 		return nil
 	}
@@ -44,12 +61,16 @@ func (g *KustomizeGenerator) Write() error {
 	// Write the file with resources: [] by default
 	kustomizationContent := []byte("resources: []\n")
 
-	if err := osWriteFile(kustomizationFilePath, kustomizationContent, 0644); err != nil {
+	if err := g.shims.WriteFile(kustomizationFilePath, kustomizationContent, 0644); err != nil {
 		return err
 	}
 
 	return nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure KustomizeGenerator implements Generator
 var _ Generator = (*KustomizeGenerator)(nil)

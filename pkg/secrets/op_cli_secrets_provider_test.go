@@ -1,3 +1,8 @@
+// The OnePasswordCLISecretsProviderTest is a test suite for the OnePasswordCLISecretsProvider
+// It provides comprehensive testing of the 1Password CLI integration
+// It serves as a validation mechanism for the provider's behavior
+// It ensures the provider correctly implements the SecretsProvider interface
+
 package secrets
 
 import (
@@ -7,26 +12,30 @@ import (
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 )
 
+// =============================================================================
+// Test Methods
+// =============================================================================
+
 func TestNewOnePasswordCLISecretsProvider(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeMocks()
+		// Given a set of mock components
+		mocks := setupMocks(t)
 
-		// Create a test vault
+		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
 			Name: "test-vault",
 			URL:  "test-url",
 		}
 
-		// Create the provider
+		// When a new provider is created
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
 
-		// Verify the provider was created correctly
+		// Then the provider should be created correctly
 		if provider == nil {
 			t.Fatalf("Expected provider to be created, got nil")
 		}
 
-		// Verify the vault properties were set correctly
+		// And the vault properties should be set correctly
 		if provider.vault.Name != vault.Name {
 			t.Errorf("Expected vault name to be %s, got %s", vault.Name, provider.vault.Name)
 		}
@@ -39,28 +48,24 @@ func TestNewOnePasswordCLISecretsProvider(t *testing.T) {
 
 func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeMocks()
+		// Given a set of mock components
+		mocks := setupMocks(t)
 
-		// Create a test vault
+		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
 			Name: "test-vault",
 			URL:  "test-url",
 		}
 
-		// Create the provider
+		// And a provider initialized and unlocked
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-
-		// Initialize the provider
 		err := provider.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize provider: %v", err)
 		}
-
-		// Set the provider to unlocked state
 		provider.unlocked = true
 
-		// Mock the shell.ExecSilent function to return a successful result
+		// And a mock shell that returns a successful result
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			// Verify the command and arguments
 			if command != "op" {
@@ -83,134 +88,128 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 			return "secret-value", nil
 		}
 
-		// Call GetSecret
+		// When GetSecret is called
 		value, err := provider.GetSecret("test-secret.password")
 
-		// Verify the result
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// And the correct value should be returned
 		if value != "secret-value" {
 			t.Errorf("Expected value to be 'secret-value', got %s", value)
 		}
 	})
 
 	t.Run("NotUnlocked", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeMocks()
+		// Given a set of mock components
+		mocks := setupMocks(t)
 
-		// Create a test vault
+		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
 			Name: "test-vault",
 			URL:  "test-url",
 		}
 
-		// Create the provider
+		// And a provider initialized but locked
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-
-		// Initialize the provider
 		err := provider.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize provider: %v", err)
 		}
-
-		// Set the provider to locked state
 		provider.unlocked = false
 
-		// Call GetSecret
+		// When GetSecret is called
 		value, err := provider.GetSecret("test-secret.password")
 
-		// Verify the result
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// And a masked value should be returned
 		if value != "********" {
 			t.Errorf("Expected value to be '********', got %s", value)
 		}
 	})
 
 	t.Run("InvalidKeyFormat", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeMocks()
+		// Given a set of mock components
+		mocks := setupMocks(t)
 
-		// Create a test vault
+		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
 			Name: "test-vault",
 			URL:  "test-url",
 		}
 
-		// Create the provider
+		// And a provider initialized and unlocked
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-
-		// Initialize the provider
 		err := provider.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize provider: %v", err)
 		}
-
-		// Set the provider to unlocked state
 		provider.unlocked = true
 
-		// Call GetSecret with an invalid key format
+		// When GetSecret is called with an invalid key format
 		value, err := provider.GetSecret("invalid-key")
 
-		// Verify the result
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected an error, got nil")
 		}
 
+		// And the error message should be correct
 		expectedError := "invalid key notation: invalid-key. Expected format is 'secret.field'"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error to be '%s', got '%s'", expectedError, err.Error())
 		}
 
+		// And the value should be empty
 		if value != "" {
 			t.Errorf("Expected value to be empty, got %s", value)
 		}
 	})
 
 	t.Run("CommandExecutionError", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeMocks()
+		// Given a set of mock components
+		mocks := setupMocks(t)
 
-		// Create a test vault
+		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
 			Name: "test-vault",
 			URL:  "test-url",
 		}
 
-		// Create the provider
+		// And a provider initialized and unlocked
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-
-		// Initialize the provider
 		err := provider.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize provider: %v", err)
 		}
-
-		// Set the provider to unlocked state
 		provider.unlocked = true
 
-		// Mock the shell.ExecSilent function to return an error
+		// And a mock shell that returns an error
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			return "", errors.New("command execution error")
 		}
 
-		// Call GetSecret
+		// When GetSecret is called
 		value, err := provider.GetSecret("test-secret.password")
 
-		// Verify the result
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected an error, got nil")
 		}
 
+		// And the error message should be correct
 		expectedError := "failed to retrieve secret from 1Password: command execution error"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error to be '%s', got '%s'", expectedError, err.Error())
 		}
 
+		// And the value should be empty
 		if value != "" {
 			t.Errorf("Expected value to be empty, got %s", value)
 		}
@@ -219,230 +218,215 @@ func TestOnePasswordCLISecretsProvider_GetSecret(t *testing.T) {
 
 func TestParseSecrets(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeMocks()
+		// Given a set of mock components
+		mocks := setupMocks(t)
 
-		// Create a test vault
+		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
 			Name: "test-vault",
 			URL:  "test-url",
 			ID:   "test-id",
 		}
 
-		// Create the provider
+		// And a provider initialized and unlocked
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-
-		// Initialize the provider
 		err := provider.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize provider: %v", err)
 		}
-
-		// Set the provider to unlocked state
 		provider.unlocked = true
 
-		// Mock the shell.ExecSilent function to return a successful result
+		// And a mock shell that returns a successful result
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			return "secret-value", nil
 		}
 
-		// Test with standard notation
+		// When ParseSecrets is called with standard notation
 		input := "This is a secret: ${{ op.test-id.test-secret.password }}"
 		expectedOutput := "This is a secret: secret-value"
-
 		output, err := provider.ParseSecrets(input)
 
-		// Verify the result
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// And the output should be correctly replaced
 		if output != expectedOutput {
 			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
 		}
 	})
 
 	t.Run("EmptyInput", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeMocks()
+		// Given a set of mock components
+		mocks := setupMocks(t)
 
-		// Create a test vault
+		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
 			Name: "test-vault",
 			URL:  "test-url",
 			ID:   "test-id",
 		}
 
-		// Create the provider
+		// And a provider initialized
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-
-		// Initialize the provider
 		err := provider.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize provider: %v", err)
 		}
 
-		// Test with empty input
+		// When ParseSecrets is called with empty input
 		input := ""
 		output, err := provider.ParseSecrets(input)
 
-		// Verify the result
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// And the output should be unchanged
 		if output != input {
 			t.Errorf("Expected output to be '%s', got '%s'", input, output)
 		}
 	})
 
 	t.Run("InvalidFormat", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeMocks()
+		// Given a set of mock components
+		mocks := setupMocks(t)
 
-		// Create a test vault
+		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
 			Name: "test-vault",
 			URL:  "test-url",
 			ID:   "test-id",
 		}
 
-		// Create the provider
+		// And a provider initialized
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-
-		// Initialize the provider
 		err := provider.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize provider: %v", err)
 		}
 
-		// Test with invalid format (missing field)
+		// When ParseSecrets is called with invalid format (missing field)
 		input := "This is a secret: ${{ op.test-id.test-secret }}"
 		expectedOutput := "This is a secret: <ERROR: invalid key path: test-id.test-secret>"
-
 		output, err := provider.ParseSecrets(input)
 
-		// Verify the result
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// And the output should contain an error message
 		if output != expectedOutput {
 			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
 		}
 	})
 
 	t.Run("MalformedJSON", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeMocks()
+		// Given a set of mock components
+		mocks := setupMocks(t)
 
-		// Create a test vault
+		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
 			Name: "test-vault",
 			URL:  "test-url",
 			ID:   "test-id",
 		}
 
-		// Create the provider
+		// And a provider initialized
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-
-		// Initialize the provider
 		err := provider.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize provider: %v", err)
 		}
 
-		// Test with malformed JSON (missing closing brace)
+		// When ParseSecrets is called with malformed JSON (missing closing brace)
 		input := "This is a secret: ${{ op.test-id.test-secret.password"
 		expectedOutput := "This is a secret: ${{ op.test-id.test-secret.password"
-
 		output, err := provider.ParseSecrets(input)
 
-		// Verify the result
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// And the output should be unchanged
 		if output != expectedOutput {
 			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
 		}
 	})
 
 	t.Run("MismatchedVaultID", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeMocks()
+		// Given a set of mock components
+		mocks := setupMocks(t)
 
-		// Create a test vault
+		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
 			Name: "test-vault",
 			URL:  "test-url",
 			ID:   "test-id",
 		}
 
-		// Create the provider
+		// And a provider initialized
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-
-		// Initialize the provider
 		err := provider.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize provider: %v", err)
 		}
 
-		// Test with wrong vault ID
+		// When ParseSecrets is called with wrong vault ID
 		input := "This is a secret: ${{ op.wrong-id.test-secret.password }}"
 		expectedOutput := "This is a secret: ${{ op.wrong-id.test-secret.password }}"
-
 		output, err := provider.ParseSecrets(input)
 
-		// Verify the result
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// And the output should be unchanged
 		if output != expectedOutput {
 			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
 		}
 	})
 
 	t.Run("SecretNotFound", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeMocks()
+		// Given a set of mock components
+		mocks := setupMocks(t)
 
-		// Create a test vault
+		// And a test vault configuration
 		vault := secretsConfigType.OnePasswordVault{
 			Name: "test-vault",
 			URL:  "test-url",
 			ID:   "test-id",
 		}
 
-		// Create the provider
+		// And a provider initialized and unlocked
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Injector)
-
-		// Initialize the provider
 		err := provider.Initialize()
 		if err != nil {
 			t.Fatalf("Failed to initialize provider: %v", err)
 		}
-
-		// Set the provider to unlocked state
 		provider.unlocked = true
 
-		// Mock the shell.ExecSilent function to return an error
+		// And a mock shell that returns an error
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			return "", errors.New("secret not found")
 		}
 
-		// Test with a secret that doesn't exist
+		// When ParseSecrets is called with a secret that doesn't exist
 		input := "This is a secret: ${{ op.test-id.nonexistent-secret.password }}"
 		expectedOutput := "This is a secret: <ERROR: secret not found>"
-
 		output, err := provider.ParseSecrets(input)
 
-		// Verify the result
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// And the output should contain an error message
 		if output != expectedOutput {
 			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
 		}

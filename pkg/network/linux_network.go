@@ -8,6 +8,15 @@ import (
 	"strings"
 )
 
+// The LinuxNetworkManager is a platform-specific network manager for Linux systems.
+// It provides network configuration capabilities specific to Linux-based systems,
+// The LinuxNetworkManager handles host route configuration and DNS setup for Linux,
+// ensuring proper network connectivity between the host and guest VM environments.
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 // ConfigureHostRoute sets up the local development network for Linux
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	// Access the Docker configuration
@@ -86,7 +95,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	// If DNS address is configured, use systemd-resolved
-	resolvConf, err := readLink("/etc/resolv.conf")
+	resolvConf, err := n.shims.ReadLink("/etc/resolv.conf")
 	if err != nil || resolvConf != "../run/systemd/resolve/stub-resolv.conf" {
 		return fmt.Errorf("systemd-resolved is not in use. Please configure DNS manually or use a compatible system")
 	}
@@ -94,7 +103,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	dropInDir := "/etc/systemd/resolved.conf.d"
 	dropInFile := fmt.Sprintf("%s/dns-override-%s.conf", dropInDir, tld)
 
-	existingContent, err := readFile(dropInFile)
+	existingContent, err := n.shims.ReadFile(dropInFile)
 	expectedContent := fmt.Sprintf("[Resolve]\nDNS=%s\n", dnsIP)
 	if err == nil && string(existingContent) == expectedContent {
 		return nil
