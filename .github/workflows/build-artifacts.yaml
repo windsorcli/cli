@@ -17,8 +17,8 @@ on:
         default: 'release-latest'
 
 permissions:
-  contents: read
-  
+  contents: write
+
 jobs:
   build-artifacts:
     runs-on: ubuntu-latest
