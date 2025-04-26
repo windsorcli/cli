@@ -1,0 +1,21 @@
+name: 'Build Artifacts'
+
+on:
+  repository_dispatch:
+    types: [build-artifacts]
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read  
+jobs:
+  build-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Print out the inputs
+        run: |
+          echo "Repo Owner: ${{ github.event.client_payload.repo_owner }}"
+          echo "Repo Name: ${{ github.event.client_payload.repo_name }}"
+          echo "Release: ${{ github.event.client_payload.release }}"
+

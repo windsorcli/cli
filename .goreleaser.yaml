@@ -43,8 +43,8 @@ release:
   github:
     owner: windsorcli
     name: cli
-  draft: false
-  prerelease: false
+  draft: true
+  prerelease: true
 
 binary_signs:
   - cmd: gpg
@@ -63,6 +63,7 @@ brews:
   - name: windsor
     directory: Formula
     skip_upload: false
+    skip: "{{ .Release.Draft }} || {{ .Release.Prerelease }}"
     repository:
       owner: windsorcli
       name: homebrew-cli
