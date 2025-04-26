@@ -17,10 +17,12 @@ jobs:
 
       - name: Print out the inputs
         run: |
+          echo "Debugging inputs:"
           echo "Repo Owner: ${{ github.event.client_payload.repo_owner }}"
           echo "Repo Name: ${{ github.event.client_payload.repo_name }}"
           echo "Release: ${{ github.event.client_payload.release }}"
-          echo "MTV TEST"
+          echo "Ref: ${{ github.event.client_payload.ref }}"
+
       - name: Exit with failure
         run: |
           echo "Exiting with failure"
