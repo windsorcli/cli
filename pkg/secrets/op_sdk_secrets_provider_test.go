@@ -1,3 +1,8 @@
+// The OnePasswordSDKSecretsProviderTest is a test suite for the OnePasswordSDKSecretsProvider
+// It provides comprehensive testing of the 1Password SDK integration
+// It serves as a validation mechanism for the provider's behavior
+// It ensures the provider correctly implements the SecretsProvider interface
+
 package secrets
 
 import (
@@ -10,10 +15,14 @@ import (
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 )
 
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
 func TestNewOnePasswordSDKSecretsProvider(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -40,10 +49,14 @@ func TestNewOnePasswordSDKSecretsProvider(t *testing.T) {
 	})
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestOnePasswordSDKSecretsProvider_Initialize(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -69,7 +82,7 @@ func TestOnePasswordSDKSecretsProvider_Initialize(t *testing.T) {
 
 	t.Run("MissingToken", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -88,12 +101,46 @@ func TestOnePasswordSDKSecretsProvider_Initialize(t *testing.T) {
 
 		// Verify the result
 		if err == nil {
-			t.Error("Expected an error, got nil")
+			t.Error("Expected error, got nil")
 		}
 
 		expectedError := "OP_SERVICE_ACCOUNT_TOKEN environment variable is required for 1Password SDK"
 		if err.Error() != expectedError {
-			t.Errorf("Expected error to be '%s', got '%s'", expectedError, err.Error())
+			t.Errorf("Expected error message '%s', got '%s'", expectedError, err.Error())
+		}
+	})
+
+	t.Run("BaseInitializationFails", func(t *testing.T) {
+		// Setup mocks
+		mocks := setupMocks(t)
+
+		// Create a test vault
+		vault := secretsConfigType.OnePasswordVault{
+			Name: "test-vault",
+			ID:   "test-id",
+		}
+
+		// Create the provider
+		provider := NewOnePasswordSDKSecretsProvider(vault, mocks.Injector)
+
+		// Set environment variable
+		os.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "test-token")
+		defer os.Unsetenv("OP_SERVICE_ACCOUNT_TOKEN")
+
+		// Remove shell from injector to cause base initialization to fail
+		mocks.Injector.Register("shell", nil)
+
+		// Initialize the provider
+		err := provider.Initialize()
+
+		// Verify the result
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		expectedError := "failed to resolve shell instance from injector"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error message '%s', got '%s'", expectedError, err.Error())
 		}
 	})
 }
@@ -101,7 +148,7 @@ func TestOnePasswordSDKSecretsProvider_Initialize(t *testing.T) {
 func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -119,24 +166,16 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 		// Set the provider to unlocked state
 		provider.unlocked = true
 
-		// Override the shims for testing
-		originalNewClient := newOnePasswordClient
-		originalResolveSecret := resolveSecret
-		defer func() {
-			newOnePasswordClient = originalNewClient
-			resolveSecret = originalResolveSecret
-		}()
-
 		// Set up the shims to use our mock
-		newOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
+		provider.shims.NewOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
 			return &onepassword.Client{}, nil
 		}
-		resolveSecret = func(client *onepassword.Client, ctx context.Context, secretRef string) (string, error) {
+		provider.shims.ResolveSecret = func(client *onepassword.Client, ctx context.Context, secretRef string) (string, error) {
 			return "secret-value", nil
 		}
 
 		// Initialize the global client
-		client, err := newOnePasswordClient(context.Background(), onepassword.WithServiceAccountToken("test-token"))
+		client, err := provider.shims.NewOnePasswordClient(context.Background(), onepassword.WithServiceAccountToken("test-token"))
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
@@ -162,7 +201,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("NotUnlocked", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -195,7 +234,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("InvalidKeyFormat", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -233,7 +272,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("MissingToken", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -270,7 +309,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("ClientCreationError", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -291,14 +330,8 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 		// Reset global client
 		globalClient = nil
 
-		// Override the shims for testing
-		originalNewClient := newOnePasswordClient
-		defer func() {
-			newOnePasswordClient = originalNewClient
-		}()
-
 		// Set up the shims to use our mock
-		newOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
+		provider.shims.NewOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
 			return nil, errors.New("client creation error")
 		}
 
@@ -322,7 +355,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("SecretResolutionError", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -340,19 +373,11 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 		// Set the provider to unlocked state
 		provider.unlocked = true
 
-		// Override the shims for testing
-		originalNewClient := newOnePasswordClient
-		originalResolveSecret := resolveSecret
-		defer func() {
-			newOnePasswordClient = originalNewClient
-			resolveSecret = originalResolveSecret
-		}()
-
 		// Set up the shims to use our mock
-		newOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
+		provider.shims.NewOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
 			return &onepassword.Client{}, nil
 		}
-		resolveSecret = func(client *onepassword.Client, ctx context.Context, secretRef string) (string, error) {
+		provider.shims.ResolveSecret = func(client *onepassword.Client, ctx context.Context, secretRef string) (string, error) {
 			return "", errors.New("secret resolution error")
 		}
 
@@ -376,7 +401,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 
 	t.Run("NilClient", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -397,14 +422,8 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 		// Reset global client
 		globalClient = nil
 
-		// Override the shims for testing
-		originalNewClient := newOnePasswordClient
-		defer func() {
-			newOnePasswordClient = originalNewClient
-		}()
-
 		// Set up the shims to use our mock
-		newOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
+		provider.shims.NewOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
 			return nil, nil
 		}
 
@@ -430,7 +449,7 @@ func TestOnePasswordSDKSecretsProvider_GetSecret(t *testing.T) {
 func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -448,19 +467,11 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 		// Set the provider to unlocked state
 		provider.unlocked = true
 
-		// Override the shims for testing
-		originalNewClient := newOnePasswordClient
-		originalResolveSecret := resolveSecret
-		defer func() {
-			newOnePasswordClient = originalNewClient
-			resolveSecret = originalResolveSecret
-		}()
-
 		// Set up the shims to use our mock
-		newOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
+		provider.shims.NewOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
 			return &onepassword.Client{}, nil
 		}
-		resolveSecret = func(client *onepassword.Client, ctx context.Context, secretRef string) (string, error) {
+		provider.shims.ResolveSecret = func(client *onepassword.Client, ctx context.Context, secretRef string) (string, error) {
 			return "secret-value", nil
 		}
 
@@ -482,7 +493,7 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 
 	t.Run("EmptyInput", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -513,7 +524,7 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 
 	t.Run("InvalidFormat", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -546,7 +557,7 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 
 	t.Run("MalformedJSON", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -579,7 +590,7 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 
 	t.Run("MismatchedVaultID", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -612,7 +623,7 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 
 	t.Run("SecretNotFound", func(t *testing.T) {
 		// Setup mocks
-		mocks := setupSafeMocks()
+		mocks := setupMocks(t)
 
 		// Create a test vault
 		vault := secretsConfigType.OnePasswordVault{
@@ -630,19 +641,11 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 		// Set the provider to unlocked state
 		provider.unlocked = true
 
-		// Override the shims for testing
-		originalNewClient := newOnePasswordClient
-		originalResolveSecret := resolveSecret
-		defer func() {
-			newOnePasswordClient = originalNewClient
-			resolveSecret = originalResolveSecret
-		}()
-
 		// Set up the shims to use our mock
-		newOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
+		provider.shims.NewOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
 			return &onepassword.Client{}, nil
 		}
-		resolveSecret = func(client *onepassword.Client, ctx context.Context, secretRef string) (string, error) {
+		provider.shims.ResolveSecret = func(client *onepassword.Client, ctx context.Context, secretRef string) (string, error) {
 			return "", errors.New("secret not found")
 		}
 

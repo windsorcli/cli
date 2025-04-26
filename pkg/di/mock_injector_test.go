@@ -5,7 +5,11 @@ import (
 	"testing"
 )
 
-func TestMockInjector_RegisterAndResolve(t *testing.T) {
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+func TestMockInjector_Resolve(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a new mock diContainer
 		injector := NewMockInjector()

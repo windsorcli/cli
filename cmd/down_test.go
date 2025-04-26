@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,7 @@ import (
 
 type MockSafeDownCmdComponents struct {
 	Injector             di.Injector
-	MockController       *ctrl.MockController
+	Controller           ctrl.Controller
 	MockConfigHandler    *config.MockConfigHandler
 	MockShell            *shell.MockShell
 	MockNetworkManager   *network.MockNetworkManager
@@ -25,29 +26,14 @@ type MockSafeDownCmdComponents struct {
 	MockContainerRuntime *virt.MockVirt
 }
 
-// setupSafeDownCmdMocks creates mock components for testing the down command
-func setupSafeDownCmdMocks(optionalInjector ...di.Injector) MockSafeDownCmdComponents {
-	var mockController *ctrl.MockController
-	var injector di.Injector
-
-	// Use the provided injector if passed, otherwise create a new one
-	if len(optionalInjector) > 0 {
-		injector = optionalInjector[0]
-	} else {
-		injector = di.NewInjector()
-	}
-
-	// Use the injector to create a mock controller
-	mockController = ctrl.NewMockController(injector)
-
-	// Manually override and set up components
-	mockController.CreateCommonComponentsFunc = func() error {
-		return nil
-	}
+// setupSafeDownCmdMocks creates mock components with a mock controller for testing failures
+func setupSafeDownCmdMocks() MockSafeDownCmdComponents {
+	injector := di.NewInjector()
+	mockController := ctrl.NewMockController(injector)
 
 	// Setup mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+	mockConfigHandler.SetFunc = func(key string, value any) error {
 		return nil
 	}
 	mockConfigHandler.GetContextFunc = func() string {
@@ -72,11 +58,79 @@ func setupSafeDownCmdMocks(optionalInjector ...di.Injector) MockSafeDownCmdCompo
 
 	// Setup mock container runtime
 	mockContainerRuntime := virt.NewMockVirt()
+	mockContainerRuntime.DownFunc = func() error { return nil }
 	injector.Register("containerRuntime", mockContainerRuntime)
+
+	// Set up controller mock functions
+	mockController.InitializeFunc = func() error { return nil }
+	mockController.CreateCommonComponentsFunc = func() error { return nil }
+	mockController.InitializeComponentsFunc = func() error { return nil }
+	mockController.CreateVirtualizationComponentsFunc = func() error { return nil }
+	mockController.CreateServiceComponentsFunc = func() error { return nil }
+	mockController.CreateEnvComponentsFunc = func() error { return nil }
+	mockController.CreateStackComponentsFunc = func() error { return nil }
+	mockController.CreateSecretsProvidersFunc = func() error { return nil }
+	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler { return mockConfigHandler }
+	mockController.ResolveShellFunc = func() shell.Shell { return mockShell }
+	mockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime { return mockContainerRuntime }
 
 	return MockSafeDownCmdComponents{
 		Injector:             injector,
-		MockController:       mockController,
+		Controller:           mockController,
+		MockConfigHandler:    mockConfigHandler,
+		MockShell:            mockShell,
+		MockNetworkManager:   mockNetworkManager,
+		MockVirtualMachine:   mockVirtualMachine,
+		MockContainerRuntime: mockContainerRuntime,
+	}
+}
+
+// setupSafeDownCmdWithRealController creates mock components with a real controller for testing DI resolution
+func setupSafeDownCmdWithRealController() MockSafeDownCmdComponents {
+	injector := di.NewInjector()
+
+	// Setup mock config handler
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.SetFunc = func(key string, value any) error {
+		return nil
+	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "test-context"
+	}
+	mockConfigHandler.IsLoadedFunc = func() bool {
+		return true
+	}
+	injector.Register("configHandler", mockConfigHandler)
+
+	// Setup mock shell
+	mockShell := shell.NewMockShell()
+	injector.Register("shell", mockShell)
+
+	// Setup mock network manager
+	mockNetworkManager := network.NewMockNetworkManager()
+	injector.Register("networkManager", mockNetworkManager)
+
+	// Setup mock virtual machine
+	mockVirtualMachine := virt.NewMockVirt()
+	injector.Register("virtualMachine", mockVirtualMachine)
+
+	// Setup mock container runtime
+	mockContainerRuntime := virt.NewMockVirt()
+	mockContainerRuntime.DownFunc = func() error { return nil }
+	injector.Register("containerRuntime", mockContainerRuntime)
+
+	// Create mock controller with mock components
+	mockController := ctrl.NewMockController(injector)
+	mockController.InitializeFunc = func() error { return nil }
+	mockController.CreateCommonComponentsFunc = func() error { return nil }
+	mockController.ResolveShellFunc = func() shell.Shell { return mockShell }
+	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler { return mockConfigHandler }
+	mockController.CreateSecretsProvidersFunc = func() error { return nil }
+	mockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime { return mockContainerRuntime }
+
+	return MockSafeDownCmdComponents{
+		Injector:             injector,
+		Controller:           mockController,
 		MockConfigHandler:    mockConfigHandler,
 		MockShell:            mockShell,
 		MockNetworkManager:   mockNetworkManager,
@@ -93,13 +147,21 @@ func TestDownCmd(t *testing.T) {
 	})
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a set of mock components
-		mocks := setupSafeDownCmdMocks()
+		defer resetRootCmd()
+
+		// Given a set of mock components with real controller
+		mocks := setupSafeDownCmdWithRealController()
+		if err := mocks.Controller.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+
+		// Set the controller in the command context
+		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
 
 		// When the down command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"down"})
-			if err := Execute(mocks.MockController); err != nil {
+			if err := Execute(mocks.Controller); err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
 		})
@@ -112,14 +174,23 @@ func TestDownCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorCreatingVirtualizationComponents", func(t *testing.T) {
+		defer resetRootCmd()
+
 		mocks := setupSafeDownCmdMocks()
-		mocks.MockController.CreateVirtualizationComponentsFunc = func() error {
+		mockController := mocks.Controller.(*ctrl.MockController)
+		mockController.CreateVirtualizationComponentsFunc = func() error {
 			return fmt.Errorf("Error creating virtualization components: %w", fmt.Errorf("error creating virtualization components"))
 		}
+		if err := mockController.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+
+		// Set the controller in the command context
+		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
 
 		// Given a mock controller that returns an error when creating virtualization components
 		rootCmd.SetArgs([]string{"down"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error creating virtualization components: error creating virtualization components") {
 			t.Fatalf("Expected error containing 'Error creating virtualization components: error creating virtualization components', got %v", err)
@@ -127,14 +198,23 @@ func TestDownCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorInitializingComponents", func(t *testing.T) {
+		defer resetRootCmd()
+
 		mocks := setupSafeDownCmdMocks()
-		mocks.MockController.InitializeComponentsFunc = func() error {
+		mockController := mocks.Controller.(*ctrl.MockController)
+		mockController.InitializeComponentsFunc = func() error {
 			return fmt.Errorf("Error initializing components: %w", fmt.Errorf("error initializing components"))
 		}
+		if err := mockController.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+
+		// Set the controller in the command context
+		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
 
 		// Given a mock controller that returns an error when initializing components
 		rootCmd.SetArgs([]string{"down"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error initializing components: error initializing components") {
 			t.Fatalf("Expected error containing 'Error initializing components: error initializing components', got %v", err)
@@ -142,10 +222,13 @@ func TestDownCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
+		defer resetRootCmd()
+
 		mocks := setupSafeDownCmdMocks()
+		mockController := mocks.Controller.(*ctrl.MockController)
 		// Allows for reaching the third call of the function
 		callCount := 0
-		mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+		mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
 			callCount++
 			if callCount == 2 {
 				return nil
@@ -153,9 +236,12 @@ func TestDownCmd(t *testing.T) {
 			return mocks.MockConfigHandler
 		}
 
-		// Given a mock controller that returns nil on the second call to ResolveConfigHandler
+		// Set the controller in the command context
+		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
+
+		// Given a mock controller that returns nil when resolving config handler
 		rootCmd.SetArgs([]string{"down"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "No config handler found") {
 			t.Fatalf("Expected error containing 'No config handler found', got %v", err)
@@ -164,13 +250,17 @@ func TestDownCmd(t *testing.T) {
 
 	t.Run("ErrorResolvingContainerRuntime", func(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
-		mocks.MockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
+		mockController := mocks.Controller.(*ctrl.MockController)
+		if err := mockController.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		mockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
 			return nil
 		}
 
 		// Given a mock controller that returns nil when resolving the container runtime
 		rootCmd.SetArgs([]string{"down"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "No container runtime found") {
 			t.Fatalf("Expected error containing 'No container runtime found', got %v", err)
@@ -179,7 +269,11 @@ func TestDownCmd(t *testing.T) {
 
 	t.Run("ErrorRunningContainerRuntimeDown", func(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
-		mocks.MockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
+		mockController := mocks.Controller.(*ctrl.MockController)
+		if err := mockController.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		mockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
 			mocks.MockContainerRuntime.DownFunc = func() error {
 				return fmt.Errorf("Error running container runtime Down command: %w", fmt.Errorf("error running container runtime down"))
 			}
@@ -188,7 +282,7 @@ func TestDownCmd(t *testing.T) {
 
 		// Given a mock container runtime that returns an error when running the Down command
 		rootCmd.SetArgs([]string{"down"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error running container runtime Down command: error running container runtime down") {
 			t.Fatalf("Expected error containing 'Error running container runtime Down command: error running container runtime down', got %v", err)
@@ -197,13 +291,17 @@ func TestDownCmd(t *testing.T) {
 
 	t.Run("ErrorCleaningConfigArtifacts", func(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
+		mockController := mocks.Controller.(*ctrl.MockController)
+		if err := mockController.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
 		mocks.MockConfigHandler.CleanFunc = func() error {
 			return fmt.Errorf("Error cleaning up context specific artifacts: %w", fmt.Errorf("error cleaning context artifacts"))
 		}
 
 		// Given a mock context handler that returns an error when cleaning context specific artifacts
 		rootCmd.SetArgs([]string{"down", "--clean"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error cleaning up context specific artifacts: error cleaning context artifacts") {
 			t.Fatalf("Expected error containing 'Error cleaning up context specific artifacts: error cleaning context artifacts', got %v", err)
@@ -212,6 +310,10 @@ func TestDownCmd(t *testing.T) {
 
 	t.Run("ErrorDeletingVolumes", func(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
+		mockController := mocks.Controller.(*ctrl.MockController)
+		if err := mockController.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
 			return filepath.Join("mock", "project", "root"), nil
 		}
@@ -228,7 +330,7 @@ func TestDownCmd(t *testing.T) {
 
 		// Given a mock osRemoveAll that returns an error when deleting the .volumes folder
 		rootCmd.SetArgs([]string{"down", "--clean"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error deleting .volumes folder") {
 			t.Fatalf("Expected error containing 'Error deleting .volumes folder', got %v", err)
@@ -237,6 +339,10 @@ func TestDownCmd(t *testing.T) {
 
 	t.Run("SuccessDeletingVolumes", func(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
+		mockController := mocks.Controller.(*ctrl.MockController)
+		if err := mockController.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
 			return filepath.Join("mock", "project", "root"), nil
 		}
@@ -252,7 +358,7 @@ func TestDownCmd(t *testing.T) {
 		// Given a mock shell that successfully deletes the .volumes folder
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"down", "--clean"})
-			if err := Execute(mocks.MockController); err != nil {
+			if err := Execute(mocks.Controller); err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
 		})
@@ -266,6 +372,10 @@ func TestDownCmd(t *testing.T) {
 
 	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
 		mocks := setupSafeDownCmdMocks()
+		mockController := mocks.Controller.(*ctrl.MockController)
+		if err := mockController.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
 		callCount := 0
 		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
 			callCount++
@@ -276,19 +386,22 @@ func TestDownCmd(t *testing.T) {
 		}
 
 		rootCmd.SetArgs([]string{"down", "--clean"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 		if err == nil || !strings.Contains(err.Error(), "Error retrieving project root") {
 			t.Fatalf("Expected error containing 'Error retrieving project root', got %v", err)
 		}
 	})
 
 	t.Run("ErrorConfigNotLoaded", func(t *testing.T) {
-		// Create mock components
 		mocks := setupSafeDownCmdMocks()
+		mockController := mocks.Controller.(*ctrl.MockController)
+		if err := mockController.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
 		mocks.MockConfigHandler.IsLoadedFunc = func() bool { return false }
 
 		// When: the down command is executed
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 
 		// Then: it should return an error indicating the configuration is not loaded
 		if err == nil || !strings.Contains(err.Error(), "No configuration is loaded. Is there a project to tear down?") {
@@ -297,15 +410,18 @@ func TestDownCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingEnvironmentVariables", func(t *testing.T) {
-		// Given a mock controller that returns an error when setting environment variables
 		mocks := setupSafeDownCmdMocks()
-		mocks.MockController.SetEnvironmentVariablesFunc = func() error {
+		mockController := mocks.Controller.(*ctrl.MockController)
+		if err := mockController.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
+		mockController.SetEnvironmentVariablesFunc = func() error {
 			return fmt.Errorf("mock environment variables error")
 		}
 
 		// When the down command is executed
 		rootCmd.SetArgs([]string{"down"})
-		err := Execute(mocks.MockController)
+		err := Execute(mocks.Controller)
 
 		// Then the error should contain the expected message
 		if err == nil || !strings.Contains(err.Error(), "Error setting environment variables: mock environment variables error") {
@@ -314,10 +430,13 @@ func TestDownCmd(t *testing.T) {
 	})
 
 	t.Run("SuccessSettingEnvironmentVariables", func(t *testing.T) {
-		// Given a mock controller where SetEnvironmentVariables is successful
 		mocks := setupSafeDownCmdMocks()
+		mockController := mocks.Controller.(*ctrl.MockController)
+		if err := mockController.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
 		setEnvVarsCalled := false
-		mocks.MockController.SetEnvironmentVariablesFunc = func() error {
+		mockController.SetEnvironmentVariablesFunc = func() error {
 			setEnvVarsCalled = true
 			return nil
 		}
@@ -325,7 +444,7 @@ func TestDownCmd(t *testing.T) {
 		// When the down command is executed
 		output := captureStderr(func() {
 			rootCmd.SetArgs([]string{"down"})
-			if err := Execute(mocks.MockController); err != nil {
+			if err := Execute(mocks.Controller); err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
 		})

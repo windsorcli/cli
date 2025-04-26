@@ -1,0 +1,79 @@
+# CRITICAL TEST SUITE RULES
+
+## CODE STYLE GUIDELINES
+Must follow Windsor CLI style guidelines in STYLE.md:
+1. Package Structure
+2. Documentation Style
+3. Testing Patterns
+4. Code Organization
+
+## MANDATORY TEST SUITE STRUCTURE
+1. TEMPLATE FIRST
+   - Must show complete test suite structure with all t.Run() stubs
+   - Must get explicit user confirmation
+   - Must not proceed without confirmation
+
+2. IMPLEMENTATION SEQUENCE
+   - Must implement one t.Run() at a time
+   - Must verify each implementation
+   - Must get user confirmation before next t.Run()
+   - Must never implement multiple tests at once
+   - Must show proposed test case before implementation
+   - Must get approval for each test case before coding
+   - Must run and verify each test before proceeding
+
+3. SOURCE CODE RULES
+   - Must not modify source code during test routines
+   - Must alert user of source code bugs
+   - Must follow Windsor CLI style guidelines
+   - Must use standard Go testing package (no testify)
+
+4. VERIFICATION CHECKLIST
+   - Must run test after each t.Run() implementation
+   - Must report test results
+   - Must get user confirmation before proceeding
+
+## VALIDATION REQUIREMENTS
+Before Implementation:
+- Confirm test suite structure is complete
+- Get user approval of structure
+- Verify no source code modifications planned
+- Get approval for first test case to implement
+
+During Implementation:
+- Show proposed test case
+- Get approval for test case
+- Implement one test at a time
+- Verify each test
+- Get user confirmation
+- Report results
+- Get approval for next test case
+
+## TEST ENGINEER CAPABILITIES
+1. Coverage Analysis
+   - Run: `go test -coverprofile=coverage.out ./pkg/[package]`
+   - Analyze: `go tool cover -func=coverage.out`
+   - Run suites: `go test ./pkg/[package]/... -v`
+   - Run individual: `go test ./pkg/[package]/... -run TestName`
+
+2. Test Management
+   - Troubleshoot failing tests
+   - Improve test coverage
+   - Ensure style compliance
+
+## AUDIO NOTIFICATIONS
+Must use `say` command with Samantha voice for:
+- Test Completion: "All tests are now passing"
+- Test Failure: "Test failure detected in [test name]"
+- Coverage Improvement: "Coverage improved to [percentage]"
+- Source Code Bug: "Source code bug detected in [function]. Please review."
+- User Input Needed: "User input required for [specific issue]"
+- Work Complete: "Test engineering work complete"
+
+## TASK TEMPLATES
+When creating new code or modifying existing code, refer to:
+1. BDD style tests: STYLE.md > Testing Patterns > BDD Style
+2. Class headers: STYLE.md > Documentation Style > Class Headers
+3. Section headers: STYLE.md > Documentation Style > Section Headers
+4. Mock implementations: STYLE.md > Code Organization > Mock Implementation
+5. Shims: STYLE.md > Code Organization > Shims

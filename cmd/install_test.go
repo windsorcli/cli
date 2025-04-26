@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	ctrl "github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/secrets"
+	"github.com/windsorcli/cli/pkg/shell"
 )
 
 type InstallCmdComponents struct {
@@ -35,9 +37,17 @@ func setupMockInstallCmdComponents(optionalInjector ...di.Injector) InstallCmdCo
 	// Use the injector to create a mock controller
 	controller = ctrl.NewMockController(injector)
 
-	// Manually override and set up components
-	controller.CreateProjectComponentsFunc = func() error {
-		return nil
+	// Set up controller mock functions
+	controller.InitializeFunc = func() error { return nil }
+	controller.CreateCommonComponentsFunc = func() error { return nil }
+	controller.InitializeComponentsFunc = func() error { return nil }
+	controller.CreateProjectComponentsFunc = func() error { return nil }
+	controller.CreateServiceComponentsFunc = func() error { return nil }
+	controller.CreateVirtualizationComponentsFunc = func() error { return nil }
+
+	// Initialize the controller
+	if err := controller.Initialize(); err != nil {
+		panic(fmt.Sprintf("Failed to initialize controller: %v", err))
 	}
 
 	// Setup mock config handler
@@ -49,6 +59,19 @@ func setupMockInstallCmdComponents(optionalInjector ...di.Injector) InstallCmdCo
 		return configHandler
 	}
 	injector.Register("configHandler", configHandler)
+
+	// Setup mock shell
+	mockShell := shell.NewMockShell()
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return "/mock/project/root", nil
+	}
+	mockShell.CheckTrustedDirectoryFunc = func() error {
+		return nil
+	}
+	controller.ResolveShellFunc = func() shell.Shell {
+		return mockShell
+	}
+	injector.Register("shell", mockShell)
 
 	// Setup mock secrets provider
 	secretsProvider := secrets.NewMockSecretsProvider(injector)
@@ -86,6 +109,9 @@ func TestInstallCmd(t *testing.T) {
 		// Initialize mocks
 		mocks := setupMockInstallCmdComponents()
 
+		// Set the controller in the command context
+		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
+
 		// Capture the output using captureStdout
 		output := captureStdout(func() {
 			rootCmd.SetArgs([]string{"install"})
@@ -111,6 +137,9 @@ func TestInstallCmd(t *testing.T) {
 			return fmt.Errorf("error creating project components")
 		}
 
+		// Set the controller in the command context
+		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
+
 		// When the install command is executed
 		rootCmd.SetArgs([]string{"install"})
 		err := Execute(mocks.Controller)
@@ -133,6 +162,9 @@ func TestInstallCmd(t *testing.T) {
 		mocks.Controller.CreateServiceComponentsFunc = func() error {
 			return fmt.Errorf("error creating service components")
 		}
+
+		// Set the controller in the command context
+		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
 
 		// When the install command is executed
 		rootCmd.SetArgs([]string{"install"})
@@ -157,6 +189,9 @@ func TestInstallCmd(t *testing.T) {
 			return fmt.Errorf("error creating virtualization components")
 		}
 
+		// Set the controller in the command context
+		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
+
 		// When the install command is executed
 		rootCmd.SetArgs([]string{"install"})
 		err := Execute(mocks.Controller)
@@ -179,6 +214,9 @@ func TestInstallCmd(t *testing.T) {
 		mocks.Controller.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
 			return nil
 		}
+
+		// Set the controller in the command context
+		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
 
 		// When the install command is executed
 		rootCmd.SetArgs([]string{"install"})

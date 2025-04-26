@@ -9,6 +9,10 @@ import (
 	"testing"
 )
 
+// =============================================================================
+// Test Setup
+// =============================================================================
+
 const (
 	gitGenTestMockGitignorePath = "/mock/project/root/.gitignore"
 	gitGenTestExistingContent   = "existing content\n"
@@ -22,79 +26,99 @@ contexts/**/.terraform/
 contexts/**/.tfstate/
 contexts/**/.kube/
 contexts/**/.talos/
+contexts/**/.omni/
 contexts/**/.aws/
 `
 	gitGenTestExpectedPerm = fs.FileMode(0644)
 )
 
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
 func TestGitGenerator_NewGitGenerator(t *testing.T) {
 	t.Run("NewGitGenerator", func(t *testing.T) {
-		// Use setupSafeMocks to create mock components
-		mocks := setupSafeMocks()
+		// Given a set of mocks
+		mocks := setupMocks(t)
 
-		// Create a new GitGenerator using the mock injector
-		gitGenerator := NewGitGenerator(mocks.Injector)
+		// When a new GitGenerator is created
+		generator := NewGitGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize GitGenerator: %v", err)
+		}
 
-		// Check if the GitGenerator is not nil
-		if gitGenerator == nil {
+		// Then the GitGenerator should be created correctly
+		if generator == nil {
 			t.Fatalf("expected GitGenerator to be created, got nil")
 		}
 
-		// Check if the GitGenerator has the correct injector
-		if gitGenerator.injector != mocks.Injector {
+		// And the GitGenerator should have the correct injector
+		if generator.injector != mocks.Injector {
 			t.Errorf("expected GitGenerator to have the correct injector")
 		}
 	})
 }
 
-func TestGitGenerator_Write(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupSafeMocks()
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
-		// Mock osReadFile to return predefined content or an empty file if not exists
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(filename string) ([]byte, error) {
+func TestGitGenerator_Write(t *testing.T) {
+	setup := func(t *testing.T) (*GitGenerator, *Mocks) {
+		mocks := setupMocks(t)
+		generator := NewGitGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize GitGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a GitGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And ReadFile is mocked to return predefined content
+		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
 			if filepath.ToSlash(filename) == gitGenTestMockGitignorePath {
 				return []byte(gitGenTestExistingContent), nil
 			}
-			return []byte{}, nil // Return empty content instead of an error
+			return []byte{}, nil
 		}
 
-		// Capture the call to osWriteFile
+		// And MkdirAll is mocked to handle directory creation
+		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
+			return nil
+		}
+
+		// And WriteFile is mocked to capture parameters
 		var capturedFilename string
 		var capturedContent []byte
 		var capturedPerm fs.FileMode
-		originalOsWriteFile := osWriteFile
-		defer func() { osWriteFile = originalOsWriteFile }()
-		osWriteFile = func(filename string, content []byte, perm fs.FileMode) error {
+		mocks.Shims.WriteFile = func(filename string, content []byte, perm fs.FileMode) error {
 			capturedFilename = filename
 			capturedContent = content
 			capturedPerm = perm
 			return nil
 		}
 
-		gitGenerator := NewGitGenerator(mocks.Injector)
+		// When Write is called
+		err := generator.Write()
 
-		// Initialize the GitGenerator
-		if err := gitGenerator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize GitGenerator: %v", err)
-		}
-
-		// Call the Write method
-		err := gitGenerator.Write()
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Normalize line endings for cross-platform compatibility
-		normalizeLineEndings := func(content string) string {
-			return strings.ReplaceAll(content, "\r\n", "\n")
-		}
-
-		// Check if osWriteFile was called with the correct parameters
+		// And WriteFile should be called with the correct parameters
 		if filepath.ToSlash(capturedFilename) != gitGenTestMockGitignorePath {
 			t.Errorf("expected filename %s, got %s", gitGenTestMockGitignorePath, capturedFilename)
+		}
+
+		// Normalize line endings for cross-platform compatibility
+		normalizeLineEndings := func(content string) string {
+			return strings.ReplaceAll(strings.ReplaceAll(content, "\r\n", "\n"), "\n", "")
 		}
 
 		if normalizeLineEndings(string(capturedContent)) != normalizeLineEndings(gitGenTestExpectedContent) {
@@ -107,26 +131,30 @@ func TestGitGenerator_Write(t *testing.T) {
 	})
 
 	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
-		mocks := setupSafeMocks()
+		// Given a set of mocks
+		mocks := setupMocks(t)
 
-		// Mock the GetProjectRootFunc to return an error
-		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+		// And GetProjectRoot is mocked to return an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("mock error getting project root")
 		}
 
-		gitGenerator := NewGitGenerator(mocks.Injector)
-
-		// Initialize the GitGenerator
-		if err := gitGenerator.Initialize(); err != nil {
+		// And a new GitGenerator is created
+		generator := NewGitGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
 			t.Fatalf("failed to initialize GitGenerator: %v", err)
 		}
 
-		// Call the Write method and expect an error
-		err := gitGenerator.Write()
+		// When Write is called
+		err := generator.Write()
+
+		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("expected an error, got nil")
 		}
 
+		// And the error should match the expected error
 		expectedError := "failed to get project root: mock error getting project root"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %s, got %s", expectedError, err.Error())
@@ -134,28 +162,23 @@ func TestGitGenerator_Write(t *testing.T) {
 	})
 
 	t.Run("ErrorReadingGitignore", func(t *testing.T) {
-		mocks := setupSafeMocks()
+		// Given a GitGenerator with mocks
+		generator, mocks := setup(t)
 
-		// Mock the osReadFile function to return an error
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(_ string) ([]byte, error) {
+		// And ReadFile is mocked to return an error
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
 			return nil, fmt.Errorf("mock error reading .gitignore")
 		}
 
-		gitGenerator := NewGitGenerator(mocks.Injector)
+		// When Write is called
+		err := generator.Write()
 
-		// Initialize the GitGenerator
-		if err := gitGenerator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize GitGenerator: %v", err)
-		}
-
-		// Call the Write method and expect an error
-		err := gitGenerator.Write()
+		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("expected an error, got nil")
 		}
 
+		// And the error should match the expected error
 		expectedError := "failed to read .gitignore: mock error reading .gitignore"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %s, got %s", expectedError, err.Error())
@@ -163,59 +186,46 @@ func TestGitGenerator_Write(t *testing.T) {
 	})
 
 	t.Run("GitignoreDoesNotExist", func(t *testing.T) {
-		mocks := setupSafeMocks()
+		// Given a GitGenerator with mocks
+		generator, mocks := setup(t)
 
-		gitGenerator := NewGitGenerator(mocks.Injector)
-
-		// Initialize the GitGenerator
-		if err := gitGenerator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize GitGenerator: %v", err)
-		}
-
-		// Mock the osReadFile function to simulate .gitignore does not exist
-		originalOsReadFile := osReadFile
-		defer func() { osReadFile = originalOsReadFile }()
-		osReadFile = func(_ string) ([]byte, error) {
+		// And ReadFile is mocked to simulate .gitignore does not exist
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
 			return nil, os.ErrNotExist
 		}
 
-		// Mock the osWriteFile function to simulate successful file creation
-		originalOsWriteFile := osWriteFile
-		defer func() { osWriteFile = originalOsWriteFile }()
-		osWriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+		// And WriteFile is mocked to simulate successful file creation
+		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
 			return nil
 		}
 
-		// Call the Write method and expect no error
-		err := gitGenerator.Write()
+		// When Write is called
+		err := generator.Write()
+
+		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("ErrorWritingGitignore", func(t *testing.T) {
-		mocks := setupSafeMocks()
+		// Given a GitGenerator with mocks
+		generator, mocks := setup(t)
 
-		// Mock the osWriteFile function to simulate an error during file writing
-		originalOsWriteFile := osWriteFile
-		defer func() { osWriteFile = originalOsWriteFile }()
-		osWriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+		// And WriteFile is mocked to simulate an error during file writing
+		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
 			return fmt.Errorf("mock error writing .gitignore")
 		}
 
-		gitGenerator := NewGitGenerator(mocks.Injector)
+		// When Write is called
+		err := generator.Write()
 
-		// Initialize the GitGenerator
-		if err := gitGenerator.Initialize(); err != nil {
-			t.Fatalf("failed to initialize GitGenerator: %v", err)
-		}
-
-		// Call the Write method and expect an error
-		err := gitGenerator.Write()
+		// Then an error should be returned
 		if err == nil {
 			t.Fatalf("expected an error, got nil")
 		}
 
+		// And the error should match the expected error
 		expectedError := "failed to write to .gitignore: mock error writing .gitignore"
 		if err.Error() != expectedError {
 			t.Errorf("expected error %s, got %s", expectedError, err.Error())

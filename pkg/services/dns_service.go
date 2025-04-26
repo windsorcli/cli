@@ -10,21 +10,35 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// The DNSService is a core component that manages DNS configuration and resolution
+// It provides DNS management capabilities for Windsor services and applications
+// The DNSService handles CoreDNS configuration, service discovery, and DNS forwarding
+// enabling seamless DNS resolution across different environments and contexts
+
+// =============================================================================
+// Types
+// =============================================================================
+
 // DNSService handles DNS configuration
 type DNSService struct {
 	BaseService
 	services []Service
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewDNSService creates a new DNSService
 func NewDNSService(injector di.Injector) *DNSService {
 	return &DNSService{
-		BaseService: BaseService{
-			injector: injector,
-			name:     "dns",
-		},
+		BaseService: *NewBaseService(injector),
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize sets up DNSService by resolving dependencies via DI.
 func (s *DNSService) Initialize() error {
@@ -200,11 +214,11 @@ func (s *DNSService) WriteConfig() error {
 `
 
 	corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
-	if err := mkdirAll(filepath.Dir(corefilePath), 0755); err != nil {
+	if err := s.shims.MkdirAll(filepath.Dir(corefilePath), 0755); err != nil {
 		return fmt.Errorf("error creating parent folders: %w", err)
 	}
 
-	if err := writeFile(corefilePath, []byte(corefileContent), 0644); err != nil {
+	if err := s.shims.WriteFile(corefilePath, []byte(corefileContent), 0644); err != nil {
 		return fmt.Errorf("error writing Corefile: %w", err)
 	}
 

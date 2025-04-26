@@ -16,11 +16,22 @@ func setupSafeHookCmdMocks() *MockObjects {
 	injector := di.NewInjector()
 	mockController := ctrl.NewMockController(injector)
 
-	// Setup mock context handler
+	// Set up controller mock functions
+	mockController.InitializeFunc = func() error { return nil }
+	mockController.CreateCommonComponentsFunc = func() error { return nil }
+	mockController.InitializeComponentsFunc = func() error { return nil }
+
+	// Initialize the controller
+	if err := mockController.Initialize(); err != nil {
+		panic(fmt.Sprintf("Failed to initialize controller: %v", err))
+	}
+
+	// Setup mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetContextFunc = func() string {
 		return "test-context"
 	}
+	mockConfigHandler.IsLoadedFunc = func() bool { return true }
 	injector.Register("configHandler", mockConfigHandler)
 
 	mockShell := shell.NewMockShell()
@@ -30,6 +41,11 @@ func setupSafeHookCmdMocks() *MockObjects {
 		}
 		return nil
 	}
+
+	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+		return mockConfigHandler
+	}
+
 	mockController.ResolveShellFunc = func() shell.Shell {
 		return mockShell
 	}
