@@ -4,18 +4,9 @@ on:
   repository_dispatch:
     types: [dispatch-build-artifacts]
 
-permissions:
-  contents: write
-  issues: read
-  pull-requests: read  
-
 jobs:
   build-artifacts:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: read
-      pull-requests: read
     steps:
       - name: Build Artifacts
         uses: ./.github/workflows/build-artifacts
