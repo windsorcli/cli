@@ -1,21 +1,40 @@
 name: 'Build Artifacts'
 
 on:
-  repository_dispatch:
-    types: [build-artifacts]
+  workflow_dispatch:
+    inputs:
+      repo_owner:
+        description: 'Repo Owner'
+        required: false
+        default: 'windsorcli'
+      repo_name:
+        description: 'Repo Name'
+        required: false
+        default: 'cli'
+      release:
+        description: 'Release'
+        required: false        
+        default: 'release-latest'
 
 permissions:
   contents: write
-  issues: read
-  pull-requests: read  
+
 jobs:
   build-artifacts:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Print out the inputs
         run: |
-          echo "Repo Owner: ${{ github.event.client_payload.repo_owner }}"
-          echo "Repo Name: ${{ github.event.client_payload.repo_name }}"
-          echo "Release: ${{ github.event.client_payload.release }}"
+          echo "Debugging inputs:"
+          echo "Repo Owner: ${{ inputs.repo_owner }}"
+          echo "Repo Name: ${{ inputs.repo_name }}"
+          echo "Release: ${{ inputs.release }}"
+
+      - name: Exit with failure
+        run: |
+          echo "Exiting with failure"
+          exit 1
 
