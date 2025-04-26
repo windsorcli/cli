@@ -35,6 +35,17 @@ func setupSafeCheckCmdMocks(optionalInjector ...di.Injector) MockSafeCheckCmdCom
 	// Use the injector to create a mock controller
 	mockController = ctrl.NewMockController(injector)
 
+	// Set up controller mock functions
+	mockController.InitializeFunc = func() error { return nil }
+	mockController.CreateCommonComponentsFunc = func() error { return nil }
+	mockController.InitializeComponentsFunc = func() error { return nil }
+	mockController.CreateProjectComponentsFunc = func() error { return nil }
+
+	// Initialize the controller
+	if err := mockController.Initialize(); err != nil {
+		panic(fmt.Sprintf("Failed to initialize controller: %v", err))
+	}
+
 	// Setup mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.IsLoadedFunc = func() bool { return true }
@@ -50,6 +61,11 @@ func setupSafeCheckCmdMocks(optionalInjector ...di.Injector) MockSafeCheckCmdCom
 	mockShell.GetProjectRootFunc = func() (string, error) { return "/path/to/project/root", nil }
 	injector.Register("shell", mockShell)
 
+	// Setup mock tools manager
+	mockToolsManager := tools.NewMockToolsManager()
+	mockToolsManager.CheckFunc = func() error { return nil }
+	injector.Register("toolsManager", mockToolsManager)
+
 	mocks := MockSafeCheckCmdComponents{
 		Injector:          injector,
 		MockController:    mockController,
@@ -57,8 +73,16 @@ func setupSafeCheckCmdMocks(optionalInjector ...di.Injector) MockSafeCheckCmdCom
 		MockShell:         mockShell,
 	}
 
-	mocks.MockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
 		return mocks.MockConfigHandler
+	}
+
+	mockController.ResolveShellFunc = func() shell.Shell {
+		return mocks.MockShell
+	}
+
+	mockController.ResolveToolsManagerFunc = func() tools.ToolsManager {
+		return mockToolsManager
 	}
 
 	return mocks

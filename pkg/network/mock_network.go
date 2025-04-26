@@ -84,6 +84,22 @@ type MockNetworkInterfaceProvider struct {
 }
 
 // =============================================================================
+// Constructor
+// =============================================================================
+
+// NewMockNetworkInterfaceProvider creates a new instance of MockNetworkInterfaceProvider with default implementations.
+func NewMockNetworkInterfaceProvider() *MockNetworkInterfaceProvider {
+	return &MockNetworkInterfaceProvider{
+		InterfacesFunc: func() ([]net.Interface, error) {
+			return []net.Interface{}, nil
+		},
+		InterfaceAddrsFunc: func(iface net.Interface) ([]net.Addr, error) {
+			return []net.Addr{}, nil
+		},
+	}
+}
+
+// =============================================================================
 // Public Methods
 // =============================================================================
 

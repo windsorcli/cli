@@ -13,7 +13,7 @@ func main() {
 	injector := di.NewInjector()
 
 	// Create a new controller
-	controller := controller.NewRealController(injector)
+	controller := controller.NewController(injector)
 
 	// Execute the root command and handle the error,
 	// exiting with a non-zero exit code if there's an error
