@@ -6,6 +6,15 @@ import (
 	"testing"
 )
 
+// The BaseClientTest is a test suite for the BaseClient implementation
+// It provides comprehensive testing of the BaseClient functionality
+// It serves as a validation mechanism for the SSH client configuration
+// It tests both successful and error scenarios for all client operations
+
+// =============================================================================
+// Test Setup
+// =============================================================================
+
 var privateKey = `-----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABFwAAAAdzc2gtcn
 NhAAAAAwEAAQAAAQEAzRbWmvX0VNMiWpzIeo3ewv029doibmpXl1C+kB3IK2XqWqwyZi8J
@@ -34,32 +43,47 @@ Wn4fSEjQr1zKgjfGFb0u75fjPlb4j0FC4x8p1cDacss82k9OpZI64P3CpFIN4lkuJ0gy/Z
 SRbYzac7Ad/IBHcAAAAQcnlhbnZhbmd1bmR5QE1hYwECAw==
 -----END OPENSSH PRIVATE KEY-----`
 
+// =============================================================================
+// Test Functions
+// =============================================================================
+
 func TestBaseClient_SetClientConfig(t *testing.T) {
 	t.Run("SetUserConfig", func(t *testing.T) {
+		// Given a BaseClient instance
 		client := &BaseClient{}
 		config := &ClientConfig{
 			User: "testuser",
 		}
+
+		// When SetClientConfig is called
 		client.SetClientConfig(config)
+
+		// Then the clientConfig should be set
 		if client.clientConfig != config {
 			t.Fatalf("Expected clientConfig to be set")
 		}
 	})
 
 	t.Run("SetEmptyConfig", func(t *testing.T) {
+		// Given a BaseClient instance
 		client := &BaseClient{}
 		config := &ClientConfig{}
+
+		// When SetClientConfig is called with an empty config
 		client.SetClientConfig(config)
+
+		// Then the clientConfig should be set
 		if client.clientConfig != config {
 			t.Fatalf("Expected clientConfig to be set")
 		}
 	})
 
 	t.Run("SetConfigFilePath", func(t *testing.T) {
+		// Given a BaseClient instance and a config file path
 		client := &BaseClient{}
 		configPath := "/path/to/config"
 
-		// Mock functions
+		// And mocked file system functions
 		stat = func(_ string) (os.FileInfo, error) {
 			return nil, nil // Simulate that the file exists
 		}
@@ -79,10 +103,15 @@ Host localhost
 			return nil, os.ErrNotExist
 		}
 
+		// When SetClientConfigFile is called
 		err := client.SetClientConfigFile(configPath, "localhost")
+
+		// Then there should be no error
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
+
+		// And the clientConfig should be properly set
 		if client.clientConfig == nil {
 			t.Fatal("Expected clientConfig to be set")
 		}
@@ -101,10 +130,11 @@ Host localhost
 	})
 
 	t.Run("ErrorReadingConfigFile", func(t *testing.T) {
+		// Given a BaseClient instance and a config file path
 		client := &BaseClient{}
 		configPath := "/path/to/config"
 
-		// Mock functions
+		// And mocked file system functions that return an error
 		stat = func(_ string) (os.FileInfo, error) {
 			return nil, nil // Simulate that the file exists
 		}
@@ -118,10 +148,15 @@ Host localhost
 			return nil, os.ErrNotExist
 		}
 
+		// When SetClientConfigFile is called
 		err := client.SetClientConfigFile(configPath, "localhost")
+
+		// Then there should be an error
 		if err == nil {
 			t.Fatal("Expected an error, got nil")
 		}
+
+		// And the clientConfig should not be set
 		if client.clientConfig != nil {
 			t.Fatal("Expected clientConfig to be nil")
 		}
@@ -130,6 +165,7 @@ Host localhost
 
 func TestBaseClient_SetClientConfigFile(t *testing.T) {
 	t.Run("ValidConfig", func(t *testing.T) {
+		// Given a BaseClient instance and a valid config string
 		client := &BaseClient{}
 		configStr := `
 Host localhost
@@ -138,7 +174,7 @@ Host localhost
   Hostname localhost
   Port 22
 `
-		// Mock functions
+		// And mocked file system functions
 		stat = func(_ string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist // Simulate that the file does not exist
 		}
@@ -149,20 +185,26 @@ Host localhost
 			return nil, os.ErrNotExist
 		}
 
+		// When SetClientConfigFile is called
 		err := client.SetClientConfigFile(configStr, "localhost")
+
+		// Then there should be no error
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
+
+		// And the clientConfig should be set
 		if client.clientConfig == nil {
 			t.Fatal("Expected clientConfig to be set")
 		}
 	})
 
 	t.Run("InvalidConfig", func(t *testing.T) {
+		// Given a BaseClient instance and an invalid config string
 		client := &BaseClient{}
 		configStr := "invalid config"
 
-		// Mock functions
+		// And mocked file system functions
 		stat = func(_ string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
@@ -170,7 +212,10 @@ Host localhost
 			return nil, os.ErrNotExist
 		}
 
+		// When SetClientConfigFile is called
 		err := client.SetClientConfigFile(configStr, "localhost")
+
+		// Then there should be an error
 		if err == nil {
 			t.Fatal("Expected an error, got nil")
 		}
@@ -179,6 +224,7 @@ Host localhost
 
 func TestBaseClient_parseSSHConfig(t *testing.T) {
 	t.Run("SuccessfulParse", func(t *testing.T) {
+		// Given a valid SSH config string
 		configStr := `
 Host localhost
   User testuser
@@ -186,7 +232,7 @@ Host localhost
   Hostname localhost
   Port 22
 `
-		// Mock functions
+		// And mocked file system functions
 		readFile = func(name string) ([]byte, error) {
 			if name == "/path/to/id_rsa" || name == "id_rsa" {
 				return []byte(privateKey), nil
@@ -194,10 +240,15 @@ Host localhost
 			return nil, os.ErrNotExist
 		}
 
+		// When parseSSHConfig is called
 		clientConfig, err := parseSSHConfig(configStr, "localhost")
+
+		// Then there should be no error
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
+
+		// And the clientConfig should be properly parsed
 		if clientConfig == nil {
 			t.Fatal("Expected clientConfig to be set")
 		}
@@ -216,19 +267,24 @@ Host localhost
 	})
 
 	t.Run("FailedParse", func(t *testing.T) {
+		// Given an invalid SSH config string
+		// When parseSSHConfig is called
 		_, err := parseSSHConfig("invalid config", "localhost")
+
+		// Then there should be an error
 		if err == nil {
 			t.Fatal("Expected an error, got nil")
 		}
 	})
 
 	t.Run("SingleField", func(t *testing.T) {
+		// Given an SSH config string with a single field
 		configStr := `
 Host localhost
   User
   IdentityFile /path/to/id_rsa
 `
-		// Mock functions
+		// And mocked file system functions
 		readFile = func(name string) ([]byte, error) {
 			if name == "/path/to/id_rsa" || name == "id_rsa" {
 				return []byte(privateKey), nil
@@ -236,10 +292,15 @@ Host localhost
 			return nil, os.ErrNotExist
 		}
 
+		// When parseSSHConfig is called
 		clientConfig, err := parseSSHConfig(configStr, "localhost")
+
+		// Then there should be no error
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
+
+		// And the clientConfig should be set
 		if clientConfig == nil {
 			t.Fatal("Expected clientConfig to be set")
 		}
@@ -249,16 +310,20 @@ Host localhost
 	})
 
 	t.Run("FailedLoadSigner", func(t *testing.T) {
+		// Given an SSH config string with an invalid identity file
 		configStr := `
 Host localhost
   IdentityFile /invalid/path/to/id_rsa
 `
-		// Mock functions
+		// And mocked file system functions that return an error
 		readFile = func(name string) ([]byte, error) {
 			return nil, os.ErrNotExist
 		}
 
+		// When parseSSHConfig is called
 		_, err := parseSSHConfig(configStr, "localhost")
+
+		// Then there should be an error
 		if err == nil {
 			t.Fatal("Expected an error, got nil")
 		}
@@ -267,7 +332,8 @@ Host localhost
 
 func TestBaseClient_LoadSigner(t *testing.T) {
 	t.Run("SuccessfulLoad", func(t *testing.T) {
-		// Mock functions
+		// Given a valid identity file path
+		// And mocked file system functions
 		readFile = func(name string) ([]byte, error) {
 			if name == "/path/to/id_rsa" || name == "id_rsa" {
 				return []byte(privateKey), nil
@@ -275,29 +341,42 @@ func TestBaseClient_LoadSigner(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
+		// When loadSigner is called
 		signer, err := loadSigner("/path/to/id_rsa")
+
+		// Then there should be no error
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
+
+		// And a valid signer should be returned
 		if signer == nil {
 			t.Fatal("Expected a valid signer, got nil")
 		}
 	})
 
 	t.Run("FailedLoad", func(t *testing.T) {
+		// Given an invalid identity file path
+		// When loadSigner is called
 		_, err := loadSigner("invalid/path")
+
+		// Then there should be an error
 		if err == nil {
 			t.Fatal("Expected an error, got nil")
 		}
 	})
 
 	t.Run("FailedParsePrivateKey", func(t *testing.T) {
-		// Mock functions
+		// Given an identity file with invalid content
+		// And mocked file system functions
 		readFile = func(_ string) ([]byte, error) {
 			return []byte("invalid private key content"), nil
 		}
 
+		// When loadSigner is called
 		_, err := loadSigner("/path/to/invalid_id_rsa")
+
+		// Then there should be an error
 		if err == nil {
 			t.Fatal("Expected an error, got nil")
 		}

@@ -1,5 +1,11 @@
 package stack
 
+// The WindsorStack is a specialized implementation of the Stack interface for Terraform-based infrastructure.
+// It provides a concrete implementation for managing Terraform components through the Windsor CLI,
+// handling directory management, environment configuration, and Terraform operations.
+// The WindsorStack orchestrates Terraform initialization, planning, and application,
+// while managing environment variables and backend configurations.
+
 import (
 	"fmt"
 	"os"
@@ -8,31 +14,44 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// =============================================================================
+// Types
+// =============================================================================
+
 // WindsorStack is a struct that implements the Stack interface.
 type WindsorStack struct {
 	BaseStack
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewWindsorStack creates a new WindsorStack.
 func NewWindsorStack(injector di.Injector) *WindsorStack {
 	return &WindsorStack{
 		BaseStack: BaseStack{
 			injector: injector,
+			shims:    NewShims(),
 		},
 	}
 }
 
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 // Up creates a new stack of components.
 func (s *WindsorStack) Up() error {
 	// Store the current directory
-	currentDir, err := osGetwd()
+	currentDir, err := s.shims.Getwd()
 	if err != nil {
 		return fmt.Errorf("error getting current directory: %v", err)
 	}
 
 	// Ensure we change back to the original directory once the function completes
 	defer func() {
-		_ = osChdir(currentDir)
+		_ = s.shims.Chdir(currentDir)
 	}()
 
 	// Get the Terraform components from the blueprint
@@ -41,12 +60,12 @@ func (s *WindsorStack) Up() error {
 	// Iterate over the components
 	for _, component := range components {
 		// Ensure the directory exists
-		if _, err := osStat(component.FullPath); os.IsNotExist(err) {
+		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
 			return fmt.Errorf("directory %s does not exist", component.FullPath)
 		}
 
 		// Change to the component directory
-		if err := osChdir(component.FullPath); err != nil {
+		if err := s.shims.Chdir(component.FullPath); err != nil {
 			return fmt.Errorf("error changing to directory %s: %v", component.FullPath, err)
 		}
 
@@ -57,7 +76,7 @@ func (s *WindsorStack) Up() error {
 				return fmt.Errorf("error getting environment variables: %v", err)
 			}
 			for key, value := range envVars {
-				if err := osSetenv(key, value); err != nil {
+				if err := s.shims.Setenv(key, value); err != nil {
 					return fmt.Errorf("error setting environment variable %s: %v", key, err)
 				}
 			}
@@ -87,8 +106,8 @@ func (s *WindsorStack) Up() error {
 
 		// Attempt to clean up 'backend_override.tf' if it exists
 		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-		if _, err := osStat(backendOverridePath); err == nil {
-			if err := osRemove(backendOverridePath); err != nil {
+		if _, err := s.shims.Stat(backendOverridePath); err == nil {
+			if err := s.shims.Remove(backendOverridePath); err != nil {
 				return fmt.Errorf("error removing backend_override.tf in %s: %v", component.FullPath, err)
 			}
 		}

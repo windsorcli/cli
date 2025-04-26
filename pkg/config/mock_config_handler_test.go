@@ -2,73 +2,12 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"reflect"
 	"testing"
 
-	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/secrets"
-	"github.com/windsorcli/cli/pkg/shell"
 )
-
-type MockObjects struct {
-	MockShell       *shell.MockShell
-	ConfigHandler   *MockConfigHandler
-	SecretsProvider *secrets.MockSecretsProvider
-	Injector        di.Injector
-}
-
-func setupSafeMocks(injector ...di.Injector) *MockObjects {
-	var inj di.Injector
-	if len(injector) > 0 {
-		inj = injector[0]
-	} else {
-		inj = di.NewInjector()
-	}
-
-	// Mock necessary dependencies
-	mockShell := &shell.MockShell{}
-	mockShell.GetProjectRootFunc = func() (string, error) {
-		return "/tmp", nil
-	}
-	inj.Register("shell", mockShell)
-
-	// Mock secrets provider
-	mockSecretsProvider := &secrets.MockSecretsProvider{}
-	inj.Register("secretsProvider", mockSecretsProvider)
-
-	// Mock osStat to simulate a successful file existence check
-	osStat = func(name string) (os.FileInfo, error) {
-		return nil, nil
-	}
-
-	// Use real YAML unmarshaling
-	yamlUnmarshal = yaml.Unmarshal
-
-	// Mock osReadFile to simulate reading a file
-	osReadFile = func(filename string) ([]byte, error) {
-		return []byte("dummy: data"), nil
-	}
-
-	// Mock osWriteFile to simulate writing a file
-	osWriteFile = func(name string, data []byte, perm os.FileMode) error {
-		return nil
-	}
-
-	// Mock osMkdirAll to simulate creating directories
-	osMkdirAll = func(path string, perm os.FileMode) error {
-		return nil
-	}
-
-	// Return the mock objects including the handler
-	return &MockObjects{
-		MockShell:       mockShell,
-		SecretsProvider: mockSecretsProvider,
-		Injector:        inj,
-	}
-}
 
 func TestMockConfigHandler_Initialize(t *testing.T) {
 	mockInitializeErr := fmt.Errorf("mock initialize error")
@@ -98,33 +37,6 @@ func TestMockConfigHandler_Initialize(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
-	})
-}
-
-func TestMockConfigHandler_SetSecretsProvider(t *testing.T) {
-	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a mock config handler with SetSecretsProviderFunc set
-		handler := NewMockConfigHandler()
-		mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
-		handler.SetSecretsProviderFunc = func(provider secrets.SecretsProvider) {
-			if provider != mockSecretsProvider {
-				t.Errorf("Expected provider = %v, got = %v", mockSecretsProvider, provider)
-			}
-		}
-
-		// When SetSecretsProvider is called
-		handler.SetSecretsProvider(mockSecretsProvider)
-	})
-
-	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a mock config handler without SetSecretsProviderFunc set
-		handler := NewMockConfigHandler()
-		mockSecretsProvider := secrets.NewMockSecretsProvider(di.NewMockInjector())
-
-		// When SetSecretsProvider is called
-		handler.SetSecretsProvider(mockSecretsProvider)
-
-		// Then no error should occur and the function should complete
 	})
 }
 
@@ -382,7 +294,7 @@ func TestMockConfigHandler_Set(t *testing.T) {
 	t.Run("WithKeyAndValue", func(t *testing.T) {
 		// Given a mock config handler with SetFunc set to do nothing
 		handler := NewMockConfigHandler()
-		handler.SetFunc = func(key string, value interface{}) error { return nil }
+		handler.SetFunc = func(key string, value any) error { return nil }
 
 		// When Set is called with a key and a value
 		handler.Set("someKey", "someValue")
@@ -405,7 +317,7 @@ func TestMockConfigHandler_SetContextValue(t *testing.T) {
 	t.Run("WithKeyAndValue", func(t *testing.T) {
 		// Given a mock config handler with SetContextValueFunc set to do nothing
 		handler := NewMockConfigHandler()
-		handler.SetContextValueFunc = func(key string, value interface{}) error { return nil }
+		handler.SetContextValueFunc = func(key string, value any) error { return nil }
 
 		// When SetContextValue is called with a key and a value
 		err := handler.SetContextValue("someKey", "someValue")
@@ -465,7 +377,7 @@ func TestMockConfigHandler_Get(t *testing.T) {
 	t.Run("WithKey", func(t *testing.T) {
 		// Given a mock config handler with GetFunc set to return 'mock-value'
 		handler := NewMockConfigHandler()
-		handler.GetFunc = func(key string) interface{} { return "mock-value" }
+		handler.GetFunc = func(key string) any { return "mock-value" }
 
 		// When Get is called with a key
 		value := handler.Get("someKey")
@@ -552,14 +464,15 @@ func TestMockConfigHandler_GetConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("GetConfig_NoFuncSet", func(t *testing.T) {
+	t.Run("NoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without GetConfigFunc set
 		mockHandler := NewMockConfigHandler()
-
-		// Ensure GetConfigFunc is not set
 		mockHandler.GetConfigFunc = nil
 
-		// Call GetConfig and expect a reasonable default context
+		// When GetConfig is called
 		config := mockHandler.GetConfig()
+
+		// Then an empty Context should be returned
 		if !reflect.DeepEqual(config, &v1alpha1.Context{}) {
 			t.Errorf("Expected GetConfig to return empty Context, got %v", config)
 		}
@@ -756,5 +669,39 @@ func TestMockConfigHandler_LoadConfigString(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected error = %v, got = %v", nil, err)
 		}
+	})
+}
+
+func TestMockConfigHandler_SetSecretsProvider(t *testing.T) {
+	t.Run("WithFuncSet", func(t *testing.T) {
+		// Given a mock config handler with SetSecretsProviderFunc set
+		handler := NewMockConfigHandler()
+		var calledProvider secrets.SecretsProvider
+		handler.SetSecretsProviderFunc = func(provider secrets.SecretsProvider) {
+			calledProvider = provider
+		}
+
+		// And a mock secrets provider
+		mockProvider := secrets.NewMockSecretsProvider(nil)
+
+		// When setting the secrets provider
+		handler.SetSecretsProvider(mockProvider)
+
+		// Then the function should be called with the provider
+		if calledProvider != mockProvider {
+			t.Errorf("Expected SetSecretsProviderFunc to be called with %v, got %v", mockProvider, calledProvider)
+		}
+	})
+
+	t.Run("WithNoFuncSet", func(t *testing.T) {
+		// Given a mock config handler without SetSecretsProviderFunc set
+		handler := NewMockConfigHandler()
+
+		// And a mock secrets provider
+		mockProvider := secrets.NewMockSecretsProvider(nil)
+
+		// When setting the secrets provider
+		// Then it should not panic
+		handler.SetSecretsProvider(mockProvider)
 	})
 }

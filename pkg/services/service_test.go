@@ -1,6 +1,7 @@
 package services
 
 import (
+	"os"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
@@ -8,49 +9,186 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-type MockBaseServiceComponents struct {
-	Injector          di.Injector
-	MockShell         *shell.MockShell
-	MockConfigHandler *config.MockConfigHandler
+// The ServiceTest is a test suite for the Service interface and BaseService implementation
+// It provides comprehensive test coverage for service initialization, configuration, and addressing
+// The ServiceTest ensures proper service behavior across different scenarios and configurations
+// enabling reliable service management and DNS resolution in the Windsor CLI
+
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+type Mocks struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	Shell         *shell.MockShell
+	Shims         *Shims
 }
 
-func setupSafeBaseServiceMocks(optionalInjector ...di.Injector) *MockBaseServiceComponents {
+type SetupOptions struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	ConfigStr     string
+}
+
+func setupShims(t *testing.T) *Shims {
+	t.Helper()
+	shims := NewShims()
+
+	shims.Getwd = func() (string, error) {
+		return "/tmp", nil
+	}
+	shims.Glob = func(pattern string) ([]string, error) {
+		return []string{}, nil
+	}
+	shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
+		return nil
+	}
+	shims.Stat = func(name string) (os.FileInfo, error) {
+		return nil, nil
+	}
+	shims.Mkdir = func(path string, perm os.FileMode) error {
+		return nil
+	}
+	shims.MkdirAll = func(path string, perm os.FileMode) error {
+		return nil
+	}
+	shims.Rename = func(oldpath, newpath string) error {
+		return nil
+	}
+	shims.YamlMarshal = func(in interface{}) ([]byte, error) {
+		return []byte{}, nil
+	}
+	shims.YamlUnmarshal = func(in []byte, out interface{}) error {
+		return nil
+	}
+	shims.JsonUnmarshal = func(data []byte, v interface{}) error {
+		return nil
+	}
+	shims.UserHomeDir = func() (string, error) {
+		return "/home/test", nil
+	}
+
+	return shims
+}
+
+func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
+
+	// Store original directory and create temp dir
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	// Set project root environment variable
+	t.Setenv("WINDSOR_PROJECT_ROOT", tmpDir)
+
+	// Register cleanup to restore original state
+	t.Cleanup(func() {
+		os.Unsetenv("WINDSOR_PROJECT_ROOT")
+		if err := os.Chdir(origDir); err != nil {
+			t.Logf("Warning: Failed to change back to original directory: %v", err)
+		}
+	})
+
+	// Create injector if not provided
 	var injector di.Injector
-	if len(optionalInjector) > 0 {
-		injector = optionalInjector[0]
+	if len(opts) > 0 && opts[0].Injector != nil {
+		injector = opts[0].Injector
 	} else {
-		injector = di.NewMockInjector()
+		injector = di.NewInjector()
 	}
 
+	// Create and register mock shell first
 	mockShell := shell.NewMockShell(injector)
-	mockConfigHandler := config.NewMockConfigHandler()
-
-	// Register mock instances in the injector
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return tmpDir, nil
+	}
 	injector.Register("shell", mockShell)
-	injector.Register("configHandler", mockConfigHandler)
 
-	return &MockBaseServiceComponents{
-		Injector:          injector,
-		MockShell:         mockShell,
-		MockConfigHandler: mockConfigHandler,
+	// Create config handler if not provided
+	var configHandler config.ConfigHandler
+	if len(opts) > 0 && opts[0].ConfigHandler != nil {
+		configHandler = opts[0].ConfigHandler
+	} else {
+		configHandler = config.NewYamlConfigHandler(injector)
+	}
+	injector.Register("configHandler", configHandler)
+
+	// Initialize config handler
+	if err := configHandler.Initialize(); err != nil {
+		t.Fatalf("Failed to initialize config handler: %v", err)
+	}
+
+	configHandler.SetContext("mock-context")
+
+	// Load config
+	configYAML := `
+apiVersion: v1alpha1
+contexts:
+  mock-context:
+    dns:
+      domain: test
+      enabled: true
+      records:
+        - 127.0.0.1 test
+        - 192.168.1.1 test
+    docker:
+      enabled: true
+      registries:
+        registry:
+          remote: registry.test
+          local: registry.test
+`
+	if err := configHandler.LoadConfigString(configYAML); err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Load optional config if provided
+	if len(opts) > 0 && opts[0].ConfigStr != "" {
+		if err := configHandler.LoadConfigString(opts[0].ConfigStr); err != nil {
+			t.Fatalf("Failed to load config string: %v", err)
+		}
+	}
+
+	return &Mocks{
+		Injector:      injector,
+		ConfigHandler: configHandler,
+		Shell:         mockShell,
+		Shims:         setupShims(t),
 	}
 }
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
 func TestBaseService_Initialize(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a set of mock components
-		mocks := setupSafeBaseServiceMocks()
+	setup := func(t *testing.T) (*BaseService, *Mocks) {
+		mocks := setupMocks(t)
+		service := NewBaseService(mocks.Injector)
+		return service, mocks
+	}
 
-		// When: a new BaseService is created and initialized
-		service := &BaseService{injector: mocks.Injector}
+	t.Run("Success", func(t *testing.T) {
+		// Given a set of mock components
+		service, _ := setup(t)
+
+		// When a new BaseService is created and initialized
 		err := service.Initialize()
 
-		// Then: the initialization should succeed without errors
+		// Then the initialization should succeed without errors
 		if err != nil {
 			t.Fatalf("expected no error during initialization, got %v", err)
 		}
 
-		// And: the resolved dependencies should be set correctly
+		// And the resolved dependencies should be set correctly
 		if service.configHandler == nil {
 			t.Fatalf("expected configHandler to be set, got nil")
 		}
@@ -60,17 +198,16 @@ func TestBaseService_Initialize(t *testing.T) {
 	})
 
 	t.Run("ErrorResolvingShell", func(t *testing.T) {
-		// Given: a set of mock components
-		mocks := setupSafeBaseServiceMocks()
+		// Given a set of mock components
+		service, mocks := setup(t)
 
-		// And: the injector is set to return nil for the shell dependency
+		// And the injector is set to return nil for the shell dependency
 		mocks.Injector.Register("shell", nil)
 
-		// When: a new BaseService is created and initialized
-		service := &BaseService{injector: mocks.Injector}
+		// When a new BaseService is created and initialized
 		err := service.Initialize()
 
-		// Then: the initialization should fail with an error
+		// Then the initialization should fail with an error
 		if err == nil {
 			t.Fatalf("expected an error during initialization, got nil")
 		}
@@ -78,14 +215,22 @@ func TestBaseService_Initialize(t *testing.T) {
 }
 
 func TestBaseService_WriteConfig(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a new BaseService
-		service := &BaseService{}
+	setup := func(t *testing.T) (*BaseService, *Mocks) {
+		mocks := setupMocks(t)
+		service := NewBaseService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		return service, mocks
+	}
 
-		// When: WriteConfig is called
+	t.Run("Success", func(t *testing.T) {
+		// Given a new BaseService
+		service, _ := setup(t)
+
+		// When WriteConfig is called
 		err := service.WriteConfig()
 
-		// Then: the WriteConfig should succeed without errors
+		// Then the WriteConfig should succeed without errors
 		if err != nil {
 			t.Fatalf("expected no error during WriteConfig, got %v", err)
 		}
@@ -93,19 +238,27 @@ func TestBaseService_WriteConfig(t *testing.T) {
 }
 
 func TestBaseService_SetAddress(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given: a new BaseService
-		service := &BaseService{}
+	setup := func(t *testing.T) (*BaseService, *Mocks) {
+		mocks := setupMocks(t)
+		service := NewBaseService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		return service, mocks
+	}
 
-		// When: SetAddress is called with a valid IPv4 address
+	t.Run("Success", func(t *testing.T) {
+		// Given a new BaseService
+		service, _ := setup(t)
+
+		// When SetAddress is called with a valid IPv4 address
 		err := service.SetAddress("192.168.1.1")
 
-		// Then: the SetAddress should succeed without errors
+		// Then the SetAddress should succeed without errors
 		if err != nil {
 			t.Fatalf("expected no error during SetAddress, got %v", err)
 		}
 
-		// And: the address should be set correctly
+		// And the address should be set correctly
 		expectedAddress := "192.168.1.1"
 		if service.GetAddress() != expectedAddress {
 			t.Fatalf("expected address '%s', got %v", expectedAddress, service.GetAddress())
@@ -113,18 +266,18 @@ func TestBaseService_SetAddress(t *testing.T) {
 	})
 
 	t.Run("InvalidAddress", func(t *testing.T) {
-		// Given: a new BaseService
-		service := &BaseService{}
+		// Given a new BaseService
+		service, _ := setup(t)
 
-		// When: SetAddress is called with an invalid IPv4 address
+		// When SetAddress is called with an invalid IPv4 address
 		err := service.SetAddress("invalid_address")
 
-		// Then: the SetAddress should fail with an error
+		// Then the SetAddress should fail with an error
 		if err == nil {
 			t.Fatalf("expected an error during SetAddress, got nil")
 		}
 
-		// And: the error message should be as expected
+		// And the error message should be as expected
 		expectedErrorMessage := "invalid IPv4 address"
 		if err.Error() != expectedErrorMessage {
 			t.Fatalf("expected error message '%s', got %v", expectedErrorMessage, err)
@@ -133,15 +286,23 @@ func TestBaseService_SetAddress(t *testing.T) {
 }
 
 func TestBaseService_GetAddress(t *testing.T) {
+	setup := func(t *testing.T) (*BaseService, *Mocks) {
+		mocks := setupMocks(t)
+		service := NewBaseService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		return service, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
-		// Given: a new BaseService
-		service := &BaseService{}
+		// Given a new BaseService
+		service, _ := setup(t)
 		service.SetAddress("192.168.1.1")
 
-		// When: GetAddress is called
+		// When GetAddress is called
 		address := service.GetAddress()
 
-		// Then: the address should be as expected
+		// Then the address should be as expected
 		expectedAddress := "192.168.1.1"
 		if address != expectedAddress {
 			t.Fatalf("expected address '%s', got %v", expectedAddress, address)
@@ -150,15 +311,23 @@ func TestBaseService_GetAddress(t *testing.T) {
 }
 
 func TestBaseService_GetName(t *testing.T) {
+	setup := func(t *testing.T) (*BaseService, *Mocks) {
+		mocks := setupMocks(t)
+		service := NewBaseService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		return service, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
-		// Given: a new BaseService
-		service := &BaseService{}
+		// Given a new BaseService
+		service, _ := setup(t)
 		service.SetName("TestService")
 
-		// When: GetName is called
+		// When GetName is called
 		name := service.GetName()
 
-		// Then: the name should be as expected
+		// Then the name should be as expected
 		expectedName := "TestService"
 		if name != expectedName {
 			t.Fatalf("expected name '%s', got %v", expectedName, name)
@@ -167,49 +336,39 @@ func TestBaseService_GetName(t *testing.T) {
 }
 
 func TestBaseService_GetHostname(t *testing.T) {
+	setup := func(t *testing.T) (*BaseService, *Mocks) {
+		mocks := setupMocks(t)
+		service := NewBaseService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		return service, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
-		// Setup mock components
-		mockConfig := config.NewMockConfigHandler()
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.domain" {
-				return "example.com"
-			}
-			return ""
-		}
+		// Given a new BaseService
+		service, _ := setup(t)
+		service.SetName("test-service")
 
-		// Initialize service
-		service := &BaseService{
-			name:          "test-service",
-			configHandler: mockConfig,
-		}
-
-		// Get hostname
+		// When GetHostname is called
 		hostname := service.GetHostname()
 
-		// Verify hostname
-		expectedHostname := "test-service.example.com"
+		// Then the hostname should be correctly formatted
+		expectedHostname := "test-service.test"
 		if hostname != expectedHostname {
 			t.Errorf("Expected hostname %q, got %q", expectedHostname, hostname)
 		}
 	})
 
 	t.Run("DefaultTLD", func(t *testing.T) {
-		// Setup mock components
-		mockConfig := config.NewMockConfigHandler()
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			return defaultValue[0]
-		}
+		// Given a new BaseService
+		service, _ := setup(t)
 
-		// Initialize service
-		service := &BaseService{
-			name:          "test-service",
-			configHandler: mockConfig,
-		}
+		service.SetName("test-service")
 
-		// Get hostname
+		// When GetHostname is called
 		hostname := service.GetHostname()
 
-		// Verify hostname uses default TLD
+		// Then the hostname should use default TLD
 		expectedHostname := "test-service.test"
 		if hostname != expectedHostname {
 			t.Errorf("Expected hostname %q, got %q", expectedHostname, hostname)
@@ -218,57 +377,41 @@ func TestBaseService_GetHostname(t *testing.T) {
 }
 
 func TestBaseService_IsLocalhostMode(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeBaseServiceMocks()
-		service := &BaseService{
-			injector: mocks.Injector,
-		}
+	setup := func(t *testing.T) (*BaseService, *Mocks) {
+		mocks := setupMocks(t)
+		service := NewBaseService(mocks.Injector)
+		service.shims = mocks.Shims
 		service.Initialize()
+		return service, mocks
+	}
 
-		// Configure mock behavior
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "docker-desktop"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
+	t.Run("Success", func(t *testing.T) {
+		// Given mock components
+		service, mocks := setup(t)
 
-		// When: isLocalhostMode is called
+		// And mock behavior for docker-desktop driver
+		mocks.ConfigHandler.SetContextValue("vm.driver", "docker-desktop")
+
+		// When isLocalhostMode is called
 		isLocal := service.isLocalhostMode()
 
-		// Then: the result should be true for docker-desktop
+		// Then the result should be true for docker-desktop
 		if !isLocal {
 			t.Fatal("expected isLocalhostMode to be true for docker-desktop driver")
 		}
 	})
 
 	t.Run("NotDockerDesktop", func(t *testing.T) {
-		// Setup mock components
-		mocks := setupSafeBaseServiceMocks()
-		service := &BaseService{
-			injector: mocks.Injector,
-		}
-		service.Initialize()
+		// Given mock components
+		service, mocks := setup(t)
 
-		// Configure mock behavior
-		mocks.MockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
-				return "lima"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
+		// And mock behavior for non-docker-desktop driver
+		mocks.ConfigHandler.SetContextValue("vm.driver", "other-driver")
 
-		// When: isLocalhostMode is called
+		// When isLocalhostMode is called
 		isLocal := service.isLocalhostMode()
 
-		// Then: the result should be false for non-docker-desktop driver
+		// Then the result should be false for non-docker-desktop driver
 		if isLocal {
 			t.Fatal("expected isLocalhostMode to be false for non-docker-desktop driver")
 		}
@@ -276,13 +419,24 @@ func TestBaseService_IsLocalhostMode(t *testing.T) {
 }
 
 func TestBaseService_SupportsWildcard(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Initialize service
-		service := &BaseService{}
+	setup := func(t *testing.T) (*BaseService, *Mocks) {
+		mocks := setupMocks(t)
+		service := NewBaseService(mocks.Injector)
+		service.shims = mocks.Shims
+		service.Initialize()
+		return service, mocks
+	}
 
-		// Verify wildcard support is false by default
-		if service.SupportsWildcard() {
-			t.Error("Expected SupportsWildcard to return false")
+	t.Run("DefaultBehavior", func(t *testing.T) {
+		// Given a new BaseService
+		service, _ := setup(t)
+
+		// When SupportsWildcard is called
+		supports := service.SupportsWildcard()
+
+		// Then the result should be false by default
+		if supports {
+			t.Fatal("expected SupportsWildcard to be false by default")
 		}
 	})
 }

@@ -20,6 +20,11 @@ func TestVersionCommand(t *testing.T) {
 		// Create a mock controller
 		injector := di.NewInjector()
 		mockController := ctrl.NewMockController(injector)
+		mockController.InitializeFunc = func() error { return nil }
+		mockController.CreateCommonComponentsFunc = func() error { return nil }
+		if err := mockController.Initialize(); err != nil {
+			t.Fatalf("Failed to initialize controller: %v", err)
+		}
 
 		// When: the version command is executed
 		output := captureStdout(func() {

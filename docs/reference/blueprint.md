@@ -115,7 +115,7 @@ terraform:
 |------------|----------------------------------|--------------------------------------------------|
 | `source`   | `string`                         | Source of the Terraform module. Must be included in the list of sources. |
 | `path`     | `string`                         | Path of the Terraform module relative to the `terraform/` folder.                    |
-| `values`   | `map[string]interface{}`         | Configuration values for the module.             |
+| `values`   | `map[string]any`         | Configuration values for the module.             |
 | `variables`| `map[string]TerraformVariable`   | Input variables for the module.                  |
 
 ### Kustomization

@@ -8,7 +8,6 @@ import (
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
 	InitializeFunc         func() error
-	SetSecretsProviderFunc func(provider secrets.SecretsProvider)
 	LoadConfigFunc         func(path string) error
 	LoadConfigStringFunc   func(content string) error
 	IsLoadedFunc           func() bool
@@ -17,22 +16,31 @@ type MockConfigHandler struct {
 	GetBoolFunc            func(key string, defaultValue ...bool) bool
 	GetStringSliceFunc     func(key string, defaultValue ...[]string) []string
 	GetStringMapFunc       func(key string, defaultValue ...map[string]string) map[string]string
-	SetFunc                func(key string, value interface{}) error
-	SetContextValueFunc    func(key string, value interface{}) error
+	SetFunc                func(key string, value any) error
+	SetContextValueFunc    func(key string, value any) error
 	SaveConfigFunc         func(path string) error
-	GetFunc                func(key string) interface{}
+	GetFunc                func(key string) any
 	SetDefaultFunc         func(context v1alpha1.Context) error
 	GetConfigFunc          func() *v1alpha1.Context
 	GetContextFunc         func() string
 	SetContextFunc         func(context string) error
 	GetConfigRootFunc      func() (string, error)
 	CleanFunc              func() error
+	SetSecretsProviderFunc func(provider secrets.SecretsProvider)
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewMockConfigHandler is a constructor for MockConfigHandler
 func NewMockConfigHandler() *MockConfigHandler {
 	return &MockConfigHandler{}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize calls the mock InitializeFunc if set, otherwise returns nil
 func (m *MockConfigHandler) Initialize() error {
@@ -40,13 +48,6 @@ func (m *MockConfigHandler) Initialize() error {
 		return m.InitializeFunc()
 	}
 	return nil
-}
-
-// SetSecretsProvider calls the mock SetSecretsProviderFunc if set, otherwise does nothing
-func (m *MockConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {
-	if m.SetSecretsProviderFunc != nil {
-		m.SetSecretsProviderFunc(provider)
-	}
 }
 
 // LoadConfig calls the mock LoadConfigFunc if set, otherwise returns nil
@@ -129,7 +130,7 @@ func (m *MockConfigHandler) GetStringMap(key string, defaultValue ...map[string]
 }
 
 // Set calls the mock SetFunc if set, otherwise returns nil
-func (m *MockConfigHandler) Set(key string, value interface{}) error {
+func (m *MockConfigHandler) Set(key string, value any) error {
 	if m.SetFunc != nil {
 		return m.SetFunc(key, value)
 	}
@@ -137,7 +138,7 @@ func (m *MockConfigHandler) Set(key string, value interface{}) error {
 }
 
 // SetContextValue calls the mock SetContextValueFunc if set, otherwise returns nil
-func (m *MockConfigHandler) SetContextValue(key string, value interface{}) error {
+func (m *MockConfigHandler) SetContextValue(key string, value any) error {
 	if m.SetContextValueFunc != nil {
 		return m.SetContextValueFunc(key, value)
 	}
@@ -145,7 +146,7 @@ func (m *MockConfigHandler) SetContextValue(key string, value interface{}) error
 }
 
 // Get calls the mock GetFunc if set, otherwise returns a reasonable default value
-func (m *MockConfigHandler) Get(key string) interface{} {
+func (m *MockConfigHandler) Get(key string) any {
 	if m.GetFunc != nil {
 		return m.GetFunc(key)
 	}
@@ -206,6 +207,13 @@ func (m *MockConfigHandler) Clean() error {
 		return m.CleanFunc()
 	}
 	return nil
+}
+
+// SetSecretsProvider calls the mock SetSecretsProviderFunc if set, otherwise does nothing
+func (m *MockConfigHandler) SetSecretsProvider(provider secrets.SecretsProvider) {
+	if m.SetSecretsProviderFunc != nil {
+		m.SetSecretsProviderFunc(provider)
+	}
 }
 
 // Ensure MockConfigHandler implements ConfigHandler

@@ -1,3 +1,8 @@
+// The OmniEnvPrinter is a specialized component that manages Omni environment configuration.
+// It provides Omni-specific environment variable management and configuration,
+// The OmniEnvPrinter handles Omni configuration settings and environment setup,
+// ensuring proper Omni CLI integration and environment setup for operations.
+
 package env
 
 import (
@@ -7,19 +12,29 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// OmniEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
+// =============================================================================
+// Types
+// =============================================================================
+
+// OmniEnvPrinter is a struct that implements Omni environment configuration
 type OmniEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewOmniEnv initializes a new omniEnv instance using the provided dependency injector.
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewOmniEnvPrinter creates a new OmniEnvPrinter instance
 func NewOmniEnvPrinter(injector di.Injector) *OmniEnvPrinter {
 	return &OmniEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // GetEnvVars retrieves the environment variables for the Omni environment.
 func (e *OmniEnvPrinter) GetEnvVars() (map[string]string, error) {

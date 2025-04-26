@@ -5,7 +5,7 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
-// MockBlueprintHandler is a mock implementation of the BlueprintHandler interface for testing purposes
+// MockBlueprintHandler is a mock implementation of BlueprintHandler interface for testing
 type MockBlueprintHandler struct {
 	InitializeFunc             func() error
 	LoadConfigFunc             func(path ...string) error
@@ -19,12 +19,22 @@ type MockBlueprintHandler struct {
 	SetKustomizationsFunc      func(kustomizations []blueprintv1alpha1.Kustomization) error
 	WriteConfigFunc            func(path ...string) error
 	InstallFunc                func() error
+	GetRepositoryFunc          func() blueprintv1alpha1.Repository
+	SetRepositoryFunc          func(repository blueprintv1alpha1.Repository) error
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewMockBlueprintHandler creates a new instance of MockBlueprintHandler
 func NewMockBlueprintHandler(injector di.Injector) *MockBlueprintHandler {
 	return &MockBlueprintHandler{}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize initializes the blueprint handler
 func (m *MockBlueprintHandler) Initialize() error {
@@ -42,7 +52,8 @@ func (m *MockBlueprintHandler) LoadConfig(path ...string) error {
 	return nil
 }
 
-// GetMetadata calls the mock GetMetadataFunc if set, otherwise returns a reasonable default MetadataV1Alpha1
+// GetMetadata calls the mock GetMetadataFunc if set, otherwise returns a reasonable default
+// MetadataV1Alpha1
 func (m *MockBlueprintHandler) GetMetadata() blueprintv1alpha1.Metadata {
 	if m.GetMetadataFunc != nil {
 		return m.GetMetadataFunc()
@@ -50,7 +61,8 @@ func (m *MockBlueprintHandler) GetMetadata() blueprintv1alpha1.Metadata {
 	return blueprintv1alpha1.Metadata{}
 }
 
-// GetSources calls the mock GetSourcesFunc if set, otherwise returns a reasonable default slice of SourceV1Alpha1
+// GetSources calls the mock GetSourcesFunc if set, otherwise returns a reasonable default
+// slice of SourceV1Alpha1
 func (m *MockBlueprintHandler) GetSources() []blueprintv1alpha1.Source {
 	if m.GetSourcesFunc != nil {
 		return m.GetSourcesFunc()
@@ -58,7 +70,8 @@ func (m *MockBlueprintHandler) GetSources() []blueprintv1alpha1.Source {
 	return []blueprintv1alpha1.Source{}
 }
 
-// GetTerraformComponents calls the mock GetTerraformComponentsFunc if set, otherwise returns a reasonable default slice of TerraformComponentV1Alpha1
+// GetTerraformComponents calls the mock GetTerraformComponentsFunc if set, otherwise returns a
+// reasonable default slice of TerraformComponentV1Alpha1
 func (m *MockBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.TerraformComponent {
 	if m.GetTerraformComponentsFunc != nil {
 		return m.GetTerraformComponentsFunc()
@@ -66,7 +79,8 @@ func (m *MockBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	return []blueprintv1alpha1.TerraformComponent{}
 }
 
-// GetKustomizations calls the mock GetKustomizationsFunc if set, otherwise returns a reasonable default slice of kustomizev1.Kustomization
+// GetKustomizations calls the mock GetKustomizationsFunc if set, otherwise returns a reasonable
+// default slice of kustomizev1.Kustomization
 func (m *MockBlueprintHandler) GetKustomizations() []blueprintv1alpha1.Kustomization {
 	if m.GetKustomizationsFunc != nil {
 		return m.GetKustomizationsFunc()
@@ -118,6 +132,22 @@ func (m *MockBlueprintHandler) WriteConfig(path ...string) error {
 func (m *MockBlueprintHandler) Install() error {
 	if m.InstallFunc != nil {
 		return m.InstallFunc()
+	}
+	return nil
+}
+
+// GetRepository calls the mock GetRepositoryFunc if set, otherwise returns empty Repository
+func (m *MockBlueprintHandler) GetRepository() blueprintv1alpha1.Repository {
+	if m.GetRepositoryFunc != nil {
+		return m.GetRepositoryFunc()
+	}
+	return blueprintv1alpha1.Repository{}
+}
+
+// SetRepository calls the mock SetRepositoryFunc if set, otherwise returns nil
+func (m *MockBlueprintHandler) SetRepository(repository blueprintv1alpha1.Repository) error {
+	if m.SetRepositoryFunc != nil {
+		return m.SetRepositoryFunc(repository)
 	}
 	return nil
 }

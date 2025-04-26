@@ -3,7 +3,7 @@ module github.com/windsorcli/cli
 go 1.23.4
 
 require (
-	github.com/1password/onepassword-sdk-go v0.2.1
+	github.com/1password/onepassword-sdk-go v0.3.0
 	github.com/abiosoft/colima v0.8.1
 	github.com/aws/smithy-go v1.22.3
 	github.com/briandowns/spinner v1.23.2
@@ -77,7 +77,7 @@ require (
 	github.com/cloudflare/circl v1.6.1 // indirect
 	github.com/cncf/xds/go v0.0.0-20250326154945-ae57f3c0d45f // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
-	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
+	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
@@ -153,7 +153,6 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/errs v1.4.0 // indirect
-	github.com/zeebo/errs/v2 v2.0.5 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.35.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.60.0 // indirect
@@ -174,9 +173,9 @@ require (
 	golang.org/x/time v0.11.0 // indirect
 	golang.org/x/tools v0.32.0 // indirect
 	google.golang.org/api v0.230.0 // indirect
-	google.golang.org/genproto v0.0.0-20250422160041-2d3770c4ea7f // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250422160041-2d3770c4ea7f // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250422160041-2d3770c4ea7f // indirect
+	google.golang.org/genproto v0.0.0-20250425173222-7b384671a197 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250425173222-7b384671a197 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250425173222-7b384671a197 // indirect
 	google.golang.org/grpc v1.72.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
@@ -190,5 +189,5 @@ require (
 	sigs.k8s.io/controller-runtime v0.20.4 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
-	sigs.k8s.io/structured-merge-diff/v4 v4.7.0 // indirect
+	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
 )

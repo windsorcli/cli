@@ -81,15 +81,56 @@ func setupSafeRootMocks(optionalInjector ...di.Injector) *MockObjects {
 
 	mockController := ctrl.NewMockController(injector)
 
-	mockShell := &shell.MockShell{}
-	mockEnvPrinter := &env.MockEnvPrinter{}
+	// Set up controller mock functions
+	mockController.InitializeFunc = func() error { return nil }
+	mockController.CreateCommonComponentsFunc = func() error { return nil }
+	mockController.InitializeComponentsFunc = func() error { return nil }
+	mockController.CreateProjectComponentsFunc = func() error { return nil }
+	mockController.CreateServiceComponentsFunc = func() error { return nil }
+	mockController.CreateVirtualizationComponentsFunc = func() error { return nil }
+	mockController.CreateSecretsProvidersFunc = func() error { return nil }
+
+	// Initialize the controller
+	if err := mockController.Initialize(); err != nil {
+		panic(fmt.Sprintf("Failed to initialize controller: %v", err))
+	}
+
+	// Setup mock shell
+	mockShell := shell.NewMockShell()
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return "/mock/project/root", nil
+	}
+	mockShell.CheckTrustedDirectoryFunc = func() error {
+		return nil
+	}
+	mockController.ResolveShellFunc = func() shell.Shell {
+		return mockShell
+	}
+	injector.Register("shell", mockShell)
+
+	// Setup mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockSecretsProvider := &secrets.MockSecretsProvider{}
-
+	mockConfigHandler.IsLoadedFunc = func() bool {
+		return true
+	}
+	mockConfigHandler.GetContextFunc = func() string {
+		return "test-context"
+	}
+	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+		return mockConfigHandler
+	}
 	injector.Register("configHandler", mockConfigHandler)
-	injector.Register("secretsProvider", mockSecretsProvider)
 
-	// No cleanup function is returned
+	// Setup mock env printer
+	mockEnvPrinter := env.NewMockEnvPrinter()
+	injector.Register("envPrinter", mockEnvPrinter)
+
+	// Setup mock secrets provider
+	mockSecretsProvider := secrets.NewMockSecretsProvider(injector)
+	mockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+		return []secrets.SecretsProvider{mockSecretsProvider}
+	}
+	injector.Register("secretsProvider", mockSecretsProvider)
 
 	return &MockObjects{
 		Controller:      mockController,

@@ -11,20 +11,39 @@ import (
 	"github.com/windsorcli/cli/pkg/ssh"
 )
 
+// The ColimaNetworkManager is a specialized network manager for Colima-based environments.
+// It provides Colima-specific network configuration including SSH setup, iptables rules,
+// The ColimaNetworkManager extends the base network manager with Colima-specific functionality,
+// handling guest VM networking, host-guest communication, and Docker bridge integration.
+
+// =============================================================================
+// Types
+// =============================================================================
+
 // colimaNetworkManager is a concrete implementation of NetworkManager
 type ColimaNetworkManager struct {
 	BaseNetworkManager
+	networkInterfaceProvider NetworkInterfaceProvider
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewColimaNetworkManager creates a new ColimaNetworkManager
 func NewColimaNetworkManager(injector di.Injector) *ColimaNetworkManager {
-	nm := &ColimaNetworkManager{
-		BaseNetworkManager: BaseNetworkManager{
-			injector: injector,
-		},
+	manager := &ColimaNetworkManager{
+		BaseNetworkManager: *NewBaseNetworkManager(injector),
 	}
-	return nm
+	if provider, ok := injector.Resolve("networkInterfaceProvider").(NetworkInterfaceProvider); ok {
+		manager.networkInterfaceProvider = provider
+	}
+	return manager
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize sets up the ColimaNetworkManager by resolving dependencies for
 // sshClient, shell, and secureShell from the injector.
@@ -33,19 +52,6 @@ func (n *ColimaNetworkManager) Initialize() error {
 		return err
 	}
 
-	if err := n.resolveDependencies(); err != nil {
-		return err
-	}
-
-	// Set docker.NetworkCIDR to the default value if it's not set
-	if n.configHandler.GetString("network.cidr_block") == "" {
-		return n.configHandler.SetContextValue("network.cidr_block", constants.DEFAULT_NETWORK_CIDR)
-	}
-
-	return nil
-}
-
-func (n *ColimaNetworkManager) resolveDependencies() error {
 	sshClient, ok := n.injector.Resolve("sshClient").(ssh.Client)
 	if !ok {
 		return fmt.Errorf("resolved ssh client instance is not of type ssh.Client")
@@ -63,6 +69,11 @@ func (n *ColimaNetworkManager) resolveDependencies() error {
 		return fmt.Errorf("failed to resolve network interface provider")
 	}
 	n.networkInterfaceProvider = networkInterfaceProvider
+
+	// Set docker.NetworkCIDR to the default value if it's not set
+	if n.configHandler.GetString("network.cidr_block") == "" {
+		return n.configHandler.SetContextValue("network.cidr_block", constants.DEFAULT_NETWORK_CIDR)
+	}
 
 	return nil
 }
@@ -145,8 +156,9 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 	return nil
 }
 
-// Ensure ColimaNetworkManager implements NetworkManager
-var _ NetworkManager = (*ColimaNetworkManager)(nil)
+// =============================================================================
+// Private Methods
+// =============================================================================
 
 // getHostIP retrieves the host IP address that shares the same subnet as the guest IP address.
 // It first obtains and validates the guest IP from the configuration. Then, it iterates over the network interfaces
@@ -190,3 +202,6 @@ func (n *ColimaNetworkManager) getHostIP() (string, error) {
 
 	return "", fmt.Errorf("failed to find host IP in the same subnet as guest IP")
 }
+
+// Ensure ColimaNetworkManager implements NetworkManager
+var _ NetworkManager = (*ColimaNetworkManager)(nil)

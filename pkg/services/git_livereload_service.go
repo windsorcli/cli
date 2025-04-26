@@ -9,20 +9,34 @@ import (
 	"github.com/windsorcli/cli/pkg/di"
 )
 
+// The GitLivereloadService is a service component that manages Git repository synchronization
+// It provides live reload capabilities for Git repositories with rsync integration
+// The GitLivereloadService enables automatic synchronization of Git repositories
+// with configurable rsync options and webhook notifications for repository changes
+
+// =============================================================================
+// Types
+// =============================================================================
+
 // GitLivereloadService is a service struct that provides various utility functions
 type GitLivereloadService struct {
 	BaseService
 }
 
+// =============================================================================
+// Constructor
+// =============================================================================
+
 // NewGitLivereloadService is a constructor for GitLivereloadService
 func NewGitLivereloadService(injector di.Injector) *GitLivereloadService {
 	return &GitLivereloadService{
-		BaseService: BaseService{
-			injector: injector,
-			name:     "git",
-		},
+		BaseService: *NewBaseService(injector),
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // GetComposeConfig returns the top-level compose configuration including a list of container data for docker-compose.
 func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {

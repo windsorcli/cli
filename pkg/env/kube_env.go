@@ -1,3 +1,8 @@
+// The KubeEnvPrinter is a specialized component that manages Kubernetes environment configuration.
+// It provides Kubernetes-specific environment variable management and configuration,
+// The KubeEnvPrinter handles kubeconfig, context, and persistent volume configuration settings,
+// ensuring proper kubectl integration and environment setup for Kubernetes operations.
+
 package env
 
 import (
@@ -8,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/di"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,19 +21,29 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// KubeEnvPrinter is a struct that simulates a Kubernetes environment for testing purposes.
+// =============================================================================
+// Types
+// =============================================================================
+
+// KubeEnvPrinter is a struct that implements Kubernetes environment configuration
 type KubeEnvPrinter struct {
 	BaseEnvPrinter
 }
 
-// NewKubeEnv initializes a new kubeEnv instance using the provided dependency injector.
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewKubeEnvPrinter creates a new KubeEnvPrinter instance
 func NewKubeEnvPrinter(injector di.Injector) *KubeEnvPrinter {
 	return &KubeEnvPrinter{
-		BaseEnvPrinter: BaseEnvPrinter{
-			injector: injector,
-		},
+		BaseEnvPrinter: *NewBaseEnvPrinter(injector),
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // GetEnvVars constructs a map of Kubernetes environment variables by setting
 // KUBECONFIG and KUBE_CONFIG_PATH based on the configuration root directory.
@@ -48,22 +64,26 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 	volumeDir := filepath.Join(projectRoot, ".volumes")
 
-	if _, err := stat(volumeDir); os.IsNotExist(err) {
-		return envVars, nil
+	_, err = e.shims.Stat(volumeDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return envVars, nil
+		}
+		return nil, fmt.Errorf("error checking volume directory: %w", err)
 	}
 
-	volumeDirs, err := readDir(volumeDir)
+	volumeDirs, err := e.shims.ReadDir(volumeDir)
 	if err != nil {
 		return nil, fmt.Errorf("error reading volume directories: %w", err)
 	}
 
 	existingEnvVars := make(map[string]string)
-	for _, env := range os.Environ() {
+	for _, env := range e.shims.Environ() {
 		if strings.HasPrefix(env, "PV_") {
 			parts := strings.SplitN(env, "=", 2)
 			if len(parts) == 2 {
 				existingEnvVars[parts[0]] = parts[1]
-				envVars[parts[0]] = parts[1] // Include existing PV environment variables
+				envVars[parts[0]] = parts[1]
 			}
 		}
 	}
@@ -89,7 +109,10 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return envVars, nil
 	}
 
-	pvcs, _ := queryPersistentVolumeClaims(kubeConfigPath) // ignores error
+	pvcs, err := queryPersistentVolumeClaims(kubeConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("error querying persistent volume claims: %w", err)
+	}
 
 	if pvcs != nil && pvcs.Items != nil {
 		for _, dir := range volumeDirs {
@@ -122,8 +145,9 @@ func (e *KubeEnvPrinter) Print() error {
 	return e.BaseEnvPrinter.Print(envVars)
 }
 
-// Ensure kubeEnv implements the EnvPrinter interface
-var _ EnvPrinter = (*KubeEnvPrinter)(nil)
+// =============================================================================
+// Private Methods
+// =============================================================================
 
 // sanitizeEnvVar converts a string to uppercase, trims whitespace, and replaces invalid characters with underscores.
 func sanitizeEnvVar(input string) string {
@@ -146,10 +170,19 @@ var queryPersistentVolumeClaims = func(kubeConfigPath string) (*corev1.Persisten
 		return nil, err
 	}
 
-	pvcs, err := clientset.CoreV1().PersistentVolumeClaims("").List(context.TODO(), metav1.ListOptions{})
+	ctx, cancel := context.WithTimeout(context.Background(), constants.KUBERNETES_SHORT_TIMEOUT)
+	defer cancel()
+
+	pvcs, err := clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("timeout querying PVCs: %w", err)
+		}
 		return nil, err
 	}
 
 	return pvcs, nil
 }
+
+// Ensure KubeEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*KubeEnvPrinter)(nil)

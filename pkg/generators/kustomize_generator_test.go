@@ -2,198 +2,237 @@ package generators
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
 func TestNewKustomizeGenerator(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+	t.Run("NewKustomizeGenerator", func(t *testing.T) {
+		// Given a set of mocks
+		mocks := setupMocks(t)
 
 		// When a new KustomizeGenerator is created
 		generator := NewKustomizeGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize KustomizeGenerator: %v", err)
+		}
 
-		// Then the generator should be non-nil
+		// Then the KustomizeGenerator should be created correctly
 		if generator == nil {
-			t.Errorf("Expected NewKustomizeGenerator to return a non-nil value")
+			t.Fatalf("expected KustomizeGenerator to be created, got nil")
+		}
+
+		// And the KustomizeGenerator should have the correct injector
+		if generator.injector != mocks.Injector {
+			t.Errorf("expected KustomizeGenerator to have the correct injector")
 		}
 	})
 }
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestKustomizeGenerator_Write(t *testing.T) {
+	setup := func(t *testing.T) (*KustomizeGenerator, *Mocks) {
+		mocks := setupMocks(t)
+		generator := NewKustomizeGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
+		if err := generator.Initialize(); err != nil {
+			t.Fatalf("failed to initialize KustomizeGenerator: %v", err)
+		}
+		return generator, mocks
+	}
+
 	t.Run("Success", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a KustomizeGenerator with mocks
+		generator, mocks := setup(t)
 
-		// Save the original osMkdirAll, osStat, and osWriteFile functions
-		originalMkdirAll := osMkdirAll
-		originalStat := osStat
-		originalWriteFile := osWriteFile
-		defer func() {
-			osMkdirAll = originalMkdirAll
-			osStat = originalStat
-			osWriteFile = originalWriteFile
-		}()
-
-		// Mock the shell's GetProjectRoot method to return a predefined path
+		// And the project root is set
 		expectedProjectRoot := "/mock/project/root"
-		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
 			return expectedProjectRoot, nil
 		}
 
-		// Mock the osMkdirAll function to simulate directory creation
-		osMkdirAll = func(path string, perm os.FileMode) error {
-			if path != filepath.Join(expectedProjectRoot, "kustomize") {
-				t.Errorf("Unexpected path for osMkdirAll: %s", path)
+		// And the shims are configured for file operations
+		mocks.Shims.MkdirAll = func(path string, perm fs.FileMode) error {
+			expectedPath := filepath.Join(expectedProjectRoot, "kustomize")
+			if path != expectedPath {
+				t.Errorf("expected path %s, got %s", expectedPath, path)
 			}
 			return nil
 		}
 
-		// Mock the osStat function to simulate the file not existing
-		osStat = func(name string) (os.FileInfo, error) {
-			if name == filepath.Join(expectedProjectRoot, "kustomize", "kustomization.yaml") {
+		mocks.Shims.Stat = func(name string) (fs.FileInfo, error) {
+			expectedPath := filepath.Join(expectedProjectRoot, "kustomize", "kustomization.yaml")
+			if name == expectedPath {
 				return nil, os.ErrNotExist
 			}
 			return nil, nil
 		}
 
-		// Mock the osWriteFile function to simulate file writing
-		osWriteFile = func(filename string, data []byte, perm os.FileMode) error {
-			expectedFilePath := filepath.Join(expectedProjectRoot, "kustomize", "kustomization.yaml")
-			if filename != expectedFilePath {
-				t.Errorf("Unexpected filename for osWriteFile: %s", filename)
+		mocks.Shims.WriteFile = func(filename string, data []byte, perm fs.FileMode) error {
+			expectedPath := filepath.Join(expectedProjectRoot, "kustomize", "kustomization.yaml")
+			if filename != expectedPath {
+				t.Errorf("expected filename %s, got %s", expectedPath, filename)
 			}
 			expectedContent := []byte("resources: []\n")
 			if string(data) != string(expectedContent) {
-				t.Errorf("Unexpected content for osWriteFile: %s", string(data))
+				t.Errorf("expected content %s, got %s", expectedContent, string(data))
 			}
 			return nil
 		}
 
-		// When a new KustomizeGenerator is created and Write is called
-		generator := NewKustomizeGenerator(mocks.Injector)
-		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected KustomizeGenerator.Initialize to return nil, got %v", err)
-		}
+		// When Write is called
 		err := generator.Write()
 
 		// Then no error should occur
 		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+			t.Errorf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("ErrorGettingProjectRoot", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+		// Given a set of mocks
+		mocks := setupMocks(t)
 
-		// Save the original GetProjectRootFunc
-		originalGetProjectRootFunc := mocks.MockShell.GetProjectRootFunc
-		defer func() {
-			mocks.MockShell.GetProjectRootFunc = originalGetProjectRootFunc
-		}()
-
-		// Mock the shell's GetProjectRoot method to return an error
-		mocks.MockShell.GetProjectRootFunc = func() (string, error) {
-			return "", fmt.Errorf("mocked error in GetProjectRoot")
+		// And GetProjectRoot is mocked to return an error
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("mock error getting project root")
 		}
 
-		// When a new KustomizeGenerator is created and Write is called
+		// And a new KustomizeGenerator is created
 		generator := NewKustomizeGenerator(mocks.Injector)
+		generator.shims = mocks.Shims
 		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected KustomizeGenerator.Initialize to return nil, got %v", err)
+			t.Fatalf("failed to initialize KustomizeGenerator: %v", err)
 		}
+
+		// When Write is called
 		err := generator.Write()
 
-		// Then an error should occur
-		if err == nil || !strings.Contains(err.Error(), "mocked error in GetProjectRoot") {
-			t.Errorf("Expected error containing 'mocked error in GetProjectRoot', got %v", err)
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "mock error getting project root"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
 		}
 	})
 
-	t.Run("ErrorCreatingDirectory", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+	t.Run("ErrorReadingKustomization", func(t *testing.T) {
+		// Given a KustomizeGenerator with mocks
+		generator, mocks := setup(t)
 
-		// Save the original osMkdirAll function
-		originalMkdirAll := osMkdirAll
-		defer func() {
-			osMkdirAll = originalMkdirAll
-		}()
-
-		// Mock the osMkdirAll function to simulate an error when creating the directory
-		osMkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("mocked error in osMkdirAll")
+		// And MkdirAll is mocked to return an error
+		mocks.Shims.MkdirAll = func(_ string, _ fs.FileMode) error {
+			return fmt.Errorf("mock error reading kustomization.yaml")
 		}
 
-		// When a new KustomizeGenerator is created and Write is called
-		generator := NewKustomizeGenerator(mocks.Injector)
-		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected KustomizeGenerator.Initialize to return nil, got %v", err)
-		}
+		// When Write is called
 		err := generator.Write()
 
-		// Then an error should occur
-		if err == nil || !strings.Contains(err.Error(), "mocked error in osMkdirAll") {
-			t.Errorf("Expected error containing 'mocked error in osMkdirAll', got %v", err)
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "mock error reading kustomization.yaml"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
 		}
 	})
 
-	t.Run("FileAlreadyExists", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+	t.Run("KustomizationDoesNotExist", func(t *testing.T) {
+		// Given a KustomizeGenerator with mocks
+		generator, mocks := setup(t)
 
-		// Save the original osStat function
-		originalStat := osStat
-		defer func() {
-			osStat = originalStat
-		}()
+		// And Stat is mocked to simulate kustomization.yaml does not exist
+		mocks.Shims.Stat = func(_ string) (fs.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
 
-		osStat = func(name string) (os.FileInfo, error) {
+		// And WriteFile is mocked to simulate successful file creation
+		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+			return nil
+		}
+
+		// When Write is called
+		err := generator.Write()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("KustomizationExists", func(t *testing.T) {
+		// Given a KustomizeGenerator with mocks
+		generator, mocks := setup(t)
+
+		// And Stat is mocked to simulate kustomization.yaml exists
+		mocks.Shims.Stat = func(_ string) (fs.FileInfo, error) {
 			return nil, nil
 		}
 
-		// When a new KustomizeGenerator is created and Write is called
-		generator := NewKustomizeGenerator(mocks.Injector)
-		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected KustomizeGenerator.Initialize to return nil, got %v", err)
+		// And WriteFile should not be called
+		writeFileCalled := false
+		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+			writeFileCalled = true
+			return nil
 		}
+
+		// When Write is called
 		err := generator.Write()
 
-		// Then no error should occur because the file already exists
+		// Then no error should be returned
 		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// And WriteFile should not have been called
+		if writeFileCalled {
+			t.Error("expected WriteFile not to be called when file exists")
 		}
 	})
 
-	t.Run("ErrorWritingFile", func(t *testing.T) {
-		// Given a set of safe mocks
-		mocks := setupSafeMocks()
+	t.Run("ErrorWritingKustomization", func(t *testing.T) {
+		// Given a KustomizeGenerator with mocks
+		generator, mocks := setup(t)
 
-		// Save the original osWriteFile function
-		originalWriteFile := osWriteFile
-		defer func() {
-			osWriteFile = originalWriteFile
-		}()
-
-		// Mock the osWriteFile function to simulate an error when writing the file
-		osWriteFile = func(name string, data []byte, perm os.FileMode) error {
-			return fmt.Errorf("mocked error in osWriteFile")
+		// And Stat is mocked to simulate kustomization.yaml does not exist
+		mocks.Shims.Stat = func(_ string) (fs.FileInfo, error) {
+			return nil, os.ErrNotExist
 		}
 
-		// When a new KustomizeGenerator is created and Write is called
-		generator := NewKustomizeGenerator(mocks.Injector)
-		if err := generator.Initialize(); err != nil {
-			t.Errorf("Expected KustomizeGenerator.Initialize to return nil, got %v", err)
+		// And WriteFile is mocked to simulate an error during file writing
+		mocks.Shims.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+			return fmt.Errorf("mock error writing kustomization.yaml")
 		}
+
+		// When Write is called
 		err := generator.Write()
 
-		// Then an error should occur
-		if err == nil || !strings.Contains(err.Error(), "mocked error in osWriteFile") {
-			t.Errorf("Expected error containing 'mocked error in osWriteFile', got %v", err)
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected an error, got nil")
+		}
+
+		// And the error should match the expected error
+		expectedError := "mock error writing kustomization.yaml"
+		if err.Error() != expectedError {
+			t.Errorf("expected error %s, got %s", expectedError, err.Error())
 		}
 	})
 }

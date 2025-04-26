@@ -44,14 +44,25 @@ func setupSafeUpCmdMocks(optionalInjector ...di.Injector) SafeUpCmdComponents {
 	// Use the injector to create a mock controller
 	mockController = ctrl.NewMockController(injector)
 
-	// Manually override and set up components
-	mockController.CreateCommonComponentsFunc = func() error {
-		return nil
+	// Set up controller mock functions
+	mockController.InitializeFunc = func() error { return nil }
+	mockController.CreateCommonComponentsFunc = func() error { return nil }
+	mockController.InitializeComponentsFunc = func() error { return nil }
+	mockController.CreateProjectComponentsFunc = func() error { return nil }
+	mockController.CreateServiceComponentsFunc = func() error { return nil }
+	mockController.CreateVirtualizationComponentsFunc = func() error { return nil }
+	mockController.CreateEnvComponentsFunc = func() error { return nil }
+	mockController.CreateStackComponentsFunc = func() error { return nil }
+	mockController.CreateSecretsProvidersFunc = func() error { return nil }
+
+	// Initialize the controller
+	if err := mockController.Initialize(); err != nil {
+		panic(fmt.Sprintf("Failed to initialize controller: %v", err))
 	}
 
 	// Setup mock config handler
 	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+	mockConfigHandler.SetFunc = func(key string, value any) error {
 		return nil
 	}
 	mockConfigHandler.GetContextFunc = func() string {
@@ -72,27 +83,69 @@ func setupSafeUpCmdMocks(optionalInjector ...di.Injector) SafeUpCmdComponents {
 	mockConfigHandler.IsLoadedFunc = func() bool {
 		return true
 	}
+	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+		return mockConfigHandler
+	}
 	injector.Register("configHandler", mockConfigHandler)
 
 	// Setup mock shell
 	mockShell := shell.NewMockShell()
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return "/mock/project/root", nil
+	}
+	mockShell.CheckTrustedDirectoryFunc = func() error {
+		return nil
+	}
+	mockController.ResolveShellFunc = func() shell.Shell {
+		return mockShell
+	}
 	injector.Register("shell", mockShell)
 
 	// Setup mock network manager
 	mockNetworkManager := network.NewMockNetworkManager()
+	mockController.ResolveNetworkManagerFunc = func() network.NetworkManager {
+		return mockNetworkManager
+	}
 	injector.Register("networkManager", mockNetworkManager)
 
 	// Setup mock virtual machine
 	mockVirtualMachine := virt.NewMockVirt()
+	mockController.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
+		return mockVirtualMachine
+	}
 	injector.Register("virtualMachine", mockVirtualMachine)
 
 	// Setup mock container runtime
 	mockContainerRuntime := virt.NewMockVirt()
+	mockController.ResolveContainerRuntimeFunc = func() virt.ContainerRuntime {
+		return mockContainerRuntime
+	}
 	injector.Register("containerRuntime", mockContainerRuntime)
 
 	// Setup mock tools manager
 	mockToolsManager := tools.NewMockToolsManager()
 	injector.Register("toolsManager", mockToolsManager)
+
+	// Setup mock stack manager
+	mockStackManager := stack.NewMockStack(injector)
+	mockController.ResolveStackFunc = func() stack.Stack {
+		return mockStackManager
+	}
+	injector.Register("stackManager", mockStackManager)
+
+	// Setup mock blueprint handler
+	mockBlueprintHandler := bp.NewMockBlueprintHandler(injector)
+	mockController.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
+		return mockBlueprintHandler
+	}
+	injector.Register("blueprintHandler", mockBlueprintHandler)
+
+	// Setup mock secrets provider
+	mockSecretsProvider := secrets.NewMockSecretsProvider(injector)
+	mockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+		return []secrets.SecretsProvider{mockSecretsProvider}
+	}
+	injector.Register("secretsProvider", mockSecretsProvider)
 
 	return SafeUpCmdComponents{
 		Injector:         injector,

@@ -21,6 +21,10 @@ func (base *DockerConfig) Merge(overlay *DockerConfig) {
 		base.Enabled = overlay.Enabled
 	}
 
+	if overlay.RegistryURL != "" {
+		base.RegistryURL = overlay.RegistryURL
+	}
+
 	// Overwrite base.Registries entirely with overlay.Registries if defined, otherwise keep base.Registries
 	if overlay.Registries != nil {
 		base.Registries = overlay.Registries
@@ -49,8 +53,9 @@ func (c *DockerConfig) Copy() *DockerConfig {
 	}
 
 	return &DockerConfig{
-		Enabled:    enabledCopy,
-		Registries: registriesCopy,
+		Enabled:     enabledCopy,
+		RegistryURL: c.RegistryURL,
+		Registries:  registriesCopy,
 	}
 }
 

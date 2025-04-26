@@ -9,7 +9,20 @@ import (
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
+// The SecretsProvider is a core interface for secrets management
+// It provides a unified interface for retrieving and parsing secrets
+// It serves as the foundation for all secrets provider implementations
+// It enables secure access to sensitive configuration data
+
+// =============================================================================
+// Vars
+// =============================================================================
+
 var version = "dev"
+
+// =============================================================================
+// Interfaces
+// =============================================================================
 
 // SecretsProvider defines the interface for handling secrets operations
 type SecretsProvider interface {
@@ -24,10 +37,11 @@ type SecretsProvider interface {
 
 	// ParseSecrets parses a string and replaces ${{ secrets.<key> }} references with their values
 	ParseSecrets(input string) (string, error)
-
-	// isUnlocked returns true if the secrets provider is locked (not unlocked)
-	isUnlocked() bool
 }
+
+// =============================================================================
+// Types
+// =============================================================================
 
 // BaseSecretsProvider is a base implementation of the SecretsProvider interface
 type BaseSecretsProvider struct {
@@ -36,7 +50,12 @@ type BaseSecretsProvider struct {
 	unlocked bool
 	shell    shell.Shell
 	injector di.Injector
+	shims    *Shims
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewBaseSecretsProvider creates a new BaseSecretsProvider instance
 func NewBaseSecretsProvider(injector di.Injector) *BaseSecretsProvider {
@@ -44,8 +63,13 @@ func NewBaseSecretsProvider(injector di.Injector) *BaseSecretsProvider {
 		secrets:  make(map[string]string),
 		unlocked: false,
 		injector: injector,
+		shims:    NewShims(),
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // Initialize initializes the secrets provider
 func (s *BaseSecretsProvider) Initialize() error {
@@ -83,13 +107,12 @@ func (s *BaseSecretsProvider) ParseSecrets(input string) (string, error) {
 	panic("ParseSecrets must be implemented by concrete provider")
 }
 
-// isUnlocked returns true if the secrets provider is unlocked
-func (s *BaseSecretsProvider) isUnlocked() bool {
-	return s.unlocked
-}
-
 // Ensure BaseSecretsProvider implements SecretsProvider
 var _ SecretsProvider = (*BaseSecretsProvider)(nil)
+
+// =============================================================================
+// Helpers
+// =============================================================================
 
 // parseSecrets is a helper function that parses a string and replaces secret references with their values.
 // It takes a pattern to match secret references, a function to validate the keys, and a function to get the secret value.
