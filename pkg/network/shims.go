@@ -35,6 +35,15 @@ type NetworkInterfaceProvider interface {
 type RealNetworkInterfaceProvider struct{}
 
 // =============================================================================
+// Constructors
+// =============================================================================
+
+// NewNetworkInterfaceProvider creates a new real implementation of NetworkInterfaceProvider
+func NewNetworkInterfaceProvider() NetworkInterfaceProvider {
+	return &RealNetworkInterfaceProvider{}
+}
+
+// =============================================================================
 // Shims
 // =============================================================================
 

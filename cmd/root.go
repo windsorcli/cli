@@ -37,7 +37,12 @@ func preRunEInitializeCommonComponents(cmd *cobra.Command, args []string) error 
 	cmd.SetContext(cmd.Root().Context())
 
 	// Retrieve the controller from the context
-	controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+	controllerValue := cmd.Context().Value(controllerKey)
+	if controllerValue == nil {
+		return fmt.Errorf("No controller found in context")
+	}
+
+	controller := controllerValue.(ctrl.Controller)
 
 	// Initialize the controller
 	if err := controller.Initialize(); err != nil {
