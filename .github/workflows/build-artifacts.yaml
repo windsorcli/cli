@@ -18,7 +18,9 @@ jobs:
           echo "Repo Name: ${{ github.event.client_payload.repo_name }}"
           echo "Release: ${{ github.event.client_payload.release }}"
       - name: Exit with failure
-        run: exit 1
+        run: |
+          echo "Exiting with failure"
+          exit 1
 
   build-and-test:
     needs: build-artifacts
