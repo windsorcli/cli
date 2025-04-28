@@ -689,6 +689,15 @@ func (c *BaseController) createShellComponent(req Requirements) error {
 		return fmt.Errorf("required constructor NewShell is nil")
 	}
 
+	// Check if shell already exists
+	if existingShell := c.ResolveShell(); existingShell != nil {
+		// Shell already exists, just update verbosity if needed
+		if verbose, ok := req.Flags["verbose"]; ok && verbose {
+			existingShell.SetVerbosity(true)
+		}
+		return nil
+	}
+
 	shell := c.constructors.NewShell(c.injector)
 	c.injector.Register("shell", shell)
 
@@ -709,6 +718,15 @@ func (c *BaseController) createShellComponent(req Requirements) error {
 func (c *BaseController) createConfigComponent(req Requirements) error {
 	if c.constructors.NewConfigHandler == nil {
 		return fmt.Errorf("required constructor NewConfigHandler is nil")
+	}
+
+	// Check if config handler already exists
+	if existingConfigHandler := c.ResolveConfigHandler(); existingConfigHandler != nil {
+		// Config handler already exists, just check if it needs to be loaded
+		if req.ConfigLoaded && !existingConfigHandler.IsLoaded() {
+			fmt.Fprintln(os.Stderr, "Cannot execute commands. Please run 'windsor init' to set up your project first.")
+		}
+		return nil
 	}
 
 	configHandler := c.constructors.NewConfigHandler(c.injector)
@@ -771,12 +789,17 @@ func (c *BaseController) createSecretsComponents(req Requirements) error {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
 
+	// Check for SOPS secrets provider
 	secretsFilePaths := []string{"secrets.enc.yaml", "secrets.enc.yml"}
 	for _, filePath := range secretsFilePaths {
 		if _, err := osStat(filepath.Join(configRoot, filePath)); err == nil {
-			sopsSecretsProvider := c.constructors.NewSopsSecretsProvider(configRoot, c.injector)
-			c.injector.Register("sopsSecretsProvider", sopsSecretsProvider)
-			configHandler.SetSecretsProvider(sopsSecretsProvider)
+			// Check if SOPS secrets provider already exists
+			if existingProvider := c.injector.Resolve("sopsSecretsProvider"); existingProvider == nil {
+				sopsSecretsProvider := c.constructors.NewSopsSecretsProvider(configRoot, c.injector)
+				c.injector.Register("sopsSecretsProvider", sopsSecretsProvider)
+				configHandler.SetSecretsProvider(sopsSecretsProvider)
+			}
+			break // Only need to create one SOPS provider
 		}
 	}
 
@@ -786,16 +809,21 @@ func (c *BaseController) createSecretsComponents(req Requirements) error {
 
 		for key, vault := range vaults {
 			vault.ID = key
-			var opSecretsProvider secrets.SecretsProvider
+			providerName := fmt.Sprintf("op%sSecretsProvider", strings.ToUpper(key[:1])+key[1:])
 
-			if useSDK {
-				opSecretsProvider = c.constructors.NewOnePasswordSDKSecretsProvider(vault, c.injector)
-			} else {
-				opSecretsProvider = c.constructors.NewOnePasswordCLISecretsProvider(vault, c.injector)
+			// Check if OnePassword secrets provider already exists
+			if existingProvider := c.injector.Resolve(providerName); existingProvider == nil {
+				var opSecretsProvider secrets.SecretsProvider
+
+				if useSDK {
+					opSecretsProvider = c.constructors.NewOnePasswordSDKSecretsProvider(vault, c.injector)
+				} else {
+					opSecretsProvider = c.constructors.NewOnePasswordCLISecretsProvider(vault, c.injector)
+				}
+
+				c.injector.Register(providerName, opSecretsProvider)
+				configHandler.SetSecretsProvider(opSecretsProvider)
 			}
-
-			c.injector.Register(fmt.Sprintf("op%sSecretsProvider", strings.ToUpper(key[:1])+key[1:]), opSecretsProvider)
-			configHandler.SetSecretsProvider(opSecretsProvider)
 		}
 	}
 
@@ -805,6 +833,12 @@ func (c *BaseController) createSecretsComponents(req Requirements) error {
 // createToolsComponents creates and initializes project tools if required
 func (c *BaseController) createToolsComponents(req Requirements) error {
 	if !req.Tools {
+		return nil
+	}
+
+	// Check if tools manager already exists
+	if existingToolsManager := c.ResolveToolsManager(); existingToolsManager != nil {
+		// Tools manager already exists, no need to create a new one
 		return nil
 	}
 
@@ -830,15 +864,42 @@ func (c *BaseController) createGeneratorsComponents(req Requirements) error {
 		return nil
 	}
 
-	gitGenerator := c.constructors.NewGitGenerator(c.injector)
-	c.injector.Register("gitGenerator", gitGenerator)
+	// Get all existing generators
+	existingGenerators := c.ResolveAllGenerators()
+	existingGeneratorNames := make(map[string]bool)
+
+	// Create a map of existing generator names
+	for _, generator := range existingGenerators {
+		// We need to determine the name of the generator
+		// This is a bit tricky since we don't have a direct way to get the name
+		// For now, we'll check if it's registered with a specific name
+		if c.injector.Resolve("gitGenerator") == generator {
+			existingGeneratorNames["gitGenerator"] = true
+		} else if c.injector.Resolve("terraformGenerator") == generator {
+			existingGeneratorNames["terraformGenerator"] = true
+		} else if c.injector.Resolve("kustomizeGenerator") == generator {
+			existingGeneratorNames["kustomizeGenerator"] = true
+		}
+	}
+
+	// Check if git generator already exists
+	if !existingGeneratorNames["gitGenerator"] {
+		gitGenerator := c.constructors.NewGitGenerator(c.injector)
+		c.injector.Register("gitGenerator", gitGenerator)
+	}
 
 	if req.Blueprint {
-		terraformGenerator := c.constructors.NewTerraformGenerator(c.injector)
-		c.injector.Register("terraformGenerator", terraformGenerator)
+		// Check if terraform generator already exists
+		if !existingGeneratorNames["terraformGenerator"] {
+			terraformGenerator := c.constructors.NewTerraformGenerator(c.injector)
+			c.injector.Register("terraformGenerator", terraformGenerator)
+		}
 
-		kustomizeGenerator := c.constructors.NewKustomizeGenerator(c.injector)
-		c.injector.Register("kustomizeGenerator", kustomizeGenerator)
+		// Check if kustomize generator already exists
+		if !existingGeneratorNames["kustomizeGenerator"] {
+			kustomizeGenerator := c.constructors.NewKustomizeGenerator(c.injector)
+			c.injector.Register("kustomizeGenerator", kustomizeGenerator)
+		}
 	}
 
 	return nil
@@ -847,6 +908,12 @@ func (c *BaseController) createGeneratorsComponents(req Requirements) error {
 // createBlueprintComponent creates and initializes the blueprint handler if required
 func (c *BaseController) createBlueprintComponent(req Requirements) error {
 	if !req.Blueprint {
+		return nil
+	}
+
+	// Check if blueprint handler already exists
+	if existingBlueprintHandler := c.ResolveBlueprintHandler(); existingBlueprintHandler != nil {
+		// Blueprint handler already exists, no need to create a new one
 		return nil
 	}
 
@@ -878,14 +945,20 @@ func (c *BaseController) createEnvComponents(req Requirements) error {
 	}
 
 	for key, constructor := range envPrinters {
+		// Skip AWS env printer if AWS is not enabled
 		if key == "awsEnv" && !configHandler.GetBool("aws.enabled") {
 			continue
 		}
+		// Skip Docker env printer if Docker is not enabled
 		if key == "dockerEnv" && !configHandler.GetBool("docker.enabled") {
 			continue
 		}
-		envPrinter := constructor(c.injector)
-		c.injector.Register(key, envPrinter)
+
+		// Check if env printer already exists
+		if existingEnvPrinter := c.ResolveEnvPrinter(key); existingEnvPrinter == nil {
+			envPrinter := constructor(c.injector)
+			c.injector.Register(key, envPrinter)
+		}
 	}
 
 	return nil
@@ -908,32 +981,44 @@ func (c *BaseController) createServiceComponents(req Requirements) error {
 
 	dnsEnabled := configHandler.GetBool("dns.enabled")
 	if dnsEnabled {
-		dnsService := c.constructors.NewDNSService(c.injector)
-		dnsService.SetName("dns")
-		c.injector.Register("dnsService", dnsService)
+		// Check if DNS service already exists
+		if existingService := c.ResolveService("dnsService"); existingService == nil {
+			dnsService := c.constructors.NewDNSService(c.injector)
+			dnsService.SetName("dns")
+			c.injector.Register("dnsService", dnsService)
+		}
 	}
 
 	gitLivereloadEnabled := configHandler.GetBool("git.livereload.enabled")
 	if gitLivereloadEnabled {
-		gitLivereloadService := c.constructors.NewGitLivereloadService(c.injector)
-		gitLivereloadService.SetName("git")
-		c.injector.Register("gitLivereloadService", gitLivereloadService)
+		// Check if Git livereload service already exists
+		if existingService := c.ResolveService("gitLivereloadService"); existingService == nil {
+			gitLivereloadService := c.constructors.NewGitLivereloadService(c.injector)
+			gitLivereloadService.SetName("git")
+			c.injector.Register("gitLivereloadService", gitLivereloadService)
+		}
 	}
 
 	localstackEnabled := configHandler.GetBool("aws.localstack.enabled")
 	if localstackEnabled {
-		localstackService := c.constructors.NewLocalstackService(c.injector)
-		localstackService.SetName("aws")
-		c.injector.Register("localstackService", localstackService)
+		// Check if Localstack service already exists
+		if existingService := c.ResolveService("localstackService"); existingService == nil {
+			localstackService := c.constructors.NewLocalstackService(c.injector)
+			localstackService.SetName("aws")
+			c.injector.Register("localstackService", localstackService)
+		}
 	}
 
 	contextConfig := configHandler.GetConfig()
 	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
 		for key := range contextConfig.Docker.Registries {
-			service := c.constructors.NewRegistryService(c.injector)
-			service.SetName(key)
 			serviceName := fmt.Sprintf("registryService.%s", key)
-			c.injector.Register(serviceName, service)
+			// Check if registry service already exists
+			if existingService := c.ResolveService(serviceName); existingService == nil {
+				service := c.constructors.NewRegistryService(c.injector)
+				service.SetName(key)
+				c.injector.Register(serviceName, service)
+			}
 		}
 	}
 
@@ -944,17 +1029,23 @@ func (c *BaseController) createServiceComponents(req Requirements) error {
 			workerCount := configHandler.GetInt("cluster.workers.count")
 
 			for i := 1; i <= controlPlaneCount; i++ {
-				controlPlaneService := c.constructors.NewTalosService(c.injector, "controlplane")
-				controlPlaneService.SetName(fmt.Sprintf("controlplane-%d", i))
 				serviceName := fmt.Sprintf("clusterNode.controlplane-%d", i)
-				c.injector.Register(serviceName, controlPlaneService)
+				// Check if control plane service already exists
+				if existingService := c.ResolveService(serviceName); existingService == nil {
+					controlPlaneService := c.constructors.NewTalosService(c.injector, "controlplane")
+					controlPlaneService.SetName(fmt.Sprintf("controlplane-%d", i))
+					c.injector.Register(serviceName, controlPlaneService)
+				}
 			}
 
 			for i := 1; i <= workerCount; i++ {
-				workerService := c.constructors.NewTalosService(c.injector, "worker")
-				workerService.SetName(fmt.Sprintf("worker-%d", i))
 				serviceName := fmt.Sprintf("clusterNode.worker-%d", i)
-				c.injector.Register(serviceName, workerService)
+				// Check if worker service already exists
+				if existingService := c.ResolveService(serviceName); existingService == nil {
+					workerService := c.constructors.NewTalosService(c.injector, "worker")
+					workerService.SetName(fmt.Sprintf("worker-%d", i))
+					c.injector.Register(serviceName, workerService)
+				}
 			}
 		}
 	}
@@ -970,26 +1061,41 @@ func (c *BaseController) createNetworkComponents(req Requirements) error {
 
 	vmDriver := c.ResolveConfigHandler().GetString("vm.driver")
 
-	networkInterfaceProvider := c.constructors.NewNetworkInterfaceProvider()
-	c.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
+	// Check if network interface provider already exists
+	if existingProvider := c.injector.Resolve("networkInterfaceProvider"); existingProvider == nil {
+		networkInterfaceProvider := c.constructors.NewNetworkInterfaceProvider()
+		c.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
+	}
 
 	if req.VM {
-		secureShell := c.constructors.NewSecureShell(c.injector)
-		c.injector.Register("secureShell", secureShell)
+		// Check if secure shell already exists
+		if existingSecureShell := c.ResolveSecureShell(); existingSecureShell == nil {
+			secureShell := c.constructors.NewSecureShell(c.injector)
+			c.injector.Register("secureShell", secureShell)
+		}
 
-		sshClient := c.constructors.NewSSHClient()
-		c.injector.Register("sshClient", sshClient)
+		// Check if SSH client already exists
+		if existingSSHClient := c.injector.Resolve("sshClient"); existingSSHClient == nil {
+			sshClient := c.constructors.NewSSHClient()
+			c.injector.Register("sshClient", sshClient)
+		}
 
-		if vmDriver == "colima" {
-			networkManager := c.constructors.NewColimaNetworkManager(c.injector)
-			c.injector.Register("networkManager", networkManager)
-		} else {
+		// Check if network manager already exists
+		if existingNetworkManager := c.ResolveNetworkManager(); existingNetworkManager == nil {
+			if vmDriver == "colima" {
+				networkManager := c.constructors.NewColimaNetworkManager(c.injector)
+				c.injector.Register("networkManager", networkManager)
+			} else {
+				networkManager := c.constructors.NewBaseNetworkManager(c.injector)
+				c.injector.Register("networkManager", networkManager)
+			}
+		}
+	} else {
+		// Check if network manager already exists
+		if existingNetworkManager := c.ResolveNetworkManager(); existingNetworkManager == nil {
 			networkManager := c.constructors.NewBaseNetworkManager(c.injector)
 			c.injector.Register("networkManager", networkManager)
 		}
-	} else {
-		networkManager := c.constructors.NewBaseNetworkManager(c.injector)
-		c.injector.Register("networkManager", networkManager)
 	}
 
 	return nil
@@ -1006,25 +1112,31 @@ func (c *BaseController) createVirtualizationComponents(req Requirements) error 
 
 	// Create virtualization components based on configuration
 	if req.VM && vmDriver == "colima" {
-		if c.constructors.NewColimaVirt == nil {
-			return fmt.Errorf("failed to create virtualization components: NewColimaVirt constructor is nil")
+		// Check if virtual machine already exists
+		if existingVM := c.ResolveVirtualMachine(); existingVM == nil {
+			if c.constructors.NewColimaVirt == nil {
+				return fmt.Errorf("failed to create virtualization components: NewColimaVirt constructor is nil")
+			}
+			colimaVirtualMachine := c.constructors.NewColimaVirt(c.injector)
+			if colimaVirtualMachine == nil {
+				return fmt.Errorf("failed to create virtualization components: NewColimaVirt returned nil")
+			}
+			c.injector.Register("virtualMachine", colimaVirtualMachine)
 		}
-		colimaVirtualMachine := c.constructors.NewColimaVirt(c.injector)
-		if colimaVirtualMachine == nil {
-			return fmt.Errorf("failed to create virtualization components: NewColimaVirt returned nil")
-		}
-		c.injector.Register("virtualMachine", colimaVirtualMachine)
 	}
 
 	if req.Containers && dockerEnabled {
-		if c.constructors.NewDockerVirt == nil {
-			return fmt.Errorf("failed to create Docker container runtime: NewDockerVirt constructor is nil")
+		// Check if container runtime already exists
+		if existingContainerRuntime := c.ResolveContainerRuntime(); existingContainerRuntime == nil {
+			if c.constructors.NewDockerVirt == nil {
+				return fmt.Errorf("failed to create Docker container runtime: NewDockerVirt constructor is nil")
+			}
+			containerRuntime := c.constructors.NewDockerVirt(c.injector)
+			if containerRuntime == nil {
+				return fmt.Errorf("failed to create Docker container runtime: NewDockerVirt returned nil")
+			}
+			c.injector.Register("containerRuntime", containerRuntime)
 		}
-		containerRuntime := c.constructors.NewDockerVirt(c.injector)
-		if containerRuntime == nil {
-			return fmt.Errorf("failed to create Docker container runtime: NewDockerVirt returned nil")
-		}
-		c.injector.Register("containerRuntime", containerRuntime)
 	}
 
 	return nil
@@ -1036,8 +1148,11 @@ func (c *BaseController) createStackComponent(req Requirements) error {
 		return nil
 	}
 
-	stackInstance := c.constructors.NewWindsorStack(c.injector)
-	c.injector.Register("stack", stackInstance)
+	// Check if stack component already exists
+	if existingStack := c.ResolveStack(); existingStack == nil {
+		stackInstance := c.constructors.NewWindsorStack(c.injector)
+		c.injector.Register("stack", stackInstance)
+	}
 
 	return nil
 }

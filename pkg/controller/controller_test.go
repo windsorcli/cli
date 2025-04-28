@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
@@ -476,14 +478,16 @@ contexts:
 		if err := mocks.ConfigHandler.Initialize(); err != nil {
 			t.Fatalf("Failed to initialize config handler: %v", err)
 		}
-		os.Setenv("WINDSOR_CONTEXT", "test")
+		if err := mocks.ConfigHandler.SetContext("test"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
 
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return t.TempDir(), nil
 		}
 
-		// Create controller
+		// Create controller with nil constructors to force error
 		controller := NewController(mocks.Injector)
 		controller.constructors = ComponentConstructors{
 			NewShell: func(injector di.Injector) shell.Shell {
@@ -1091,6 +1095,28 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 			}
 			return false
 		}
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			enabled := true
+			return &v1alpha1.Context{
+				Docker: &docker.DockerConfig{
+					Enabled: &enabled,
+					Registries: map[string]docker.RegistryConfig{
+						"registry1": docker.RegistryConfig{
+							Remote:   "remote1",
+							Local:    "local1",
+							HostName: "hostname1",
+							HostPort: 5000,
+						},
+						"registry2": docker.RegistryConfig{
+							Remote:   "remote2",
+							Local:    "local2",
+							HostName: "hostname2",
+							HostPort: 5001,
+						},
+					},
+				},
+			}
+		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
 
 		// When
@@ -1444,55 +1470,6 @@ func TestBaseController_ResolveAllEnvPrinters(t *testing.T) {
 		return controller, mocks
 	}
 
-	t.Run("Success", func(t *testing.T) {
-		// Given
-		controller, mocks := setup(t)
-
-		// Create and register mock printers
-		mockPrinter1 := env.NewMockEnvPrinter()
-		mockPrinter2 := env.NewMockEnvPrinter()
-		mockWindsorPrinter := env.NewMockEnvPrinter()
-
-		mocks.Injector.Register("printer1", mockPrinter1)
-		mocks.Injector.Register("printer2", mockPrinter2)
-		mocks.Injector.Register("windsorEnv", mockWindsorPrinter)
-
-		// When
-		resolvedPrinters := controller.ResolveAllEnvPrinters()
-
-		// Then
-		expectedCount := 3
-		if len(resolvedPrinters) != expectedCount {
-			t.Errorf("Expected %d printers, got %d", expectedCount, len(resolvedPrinters))
-		}
-
-		// Verify all printers are present
-		foundPrinter1 := false
-		foundPrinter2 := false
-		foundWindsorPrinter := false
-
-		for _, printer := range resolvedPrinters {
-			switch printer {
-			case mockPrinter1:
-				foundPrinter1 = true
-			case mockPrinter2:
-				foundPrinter2 = true
-			case mockWindsorPrinter:
-				foundWindsorPrinter = true
-			}
-		}
-
-		if !foundPrinter1 {
-			t.Error("Expected to find mockPrinter1 in resolved printers")
-		}
-		if !foundPrinter2 {
-			t.Error("Expected to find mockPrinter2 in resolved printers")
-		}
-		if !foundWindsorPrinter {
-			t.Error("Expected to find mockWindsorPrinter in resolved printers")
-		}
-	})
-
 	t.Run("ReturnsEmptySliceWhenNoPrintersRegistered", func(t *testing.T) {
 		// Given
 		controller, _ := setup(t)
@@ -1503,6 +1480,90 @@ func TestBaseController_ResolveAllEnvPrinters(t *testing.T) {
 		// Then
 		if len(printers) != 0 {
 			t.Errorf("Expected empty slice of printers, got %v", printers)
+		}
+	})
+
+	t.Run("ReturnsRegisteredPrintersInCorrectOrder", func(t *testing.T) {
+		// Given
+		controller, mocks := setup(t)
+
+		// Create and register mock printers
+		mockPrinter1 := env.NewMockEnvPrinter()
+		mockPrinter2 := env.NewMockEnvPrinter()
+		mockWindsorPrinter := &env.WindsorEnvPrinter{}
+
+		mocks.Injector.Register("printer1", mockPrinter1)
+		mocks.Injector.Register("printer2", mockPrinter2)
+		mocks.Injector.Register("windsorEnv", mockWindsorPrinter)
+
+		// When
+		resolvedPrinters := controller.ResolveAllEnvPrinters()
+
+		// Then
+		if len(resolvedPrinters) != 3 {
+			t.Errorf("Expected 3 printers, got %d", len(resolvedPrinters))
+		}
+
+		// Verify Windsor printer is last
+		lastPrinter := resolvedPrinters[len(resolvedPrinters)-1]
+		if _, ok := lastPrinter.(*env.WindsorEnvPrinter); !ok {
+			t.Error("Expected WindsorEnvPrinter to be last")
+		}
+
+		// Verify other printers are present
+		foundPrinter1 := false
+		foundPrinter2 := false
+		for i := 0; i < len(resolvedPrinters)-1; i++ {
+			if resolvedPrinters[i] == mockPrinter1 {
+				foundPrinter1 = true
+			}
+			if resolvedPrinters[i] == mockPrinter2 {
+				foundPrinter2 = true
+			}
+		}
+
+		if !foundPrinter1 {
+			t.Error("Expected to find mockPrinter1 in resolved printers")
+		}
+		if !foundPrinter2 {
+			t.Error("Expected to find mockPrinter2 in resolved printers")
+		}
+	})
+
+	t.Run("HandlesNilWindsorPrinter", func(t *testing.T) {
+		// Given
+		controller, mocks := setup(t)
+
+		// Create and register mock printers
+		mockPrinter := env.NewMockEnvPrinter()
+		mocks.Injector.Register("printer1", mockPrinter)
+		mocks.Injector.Register("windsorEnv", nil)
+
+		// When
+		resolvedPrinters := controller.ResolveAllEnvPrinters()
+
+		// Then
+		if len(resolvedPrinters) != 1 {
+			t.Errorf("Expected 1 printer, got %d", len(resolvedPrinters))
+		}
+		if resolvedPrinters[0] != mockPrinter {
+			t.Error("Expected to find mockPrinter in resolved printers")
+		}
+	})
+
+	t.Run("HandlesNonEnvPrinterTypes", func(t *testing.T) {
+		// Given
+		controller, mocks := setup(t)
+
+		// Register a non-printer type
+		mocks.Injector.Register("notAPrinter", "some string")
+
+		// When
+		resolvedPrinters := controller.ResolveAllEnvPrinters()
+
+		// Then
+		if len(resolvedPrinters) != 0 {
+			t.Errorf("Expected no printers, got %d", len(resolvedPrinters))
 		}
 	})
 }
@@ -2019,6 +2080,9 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 			return mockConfigHandler
 		}
 
+		// Clear any existing config handler
+		mocks.Injector.Register("configHandler", nil)
+
 		// When
 		err := controller.createConfigComponent(Requirements{})
 
@@ -2035,7 +2099,7 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenInitializationFails", func(t *testing.T) {
 		// Given
-		controller, _ := setup(t)
+		controller, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.InitializeFunc = func() error {
 			return fmt.Errorf("initialization failed")
@@ -2043,6 +2107,9 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 		controller.constructors.NewConfigHandler = func(di.Injector) config.ConfigHandler {
 			return mockConfigHandler
 		}
+
+		// Clear any existing config handler
+		mocks.Injector.Register("configHandler", nil)
 
 		// When
 		err := controller.createConfigComponent(Requirements{})
@@ -2058,7 +2125,7 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 
 	t.Run("UsesWindsorConfigEnvVar", func(t *testing.T) {
 		// Given
-		controller, _ := setup(t)
+		controller, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		configPath := "/custom/config/path"
 		loadConfigCalled := false
@@ -2073,9 +2140,19 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 			return mockConfigHandler
 		}
 
+		// Clear any existing config handler
+		mocks.Injector.Register("configHandler", nil)
+
 		// Set environment variable
+		oldEnv := os.Getenv("WINDSORCONFIG")
 		os.Setenv("WINDSORCONFIG", configPath)
-		defer os.Unsetenv("WINDSORCONFIG")
+		defer func() {
+			if oldEnv != "" {
+				os.Setenv("WINDSORCONFIG", oldEnv)
+			} else {
+				os.Unsetenv("WINDSORCONFIG")
+			}
+		}()
 
 		// When
 		err := controller.createConfigComponent(Requirements{})
@@ -2097,10 +2174,15 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 			return mockConfigHandler
 		}
 
+		// Clear any existing config handler
+		mocks.Injector.Register("configHandler", nil)
+
 		// Mock shell to return error
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", fmt.Errorf("project root error")
 		}
+		mocks.Injector.Register("shell", mockShell)
 
 		// When
 		err := controller.createConfigComponent(Requirements{})
@@ -2127,11 +2209,16 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 			return mockConfigHandler
 		}
 
+		// Clear any existing config handler
+		mocks.Injector.Register("configHandler", nil)
+
 		// Create temporary project directory
 		projectRoot := t.TempDir()
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
 			return projectRoot, nil
 		}
+		mocks.Injector.Register("shell", mockShell)
 
 		// Create config file
 		configPath := filepath.Join(projectRoot, "windsor.yaml")
@@ -2153,7 +2240,7 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 
 	t.Run("HandlesConfigLoadError", func(t *testing.T) {
 		// Given
-		controller, _ := setup(t)
+		controller, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func(path string) error {
 			return fmt.Errorf("load config error")
@@ -2162,9 +2249,19 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 			return mockConfigHandler
 		}
 
+		// Clear any existing config handler
+		mocks.Injector.Register("configHandler", nil)
+
 		// Set environment variable to force config load
+		oldEnv := os.Getenv("WINDSORCONFIG")
 		os.Setenv("WINDSORCONFIG", "test.yaml")
-		defer os.Unsetenv("WINDSORCONFIG")
+		defer func() {
+			if oldEnv != "" {
+				os.Setenv("WINDSORCONFIG", oldEnv)
+			} else {
+				os.Unsetenv("WINDSORCONFIG")
+			}
+		}()
 
 		// When
 		err := controller.createConfigComponent(Requirements{})
@@ -2180,7 +2277,7 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 
 	t.Run("HandlesConfigLoadedRequirement", func(t *testing.T) {
 		// Given
-		controller, _ := setup(t)
+		controller, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.IsLoadedFunc = func() bool {
 			return false
@@ -2188,6 +2285,9 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 		controller.constructors.NewConfigHandler = func(di.Injector) config.ConfigHandler {
 			return mockConfigHandler
 		}
+
+		// Clear any existing config handler
+		mocks.Injector.Register("configHandler", nil)
 
 		// When
 		err := controller.createConfigComponent(Requirements{
@@ -2383,20 +2483,120 @@ func TestBaseController_createGeneratorsComponents(t *testing.T) {
 		return controller, mocks
 	}
 
-	t.Run("Success", func(t *testing.T) {
+	t.Run("ReturnsEarlyWhenNotRequired", func(t *testing.T) {
 		// Given
 		controller, _ := setup(t)
-		controller.SetRequirements(Requirements{
-			CommandName: "test",
-			Generators:  true,
-		})
 
 		// When
-		err := controller.createGeneratorsComponents(controller.requirements)
+		err := controller.createGeneratorsComponents(Requirements{
+			Generators: false,
+		})
 
 		// Then
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify no generators were created
+		generators := controller.ResolveAllGenerators()
+		if len(generators) != 0 {
+			t.Errorf("Expected no generators, got %d", len(generators))
+		}
+	})
+
+	t.Run("CreatesGitGeneratorWhenRequired", func(t *testing.T) {
+		// Given
+		controller, mocks := setup(t)
+
+		// Mock git generator
+		mockGenerator := generators.NewMockGenerator()
+		controller.constructors.NewGitGenerator = func(di.Injector) generators.Generator {
+			return mockGenerator
+		}
+
+		// When
+		err := controller.createGeneratorsComponents(Requirements{
+			Generators: true,
+		})
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify git generator was created
+		if resolved := mocks.Injector.Resolve("gitGenerator"); resolved != mockGenerator {
+			t.Error("Expected git generator to be registered")
+		}
+	})
+
+	t.Run("CreatesTerraformAndKustomizeGeneratorsWhenBlueprintRequired", func(t *testing.T) {
+		// Given
+		controller, mocks := setup(t)
+
+		// Mock generators
+		mockTerraformGenerator := generators.NewMockGenerator()
+		mockKustomizeGenerator := generators.NewMockGenerator()
+		controller.constructors.NewTerraformGenerator = func(di.Injector) generators.Generator {
+			return mockTerraformGenerator
+		}
+		controller.constructors.NewKustomizeGenerator = func(di.Injector) generators.Generator {
+			return mockKustomizeGenerator
+		}
+
+		// When
+		err := controller.createGeneratorsComponents(Requirements{
+			Generators: true,
+			Blueprint:  true,
+		})
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify generators were created
+		if resolved := mocks.Injector.Resolve("terraformGenerator"); resolved != mockTerraformGenerator {
+			t.Error("Expected terraform generator to be registered")
+		}
+		if resolved := mocks.Injector.Resolve("kustomizeGenerator"); resolved != mockKustomizeGenerator {
+			t.Error("Expected kustomize generator to be registered")
+		}
+	})
+
+	t.Run("DoesNotCreateDuplicateGenerators", func(t *testing.T) {
+		// Given
+		controller, mocks := setup(t)
+
+		// Create initial generator
+		mockGenerator := generators.NewMockGenerator()
+		mocks.Injector.Register("gitGenerator", mockGenerator)
+
+		// Mock new generator constructor
+		newGeneratorCalled := false
+		controller.constructors.NewGitGenerator = func(di.Injector) generators.Generator {
+			newGeneratorCalled = true
+			return generators.NewMockGenerator()
+		}
+
+		// When
+		err := controller.createGeneratorsComponents(Requirements{
+			Generators: true,
+		})
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify constructor wasn't called
+		if newGeneratorCalled {
+			t.Error("Expected constructor not to be called for existing generator")
+		}
+
+		// Verify original generator is still registered
+		if resolved := mocks.Injector.Resolve("gitGenerator"); resolved != mockGenerator {
+			t.Error("Expected original generator to remain registered")
 		}
 	})
 }
@@ -2409,20 +2609,85 @@ func TestBaseController_createBlueprintComponent(t *testing.T) {
 		return controller, mocks
 	}
 
-	t.Run("Success", func(t *testing.T) {
+	t.Run("ReturnsEarlyWhenNotRequired", func(t *testing.T) {
 		// Given
 		controller, _ := setup(t)
-		controller.SetRequirements(Requirements{
-			CommandName: "test",
-			Blueprint:   true,
-		})
 
 		// When
-		err := controller.createBlueprintComponent(controller.requirements)
+		err := controller.createBlueprintComponent(Requirements{
+			Blueprint: false,
+		})
 
 		// Then
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify no blueprint handler was created
+		if handler := controller.ResolveBlueprintHandler(); handler != nil {
+			t.Error("Expected no blueprint handler to be created")
+		}
+	})
+
+	t.Run("CreatesBlueprintHandlerWhenRequired", func(t *testing.T) {
+		// Given
+		controller, mocks := setup(t)
+
+		// Mock blueprint handler
+		mockHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
+		controller.constructors.NewBlueprintHandler = func(di.Injector) blueprint.BlueprintHandler {
+			return mockHandler
+		}
+
+		// When
+		err := controller.createBlueprintComponent(Requirements{
+			Blueprint: true,
+		})
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify blueprint handler was created
+		if resolved := controller.ResolveBlueprintHandler(); resolved != mockHandler {
+			t.Error("Expected blueprint handler to be registered")
+		}
+	})
+
+	t.Run("DoesNotCreateDuplicateBlueprintHandler", func(t *testing.T) {
+		// Given
+		controller, mocks := setup(t)
+
+		// Create initial handler
+		mockHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
+		mocks.Injector.Register("blueprintHandler", mockHandler)
+
+		// Mock new handler constructor
+		newHandlerCalled := false
+		controller.constructors.NewBlueprintHandler = func(di.Injector) blueprint.BlueprintHandler {
+			newHandlerCalled = true
+			return blueprint.NewMockBlueprintHandler(mocks.Injector)
+		}
+
+		// When
+		err := controller.createBlueprintComponent(Requirements{
+			Blueprint: true,
+		})
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify constructor wasn't called
+		if newHandlerCalled {
+			t.Error("Expected constructor not to be called for existing handler")
+		}
+
+		// Verify original handler is still registered
+		if resolved := controller.ResolveBlueprintHandler(); resolved != mockHandler {
+			t.Error("Expected original handler to remain registered")
 		}
 	})
 }
@@ -2474,11 +2739,31 @@ func TestBaseController_createServiceComponents(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsEarlyWhenDockerNotEnabled", func(t *testing.T) {
+		// Given
+		controller, mocks := setup(t)
+
+		// Mock config handler
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, _ ...bool) bool {
+			return false
+		}
+		mocks.Injector.Register("configHandler", mockConfigHandler)
+
+		// When
+		err := controller.createServiceComponents(Requirements{Services: true})
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
 	t.Run("CreatesServicesWhenEnabled", func(t *testing.T) {
 		// Given
 		controller, mocks := setup(t)
 
-		// Mock config handler to enable all services
+		// Mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetBoolFunc = func(key string, _ ...bool) bool {
 			switch key {
@@ -2491,7 +2776,7 @@ func TestBaseController_createServiceComponents(t *testing.T) {
 		mocks.Injector.Register("configHandler", mockConfigHandler)
 
 		// Track created services
-		createdServices := make(map[string]string) // service name -> registration key
+		createdServices := make(map[string]string)
 		mockService := services.NewMockService()
 		mockService.SetNameFunc = func(name string) {
 			createdServices[name] = name
@@ -2522,6 +2807,137 @@ func TestBaseController_createServiceComponents(t *testing.T) {
 			}
 			if resolved := mocks.Injector.Resolve(key); resolved == nil {
 				t.Errorf("Expected service %q to be registered as %q", name, key)
+			}
+		}
+	})
+
+	t.Run("CreatesRegistryServices", func(t *testing.T) {
+		// Given
+		controller, mocks := setup(t)
+
+		// Mock config handler
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, _ ...bool) bool {
+			return key == "docker.enabled"
+		}
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			enabled := true
+			return &v1alpha1.Context{
+				Docker: &docker.DockerConfig{
+					Enabled: &enabled,
+					Registries: map[string]docker.RegistryConfig{
+						"registry1": {},
+						"registry2": {},
+					},
+				},
+			}
+		}
+		mocks.Injector.Register("configHandler", mockConfigHandler)
+
+		// Track created services
+		createdServices := make(map[string]string)
+		mockService := services.NewMockService()
+		mockService.SetNameFunc = func(name string) {
+			createdServices[name] = name
+		}
+
+		// Set up constructors
+		controller.constructors.NewRegistryService = func(di.Injector) services.Service { return mockService }
+
+		// When
+		err := controller.createServiceComponents(Requirements{Services: true})
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify registry services were created
+		expectedRegistries := []string{"registry1", "registry2"}
+		for _, name := range expectedRegistries {
+			if _, ok := createdServices[name]; !ok {
+				t.Errorf("Expected registry service %q to be created", name)
+			}
+			serviceName := fmt.Sprintf("registryService.%s", name)
+			if resolved := mocks.Injector.Resolve(serviceName); resolved == nil {
+				t.Errorf("Expected registry service %q to be registered as %q", name, serviceName)
+			}
+		}
+	})
+
+	t.Run("CreatesTalosServices", func(t *testing.T) {
+		// Given
+		controller, mocks := setup(t)
+
+		// Mock config handler
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, _ ...bool) bool {
+			switch key {
+			case "docker.enabled", "cluster.enabled":
+				return true
+			default:
+				return false
+			}
+		}
+		mockConfigHandler.GetStringFunc = func(key string, _ ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			return ""
+		}
+		mockConfigHandler.GetIntFunc = func(key string, _ ...int) int {
+			switch key {
+			case "cluster.controlplanes.count":
+				return 2
+			case "cluster.workers.count":
+				return 3
+			default:
+				return 0
+			}
+		}
+		mocks.Injector.Register("configHandler", mockConfigHandler)
+
+		// Track created services
+		createdServices := make(map[string]string)
+		mockService := services.NewMockService()
+		mockService.SetNameFunc = func(name string) {
+			createdServices[name] = name
+		}
+
+		// Set up constructors
+		controller.constructors.NewTalosService = func(injector di.Injector, nodeType string) services.Service {
+			return mockService
+		}
+
+		// When
+		err := controller.createServiceComponents(Requirements{Services: true})
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify control plane services were created
+		for i := 1; i <= 2; i++ {
+			name := fmt.Sprintf("controlplane-%d", i)
+			if _, ok := createdServices[name]; !ok {
+				t.Errorf("Expected control plane service %q to be created", name)
+			}
+			serviceName := fmt.Sprintf("clusterNode.%s", name)
+			if resolved := mocks.Injector.Resolve(serviceName); resolved == nil {
+				t.Errorf("Expected control plane service %q to be registered as %q", name, serviceName)
+			}
+		}
+
+		// Verify worker services were created
+		for i := 1; i <= 3; i++ {
+			name := fmt.Sprintf("worker-%d", i)
+			if _, ok := createdServices[name]; !ok {
+				t.Errorf("Expected worker service %q to be created", name)
+			}
+			serviceName := fmt.Sprintf("clusterNode.%s", name)
+			if resolved := mocks.Injector.Resolve(serviceName); resolved == nil {
+				t.Errorf("Expected worker service %q to be registered as %q", name, serviceName)
 			}
 		}
 	})
@@ -2629,6 +3045,67 @@ contexts:
 		networkManager := controller.ResolveNetworkManager()
 		if networkManager != nil {
 			t.Error("Expected no network manager to be created")
+		}
+	})
+
+	t.Run("CreatesNetworkInterfaceProviderWhenNetworkRequired", func(t *testing.T) {
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+
+		req := Requirements{
+			Network: true,
+		}
+
+		err := controller.createNetworkComponents(req)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		provider := mocks.Injector.Resolve("networkInterfaceProvider")
+		if provider == nil {
+			t.Error("Expected network interface provider to be created")
+		}
+	})
+
+	t.Run("DoesNotCreateDuplicateComponents", func(t *testing.T) {
+		mocks := setupMocks(t)
+		controller := NewController(mocks.Injector)
+
+		req := Requirements{
+			Network: true,
+			VM:      true,
+		}
+
+		// First creation
+		err := controller.createNetworkComponents(req)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Store initial instances
+		initialNetworkManager := controller.ResolveNetworkManager()
+		initialSecureShell := controller.ResolveSecureShell()
+		initialSSHClient := mocks.Injector.Resolve("sshClient")
+		initialProvider := mocks.Injector.Resolve("networkInterfaceProvider")
+
+		// Second creation
+		err = controller.createNetworkComponents(req)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify instances haven't changed
+		if controller.ResolveNetworkManager() != initialNetworkManager {
+			t.Error("Network manager was recreated")
+		}
+		if controller.ResolveSecureShell() != initialSecureShell {
+			t.Error("Secure shell was recreated")
+		}
+		if mocks.Injector.Resolve("sshClient") != initialSSHClient {
+			t.Error("SSH client was recreated")
+		}
+		if mocks.Injector.Resolve("networkInterfaceProvider") != initialProvider {
+			t.Error("Network interface provider was recreated")
 		}
 	})
 }
@@ -3026,6 +3503,9 @@ func TestBaseController_createShellComponent(t *testing.T) {
 			return mockShell
 		}
 
+		// Clear any existing shell
+		mocks.Injector.Register("shell", nil)
+
 		// When
 		err := controller.createShellComponent(Requirements{})
 
@@ -3042,7 +3522,7 @@ func TestBaseController_createShellComponent(t *testing.T) {
 
 	t.Run("SetsVerbosityWhenFlagIsTrue", func(t *testing.T) {
 		// Given
-		controller, _ := setup(t)
+		controller, mocks := setup(t)
 		mockShell := shell.NewMockShell()
 		verbositySet := false
 		mockShell.SetVerbosityFunc = func(verbose bool) {
@@ -3051,6 +3531,9 @@ func TestBaseController_createShellComponent(t *testing.T) {
 		controller.constructors.NewShell = func(di.Injector) shell.Shell {
 			return mockShell
 		}
+
+		// Clear any existing shell
+		mocks.Injector.Register("shell", nil)
 
 		// When
 		err := controller.createShellComponent(Requirements{
@@ -3068,7 +3551,7 @@ func TestBaseController_createShellComponent(t *testing.T) {
 
 	t.Run("ChecksTrustedDirectoryWhenTrustIsRequired", func(t *testing.T) {
 		// Given
-		controller, _ := setup(t)
+		controller, mocks := setup(t)
 		mockShell := shell.NewMockShell()
 		trustedChecked := false
 		mockShell.CheckTrustedDirectoryFunc = func() error {
@@ -3078,6 +3561,9 @@ func TestBaseController_createShellComponent(t *testing.T) {
 		controller.constructors.NewShell = func(di.Injector) shell.Shell {
 			return mockShell
 		}
+
+		// Clear any existing shell
+		mocks.Injector.Register("shell", nil)
 
 		// When
 		err := controller.createShellComponent(Requirements{
@@ -3095,7 +3581,7 @@ func TestBaseController_createShellComponent(t *testing.T) {
 
 	t.Run("DoesNotCheckTrustedDirectoryWhenTrustNotRequired", func(t *testing.T) {
 		// Given
-		controller, _ := setup(t)
+		controller, mocks := setup(t)
 		mockShell := shell.NewMockShell()
 		trustedChecked := false
 		mockShell.CheckTrustedDirectoryFunc = func() error {
@@ -3105,6 +3591,9 @@ func TestBaseController_createShellComponent(t *testing.T) {
 		controller.constructors.NewShell = func(di.Injector) shell.Shell {
 			return mockShell
 		}
+
+		// Clear any existing shell
+		mocks.Injector.Register("shell", nil)
 
 		// When
 		err := controller.createShellComponent(Requirements{
