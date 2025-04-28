@@ -2,7 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +15,7 @@ import (
 	"github.com/windsorcli/cli/pkg/network"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/services"
-	"github.com/windsorcli/cli/pkg/shell"
+	sh "github.com/windsorcli/cli/pkg/shell"
 	"github.com/windsorcli/cli/pkg/ssh"
 	"github.com/windsorcli/cli/pkg/stack"
 	"github.com/windsorcli/cli/pkg/tools"
@@ -42,23 +41,22 @@ import (
 // provides a unified interface for resolving and managing these components while ensuring
 // proper dependency injection and configuration management across the system.
 
+// =============================================================================
+// Types
+// =============================================================================
+
 type Controller interface {
-	Initialize() error
+	SetRequirements(req Requirements)
+	CreateComponents() error
 	InitializeComponents() error
-	CreateCommonComponents() error
-	CreateSecretsProviders() error
-	CreateProjectComponents() error
-	CreateEnvComponents() error
-	CreateServiceComponents() error
-	CreateVirtualizationComponents() error
-	CreateStackComponents() error
+	InitializeWithRequirements(req Requirements) error
 	ResolveInjector() di.Injector
 	ResolveConfigHandler() config.ConfigHandler
 	ResolveAllSecretsProviders() []secrets.SecretsProvider
 	ResolveEnvPrinter(name string) env.EnvPrinter
 	ResolveAllEnvPrinters() []env.EnvPrinter
-	ResolveShell() shell.Shell
-	ResolveSecureShell() shell.Shell
+	ResolveShell() sh.Shell
+	ResolveSecureShell() sh.Shell
 	ResolveNetworkManager() network.NetworkManager
 	ResolveToolsManager() tools.ToolsManager
 	ResolveBlueprintHandler() blueprint.BlueprintHandler
@@ -74,17 +72,17 @@ type Controller interface {
 
 // BaseController struct implements the Controller interface.
 type BaseController struct {
-	injector      di.Injector
-	configHandler config.ConfigHandler
-	constructors  ComponentConstructors
+	injector     di.Injector
+	constructors ComponentConstructors
+	requirements Requirements
 }
 
 // ComponentConstructors contains factory functions for all components used in the controller
 type ComponentConstructors struct {
 	// Common components
-	NewYamlConfigHandler func(di.Injector) config.ConfigHandler
-	NewDefaultShell      func(di.Injector) shell.Shell
-	NewSecureShell       func(di.Injector) shell.Shell
+	NewConfigHandler func(di.Injector) config.ConfigHandler
+	NewShell         func(di.Injector) sh.Shell
+	NewSecureShell   func(di.Injector) sh.Shell
 
 	// Project components
 	NewGitGenerator       func(di.Injector) generators.Generator
@@ -126,19 +124,62 @@ type ComponentConstructors struct {
 	NewWindsorStack func(di.Injector) stack.Stack
 }
 
+// Requirements represents what functionality is required of the controller
+type Requirements struct {
+	// Core requirements (most commands need these)
+	Trust        bool // Requires being in a trusted directory
+	ConfigLoaded bool // Requires config to be loaded
+
+	// Environment requirements
+	Env bool // Needs access to environment variables
+
+	// Security requirements
+	Secrets bool // Needs to decrypt/access secrets
+
+	// Infrastructure requirements
+	VM         bool // Needs virtual machine capabilities
+	Containers bool // Needs container runtime capabilities
+	Network    bool // Needs network management
+
+	// Service requirements
+	Services bool // Needs service management
+
+	// Project requirements
+	Tools      bool // Needs git, terraform, etc.
+	Blueprint  bool // Needs blueprint handling
+	Generators bool // Needs code generation
+	Stack      bool // Needs stack components
+
+	// Command info for context-specific decisions
+	CommandName string          // Name of the command
+	Flags       map[string]bool // Important flags that affect initialization
+}
+
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewController creates a new controller.
+func NewController(injector di.Injector) *BaseController {
+	return &BaseController{
+		injector:     injector,
+		constructors: NewDefaultConstructors(),
+	}
+}
+
 // DefaultConstructors returns a ComponentConstructors with the default implementation
 // of all factory functions
-func DefaultConstructors() ComponentConstructors {
+func NewDefaultConstructors() ComponentConstructors {
 	return ComponentConstructors{
 		// Common components
-		NewYamlConfigHandler: func(injector di.Injector) config.ConfigHandler {
+		NewConfigHandler: func(injector di.Injector) config.ConfigHandler {
 			return config.NewYamlConfigHandler(injector)
 		},
-		NewDefaultShell: func(injector di.Injector) shell.Shell {
-			return shell.NewDefaultShell(injector)
+		NewShell: func(injector di.Injector) sh.Shell {
+			return sh.NewDefaultShell(injector)
 		},
-		NewSecureShell: func(injector di.Injector) shell.Shell {
-			return shell.NewSecureShell(injector)
+		NewSecureShell: func(injector di.Injector) sh.Shell {
+			return sh.NewSecureShell(injector)
 		},
 
 		// Project components
@@ -236,151 +277,47 @@ func DefaultConstructors() ComponentConstructors {
 	}
 }
 
-// MockConstructors returns a ComponentConstructors with all factory functions set to return mocks
-// useful for testing
-func MockConstructors() ComponentConstructors {
-	return ComponentConstructors{
-		// Common components
-		NewYamlConfigHandler: func(injector di.Injector) config.ConfigHandler {
-			return config.NewMockConfigHandler()
-		},
-		NewDefaultShell: func(injector di.Injector) shell.Shell {
-			return shell.NewMockShell()
-		},
-		NewSecureShell: func(injector di.Injector) shell.Shell {
-			return shell.NewMockShell()
-		},
-
-		// Project components
-		NewGitGenerator: func(injector di.Injector) generators.Generator {
-			return generators.NewMockGenerator()
-		},
-		NewBlueprintHandler: func(injector di.Injector) blueprint.BlueprintHandler {
-			return blueprint.NewMockBlueprintHandler(injector)
-		},
-		NewTerraformGenerator: func(injector di.Injector) generators.Generator {
-			return generators.NewMockGenerator()
-		},
-		NewKustomizeGenerator: func(injector di.Injector) generators.Generator {
-			return generators.NewMockGenerator()
-		},
-		NewToolsManager: func(injector di.Injector) tools.ToolsManager {
-			return tools.NewMockToolsManager()
-		},
-
-		// Environment printers
-		NewAwsEnvPrinter: func(injector di.Injector) env.EnvPrinter {
-			return env.NewMockEnvPrinter()
-		},
-		NewDockerEnvPrinter: func(injector di.Injector) env.EnvPrinter {
-			return env.NewMockEnvPrinter()
-		},
-		NewKubeEnvPrinter: func(injector di.Injector) env.EnvPrinter {
-			return env.NewMockEnvPrinter()
-		},
-		NewOmniEnvPrinter: func(injector di.Injector) env.EnvPrinter {
-			return env.NewMockEnvPrinter()
-		},
-		NewTalosEnvPrinter: func(injector di.Injector) env.EnvPrinter {
-			return env.NewMockEnvPrinter()
-		},
-		NewTerraformEnvPrinter: func(injector di.Injector) env.EnvPrinter {
-			return env.NewMockEnvPrinter()
-		},
-		NewWindsorEnvPrinter: func(injector di.Injector) env.EnvPrinter {
-			return env.NewMockEnvPrinter()
-		},
-
-		// Service components
-		NewDNSService: func(injector di.Injector) services.Service {
-			return services.NewMockService()
-		},
-		NewGitLivereloadService: func(injector di.Injector) services.Service {
-			return services.NewMockService()
-		},
-		NewLocalstackService: func(injector di.Injector) services.Service {
-			return services.NewMockService()
-		},
-		NewRegistryService: func(injector di.Injector) services.Service {
-			return services.NewMockService()
-		},
-		NewTalosService: func(injector di.Injector, nodeType string) services.Service {
-			return services.NewMockService()
-		},
-
-		// Virtualization components
-		NewSSHClient: func() *ssh.SSHClient {
-			return ssh.NewSSHClient()
-		},
-		NewColimaVirt: func(injector di.Injector) virt.VirtualMachine {
-			return virt.NewMockVirt()
-		},
-		NewColimaNetworkManager: func(injector di.Injector) network.NetworkManager {
-			return network.NewMockNetworkManager()
-		},
-		NewBaseNetworkManager: func(injector di.Injector) network.NetworkManager {
-			return network.NewMockNetworkManager()
-		},
-		NewDockerVirt: func(_ di.Injector) virt.ContainerRuntime {
-			return virt.NewMockVirt()
-		},
-		NewNetworkInterfaceProvider: func() network.NetworkInterfaceProvider {
-			return &network.MockNetworkInterfaceProvider{
-				InterfacesFunc: func() ([]net.Interface, error) {
-					return nil, nil
-				},
-				InterfaceAddrsFunc: func(iface net.Interface) ([]net.Addr, error) {
-					return nil, nil
-				},
-			}
-		},
-
-		// Secrets providers
-		NewSopsSecretsProvider: func(configRoot string, injector di.Injector) secrets.SecretsProvider {
-			return secrets.NewMockSecretsProvider(injector)
-		},
-		NewOnePasswordSDKSecretsProvider: func(vault secretsConfigType.OnePasswordVault, injector di.Injector) secrets.SecretsProvider {
-			return secrets.NewMockSecretsProvider(injector)
-		},
-		NewOnePasswordCLISecretsProvider: func(vault secretsConfigType.OnePasswordVault, injector di.Injector) secrets.SecretsProvider {
-			return secrets.NewMockSecretsProvider(injector)
-		},
-
-		// Stack components
-		NewWindsorStack: func(injector di.Injector) stack.Stack {
-			return stack.NewMockStack(injector)
-		},
-	}
-}
-
-// =============================================================================
-// Constructor
-// =============================================================================
-
-// NewController creates a new controller.
-func NewController(injector di.Injector, constructors ...ComponentConstructors) *BaseController {
-	var c ComponentConstructors
-	if len(constructors) > 0 {
-		c = constructors[0]
-	} else {
-		c = DefaultConstructors()
-	}
-
-	return &BaseController{
-		injector:     injector,
-		constructors: c,
-	}
-}
-
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// Initialize the controller. Initializes the config handler
-// as well.
-func (c *BaseController) Initialize() error {
-	configHandler := c.ResolveConfigHandler()
-	c.configHandler = configHandler
+// SetRequirements sets the requirements for the controller
+func (c *BaseController) SetRequirements(req Requirements) {
+	c.requirements = req
+}
+
+// CreateComponents creates components based on the specified requirements
+func (c *BaseController) CreateComponents() error {
+	if c.injector == nil {
+		return fmt.Errorf("injector is nil")
+	}
+	if c.requirements.CommandName == "" {
+		return fmt.Errorf("requirements not set")
+	}
+	req := c.requirements
+
+	componentCreators := []struct {
+		name string
+		fn   func(Requirements) error
+	}{
+		{"shell", c.createShellComponent},
+		{"config", c.createConfigComponent},
+		{"tools", c.createToolsComponents},
+		{"env", c.createEnvComponents},
+		{"secrets", c.createSecretsComponents},
+		{"generators", c.createGeneratorsComponents},
+		{"blueprint", c.createBlueprintComponent},
+		{"virtualization", c.createVirtualizationComponents},
+		{"service", c.createServiceComponents},
+		{"network", c.createNetworkComponents},
+		{"stack", c.createStackComponent},
+	}
+
+	for _, cc := range componentCreators {
+		if err := cc.fn(req); err != nil {
+			return fmt.Errorf("failed to create %s components: %w", cc.name, err)
+		}
+	}
 
 	return nil
 }
@@ -498,323 +435,87 @@ func (c *BaseController) InitializeComponents() error {
 	return nil
 }
 
-// CreateCommonComponents creates the common components.
-func (c *BaseController) CreateCommonComponents() error {
-	if c.injector == nil {
-		return fmt.Errorf("injector is nil")
+// InitializeWithRequirements sets the requirements, creates components, and initializes them.
+// This is the standard initialization sequence used by commands.
+func (c *BaseController) InitializeWithRequirements(req Requirements) error {
+	c.SetRequirements(req)
+	if err := c.CreateComponents(); err != nil {
+		return fmt.Errorf("failed to create components: %w", err)
 	}
-	if c.constructors.NewYamlConfigHandler == nil || c.constructors.NewDefaultShell == nil {
-		return fmt.Errorf("required constructors are nil")
+	if err := c.InitializeComponents(); err != nil {
+		return fmt.Errorf("failed to initialize components: %w", err)
 	}
-	configHandler := c.constructors.NewYamlConfigHandler(c.injector)
-	c.injector.Register("configHandler", configHandler)
-	c.configHandler = configHandler
-
-	shell := c.constructors.NewDefaultShell(c.injector)
-	c.injector.Register("shell", shell)
-
-	// Initialize the config handler
-	if err := configHandler.Initialize(); err != nil {
-		return fmt.Errorf("error initializing config handler: %w", err)
-	}
-
-	// Initialize the shell
-	if err := shell.Initialize(); err != nil {
-		return fmt.Errorf("error initializing shell: %w", err)
-	}
-
-	return nil
-}
-
-// CreateSecretsProviders sets up the secrets provider based on config settings.
-// It supports SOPS and 1Password CLI for decryption.
-// Registers the appropriate secrets provider with the injector and config handler.
-func (c *BaseController) CreateSecretsProviders() error {
-	contextName := c.configHandler.GetContext()
-	configRoot, err := c.configHandler.GetConfigRoot()
-	if err != nil {
-		return fmt.Errorf("error getting config root: %w", err)
-	}
-
-	secretsFilePaths := []string{"secrets.enc.yaml", "secrets.enc.yml"}
-	for _, filePath := range secretsFilePaths {
-		if _, err := osStat(filepath.Join(configRoot, filePath)); err == nil {
-			sopsSecretsProvider := c.constructors.NewSopsSecretsProvider(configRoot, c.injector)
-			c.injector.Register("sopsSecretsProvider", sopsSecretsProvider)
-			c.configHandler.SetSecretsProvider(sopsSecretsProvider)
-		}
-	}
-
-	vaults, ok := c.configHandler.Get(fmt.Sprintf("contexts.%s.secrets.onepassword.vaults", contextName)).(map[string]secretsConfigType.OnePasswordVault)
-	if ok && len(vaults) > 0 {
-		useSDK := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != ""
-
-		for key, vault := range vaults {
-			vault.ID = key
-			var opSecretsProvider secrets.SecretsProvider
-
-			if useSDK {
-				opSecretsProvider = c.constructors.NewOnePasswordSDKSecretsProvider(vault, c.injector)
-			} else {
-				opSecretsProvider = c.constructors.NewOnePasswordCLISecretsProvider(vault, c.injector)
-			}
-
-			c.injector.Register(fmt.Sprintf("op%sSecretsProvider", strings.ToUpper(key[:1])+key[1:]), opSecretsProvider)
-			c.configHandler.SetSecretsProvider(opSecretsProvider)
-		}
-	}
-
-	return nil
-}
-
-// CreateProjectComponents creates the project components.
-func (c *BaseController) CreateProjectComponents() error {
-	if c.injector == nil {
-		return fmt.Errorf("injector is nil")
-	}
-	if c.configHandler == nil {
-		return fmt.Errorf("config handler is nil")
-	}
-
-	gitGenerator := c.constructors.NewGitGenerator(c.injector)
-	c.injector.Register("gitGenerator", gitGenerator)
-
-	blueprintHandler := c.constructors.NewBlueprintHandler(c.injector)
-	c.injector.Register("blueprintHandler", blueprintHandler)
-
-	terraformGenerator := c.constructors.NewTerraformGenerator(c.injector)
-	c.injector.Register("terraformGenerator", terraformGenerator)
-
-	kustomizeGenerator := c.constructors.NewKustomizeGenerator(c.injector)
-	c.injector.Register("kustomizeGenerator", kustomizeGenerator)
-
-	toolsManagerType := c.configHandler.GetString("toolsManager")
-	var toolsManager tools.ToolsManager
-
-	if toolsManagerType == "" {
-		var err error
-		toolsManagerType, err = tools.CheckExistingToolsManager(c.configHandler.GetString("projectRoot"))
-		if err != nil {
-			return fmt.Errorf("error checking existing tools manager: %w", err)
-		}
-	}
-
-	switch toolsManagerType {
-	// Future implementations for different tools managers can go here
-	default:
-		toolsManager = c.constructors.NewToolsManager(c.injector)
-	}
-
-	c.injector.Register("toolsManager", toolsManager)
-
-	return nil
-}
-
-// CreateEnvComponents creates the env components.
-func (c *BaseController) CreateEnvComponents() error {
-	if c.injector == nil {
-		return fmt.Errorf("injector is nil")
-	}
-	if c.configHandler == nil {
-		return fmt.Errorf("config handler is nil")
-	}
-
-	envPrinters := map[string]func(di.Injector) env.EnvPrinter{
-		"awsEnv":       c.constructors.NewAwsEnvPrinter,
-		"dockerEnv":    c.constructors.NewDockerEnvPrinter,
-		"kubeEnv":      c.constructors.NewKubeEnvPrinter,
-		"omniEnv":      c.constructors.NewOmniEnvPrinter,
-		"talosEnv":     c.constructors.NewTalosEnvPrinter,
-		"terraformEnv": c.constructors.NewTerraformEnvPrinter,
-		"windsorEnv":   c.constructors.NewWindsorEnvPrinter,
-	}
-
-	for key, constructor := range envPrinters {
-		if key == "awsEnv" && !c.configHandler.GetBool("aws.enabled") {
-			continue
-		}
-		if key == "dockerEnv" && !c.configHandler.GetBool("docker.enabled") {
-			continue
-		}
-		envPrinter := constructor(c.injector)
-		c.injector.Register(key, envPrinter)
-	}
-
-	return nil
-}
-
-// CreateServiceComponents creates the service components.
-func (c *BaseController) CreateServiceComponents() error {
-	configHandler := c.configHandler
-	contextConfig := configHandler.GetConfig()
-
-	if !configHandler.GetBool("docker.enabled") {
-		return nil
-	}
-
-	dnsEnabled := configHandler.GetBool("dns.enabled")
-	if dnsEnabled {
-		dnsService := c.constructors.NewDNSService(c.injector)
-		dnsService.SetName("dns")
-		c.injector.Register("dnsService", dnsService)
-	}
-
-	gitLivereloadEnabled := configHandler.GetBool("git.livereload.enabled")
-	if gitLivereloadEnabled {
-		gitLivereloadService := c.constructors.NewGitLivereloadService(c.injector)
-		gitLivereloadService.SetName("git")
-		c.injector.Register("gitLivereloadService", gitLivereloadService)
-	}
-
-	localstackEnabled := configHandler.GetBool("aws.localstack.enabled")
-	if localstackEnabled {
-		localstackService := c.constructors.NewLocalstackService(c.injector)
-		localstackService.SetName("aws")
-		c.injector.Register("localstackService", localstackService)
-	}
-
-	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
-		for key := range contextConfig.Docker.Registries {
-			service := c.constructors.NewRegistryService(c.injector)
-			service.SetName(key)
-			serviceName := fmt.Sprintf("registryService.%s", key)
-			c.injector.Register(serviceName, service)
-		}
-	}
-
-	clusterEnabled := configHandler.GetBool("cluster.enabled")
-	if clusterEnabled {
-		controlPlaneCount := configHandler.GetInt("cluster.controlplanes.count")
-		workerCount := configHandler.GetInt("cluster.workers.count")
-
-		clusterDriver := configHandler.GetString("cluster.driver")
-
-		if clusterDriver == "talos" {
-			for i := 1; i <= controlPlaneCount; i++ {
-				controlPlaneService := c.constructors.NewTalosService(c.injector, "controlplane")
-				controlPlaneService.SetName(fmt.Sprintf("controlplane-%d", i))
-				serviceName := fmt.Sprintf("clusterNode.controlplane-%d", i)
-				c.injector.Register(serviceName, controlPlaneService)
-			}
-			for i := 1; i <= workerCount; i++ {
-				workerService := c.constructors.NewTalosService(c.injector, "worker")
-				workerService.SetName(fmt.Sprintf("worker-%d", i))
-				serviceName := fmt.Sprintf("clusterNode.worker-%d", i)
-				c.injector.Register(serviceName, workerService)
-			}
-		}
-	}
-
-	return nil
-}
-
-// CreateVirtualizationComponents creates virtualization components based on configuration.
-func (c *BaseController) CreateVirtualizationComponents() error {
-	configHandler := c.ResolveConfigHandler()
-
-	vmDriver := configHandler.GetString("vm.driver")
-	dockerEnabled := configHandler.GetBool("docker.enabled")
-
-	if vmDriver == "colima" {
-		// Create and register NetworkInterfaceProvider
-		networkInterfaceProvider := c.constructors.NewNetworkInterfaceProvider()
-		c.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
-
-		// Create secure shell
-		secureShell := c.constructors.NewSecureShell(c.injector)
-		c.injector.Register("secureShell", secureShell)
-
-		// Create SSH client
-		sshClient := c.constructors.NewSSHClient()
-		c.injector.Register("sshClient", sshClient)
-
-		// Create Colima virtual machine
-		colimaVirtualMachine := c.constructors.NewColimaVirt(c.injector)
-		c.injector.Register("virtualMachine", colimaVirtualMachine)
-
-		// Create Colima network manager
-		networkManager := c.constructors.NewColimaNetworkManager(c.injector)
-		c.injector.Register("networkManager", networkManager)
-	} else {
-		// Create base network manager
-		networkManager := c.constructors.NewBaseNetworkManager(c.injector)
-		c.injector.Register("networkManager", networkManager)
-	}
-
-	if dockerEnabled {
-		// Create Docker virtualization
-		containerRuntime := c.constructors.NewDockerVirt(c.injector)
-		c.injector.Register("containerRuntime", containerRuntime)
-	}
-
-	return nil
-}
-
-// CreateStackComponents creates the stack components.
-func (c *BaseController) CreateStackComponents() error {
-	// Create Windsor stack
-	stackInstance := c.constructors.NewWindsorStack(c.injector)
-	c.injector.Register("stack", stackInstance)
-
 	return nil
 }
 
 // WriteConfigurationFiles writes the configuration files.
 func (c *BaseController) WriteConfigurationFiles() error {
-	// Resolve all services
-	resolvedServices := c.ResolveAllServices()
+	req := c.requirements
 
-	// Write tools manifest
-	toolsManager := c.ResolveToolsManager()
-	if toolsManager != nil {
-		if err := toolsManager.WriteManifest(); err != nil {
-			return fmt.Errorf("error writing tools manifest: %w", err)
-		}
-	}
-
-	// Write blueprint
-	blueprintHandler := c.ResolveBlueprintHandler()
-	if blueprintHandler != nil {
-		if err := blueprintHandler.WriteConfig(); err != nil {
-			return fmt.Errorf("error writing blueprint config: %w", err)
-		}
-	}
-
-	// Write configuration for all services
-	for _, service := range resolvedServices {
-		if service != nil {
-			if err := service.WriteConfig(); err != nil {
-				return fmt.Errorf("error writing service config: %w", err)
+	// Write tools manifest if tools are required
+	if req.Tools {
+		toolsManager := c.ResolveToolsManager()
+		if toolsManager != nil {
+			if err := toolsManager.WriteManifest(); err != nil {
+				return fmt.Errorf("error writing tools manifest: %w", err)
 			}
 		}
 	}
 
-	// Resolve and write configuration for virtual machine if vm.driver is defined
-	if vmDriver := c.configHandler.GetString("vm.driver"); vmDriver != "" {
-		resolvedVirt := c.ResolveVirtualMachine()
-		if resolvedVirt != nil {
-			if err := resolvedVirt.WriteConfig(); err != nil {
-				return fmt.Errorf("error writing virtual machine config: %w", err)
+	// Write blueprint if blueprint is required
+	if req.Blueprint {
+		blueprintHandler := c.ResolveBlueprintHandler()
+		if blueprintHandler != nil {
+			if err := blueprintHandler.WriteConfig(); err != nil {
+				return fmt.Errorf("error writing blueprint config: %w", err)
 			}
 		}
 	}
 
-	// Resolve and write configuration for container runtime if docker.enabled is true
-	if dockerEnabled := c.configHandler.GetBool("docker.enabled"); dockerEnabled {
-		resolvedContainerRuntime := c.ResolveContainerRuntime()
-		if resolvedContainerRuntime != nil {
-			if err := resolvedContainerRuntime.WriteConfig(); err != nil {
-				return fmt.Errorf("error writing container runtime config: %w", err)
+	// Write configuration for all services if services are required
+	if req.Services {
+		resolvedServices := c.ResolveAllServices()
+		for _, service := range resolvedServices {
+			if service != nil {
+				if err := service.WriteConfig(); err != nil {
+					return fmt.Errorf("error writing service config: %w", err)
+				}
 			}
 		}
 	}
 
-	// Resolve and write configuration for all generators
-	generators := c.ResolveAllGenerators()
-	for _, generator := range generators {
-		if generator != nil {
-			if err := generator.Write(); err != nil {
-				return fmt.Errorf("error writing generator config: %w", err)
+	// Write configuration for virtual machine if vm is required
+	if req.VM {
+		if vmDriver := c.ResolveConfigHandler().GetString("vm.driver"); vmDriver != "" {
+			resolvedVirt := c.ResolveVirtualMachine()
+			if resolvedVirt != nil {
+				if err := resolvedVirt.WriteConfig(); err != nil {
+					return fmt.Errorf("error writing virtual machine config: %w", err)
+				}
+			}
+		}
+	}
+
+	// Write configuration for container runtime if containers are required
+	if req.Containers {
+		if dockerEnabled := c.ResolveConfigHandler().GetBool("docker.enabled"); dockerEnabled {
+			resolvedContainerRuntime := c.ResolveContainerRuntime()
+			if resolvedContainerRuntime != nil {
+				if err := resolvedContainerRuntime.WriteConfig(); err != nil {
+					return fmt.Errorf("error writing container runtime config: %w", err)
+				}
+			}
+		}
+	}
+
+	// Write configuration for all generators if generators are required
+	if req.Generators {
+		generators := c.ResolveAllGenerators()
+		for _, generator := range generators {
+			if generator != nil {
+				if err := generator.Write(); err != nil {
+					return fmt.Errorf("error writing generator config: %w", err)
+				}
 			}
 		}
 	}
@@ -877,16 +578,16 @@ func (c *BaseController) ResolveAllEnvPrinters() []env.EnvPrinter {
 }
 
 // ResolveShell resolves the shell instance.
-func (c *BaseController) ResolveShell() shell.Shell {
+func (c *BaseController) ResolveShell() sh.Shell {
 	instance := c.injector.Resolve("shell")
-	shellInstance, _ := instance.(shell.Shell)
+	shellInstance, _ := instance.(sh.Shell)
 	return shellInstance
 }
 
 // ResolveSecureShell resolves the secureShell instance.
-func (c *BaseController) ResolveSecureShell() shell.Shell {
+func (c *BaseController) ResolveSecureShell() sh.Shell {
 	instance := c.injector.Resolve("secureShell")
-	shellInstance, _ := instance.(shell.Shell)
+	shellInstance, _ := instance.(sh.Shell)
 	return shellInstance
 }
 
@@ -978,5 +679,371 @@ func (c *BaseController) SetEnvironmentVariables() error {
 	return nil
 }
 
-// Ensure BaseController implements the Controller interface
+// =============================================================================
+// Private functions
+// =============================================================================
+
+// createShellComponent creates and initializes the shell component if required
+func (c *BaseController) createShellComponent(req Requirements) error {
+	if c.constructors.NewShell == nil {
+		return fmt.Errorf("required constructor NewShell is nil")
+	}
+
+	shell := c.constructors.NewShell(c.injector)
+	c.injector.Register("shell", shell)
+
+	if verbose, ok := req.Flags["verbose"]; ok && verbose {
+		shell.SetVerbosity(true)
+	}
+
+	if req.Trust {
+		if shell.CheckTrustedDirectory() != nil {
+			fmt.Fprintf(os.Stderr, "\033[33mWarning: You are not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve.\033[0m\n")
+		}
+	}
+
+	return nil
+}
+
+// createConfigComponent creates and initializes the config component if required
+func (c *BaseController) createConfigComponent(req Requirements) error {
+	if c.constructors.NewConfigHandler == nil {
+		return fmt.Errorf("required constructor NewConfigHandler is nil")
+	}
+
+	configHandler := c.constructors.NewConfigHandler(c.injector)
+	c.injector.Register("configHandler", configHandler)
+
+	if err := configHandler.Initialize(); err != nil {
+		return fmt.Errorf("error initializing config handler: %w", err)
+	}
+
+	cliConfigPath := os.Getenv("WINDSORCONFIG")
+	if cliConfigPath == "" {
+		shell := c.ResolveShell()
+		projectRoot, err := shell.GetProjectRoot()
+		if err != nil {
+			return fmt.Errorf("error retrieving project root: %w", err)
+		}
+
+		yamlPath := filepath.Join(projectRoot, "windsor.yaml")
+		ymlPath := filepath.Join(projectRoot, "windsor.yml")
+
+		if _, err := osStat(yamlPath); os.IsNotExist(err) {
+			if _, err := osStat(ymlPath); err == nil {
+				cliConfigPath = ymlPath
+			}
+		} else {
+			cliConfigPath = yamlPath
+		}
+	}
+
+	configHandler.GetContext()
+
+	if cliConfigPath != "" {
+		if err := configHandler.LoadConfig(cliConfigPath); err != nil {
+			return fmt.Errorf("error loading config file: %w", err)
+		}
+	}
+
+	if req.ConfigLoaded && !configHandler.IsLoaded() {
+		fmt.Fprintln(os.Stderr, "Cannot execute commands. Please run 'windsor init' to set up your project first.")
+		return nil
+	}
+
+	return nil
+}
+
+// createSecretsComponents creates and initializes secrets providers if required
+func (c *BaseController) createSecretsComponents(req Requirements) error {
+	if !req.Secrets {
+		return nil
+	}
+
+	configHandler := c.ResolveConfigHandler()
+	if configHandler == nil {
+		return fmt.Errorf("config handler is nil")
+	}
+
+	contextName := configHandler.GetContext()
+	configRoot, err := configHandler.GetConfigRoot()
+	if err != nil {
+		return fmt.Errorf("error getting config root: %w", err)
+	}
+
+	secretsFilePaths := []string{"secrets.enc.yaml", "secrets.enc.yml"}
+	for _, filePath := range secretsFilePaths {
+		if _, err := osStat(filepath.Join(configRoot, filePath)); err == nil {
+			sopsSecretsProvider := c.constructors.NewSopsSecretsProvider(configRoot, c.injector)
+			c.injector.Register("sopsSecretsProvider", sopsSecretsProvider)
+			configHandler.SetSecretsProvider(sopsSecretsProvider)
+		}
+	}
+
+	vaults, ok := configHandler.Get(fmt.Sprintf("contexts.%s.secrets.onepassword.vaults", contextName)).(map[string]secretsConfigType.OnePasswordVault)
+	if ok && len(vaults) > 0 {
+		useSDK := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != ""
+
+		for key, vault := range vaults {
+			vault.ID = key
+			var opSecretsProvider secrets.SecretsProvider
+
+			if useSDK {
+				opSecretsProvider = c.constructors.NewOnePasswordSDKSecretsProvider(vault, c.injector)
+			} else {
+				opSecretsProvider = c.constructors.NewOnePasswordCLISecretsProvider(vault, c.injector)
+			}
+
+			c.injector.Register(fmt.Sprintf("op%sSecretsProvider", strings.ToUpper(key[:1])+key[1:]), opSecretsProvider)
+			configHandler.SetSecretsProvider(opSecretsProvider)
+		}
+	}
+
+	return nil
+}
+
+// createToolsComponents creates and initializes project tools if required
+func (c *BaseController) createToolsComponents(req Requirements) error {
+	if !req.Tools {
+		return nil
+	}
+
+	configHandler := c.ResolveConfigHandler()
+	if configHandler == nil {
+		return fmt.Errorf("config handler is nil")
+	}
+
+	toolsManagerType := configHandler.GetString("toolsManager")
+	if toolsManagerType == "" {
+		toolsManagerType, _ = tools.CheckExistingToolsManager(configHandler.GetString("projectRoot"))
+	}
+
+	toolsManager := c.constructors.NewToolsManager(c.injector)
+	c.injector.Register("toolsManager", toolsManager)
+
+	return nil
+}
+
+// createGeneratorsComponents creates and initializes code generators if required
+func (c *BaseController) createGeneratorsComponents(req Requirements) error {
+	if !req.Generators {
+		return nil
+	}
+
+	gitGenerator := c.constructors.NewGitGenerator(c.injector)
+	c.injector.Register("gitGenerator", gitGenerator)
+
+	if req.Blueprint {
+		terraformGenerator := c.constructors.NewTerraformGenerator(c.injector)
+		c.injector.Register("terraformGenerator", terraformGenerator)
+
+		kustomizeGenerator := c.constructors.NewKustomizeGenerator(c.injector)
+		c.injector.Register("kustomizeGenerator", kustomizeGenerator)
+	}
+
+	return nil
+}
+
+// createBlueprintComponent creates and initializes the blueprint handler if required
+func (c *BaseController) createBlueprintComponent(req Requirements) error {
+	if !req.Blueprint {
+		return nil
+	}
+
+	blueprintHandler := c.constructors.NewBlueprintHandler(c.injector)
+	c.injector.Register("blueprintHandler", blueprintHandler)
+
+	return nil
+}
+
+// createEnvComponents creates and initializes environment components if required
+func (c *BaseController) createEnvComponents(req Requirements) error {
+	if !req.Env {
+		return nil
+	}
+
+	configHandler := c.ResolveConfigHandler()
+	if configHandler == nil {
+		return fmt.Errorf("config handler is nil")
+	}
+
+	envPrinters := map[string]func(di.Injector) env.EnvPrinter{
+		"awsEnv":       c.constructors.NewAwsEnvPrinter,
+		"dockerEnv":    c.constructors.NewDockerEnvPrinter,
+		"kubeEnv":      c.constructors.NewKubeEnvPrinter,
+		"omniEnv":      c.constructors.NewOmniEnvPrinter,
+		"talosEnv":     c.constructors.NewTalosEnvPrinter,
+		"terraformEnv": c.constructors.NewTerraformEnvPrinter,
+		"windsorEnv":   c.constructors.NewWindsorEnvPrinter,
+	}
+
+	for key, constructor := range envPrinters {
+		if key == "awsEnv" && !configHandler.GetBool("aws.enabled") {
+			continue
+		}
+		if key == "dockerEnv" && !configHandler.GetBool("docker.enabled") {
+			continue
+		}
+		envPrinter := constructor(c.injector)
+		c.injector.Register(key, envPrinter)
+	}
+
+	return nil
+}
+
+// createServiceComponents creates and initializes service components if required
+func (c *BaseController) createServiceComponents(req Requirements) error {
+	if !req.Services {
+		return nil
+	}
+
+	configHandler := c.ResolveConfigHandler()
+	if configHandler == nil {
+		return fmt.Errorf("config handler is nil")
+	}
+
+	if !configHandler.GetBool("docker.enabled") {
+		return nil
+	}
+
+	dnsEnabled := configHandler.GetBool("dns.enabled")
+	if dnsEnabled {
+		dnsService := c.constructors.NewDNSService(c.injector)
+		dnsService.SetName("dns")
+		c.injector.Register("dnsService", dnsService)
+	}
+
+	gitLivereloadEnabled := configHandler.GetBool("git.livereload.enabled")
+	if gitLivereloadEnabled {
+		gitLivereloadService := c.constructors.NewGitLivereloadService(c.injector)
+		gitLivereloadService.SetName("git")
+		c.injector.Register("gitLivereloadService", gitLivereloadService)
+	}
+
+	localstackEnabled := configHandler.GetBool("aws.localstack.enabled")
+	if localstackEnabled {
+		localstackService := c.constructors.NewLocalstackService(c.injector)
+		localstackService.SetName("aws")
+		c.injector.Register("localstackService", localstackService)
+	}
+
+	contextConfig := configHandler.GetConfig()
+	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
+		for key := range contextConfig.Docker.Registries {
+			service := c.constructors.NewRegistryService(c.injector)
+			service.SetName(key)
+			serviceName := fmt.Sprintf("registryService.%s", key)
+			c.injector.Register(serviceName, service)
+		}
+	}
+
+	if configHandler.GetBool("cluster.enabled") {
+		clusterDriver := configHandler.GetString("cluster.driver")
+		if clusterDriver == "talos" {
+			controlPlaneCount := configHandler.GetInt("cluster.controlplanes.count")
+			workerCount := configHandler.GetInt("cluster.workers.count")
+
+			for i := 1; i <= controlPlaneCount; i++ {
+				controlPlaneService := c.constructors.NewTalosService(c.injector, "controlplane")
+				controlPlaneService.SetName(fmt.Sprintf("controlplane-%d", i))
+				serviceName := fmt.Sprintf("clusterNode.controlplane-%d", i)
+				c.injector.Register(serviceName, controlPlaneService)
+			}
+
+			for i := 1; i <= workerCount; i++ {
+				workerService := c.constructors.NewTalosService(c.injector, "worker")
+				workerService.SetName(fmt.Sprintf("worker-%d", i))
+				serviceName := fmt.Sprintf("clusterNode.worker-%d", i)
+				c.injector.Register(serviceName, workerService)
+			}
+		}
+	}
+
+	return nil
+}
+
+// createNetworkComponents creates and initializes network components based on configuration.
+func (c *BaseController) createNetworkComponents(req Requirements) error {
+	if !req.Network {
+		return nil
+	}
+
+	vmDriver := c.ResolveConfigHandler().GetString("vm.driver")
+
+	networkInterfaceProvider := c.constructors.NewNetworkInterfaceProvider()
+	c.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
+
+	if req.VM {
+		secureShell := c.constructors.NewSecureShell(c.injector)
+		c.injector.Register("secureShell", secureShell)
+
+		sshClient := c.constructors.NewSSHClient()
+		c.injector.Register("sshClient", sshClient)
+
+		if vmDriver == "colima" {
+			networkManager := c.constructors.NewColimaNetworkManager(c.injector)
+			c.injector.Register("networkManager", networkManager)
+		} else {
+			networkManager := c.constructors.NewBaseNetworkManager(c.injector)
+			c.injector.Register("networkManager", networkManager)
+		}
+	} else {
+		networkManager := c.constructors.NewBaseNetworkManager(c.injector)
+		c.injector.Register("networkManager", networkManager)
+	}
+
+	return nil
+}
+
+// createVirtualizationComponents creates virtualization components based on configuration.
+func (c *BaseController) createVirtualizationComponents(req Requirements) error {
+	if !req.VM && !req.Containers {
+		return nil
+	}
+
+	vmDriver := c.ResolveConfigHandler().GetString("vm.driver")
+	dockerEnabled := c.ResolveConfigHandler().GetBool("docker.enabled")
+
+	// Create virtualization components based on configuration
+	if req.VM && vmDriver == "colima" {
+		if c.constructors.NewColimaVirt == nil {
+			return fmt.Errorf("failed to create virtualization components: NewColimaVirt constructor is nil")
+		}
+		colimaVirtualMachine := c.constructors.NewColimaVirt(c.injector)
+		if colimaVirtualMachine == nil {
+			return fmt.Errorf("failed to create virtualization components: NewColimaVirt returned nil")
+		}
+		c.injector.Register("virtualMachine", colimaVirtualMachine)
+	}
+
+	if req.Containers && dockerEnabled {
+		if c.constructors.NewDockerVirt == nil {
+			return fmt.Errorf("failed to create Docker container runtime: NewDockerVirt constructor is nil")
+		}
+		containerRuntime := c.constructors.NewDockerVirt(c.injector)
+		if containerRuntime == nil {
+			return fmt.Errorf("failed to create Docker container runtime: NewDockerVirt returned nil")
+		}
+		c.injector.Register("containerRuntime", containerRuntime)
+	}
+
+	return nil
+}
+
+// createStackComponent creates and initializes the stack component if required
+func (c *BaseController) createStackComponent(req Requirements) error {
+	if !req.Stack {
+		return nil
+	}
+
+	stackInstance := c.constructors.NewWindsorStack(c.injector)
+	c.injector.Register("stack", stackInstance)
+
+	return nil
+}
+
+// =============================================================================
+// Interface compliance
+// =============================================================================
+
 var _ Controller = (*BaseController)(nil)
