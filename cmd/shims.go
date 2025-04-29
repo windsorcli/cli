@@ -1,40 +1,51 @@
+// The shims package is a system call abstraction layer
+// It provides mockable wrappers around system and runtime functions
+// It serves as a testing aid by allowing system calls to be intercepted
+// It enables dependency injection and test isolation for system-level operations
+
 package cmd
 
 import (
-	"net"
 	"os"
 	"os/exec"
 	"runtime"
 )
 
-// exitFunc is a function to exit the program
-var exitFunc = os.Exit
+// =============================================================================
+// Types
+// =============================================================================
 
-// osUserHomeDir retrieves the user's home directory
-var osUserHomeDir = os.UserHomeDir
+// Shims provides mockable wrappers around system and runtime functions
+type Shims struct {
+	Exit        func(int)
+	UserHomeDir func() (string, error)
+	Stat        func(string) (os.FileInfo, error)
+	RemoveAll   func(string) error
+	Getwd       func() (string, error)
+	Setenv      func(string, string) error
+	Command     func(string, ...string) *exec.Cmd
+	Getenv      func(string) string
+}
 
-// osStat retrieves the file information
-var osStat = os.Stat
+// =============================================================================
+// Helpers
+// =============================================================================
 
-// osRemoveAll removes a directory and all its contents
-var osRemoveAll = os.RemoveAll
+// NewShims creates a new Shims instance with default implementations
+func NewShims() *Shims {
+	return &Shims{
+		Exit:        os.Exit,
+		UserHomeDir: os.UserHomeDir,
+		Stat:        os.Stat,
+		RemoveAll:   os.RemoveAll,
+		Getwd:       os.Getwd,
+		Setenv:      os.Setenv,
+		Command:     exec.Command,
+		Getenv:      os.Getenv,
+	}
+}
 
-// getwd retrieves the current working directory
-var getwd = os.Getwd
-
-// verbose is a flag for verbose output
-var verbose bool
-
-// osSetenv sets an environment variable
-var osSetenv = os.Setenv
-
-// execCommand is the instance for executing commands
-var execCommand = exec.Command
-
-// netInterfaces retrieves the network interfaces
-var netInterfaces = net.Interfaces
-
-// Define a variable for runtime.GOOS for easier testing
-var goos = func() string {
+// Goos returns the operating system name
+func (s *Shims) Goos() string {
 	return runtime.GOOS
 }

@@ -1,23 +1,18 @@
 package stack
 
+import "github.com/windsorcli/cli/pkg/di"
+
 // The MockStack is a test implementation of the Stack interface.
 // It provides function fields that can be set to customize behavior in tests,
 // The MockStack acts as a controllable test double for the Stack interface,
 // enabling precise control over Initialize and Up behaviors in unit tests.
 
-import (
-	"github.com/windsorcli/cli/pkg/di"
-)
-
 // =============================================================================
 // Types
 // =============================================================================
 
-// MockStack is a mock implementation of the Stack interface for testing purposes.
-// It embeds BaseStack to inherit common functionality and adds function fields
-// that can be set to customize behavior in tests.
+// MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
-	BaseStack
 	InitializeFunc func() error
 	UpFunc         func() error
 }
@@ -26,20 +21,16 @@ type MockStack struct {
 // Constructor
 // =============================================================================
 
-// NewMockStack creates a new instance of MockStack with the provided injector.
-// The injector is stored in the embedded BaseStack, and function fields are
-// initialized to nil, providing default no-op behavior.
+// NewMockStack creates a new mock stack.
 func NewMockStack(injector di.Injector) *MockStack {
-	return &MockStack{BaseStack: BaseStack{injector: injector}}
+	return &MockStack{}
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// Initialize calls the mock InitializeFunc if set, otherwise returns nil.
-// This allows tests to customize the initialization behavior by setting
-// InitializeFunc to return specific errors or perform custom actions.
+// Initialize is a mock implementation of the Initialize method.
 func (m *MockStack) Initialize() error {
 	if m.InitializeFunc != nil {
 		return m.InitializeFunc()
@@ -47,9 +38,7 @@ func (m *MockStack) Initialize() error {
 	return nil
 }
 
-// Up calls the mock UpFunc if set, otherwise returns nil.
-// This allows tests to customize the up behavior by setting
-// UpFunc to return specific errors or perform custom actions.
+// Up is a mock implementation of the Up method.
 func (m *MockStack) Up() error {
 	if m.UpFunc != nil {
 		return m.UpFunc()

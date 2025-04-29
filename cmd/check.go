@@ -15,20 +15,21 @@ var checkCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
+		if err := controller.InitializeWithRequirements(ctrl.Requirements{
+			ConfigLoaded: true,
+			Tools:        true,
+			CommandName:  cmd.Name(),
+			Flags: map[string]bool{
+				"verbose": cmd.Flags().Changed("verbose"),
+			},
+		}); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
+		}
+
 		// Check if projectName is set in the configuration
 		configHandler := controller.ResolveConfigHandler()
 		if !configHandler.IsLoaded() {
 			return fmt.Errorf("Nothing to check. Have you run \033[1mwindsor init\033[0m?")
-		}
-
-		// Create project components
-		if err := controller.CreateProjectComponents(); err != nil {
-			return fmt.Errorf("Error creating project components: %w", err)
-		}
-
-		// Initialize components
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
 		// Resolve the tools manager and check the tools
@@ -39,7 +40,7 @@ var checkCmd = &cobra.Command{
 		if err := toolsManager.Check(); err != nil {
 			return fmt.Errorf("Error checking tools: %w", err)
 		}
-		fmt.Println("All tools are up to date.")
+		fmt.Fprintln(cmd.OutOrStdout(), "All tools are up to date.")
 		return nil
 	},
 }

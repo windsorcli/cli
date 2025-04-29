@@ -20,49 +20,29 @@ var upCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
-		// Ensure configuration is loaded
-		configHandler := controller.ResolveConfigHandler()
-		if configHandler == nil {
-			return fmt.Errorf("No config handler found")
-		}
-		if !configHandler.IsLoaded() {
-			fmt.Println("Cannot set up environment. Please run `windsor init` to set up your project first.")
-			return nil
-		}
-
-		// Resolve configuration settings and determine if specific virtualization or container runtime
-		// actions are required based on the configuration.
-		vmDriver := configHandler.GetString("vm.driver")
-
 		// Don't do any caching of application state (secrets, etc.) when performing "up"
-		if err := osSetenv("NO_CACHE", "true"); err != nil {
+		if err := shims.Setenv("NO_CACHE", "true"); err != nil {
 			return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
 		}
 
-		// Create and initialize all necessary components for the Windsor environment.
-		// This includes project, environment, and stack components.
-		if err := controller.CreateProjectComponents(); err != nil {
-			return fmt.Errorf("Error creating project components: %w", err)
-		}
-		if err := controller.CreateEnvComponents(); err != nil {
-			return fmt.Errorf("Error creating environment components: %w", err)
-		}
-
-		// If the virtualization driver is configured, create virtualization and service components.
-		if vmDriver != "" {
-			if err := controller.CreateVirtualizationComponents(); err != nil {
-				return fmt.Errorf("Error creating virtualization components: %w", err)
-			}
-			if err := controller.CreateServiceComponents(); err != nil {
-				return fmt.Errorf("Error creating services components: %w", err)
-			}
-		}
-
-		if err := controller.CreateStackComponents(); err != nil {
-			return fmt.Errorf("Error creating stack components: %w", err)
-		}
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
+		// Initialize with requirements
+		if err := controller.InitializeWithRequirements(ctrl.Requirements{
+			ConfigLoaded: true,
+			Env:          true,
+			Secrets:      true,
+			VM:           true,
+			Containers:   true,
+			Services:     true,
+			Network:      true,
+			Blueprint:    true,
+			Generators:   true,
+			Stack:        true,
+			CommandName:  cmd.Name(),
+			Flags: map[string]bool{
+				"verbose": verbose,
+			},
+		}); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
 		}
 
 		// Set the environment variables internally in the process
@@ -103,6 +83,8 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("Error running virtual machine Up command: %w", err)
 			}
 		}
+
+		configHandler := controller.ResolveConfigHandler()
 
 		// If the container runtime is enabled in the configuration, start it.
 		containerRuntimeEnabled := configHandler.GetBool("docker.enabled")

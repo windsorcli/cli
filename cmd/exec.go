@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/spf13/cobra"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -13,27 +14,27 @@ var execCmd = &cobra.Command{
 	Long:         "Execute a shell command with environment variables set for the application.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
-
-		// Ensure configuration is loaded
-		configHandler := controller.ResolveConfigHandler()
-		if !configHandler.IsLoaded() {
-			fmt.Println("Cannot execute commands. Please run `windsor init` to set up your project first.")
-			return nil
-		}
-
 		if len(args) == 0 {
 			return fmt.Errorf("no command provided")
 		}
 
-		// Create environment components
-		if err := controller.CreateEnvComponents(); err != nil {
-			return fmt.Errorf("Error creating environment components: %w", err)
-		}
+		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
-		// Initialize components
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
+		// Initialize with requirements
+		if err := controller.InitializeWithRequirements(ctrl.Requirements{
+			ConfigLoaded: true,
+			Env:          true,
+			Secrets:      true,
+			VM:           true,
+			Containers:   true,
+			Network:      true,
+			Services:     true,
+			CommandName:  cmd.Name(),
+			Flags: map[string]bool{
+				"verbose": verbose,
+			},
+		}); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
 		}
 
 		// Load secrets
@@ -56,9 +57,7 @@ var execCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("Error getting environment variables: %w", err)
 			}
-			for k, v := range vars {
-				envVars[k] = v
-			}
+			maps.Copy(envVars, vars)
 			if err := envPrinter.PostEnvHook(); err != nil {
 				return fmt.Errorf("Error executing PostEnvHook: %w", err)
 			}
@@ -66,7 +65,7 @@ var execCmd = &cobra.Command{
 
 		// Set environment variables for the command
 		for k, v := range envVars {
-			if err := osSetenv(k, v); err != nil {
+			if err := shims.Setenv(k, v); err != nil {
 				return fmt.Errorf("Error setting environment variable %s: %w", k, err)
 			}
 		}

@@ -48,7 +48,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		options = opts[0]
 	}
 
-	// Create injector
 	var injector di.Injector
 	if options.Injector == nil {
 		injector = di.NewInjector()
@@ -56,14 +55,12 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		injector = options.Injector
 	}
 
-	// Create shell with project root
 	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return t.TempDir(), nil
 	}
 	injector.Register("shell", mockShell)
 
-	// Create config handler
 	var configHandler config.ConfigHandler
 	if options.ConfigHandler == nil {
 		configHandler = config.NewYamlConfigHandler(injector)
@@ -101,14 +98,18 @@ func TestNewController(t *testing.T) {
 	}
 
 	t.Run("CreatesControllerWithDefaultConstructors", func(t *testing.T) {
-		// Given
+		// Given a new controller is created with default constructors
 		controller, mocks := setup(t)
 
-		// Then
+		// When the controller is initialized
+		// (no action needed as initialization happens in setup)
+
+		// Then the controller should be properly constructed
 		if controller == nil {
 			t.Fatal("Expected controller to not be nil")
 		}
 
+		// And the injector should be properly set
 		if controller.injector != mocks.Injector {
 			t.Errorf("Expected injector to be %v, got %v", mocks.Injector, controller.injector)
 		}
@@ -116,7 +117,13 @@ func TestNewController(t *testing.T) {
 		// Test each constructor by actually calling it
 		constructorTests := map[string]func() error{
 			"NewConfigHandler": func() error {
+				// Given a new controller is created
+				controller, mocks := setup(t)
+
+				// When the config handler constructor is called
 				handler := controller.constructors.NewConfigHandler(mocks.Injector)
+
+				// Then the handler should be created successfully
 				if handler == nil {
 					return fmt.Errorf("NewConfigHandler returned nil")
 				}
@@ -326,8 +333,9 @@ func TestNewController(t *testing.T) {
 				return nil
 			},
 		}
-
+		// When each constructor is tested
 		for name, test := range constructorTests {
+			// Then it should create the component successfully
 			if err := test(); err != nil {
 				t.Errorf("Failed to create %s: %v", name, err)
 			}
@@ -348,8 +356,10 @@ func TestBaseController_SetRequirements(t *testing.T) {
 	}
 
 	t.Run("SetsRequirementsOnController", func(t *testing.T) {
-		// Given
+		// Given a controller is created
 		controller, _ := setup(t)
+
+		// And requirements are defined with all fields set
 		requirements := Requirements{
 			Trust:        true,
 			ConfigLoaded: true,
@@ -367,10 +377,10 @@ func TestBaseController_SetRequirements(t *testing.T) {
 			Flags:        map[string]bool{"verbose": true},
 		}
 
-		// When
+		// When the requirements are set on the controller
 		controller.SetRequirements(requirements)
 
-		// Then
+		// Then all requirements should be properly set
 		if controller.requirements.Trust != requirements.Trust {
 			t.Errorf("Expected Trust to be %v, got %v", requirements.Trust, controller.requirements.Trust)
 		}
@@ -402,14 +412,14 @@ func TestBaseController_CreateComponents(t *testing.T) {
 	}
 
 	t.Run("ReturnsErrorWhenInjectorIsNil", func(t *testing.T) {
-		// Given
+		// Given a controller with nil injector
 		controller, _ := setup(t)
 		controller.injector = nil
 
-		// When
+		// When attempting to create components
 		err := controller.CreateComponents()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error when injector is nil")
 		}
@@ -419,13 +429,13 @@ func TestBaseController_CreateComponents(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenRequirementsNotSet", func(t *testing.T) {
-		// Given
+		// Given a controller without requirements set
 		controller, _ := setup(t)
 
-		// When
+		// When attempting to create components
 		err := controller.CreateComponents()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error when requirements not set")
 		}
@@ -435,7 +445,7 @@ func TestBaseController_CreateComponents(t *testing.T) {
 	})
 
 	t.Run("CreatesAllRequiredComponents", func(t *testing.T) {
-		// Given
+		// Given a controller with all requirements enabled
 		controller, _ := setup(t)
 		controller.SetRequirements(Requirements{
 			Trust:        true,
@@ -453,17 +463,17 @@ func TestBaseController_CreateComponents(t *testing.T) {
 			CommandName:  "test",
 		})
 
-		// When
+		// When creating components
 		err := controller.CreateComponents()
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("ReturnsErrorWhenVirtualizationComponentCreationFails", func(t *testing.T) {
-		// Setup
+		// Given a controller with virtualization requirements but missing constructors
 		mocks := setupMocks(t)
 		if err := mocks.ConfigHandler.LoadConfigString(`
 contexts:
@@ -487,7 +497,6 @@ contexts:
 			return t.TempDir(), nil
 		}
 
-		// Create controller with nil constructors to force error
 		controller := NewController(mocks.Injector)
 		controller.constructors = ComponentConstructors{
 			NewShell: func(injector di.Injector) shell.Shell {
@@ -498,16 +507,17 @@ contexts:
 			},
 		}
 
-		// Test
 		controller.SetRequirements(Requirements{
 			CommandName:  "test",
 			VM:           true,
 			Containers:   true,
 			ConfigLoaded: true,
 		})
+
+		// When attempting to create components
 		err := controller.CreateComponents()
 
-		// Verify
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -518,23 +528,23 @@ contexts:
 	})
 
 	t.Run("CreatesNoComponentsWhenNoRequirementsSet", func(t *testing.T) {
-		// Given
+		// Given a controller with minimal requirements
 		controller, _ := setup(t)
 		controller.SetRequirements(Requirements{
 			CommandName: "test",
 		})
 
-		// When
+		// When creating components
 		err := controller.CreateComponents()
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("CreatesOnlyRequestedComponents", func(t *testing.T) {
-		// Given
+		// Given a controller with specific requirements
 		controller, mocks := setup(t)
 		controller.SetRequirements(Requirements{
 			CommandName: "test",
@@ -550,15 +560,14 @@ contexts:
 			Secrets:     false,
 		})
 
-		// When
+		// When creating components
 		err := controller.CreateComponents()
 
-		// Then
+		// Then only requested components should be created
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify only requested components were created
 		if toolsManager := mocks.Injector.Resolve("toolsManager"); toolsManager == nil {
 			t.Error("Expected tools manager to be created")
 		}
@@ -583,20 +592,20 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	}
 
 	t.Run("SuccessfulInitialization", func(t *testing.T) {
-		// Given
+		// Given a controller
 		controller, _ := setup(t)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("ShellInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing shell
 		controller, mocks := setup(t)
 		mockShell := shell.NewMockShell()
 		mockShell.InitializeFunc = func() error {
@@ -604,10 +613,10 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("shell", mockShell)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when shell initialization fails")
 		}
@@ -617,7 +626,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("SecureShellInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing secure shell
 		controller, mocks := setup(t)
 		mockSecureShell := shell.NewMockShell()
 		mockSecureShell.InitializeFunc = func() error {
@@ -625,10 +634,10 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("secureShell", mockSecureShell)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when secure shell initialization fails")
 		}
@@ -638,20 +647,18 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("EnvPrinterInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing env printer
 		controller, mocks := setup(t)
 		mockEnvPrinter := env.NewMockEnvPrinter()
 		mockEnvPrinter.InitializeFunc = func() error {
 			return fmt.Errorf("env printer initialization failed")
 		}
-		// EnvPrinters need to be registered under specific names to be found by ResolveAllEnvPrinters
-		// The general "envPrinter" name won't be picked up
 		mocks.Injector.Register("windsorEnv", mockEnvPrinter)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when env printer initialization fails")
 		}
@@ -661,7 +668,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ToolsManagerInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing tools manager
 		controller, mocks := setup(t)
 		mockTools := tools.NewMockToolsManager()
 		mockTools.InitializeFunc = func() error {
@@ -669,10 +676,10 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("toolsManager", mockTools)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when tools manager initialization fails")
 		}
@@ -682,20 +689,18 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ServiceInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing service
 		controller, mocks := setup(t)
 		mockService := services.NewMockService()
 		mockService.InitializeFunc = func() error {
 			return fmt.Errorf("service initialization failed")
 		}
-		// Need to use the interface type registration for ResolveAllServices to find it
-		// Let's use a special mock service that implements Service
 		mocks.Injector.Register("service", mockService)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when service initialization fails")
 		}
@@ -705,7 +710,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("VirtualMachineInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing virtual machine
 		controller, mocks := setup(t)
 		mockVM := virt.NewMockVirt()
 		mockVM.InitializeFunc = func() error {
@@ -713,10 +718,10 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("virtualMachine", mockVM)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when virtual machine initialization fails")
 		}
@@ -726,7 +731,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ContainerRuntimeInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing container runtime
 		controller, mocks := setup(t)
 		mockRuntime := virt.NewMockVirt()
 		mockRuntime.InitializeFunc = func() error {
@@ -734,10 +739,10 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("containerRuntime", mockRuntime)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when container runtime initialization fails")
 		}
@@ -747,7 +752,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("NetworkManagerInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing network manager
 		controller, mocks := setup(t)
 		mockNetwork := network.NewMockNetworkManager()
 		mockNetwork.InitializeFunc = func() error {
@@ -755,10 +760,10 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("networkManager", mockNetwork)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when network manager initialization fails")
 		}
@@ -768,7 +773,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("BlueprintHandlerInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing blueprint handler
 		controller, mocks := setup(t)
 		mockBlueprint := blueprint.NewMockBlueprintHandler(mocks.Injector)
 		mockBlueprint.InitializeFunc = func() error {
@@ -776,10 +781,10 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("blueprintHandler", mockBlueprint)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when blueprint handler initialization fails")
 		}
@@ -789,7 +794,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("BlueprintHandlerLoadConfigFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing blueprint config loading
 		controller, mocks := setup(t)
 		mockBlueprint := blueprint.NewMockBlueprintHandler(mocks.Injector)
 		mockBlueprint.InitializeFunc = func() error {
@@ -800,10 +805,10 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("blueprintHandler", mockBlueprint)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when blueprint config loading fails")
 		}
@@ -813,7 +818,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("GeneratorInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing generator
 		controller, mocks := setup(t)
 		mockGenerator := generators.NewMockGenerator()
 		mockGenerator.InitializeFunc = func() error {
@@ -823,10 +828,10 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 		// for ResolveAllGenerators to find it
 		mocks.Injector.Register("gitGenerator", mockGenerator)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned with the expected message
 		if err == nil {
 			t.Error("Expected error when generator initialization fails")
 		}
@@ -836,7 +841,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("StackInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing stack service
 		controller, mocks := setup(t)
 		mockStack := services.NewMockService()
 		mockStack.InitializeFunc = func() error {
@@ -844,10 +849,10 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("stack", mockStack)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned with the expected message
 		if err == nil {
 			t.Error("Expected error when stack initialization fails")
 		}
@@ -857,7 +862,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("ComprehensiveTestWithAllComponents", func(t *testing.T) {
-		// Given
+		// Given a controller with all components registered
 		controller, mocks := setup(t)
 
 		// Register all component types to ensure full coverage
@@ -965,10 +970,10 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 			return nil
 		}
 
-		// When
+		// When initializing all components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then no error should occur and all expected components should be initialized
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -998,7 +1003,7 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 	})
 
 	t.Run("StackInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with a failing stack service
 		controller, mocks := setup(t)
 		mockStack := services.NewMockService()
 		mockStack.InitializeFunc = func() error {
@@ -1006,10 +1011,10 @@ func TestBaseController_InitializeComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("stack", mockStack)
 
-		// When
+		// When initializing components
 		err := controller.InitializeComponents()
 
-		// Then
+		// Then an error should be returned with the expected message
 		if err == nil {
 			t.Error("Expected error when stack initialization fails")
 		}
@@ -1101,13 +1106,13 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 				Docker: &docker.DockerConfig{
 					Enabled: &enabled,
 					Registries: map[string]docker.RegistryConfig{
-						"registry1": docker.RegistryConfig{
+						"registry1": {
 							Remote:   "remote1",
 							Local:    "local1",
 							HostName: "hostname1",
 							HostPort: 5000,
 						},
-						"registry2": docker.RegistryConfig{
+						"registry2": {
 							Remote:   "remote2",
 							Local:    "local2",
 							HostName: "hostname2",
@@ -1119,33 +1124,31 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
 
-		// When
 		err := controller.WriteConfigurationFiles()
 
-		// Then
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("ToolsConfigError", func(t *testing.T) {
-		// Given
+		// Given a controller with tools requirement enabled
 		controller, mocks := setup(t)
 		controller.SetRequirements(Requirements{
 			Tools: true,
 		})
 
-		// Mock tools manager with error
+		// And a tools manager that fails to write manifest
 		mockToolsManager := tools.NewMockToolsManager()
 		mockToolsManager.WriteManifestFunc = func() error {
 			return fmt.Errorf("tools manifest write failed")
 		}
 		mocks.Injector.Register("toolsManager", mockToolsManager)
 
-		// When
+		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
 
-		// Then
+		// Then an error about tools manifest should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1155,23 +1158,23 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 	})
 
 	t.Run("BlueprintConfigError", func(t *testing.T) {
-		// Given
+		// Given a controller with blueprint requirement enabled
 		controller, mocks := setup(t)
 		controller.SetRequirements(Requirements{
 			Blueprint: true,
 		})
 
-		// Mock blueprint handler with error
+		// And a blueprint handler that fails to write config
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
 		mockBlueprintHandler.WriteConfigFunc = func(path ...string) error {
 			return fmt.Errorf("blueprint config write failed")
 		}
 		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
 
-		// When
+		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
 
-		// Then
+		// Then an error about blueprint config should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1181,23 +1184,23 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 	})
 
 	t.Run("ServiceConfigError", func(t *testing.T) {
-		// Given
+		// Given a controller with services requirement enabled
 		controller, mocks := setup(t)
 		controller.SetRequirements(Requirements{
 			Services: true,
 		})
 
-		// Mock service with error
+		// And a service that fails to write config
 		mockService := services.NewMockService()
 		mockService.WriteConfigFunc = func() error {
 			return fmt.Errorf("service config write failed")
 		}
 		mocks.Injector.Register("service", mockService)
 
-		// When
+		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
 
-		// Then
+		// Then an error about service config should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1207,13 +1210,13 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 	})
 
 	t.Run("VMConfigError", func(t *testing.T) {
-		// Given
+		// Given a controller with VM requirement enabled
 		controller, mocks := setup(t)
 		controller.SetRequirements(Requirements{
 			VM: true,
 		})
 
-		// Mock config handler for VM driver
+		// And a config handler with colima VM driver
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "vm.driver" {
@@ -1223,17 +1226,17 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
 
-		// Mock virtual machine with error
+		// And a virtual machine that fails to write config
 		mockVM := virt.NewMockVirt()
 		mockVM.WriteConfigFunc = func() error {
 			return fmt.Errorf("virtual machine config write failed")
 		}
 		mocks.Injector.Register("virtualMachine", mockVM)
 
-		// When
+		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
 
-		// Then
+		// Then an error about virtual machine config should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1243,13 +1246,13 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 	})
 
 	t.Run("ContainerConfigError", func(t *testing.T) {
-		// Given
+		// Given a controller with containers requirement enabled
 		controller, mocks := setup(t)
 		controller.SetRequirements(Requirements{
 			Containers: true,
 		})
 
-		// Mock config handler for docker enabled
+		// And a config handler with docker enabled
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
@@ -1259,17 +1262,17 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
 
-		// Mock container runtime with error
+		// And a container runtime that fails to write config
 		mockContainerRuntime := virt.NewMockVirt()
 		mockContainerRuntime.WriteConfigFunc = func() error {
 			return fmt.Errorf("container runtime config write failed")
 		}
 		mocks.Injector.Register("containerRuntime", mockContainerRuntime)
 
-		// When
+		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
 
-		// Then
+		// Then an error about container runtime config should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1279,23 +1282,23 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 	})
 
 	t.Run("GeneratorConfigError", func(t *testing.T) {
-		// Given
+		// Given a controller with generators requirement enabled
 		controller, mocks := setup(t)
 		controller.SetRequirements(Requirements{
 			Generators: true,
 		})
 
-		// Mock generator with error
+		// And a generator that fails to write config
 		mockGenerator := generators.NewMockGenerator()
 		mockGenerator.WriteFunc = func() error {
 			return fmt.Errorf("generator config write failed")
 		}
 		mocks.Injector.Register("generator", mockGenerator)
 
-		// When
+		// When writing configuration files
 		err := controller.WriteConfigurationFiles()
 
-		// Then
+		// Then an error about generator config should be returned
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1306,6 +1309,7 @@ func TestBaseController_WriteConfigurationFiles(t *testing.T) {
 }
 
 func TestBaseController_ResolveInjector(t *testing.T) {
+	// Given a test setup function that creates a controller with mocked dependencies
 	setup := func(t *testing.T) (*BaseController, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
@@ -1313,14 +1317,15 @@ func TestBaseController_ResolveInjector(t *testing.T) {
 		return controller, mocks
 	}
 
+	// When testing the injector resolution
 	t.Run("ReturnsInjectedInjector", func(t *testing.T) {
-		// Given
+		// Given a controller with a mocked injector
 		controller, mocks := setup(t)
 
-		// When
+		// When resolving the injector
 		resolvedInjector := controller.ResolveInjector()
 
-		// Then
+		// Then the resolved injector should match the injected one
 		if resolvedInjector != mocks.Injector {
 			t.Errorf("Expected injector to be %v, got %v", mocks.Injector, resolvedInjector)
 		}
@@ -1328,6 +1333,7 @@ func TestBaseController_ResolveInjector(t *testing.T) {
 }
 
 func TestBaseController_ResolveConfigHandler(t *testing.T) {
+	// Given a test setup function that creates a controller with mocked dependencies
 	setup := func(t *testing.T) (*BaseController, *Mocks) {
 		t.Helper()
 		mocks := setupMocks(t)
@@ -1336,28 +1342,28 @@ func TestBaseController_ResolveConfigHandler(t *testing.T) {
 	}
 
 	t.Run("ReturnsNilWhenConfigHandlerNotRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no config handler registered
 		mocks := setupMocks(t)
 		mocks.Injector.Register("configHandler", nil)
 		controller := NewController(mocks.Injector)
 
-		// When
+		// When resolving the config handler
 		configHandler := controller.ResolveConfigHandler()
 
-		// Then
+		// Then the resolved config handler should be nil
 		if configHandler != nil {
 			t.Errorf("Expected configHandler to be nil, got %v", configHandler)
 		}
 	})
 
 	t.Run("ReturnsRegisteredConfigHandler", func(t *testing.T) {
-		// Given
+		// Given a controller with a registered config handler
 		controller, mocks := setup(t)
 
-		// When
+		// When resolving the config handler
 		resolvedConfigHandler := controller.ResolveConfigHandler()
 
-		// Then
+		// Then the resolved config handler should match the registered one
 		if resolvedConfigHandler != mocks.ConfigHandler {
 			t.Errorf("Expected configHandler to be %v, got %v", mocks.ConfigHandler, resolvedConfigHandler)
 		}
@@ -1366,25 +1372,25 @@ func TestBaseController_ResolveConfigHandler(t *testing.T) {
 
 func TestBaseController_ResolveAllSecretsProviders(t *testing.T) {
 	t.Run("ReturnsEmptySliceWhenNoProvidersRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no secrets providers registered
 		setup := func() *BaseController {
 			mockInjector := di.NewMockInjector()
 			controller := NewController(mockInjector)
 			return controller
 		}
 
-		// When
+		// When resolving all secrets providers
 		controller := setup()
 		providers := controller.ResolveAllSecretsProviders()
 
-		// Then
+		// Then an empty slice should be returned
 		if len(providers) != 0 {
 			t.Errorf("Expected providers to be empty, got %v", providers)
 		}
 	})
 
 	t.Run("ReturnsAllRegisteredProviders", func(t *testing.T) {
-		// Given
+		// Given a controller with multiple secrets providers registered
 		setup := func() (*BaseController, []secrets.SecretsProvider) {
 			mockInjector := di.NewMockInjector()
 			mockProvider1 := secrets.NewMockSecretsProvider(mockInjector)
@@ -1400,16 +1406,16 @@ func TestBaseController_ResolveAllSecretsProviders(t *testing.T) {
 			return controller, expectedProviders
 		}
 
-		// When
+		// When resolving all secrets providers
 		controller, expectedProviders := setup()
 		resolvedProviders := controller.ResolveAllSecretsProviders()
 
-		// Then
+		// Then all registered providers should be returned
 		if len(resolvedProviders) != len(expectedProviders) {
 			t.Errorf("Expected %d providers, got %d", len(expectedProviders), len(resolvedProviders))
 		}
 
-		// Check that all expected providers are in the resolved providers
+		// And each expected provider should be present in the resolved providers
 		for _, expectedProvider := range expectedProviders {
 			found := false
 			for _, resolvedProvider := range resolvedProviders {
@@ -1434,28 +1440,28 @@ func TestBaseController_ResolveEnvPrinter(t *testing.T) {
 	}
 
 	t.Run("ReturnsNilWhenPrinterNotRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no registered printers
 		controller, _ := setup(t)
 
-		// When
+		// When attempting to resolve a nonexistent printer
 		printer := controller.ResolveEnvPrinter("nonexistent")
 
-		// Then
+		// Then nil should be returned
 		if printer != nil {
 			t.Errorf("Expected printer to be nil, got %v", printer)
 		}
 	})
 
 	t.Run("ReturnsRegisteredPrinter", func(t *testing.T) {
-		// Given
+		// Given a controller with a registered printer
 		controller, mocks := setup(t)
 		mockPrinter := env.NewMockEnvPrinter()
 		mocks.Injector.Register("testPrinter", mockPrinter)
 
-		// When
+		// When resolving the registered printer
 		resolvedPrinter := controller.ResolveEnvPrinter("testPrinter")
 
-		// Then
+		// Then the correct printer instance should be returned
 		if resolvedPrinter != mockPrinter {
 			t.Errorf("Expected printer to be %v, got %v", mockPrinter, resolvedPrinter)
 		}
@@ -1471,23 +1477,23 @@ func TestBaseController_ResolveAllEnvPrinters(t *testing.T) {
 	}
 
 	t.Run("ReturnsEmptySliceWhenNoPrintersRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no registered printers
 		controller, _ := setup(t)
 
-		// When
+		// When resolving all printers
 		printers := controller.ResolveAllEnvPrinters()
 
-		// Then
+		// Then an empty slice should be returned
 		if len(printers) != 0 {
 			t.Errorf("Expected empty slice of printers, got %v", printers)
 		}
 	})
 
 	t.Run("ReturnsRegisteredPrintersInCorrectOrder", func(t *testing.T) {
-		// Given
+		// Given a controller with multiple registered printers
 		controller, mocks := setup(t)
 
-		// Create and register mock printers
+		// And mock printers are registered
 		mockPrinter1 := env.NewMockEnvPrinter()
 		mockPrinter2 := env.NewMockEnvPrinter()
 		mockWindsorPrinter := &env.WindsorEnvPrinter{}
@@ -1496,21 +1502,21 @@ func TestBaseController_ResolveAllEnvPrinters(t *testing.T) {
 		mocks.Injector.Register("printer2", mockPrinter2)
 		mocks.Injector.Register("windsorEnv", mockWindsorPrinter)
 
-		// When
+		// When resolving all printers
 		resolvedPrinters := controller.ResolveAllEnvPrinters()
 
-		// Then
+		// Then all printers should be returned in correct order
 		if len(resolvedPrinters) != 3 {
 			t.Errorf("Expected 3 printers, got %d", len(resolvedPrinters))
 		}
 
-		// Verify Windsor printer is last
+		// And Windsor printer should be last
 		lastPrinter := resolvedPrinters[len(resolvedPrinters)-1]
 		if _, ok := lastPrinter.(*env.WindsorEnvPrinter); !ok {
 			t.Error("Expected WindsorEnvPrinter to be last")
 		}
 
-		// Verify other printers are present
+		// And other printers should be present
 		foundPrinter1 := false
 		foundPrinter2 := false
 		for i := 0; i < len(resolvedPrinters)-1; i++ {
@@ -1531,18 +1537,18 @@ func TestBaseController_ResolveAllEnvPrinters(t *testing.T) {
 	})
 
 	t.Run("HandlesNilWindsorPrinter", func(t *testing.T) {
-		// Given
+		// Given a controller with a nil Windsor printer
 		controller, mocks := setup(t)
 
-		// Create and register mock printers
+		// And a mock printer is registered
 		mockPrinter := env.NewMockEnvPrinter()
 		mocks.Injector.Register("printer1", mockPrinter)
 		mocks.Injector.Register("windsorEnv", nil)
 
-		// When
+		// When resolving all printers
 		resolvedPrinters := controller.ResolveAllEnvPrinters()
 
-		// Then
+		// Then only the non-nil printer should be returned
 		if len(resolvedPrinters) != 1 {
 			t.Errorf("Expected 1 printer, got %d", len(resolvedPrinters))
 		}
@@ -1552,16 +1558,16 @@ func TestBaseController_ResolveAllEnvPrinters(t *testing.T) {
 	})
 
 	t.Run("HandlesNonEnvPrinterTypes", func(t *testing.T) {
-		// Given
+		// Given a controller with a non-printer type registered
 		controller, mocks := setup(t)
 
-		// Register a non-printer type
+		// And a non-printer type is registered
 		mocks.Injector.Register("notAPrinter", "some string")
 
-		// When
+		// When resolving all printers
 		resolvedPrinters := controller.ResolveAllEnvPrinters()
 
-		// Then
+		// Then no printers should be returned
 		if len(resolvedPrinters) != 0 {
 			t.Errorf("Expected no printers, got %d", len(resolvedPrinters))
 		}
@@ -1577,27 +1583,27 @@ func TestBaseController_ResolveShell(t *testing.T) {
 	}
 
 	t.Run("ReturnsNilWhenShellNotRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no shell registered
 		controller, mocks := setup(t)
 		mocks.Injector.Register("shell", nil)
 
-		// When
+		// When resolving the shell
 		shell := controller.ResolveShell()
 
-		// Then
+		// Then nil should be returned
 		if shell != nil {
 			t.Errorf("Expected shell to be nil, got %v", shell)
 		}
 	})
 
 	t.Run("ReturnsRegisteredShell", func(t *testing.T) {
-		// Given
+		// Given a controller with a registered shell
 		controller, mocks := setup(t)
 
-		// When
+		// When resolving the shell
 		resolvedShell := controller.ResolveShell()
 
-		// Then
+		// Then the registered shell should be returned
 		if resolvedShell != mocks.Shell {
 			t.Errorf("Expected shell to be %v, got %v", mocks.Shell, resolvedShell)
 		}
@@ -1613,29 +1619,29 @@ func TestBaseController_ResolveSecureShell(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given
+		// Given a controller with a registered secure shell
 		controller, mocks := setup(t)
 		mockSecureShell := shell.NewMockShell()
 		mocks.Injector.Register("secureShell", mockSecureShell)
 
-		// When
+		// When resolving the secure shell
 		resolvedShell := controller.ResolveSecureShell()
 
-		// Then
+		// Then the registered secure shell should be returned
 		if resolvedShell != mockSecureShell {
 			t.Errorf("Expected shell to be %v, got %v", mockSecureShell, resolvedShell)
 		}
 	})
 
 	t.Run("ReturnsNilWhenSecureShellNotRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no secure shell registered
 		controller, mocks := setup(t)
 		mocks.Injector.Register("secureShell", nil)
 
-		// When
+		// When resolving the secure shell
 		shell := controller.ResolveSecureShell()
 
-		// Then
+		// Then nil should be returned
 		if shell != nil {
 			t.Errorf("Expected shell to be nil, got %v", shell)
 		}
@@ -1651,29 +1657,29 @@ func TestBaseController_ResolveNetworkManager(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given
+		// Given a controller with a registered network manager
 		controller, mocks := setup(t)
 		mockNetworkManager := network.NewMockNetworkManager()
 		mocks.Injector.Register("networkManager", mockNetworkManager)
 
-		// When
+		// When resolving the network manager
 		resolvedManager := controller.ResolveNetworkManager()
 
-		// Then
+		// Then the registered network manager should be returned
 		if resolvedManager != mockNetworkManager {
 			t.Errorf("Expected network manager to be %v, got %v", mockNetworkManager, resolvedManager)
 		}
 	})
 
 	t.Run("ReturnsNilWhenNetworkManagerNotRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no network manager registered
 		controller, mocks := setup(t)
 		mocks.Injector.Register("networkManager", nil)
 
-		// When
+		// When resolving the network manager
 		manager := controller.ResolveNetworkManager()
 
-		// Then
+		// Then nil should be returned
 		if manager != nil {
 			t.Errorf("Expected network manager to be nil, got %v", manager)
 		}
@@ -1689,29 +1695,29 @@ func TestBaseController_ResolveToolsManager(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given
+		// Given a controller with a registered tools manager
 		controller, mocks := setup(t)
 		mockToolsManager := tools.NewMockToolsManager()
 		mocks.Injector.Register("toolsManager", mockToolsManager)
 
-		// When
+		// When resolving the tools manager
 		resolvedManager := controller.ResolveToolsManager()
 
-		// Then
+		// Then the registered tools manager should be returned
 		if resolvedManager != mockToolsManager {
 			t.Errorf("Expected tools manager to be %v, got %v", mockToolsManager, resolvedManager)
 		}
 	})
 
 	t.Run("ReturnsNilWhenToolsManagerNotRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no tools manager registered
 		controller, mocks := setup(t)
 		mocks.Injector.Register("toolsManager", nil)
 
-		// When
+		// When resolving the tools manager
 		manager := controller.ResolveToolsManager()
 
-		// Then
+		// Then nil should be returned
 		if manager != nil {
 			t.Errorf("Expected tools manager to be nil, got %v", manager)
 		}
@@ -1727,29 +1733,29 @@ func TestBaseController_ResolveBlueprintHandler(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given
+		// Given a controller with a registered blueprint handler
 		controller, mocks := setup(t)
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
 		mocks.Injector.Register("blueprintHandler", mockBlueprintHandler)
 
-		// When
+		// When resolving the blueprint handler
 		resolvedHandler := controller.ResolveBlueprintHandler()
 
-		// Then
+		// Then the registered blueprint handler should be returned
 		if resolvedHandler != mockBlueprintHandler {
 			t.Errorf("Expected blueprint handler to be %v, got %v", mockBlueprintHandler, resolvedHandler)
 		}
 	})
 
 	t.Run("ReturnsNilWhenBlueprintHandlerNotRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no blueprint handler registered
 		controller, mocks := setup(t)
 		mocks.Injector.Register("blueprintHandler", nil)
 
-		// When
+		// When resolving the blueprint handler
 		handler := controller.ResolveBlueprintHandler()
 
-		// Then
+		// Then nil should be returned
 		if handler != nil {
 			t.Errorf("Expected blueprint handler to be nil, got %v", handler)
 		}
@@ -1765,29 +1771,29 @@ func TestBaseController_ResolveService(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given
+		// Given a controller with a registered service
 		controller, mocks := setup(t)
 		mockService := services.NewMockService()
 		mocks.Injector.Register("testService", mockService)
 
-		// When
+		// When resolving the service
 		resolvedService := controller.ResolveService("testService")
 
-		// Then
+		// Then the registered service should be returned
 		if resolvedService != mockService {
 			t.Errorf("Expected service to be %v, got %v", mockService, resolvedService)
 		}
 	})
 
 	t.Run("ReturnsNilWhenServiceNotRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no service registered
 		controller, mocks := setup(t)
 		mocks.Injector.Register("testService", nil)
 
-		// When
+		// When resolving the service
 		service := controller.ResolveService("testService")
 
-		// Then
+		// Then nil should be returned
 		if service != nil {
 			t.Errorf("Expected service to be nil, got %v", service)
 		}
@@ -1803,17 +1809,17 @@ func TestBaseController_ResolveAllServices(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given
+		// Given a controller with multiple registered services
 		controller, mocks := setup(t)
 		mockService1 := services.NewMockService()
 		mockService2 := services.NewMockService()
 		mocks.Injector.Register("service1", mockService1)
 		mocks.Injector.Register("service2", mockService2)
 
-		// When
+		// When resolving all services
 		resolvedServices := controller.ResolveAllServices()
 
-		// Then
+		// Then all registered services should be returned
 		if len(resolvedServices) != 2 {
 			t.Errorf("Expected 2 services, got %d", len(resolvedServices))
 		}
@@ -1839,13 +1845,13 @@ func TestBaseController_ResolveAllServices(t *testing.T) {
 	})
 
 	t.Run("ReturnsEmptySliceWhenNoServicesRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no services registered
 		controller, _ := setup(t)
 
-		// When
+		// When resolving all services
 		services := controller.ResolveAllServices()
 
-		// Then
+		// Then an empty slice should be returned
 		if len(services) != 0 {
 			t.Errorf("Expected empty slice of services, got %v", services)
 		}
@@ -1861,29 +1867,29 @@ func TestBaseController_ResolveVirtualMachine(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given
+		// Given a controller with a registered virtual machine
 		controller, mocks := setup(t)
 		mockVM := &struct{ virt.VirtualMachine }{}
 		mocks.Injector.Register("virtualMachine", mockVM)
 
-		// When
+		// When resolving the virtual machine
 		resolvedVM := controller.ResolveVirtualMachine()
 
-		// Then
+		// Then the registered virtual machine should be returned
 		if resolvedVM != mockVM {
 			t.Errorf("Expected virtual machine to be %v, got %v", mockVM, resolvedVM)
 		}
 	})
 
 	t.Run("ReturnsNilWhenVirtualMachineNotRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no virtual machine registered
 		controller, mocks := setup(t)
 		mocks.Injector.Register("virtualMachine", nil)
 
-		// When
+		// When resolving the virtual machine
 		vm := controller.ResolveVirtualMachine()
 
-		// Then
+		// Then nil should be returned
 		if vm != nil {
 			t.Errorf("Expected virtual machine to be nil, got %v", vm)
 		}
@@ -1899,52 +1905,32 @@ func TestBaseController_ResolveContainerRuntime(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given
+		// Given a controller with a registered container runtime
 		controller, mocks := setup(t)
 		mockRuntime := &struct{ virt.ContainerRuntime }{}
 		mocks.Injector.Register("containerRuntime", mockRuntime)
 
-		// When
+		// When resolving the container runtime
 		resolvedRuntime := controller.ResolveContainerRuntime()
 
-		// Then
+		// Then the registered container runtime should be returned
 		if resolvedRuntime != mockRuntime {
 			t.Errorf("Expected container runtime to be %v, got %v", mockRuntime, resolvedRuntime)
 		}
 	})
 
 	t.Run("ReturnsNilWhenContainerRuntimeNotRegistered", func(t *testing.T) {
-		// Given
+		// Given a controller with no container runtime registered
 		controller, mocks := setup(t)
 		mocks.Injector.Register("containerRuntime", nil)
 
-		// When
+		// When resolving the container runtime
 		runtime := controller.ResolveContainerRuntime()
 
-		// Then
+		// Then nil should be returned
 		if runtime != nil {
 			t.Errorf("Expected container runtime to be nil, got %v", runtime)
 		}
-	})
-}
-
-func TestBaseController_ResolveStack(t *testing.T) {
-	t.Run("when stack is registered", func(t *testing.T) {
-		// Test resolving a registered stack
-	})
-
-	t.Run("when stack is not registered", func(t *testing.T) {
-		// Test resolving when no stack is registered
-	})
-}
-
-func TestBaseController_ResolveAllGenerators(t *testing.T) {
-	t.Run("", func(t *testing.T) {
-		// Given
-
-		// When
-
-		// Then
 	})
 }
 
@@ -1957,7 +1943,7 @@ func TestBaseController_SetEnvironmentVariables(t *testing.T) {
 	}
 
 	t.Run("SetsEnvironmentVariablesFromAllPrinters", func(t *testing.T) {
-		// Given
+		// Given multiple environment printers with different variables
 		controller, mocks := setup(t)
 
 		mockPrinter1 := env.NewMockEnvPrinter()
@@ -1977,10 +1963,10 @@ func TestBaseController_SetEnvironmentVariables(t *testing.T) {
 		mocks.Injector.Register("printer1", mockPrinter1)
 		mocks.Injector.Register("printer2", mockPrinter2)
 
-		// When
+		// When setting environment variables
 		err := controller.SetEnvironmentVariables()
 
-		// Then
+		// Then all variables should be set correctly
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1994,7 +1980,7 @@ func TestBaseController_SetEnvironmentVariables(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenEnvPrinterFailsToGetVariables", func(t *testing.T) {
-		// Given
+		// Given an environment printer that fails to get variables
 		controller, mocks := setup(t)
 
 		mockPrinter := env.NewMockEnvPrinter()
@@ -2003,10 +1989,10 @@ func TestBaseController_SetEnvironmentVariables(t *testing.T) {
 		}
 		mocks.Injector.Register("printer1", mockPrinter)
 
-		// When
+		// When setting environment variables
 		err := controller.SetEnvironmentVariables()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when env printer fails to get variables")
 		}
@@ -2016,7 +2002,7 @@ func TestBaseController_SetEnvironmentVariables(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenSettingEnvironmentVariableFails", func(t *testing.T) {
-		// Given
+		// Given an environment printer and a failing Setenv function
 		controller, mocks := setup(t)
 
 		mockPrinter := env.NewMockEnvPrinter()
@@ -2034,10 +2020,10 @@ func TestBaseController_SetEnvironmentVariables(t *testing.T) {
 		}
 		defer func() { osSetenv = originalSetenv }()
 
-		// When
+		// When setting environment variables
 		err := controller.SetEnvironmentVariables()
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when setting environment variable fails")
 		}
@@ -2056,14 +2042,14 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 	}
 
 	t.Run("ReturnsErrorWhenNewConfigHandlerIsNil", func(t *testing.T) {
-		// Given
+		// Given a controller with a nil NewConfigHandler constructor
 		controller, _ := setup(t)
 		controller.constructors.NewConfigHandler = nil
 
-		// When
+		// When creating the config component
 		err := controller.createConfigComponent(Requirements{})
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when NewConfigHandler is nil")
 		}
@@ -2073,7 +2059,7 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 	})
 
 	t.Run("CreatesAndRegistersConfigHandler", func(t *testing.T) {
-		// Given
+		// Given a controller with a valid config handler constructor
 		controller, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		controller.constructors.NewConfigHandler = func(di.Injector) config.ConfigHandler {
@@ -2083,10 +2069,10 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 		// Clear any existing config handler
 		mocks.Injector.Register("configHandler", nil)
 
-		// When
+		// When creating the config component
 		err := controller.createConfigComponent(Requirements{})
 
-		// Then
+		// Then the config handler should be registered
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2098,7 +2084,7 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenInitializationFails", func(t *testing.T) {
-		// Given
+		// Given a controller with a config handler that fails to initialize
 		controller, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.InitializeFunc = func() error {
@@ -2111,10 +2097,10 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 		// Clear any existing config handler
 		mocks.Injector.Register("configHandler", nil)
 
-		// When
+		// When creating the config component
 		err := controller.createConfigComponent(Requirements{})
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when initialization fails")
 		}
@@ -2124,7 +2110,7 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 	})
 
 	t.Run("UsesWindsorConfigEnvVar", func(t *testing.T) {
-		// Given
+		// Given a controller and a WINDSORCONFIG environment variable
 		controller, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		configPath := "/custom/config/path"
@@ -2154,10 +2140,10 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 			}
 		}()
 
-		// When
+		// When creating the config component
 		err := controller.createConfigComponent(Requirements{})
 
-		// Then
+		// Then the config should be loaded from the environment variable path
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2167,7 +2153,7 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 	})
 
 	t.Run("HandlesProjectRootError", func(t *testing.T) {
-		// Given
+		// Given a controller with a shell that fails to get project root
 		controller, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		controller.constructors.NewConfigHandler = func(di.Injector) config.ConfigHandler {
@@ -2184,10 +2170,10 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 		}
 		mocks.Injector.Register("shell", mockShell)
 
-		// When
+		// When creating the config component
 		err := controller.createConfigComponent(Requirements{})
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when getting project root fails")
 		}
@@ -2197,7 +2183,7 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 	})
 
 	t.Run("HandlesConfigFileDiscovery", func(t *testing.T) {
-		// Given
+		// Given a controller with a project root containing a config file
 		controller, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		loadedPath := ""
@@ -2226,10 +2212,10 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 			t.Fatalf("Failed to create test config file: %v", err)
 		}
 
-		// When
+		// When creating the config component
 		err := controller.createConfigComponent(Requirements{})
 
-		// Then
+		// Then the config should be loaded from the discovered path
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2239,7 +2225,7 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 	})
 
 	t.Run("HandlesConfigLoadError", func(t *testing.T) {
-		// Given
+		// Given a controller with a config handler that fails to load config
 		controller, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.LoadConfigFunc = func(path string) error {
@@ -2263,10 +2249,10 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 			}
 		}()
 
-		// When
+		// When creating the config component
 		err := controller.createConfigComponent(Requirements{})
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when loading config fails")
 		}
@@ -2276,7 +2262,7 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 	})
 
 	t.Run("HandlesConfigLoadedRequirement", func(t *testing.T) {
-		// Given
+		// Given a controller with a config handler that reports not loaded
 		controller, mocks := setup(t)
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.IsLoadedFunc = func() bool {
@@ -2289,12 +2275,12 @@ func TestBaseController_createConfigComponent(t *testing.T) {
 		// Clear any existing config handler
 		mocks.Injector.Register("configHandler", nil)
 
-		// When
+		// When creating the config component with ConfigLoaded requirement
 		err := controller.createConfigComponent(Requirements{
 			ConfigLoaded: true,
 		})
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2310,22 +2296,21 @@ func TestBaseController_createSecretsComponents(t *testing.T) {
 	}
 
 	t.Run("NoSecretsRequired", func(t *testing.T) {
-		// Given
+		// Given a controller with secrets disabled
 		controller, _ := setup(t)
 		controller.SetRequirements(Requirements{
 			CommandName: "test",
 			Secrets:     false,
 		})
 
-		// When
+		// When creating secrets components
 		err := controller.createSecretsComponents(controller.requirements)
 
-		// Then
+		// Then no error should be returned and no providers should be registered
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify no secrets providers were registered
 		providers := controller.ResolveAllSecretsProviders()
 		if len(providers) != 0 {
 			t.Errorf("Expected no secrets providers, got %d", len(providers))
@@ -2333,7 +2318,7 @@ func TestBaseController_createSecretsComponents(t *testing.T) {
 	})
 
 	t.Run("NilConfigHandler", func(t *testing.T) {
-		// Given
+		// Given a controller with a nil config handler
 		controller, mocks := setup(t)
 		mocks.Injector.Register("configHandler", nil)
 		controller.SetRequirements(Requirements{
@@ -2341,10 +2326,10 @@ func TestBaseController_createSecretsComponents(t *testing.T) {
 			Secrets:     true,
 		})
 
-		// When
+		// When creating secrets components
 		err := controller.createSecretsComponents(controller.requirements)
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when config handler is nil")
 		}
@@ -2354,7 +2339,7 @@ func TestBaseController_createSecretsComponents(t *testing.T) {
 	})
 
 	t.Run("SopsSecretsProvider", func(t *testing.T) {
-		// Given
+		// Given a controller with a project containing encrypted secrets
 		controller, mocks := setup(t)
 		controller.SetRequirements(Requirements{
 			CommandName: "test",
@@ -2387,20 +2372,19 @@ func TestBaseController_createSecretsComponents(t *testing.T) {
 		if err := mocks.ConfigHandler.LoadConfigString(`
 contexts:
   test:
-    projectRoot: "` + projectRoot + `"
+    projectRoot: "` + filepath.ToSlash(projectRoot) + `"
 `); err != nil {
 			t.Fatalf("Failed to load config string: %v", err)
 		}
 
-		// When
+		// When creating secrets components
 		err := controller.createSecretsComponents(controller.requirements)
 
-		// Then
+		// Then no error should be returned and SOPS provider should be registered
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify SOPS provider was registered
 		providers := controller.ResolveAllSecretsProviders()
 		if len(providers) != 1 {
 			t.Errorf("Expected 1 secrets provider, got %d", len(providers))
@@ -2408,7 +2392,7 @@ contexts:
 	})
 
 	t.Run("OnePasswordSDKProvider", func(t *testing.T) {
-		// Given
+		// Given a controller with 1Password configuration
 		controller, mocks := setup(t)
 		controller.SetRequirements(Requirements{
 			CommandName: "test",
@@ -2433,15 +2417,14 @@ contexts:
 			t.Fatalf("Failed to load config string: %v", err)
 		}
 
-		// When
+		// When creating secrets components
 		err := controller.createSecretsComponents(controller.requirements)
 
-		// Then
+		// Then no error should be returned and 1Password provider should be registered
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify 1Password SDK provider was registered
 		providers := controller.ResolveAllSecretsProviders()
 		if len(providers) != 1 {
 			t.Errorf("Expected 1 secrets provider, got %d", len(providers))
@@ -2458,17 +2441,17 @@ func TestBaseController_createToolsComponents(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given
+		// Given a controller with tools requirement enabled
 		controller, _ := setup(t)
 		controller.SetRequirements(Requirements{
 			CommandName: "test",
 			Tools:       true,
 		})
 
-		// When
+		// When creating tools components
 		err := controller.createToolsComponents(controller.requirements)
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2484,15 +2467,15 @@ func TestBaseController_createGeneratorsComponents(t *testing.T) {
 	}
 
 	t.Run("ReturnsEarlyWhenNotRequired", func(t *testing.T) {
-		// Given
+		// Given a controller with generators disabled
 		controller, _ := setup(t)
 
-		// When
+		// When creating generator components with generators disabled
 		err := controller.createGeneratorsComponents(Requirements{
 			Generators: false,
 		})
 
-		// Then
+		// Then no error should be returned and no generators should be created
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2505,7 +2488,7 @@ func TestBaseController_createGeneratorsComponents(t *testing.T) {
 	})
 
 	t.Run("CreatesGitGeneratorWhenRequired", func(t *testing.T) {
-		// Given
+		// Given a controller with a mocked git generator
 		controller, mocks := setup(t)
 
 		// Mock git generator
@@ -2514,12 +2497,12 @@ func TestBaseController_createGeneratorsComponents(t *testing.T) {
 			return mockGenerator
 		}
 
-		// When
+		// When creating generator components with generators enabled
 		err := controller.createGeneratorsComponents(Requirements{
 			Generators: true,
 		})
 
-		// Then
+		// Then no error should be returned and git generator should be registered
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2531,7 +2514,7 @@ func TestBaseController_createGeneratorsComponents(t *testing.T) {
 	})
 
 	t.Run("CreatesTerraformAndKustomizeGeneratorsWhenBlueprintRequired", func(t *testing.T) {
-		// Given
+		// Given a controller with mocked terraform and kustomize generators
 		controller, mocks := setup(t)
 
 		// Mock generators
@@ -2544,13 +2527,13 @@ func TestBaseController_createGeneratorsComponents(t *testing.T) {
 			return mockKustomizeGenerator
 		}
 
-		// When
+		// When creating generator components with generators and blueprint enabled
 		err := controller.createGeneratorsComponents(Requirements{
 			Generators: true,
 			Blueprint:  true,
 		})
 
-		// Then
+		// Then no error should be returned and both generators should be registered
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2565,7 +2548,7 @@ func TestBaseController_createGeneratorsComponents(t *testing.T) {
 	})
 
 	t.Run("DoesNotCreateDuplicateGenerators", func(t *testing.T) {
-		// Given
+		// Given a controller with an existing git generator
 		controller, mocks := setup(t)
 
 		// Create initial generator
@@ -2579,12 +2562,12 @@ func TestBaseController_createGeneratorsComponents(t *testing.T) {
 			return generators.NewMockGenerator()
 		}
 
-		// When
+		// When creating generator components with generators enabled
 		err := controller.createGeneratorsComponents(Requirements{
 			Generators: true,
 		})
 
-		// Then
+		// Then no error should be returned and original generator should remain
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2630,62 +2613,62 @@ func TestBaseController_createBlueprintComponent(t *testing.T) {
 	})
 
 	t.Run("CreatesBlueprintHandlerWhenRequired", func(t *testing.T) {
-		// Given
+		// Given a controller with blueprint requirement enabled
 		controller, mocks := setup(t)
 
-		// Mock blueprint handler
+		// And a mock blueprint handler
 		mockHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
 		controller.constructors.NewBlueprintHandler = func(di.Injector) blueprint.BlueprintHandler {
 			return mockHandler
 		}
 
-		// When
+		// When creating the blueprint component
 		err := controller.createBlueprintComponent(Requirements{
 			Blueprint: true,
 		})
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify blueprint handler was created
+		// And the blueprint handler should be registered
 		if resolved := controller.ResolveBlueprintHandler(); resolved != mockHandler {
 			t.Error("Expected blueprint handler to be registered")
 		}
 	})
 
 	t.Run("DoesNotCreateDuplicateBlueprintHandler", func(t *testing.T) {
-		// Given
+		// Given a controller with an existing blueprint handler
 		controller, mocks := setup(t)
 
-		// Create initial handler
+		// And a registered mock handler
 		mockHandler := blueprint.NewMockBlueprintHandler(mocks.Injector)
 		mocks.Injector.Register("blueprintHandler", mockHandler)
 
-		// Mock new handler constructor
+		// And a tracked constructor
 		newHandlerCalled := false
 		controller.constructors.NewBlueprintHandler = func(di.Injector) blueprint.BlueprintHandler {
 			newHandlerCalled = true
 			return blueprint.NewMockBlueprintHandler(mocks.Injector)
 		}
 
-		// When
+		// When creating the blueprint component
 		err := controller.createBlueprintComponent(Requirements{
 			Blueprint: true,
 		})
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify constructor wasn't called
+		// And the constructor should not be called
 		if newHandlerCalled {
 			t.Error("Expected constructor not to be called for existing handler")
 		}
 
-		// Verify original handler is still registered
+		// And the original handler should remain registered
 		if resolved := controller.ResolveBlueprintHandler(); resolved != mockHandler {
 			t.Error("Expected original handler to remain registered")
 		}
@@ -2701,17 +2684,17 @@ func TestBaseController_createEnvComponents(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given
+		// Given a controller with environment requirements
 		controller, _ := setup(t)
 		controller.SetRequirements(Requirements{
 			CommandName: "test",
 			Env:         true,
 		})
 
-		// When
+		// When creating environment components
 		err := controller.createEnvComponents(controller.requirements)
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2727,43 +2710,43 @@ func TestBaseController_createServiceComponents(t *testing.T) {
 	}
 
 	t.Run("ReturnsEarlyWhenNotRequired", func(t *testing.T) {
-		// Given
+		// Given a controller with services not required
 		controller, _ := setup(t)
 
-		// When
+		// When creating service components
 		err := controller.createServiceComponents(Requirements{Services: false})
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("ReturnsEarlyWhenDockerNotEnabled", func(t *testing.T) {
-		// Given
+		// Given a controller with services required but Docker disabled
 		controller, mocks := setup(t)
 
-		// Mock config handler
+		// And a mock config handler that returns Docker as disabled
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetBoolFunc = func(key string, _ ...bool) bool {
 			return false
 		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
 
-		// When
+		// When creating service components
 		err := controller.createServiceComponents(Requirements{Services: true})
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("CreatesServicesWhenEnabled", func(t *testing.T) {
-		// Given
+		// Given a controller with services required
 		controller, mocks := setup(t)
 
-		// Mock config handler
+		// And a mock config handler that enables all services
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetBoolFunc = func(key string, _ ...bool) bool {
 			switch key {
@@ -2775,27 +2758,27 @@ func TestBaseController_createServiceComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
 
-		// Track created services
+		// And a mock service to track created services
 		createdServices := make(map[string]string)
 		mockService := services.NewMockService()
 		mockService.SetNameFunc = func(name string) {
 			createdServices[name] = name
 		}
 
-		// Set up constructors
+		// And mock constructors for each service
 		controller.constructors.NewDNSService = func(di.Injector) services.Service { return mockService }
 		controller.constructors.NewGitLivereloadService = func(di.Injector) services.Service { return mockService }
 		controller.constructors.NewLocalstackService = func(di.Injector) services.Service { return mockService }
 
-		// When
+		// When creating service components
 		err := controller.createServiceComponents(Requirements{Services: true})
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify expected services were created
+		// And all expected services should be created and registered
 		expectedServices := map[string]string{
 			"dns": "dnsService",
 			"git": "gitLivereloadService",
@@ -2812,10 +2795,10 @@ func TestBaseController_createServiceComponents(t *testing.T) {
 	})
 
 	t.Run("CreatesRegistryServices", func(t *testing.T) {
-		// Given
+		// Given a controller with services required
 		controller, mocks := setup(t)
 
-		// Mock config handler
+		// And a mock config handler with Docker enabled and registries configured
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetBoolFunc = func(key string, _ ...bool) bool {
 			return key == "docker.enabled"
@@ -2834,25 +2817,25 @@ func TestBaseController_createServiceComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
 
-		// Track created services
+		// And a mock service to track created services
 		createdServices := make(map[string]string)
 		mockService := services.NewMockService()
 		mockService.SetNameFunc = func(name string) {
 			createdServices[name] = name
 		}
 
-		// Set up constructors
+		// And a mock constructor for registry services
 		controller.constructors.NewRegistryService = func(di.Injector) services.Service { return mockService }
 
-		// When
+		// When creating service components
 		err := controller.createServiceComponents(Requirements{Services: true})
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify registry services were created
+		// And all registry services should be created and registered
 		expectedRegistries := []string{"registry1", "registry2"}
 		for _, name := range expectedRegistries {
 			if _, ok := createdServices[name]; !ok {
@@ -2866,10 +2849,10 @@ func TestBaseController_createServiceComponents(t *testing.T) {
 	})
 
 	t.Run("CreatesTalosServices", func(t *testing.T) {
-		// Given
+		// Given a controller with services required
 		controller, mocks := setup(t)
 
-		// Mock config handler
+		// And a mock config handler with Talos cluster configuration
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetBoolFunc = func(key string, _ ...bool) bool {
 			switch key {
@@ -2897,27 +2880,27 @@ func TestBaseController_createServiceComponents(t *testing.T) {
 		}
 		mocks.Injector.Register("configHandler", mockConfigHandler)
 
-		// Track created services
+		// And a mock service to track created services
 		createdServices := make(map[string]string)
 		mockService := services.NewMockService()
 		mockService.SetNameFunc = func(name string) {
 			createdServices[name] = name
 		}
 
-		// Set up constructors
+		// And a mock constructor for Talos services
 		controller.constructors.NewTalosService = func(injector di.Injector, nodeType string) services.Service {
 			return mockService
 		}
 
-		// When
+		// When creating service components
 		err := controller.createServiceComponents(Requirements{Services: true})
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify control plane services were created
+		// And all control plane services should be created and registered
 		for i := 1; i <= 2; i++ {
 			name := fmt.Sprintf("controlplane-%d", i)
 			if _, ok := createdServices[name]; !ok {
@@ -2929,7 +2912,7 @@ func TestBaseController_createServiceComponents(t *testing.T) {
 			}
 		}
 
-		// Verify worker services were created
+		// And all worker services should be created and registered
 		for i := 1; i <= 3; i++ {
 			name := fmt.Sprintf("worker-%d", i)
 			if _, ok := createdServices[name]; !ok {
@@ -2945,6 +2928,7 @@ func TestBaseController_createServiceComponents(t *testing.T) {
 
 func TestBaseController_createNetworkComponents(t *testing.T) {
 	t.Run("CreatesBaseNetworkManagerWhenNetworkRequired", func(t *testing.T) {
+		// Given a controller with network requirements
 		mocks := setupMocks(t)
 		controller := NewController(mocks.Injector)
 
@@ -2952,7 +2936,10 @@ func TestBaseController_createNetworkComponents(t *testing.T) {
 			Network: true,
 		}
 
+		// When creating network components
 		err := controller.createNetworkComponents(req)
+
+		// Then no error should be returned and a base network manager should be created
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -2967,6 +2954,7 @@ func TestBaseController_createNetworkComponents(t *testing.T) {
 	})
 
 	t.Run("CreatesColimaNetworkManagerWhenVMRequired", func(t *testing.T) {
+		// Given a controller with Colima VM configuration
 		mocks := setupMocks(t, &SetupOptions{
 			ConfigStr: `
 version: v1alpha1
@@ -2987,7 +2975,10 @@ contexts:
 			VM:      true,
 		}
 
+		// When creating network components
 		err := controller.createNetworkComponents(req)
+
+		// Then no error should be returned and a Colima network manager should be created
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -3002,6 +2993,7 @@ contexts:
 	})
 
 	t.Run("CreatesSecureShellAndSSHClientWhenVMRequired", func(t *testing.T) {
+		// Given a controller with VM requirements
 		mocks := setupMocks(t)
 		controller := NewController(mocks.Injector)
 
@@ -3010,11 +3002,13 @@ contexts:
 			VM:      true,
 		}
 
+		// When creating network components
 		err := controller.createNetworkComponents(req)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// Then secure shell and SSH client should be created
 		secureShell := controller.ResolveSecureShell()
 		if secureShell == nil {
 			t.Error("Expected secure shell to be created")
@@ -3030,6 +3024,7 @@ contexts:
 	})
 
 	t.Run("DoesNotCreateComponentsWhenNetworkNotRequired", func(t *testing.T) {
+		// Given a controller without network requirements
 		mocks := setupMocks(t)
 		controller := NewController(mocks.Injector)
 
@@ -3037,11 +3032,13 @@ contexts:
 			Network: false,
 		}
 
+		// When creating network components
 		err := controller.createNetworkComponents(req)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// Then no network manager should be created
 		networkManager := controller.ResolveNetworkManager()
 		if networkManager != nil {
 			t.Error("Expected no network manager to be created")
@@ -3049,6 +3046,7 @@ contexts:
 	})
 
 	t.Run("CreatesNetworkInterfaceProviderWhenNetworkRequired", func(t *testing.T) {
+		// Given a controller with network requirements
 		mocks := setupMocks(t)
 		controller := NewController(mocks.Injector)
 
@@ -3056,11 +3054,13 @@ contexts:
 			Network: true,
 		}
 
+		// When creating network components
 		err := controller.createNetworkComponents(req)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// Then a network interface provider should be created
 		provider := mocks.Injector.Resolve("networkInterfaceProvider")
 		if provider == nil {
 			t.Error("Expected network interface provider to be created")
@@ -3068,6 +3068,7 @@ contexts:
 	})
 
 	t.Run("DoesNotCreateDuplicateComponents", func(t *testing.T) {
+		// Given a controller with network and VM requirements
 		mocks := setupMocks(t)
 		controller := NewController(mocks.Injector)
 
@@ -3076,7 +3077,7 @@ contexts:
 			VM:      true,
 		}
 
-		// First creation
+		// When creating network components twice
 		err := controller.createNetworkComponents(req)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -3088,13 +3089,13 @@ contexts:
 		initialSSHClient := mocks.Injector.Resolve("sshClient")
 		initialProvider := mocks.Injector.Resolve("networkInterfaceProvider")
 
-		// Second creation
+		// Create components again
 		err = controller.createNetworkComponents(req)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify instances haven't changed
+		// Then the same instances should be reused
 		if controller.ResolveNetworkManager() != initialNetworkManager {
 			t.Error("Network manager was recreated")
 		}
@@ -3125,22 +3126,21 @@ func TestController_CreateVirtualizationComponents(t *testing.T) {
 	}
 
 	t.Run("ReturnsNilWhenNoVMIsRequired", func(t *testing.T) {
-		// Given
+		// Given a controller with no VM requirements
 		controller, mocks := setup(t)
 
-		// When
+		// When creating virtualization components
 		req := Requirements{
 			VM:         false,
 			Containers: false,
 		}
 
-		// Then
+		// Then no error should be returned and no components should be registered
 		err := controller.createVirtualizationComponents(req)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verify no components were registered
 		if vm := mocks.Injector.Resolve("virtualMachine"); vm != nil {
 			t.Error("Expected no virtual machine to be registered")
 		}
@@ -3249,7 +3249,7 @@ func TestBaseController_InitializeWithRequirements(t *testing.T) {
 	}
 
 	t.Run("BasicInitialization", func(t *testing.T) {
-		// Given
+		// Given a controller with basic requirements
 		testCase := &initializationTestCase{
 			requirements: Requirements{
 				CommandName: "test",
@@ -3259,17 +3259,17 @@ func TestBaseController_InitializeWithRequirements(t *testing.T) {
 		}
 		controller, _ := setup(t, testCase)
 
-		// When
+		// When initializing with basic requirements
 		err := controller.InitializeWithRequirements(testCase.requirements)
 
-		// Then
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("SecretsInitialization", func(t *testing.T) {
-		// Given
+		// Given a controller with secrets requirement
 		testCase := &initializationTestCase{
 			requirements: Requirements{
 				CommandName: "test",
@@ -3284,10 +3284,10 @@ func TestBaseController_InitializeWithRequirements(t *testing.T) {
 		}
 		controller, mocks := setup(t, testCase)
 
-		// When
+		// When initializing with secrets requirement
 		err := controller.InitializeWithRequirements(testCase.requirements)
 
-		// Then
+		// Then no error should occur and secrets provider should be initialized
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -3300,7 +3300,7 @@ func TestBaseController_InitializeWithRequirements(t *testing.T) {
 	})
 
 	t.Run("ToolsInitialization", func(t *testing.T) {
-		// Given
+		// Given a controller with tools requirement
 		testCase := &initializationTestCase{
 			requirements: Requirements{
 				CommandName: "test",
@@ -3319,10 +3319,10 @@ func TestBaseController_InitializeWithRequirements(t *testing.T) {
 			return mocks.Injector.Resolve("toolsManager").(tools.ToolsManager)
 		}
 
-		// When
+		// When initializing with tools requirement
 		err := controller.InitializeWithRequirements(testCase.requirements)
 
-		// Then
+		// Then no error should occur and tools manager should be initialized
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -3335,7 +3335,7 @@ func TestBaseController_InitializeWithRequirements(t *testing.T) {
 	})
 
 	t.Run("ComponentInitializationFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with failing secrets provider
 		testCase := &initializationTestCase{
 			requirements: Requirements{
 				CommandName: "test",
@@ -3352,10 +3352,10 @@ func TestBaseController_InitializeWithRequirements(t *testing.T) {
 		}
 		controller, _ := setup(t, testCase)
 
-		// When
+		// When initializing with failing component
 		err := controller.InitializeWithRequirements(testCase.requirements)
 
-		// Then
+		// Then an error should be returned with the expected message
 		if err == nil {
 			t.Error("Expected error when component initialization fails")
 		}
@@ -3365,15 +3365,15 @@ func TestBaseController_InitializeWithRequirements(t *testing.T) {
 	})
 
 	t.Run("CreateComponentsFailure", func(t *testing.T) {
-		// Given
+		// Given a controller with nil injector
 		mocks := setupMocks(t)
 		controller := NewController(mocks.Injector)
 		controller.injector = nil
 
-		// When
+		// When attempting to initialize with nil injector
 		err := controller.InitializeWithRequirements(Requirements{CommandName: "test"})
 
-		// Then
+		// Then an error should be returned indicating nil injector
 		if err == nil {
 			t.Error("Expected error when injector is nil")
 		}
@@ -3383,7 +3383,7 @@ func TestBaseController_InitializeWithRequirements(t *testing.T) {
 	})
 
 	t.Run("InitializationOrderVerification", func(t *testing.T) {
-		// Given
+		// Given a controller with multiple component requirements
 		mockInjector := di.NewMockInjector()
 		mocks := setupMocks(t, &SetupOptions{Injector: mockInjector})
 		controller := NewController(mocks.Injector)
@@ -3435,7 +3435,7 @@ func TestBaseController_InitializeWithRequirements(t *testing.T) {
 			return mockNetwork
 		}
 
-		// When
+		// When creating and initializing components
 		err := controller.CreateComponents()
 		if err != nil {
 			t.Fatalf("Failed to create components: %v", err)
@@ -3443,7 +3443,7 @@ func TestBaseController_InitializeWithRequirements(t *testing.T) {
 
 		err = controller.InitializeComponents()
 
-		// Then
+		// Then all components should be initialized in the correct order
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -3479,14 +3479,14 @@ func TestBaseController_createShellComponent(t *testing.T) {
 	}
 
 	t.Run("ReturnsErrorWhenNewShellIsNil", func(t *testing.T) {
-		// Given
+		// Given a controller with nil NewShell constructor
 		controller, _ := setup(t)
 		controller.constructors.NewShell = nil
 
-		// When
+		// When attempting to create shell component
 		err := controller.createShellComponent(Requirements{})
 
-		// Then
+		// Then an error should be returned
 		if err == nil {
 			t.Error("Expected error when NewShell is nil")
 		}
@@ -3496,7 +3496,7 @@ func TestBaseController_createShellComponent(t *testing.T) {
 	})
 
 	t.Run("CreatesAndRegistersShellComponent", func(t *testing.T) {
-		// Given
+		// Given a controller with mock shell
 		controller, mocks := setup(t)
 		mockShell := shell.NewMockShell()
 		controller.constructors.NewShell = func(di.Injector) shell.Shell {
@@ -3506,10 +3506,10 @@ func TestBaseController_createShellComponent(t *testing.T) {
 		// Clear any existing shell
 		mocks.Injector.Register("shell", nil)
 
-		// When
+		// When creating shell component
 		err := controller.createShellComponent(Requirements{})
 
-		// Then
+		// Then shell should be registered with injector
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -3521,7 +3521,7 @@ func TestBaseController_createShellComponent(t *testing.T) {
 	})
 
 	t.Run("SetsVerbosityWhenFlagIsTrue", func(t *testing.T) {
-		// Given
+		// Given a controller with verbose flag enabled
 		controller, mocks := setup(t)
 		mockShell := shell.NewMockShell()
 		verbositySet := false
@@ -3535,12 +3535,12 @@ func TestBaseController_createShellComponent(t *testing.T) {
 		// Clear any existing shell
 		mocks.Injector.Register("shell", nil)
 
-		// When
+		// When creating shell component with verbose flag
 		err := controller.createShellComponent(Requirements{
 			Flags: map[string]bool{"verbose": true},
 		})
 
-		// Then
+		// Then verbosity should be set to true
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -3550,7 +3550,7 @@ func TestBaseController_createShellComponent(t *testing.T) {
 	})
 
 	t.Run("ChecksTrustedDirectoryWhenTrustIsRequired", func(t *testing.T) {
-		// Given
+		// Given a controller requiring trusted directory
 		controller, mocks := setup(t)
 		mockShell := shell.NewMockShell()
 		trustedChecked := false
@@ -3565,12 +3565,12 @@ func TestBaseController_createShellComponent(t *testing.T) {
 		// Clear any existing shell
 		mocks.Injector.Register("shell", nil)
 
-		// When
+		// When creating shell component with trust required
 		err := controller.createShellComponent(Requirements{
 			Trust: true,
 		})
 
-		// Then
+		// Then trusted directory should be checked
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -3580,7 +3580,7 @@ func TestBaseController_createShellComponent(t *testing.T) {
 	})
 
 	t.Run("DoesNotCheckTrustedDirectoryWhenTrustNotRequired", func(t *testing.T) {
-		// Given
+		// Given a controller not requiring trusted directory
 		controller, mocks := setup(t)
 		mockShell := shell.NewMockShell()
 		trustedChecked := false
@@ -3595,12 +3595,12 @@ func TestBaseController_createShellComponent(t *testing.T) {
 		// Clear any existing shell
 		mocks.Injector.Register("shell", nil)
 
-		// When
+		// When creating shell component without trust required
 		err := controller.createShellComponent(Requirements{
 			Trust: false,
 		})
 
-		// Then
+		// Then trusted directory should not be checked
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -3619,23 +3619,23 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 	}
 
 	t.Run("ReturnsEarlyWhenNotRequired", func(t *testing.T) {
-		// Given
+		// Given virtualization is not required
 		controller, _ := setup(t)
 
-		// When
+		// When creating virtualization components with no requirements
 		err := controller.createVirtualizationComponents(Requirements{
 			VM:         false,
 			Containers: false,
 		})
 
-		// Then
+		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
 	t.Run("CreatesColimaVMWhenEnabled", func(t *testing.T) {
-		// Given
+		// Given Colima is configured as the VM driver
 		controller, mocks := setup(t)
 
 		// Mock config handler
@@ -3654,12 +3654,12 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 			return mockVM
 		}
 
-		// When
+		// When creating virtualization components with VM enabled
 		err := controller.createVirtualizationComponents(Requirements{
 			VM: true,
 		})
 
-		// Then
+		// Then Colima VM should be registered with injector
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -3670,7 +3670,7 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 	})
 
 	t.Run("HandlesNilColimaConstructor", func(t *testing.T) {
-		// Given
+		// Given Colima is configured but constructor is nil
 		controller, mocks := setup(t)
 
 		// Mock config handler
@@ -3686,12 +3686,12 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 		// Set nil constructor
 		controller.constructors.NewColimaVirt = nil
 
-		// When
+		// When creating virtualization components with VM enabled
 		err := controller.createVirtualizationComponents(Requirements{
 			VM: true,
 		})
 
-		// Then
+		// Then an error about nil constructor should be returned
 		if err == nil {
 			t.Error("Expected error when Colima constructor is nil")
 		}
@@ -3701,7 +3701,7 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 	})
 
 	t.Run("HandlesNilColimaVM", func(t *testing.T) {
-		// Given
+		// Given Colima constructor returns nil VM
 		controller, mocks := setup(t)
 
 		// Mock config handler
@@ -3719,12 +3719,12 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 			return nil
 		}
 
-		// When
+		// When creating virtualization components with VM enabled
 		err := controller.createVirtualizationComponents(Requirements{
 			VM: true,
 		})
 
-		// Then
+		// Then an error about nil VM should be returned
 		if err == nil {
 			t.Error("Expected error when Colima VM is nil")
 		}
@@ -3734,7 +3734,7 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 	})
 
 	t.Run("CreatesDockerRuntimeWhenEnabled", func(t *testing.T) {
-		// Given
+		// Given Docker is enabled in configuration
 		controller, mocks := setup(t)
 
 		// Mock config handler
@@ -3750,12 +3750,12 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 			return mockRuntime
 		}
 
-		// When
+		// When creating virtualization components with containers enabled
 		err := controller.createVirtualizationComponents(Requirements{
 			Containers: true,
 		})
 
-		// Then
+		// Then Docker runtime should be registered with injector
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -3766,7 +3766,7 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 	})
 
 	t.Run("HandlesNilDockerConstructor", func(t *testing.T) {
-		// Given
+		// Given Docker is enabled but constructor is nil
 		controller, mocks := setup(t)
 
 		// Mock config handler
@@ -3779,12 +3779,12 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 		// Set nil constructor
 		controller.constructors.NewDockerVirt = nil
 
-		// When
+		// When creating virtualization components with containers enabled
 		err := controller.createVirtualizationComponents(Requirements{
 			Containers: true,
 		})
 
-		// Then
+		// Then an error about nil constructor should be returned
 		if err == nil {
 			t.Error("Expected error when Docker constructor is nil")
 		}
@@ -3794,7 +3794,7 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 	})
 
 	t.Run("HandlesNilDockerRuntime", func(t *testing.T) {
-		// Given
+		// Given Docker constructor returns nil runtime
 		controller, mocks := setup(t)
 
 		// Mock config handler
@@ -3809,12 +3809,12 @@ func TestBaseController_createVirtualizationComponents(t *testing.T) {
 			return nil
 		}
 
-		// When
+		// When creating virtualization components with containers enabled
 		err := controller.createVirtualizationComponents(Requirements{
 			Containers: true,
 		})
 
-		// Then
+		// Then an error about nil runtime should be returned
 		if err == nil {
 			t.Error("Expected error when Docker runtime is nil")
 		}

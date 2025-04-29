@@ -23,28 +23,17 @@ import (
 )
 
 // The Controller is a central orchestrator that manages the lifecycle and interactions of various
-// infrastructure and application components. It serves as the primary coordinator for resolving
-// dependencies, managing configurations, and orchestrating the creation and deployment of resources
-// across different environments. The controller handles:
-//
-// - Component initialization and lifecycle management
-// - Configuration resolution and environment variable management
-// - Secrets and credentials management
-// - Service deployment and orchestration
-// - Virtualization and container runtime management
-// - Network configuration and management
-// - Stack deployment and management
-// - Code generation and templating
-//
-// It integrates with multiple subsystems including blueprint management, environment configuration,
-// secrets management, service orchestration, and infrastructure provisioning. The controller
-// provides a unified interface for resolving and managing these components while ensuring
-// proper dependency injection and configuration management across the system.
+// infrastructure and application components. It provides a unified interface for resolving and managing
+// dependencies, configurations, and resource orchestration across different environments. The Controller
+// serves as the primary coordinator for all Windsor CLI operations, ensuring proper initialization,
+// configuration, and lifecycle management of all system components.
 
 // =============================================================================
 // Types
 // =============================================================================
 
+// Controller defines the interface for managing Windsor CLI components and operations.
+// It provides methods for component initialization, dependency resolution, and environment management.
 type Controller interface {
 	SetRequirements(req Requirements)
 	CreateComponents() error
@@ -70,28 +59,27 @@ type Controller interface {
 	SetEnvironmentVariables() error
 }
 
-// BaseController struct implements the Controller interface.
+// BaseController implements the Controller interface with default component management
+// It provides concrete implementations of all Controller methods and manages component lifecycle
 type BaseController struct {
 	injector     di.Injector
 	constructors ComponentConstructors
 	requirements Requirements
 }
 
-// ComponentConstructors contains factory functions for all components used in the controller
+// ComponentConstructors contains factory functions for creating all Windsor CLI components
+// Each field represents a constructor function for a specific component type
 type ComponentConstructors struct {
-	// Common components
 	NewConfigHandler func(di.Injector) config.ConfigHandler
 	NewShell         func(di.Injector) sh.Shell
 	NewSecureShell   func(di.Injector) sh.Shell
 
-	// Project components
 	NewGitGenerator       func(di.Injector) generators.Generator
 	NewBlueprintHandler   func(di.Injector) blueprint.BlueprintHandler
 	NewTerraformGenerator func(di.Injector) generators.Generator
 	NewKustomizeGenerator func(di.Injector) generators.Generator
 	NewToolsManager       func(di.Injector) tools.ToolsManager
 
-	// Environment printers
 	NewAwsEnvPrinter       func(di.Injector) env.EnvPrinter
 	NewDockerEnvPrinter    func(di.Injector) env.EnvPrinter
 	NewKubeEnvPrinter      func(di.Injector) env.EnvPrinter
@@ -100,14 +88,12 @@ type ComponentConstructors struct {
 	NewTerraformEnvPrinter func(di.Injector) env.EnvPrinter
 	NewWindsorEnvPrinter   func(di.Injector) env.EnvPrinter
 
-	// Service components
 	NewDNSService           func(di.Injector) services.Service
 	NewGitLivereloadService func(di.Injector) services.Service
 	NewLocalstackService    func(di.Injector) services.Service
 	NewRegistryService      func(di.Injector) services.Service
 	NewTalosService         func(di.Injector, string) services.Service
 
-	// Virtualization components
 	NewSSHClient                func() *ssh.SSHClient
 	NewColimaVirt               func(di.Injector) virt.VirtualMachine
 	NewColimaNetworkManager     func(di.Injector) network.NetworkManager
@@ -115,16 +101,15 @@ type ComponentConstructors struct {
 	NewDockerVirt               func(di.Injector) virt.ContainerRuntime
 	NewNetworkInterfaceProvider func() network.NetworkInterfaceProvider
 
-	// Secrets providers
 	NewSopsSecretsProvider           func(string, di.Injector) secrets.SecretsProvider
 	NewOnePasswordSDKSecretsProvider func(secretsConfigType.OnePasswordVault, di.Injector) secrets.SecretsProvider
 	NewOnePasswordCLISecretsProvider func(secretsConfigType.OnePasswordVault, di.Injector) secrets.SecretsProvider
 
-	// Stack components
 	NewWindsorStack func(di.Injector) stack.Stack
 }
 
-// Requirements represents what functionality is required of the controller
+// Requirements defines the operational requirements for the controller
+// It specifies which components and capabilities are needed for a given operation
 type Requirements struct {
 	// Core requirements (most commands need these)
 	Trust        bool // Requires being in a trusted directory
@@ -159,7 +144,8 @@ type Requirements struct {
 // Constructor
 // =============================================================================
 
-// NewController creates a new controller.
+// NewController creates a new BaseController instance with the provided dependency injector
+// It initializes the controller with default component constructors
 func NewController(injector di.Injector) *BaseController {
 	return &BaseController{
 		injector:     injector,
@@ -167,11 +153,10 @@ func NewController(injector di.Injector) *BaseController {
 	}
 }
 
-// DefaultConstructors returns a ComponentConstructors with the default implementation
-// of all factory functions
+// NewDefaultConstructors creates a ComponentConstructors instance with default implementations
+// It provides factory functions for all Windsor CLI components
 func NewDefaultConstructors() ComponentConstructors {
 	return ComponentConstructors{
-		// Common components
 		NewConfigHandler: func(injector di.Injector) config.ConfigHandler {
 			return config.NewYamlConfigHandler(injector)
 		},
@@ -182,7 +167,6 @@ func NewDefaultConstructors() ComponentConstructors {
 			return sh.NewSecureShell(injector)
 		},
 
-		// Project components
 		NewGitGenerator: func(injector di.Injector) generators.Generator {
 			return generators.NewGitGenerator(injector)
 		},
@@ -199,7 +183,6 @@ func NewDefaultConstructors() ComponentConstructors {
 			return tools.NewToolsManager(injector)
 		},
 
-		// Environment printers
 		NewAwsEnvPrinter: func(injector di.Injector) env.EnvPrinter {
 			return env.NewAwsEnvPrinter(injector)
 		},
@@ -222,7 +205,6 @@ func NewDefaultConstructors() ComponentConstructors {
 			return env.NewWindsorEnvPrinter(injector)
 		},
 
-		// Service components
 		NewDNSService: func(injector di.Injector) services.Service {
 			return services.NewDNSService(injector)
 		},
@@ -239,7 +221,6 @@ func NewDefaultConstructors() ComponentConstructors {
 			return services.NewTalosService(injector, nodeType)
 		},
 
-		// Virtualization components
 		NewSSHClient: func() *ssh.SSHClient {
 			return ssh.NewSSHClient()
 		},
@@ -259,7 +240,6 @@ func NewDefaultConstructors() ComponentConstructors {
 			return network.NewNetworkInterfaceProvider()
 		},
 
-		// Secrets providers
 		NewSopsSecretsProvider: func(secretsFile string, injector di.Injector) secrets.SecretsProvider {
 			return secrets.NewSopsSecretsProvider(secretsFile, injector)
 		},
@@ -270,7 +250,6 @@ func NewDefaultConstructors() ComponentConstructors {
 			return secrets.NewOnePasswordCLISecretsProvider(vault, injector)
 		},
 
-		// Stack components
 		NewWindsorStack: func(injector di.Injector) stack.Stack {
 			return stack.NewWindsorStack(injector)
 		},
@@ -281,12 +260,14 @@ func NewDefaultConstructors() ComponentConstructors {
 // Public Methods
 // =============================================================================
 
-// SetRequirements sets the requirements for the controller
+// SetRequirements configures the controller with specific operational requirements
+// It stores the requirements for use during component creation and initialization
 func (c *BaseController) SetRequirements(req Requirements) {
 	c.requirements = req
 }
 
-// CreateComponents creates components based on the specified requirements
+// CreateComponents initializes all required components based on current requirements
+// It creates components in a specific order to ensure proper dependency resolution
 func (c *BaseController) CreateComponents() error {
 	if c.injector == nil {
 		return fmt.Errorf("injector is nil")
@@ -322,10 +303,9 @@ func (c *BaseController) CreateComponents() error {
 	return nil
 }
 
-// InitializeComponents initializes all components.
+// InitializeComponents performs initialization of all created components
+// It initializes each component in the correct order to maintain dependencies
 func (c *BaseController) InitializeComponents() error {
-
-	// Initialize the shell
 	shell := c.ResolveShell()
 	if shell != nil {
 		if err := shell.Initialize(); err != nil {
@@ -333,7 +313,6 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Initialize the secure shell
 	secureShell := c.ResolveSecureShell()
 	if secureShell != nil {
 		if err := secureShell.Initialize(); err != nil {
@@ -341,7 +320,6 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Initialize the secrets providers
 	secretsProviders := c.ResolveAllSecretsProviders()
 	if len(secretsProviders) > 0 {
 		for _, secretsProvider := range secretsProviders {
@@ -351,7 +329,6 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Initialize the env printers
 	envPrinters := c.ResolveAllEnvPrinters()
 	if len(envPrinters) > 0 {
 		for _, envPrinter := range envPrinters {
@@ -361,7 +338,6 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Initialize the tools manager
 	toolsManager := c.ResolveToolsManager()
 	if toolsManager != nil {
 		if err := toolsManager.Initialize(); err != nil {
@@ -369,7 +345,6 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Initialize the services
 	services := c.ResolveAllServices()
 	if len(services) > 0 {
 		for _, service := range services {
@@ -379,7 +354,6 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Initialize the virtual machine
 	virtualMachine := c.ResolveVirtualMachine()
 	if virtualMachine != nil {
 		if err := virtualMachine.Initialize(); err != nil {
@@ -387,7 +361,6 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Initialize the container runtime
 	containerRuntime := c.ResolveContainerRuntime()
 	if containerRuntime != nil {
 		if err := containerRuntime.Initialize(); err != nil {
@@ -395,7 +368,6 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Initialize the network manager
 	networkManager := c.ResolveNetworkManager()
 	if networkManager != nil {
 		if err := networkManager.Initialize(); err != nil {
@@ -403,7 +375,6 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Initialize the blueprint handler
 	blueprintHandler := c.ResolveBlueprintHandler()
 	if blueprintHandler != nil {
 		if err := blueprintHandler.Initialize(); err != nil {
@@ -414,7 +385,6 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Initialize the generators
 	generators := c.ResolveAllGenerators()
 	if len(generators) > 0 {
 		for _, generator := range generators {
@@ -424,7 +394,6 @@ func (c *BaseController) InitializeComponents() error {
 		}
 	}
 
-	// Initialize the stack
 	stack := c.ResolveStack()
 	if stack != nil {
 		if err := stack.Initialize(); err != nil {
@@ -435,8 +404,8 @@ func (c *BaseController) InitializeComponents() error {
 	return nil
 }
 
-// InitializeWithRequirements sets the requirements, creates components, and initializes them.
-// This is the standard initialization sequence used by commands.
+// InitializeWithRequirements sets requirements and initializes components in one step
+// It provides a standard initialization sequence used by commands
 func (c *BaseController) InitializeWithRequirements(req Requirements) error {
 	c.SetRequirements(req)
 	if err := c.CreateComponents(); err != nil {
@@ -448,11 +417,11 @@ func (c *BaseController) InitializeWithRequirements(req Requirements) error {
 	return nil
 }
 
-// WriteConfigurationFiles writes the configuration files.
+// WriteConfigurationFiles writes all component configurations to disk
+// It handles configuration for tools, blueprints, services, and infrastructure components
 func (c *BaseController) WriteConfigurationFiles() error {
 	req := c.requirements
 
-	// Write tools manifest if tools are required
 	if req.Tools {
 		toolsManager := c.ResolveToolsManager()
 		if toolsManager != nil {
@@ -462,7 +431,6 @@ func (c *BaseController) WriteConfigurationFiles() error {
 		}
 	}
 
-	// Write blueprint if blueprint is required
 	if req.Blueprint {
 		blueprintHandler := c.ResolveBlueprintHandler()
 		if blueprintHandler != nil {
@@ -472,7 +440,6 @@ func (c *BaseController) WriteConfigurationFiles() error {
 		}
 	}
 
-	// Write configuration for all services if services are required
 	if req.Services {
 		resolvedServices := c.ResolveAllServices()
 		for _, service := range resolvedServices {
@@ -484,7 +451,6 @@ func (c *BaseController) WriteConfigurationFiles() error {
 		}
 	}
 
-	// Write configuration for virtual machine if vm is required
 	if req.VM {
 		if vmDriver := c.ResolveConfigHandler().GetString("vm.driver"); vmDriver != "" {
 			resolvedVirt := c.ResolveVirtualMachine()
@@ -496,7 +462,6 @@ func (c *BaseController) WriteConfigurationFiles() error {
 		}
 	}
 
-	// Write configuration for container runtime if containers are required
 	if req.Containers {
 		if dockerEnabled := c.ResolveConfigHandler().GetBool("docker.enabled"); dockerEnabled {
 			resolvedContainerRuntime := c.ResolveContainerRuntime()
@@ -508,7 +473,6 @@ func (c *BaseController) WriteConfigurationFiles() error {
 		}
 	}
 
-	// Write configuration for all generators if generators are required
 	if req.Generators {
 		generators := c.ResolveAllGenerators()
 		for _, generator := range generators {
@@ -523,19 +487,22 @@ func (c *BaseController) WriteConfigurationFiles() error {
 	return nil
 }
 
-// ResolveInjector resolves the injector instance.
+// ResolveInjector returns the dependency injection container
+// It provides access to the injector for component resolution
 func (c *BaseController) ResolveInjector() di.Injector {
 	return c.injector
 }
 
-// ResolveConfigHandler resolves the configHandler instance.
+// ResolveConfigHandler returns the configuration management component
+// It retrieves the config handler from the dependency injection container
 func (c *BaseController) ResolveConfigHandler() config.ConfigHandler {
 	instance := c.injector.Resolve("configHandler")
 	configHandler, _ := instance.(config.ConfigHandler)
 	return configHandler
 }
 
-// ResolveAllSecretsProviders resolves all secretsProvider instances.
+// ResolveAllSecretsProviders returns all configured secrets providers
+// It retrieves all secrets providers from the dependency injection container
 func (c *BaseController) ResolveAllSecretsProviders() []secrets.SecretsProvider {
 	instances, _ := c.injector.ResolveAll((*secrets.SecretsProvider)(nil))
 	secretsProviders := make([]secrets.SecretsProvider, 0, len(instances))
@@ -548,14 +515,16 @@ func (c *BaseController) ResolveAllSecretsProviders() []secrets.SecretsProvider 
 	return secretsProviders
 }
 
-// ResolveEnvPrinter resolves the envPrinter instance.
+// ResolveEnvPrinter returns a specific environment printer by name
+// It retrieves the requested environment printer from the dependency injection container
 func (c *BaseController) ResolveEnvPrinter(name string) env.EnvPrinter {
 	instance := c.injector.Resolve(name)
 	envPrinter, _ := instance.(env.EnvPrinter)
 	return envPrinter
 }
 
-// ResolveAllEnvPrinters resolves all envPrinter instances.
+// ResolveAllEnvPrinters returns all configured environment printers
+// It retrieves all environment printers from the dependency injection container
 func (c *BaseController) ResolveAllEnvPrinters() []env.EnvPrinter {
 	instances, _ := c.injector.ResolveAll((*env.EnvPrinter)(nil))
 	envPrinters := make([]env.EnvPrinter, 0, len(instances))
@@ -577,49 +546,56 @@ func (c *BaseController) ResolveAllEnvPrinters() []env.EnvPrinter {
 	return envPrinters
 }
 
-// ResolveShell resolves the shell instance.
+// ResolveShell returns the default shell component
+// It retrieves the shell from the dependency injection container
 func (c *BaseController) ResolveShell() sh.Shell {
 	instance := c.injector.Resolve("shell")
 	shellInstance, _ := instance.(sh.Shell)
 	return shellInstance
 }
 
-// ResolveSecureShell resolves the secureShell instance.
+// ResolveSecureShell returns the secure shell component
+// It retrieves the secure shell from the dependency injection container
 func (c *BaseController) ResolveSecureShell() sh.Shell {
 	instance := c.injector.Resolve("secureShell")
 	shellInstance, _ := instance.(sh.Shell)
 	return shellInstance
 }
 
-// ResolveNetworkManager resolves the networkManager instance.
+// ResolveNetworkManager returns the network management component
+// It retrieves the network manager from the dependency injection container
 func (c *BaseController) ResolveNetworkManager() network.NetworkManager {
 	instance := c.injector.Resolve("networkManager")
 	networkManager, _ := instance.(network.NetworkManager)
 	return networkManager
 }
 
-// ResolveToolsManager resolves the toolsManager instance.
+// ResolveToolsManager returns the tools management component
+// It retrieves the tools manager from the dependency injection container
 func (c *BaseController) ResolveToolsManager() tools.ToolsManager {
 	instance := c.injector.Resolve("toolsManager")
 	toolsManager, _ := instance.(tools.ToolsManager)
 	return toolsManager
 }
 
-// ResolveBlueprintHandler resolves the blueprintHandler instance.
+// ResolveBlueprintHandler returns the blueprint management component
+// It retrieves the blueprint handler from the dependency injection container
 func (c *BaseController) ResolveBlueprintHandler() blueprint.BlueprintHandler {
 	instance := c.injector.Resolve("blueprintHandler")
 	blueprintHandler, _ := instance.(blueprint.BlueprintHandler)
 	return blueprintHandler
 }
 
-// ResolveService resolves the requested service instance.
+// ResolveService returns a specific service by name
+// It retrieves the requested service from the dependency injection container
 func (c *BaseController) ResolveService(name string) services.Service {
 	instance := c.injector.Resolve(fmt.Sprintf("%s", name))
 	service, _ := instance.(services.Service)
 	return service
 }
 
-// ResolveAllServices resolves all service instances.
+// ResolveAllServices returns all configured services
+// It retrieves all services from the dependency injection container
 func (c *BaseController) ResolveAllServices() []services.Service {
 	instances, _ := c.injector.ResolveAll((*services.Service)(nil))
 	servicesInstances := make([]services.Service, 0, len(instances))
@@ -630,28 +606,32 @@ func (c *BaseController) ResolveAllServices() []services.Service {
 	return servicesInstances
 }
 
-// ResolveVirtualMachine resolves the requested virtualMachine instance.
+// ResolveVirtualMachine returns the virtual machine component
+// It retrieves the virtual machine from the dependency injection container
 func (c *BaseController) ResolveVirtualMachine() virt.VirtualMachine {
 	instance := c.injector.Resolve("virtualMachine")
 	virtualMachine, _ := instance.(virt.VirtualMachine)
 	return virtualMachine
 }
 
-// ResolveContainerRuntime resolves the requested containerRuntime instance.
+// ResolveContainerRuntime returns the container runtime component
+// It retrieves the container runtime from the dependency injection container
 func (c *BaseController) ResolveContainerRuntime() virt.ContainerRuntime {
 	instance := c.injector.Resolve("containerRuntime")
 	containerRuntime, _ := instance.(virt.ContainerRuntime)
 	return containerRuntime
 }
 
-// ResolveStack resolves the requested stack instance.
+// ResolveStack returns the stack management component
+// It retrieves the stack from the dependency injection container
 func (c *BaseController) ResolveStack() stack.Stack {
 	instance := c.injector.Resolve("stack")
 	stackInstance, _ := instance.(stack.Stack)
 	return stackInstance
 }
 
-// ResolveAllGenerators resolves all generator instances.
+// ResolveAllGenerators returns all configured code generators
+// It retrieves all generators from the dependency injection container
 func (c *BaseController) ResolveAllGenerators() []generators.Generator {
 	instances, _ := c.injector.ResolveAll((*generators.Generator)(nil))
 	generatorsInstances := make([]generators.Generator, 0, len(instances))
@@ -662,7 +642,8 @@ func (c *BaseController) ResolveAllGenerators() []generators.Generator {
 	return generatorsInstances
 }
 
-// SetEnvironmentVariables sets the environment variables in the session
+// SetEnvironmentVariables configures the environment for all components
+// It sets environment variables from all configured environment printers
 func (c *BaseController) SetEnvironmentVariables() error {
 	envPrinters := c.ResolveAllEnvPrinters()
 	for _, envPrinter := range envPrinters {
@@ -680,18 +661,17 @@ func (c *BaseController) SetEnvironmentVariables() error {
 }
 
 // =============================================================================
-// Private functions
+// Private Methods
 // =============================================================================
 
 // createShellComponent creates and initializes the shell component if required
+// It handles shell creation, verbosity settings, and trusted directory checks
 func (c *BaseController) createShellComponent(req Requirements) error {
 	if c.constructors.NewShell == nil {
 		return fmt.Errorf("required constructor NewShell is nil")
 	}
 
-	// Check if shell already exists
 	if existingShell := c.ResolveShell(); existingShell != nil {
-		// Shell already exists, just update verbosity if needed
 		if verbose, ok := req.Flags["verbose"]; ok && verbose {
 			existingShell.SetVerbosity(true)
 		}
@@ -715,14 +695,13 @@ func (c *BaseController) createShellComponent(req Requirements) error {
 }
 
 // createConfigComponent creates and initializes the config component if required
+// It handles config loading, initialization, and context management
 func (c *BaseController) createConfigComponent(req Requirements) error {
 	if c.constructors.NewConfigHandler == nil {
 		return fmt.Errorf("required constructor NewConfigHandler is nil")
 	}
 
-	// Check if config handler already exists
 	if existingConfigHandler := c.ResolveConfigHandler(); existingConfigHandler != nil {
-		// Config handler already exists, just check if it needs to be loaded
 		if req.ConfigLoaded && !existingConfigHandler.IsLoaded() {
 			fmt.Fprintln(os.Stderr, "Cannot execute commands. Please run 'windsor init' to set up your project first.")
 		}
@@ -773,6 +752,7 @@ func (c *BaseController) createConfigComponent(req Requirements) error {
 }
 
 // createSecretsComponents creates and initializes secrets providers if required
+// It sets up SOPS and OnePassword secrets providers based on configuration
 func (c *BaseController) createSecretsComponents(req Requirements) error {
 	if !req.Secrets {
 		return nil
@@ -789,17 +769,15 @@ func (c *BaseController) createSecretsComponents(req Requirements) error {
 		return fmt.Errorf("error getting config root: %w", err)
 	}
 
-	// Check for SOPS secrets provider
 	secretsFilePaths := []string{"secrets.enc.yaml", "secrets.enc.yml"}
 	for _, filePath := range secretsFilePaths {
 		if _, err := osStat(filepath.Join(configRoot, filePath)); err == nil {
-			// Check if SOPS secrets provider already exists
 			if existingProvider := c.injector.Resolve("sopsSecretsProvider"); existingProvider == nil {
 				sopsSecretsProvider := c.constructors.NewSopsSecretsProvider(configRoot, c.injector)
 				c.injector.Register("sopsSecretsProvider", sopsSecretsProvider)
 				configHandler.SetSecretsProvider(sopsSecretsProvider)
 			}
-			break // Only need to create one SOPS provider
+			break
 		}
 	}
 
@@ -811,7 +789,6 @@ func (c *BaseController) createSecretsComponents(req Requirements) error {
 			vault.ID = key
 			providerName := fmt.Sprintf("op%sSecretsProvider", strings.ToUpper(key[:1])+key[1:])
 
-			// Check if OnePassword secrets provider already exists
 			if existingProvider := c.injector.Resolve(providerName); existingProvider == nil {
 				var opSecretsProvider secrets.SecretsProvider
 
@@ -831,14 +808,13 @@ func (c *BaseController) createSecretsComponents(req Requirements) error {
 }
 
 // createToolsComponents creates and initializes project tools if required
+// It sets up the tools manager based on configuration and existing tools
 func (c *BaseController) createToolsComponents(req Requirements) error {
 	if !req.Tools {
 		return nil
 	}
 
-	// Check if tools manager already exists
 	if existingToolsManager := c.ResolveToolsManager(); existingToolsManager != nil {
-		// Tools manager already exists, no need to create a new one
 		return nil
 	}
 
@@ -859,20 +835,16 @@ func (c *BaseController) createToolsComponents(req Requirements) error {
 }
 
 // createGeneratorsComponents creates and initializes code generators if required
+// It sets up Git, Terraform, and Kustomize generators based on requirements
 func (c *BaseController) createGeneratorsComponents(req Requirements) error {
 	if !req.Generators {
 		return nil
 	}
 
-	// Get all existing generators
 	existingGenerators := c.ResolveAllGenerators()
 	existingGeneratorNames := make(map[string]bool)
 
-	// Create a map of existing generator names
 	for _, generator := range existingGenerators {
-		// We need to determine the name of the generator
-		// This is a bit tricky since we don't have a direct way to get the name
-		// For now, we'll check if it's registered with a specific name
 		if c.injector.Resolve("gitGenerator") == generator {
 			existingGeneratorNames["gitGenerator"] = true
 		} else if c.injector.Resolve("terraformGenerator") == generator {
@@ -882,20 +854,17 @@ func (c *BaseController) createGeneratorsComponents(req Requirements) error {
 		}
 	}
 
-	// Check if git generator already exists
 	if !existingGeneratorNames["gitGenerator"] {
 		gitGenerator := c.constructors.NewGitGenerator(c.injector)
 		c.injector.Register("gitGenerator", gitGenerator)
 	}
 
 	if req.Blueprint {
-		// Check if terraform generator already exists
 		if !existingGeneratorNames["terraformGenerator"] {
 			terraformGenerator := c.constructors.NewTerraformGenerator(c.injector)
 			c.injector.Register("terraformGenerator", terraformGenerator)
 		}
 
-		// Check if kustomize generator already exists
 		if !existingGeneratorNames["kustomizeGenerator"] {
 			kustomizeGenerator := c.constructors.NewKustomizeGenerator(c.injector)
 			c.injector.Register("kustomizeGenerator", kustomizeGenerator)
@@ -906,14 +875,13 @@ func (c *BaseController) createGeneratorsComponents(req Requirements) error {
 }
 
 // createBlueprintComponent creates and initializes the blueprint handler if required
+// It sets up the blueprint handler for managing project blueprints
 func (c *BaseController) createBlueprintComponent(req Requirements) error {
 	if !req.Blueprint {
 		return nil
 	}
 
-	// Check if blueprint handler already exists
 	if existingBlueprintHandler := c.ResolveBlueprintHandler(); existingBlueprintHandler != nil {
-		// Blueprint handler already exists, no need to create a new one
 		return nil
 	}
 
@@ -924,6 +892,7 @@ func (c *BaseController) createBlueprintComponent(req Requirements) error {
 }
 
 // createEnvComponents creates and initializes environment components if required
+// It sets up environment printers for different platforms and services
 func (c *BaseController) createEnvComponents(req Requirements) error {
 	if !req.Env {
 		return nil
@@ -945,16 +914,13 @@ func (c *BaseController) createEnvComponents(req Requirements) error {
 	}
 
 	for key, constructor := range envPrinters {
-		// Skip AWS env printer if AWS is not enabled
 		if key == "awsEnv" && !configHandler.GetBool("aws.enabled") {
 			continue
 		}
-		// Skip Docker env printer if Docker is not enabled
 		if key == "dockerEnv" && !configHandler.GetBool("docker.enabled") {
 			continue
 		}
 
-		// Check if env printer already exists
 		if existingEnvPrinter := c.ResolveEnvPrinter(key); existingEnvPrinter == nil {
 			envPrinter := constructor(c.injector)
 			c.injector.Register(key, envPrinter)
@@ -965,6 +931,7 @@ func (c *BaseController) createEnvComponents(req Requirements) error {
 }
 
 // createServiceComponents creates and initializes service components if required
+// It sets up DNS, Git livereload, Localstack, and registry services
 func (c *BaseController) createServiceComponents(req Requirements) error {
 	if !req.Services {
 		return nil
@@ -981,7 +948,6 @@ func (c *BaseController) createServiceComponents(req Requirements) error {
 
 	dnsEnabled := configHandler.GetBool("dns.enabled")
 	if dnsEnabled {
-		// Check if DNS service already exists
 		if existingService := c.ResolveService("dnsService"); existingService == nil {
 			dnsService := c.constructors.NewDNSService(c.injector)
 			dnsService.SetName("dns")
@@ -991,7 +957,6 @@ func (c *BaseController) createServiceComponents(req Requirements) error {
 
 	gitLivereloadEnabled := configHandler.GetBool("git.livereload.enabled")
 	if gitLivereloadEnabled {
-		// Check if Git livereload service already exists
 		if existingService := c.ResolveService("gitLivereloadService"); existingService == nil {
 			gitLivereloadService := c.constructors.NewGitLivereloadService(c.injector)
 			gitLivereloadService.SetName("git")
@@ -1001,7 +966,6 @@ func (c *BaseController) createServiceComponents(req Requirements) error {
 
 	localstackEnabled := configHandler.GetBool("aws.localstack.enabled")
 	if localstackEnabled {
-		// Check if Localstack service already exists
 		if existingService := c.ResolveService("localstackService"); existingService == nil {
 			localstackService := c.constructors.NewLocalstackService(c.injector)
 			localstackService.SetName("aws")
@@ -1013,7 +977,6 @@ func (c *BaseController) createServiceComponents(req Requirements) error {
 	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
 		for key := range contextConfig.Docker.Registries {
 			serviceName := fmt.Sprintf("registryService.%s", key)
-			// Check if registry service already exists
 			if existingService := c.ResolveService(serviceName); existingService == nil {
 				service := c.constructors.NewRegistryService(c.injector)
 				service.SetName(key)
@@ -1030,7 +993,6 @@ func (c *BaseController) createServiceComponents(req Requirements) error {
 
 			for i := 1; i <= controlPlaneCount; i++ {
 				serviceName := fmt.Sprintf("clusterNode.controlplane-%d", i)
-				// Check if control plane service already exists
 				if existingService := c.ResolveService(serviceName); existingService == nil {
 					controlPlaneService := c.constructors.NewTalosService(c.injector, "controlplane")
 					controlPlaneService.SetName(fmt.Sprintf("controlplane-%d", i))
@@ -1040,7 +1002,6 @@ func (c *BaseController) createServiceComponents(req Requirements) error {
 
 			for i := 1; i <= workerCount; i++ {
 				serviceName := fmt.Sprintf("clusterNode.worker-%d", i)
-				// Check if worker service already exists
 				if existingService := c.ResolveService(serviceName); existingService == nil {
 					workerService := c.constructors.NewTalosService(c.injector, "worker")
 					workerService.SetName(fmt.Sprintf("worker-%d", i))
@@ -1053,7 +1014,8 @@ func (c *BaseController) createServiceComponents(req Requirements) error {
 	return nil
 }
 
-// createNetworkComponents creates and initializes network components based on configuration.
+// createNetworkComponents creates and initializes network components based on configuration
+// It sets up network interface providers and managers for different VM drivers
 func (c *BaseController) createNetworkComponents(req Requirements) error {
 	if !req.Network {
 		return nil
@@ -1061,26 +1023,22 @@ func (c *BaseController) createNetworkComponents(req Requirements) error {
 
 	vmDriver := c.ResolveConfigHandler().GetString("vm.driver")
 
-	// Check if network interface provider already exists
 	if existingProvider := c.injector.Resolve("networkInterfaceProvider"); existingProvider == nil {
 		networkInterfaceProvider := c.constructors.NewNetworkInterfaceProvider()
 		c.injector.Register("networkInterfaceProvider", networkInterfaceProvider)
 	}
 
 	if req.VM {
-		// Check if secure shell already exists
 		if existingSecureShell := c.ResolveSecureShell(); existingSecureShell == nil {
 			secureShell := c.constructors.NewSecureShell(c.injector)
 			c.injector.Register("secureShell", secureShell)
 		}
 
-		// Check if SSH client already exists
 		if existingSSHClient := c.injector.Resolve("sshClient"); existingSSHClient == nil {
 			sshClient := c.constructors.NewSSHClient()
 			c.injector.Register("sshClient", sshClient)
 		}
 
-		// Check if network manager already exists
 		if existingNetworkManager := c.ResolveNetworkManager(); existingNetworkManager == nil {
 			if vmDriver == "colima" {
 				networkManager := c.constructors.NewColimaNetworkManager(c.injector)
@@ -1091,7 +1049,6 @@ func (c *BaseController) createNetworkComponents(req Requirements) error {
 			}
 		}
 	} else {
-		// Check if network manager already exists
 		if existingNetworkManager := c.ResolveNetworkManager(); existingNetworkManager == nil {
 			networkManager := c.constructors.NewBaseNetworkManager(c.injector)
 			c.injector.Register("networkManager", networkManager)
@@ -1101,7 +1058,8 @@ func (c *BaseController) createNetworkComponents(req Requirements) error {
 	return nil
 }
 
-// createVirtualizationComponents creates virtualization components based on configuration.
+// createVirtualizationComponents creates virtualization components based on configuration
+// It sets up virtual machines and container runtimes for different platforms
 func (c *BaseController) createVirtualizationComponents(req Requirements) error {
 	if !req.VM && !req.Containers {
 		return nil
@@ -1110,9 +1068,7 @@ func (c *BaseController) createVirtualizationComponents(req Requirements) error 
 	vmDriver := c.ResolveConfigHandler().GetString("vm.driver")
 	dockerEnabled := c.ResolveConfigHandler().GetBool("docker.enabled")
 
-	// Create virtualization components based on configuration
 	if req.VM && vmDriver == "colima" {
-		// Check if virtual machine already exists
 		if existingVM := c.ResolveVirtualMachine(); existingVM == nil {
 			if c.constructors.NewColimaVirt == nil {
 				return fmt.Errorf("failed to create virtualization components: NewColimaVirt constructor is nil")
@@ -1126,7 +1082,6 @@ func (c *BaseController) createVirtualizationComponents(req Requirements) error 
 	}
 
 	if req.Containers && dockerEnabled {
-		// Check if container runtime already exists
 		if existingContainerRuntime := c.ResolveContainerRuntime(); existingContainerRuntime == nil {
 			if c.constructors.NewDockerVirt == nil {
 				return fmt.Errorf("failed to create Docker container runtime: NewDockerVirt constructor is nil")
@@ -1143,12 +1098,12 @@ func (c *BaseController) createVirtualizationComponents(req Requirements) error 
 }
 
 // createStackComponent creates and initializes the stack component if required
+// It sets up the stack manager for handling infrastructure stacks
 func (c *BaseController) createStackComponent(req Requirements) error {
 	if !req.Stack {
 		return nil
 	}
 
-	// Check if stack component already exists
 	if existingStack := c.ResolveStack(); existingStack == nil {
 		stackInstance := c.constructors.NewWindsorStack(c.injector)
 		c.injector.Register("stack", stackInstance)

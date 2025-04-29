@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
@@ -15,14 +14,33 @@ var envCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+
+		// Initialize with requirements
+		if err := controller.InitializeWithRequirements(ctrl.Requirements{
+			CommandName: cmd.Name(),
+		}); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
+		}
+
 		shell := controller.ResolveShell()
-		configHandler := controller.ResolveConfigHandler()
 
 		// Check trusted status
 		isTrusted := shell.CheckTrustedDirectory() == nil
 
+		// Check if --hook flag is set
+		hook, _ := cmd.Flags().GetBool("hook")
+
+		// Early exit if not in trusted directory, but reset first
+		if !isTrusted {
+			shell.Reset()
+			if !hook {
+				fmt.Fprintf(cmd.ErrOrStderr(), "\033[33mWarning: You are not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve.\033[0m\n")
+			}
+			return nil
+		}
+
 		// Check if WINDSOR_SESSION_TOKEN is set - indicates we've been in a Windsor session
-		hasSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN") != ""
+		hasSessionToken := shims.Getenv("WINDSOR_SESSION_TOKEN") != ""
 
 		// Check if a reset signal file exists for the current session
 		shouldReset, err := shell.CheckResetFlags()
@@ -35,62 +53,32 @@ var envCmd = &cobra.Command{
 			shouldReset = true
 		}
 
-		// Early exit condition: Not trusted AND no session token
-		if !isTrusted && !hasSessionToken {
-			return nil
-		}
-
 		// Reset only when shouldReset is true (not based on trusted status)
 		if shouldReset {
 			shell.Reset()
 
 			// Set NO_CACHE=true to force fresh environment variable resolution
-			if err := osSetenv("NO_CACHE", "true"); err != nil && verbose {
+			if err := shims.Setenv("NO_CACHE", "true"); err != nil && verbose {
 				return fmt.Errorf("Error setting NO_CACHE: %w", err)
 			}
-
-			// Only re-initialize components if we're in a trusted directory
-			if isTrusted {
-				// After reset, re-initialize the common components
-				if err := preRunEInitializeCommonComponents(cmd, args); err != nil {
-					return fmt.Errorf("Error initializing components after reset: %w", err)
-				}
-			}
 		}
 
-		// Resolve config handler to check vm.driver
-		vmDriver := configHandler.GetString("vm.driver")
-
-		// Create virtualization and service components only if vm.driver is configured
-		if vmDriver != "" {
-			if err := controller.CreateVirtualizationComponents(); err != nil {
-				if verbose {
-					return fmt.Errorf("Error creating virtualization components: %w", err)
-				}
-				return nil
-			}
-
-			if err := controller.CreateServiceComponents(); err != nil {
-				if verbose {
-					return fmt.Errorf("Error creating service components: %w", err)
-				}
-				return nil
-			}
-		}
-
-		// Create environment components
-		if err := controller.CreateEnvComponents(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error creating environment components: %w", err)
-			}
-			return nil
-		}
-
-		if err := controller.InitializeComponents(); err != nil {
-			if verbose {
-				return fmt.Errorf("Error initializing components: %w", err)
-			}
-			return nil
+		// Initialize with requirements
+		if err := controller.InitializeWithRequirements(ctrl.Requirements{
+			Trust:        true,
+			ConfigLoaded: !hook, // Don't check if config is loaded when executed by the hook
+			Env:          true,
+			Secrets:      true,
+			VM:           true,
+			Containers:   true,
+			Network:      true,
+			Services:     true,
+			CommandName:  cmd.Name(),
+			Flags: map[string]bool{
+				"verbose": verbose,
+			},
+		}); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
 		}
 
 		envPrinters := controller.ResolveAllEnvPrinters()
@@ -103,6 +91,7 @@ var envCmd = &cobra.Command{
 
 		// Check if --decrypt flag is set
 		decrypt, _ := cmd.Flags().GetBool("decrypt")
+
 		if decrypt {
 			// Unlock the SecretProvider
 			secretsProviders := controller.ResolveAllSecretsProviders()
@@ -147,5 +136,6 @@ var envCmd = &cobra.Command{
 
 func init() {
 	envCmd.Flags().Bool("decrypt", false, "Decrypt secrets before setting environment variables")
+	envCmd.Flags().Bool("hook", false, "Flag that indicates the command is being executed by the hook")
 	rootCmd.AddCommand(envCmd)
 }

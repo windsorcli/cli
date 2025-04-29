@@ -16,22 +16,20 @@ var getContextCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
+		// Initialize environment components
+		if err := controller.InitializeWithRequirements(ctrl.Requirements{
+			Env:         true,
+			CommandName: cmd.Name(),
+		}); err != nil {
+			return fmt.Errorf("Error initializing environment components: %w", err)
+		}
+
 		// Resolve config handler
 		configHandler := controller.ResolveConfigHandler()
 
 		// Check if config is loaded
 		if !configHandler.IsLoaded() {
 			return fmt.Errorf("No context is available. Have you run `windsor init`?")
-		}
-
-		// Initialize environment components
-		if err := controller.CreateEnvComponents(); err != nil {
-			return fmt.Errorf("Error initializing environment components: %w", err)
-		}
-
-		// Initialize components
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
 		// Set the environment variables internally in the process
@@ -43,7 +41,7 @@ var getContextCmd = &cobra.Command{
 		currentContext := configHandler.GetContext()
 
 		// Print the current context
-		fmt.Println(currentContext)
+		fmt.Fprintln(cmd.OutOrStdout(), currentContext)
 		return nil
 	},
 }
@@ -58,13 +56,12 @@ var setContextCmd = &cobra.Command{
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
 		// Initialize environment components
-		if err := controller.CreateEnvComponents(); err != nil {
+		if err := controller.InitializeWithRequirements(ctrl.Requirements{
+			ConfigLoaded: true,
+			Env:          true,
+			CommandName:  cmd.Name(),
+		}); err != nil {
 			return fmt.Errorf("Error initializing environment components: %w", err)
-		}
-
-		// Initialize components
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
 		// Set the environment variables internally in the process
@@ -74,11 +71,6 @@ var setContextCmd = &cobra.Command{
 
 		// Resolve config handler
 		configHandler := controller.ResolveConfigHandler()
-
-		// Check if config is loaded
-		if !configHandler.IsLoaded() {
-			return fmt.Errorf("Configuration is not loaded. Please ensure it is initialized.")
-		}
 
 		// Write a reset token to reset the session
 		shell := controller.ResolveShell()
@@ -93,7 +85,7 @@ var setContextCmd = &cobra.Command{
 		}
 
 		// Print the context
-		fmt.Println("Context set to:", contextName)
+		fmt.Fprintln(cmd.OutOrStdout(), "Context set to:", contextName)
 		return nil
 	},
 }
