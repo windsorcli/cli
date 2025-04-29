@@ -13,10 +13,17 @@ var hookCmd = &cobra.Command{
 	Long:         "Prints out shell hook information for each platform (zsh,bash,fish,tcsh,powershell).",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
-
 		if len(args) == 0 {
 			return fmt.Errorf("No shell name provided")
+		}
+
+		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+
+		// Initialize with requirements
+		if err := controller.InitializeWithRequirements(ctrl.Requirements{
+			CommandName: cmd.Name(),
+		}); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
 		}
 
 		shell := controller.ResolveShell()

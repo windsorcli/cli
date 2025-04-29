@@ -1,179 +1,170 @@
 package cmd
 
 import (
-	"fmt"
-	"testing"
+  "bytes"
+  "fmt"
+  "testing"
 
-	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/config"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/shell"
-	"github.com/windsorcli/cli/pkg/tools"
+  "github.com/windsorcli/cli/pkg/controller"
+  "github.com/windsorcli/cli/pkg/tools"
 )
 
-// MockSafeCheckCmdComponents holds the mock components for testing the check command
-type MockSafeCheckCmdComponents struct {
-	Injector          di.Injector
-	MockController    *ctrl.MockController
-	MockConfigHandler *config.MockConfigHandler
-	MockShell         *shell.MockShell
-}
+func TestCheckCmd(t *testing.T) {
+  setup := func(t *testing.T, opts ...*SetupOptions) (*Mocks, *bytes.Buffer, *bytes.Buffer) {
+    t.Helper()
 
-// setupSafeCheckCmdMocks creates mock components for testing the check command
-func setupSafeCheckCmdMocks(optionalInjector ...di.Injector) MockSafeCheckCmdComponents {
-	var mockController *ctrl.MockController
-	var injector di.Injector
+    // Setup mocks with default options
+    mocks := setupMocks(t, opts...)
 
-	// Use the provided injector if passed, otherwise create a new one
-	if len(optionalInjector) > 0 {
-		injector = optionalInjector[0]
-	} else {
-		injector = di.NewInjector()
-	}
+    // Setup command args and output
+    rootCmd.SetArgs([]string{"check"})
+    stdout, stderr := captureOutput(t)
+    rootCmd.SetOut(stdout)
+    rootCmd.SetErr(stderr)
 
-	// Use the injector to create a mock controller
-	mockController = ctrl.NewMockController(injector)
+    return mocks, stdout, stderr
+  }
 
-	// Set up controller mock functions
-	mockController.InitializeFunc = func() error { return nil }
-	mockController.CreateCommonComponentsFunc = func() error { return nil }
-	mockController.InitializeComponentsFunc = func() error { return nil }
-	mockController.CreateProjectComponentsFunc = func() error { return nil }
+  t.Run("Success", func(t *testing.T) {
+    // Given a set of mocks with proper configuration
+    mocks, stdout, stderr := setup(t, &SetupOptions{
+      ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+    })
 
-	// Initialize the controller
-	if err := mockController.Initialize(); err != nil {
-		panic(fmt.Sprintf("Failed to initialize controller: %v", err))
-	}
+    // And mock tools manager that returns success
+    mockToolsManager := tools.NewMockToolsManager()
+    mockToolsManager.CheckFunc = func() error {
+      return nil
+    }
+    mocks.Injector.Register("toolsManager", mockToolsManager)
 
-	// Setup mock config handler
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.IsLoadedFunc = func() bool { return true }
-	mockConfigHandler.SetContextFunc = func(context string) error { return nil }
-	mockConfigHandler.GetContextFunc = func() string { return "local" }
-	mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error { return nil }
-	mockConfigHandler.SaveConfigFunc = func(path string) error { return nil }
-	injector.Register("configHandler", mockConfigHandler)
+    // When executing the command
+    err := Execute(mocks.Controller)
 
-	// Setup mock shell
-	mockShell := shell.NewMockShell()
-	mockShell.AddCurrentDirToTrustedFileFunc = func() error { return nil }
-	mockShell.GetProjectRootFunc = func() (string, error) { return "/path/to/project/root", nil }
-	injector.Register("shell", mockShell)
+    // Then no error should occur
+    if err != nil {
+      t.Errorf("Expected success, got error: %v", err)
+    }
 
-	// Setup mock tools manager
-	mockToolsManager := tools.NewMockToolsManager()
-	mockToolsManager.CheckFunc = func() error { return nil }
-	injector.Register("toolsManager", mockToolsManager)
+    // And output should contain success message
+    output := stdout.String()
+    if output != "All tools are up to date.\n" {
+      t.Errorf("Expected 'All tools are up to date.', got: %q", output)
+    }
+    if stderr.String() != "" {
+      t.Error("Expected empty stderr")
+    }
+  })
 
-	mocks := MockSafeCheckCmdComponents{
-		Injector:          injector,
-		MockController:    mockController,
-		MockConfigHandler: mockConfigHandler,
-		MockShell:         mockShell,
-	}
+  t.Run("ConfigNotLoaded", func(t *testing.T) {
+    // Given a set of mocks with no configuration
+    mocks, _, _ := setup(t)
 
-	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-		return mocks.MockConfigHandler
-	}
+    // When executing the command
+    err := Execute(mocks.Controller)
 
-	mockController.ResolveShellFunc = func() shell.Shell {
-		return mocks.MockShell
-	}
+    // Then an error should occur
+    if err == nil {
+      t.Error("Expected error, got nil")
+    }
 
-	mockController.ResolveToolsManagerFunc = func() tools.ToolsManager {
-		return mockToolsManager
-	}
+    // And error should contain init message
+    expectedError := "Nothing to check. Have you run \033[1mwindsor init\033[0m?"
+    if err.Error() != expectedError {
+      t.Errorf("Expected error about init, got: %v", err)
+    }
+  })
 
-	return mocks
-}
+  t.Run("ToolsManagerNotFound", func(t *testing.T) {
+    // Given a set of mocks with proper configuration
+    mocks, _, _ := setup(t, &SetupOptions{
+      ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+    })
 
-func TestCheckCommand(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Create mock components
-		mocks := setupSafeCheckCmdMocks()
+    // And mock controller that returns nil tools manager
+    mocks.Controller.ResolveToolsManagerFunc = func() tools.ToolsManager {
+      return nil
+    }
 
-		// When: the check command is executed
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"check"})
-			err := Execute(mocks.MockController)
-			if err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
-		})
+    // When executing the command
+    err := Execute(mocks.Controller)
 
-		// Then: the output should confirm that all tools are up to date
-		expectedOutput := "All tools are up to date.\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
-		}
-	})
+    // Then an error should occur
+    if err == nil {
+      t.Error("Expected error, got nil")
+    }
 
-	t.Run("CheckToolsErrorNoToolsManager", func(t *testing.T) {
-		// Create mock components
-		mocks := setupSafeCheckCmdMocks()
-		mocks.MockController.ResolveToolsManagerFunc = func() tools.ToolsManager {
-			return nil
-		}
+    // And error should contain tools manager message
+    if err.Error() != "No tools manager found" {
+      t.Errorf("Expected error about tools manager, got: %v", err)
+    }
+  })
 
-		// When: the check command is executed
-		err := Execute(mocks.MockController)
+  t.Run("ToolsCheckError", func(t *testing.T) {
+    // Given a set of mocks with proper configuration
+    mocks, _, _ := setup(t, &SetupOptions{
+      ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+    })
 
-		// Then: it should return an error indicating no tools manager found
-		if err == nil || err.Error() != "No tools manager found" {
-			t.Errorf("Expected error 'No tools manager found', got %v", err)
-		}
-	})
+    // And mock tools manager that returns error
+    mockToolsManager := tools.NewMockToolsManager()
+    mockToolsManager.CheckFunc = func() error {
+      return fmt.Errorf("tools check failed")
+    }
+    mocks.Injector.Register("toolsManager", mockToolsManager)
 
-	t.Run("CheckToolsErrorCheckingTools", func(t *testing.T) {
-		// Create mock components
-		mocks := setupSafeCheckCmdMocks()
-		mockToolsManager := tools.NewMockToolsManager()
-		mockToolsManager.CheckFunc = func() error {
-			return fmt.Errorf("mock error checking tools")
-		}
-		mocks.MockController.ResolveToolsManagerFunc = func() tools.ToolsManager {
-			return mockToolsManager
-		}
+    // When executing the command
+    err := Execute(mocks.Controller)
 
-		// When: the check command is executed
-		err := Execute(mocks.MockController)
+    // Then an error should occur
+    if err == nil {
+      t.Error("Expected error, got nil")
+    }
 
-		// Then: it should return an error indicating a problem checking tools
-		if err == nil || err.Error() != "Error checking tools: mock error checking tools" {
-			t.Errorf("Expected error 'Error checking tools: mock error checking tools', got %v", err)
-		}
-	})
+    // And error should contain tools check message
+    if err.Error() != "Error checking tools: tools check failed" {
+      t.Errorf("Expected error about tools check, got: %v", err)
+    }
+  })
 
-	t.Run("ErrorCreatingProjectComponents", func(t *testing.T) {
-		// Create mock components
-		mocks := setupSafeCheckCmdMocks()
-		mocks.MockController.CreateProjectComponentsFunc = func() error {
-			return fmt.Errorf("mock error creating project components")
-		}
+  t.Run("InitializeWithRequirementsError", func(t *testing.T) {
+    // Given a set of mocks with proper configuration
+    mocks, _, _ := setup(t, &SetupOptions{
+      ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+    })
 
-		// When: the check command is executed
-		err := Execute(mocks.MockController)
+    // And mock controller that returns error on initialization
+    mocks.Controller.InitializeWithRequirementsFunc = func(req controller.Requirements) error {
+      return fmt.Errorf("initialization failed")
+    }
 
-		// Then: it should return an error indicating a problem creating project components
-		if err == nil || err.Error() != "Error creating project components: mock error creating project components" {
-			t.Errorf("Expected error 'Error creating project components: mock error creating project components', got %v", err)
-		}
-	})
+    // When executing the command
+    err := Execute(mocks.Controller)
 
-	t.Run("ErrorInitializingComponents", func(t *testing.T) {
-		// Create mock components
-		mocks := setupSafeCheckCmdMocks()
-		mocks.MockController.InitializeComponentsFunc = func() error {
-			return fmt.Errorf("mock error initializing components")
-		}
+    // Then an error should occur
+    if err == nil {
+      t.Error("Expected error, got nil")
+    }
 
-		// When: the check command is executed
-		err := Execute(mocks.MockController)
-
-		// Then: it should return an error indicating a problem initializing components
-		if err == nil || err.Error() != "Error initializing components: mock error initializing components" {
-			t.Errorf("Expected error 'Error initializing components: mock error initializing components', got %v", err)
-		}
-	})
+    // And error should contain initialization message
+    if err.Error() != "Error initializing: initialization failed" {
+      t.Errorf("Expected error about initialization, got: %v", err)
+    }
+  })
 }

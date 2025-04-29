@@ -1,400 +1,193 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"strings"
 	"testing"
 
-	bp "github.com/windsorcli/cli/pkg/blueprint"
-	"github.com/windsorcli/cli/pkg/config"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
-	"github.com/windsorcli/cli/pkg/di"
+	blueprintpkg "github.com/windsorcli/cli/pkg/blueprint"
+	"github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/secrets"
-	"github.com/windsorcli/cli/pkg/shell"
 )
 
-type InstallCmdComponents struct {
-	Injector         di.Injector
-	Controller       *ctrl.MockController
-	ConfigHandler    *config.MockConfigHandler
-	SecretsProvider  *secrets.MockSecretsProvider
-	BlueprintHandler *bp.MockBlueprintHandler
-}
+// setupInstallMocks creates mock components specifically for testing the install command
+func setupInstallMocks(t *testing.T, opts *SetupOptions) *Mocks {
+	t.Helper()
 
-// setupMockInstallCmdComponents creates mock components for testing the install command
-func setupMockInstallCmdComponents(optionalInjector ...di.Injector) InstallCmdComponents {
-	var controller *ctrl.MockController
-	var injector di.Injector
+	// Use the existing setupMocks function as a base
+	mocks := setupMocks(t, opts)
 
-	// Use the provided injector if passed, otherwise create a new one
-	if len(optionalInjector) > 0 {
-		injector = optionalInjector[0]
-	} else {
-		injector = di.NewInjector()
-	}
-
-	// Use the injector to create a mock controller
-	controller = ctrl.NewMockController(injector)
-
-	// Set up controller mock functions
-	controller.InitializeFunc = func() error { return nil }
-	controller.CreateCommonComponentsFunc = func() error { return nil }
-	controller.InitializeComponentsFunc = func() error { return nil }
-	controller.CreateProjectComponentsFunc = func() error { return nil }
-	controller.CreateServiceComponentsFunc = func() error { return nil }
-	controller.CreateVirtualizationComponentsFunc = func() error { return nil }
-
-	// Initialize the controller
-	if err := controller.Initialize(); err != nil {
-		panic(fmt.Sprintf("Failed to initialize controller: %v", err))
-	}
-
-	// Setup mock config handler
-	configHandler := config.NewMockConfigHandler()
-	configHandler.IsLoadedFunc = func() bool {
-		return true
-	}
-	controller.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-		return configHandler
-	}
-	injector.Register("configHandler", configHandler)
-
-	// Setup mock shell
-	mockShell := shell.NewMockShell()
-	mockShell.GetProjectRootFunc = func() (string, error) {
-		return "/mock/project/root", nil
-	}
-	mockShell.CheckTrustedDirectoryFunc = func() error {
+	// Set up mock controller functions specific to install command
+	mocks.Controller.InitializeWithRequirementsFunc = func(req controller.Requirements) error {
 		return nil
 	}
-	controller.ResolveShellFunc = func() shell.Shell {
-		return mockShell
+	mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+		return []secrets.SecretsProvider{}
 	}
-	injector.Register("shell", mockShell)
+	mocks.Controller.SetEnvironmentVariablesFunc = func() error {
+		return nil
+	}
+	mocks.Controller.ResolveBlueprintHandlerFunc = func() blueprintpkg.BlueprintHandler {
+		return mocks.BlueprintHandler
+	}
 
-	// Setup mock secrets provider
-	secretsProvider := secrets.NewMockSecretsProvider(injector)
-	controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
-		return []secrets.SecretsProvider{secretsProvider}
-	}
-	injector.Register("secretsProvider", secretsProvider)
-
-	// Setup mock blueprint handler
-	blueprintHandler := bp.NewMockBlueprintHandler(injector)
-	controller.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
-		return blueprintHandler
-	}
-	injector.Register("blueprintHandler", blueprintHandler)
-
-	return InstallCmdComponents{
-		Injector:         injector,
-		Controller:       controller,
-		ConfigHandler:    configHandler,
-		SecretsProvider:  secretsProvider,
-		BlueprintHandler: blueprintHandler,
-	}
+	return mocks
 }
 
 func TestInstallCmd(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
 	t.Run("Success", func(t *testing.T) {
-		defer resetRootCmd()
+		// Given a set of mocks with proper configuration
+		mocks := setupInstallMocks(t, nil)
 
-		// Initialize mocks
-		mocks := setupMockInstallCmdComponents()
-
-		// Set the controller in the command context
-		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
-
-		// Capture the output using captureStdout
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"install"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
-
-		// Verify the output
-		expectedOutput := ""
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorCreatingProjectComponents", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Initialize mocks
-		mocks := setupMockInstallCmdComponents()
-		mocks.Controller.CreateProjectComponentsFunc = func() error {
-			return fmt.Errorf("error creating project components")
-		}
-
-		// Set the controller in the command context
-		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
-
-		// When the install command is executed
+		// Set up command arguments
 		rootCmd.SetArgs([]string{"install"})
+
+		// When executing the command
 		err := Execute(mocks.Controller)
 
-		// Then check the error contents
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		expectedError := "Error creating project components: error creating project components"
-		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
-	t.Run("ErrorCreatingServiceComponents", func(t *testing.T) {
-		defer resetRootCmd()
+	t.Run("InitializeWithRequirementsError", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks := setupInstallMocks(t, nil)
 
-		// Initialize mocks
-		mocks := setupMockInstallCmdComponents()
-		mocks.Controller.CreateServiceComponentsFunc = func() error {
-			return fmt.Errorf("error creating service components")
+		// Override controller to return error for InitializeWithRequirements
+		mocks.Controller.InitializeWithRequirementsFunc = func(req controller.Requirements) error {
+			return fmt.Errorf("initialize error")
 		}
 
-		// Set the controller in the command context
-		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
-
-		// When the install command is executed
+		// Set up command arguments
 		rootCmd.SetArgs([]string{"install"})
+
+		// When executing the command
 		err := Execute(mocks.Controller)
 
-		// Then check the error contents
+		// Then error should occur
 		if err == nil {
-			t.Fatalf("Expected an error, got nil")
+			t.Error("Expected error, got nil")
 		}
-		expectedError := "Error creating service components: error creating service components"
+
+		// And error should contain initialize error message
+		expectedError := "Error initializing: initialize error"
 		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("ErrorCreatingVirtualizationComponents", func(t *testing.T) {
-		defer resetRootCmd()
+	t.Run("LoadSecretsError", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks := setupInstallMocks(t, nil)
 
-		// Initialize mocks
-		mocks := setupMockInstallCmdComponents()
-		mocks.Controller.CreateVirtualizationComponentsFunc = func() error {
-			return fmt.Errorf("error creating virtualization components")
+		// Create a mock secrets provider that returns an error
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Controller.ResolveInjector())
+		mockSecretsProvider.LoadSecretsFunc = func() error {
+			return fmt.Errorf("load secrets error")
 		}
 
-		// Set the controller in the command context
-		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
+		// Override controller to return the mock secrets provider
+		mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
+			return []secrets.SecretsProvider{mockSecretsProvider}
+		}
 
-		// When the install command is executed
+		// Set up command arguments
 		rootCmd.SetArgs([]string{"install"})
+
+		// When executing the command
 		err := Execute(mocks.Controller)
 
-		// Then check the error contents
+		// Then error should occur
 		if err == nil {
-			t.Fatalf("Expected an error, got nil")
+			t.Error("Expected error, got nil")
 		}
-		expectedError := "Error creating virtualization components: error creating virtualization components"
+
+		// And error should contain load secrets error message
+		expectedError := "Error loading secrets: load secrets error"
 		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("NoBlueprintHandlerFound", func(t *testing.T) {
-		defer resetRootCmd()
+	t.Run("SetEnvironmentVariablesError", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks := setupInstallMocks(t, nil)
 
-		// Initialize mocks
-		mocks := setupMockInstallCmdComponents()
-		mocks.Controller.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
+		// Override controller to return error for SetEnvironmentVariables
+		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
+			return fmt.Errorf("set env vars error")
+		}
+
+		// Set up command arguments
+		rootCmd.SetArgs([]string{"install"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain set env vars error message
+		expectedError := "Error setting environment variables: set env vars error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("NoBlueprintHandler", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks := setupInstallMocks(t, nil)
+
+		// Override controller to return nil for ResolveBlueprintHandler
+		mocks.Controller.ResolveBlueprintHandlerFunc = func() blueprintpkg.BlueprintHandler {
 			return nil
 		}
 
-		// Set the controller in the command context
-		rootCmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
-
-		// When the install command is executed
+		// Set up command arguments
 		rootCmd.SetArgs([]string{"install"})
+
+		// When executing the command
 		err := Execute(mocks.Controller)
 
-		// Then check the error contents
+		// Then error should occur
 		if err == nil {
-			t.Fatalf("Expected an error, got nil")
+			t.Error("Expected error, got nil")
 		}
+
+		// And error should contain no blueprint handler message
 		expectedError := "No blueprint handler found"
 		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("ErrorInstallingBlueprint", func(t *testing.T) {
-		defer resetRootCmd()
+	t.Run("InstallError", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks := setupInstallMocks(t, nil)
 
-		// Initialize mocks
-		mocks := setupMockInstallCmdComponents()
-		mocks.Controller.ResolveBlueprintHandlerFunc = func() bp.BlueprintHandler {
-			handler := bp.NewMockBlueprintHandler(mocks.Injector)
-			handler.InstallFunc = func() error {
-				return fmt.Errorf("error installing blueprint")
-			}
-			return handler
+		// Override blueprint handler to return error for Install
+		mocks.BlueprintHandler.InstallFunc = func() error {
+			return fmt.Errorf("install error")
 		}
 
-		// When the install command is executed
+		// Set up command arguments
 		rootCmd.SetArgs([]string{"install"})
+
+		// When executing the command
 		err := Execute(mocks.Controller)
 
-		// Then check the error contents
+		// Then error should occur
 		if err == nil {
-			t.Fatalf("Expected an error, got nil")
+			t.Error("Expected error, got nil")
 		}
-		expectedError := "Error installing blueprint: error installing blueprint"
+
+		// And error should contain install error message
+		expectedError := "Error installing blueprint: install error"
 		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorInitializingComponents", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Initialize mocks
-		mocks := setupMockInstallCmdComponents()
-		mocks.Controller.InitializeComponentsFunc = func() error {
-			return fmt.Errorf("error initializing components")
-		}
-
-		// When the install command is executed
-		rootCmd.SetArgs([]string{"install"})
-		err := Execute(mocks.Controller)
-
-		// Then check the error contents
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		expectedError := "Error initializing components: error initializing components"
-		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("LoadSecretsProvider", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Initialize mocks
-		mocks := setupMockInstallCmdComponents()
-		loadCalled := false
-		mocks.SecretsProvider.LoadSecretsFunc = func() error {
-			loadCalled = true
-			return nil // or return an error if needed for testing
-		}
-		mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
-			return []secrets.SecretsProvider{mocks.SecretsProvider}
-		}
-
-		// When the install command is executed
-		rootCmd.SetArgs([]string{"install"})
-		err := Execute(mocks.Controller)
-
-		// Then the secrets provider's LoadSecrets function should be called
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !loadCalled {
-			t.Fatalf("Expected secrets provider's LoadSecrets function to be called")
-		}
-	})
-
-	t.Run("ErrorLoadingSecrets", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Initialize mocks
-		mocks := setupMockInstallCmdComponents()
-		mocks.SecretsProvider.LoadSecretsFunc = func() error {
-			return fmt.Errorf("mock error loading secrets")
-		}
-		mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
-			return []secrets.SecretsProvider{mocks.SecretsProvider}
-		}
-
-		// When the install command is executed
-		rootCmd.SetArgs([]string{"install"})
-		err := Execute(mocks.Controller)
-
-		// Then the error should contain the expected message
-		if err == nil || !strings.Contains(err.Error(), "Error loading secrets: mock error loading secrets") {
-			t.Fatalf("Expected error containing 'Error loading secrets: mock error loading secrets', got %v", err)
-		}
-	})
-
-	t.Run("ConfigNotLoaded", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Create mock components
-		mocks := setupMockInstallCmdComponents()
-		mocks.ConfigHandler.IsLoadedFunc = func() bool { return false }
-
-		// When: the install command is executed
-		rootCmd.SetArgs([]string{"install"})
-		err := Execute(mocks.Controller)
-
-		// Then: it should return an error indicating the configuration is not loaded
-		if err == nil {
-			t.Fatalf("Expected error about configuration not loaded, got nil")
-		}
-		if !strings.Contains(err.Error(), "Cannot install blueprint. Please run `windsor init` to set up your project first.") {
-			t.Fatalf("Expected error about configuration not loaded, got %v", err.Error())
-		}
-	})
-
-	t.Run("ErrorSettingEnvironmentVariables", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Initialize mocks
-		mocks := setupMockInstallCmdComponents()
-		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
-			return fmt.Errorf("error setting environment variables")
-		}
-
-		// When the install command is executed
-		rootCmd.SetArgs([]string{"install"})
-		err := Execute(mocks.Controller)
-
-		// Then check the error contents
-		if err == nil {
-			t.Fatalf("Expected an error, got nil")
-		}
-		expectedError := "Error setting environment variables: error setting environment variables"
-		if err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("SuccessSettingEnvironmentVariables", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Initialize mocks
-		mocks := setupMockInstallCmdComponents()
-		setEnvVarsCalled := false
-		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
-			setEnvVarsCalled = true
-			return nil
-		}
-
-		// When the install command is executed
-		rootCmd.SetArgs([]string{"install"})
-		err := Execute(mocks.Controller)
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		// Then SetEnvironmentVariables should have been called
-		if !setEnvVarsCalled {
-			t.Fatal("Expected SetEnvironmentVariables to be called, but it wasn't")
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 }

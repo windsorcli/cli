@@ -21,28 +21,20 @@ var downCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
-		// Ensure configuration is loaded
-		configHandler := controller.ResolveConfigHandler()
-		if configHandler == nil {
-			return fmt.Errorf("No config handler found")
-		}
-		if !configHandler.IsLoaded() {
-			return fmt.Errorf("No configuration is loaded. Is there a project to tear down?")
-		}
-
-		// Determine if specific virtualization or container runtime actions are required
-		vmDriver := configHandler.GetString("vm.driver")
-
-		// Create virtualization components if the virtualization driver is configured
-		if vmDriver != "" {
-			if err := controller.CreateVirtualizationComponents(); err != nil {
-				return fmt.Errorf("Error creating virtualization components: %w", err)
-			}
-		}
-
-		// Initialize all components
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
+		// Initialize with requirements
+		if err := controller.InitializeWithRequirements(ctrl.Requirements{
+			ConfigLoaded: true,
+			Trust:        true,
+			Env:          true,
+			VM:           true,
+			Containers:   true,
+			Network:      true,
+			CommandName:  cmd.Name(),
+			Flags: map[string]bool{
+				"verbose": verbose,
+			},
+		}); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
 		}
 
 		// Set the environment variables internally in the process
@@ -50,8 +42,9 @@ var downCmd = &cobra.Command{
 			return fmt.Errorf("Error setting environment variables: %w", err)
 		}
 
-		// Resolve the shell
+		// Resolve components
 		shell := controller.ResolveShell()
+		configHandler := controller.ResolveConfigHandler()
 
 		// Determine if the container runtime is enabled
 		containerRuntimeEnabled := configHandler.GetBool("docker.enabled")
@@ -82,7 +75,7 @@ var downCmd = &cobra.Command{
 				return fmt.Errorf("Error retrieving project root: %w", err)
 			}
 			volumesPath := filepath.Join(projectRoot, ".volumes")
-			if err := osRemoveAll(volumesPath); err != nil {
+			if err := shims.RemoveAll(volumesPath); err != nil {
 				return fmt.Errorf("Error deleting .volumes folder: %w", err)
 			}
 		}
