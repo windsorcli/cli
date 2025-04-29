@@ -1,471 +1,447 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/config"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
-	"github.com/windsorcli/cli/pkg/di"
+	"github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-type MockSafeContextCmdComponents struct {
-	Injector      di.Injector
-	Controller    *ctrl.MockController
-	ConfigHandler *config.MockConfigHandler
-}
+func TestContextCmd(t *testing.T) {
+	setup := func(t *testing.T, opts ...*SetupOptions) (*Mocks, *bytes.Buffer, *bytes.Buffer) {
+		t.Helper()
 
-// setupSafeContextCmdMocks creates mock components for testing the context command
-func setupSafeContextCmdMocks(optionalInjector ...di.Injector) MockSafeContextCmdComponents {
-	var mockController *ctrl.MockController
-	var injector di.Injector
+		// Setup mocks with default options
+		mocks := setupMocks(t, opts...)
 
-	// Use the provided injector if passed, otherwise create a new one
-	if len(optionalInjector) > 0 {
-		injector = optionalInjector[0]
-	} else {
-		injector = di.NewInjector()
+		// Setup command args and output
+		stdout, stderr := captureOutput(t)
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(stderr)
+
+		return mocks, stdout, stderr
 	}
 
-	// Use the injector to create a mock controller
-	mockController = ctrl.NewMockController(injector)
-
-	// Setup mock config handler
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.SetFunc = func(key string, value any) error {
-		return nil
-	}
-	mockConfigHandler.GetContextFunc = func() string {
-		return "mock-context"
-	}
-	mockConfigHandler.SetContextFunc = func(contextName string) error {
-		return nil // Simulate successful context setup
-	}
-	mockConfigHandler.IsLoadedFunc = func() bool { return true }
-	injector.Register("configHandler", mockConfigHandler)
-
-	// Set the ResolveConfigHandlerFunc to return the mock config handler
-	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-		return mockConfigHandler
-	}
-
-	// Setup mock shell
-	mockShell := shell.NewMockShell(injector)
-	mockShell.WriteResetTokenFunc = func() (string, error) {
-		return "/mock/project/root/.windsor/.session.mock-token", nil
-	}
-	injector.Register("shell", mockShell)
-
-	// Set the ResolveShellFunc to return the mock shell
-	mockController.ResolveShellFunc = func() shell.Shell {
-		return mockShell
-	}
-
-	// Ensure the IsLoadedFunc returns true
-	mockConfigHandler.IsLoadedFunc = func() bool {
-		return true
-	}
-
-	return MockSafeContextCmdComponents{
-		Injector:      injector,
-		Controller:    mockController,
-		ConfigHandler: mockConfigHandler,
-	}
-}
-
-func TestContext_Get(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a valid config handler
-		mocks := setupSafeContextCmdMocks()
-
-		// When the get context command is executed
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"context", "get"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				if strings.Contains(err.Error(), "no instance registered with name contextHandler") {
-					t.Fatalf("Error resolving contextHandler: %v", err)
-				} else {
-					t.Fatalf("Execute() error = %v", err)
-				}
-			}
+	t.Run("GetContext", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks, stdout, stderr := setup(t, &SetupOptions{
+			ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
 		})
 
-		// Then the output should indicate the current context
-		expectedOutput := "mock-context\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
-		}
-	})
+		rootCmd.SetArgs([]string{"context", "get"})
 
-	t.Run("ErrorInitializingComponents", func(t *testing.T) {
-		// Given an error initializing components
-		mocks := setupSafeContextCmdMocks()
-		mocks.Controller.InitializeComponentsFunc = func() error {
-			return fmt.Errorf("initialization error")
-		}
-
-		// When the get context command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"context", "get"})
-			err := Execute(mocks.Controller)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error initializing components: initialization error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ConfigNotLoaded", func(t *testing.T) {
-		// Given a config handler that is not loaded
-		mocks := setupSafeContextCmdMocks()
-		mocks.ConfigHandler.IsLoadedFunc = func() bool { return false }
-
-		// When the get context command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"context", "get"})
-			err := Execute(mocks.Controller)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the config is not loaded
-		expectedOutput := "No context is available. Have you run `windsor init`?"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
-		// Given an error creating environment components
-		mocks := setupSafeContextCmdMocks()
-		mocks.Controller.CreateEnvComponentsFunc = func() error {
-			return fmt.Errorf("env components error")
-		}
-
-		// When the get context command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"context", "get"})
-			err := Execute(mocks.Controller)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error initializing environment components: env components error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorSettingEnvironmentVariables", func(t *testing.T) {
-		// Given an error when setting environment variables
-		mocks := setupSafeContextCmdMocks()
-		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
-			return fmt.Errorf("environment variables error")
-		}
-
-		// When the get context command is executed
-		output := captureStderr(func() {
-			rootCmd.SetArgs([]string{"context", "get"})
-			err := Execute(mocks.Controller)
-			if err == nil {
-				t.Fatalf("Expected error, got nil")
-			}
-		})
-
-		// Then the output should indicate the error
-		expectedOutput := "Error setting environment variables: environment variables error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
-		}
-	})
-}
-
-func TestContext_Set(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a valid config handler
-		mocks := setupSafeContextCmdMocks()
-
-		// When the set context command is executed with a valid context
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"context", "set", "new-context"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
-		})
-
-		// Then the output should indicate success
-		expectedOutput := "Context set to: new-context\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
-		}
-	})
-
-	t.Run("ErrorInitializingComponents", func(t *testing.T) {
-		// Given an error initializing components
-		mocks := setupSafeContextCmdMocks()
-		mocks.Controller.InitializeComponentsFunc = func() error {
-			return fmt.Errorf("initialization error")
-		}
-
-		// When the set context command is executed
-		rootCmd.SetArgs([]string{"context", "set", "new-context"})
+		// When executing the command
 		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
 
-		// Then the output should indicate the error
-		expectedOutput := "initialization error"
-		if !strings.Contains(err.Error(), expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
+		// And output should contain current context
+		output := stdout.String()
+		if output != "default\n" {
+			t.Errorf("Expected 'default', got: %q", output)
+		}
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("GetContextNoConfig", func(t *testing.T) {
+		// Given a set of mocks with no configuration
+		mocks, _, _ := setup(t)
+
+		rootCmd.SetArgs([]string{"context", "get"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain init message
+		expectedError := "No context is available. Have you run `windsor init`?"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("SetContext", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks, stdout, stderr := setup(t, &SetupOptions{
+			ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+		})
+
+		// Mock the shell methods
+		mockShell := shell.NewMockShell()
+		mockShell.WriteResetTokenFunc = func() (string, error) {
+			return "mock-token", nil
+		}
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		rootCmd.SetArgs([]string{"context", "set", "new-context"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And output should contain success message
+		output := stdout.String()
+		if output != "Context set to: new-context\n" {
+			t.Errorf("Expected 'Context set to: new-context', got: %q", output)
+		}
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SetContextNoArgs", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks, _, _ := setup(t, &SetupOptions{
+			ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+		})
+
+		rootCmd.SetArgs([]string{"context", "set"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain usage message
+		expectedError := "accepts 1 arg(s), received 0"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("SetContextNoConfig", func(t *testing.T) {
+		// Given a set of mocks with no configuration
+		mocks, _, _ := setup(t)
+
+		// Mock initialization to return error
+		mocks.Controller.InitializeWithRequirementsFunc = func(req controller.Requirements) error {
+			return fmt.Errorf("No context is available. Have you run `windsor init`?")
+		}
+
+		rootCmd.SetArgs([]string{"context", "set", "new-context"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain init message
+		expectedError := "Error initializing environment components: No context is available. Have you run `windsor init`?"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("GetContextEnvError", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks, _, _ := setup(t, &SetupOptions{
+			ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+		})
+
+		// Mock SetEnvironmentVariables to return error
+		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
+			return fmt.Errorf("env error")
+		}
+
+		rootCmd.SetArgs([]string{"context", "get"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain env error message
+		expectedError := "Error setting environment variables: env error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("SetContextEnvError", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks, _, _ := setup(t, &SetupOptions{
+			ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+		})
+
+		// Mock SetEnvironmentVariables to return error
+		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
+			return fmt.Errorf("env error")
+		}
+
+		rootCmd.SetArgs([]string{"context", "set", "new-context"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain env error message
+		expectedError := "Error setting environment variables: env error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
 	t.Run("SetContextError", func(t *testing.T) {
-		// Given a config handler instance that returns an error on SetContext
-		mocks := setupSafeContextCmdMocks()
-		mocks.ConfigHandler.SetContextFunc = func(contextName string) error { return fmt.Errorf("set context error") }
+		// Given a set of mocks with proper configuration
+		mocks, _, _ := setup(t, &SetupOptions{
+			ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+		})
 
-		// When the set context command is executed
-		rootCmd.SetArgs([]string{"context", "set", "new-context"})
-		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then the output should indicate the error
-		expectedOutput := "set context error"
-		if !strings.Contains(err.Error(), expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
-		}
-	})
-
-	t.Run("ConfigNotLoaded", func(t *testing.T) {
-		// Given a config handler that is not loaded
-		mocks := setupSafeContextCmdMocks()
-		mocks.ConfigHandler.IsLoadedFunc = func() bool { return false }
-
-		// When the set context command is executed
-		rootCmd.SetArgs([]string{"context", "set", "new-context"})
-		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then the output should indicate the config is not loaded
-		expectedOutput := "Configuration is not loaded. Please ensure it is initialized."
-		if !strings.Contains(err.Error(), expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
-		}
-	})
-
-	t.Run("ErrorCreatingEnvComponents", func(t *testing.T) {
-		// Given an error creating environment components
-		mocks := setupSafeContextCmdMocks()
-		mocks.Controller.CreateEnvComponentsFunc = func() error {
-			return fmt.Errorf("env components error")
-		}
-
-		// When the set context command is executed
-		rootCmd.SetArgs([]string{"context", "set", "new-context"})
-		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
-
-		// Then the output should indicate the error
-		expectedOutput := "Error initializing environment components: env components error"
-		if !strings.Contains(err.Error(), expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
-		}
-	})
-
-	t.Run("ErrorWritingResetToken", func(t *testing.T) {
-		// Given a mock shell that returns an error on WriteResetToken
-		mocks := setupSafeContextCmdMocks()
+		// Mock the shell methods
 		mockShell := shell.NewMockShell()
 		mockShell.WriteResetTokenFunc = func() (string, error) {
-			return "", fmt.Errorf("error writing reset token")
+			return "mock-token", nil
 		}
 		mocks.Controller.ResolveShellFunc = func() shell.Shell {
 			return mockShell
 		}
 
-		// When the set context command is executed
-		rootCmd.SetArgs([]string{"context", "set", "new-context"})
-		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
+		// Mock config handler to return error on SetContext
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.SetContextFunc = func(context string) error {
+			return fmt.Errorf("set context error")
+		}
+		mocks.Controller.ResolveConfigHandlerFunc = func() config.ConfigHandler {
+			return mockConfigHandler
 		}
 
-		// Then the output should indicate the error
-		expectedOutput := "Error writing reset token: error writing reset token"
-		if !strings.Contains(err.Error(), expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
+		rootCmd.SetArgs([]string{"context", "set", "new-context"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain set context error message
+		expectedError := "Error setting context: set context error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("ErrorSettingEnvironmentVariables", func(t *testing.T) {
-		// Given a controller that returns an error when setting environment variables
-		mocks := setupSafeContextCmdMocks()
-		mocks.Controller.SetEnvironmentVariablesFunc = func() error {
-			return fmt.Errorf("error setting environment variables")
-		}
+	t.Run("GetContextAlias", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks, stdout, stderr := setup(t, &SetupOptions{
+			ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+		})
 
-		// When the set context command is executed
-		rootCmd.SetArgs([]string{"context", "set", "new-context"})
+		rootCmd.SetArgs([]string{"get-context"})
+
+		// When executing the command
 		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
-		}
 
-		// Then the output should indicate the error
-		expectedOutput := "Error setting environment variables: error setting environment variables"
-		if !strings.Contains(err.Error(), expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, err.Error())
-		}
-	})
-
-	t.Run("ResetTokenWrittenBeforeContextChange", func(t *testing.T) {
-		// Given a controller that tracks execution order
-		mocks := setupSafeContextCmdMocks()
-
-		var executionOrder []string
-
-		// Mock WriteResetToken to record when it's called
-		mockShell := shell.NewMockShell()
-		mockShell.WriteResetTokenFunc = func() (string, error) {
-			executionOrder = append(executionOrder, "WriteResetToken")
-			return "/mock/path", nil
-		}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mockShell
-		}
-
-		// Mock SetContext to record when it's called
-		mocks.ConfigHandler.SetContextFunc = func(contextName string) error {
-			executionOrder = append(executionOrder, "SetContext")
-			return nil
-		}
-
-		// When the set context command is executed
-		rootCmd.SetArgs([]string{"context", "set", "new-context"})
-		err := Execute(mocks.Controller)
+		// Then no error should occur
 		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
+			t.Errorf("Expected success, got error: %v", err)
 		}
 
-		// Then WriteResetToken should be called before SetContext
-		if len(executionOrder) != 2 {
-			t.Fatalf("Expected 2 operations, got %d: %v", len(executionOrder), executionOrder)
+		// And output should contain current context
+		output := stdout.String()
+		if output != "default\n" {
+			t.Errorf("Expected 'default', got: %q", output)
 		}
-
-		if executionOrder[0] != "WriteResetToken" || executionOrder[1] != "SetContext" {
-			t.Errorf("Expected WriteResetToken to be called before SetContext, got order: %v", executionOrder)
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
 		}
 	})
-}
 
-func TestContext_GetAlias(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a valid config handler
-		mocks := setupSafeContextCmdMocks()
-
-		// Log the state of the ConfigHandle
-
-		// When the get-context alias command is executed
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"get-context"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
+	t.Run("SetContextAlias", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks, stdout, stderr := setup(t, &SetupOptions{
+			ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
 		})
 
-		// Then the output should indicate the current context
-		expectedOutput := "mock-context\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		// Mock the shell methods
+		mockShell := shell.NewMockShell()
+		mockShell.WriteResetTokenFunc = func() (string, error) {
+			return "mock-token", nil
 		}
-	})
-}
-
-func TestContext_SetAlias(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
-
-	t.Run("Success", func(t *testing.T) {
-		defer resetRootCmd()
-
-		// Given a valid config handler and context
-		mocks := setupSafeContextCmdMocks()
-
-		// When the set-context alias command is executed with a valid context
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"set-context", "new-context"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
-		})
-
-		// Then the output should indicate success
-		expectedOutput := "Context set to: new-context\n"
-		if output != expectedOutput {
-			t.Errorf("Expected output %q, got %q", expectedOutput, output)
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mockShell
 		}
-	})
 
-	t.Run("SetContextError", func(t *testing.T) { // Given a config handler instance that returns an error on SetContext
-		defer resetRootCmd()
-
-		mocks := setupSafeContextCmdMocks()
-		mocks.ConfigHandler.SetContextFunc = func(contextName string) error { return fmt.Errorf("set context error") }
-
-		// When the set-context alias command is executed
 		rootCmd.SetArgs([]string{"set-context", "new-context"})
+
+		// When executing the command
 		err := Execute(mocks.Controller)
-		if err == nil {
-			t.Fatalf("Expected error, got nil")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
 
-		// Then the error should indicate the issue
-		expectedOutput := "set context error"
-		if !strings.Contains(err.Error(), expectedOutput) {
-			t.Errorf("Expected error to contain %q, got %q", expectedOutput, err.Error())
+		// And output should contain success message
+		output := stdout.String()
+		if output != "Context set to: new-context\n" {
+			t.Errorf("Expected 'Context set to: new-context', got: %q", output)
+		}
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SetContextAliasNoArgs", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks, _, _ := setup(t, &SetupOptions{
+			ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+		})
+
+		rootCmd.SetArgs([]string{"set-context"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain usage message
+		expectedError := "accepts 1 arg(s), received 0"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("SetContextResetTokenError", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks, _, _ := setup(t, &SetupOptions{
+			ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+		})
+
+		// Mock the shell methods to return error
+		mockShell := shell.NewMockShell()
+		mockShell.WriteResetTokenFunc = func() (string, error) {
+			return "", fmt.Errorf("reset token error")
+		}
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		rootCmd.SetArgs([]string{"context", "set", "new-context"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain reset token error message
+		expectedError := "Error writing reset token: reset token error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("SetContextAliasResetTokenError", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks, _, _ := setup(t, &SetupOptions{
+			ConfigStr: `
+contexts:
+  default:
+    tools:
+      enabled: true`,
+		})
+
+		// Mock the shell methods to return error
+		mockShell := shell.NewMockShell()
+		mockShell.WriteResetTokenFunc = func() (string, error) {
+			return "", fmt.Errorf("reset token error")
+		}
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		rootCmd.SetArgs([]string{"set-context", "new-context"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain reset token error message
+		expectedError := "Error writing reset token: reset token error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 }

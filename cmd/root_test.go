@@ -1,430 +1,248 @@
 package cmd
 
+// The RootTest provides comprehensive test coverage for the Windsor CLI root command.
+// It provides validation of command initialization, flag handling, and context management,
+// The RootTest ensures proper command execution and context propagation,
+// verifying error handling, flag parsing, and command hierarchy.
+
 import (
 	"bytes"
-	"context"
-	"fmt"
-	"io"
 	"os"
-	"strings"
+	"os/exec"
 	"testing"
 
-	"github.com/spf13/cobra"
+	blueprintpkg "github.com/windsorcli/cli/pkg/blueprint"
 	"github.com/windsorcli/cli/pkg/config"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/controller"
 	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/env"
 	"github.com/windsorcli/cli/pkg/secrets"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-// resetRootCmd resets the root command to its initial state.
-func resetRootCmd() {
-	rootCmd.SetArgs([]string{})
-	rootCmd.SetOut(nil)
-	rootCmd.SetErr(nil)
-	verbose = false // Reset the verbose flag
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+type Mocks struct {
+	Injector         di.Injector
+	ConfigHandler    config.ConfigHandler
+	Controller       *controller.MockController
+	Shell            *shell.MockShell
+	SecretsProvider  *secrets.MockSecretsProvider
+	EnvPrinter       *env.MockEnvPrinter
+	Shims            *Shims
+	BlueprintHandler *blueprintpkg.MockBlueprintHandler
 }
 
-// Helper function to capture stdout output
-func captureStdout(f func()) string {
-	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	f()
-
-	w.Close()
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	os.Stdout = oldStdout
-	return buf.String()
+type SetupOptions struct {
+	Injector      di.Injector
+	ConfigHandler config.ConfigHandler
+	Controller    *controller.MockController
+	ConfigStr     string
+	Shims         *Shims
 }
 
-// Helper function to capture stderr output
-func captureStderr(f func()) string {
-	oldStderr := os.Stderr
-	r, w, _ := os.Pipe()
-	os.Stderr = w
+// setupMocks creates mock components for testing the root command
+func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
+	t.Helper()
 
-	f()
+	// Process options with defaults
+	options := &SetupOptions{}
+	if len(opts) > 0 && opts[0] != nil {
+		options = opts[0]
+	}
 
-	w.Close()
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	os.Stderr = oldStderr
-	return buf.String()
-}
+	// Store original shims and restore after test
+	origShims := shims
+	t.Cleanup(func() {
+		shims = origShims
+	})
 
-// Mock exit function to capture exit code
-var exitCode int
+	// Create shims
+	testShims := &Shims{
+		Exit:        func(int) {},
+		UserHomeDir: func() (string, error) { return t.TempDir(), nil },
+		Stat:        func(string) (os.FileInfo, error) { return nil, nil },
+		RemoveAll:   func(string) error { return nil },
+		Getwd:       func() (string, error) { return t.TempDir(), nil },
+		Command:     func(string, ...string) *exec.Cmd { return exec.Command("echo") },
+		Setenv:      func(string, string) error { return nil },
+	}
 
-func mockExit(code int) {
-	exitCode = code
-}
+	// Override with provided shims if any
+	if options.Shims != nil {
+		testShims = options.Shims
+	}
 
-type MockObjects struct {
-	Controller      *ctrl.MockController
-	Shell           *shell.MockShell
-	EnvPrinter      *env.MockEnvPrinter
-	ConfigHandler   *config.MockConfigHandler
-	SecretsProvider *secrets.MockSecretsProvider
-}
+	// Set global shims
+	shims = testShims
 
-func setupSafeRootMocks(optionalInjector ...di.Injector) *MockObjects {
+	// Create injector
 	var injector di.Injector
-	if len(optionalInjector) > 0 {
-		injector = optionalInjector[0]
-	} else {
+	if options.Injector == nil {
 		injector = di.NewInjector()
+	} else {
+		injector = options.Injector
 	}
 
-	mockController := ctrl.NewMockController(injector)
-
-	// Set up controller mock functions
-	mockController.InitializeFunc = func() error { return nil }
-	mockController.CreateCommonComponentsFunc = func() error { return nil }
-	mockController.InitializeComponentsFunc = func() error { return nil }
-	mockController.CreateProjectComponentsFunc = func() error { return nil }
-	mockController.CreateServiceComponentsFunc = func() error { return nil }
-	mockController.CreateVirtualizationComponentsFunc = func() error { return nil }
-	mockController.CreateSecretsProvidersFunc = func() error { return nil }
-
-	// Initialize the controller
-	if err := mockController.Initialize(); err != nil {
-		panic(fmt.Sprintf("Failed to initialize controller: %v", err))
-	}
-
-	// Setup mock shell
+	// Create and register mock shell
 	mockShell := shell.NewMockShell()
 	mockShell.GetProjectRootFunc = func() (string, error) {
-		return "/mock/project/root", nil
+		return t.TempDir(), nil
 	}
 	mockShell.CheckTrustedDirectoryFunc = func() error {
 		return nil
 	}
-	mockController.ResolveShellFunc = func() shell.Shell {
-		return mockShell
+	mockShell.CheckResetFlagsFunc = func() (bool, error) {
+		return false, nil
 	}
+	mockShell.ResetFunc = func() {}
 	injector.Register("shell", mockShell)
 
-	// Setup mock config handler
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.IsLoadedFunc = func() bool {
-		return true
-	}
-	mockConfigHandler.GetContextFunc = func() string {
-		return "test-context"
-	}
-	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-		return mockConfigHandler
-	}
-	injector.Register("configHandler", mockConfigHandler)
-
-	// Setup mock env printer
-	mockEnvPrinter := env.NewMockEnvPrinter()
-	injector.Register("envPrinter", mockEnvPrinter)
-
-	// Setup mock secrets provider
+	// Create and register mock secrets provider
 	mockSecretsProvider := secrets.NewMockSecretsProvider(injector)
-	mockController.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
-		return []secrets.SecretsProvider{mockSecretsProvider}
+	mockSecretsProvider.LoadSecretsFunc = func() error {
+		return nil
 	}
 	injector.Register("secretsProvider", mockSecretsProvider)
 
-	return &MockObjects{
-		Controller:      mockController,
-		Shell:           mockShell,
-		EnvPrinter:      mockEnvPrinter,
-		ConfigHandler:   mockConfigHandler,
-		SecretsProvider: mockSecretsProvider,
+	// Create and register mock env printer
+	mockEnvPrinter := env.NewMockEnvPrinter()
+	mockEnvPrinter.PrintFunc = func() error {
+		return nil
+	}
+	mockEnvPrinter.PostEnvHookFunc = func() error {
+		return nil
+	}
+	injector.Register("envPrinter", mockEnvPrinter)
+
+	// Create and register additional mock env printers
+	mockWindsorEnvPrinter := env.NewMockEnvPrinter()
+	mockWindsorEnvPrinter.PrintFunc = func() error {
+		return nil
+	}
+	mockWindsorEnvPrinter.PostEnvHookFunc = func() error {
+		return nil
+	}
+	injector.Register("windsorEnvPrinter", mockWindsorEnvPrinter)
+
+	mockDockerEnvPrinter := env.NewMockEnvPrinter()
+	mockDockerEnvPrinter.PrintFunc = func() error {
+		return nil
+	}
+	mockDockerEnvPrinter.PostEnvHookFunc = func() error {
+		return nil
+	}
+	injector.Register("dockerEnvPrinter", mockDockerEnvPrinter)
+
+	// Create config handler
+	var configHandler config.ConfigHandler
+	if options.ConfigHandler == nil {
+		configHandler = config.NewYamlConfigHandler(injector)
+	} else {
+		configHandler = options.ConfigHandler
+	}
+
+	// Register config handler
+	injector.Register("configHandler", configHandler)
+
+	// Initialize config handler
+	if err := configHandler.Initialize(); err != nil {
+		t.Fatalf("Failed to initialize config handler: %v", err)
+	}
+
+	// Load config if ConfigStr is provided
+	if options.ConfigStr != "" {
+		if err := configHandler.LoadConfigString(options.ConfigStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		if err := configHandler.SetContext("default"); err != nil {
+			t.Fatalf("Failed to set context: %v", err)
+		}
+	}
+
+	// Create mock controller
+	var mockController *controller.MockController
+	if options.Controller == nil {
+		mockController = controller.NewMockController(injector)
+	} else {
+		mockController = options.Controller
+	}
+
+	// Create mock blueprint handler
+	mockBlueprintHandler := blueprintpkg.NewMockBlueprintHandler(injector)
+	mockBlueprintHandler.InstallFunc = func() error {
+		return nil
+	}
+	injector.Register("blueprintHandler", mockBlueprintHandler)
+
+	return &Mocks{
+		Injector:         injector,
+		ConfigHandler:    configHandler,
+		Controller:       mockController,
+		Shell:            mockShell,
+		SecretsProvider:  mockSecretsProvider,
+		EnvPrinter:       mockEnvPrinter,
+		Shims:            testShims,
+		BlueprintHandler: mockBlueprintHandler,
 	}
 }
 
-func TestRoot_Execute(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+// captureOutput creates buffers for stdout and stderr and returns them along with a cleanup function
+func captureOutput(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
+	t.Helper()
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+
 	t.Cleanup(func() {
-		exitFunc = originalExitFunc
+		stdout.Reset()
+		stderr.Reset()
+	})
+
+	return stdout, stderr
+}
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+func TestRootCmd(t *testing.T) {
+	t.Run("RootCmd", func(t *testing.T) {
+		// Given a set of mocks
+		setupMocks(t)
+
+		// When creating the root command
+		cmd := rootCmd
+
+		// Then the command should be properly configured
+		if cmd.Use != "windsor" {
+			t.Errorf("Expected Use to be 'windsor', got %s", cmd.Use)
+		}
+
+		// And the command should have the verbose flag
+		verboseFlag := cmd.Flags().Lookup("verbose")
+		if verboseFlag == nil {
+			t.Error("Expected verbose flag to be defined")
+		}
 	})
 }
 
-func TestRoot_preRunEInitializeCommonComponents(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupSafeRootMocks()
+func TestRootCmd_PersistentPreRunE(t *testing.T) {
+	t.Run("PersistentPreRunE", func(t *testing.T) {
+		// Given a set of mocks
+		setupMocks(t)
 
-		// Create a new command and register the controller
-		cmd := &cobra.Command{}
-		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
+		// When executing the PersistentPreRunE function
+		err := rootCmd.PersistentPreRunE(rootCmd, []string{})
 
-		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(cmd, nil)
-
-		// Then no error should be returned
+		// Then no error should occur
 		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorInitializingController", func(t *testing.T) {
-		mocks := setupSafeRootMocks()
-
-		// Mock the controller to return an error on Initialize
-		mocks.Controller.InitializeFunc = func() error {
-			return fmt.Errorf("mocked error initializing controller")
-		}
-
-		// Create a new command and register the controller
-		cmd := &cobra.Command{}
-		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
-
-		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(cmd, nil)
-
-		// Then an error should be returned
-		expectedError := "mocked error initializing controller"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("ErrorCreatingCommonComponents", func(t *testing.T) {
-		mocks := setupSafeRootMocks()
-
-		// Mock the controller to return an error on CreateCommonComponents
-		mocks.Controller.CreateCommonComponentsFunc = func() error {
-			return fmt.Errorf("mocked error creating common components")
-		}
-
-		// Create a new command and register the controller
-		cmd := &cobra.Command{}
-		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
-
-		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(cmd, nil)
-
-		// Then an error should be returned
-		expectedError := "mocked error creating common components"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("ErrorResolvingConfigHandler", func(t *testing.T) {
-		mocks := setupSafeRootMocks()
-
-		// Mock ResolveConfigHandler to return nil
-		mocks.Controller.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-			return nil
-		}
-
-		// Create a new command and register the controller
-		cmd := &cobra.Command{}
-		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
-
-		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(cmd, nil)
-
-		// Then an error should be returned
-		expectedError := "No config handler found"
-		if err == nil || !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("SetVerbositySuccess", func(t *testing.T) {
-		mocks := setupSafeRootMocks()
-
-		// Mock ResolveShell to return a mock shell
-		mockShell := &shell.MockShell{}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mockShell
-		}
-
-		// Mock SetVerbosity to verify it is called with the correct argument
-		var verbositySet bool
-		mockShell.SetVerbosityFunc = func(v bool) {
-			if v {
-				verbositySet = true
-			}
-		}
-
-		// Create a new command and register the controller
-		cmd := &cobra.Command{}
-		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
-
-		// Set the verbosity
-		shell := mocks.Controller.ResolveShell()
-		if shell != nil {
-			shell.SetVerbosity(true)
-		}
-
-		// Then the verbosity should be set
-		if !verbositySet {
-			t.Fatalf("Expected verbosity to be set, but it was not")
-		}
-	})
-
-	t.Run("ErrorCreatingSecretsProvider", func(t *testing.T) {
-		mocks := setupSafeRootMocks()
-
-		// Mock CreateSecretsProviders to return an error
-		mocks.Controller.CreateSecretsProvidersFunc = func() error {
-			return fmt.Errorf("error creating secrets provider")
-		}
-
-		// Create a new command and register the controller
-		cmd := &cobra.Command{}
-		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
-
-		// When preRunEInitializeCommonComponents is called
-		err := preRunEInitializeCommonComponents(cmd, nil)
-
-		// Then an error should be returned
-		expectedError := "Error creating secrets provider: error creating secrets provider"
-		if err == nil || err.Error() != expectedError {
-			t.Fatalf("Expected error %q, got %v", expectedError, err)
-		}
-	})
-
-	t.Run("WarningInUntrustedDirectory", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeRootMocks()
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mocks.Shell
-		}
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return fmt.Errorf("Current directory not in the trusted list")
-		}
-
-		// Create a command and register the controller
-		cmd := &cobra.Command{}
-		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
-
-		// Capture stderr
-		output := captureStderr(func() {
-			// Run preRunEInitializeCommonComponents
-			err := preRunEInitializeCommonComponents(cmd, []string{})
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
-
-		// Check for warning message
-		expectedWarning := "Warning: You are not in a trusted directory"
-		if !strings.Contains(output, expectedWarning) {
-			t.Errorf("Expected output to contain %q, got %q", expectedWarning, output)
-		}
-	})
-
-	t.Run("NoWarningForHookCommand", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeRootMocks()
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return fmt.Errorf("Current directory not in the trusted list")
-		}
-
-		// Capture stderr
-		output := captureStderr(func() {
-			// Create a hook command
-			cmd := hookCmd
-			cmd.SetArgs([]string{"bash"})
-
-			// Run preRunEInitializeCommonComponents
-			err := preRunEInitializeCommonComponents(cmd, []string{})
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
-
-		// Check that no warning was printed
-		unexpectedWarning := "Warning: You are not in a trusted directory"
-		if strings.Contains(output, unexpectedWarning) {
-			t.Errorf("Expected output to not contain %q, got %q", unexpectedWarning, output)
-		}
-	})
-
-	t.Run("NoWarningForEnvCommand", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeRootMocks()
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return fmt.Errorf("Current directory not in the trusted list")
-		}
-
-		// Capture stderr
-		output := captureStderr(func() {
-			// Create an env command
-			cmd := envCmd
-			cmd.SetArgs([]string{})
-
-			// Run preRunEInitializeCommonComponents
-			err := preRunEInitializeCommonComponents(cmd, []string{})
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
-
-		// Check that no warning was printed
-		unexpectedWarning := "Warning: You are not in a trusted directory"
-		if strings.Contains(output, unexpectedWarning) {
-			t.Errorf("Expected output to not contain %q, got %q", unexpectedWarning, output)
-		}
-	})
-
-	t.Run("NoWarningForEnvCommandWithDecrypt", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeRootMocks()
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return fmt.Errorf("Current directory not in the trusted list")
-		}
-
-		// Capture stderr
-		output := captureStderr(func() {
-			// Create an env command with --decrypt flag
-			cmd := envCmd
-			cmd.SetArgs([]string{"--decrypt"})
-
-			// Run preRunEInitializeCommonComponents
-			err := preRunEInitializeCommonComponents(cmd, []string{})
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
-
-		// Check that no warning was printed
-		unexpectedWarning := "Warning: You are not in a trusted directory"
-		if strings.Contains(output, unexpectedWarning) {
-			t.Errorf("Expected output to not contain %q, got %q", unexpectedWarning, output)
-		}
-	})
-
-	t.Run("WarningForEnvCommandWithoutDecrypt", func(t *testing.T) {
-		// Setup mocks
-		mocks := setupSafeRootMocks()
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mocks.Shell
-		}
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return fmt.Errorf("Current directory not in the trusted list")
-		}
-
-		// Create a command and register the controller
-		cmd := &cobra.Command{Use: "env"}
-		cmd.SetContext(context.WithValue(context.Background(), controllerKey, mocks.Controller))
-
-		// Capture stderr
-		output := captureStderr(func() {
-			// Run preRunEInitializeCommonComponents
-			err := preRunEInitializeCommonComponents(cmd, []string{})
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
-
-		// Check for warning message
-		expectedWarning := "Warning: You are not in a trusted directory"
-		if !strings.Contains(output, expectedWarning) {
-			t.Errorf("Expected output to contain %q, got %q", expectedWarning, output)
+			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 }

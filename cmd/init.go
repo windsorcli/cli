@@ -35,7 +35,17 @@ var initCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Create shims instance for this command
+		shims := NewShims()
+
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+
+		// Initialize with requirements
+		if err := controller.InitializeWithRequirements(ctrl.Requirements{
+			CommandName: cmd.Name(),
+		}); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
+		}
 
 		// Add the current directory to the trusted file list
 		shell := controller.ResolveShell()
@@ -67,7 +77,7 @@ var initCmd = &cobra.Command{
 		if vmDriverConfig == "" {
 			vmDriverConfig = configHandler.GetString("vm.driver")
 			if vmDriverConfig == "" && (contextName == "local" || strings.HasPrefix(contextName, "local-")) {
-				switch goos() {
+				switch shims.Goos() {
 				case "darwin", "windows":
 					vmDriverConfig = "docker-desktop"
 				default:
@@ -133,9 +143,9 @@ var initCmd = &cobra.Command{
 		ymlPath := filepath.Join(projectRoot, "windsor.yml")
 
 		var cliConfigPath string
-		if _, err := osStat(yamlPath); err == nil {
+		if _, err := shims.Stat(yamlPath); err == nil {
 			cliConfigPath = yamlPath
-		} else if _, err := osStat(ymlPath); err == nil {
+		} else if _, err := shims.Stat(ymlPath); err == nil {
 			cliConfigPath = ymlPath
 		} else {
 			cliConfigPath = yamlPath
@@ -146,26 +156,22 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("Error saving config file: %w", err)
 		}
 
-		// Create and initialize components
-		if err := controller.CreateEnvComponents(); err != nil {
-			return fmt.Errorf("Error creating environment components: %w", err)
-		}
-		if err := controller.CreateProjectComponents(); err != nil {
-			return fmt.Errorf("Error creating project components: %w", err)
-		}
-		if vmDriverConfig != "" {
-			if err := controller.CreateServiceComponents(); err != nil {
-				return fmt.Errorf("Error creating service components: %w", err)
-			}
-			if err := controller.CreateVirtualizationComponents(); err != nil {
-				return fmt.Errorf("Error creating virtualization components: %w", err)
-			}
-		}
-		if err := controller.CreateStackComponents(); err != nil {
-			return fmt.Errorf("Error creating stack components: %w", err)
-		}
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
+		// Initialize with requirements
+		if err := controller.InitializeWithRequirements(ctrl.Requirements{
+			Env:         true,
+			VM:          true,
+			Containers:  true,
+			Services:    true,
+			Network:     true,
+			Blueprint:   true,
+			Generators:  true,
+			Stack:       true,
+			CommandName: cmd.Name(),
+			Flags: map[string]bool{
+				"verbose": verbose,
+			},
+		}); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
 		}
 
 		// Set the environment variables internally in the process

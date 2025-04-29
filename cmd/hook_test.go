@@ -3,138 +3,155 @@ package cmd
 import (
 	"bytes"
 	"fmt"
-	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config"
 	ctrl "github.com/windsorcli/cli/pkg/controller"
-	"github.com/windsorcli/cli/pkg/di"
 	"github.com/windsorcli/cli/pkg/shell"
 )
 
-func setupSafeHookCmdMocks() *MockObjects {
-	injector := di.NewInjector()
-	mockController := ctrl.NewMockController(injector)
-
-	// Set up controller mock functions
-	mockController.InitializeFunc = func() error { return nil }
-	mockController.CreateCommonComponentsFunc = func() error { return nil }
-	mockController.InitializeComponentsFunc = func() error { return nil }
-
-	// Initialize the controller
-	if err := mockController.Initialize(); err != nil {
-		panic(fmt.Sprintf("Failed to initialize controller: %v", err))
-	}
-
-	// Setup mock config handler
-	mockConfigHandler := config.NewMockConfigHandler()
-	mockConfigHandler.GetContextFunc = func() string {
-		return "test-context"
-	}
-	mockConfigHandler.IsLoadedFunc = func() bool { return true }
-	injector.Register("configHandler", mockConfigHandler)
-
-	mockShell := shell.NewMockShell()
-	mockShell.InstallHookFunc = func(shellName string) error {
-		if shellName == "" {
-			return fmt.Errorf("No shell name provided")
-		}
-		return nil
-	}
-
-	mockController.ResolveConfigHandlerFunc = func() config.ConfigHandler {
-		return mockConfigHandler
-	}
-
-	mockController.ResolveShellFunc = func() shell.Shell {
-		return mockShell
-	}
-
-	return &MockObjects{
-		Controller: mockController,
-		Shell:      mockShell,
-	}
-}
-
 func TestHookCmd(t *testing.T) {
-	originalExitFunc := exitFunc
-	exitFunc = mockExit
-	t.Cleanup(func() {
-		exitFunc = originalExitFunc
-	})
+	setup := func(t *testing.T, opts ...*SetupOptions) (*Mocks, *bytes.Buffer, *bytes.Buffer) {
+		t.Helper()
+		mocks := setupMocks(t, opts...)
+		stdout, stderr := captureOutput(t)
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(stderr)
+		return mocks, stdout, stderr
+	}
 
 	t.Run("Success", func(t *testing.T) {
-		defer resetRootCmd()
+		// Given a set of mocks with proper configuration
+		mocks, _, stderr := setup(t)
 
-		// Setup mock controller
-		mocks := setupSafeHookCmdMocks()
+		// Mock the shell methods
+		mockShell := shell.NewMockShell()
+		mockShell.InstallHookFunc = func(shellName string) error {
+			return nil
+		}
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
 
-		// Capture stdout using captureStdout
-		output := captureStdout(func() {
-			rootCmd.SetArgs([]string{"hook", "bash"})
-			err := Execute(mocks.Controller)
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-		})
+		rootCmd.SetArgs([]string{"hook", "zsh"})
 
-		// Then the output should be empty as InstallHook does not return output
-		expectedOutput := ""
-		if output != expectedOutput {
-			t.Errorf("Expected output to be %q, got %q", expectedOutput, output)
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
 		}
 	})
 
-	t.Run("NoShellNameProvided", func(t *testing.T) {
-		defer resetRootCmd()
+	t.Run("NoShellName", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks, _, _ := setup(t)
 
-		// Setup mock controller
-		mocks := setupSafeHookCmdMocks()
-
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
 		rootCmd.SetArgs([]string{"hook"})
+
+		// When executing the command without shell name
 		err := Execute(mocks.Controller)
+
+		// Then an error should occur
 		if err == nil {
-			t.Fatalf("Expected error, got nil")
+			t.Error("Expected error, got nil")
 		}
 
-		output := buf.String()
-
-		// Verify output
-		expectedOutput := "No shell name provided"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+		// And error should contain usage message
+		expectedError := "No shell name provided"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
-	t.Run("ErrorInstallingHook", func(t *testing.T) {
-		defer resetRootCmd()
+	t.Run("UnsupportedShell", func(t *testing.T) {
+		// Given a set of mocks with proper configuration
+		mocks, _, _ := setup(t)
 
-		// Setup mock controller
-		mocks := setupSafeHookCmdMocks()
-		mocks.Shell.InstallHookFunc = func(shellName string) error {
-			return fmt.Errorf("hook installation error")
+		// Mock the shell methods to return unsupported shell error
+		mockShell := shell.NewMockShell()
+		mockShell.InstallHookFunc = func(shellName string) error {
+			return fmt.Errorf("Unsupported shell: %s", shellName)
+		}
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mockShell
 		}
 
-		// Capture stderr
-		var buf bytes.Buffer
-		rootCmd.SetErr(&buf)
+		rootCmd.SetArgs([]string{"hook", "unsupported"})
 
-		// When the hook command is executed
-		rootCmd.SetArgs([]string{"hook", "bash"})
+		// When executing the command with unsupported shell
 		err := Execute(mocks.Controller)
+
+		// Then an error should occur
 		if err == nil {
-			t.Fatalf("Expected error, got nil")
+			t.Error("Expected error, got nil")
 		}
 
-		output := buf.String()
+		// And error should contain unsupported shell message
+		expectedError := "Unsupported shell: unsupported"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
 
-		// Then the output should indicate the error
-		expectedOutput := "hook installation error"
-		if !strings.Contains(output, expectedOutput) {
-			t.Errorf("Expected output to contain %q, got %q", expectedOutput, output)
+	t.Run("InitializationError", func(t *testing.T) {
+		// Given a set of mocks with initialization error
+		mocks, _, _ := setup(t)
+
+		// Mock controller to return initialization error
+		mocks.Controller.InitializeWithRequirementsFunc = func(req ctrl.Requirements) error {
+			return fmt.Errorf("initialization failed")
+		}
+
+		rootCmd.SetArgs([]string{"hook", "zsh"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain initialization message
+		expectedError := "Error initializing: initialization failed"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("InstallHookError", func(t *testing.T) {
+		// Given a set of mocks with install hook error
+		mocks, _, _ := setup(t)
+
+		// Mock the shell methods to return error
+		mockShell := shell.NewMockShell()
+		mockShell.InstallHookFunc = func(shellName string) error {
+			return fmt.Errorf("hook installation failed")
+		}
+		mocks.Controller.ResolveShellFunc = func() shell.Shell {
+			return mockShell
+		}
+
+		rootCmd.SetArgs([]string{"hook", "zsh"})
+
+		// When executing the command
+		err := Execute(mocks.Controller)
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+
+		// And error should contain install hook message
+		expectedError := "hook installation failed"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 }

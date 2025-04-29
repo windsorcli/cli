@@ -21,6 +21,7 @@ Must follow Windsor CLI style guidelines in STYLE.md:
    - Must show proposed test case before implementation
    - Must get approval for each test case before coding
    - Must run and verify each test before proceeding
+   - Must not use table-driven or matrix-based tests
 
 3. SOURCE CODE RULES
    - Must not modify source code during test routines
