@@ -1,0 +1,19 @@
+name: 'Dispatch Build Artifacts'
+
+on:
+  repository_dispatch:
+    types: [dispatch-build-artifacts]
+
+permissions:
+  contents: read
+
+jobs:
+  build-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build Artifacts
+        uses: ./.github/workflows/build-artifacts
+        with:
+          repo_owner: ${{ github.event.client_payload.repo_owner }}
+          repo_name: ${{ github.event.client_payload.repo_name }}
+          release: ${{ github.event.client_payload.release }}
