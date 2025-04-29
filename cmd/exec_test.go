@@ -404,7 +404,7 @@ contexts:
 		}
 
 		// And error should contain setenv error message
-		expectedError := "Error setting environment variable TEST_VAR: setenv failed"
+		expectedError := "Error setting environment variable \"TEST_VAR\": setenv failed"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}

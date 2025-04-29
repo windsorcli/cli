@@ -66,7 +66,7 @@ var execCmd = &cobra.Command{
 		// Set environment variables for the command
 		for k, v := range envVars {
 			if err := shims.Setenv(k, v); err != nil {
-				return fmt.Errorf("Error setting environment variable %s: %w", k, err)
+				return fmt.Errorf("Error setting environment variable %q: %w", k, err)
 			}
 		}
 

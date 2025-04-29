@@ -73,8 +73,12 @@ var upCmd = &cobra.Command{
 			}
 		}
 
+		// Resolve the config handler
+		configHandler := controller.ResolveConfigHandler()
+
 		// If the virtualization driver is 'colima', start the virtual machine and configure networking.
-		if vmDriver == "colima" {
+		vmDriverConfig := configHandler.GetString("vm.driver")
+		if vmDriverConfig == "colima" {
 			virtualMachine := controller.ResolveVirtualMachine()
 			if virtualMachine == nil {
 				return fmt.Errorf("No virtual machine found")
@@ -83,8 +87,6 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("Error running virtual machine Up command: %w", err)
 			}
 		}
-
-		configHandler := controller.ResolveConfigHandler()
 
 		// If the container runtime is enabled in the configuration, start it.
 		containerRuntimeEnabled := configHandler.GetBool("docker.enabled")
@@ -100,13 +102,13 @@ var upCmd = &cobra.Command{
 
 		// Resolve the network manager
 		networkManager := controller.ResolveNetworkManager()
-		if networkManager == nil && vmDriver != "" {
+		if networkManager == nil {
 			return fmt.Errorf("No network manager found")
 		}
 
 		if networkManager != nil {
 			// Configure networking for the virtual machine
-			if vmDriver == "colima" {
+			if vmDriverConfig == "colima" {
 				if err := networkManager.ConfigureGuest(); err != nil {
 					return fmt.Errorf("Error configuring guest network: %w", err)
 				}

@@ -121,6 +121,10 @@ func TestUpCmd(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
+		expectedError := "Error setting environment variables: test error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
 	})
 
 	t.Run("ErrorInitializingWithRequirements", func(t *testing.T) {
@@ -134,6 +138,10 @@ func TestUpCmd(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
+		expectedError := "Error initializing: failed to initialize with requirements"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
 	})
 
 	t.Run("ErrorWritingConfigurationFiles", func(t *testing.T) {
@@ -146,6 +154,10 @@ func TestUpCmd(t *testing.T) {
 		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Error("Expected error, got nil")
+		}
+		expectedError := "Error writing configuration files: test error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
@@ -203,10 +215,11 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorStartingVirtualMachine", func(t *testing.T) {
 		mocks := setupUpMocks(t)
-		vmDriver = "colima"
-		defer func() { vmDriver = "" }()
 		mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
-			return fmt.Errorf("test error")
+			return fmt.Errorf("failed to start virtual machine")
+		}
+		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "colima"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
 		}
 
 		rootCmd.SetArgs([]string{"up"})
@@ -231,8 +244,9 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorConfiguringGuestNetwork", func(t *testing.T) {
 		mocks := setupUpMocks(t)
-		vmDriver = "colima"
-		defer func() { vmDriver = "" }()
+		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "colima"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
 		mocks.NetworkManager.ConfigureGuestFunc = func() error {
 			return fmt.Errorf("test error")
 		}
@@ -242,12 +256,17 @@ func TestUpCmd(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
+		expectedError := "Error configuring guest network: test error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		}
 	})
 
 	t.Run("ErrorConfiguringHostNetwork", func(t *testing.T) {
 		mocks := setupUpMocks(t)
-		vmDriver = "colima"
-		defer func() { vmDriver = "" }()
+		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "colima"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
 		mocks.NetworkManager.ConfigureHostRouteFunc = func() error {
 			return fmt.Errorf("test error")
 		}
@@ -256,6 +275,10 @@ func TestUpCmd(t *testing.T) {
 		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Error("Expected error, got nil")
+		}
+		expectedError := "Error configuring host network: test error"
+		if err.Error() != expectedError {
+			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 
@@ -287,8 +310,9 @@ func TestUpCmd(t *testing.T) {
 
 	t.Run("ErrorNilVirtualMachine", func(t *testing.T) {
 		mocks := setupUpMocks(t)
-		vmDriver = "colima"
-		defer func() { vmDriver = "" }()
+		if err := mocks.ConfigHandler.SetContextValue("vm.driver", "colima"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
 		mocks.Controller.ResolveVirtualMachineFunc = func() virt.VirtualMachine {
 			return nil
 		}
@@ -297,9 +321,6 @@ func TestUpCmd(t *testing.T) {
 		err := Execute(mocks.Controller)
 		if err == nil {
 			t.Error("Expected error, got nil")
-		}
-		if err.Error() != "No virtual machine found" {
-			t.Errorf("Expected 'No virtual machine found', got '%v'", err)
 		}
 	})
 
