@@ -13,14 +13,25 @@ var installCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
 
-		// Ensure configuration is loaded
-		configHandler := controller.ResolveConfigHandler()
-		if !configHandler.IsLoaded() {
-			return fmt.Errorf("Cannot install blueprint. Please run `windsor init` to set up your project first.")
+		// Initialize with requirements
+		if err := controller.InitializeWithRequirements(ctrl.Requirements{
+			ConfigLoaded: true,
+			Env:          true,
+			Secrets:      true,
+			VM:           true,
+			Containers:   true,
+			Services:     true,
+			Network:      true,
+			Blueprint:    true,
+			Generators:   true,
+			Stack:        true,
+			CommandName:  cmd.Name(),
+			Flags: map[string]bool{
+				"verbose": verbose,
+			},
+		}); err != nil {
+			return fmt.Errorf("Error initializing: %w", err)
 		}
-
-		// Determine if specific virtualization or container runtime actions are required
-		vmDriver := configHandler.GetString("vm.driver")
 
 		// Unlock the SecretProvider
 		secretsProviders := controller.ResolveAllSecretsProviders()
@@ -30,29 +41,6 @@ var installCmd = &cobra.Command{
 					return fmt.Errorf("Error loading secrets: %w", err)
 				}
 			}
-		}
-
-		// Create project components
-		if err := controller.CreateProjectComponents(); err != nil {
-			return fmt.Errorf("Error creating project components: %w", err)
-		}
-
-		// Determine if specific virtualization or container runtime actions are required
-		if vmDriver != "" {
-			// Create service components
-			if err := controller.CreateServiceComponents(); err != nil {
-				return fmt.Errorf("Error creating service components: %w", err)
-			}
-
-			// Create virtualization components
-			if err := controller.CreateVirtualizationComponents(); err != nil {
-				return fmt.Errorf("Error creating virtualization components: %w", err)
-			}
-		}
-
-		// Initialize all components
-		if err := controller.InitializeComponents(); err != nil {
-			return fmt.Errorf("Error initializing components: %w", err)
 		}
 
 		// Set the environment variables internally in the process

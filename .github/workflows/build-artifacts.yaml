@@ -21,6 +21,7 @@ on:
         default: ''
 permissions:
   contents: write
+  
 jobs:
   build-artifacts:
     strategy:
@@ -226,13 +227,6 @@ jobs:
         with:
           repository: ${{ inputs.repo_owner }}/${{ inputs.repo_name }}
           token: ${{ inputs.token != '' && inputs.token || secrets.WINDSORCLI_RELEASE_TOKEN }}
-
-      - name: Print out the inputs
-        run: |
-          echo "Debugging inputs:"
-          echo "Repo Owner: ${{ inputs.repo_owner }}"
-          echo "Repo Name: ${{ inputs.repo_name }}"
-          echo "Release: ${{ inputs.release }}"
 
       - name: Install Aqua on Linux/macOS
         if: runner.os != 'windows-latest'
