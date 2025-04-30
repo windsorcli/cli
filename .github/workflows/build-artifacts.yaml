@@ -383,24 +383,20 @@ jobs:
       - name: Install GPG
         run: sudo apt-get update && sudo apt-get install -y gnupg
 
-      # - name: Import GPG key
-      #   id: import_gpg
-      #   uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec # v6.3.0
-      #   with:
-      #     gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-      #     passphrase: ${{ secrets.GPG_PASSPHRASE }}
+      - name: Import GPG key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec # v6.3.0
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
-      # - name: Report GoReleaser Was about to run
-      #   run: |
-      #     echo "SUCCESS: GoRelease was about to run"
-
-      # - name: Run GoReleaser
-      #   uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0
-      #   with:
-      #     version: "~> v2"
-      #     args: release --clean
-      #   env:
-      #     GITHUB_TOKEN: ${{ inputs.token != '' && inputs.token || secrets.WINDSORCLI_RELEASE_TOKEN }}
-      #     GPG_FINGERPRINT: ${{ env.GPG_FINGERPRINT }}
-      #     HOMEBREW_CLI_WRITE_PAT: ${{ secrets.HOMEBREW_CLI_WRITE_PAT }}
-      #     GITHUB_SHA: ${{ github.sha }}
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ inputs.token != '' && inputs.token || secrets.WINDSORCLI_RELEASE_TOKEN }}
+          GPG_FINGERPRINT: ${{ env.GPG_FINGERPRINT }}
+          HOMEBREW_CLI_WRITE_PAT: ${{ secrets.HOMEBREW_CLI_WRITE_PAT }}
+          GITHUB_SHA: ${{ github.sha }}

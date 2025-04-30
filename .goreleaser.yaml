@@ -43,8 +43,8 @@ release:
   github:
     owner: windsorcli
     name: cli
-  draft: true
-  prerelease: true
+  draft: false
+  prerelease: false
 
 binary_signs:
   - cmd: gpg
