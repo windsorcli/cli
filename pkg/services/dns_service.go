@@ -119,7 +119,6 @@ func (s *DNSService) WriteConfig() error {
 	}
 
 	tld := s.configHandler.GetString("dns.domain", "test")
-	networkCIDR := s.configHandler.GetString("network.cidr_block")
 
 	var (
 		hostEntries              string
@@ -199,9 +198,7 @@ func (s *DNSService) WriteConfig() error {
 
 	var corefileContent string
 	if s.isLocalhostMode() {
-		internalView := fmt.Sprintf("    view internal {\n        expr incidr(client_ip(), '%s')\n    }\n", networkCIDR)
-		corefileContent = fmt.Sprintf(serverBlockTemplate, tld, internalView, hostEntries, wildcardEntries, forwardAddressesStr)
-		corefileContent += fmt.Sprintf(serverBlockTemplate, tld, "", localhostHostEntries, localhostWildcardEntries, forwardAddressesStr)
+		corefileContent = fmt.Sprintf(serverBlockTemplate, tld, "", localhostHostEntries, localhostWildcardEntries, forwardAddressesStr)
 	} else {
 		corefileContent = fmt.Sprintf(serverBlockTemplate, tld, "", hostEntries, wildcardEntries, forwardAddressesStr)
 	}

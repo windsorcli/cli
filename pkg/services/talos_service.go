@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -78,7 +77,6 @@ func (s *TalosService) SetAddress(address string) error {
 		return err
 	}
 
-	tld := s.configHandler.GetString("dns.domain", "test")
 	nodeType := "workers"
 	if s.mode == "controlplane" {
 		nodeType = "controlplanes"
@@ -102,7 +100,12 @@ func (s *TalosService) SetAddress(address string) error {
 		nextAPIPort++
 	}
 
-	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, s.name), fmt.Sprintf("%s.%s:%d", s.name, tld, port)); err != nil {
+	endpointAddress := address
+	if s.isLocalhostMode() {
+		endpointAddress = "127.0.0.1"
+	}
+
+	if err := s.configHandler.SetContextValue(fmt.Sprintf("cluster.%s.nodes.%s.endpoint", nodeType, s.name), fmt.Sprintf("%s:%d", endpointAddress, port)); err != nil {
 		return err
 	}
 
@@ -287,19 +290,6 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	}
 
 	serviceConfig.Ports = ports
-
-	dnsAddress := s.configHandler.GetString("dns.address")
-	if dnsAddress != "" {
-		if serviceConfig.DNS == nil {
-			serviceConfig.DNS = []string{}
-		}
-
-		dnsExists := slices.Contains(serviceConfig.DNS, dnsAddress)
-
-		if !dnsExists {
-			serviceConfig.DNS = append(serviceConfig.DNS, dnsAddress)
-		}
-	}
 
 	volumesMap := map[string]types.VolumeConfig{
 		strings.ReplaceAll(nodeName+"_system_state", "-", "_"):           {},
