@@ -43,8 +43,6 @@ jobs:
           AQUA_DISABLE_COSIGN: true
           AQUA_DISABLE_SLSA: true
           AQUA_LOG_LEVEL: debug
-        env:
-          GITHUB_TOKEN: ${{ inputs.token != '' && inputs.token || secrets.WINDSORCLI_RELEASE_TOKEN }}  
           
       - name: Checkout target repository code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -111,8 +109,6 @@ jobs:
           AQUA_DISABLE_COSIGN: true
           AQUA_DISABLE_SLSA: true
           AQUA_LOG_LEVEL: debug
-        env:
-          GITHUB_TOKEN: ${{ inputs.token != '' && inputs.token || secrets.WINDSORCLI_RELEASE_TOKEN }}  
   
       - name: Cache Go Modules
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
